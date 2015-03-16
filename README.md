@@ -6,8 +6,8 @@ To get started, do the following from different terminals:
 
 ```
 > etcd --data-dir=data/etcd
-> run.py postgresql0.yml
-> run.py postgresql1.yml
+> ./run.py postgres0.yml
+> ./run.py postgres1.yml
 ```
 
 From there, you will see a high-availability cluster start up. Test
@@ -20,6 +20,10 @@ To get a haproxy load balancing between these two hosts, run:
 > haproxy -f haproxy.cfg
 > sh haproxy_status.sh 127.0.0.1 5432 15432
 > sh haproxy_status.sh 127.0.0.1 5433 15433
+```
+
+```
+> psql --host 127.0.0.1 --port 5000 postgres
 ```
 
 # Requirements on a Mac
