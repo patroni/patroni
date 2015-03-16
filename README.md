@@ -23,8 +23,8 @@ pip install psycopg2 pyyaml
 
 # Notice
 
-There are many different ways to do HA with PostgreSQL, see (the
-docs)[https://wiki.postgresql.org/wiki/Replication,_Clustering,_and_Connection_Pooling] for a complete list.
+There are many different ways to do HA with PostgreSQL, see [the
+docs](https://wiki.postgresql.org/wiki/Replication,_Clustering,_and_Connection_Pooling) for a complete list.
 
 We call this project a "template" because it is far from a one-size fits
 all, or a plug-and-play replication system.  It will have it's own
