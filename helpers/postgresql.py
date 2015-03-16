@@ -75,7 +75,7 @@ class Postgresql:
         return not self.query("SELECT pg_is_in_recovery();").fetchone()[0]
 
     def is_running(self):
-        return os.system("pg_ctl status -D %s" % self.data_dir) == 0
+        return os.system("pg_ctl status -D %s > /dev/null" % self.data_dir) == 0
 
     def start(self):
         command_code = os.system("postgres -D %s %s &" % (self.data_dir, self.server_options()))
@@ -136,7 +136,7 @@ recovery_target_timeline = 'latest'
 
     def follow_the_leader(self, leader_hash):
         leader = urlparse(leader_hash["address"])
-        if os.system("grep 'host=%(hostname)s port=%(port)s' %(data_dir)s/recovery.conf" % {"hostname": leader.hostname, "port": leader.port, "data_dir": self.data_dir}) != 0:
+        if os.system("grep 'host=%(hostname)s port=%(port)s' %(data_dir)s/recovery.conf > /dev/null" % {"hostname": leader.hostname, "port": leader.port, "data_dir": self.data_dir}) != 0:
             self.write_recovery_conf(leader_hash);
             self.restart()
         return True

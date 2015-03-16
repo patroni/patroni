@@ -9,8 +9,6 @@ f = open(sys.argv[1], "r")
 config = yaml.load(f.read())
 f.close()
 
-print config
-
 etcd = Etcd(config["etcd"])
 postgresql = Postgresql(config["postgresql"])
 ha = Ha(postgresql, etcd)
@@ -44,7 +42,7 @@ if postgresql.data_directory_empty():
             leader = etcd.current_leader()
             if leader == None:
                 time.sleep(5)
-                next
+                continue
             if postgresql.sync_from_leader(leader):
                 postgresql.write_recovery_conf(leader)
                 postgresql.start()
