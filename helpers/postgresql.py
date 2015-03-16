@@ -104,7 +104,23 @@ class Postgresql:
 
         return True
 
-    def is_healthiest_node(self):
+    def is_healthiest_node(self, members):
+        for member in members:
+            if member["hostname"] == self.name:
+                continue
+            try:
+                member_conn = psycopg2.connect(member["address"])
+                member_conn.autocommit = True
+                member_cursor = member_conn.cursor()
+                member_cursor.execute("SELECT '%s'::pg_lsn - pg_last_xlog_replay_location() AS bytes;" % self.xlog_position())
+                xlog_diff = member_cursor.fetchone()[0]
+                print [self.name, member["hostname"], xlog_diff]
+                if xlog_diff  < 0:
+                    member_cursor.close()
+                    return False
+                member_cursor.close()
+            except psycopg2.OperationalError:
+                continue
         return True
 
     def replication_slot_name(self):
@@ -150,3 +166,6 @@ recovery_target_timeline = 'latest'
 
     def create_replication_user(self):
         self.query("CREATE USER \"%s\" WITH REPLICATION ENCRYPTED PASSWORD '%s';" % (self.replication["username"], self.replication["password"]))
+
+    def xlog_position(self):
+        return self.query("SELECT pg_last_xlog_replay_location();").fetchone()[0]

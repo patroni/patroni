@@ -33,7 +33,7 @@ class Ha:
         try:
             if self.state_handler.is_healthy():
                 if self.is_unlocked():
-                    if self.state_handler.is_healthiest_node():
+                    if self.state_handler.is_healthiest_node(self.etcd.members()):
                         if self.acquire_lock():
                             if not self.state_handler.is_leader():
                                 self.state_handler.promote()

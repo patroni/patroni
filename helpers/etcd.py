@@ -37,18 +37,26 @@ class Etcd:
     def client_url(self, path):
         return "http://%s/v2/keys/service/%s%s" % (self.host, self.scope, path)
 
-    def xlog_position(member):
-        try:
-            return self.get_client_path("/service/postgresql/xlog-position/%s" % member)["node"]["value"]
-        except urllib2.HTTPError:
-            return None
-
     def current_leader(self):
         try:
             hostname = self.get_client_path("/leader")["node"]["value"]
             address = self.get_client_path("/members/%s" % hostname)["node"]["value"]
 
             return {"hostname": hostname, "address": address}
+        except urllib2.HTTPError as e:
+            if e.code == 404:
+                return None
+            raise helpers.errors.CurrentLeaderError("Etcd is not responding properly")
+
+    def members(self):
+        try:
+            members = []
+
+            r = self.get_client_path("/members?recursive=true")
+            for node in r["node"]["nodes"]:
+                members.append({"hostname": node["key"].split('/')[-1], "address": node["value"]})
+
+            return members
         except urllib2.HTTPError as e:
             if e.code == 404:
                 return None
