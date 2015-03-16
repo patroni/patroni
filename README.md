@@ -1,5 +1,7 @@
 # Template for PostgreSQL HA with etcd
 
+*There’s ways to to high availability with PostgreSQL; here we present a template for you to create your own custom fit high availability solution using etcd and python for maximum accessibility.*
+
 To get started, do the following from different terminals:
 
 ```
