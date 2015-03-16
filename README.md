@@ -14,6 +14,14 @@ From there, you will see a high-availability cluster start up. Test
 different settings in the YAML files to see how behavior changes.  Kill
 some of the different components to see how the system behaves.
 
+To get a haproxy load balancing between these two hosts, run:
+
+```
+> haproxy -f haproxy.cfg
+> sh haproxy_status.sh 127.0.0.1 5432 15432
+> sh haproxy_status.sh 127.0.0.1 5433 15433
+```
+
 # Requirements on a Mac
 
 Run the following on a Mac to install requirements:
