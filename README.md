@@ -28,6 +28,10 @@ To get a haproxy load balancing between these two hosts, run:
 > psql --host 127.0.0.1 --port 5000 postgres
 ```
 
+# How it works?
+
+For a diagram of the high availability decision loop, see the included a PDF: [postgres-ha.pdf](https://github.com/compose/template-etcd-based-postgres-ha/blob/master/postgres-ha.pdf)
+
 # Requirements on a Mac
 
 Run the following on a Mac to install requirements:
