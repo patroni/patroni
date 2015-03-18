@@ -8,13 +8,15 @@ To get started, do the following from different terminals:
 
 ```
 > etcd --data-dir=data/etcd
-> ./run.py postgres0.yml
-> ./run.py postgres1.yml
+> ./governor.py postgres0.yml
+> ./governor.py postgres1.yml
 ```
 
 From there, you will see a high-availability cluster start up. Test
 different settings in the YAML files to see how behavior changes.  Kill
 some of the different components to see how the system behaves.
+
+Add more `postgres*.yml` files to create an even larger cluster.
 
 To get a haproxy load balancing between these two hosts, run:
 
