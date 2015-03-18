@@ -1,4 +1,4 @@
-# Template for PostgreSQL HA with etcd
+# Governor: A Template for PostgreSQL HA with etcd
 
 *There are many ways to run high availability with PostgreSQL; here we present a template for you to create your own custom fit high availability solution using etcd and python for maximum accessibility.*
 
