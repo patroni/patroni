@@ -40,7 +40,7 @@ For a diagram of the high availability decision loop, see the included a PDF: [p
 Run the following on a Mac to install requirements:
 
 ```
-brew install postgresql etcd haproxy libyaml
+brew install postgresql etcd haproxy libyaml python
 pip install psycopg2 pyyaml
 ```
 
