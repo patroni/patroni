@@ -78,6 +78,15 @@ class Postgresql:
         return os.system("pg_ctl status -D %s > /dev/null" % self.data_dir) == 0
 
     def start(self):
+        if self.is_running():
+            print "Cannot start PostgreSQL because one is already running."
+            return false
+
+        pid_path = "%s/postmaster.pid" % self.data_dir
+        if os.path.exists(pid_path):
+            os.remove(pid_path)
+            print "Removed %s" % pid_path
+
         command_code = os.system("postgres -D %s %s &" % (self.data_dir, self.server_options()))
         time.sleep(5)
         return command_code != 0
