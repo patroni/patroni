@@ -73,6 +73,9 @@ class Ha:
                             self.state_handler.follow_the_leader(self.fetch_current_leader())
                             return "no action.  i am a secondary and i am following a leader"
             else:
+                if not self.state_handler.is_running():
+                    self.state_handler.start()
+                    return "postgresql was stopped.  starting again."
                 return "no action.  not healthy enough to do anything."
         except helpers.errors.CurrentLeaderError:
             print "failed to fetch current leader from etcd"
