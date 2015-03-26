@@ -17,7 +17,7 @@ class Postgresql:
         self.conn = None
 
     def cursor(self):
-        if self.cursor_holder == None:
+        if not self.cursor_holder:
             self.conn = psycopg2.connect("postgres://%s:%s/postgres" % (self.host, self.port))
             self.conn.autocommit = True
             self.cursor_holder = self.conn.cursor()
@@ -37,7 +37,7 @@ class Postgresql:
                 self.cursor().execute(sql)
                 break
             except psycopg2.OperationalError as e:
-                if self.conn != None:
+                if self.conn:
                     self.disconnect()
                 self.cursor_holder = None
                 if max_attempts > 4:
@@ -67,7 +67,6 @@ class Postgresql:
 
         os.system("chmod 600 pgpass")
 
-
         return os.system("PGPASSFILE=pgpass pg_basebackup -R -D %(data_dir)s --host=%(host)s --port=%(port)s -U %(username)s" %
                 {"data_dir": self.data_dir, "host": leader.hostname, "port": leader.port, "username": leader.username}) == 0
 
@@ -80,7 +79,7 @@ class Postgresql:
     def start(self):
         if self.is_running():
             print "Cannot start PostgreSQL because one is already running."
-            return false
+            return False
 
         pid_path = "%s/postmaster.pid" % self.data_dir
         if os.path.exists(pid_path):
@@ -124,7 +123,7 @@ class Postgresql:
                 member_cursor.execute("SELECT '%s'::pg_lsn - pg_last_xlog_replay_location() AS bytes;" % self.xlog_position())
                 xlog_diff = member_cursor.fetchone()[0]
                 print [self.name, member["hostname"], xlog_diff]
-                if xlog_diff  < 0:
+                if xlog_diff < 0:
                     member_cursor.close()
                     return False
                 member_cursor.close()
@@ -142,7 +141,6 @@ class Postgresql:
         f.write("host replication %(username)s %(network)s md5" %
                 {"username": self.replication["username"], "network": self.replication["network"]})
         f.close()
-
 
     def write_recovery_conf(self, leader_hash):
         leader = urlparse(leader_hash["address"])
@@ -162,7 +160,7 @@ recovery_target_timeline = 'latest'
     def follow_the_leader(self, leader_hash):
         leader = urlparse(leader_hash["address"])
         if os.system("grep 'host=%(hostname)s port=%(port)s' %(data_dir)s/recovery.conf > /dev/null" % {"hostname": leader.hostname, "port": leader.port, "data_dir": self.data_dir}) != 0:
-            self.write_recovery_conf(leader_hash);
+            self.write_recovery_conf(leader_hash)
             self.restart()
         return True
 

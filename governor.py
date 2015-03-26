@@ -40,7 +40,7 @@ if postgresql.data_directory_empty():
         synced_from_leader = False
         while not synced_from_leader:
             leader = etcd.current_leader()
-            if leader == None:
+            if not leader:
                 time.sleep(5)
                 continue
             if postgresql.sync_from_leader(leader):

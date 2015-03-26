@@ -8,7 +8,7 @@ class Etcd:
         self.host = config["host"]
         self.ttl = config["ttl"]
 
-    def get_client_path(self, path, max_attempts = 1):
+    def get_client_path(self, path, max_attempts=1):
         attempts = 0
         response = None
 
@@ -101,7 +101,6 @@ class Etcd:
            return reponse["node"]["value"] == value
         #except Exception as e:
             #return False
-
 
     def race(self, path, value):
         try:
