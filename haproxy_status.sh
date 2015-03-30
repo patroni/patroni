@@ -2,7 +2,7 @@
 
 while true
 do {
-        response=$(echo "SELECT pg_is_in_recovery();" | psql -t postgres --port $2 --host $1 2> /dev/null)
+        response=$(echo "SELECT pg_is_in_recovery();" | psql -t postgres --port $2 --host $1 2> /dev/null | tr -d "\n")
 
         if [ "${response}" == " f" ]
         then
