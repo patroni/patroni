@@ -1,6 +1,9 @@
 import urllib2, json, os, time
+import logging
 from urllib import urlencode
 import helpers.errors
+
+logger = logging.getLogger(__name__)
 
 class Etcd:
     def __init__(self, config):
@@ -19,7 +22,7 @@ class Etcd:
             except (urllib2.HTTPError, urllib2.URLError) as e:
                 attempts += 1
                 if attempts < max_attempts:
-                    print "Failed to return %s, trying again. (%s of %s)" % (path, attempts, max_attempts)
+                    logger.info("Failed to return %s, trying again. (%s of %s)" % (path, attempts, max_attempts))
                     time.sleep(3)
                 else:
                     raise e
@@ -73,14 +76,14 @@ class Etcd:
             return self.put_client_path("/leader", {"value": value, "ttl": self.ttl, "prevExist": False}) == None
         except urllib2.HTTPError as e:
             if e.code == 412:
-                print("Could not take out TTL lock: %s" % e)
+                logger.info("Could not take out TTL lock: %s" % e)
             return False
 
     def update_leader(self, value):
         try:
             self.put_client_path("/leader", {"value": value, "ttl": self.ttl, "prevValue": value})
         except urllib2.HTTPError:
-            print "Error updating TTL on ETCD for primary."
+            logger.error("Error updating TTL on ETCD for primary.")
             return False
 
     def leader_unlocked(self):
@@ -97,7 +100,7 @@ class Etcd:
     def am_i_leader(self, value):
         #try:
            reponse = self.get_client_path("/leader")
-           print "Lock owner: %s; I am %s" % (reponse["node"]["value"], value)
+           logger.info("Lock owner: %s; I am %s" % (reponse["node"]["value"], value))
            return reponse["node"]["value"] == value
         #except Exception as e:
             #return False

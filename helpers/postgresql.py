@@ -1,5 +1,11 @@
 import os, psycopg2, re, time
+import logging
+
 from urlparse import urlparse
+
+
+logger = logging.getLogger(__name__)
+
 
 class Postgresql:
 
@@ -28,7 +34,7 @@ class Postgresql:
         try:
             self.conn.close()
         except Exception as e:
-            print "Error disconnecting: %s" % e
+            logger.error("Error disconnecting: %s" % e)
 
     def query(self, sql):
         max_attempts = 0
@@ -78,13 +84,13 @@ class Postgresql:
 
     def start(self):
         if self.is_running():
-            print "Cannot start PostgreSQL because one is already running."
+            logger.error("Cannot start PostgreSQL because one is already running.")
             return False
 
         pid_path = "%s/postmaster.pid" % self.data_dir
         if os.path.exists(pid_path):
             os.remove(pid_path)
-            print "Removed %s" % pid_path
+            logger.info("Removed %s" % pid_path)
 
         command_code = os.system("postgres -D %s %s &" % (self.data_dir, self.server_options()))
         time.sleep(5)
@@ -107,7 +113,7 @@ class Postgresql:
 
     def is_healthy(self):
         if not self.is_running():
-            print "Postgresql is not running."
+            logger.warning("Postgresql is not running.")
             return False
 
         return True
@@ -122,7 +128,7 @@ class Postgresql:
                 member_cursor = member_conn.cursor()
                 member_cursor.execute("SELECT '%s'::pg_lsn - pg_last_xlog_replay_location() AS bytes;" % self.xlog_position())
                 xlog_diff = member_cursor.fetchone()[0]
-                print [self.name, member["hostname"], xlog_diff]
+                logger.info([self.name, member["hostname"], xlog_diff])
                 if xlog_diff < 0:
                     member_cursor.close()
                     return False

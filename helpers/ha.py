@@ -1,9 +1,13 @@
 import sys, time, re, urllib2, json, psycopg2
+import logging
 from base64 import b64decode
 
 import helpers.errors
 
 import inspect
+
+logger = logging.getLogger(__name__)
+
 
 def lineno():
     """Returns the current line number in our program."""
@@ -65,7 +69,7 @@ class Ha:
                         else:
                             return "no action.  i am the leader with the lock"
                     else:
-                        print "does not have lock"
+                        logger.info("does not have lock")
                         if self.state_handler.is_leader():
                             self.state_handler.demote(self.fetch_current_leader())
                             return "demoting self because i do not have the lock and i was a leader"
@@ -78,11 +82,11 @@ class Ha:
                     return "postgresql was stopped.  starting again."
                 return "no action.  not healthy enough to do anything."
         except helpers.errors.CurrentLeaderError:
-            print "failed to fetch current leader from etcd"
+            logger.error("failed to fetch current leader from etcd")
         except psycopg2.OperationalError:
-            print "Error communicating with Postgresql.  Will try again."
+            logger.error("Error communicating with Postgresql.  Will try again.")
         except helpers.errors.HealthiestMemberError:
-            print "failed to determine healthiest member fromt etcd"
+            logger.error("failed to determine healthiest member fromt etcd")
 
     def run(self):
         while True:
