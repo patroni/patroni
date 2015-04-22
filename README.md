@@ -19,7 +19,7 @@ some of the different components to see how the system behaves.
 
 Add more `postgres*.yml` files to create an even larger cluster.
 
-To get a haproxy load balancing between these two hosts, run:
+We provide a haproxy configuration, which will give your application a single endpoint for connecting to the cluster's leader.  To configure, run:
 
 ```
 > haproxy -f haproxy.cfg
