@@ -146,6 +146,8 @@ class Postgresql:
         f = open("%s/pg_hba.conf" % self.data_dir, "a")
         f.write("host replication %(username)s %(network)s md5" %
                 {"username": self.replication["username"], "network": self.replication["network"]})
+        # allow TCP connections from the host's own address
+        f.write("\nhost postgres postgres %(network)s/32 trust\n" % {"network": self.host})
         f.close()
 
     def write_recovery_conf(self, leader_hash):
