@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 class Postgresql:
 
-    def __init__(self, config):
+    def __init__(self, config, aws_host_address=None):
         self.name = config["name"]
         self.host, self.port = config["listen"].split(":")
         self.data_dir = config["data_dir"]
@@ -18,7 +18,8 @@ class Postgresql:
         self.config = config
 
         self.cursor_holder = None
-        self.connection_string = "postgres://%s:%s@%s:%s/postgres" % (self.replication["username"], self.replication["password"], self.host, self.port)
+        connection_host = aws_host_address or self.host
+        self.connection_string = "postgres://%s:%s@%s:%s/postgres" % (self.replication["username"], self.replication["password"], connection_host, self.port)
 
         self.conn = None
 

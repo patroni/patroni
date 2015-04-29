@@ -1,4 +1,5 @@
 loop_wait: 10
+aws_use_host_address: "on"
 etcd:
   scope: batman
   ttl: 30

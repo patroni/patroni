@@ -7,6 +7,7 @@ from helpers.etcd import Etcd
 from helpers.postgresql import Postgresql
 from helpers.ha import Ha
 
+INSTANCE_METADATA_URL = "http://169.254.169.254/latest/meta-data/"
 
 logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
 
@@ -14,8 +15,19 @@ f = open(sys.argv[1], "r")
 config = yaml.load(f.read())
 f.close()
 
+if config.get('aws_use_host_address', False):
+    # get host address of the AWS host via a call to
+    # http://169.254.169.254/latest/meta-data/local-ipv4
+    try:
+        aws_host_address = urllib2.urlopen(INSTANCE_METADATA_URL+"/local-ipv4").read()
+    except (urllib2.HTTPError, urllib2.URLError) as e:
+        logging.error("Error retrieiving IPv4 address from AWS instance: {0}".format(e))
+        aws_host_address = None
+else:
+    aws_host_address = None
+
 etcd = Etcd(config["etcd"])
-postgresql = Postgresql(config["postgresql"])
+postgresql = Postgresql(config["postgresql"], aws_host_address)
 ha = Ha(postgresql, etcd)
 
 # stop postgresql on script exit
