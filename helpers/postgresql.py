@@ -14,6 +14,8 @@ class Postgresql:
         self.host, self.port = config["listen"].split(":")
         self.data_dir = config["data_dir"]
         self.replication = config["replication"]
+        self.superuser = config.get('superuser')
+        self.admin_user = config.get('admin')
 
         self.config = config
 
@@ -148,7 +150,9 @@ class Postgresql:
         f.write("host replication %(username)s %(network)s md5" %
                 {"username": self.replication["username"], "network": self.replication["network"]})
         # allow TCP connections from the host's own address
-        f.write("\nhost postgres postgres samehost trust\n" % {"network": self.host})
+        f.write("\nhost postgres postgres samehost trust\n")
+        # allow TCP connections from the rest of the world with a password
+        f.write("\nhost postgres postgres 0.0.0.0/0 md5\n")
         f.close()
 
     def write_recovery_conf(self, leader_hash):
@@ -182,6 +186,15 @@ recovery_target_timeline = 'latest'
 
     def create_replication_user(self):
         self.query("CREATE USER \"%s\" WITH REPLICATION ENCRYPTED PASSWORD '%s';" % (self.replication["username"], self.replication["password"]))
+
+    def create_connection_users(self):
+        if self.superuser:
+            if 'username' in self.superuser:
+                self.query("CREATE ROLE \"%s\" LOGIN SUPERUSER WITH PASSWORD '%s';".format(self.superuser["username"], self.superuser["password"]))
+            else:
+                self.query("ALTER ROLE postgres WITH PASSWORD '{0}'".format(self.superuser['password']))
+        if self.admin:
+            self.query("CREATE ROLE \"%s\" LOGIN CREATEDB CREATEROLE WITH PASSWORD '%s';".format(self.admin["username"], self.admin["password"]))
 
     def xlog_position(self):
         return self.query("SELECT pg_last_xlog_replay_location();").fetchone()[0]

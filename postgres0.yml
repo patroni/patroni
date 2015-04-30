@@ -12,6 +12,11 @@ postgresql:
     username: replicator
     password: rep-pass
     network:  127.0.0.1/32
+  superuser:
+    password: zalando
+  admin:
+    username: admin
+    password: admin
   #recovery_conf:
     #restore_command: cp ../wal_archive/%f %p
   parameters:
