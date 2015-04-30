@@ -152,7 +152,7 @@ class Postgresql:
         # allow TCP connections from the host's own address
         f.write("\nhost postgres postgres samehost trust\n")
         # allow TCP connections from the rest of the world with a password
-        f.write("\nhost postgres postgres 0.0.0.0/0 md5\n")
+        f.write("\nhost all all 0.0.0.0/0 md5\n")
         f.close()
 
     def write_recovery_conf(self, leader_hash):
