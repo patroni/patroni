@@ -190,11 +190,11 @@ recovery_target_timeline = 'latest'
     def create_connection_users(self):
         if self.superuser:
             if 'username' in self.superuser:
-                self.query("CREATE ROLE \"%s\" LOGIN SUPERUSER WITH PASSWORD '%s';".format(self.superuser["username"], self.superuser["password"]))
+                self.query("CREATE ROLE \"{0}\" LOGIN SUPERUSER PASSWORD '{1}';".format(self.superuser["username"], self.superuser["password"]))
             else:
-                self.query("ALTER ROLE postgres WITH PASSWORD '{0}'".format(self.superuser['password']))
+                self.query("ALTER ROLE postgres PASSWORD '{0}';".format(self.superuser['password']))
         if self.admin:
-            self.query("CREATE ROLE \"%s\" LOGIN CREATEDB CREATEROLE WITH PASSWORD '%s';".format(self.admin["username"], self.admin["password"]))
+            self.query("CREATE ROLE \"{0}\" LOGIN CREATEDB CREATEROLE PASSWORD '{1}';".format(self.admin["username"], self.admin["password"]))
 
     def xlog_position(self):
         return self.query("SELECT pg_last_xlog_replay_location();").fetchone()[0]
