@@ -15,7 +15,7 @@ class Postgresql:
         self.data_dir = config["data_dir"]
         self.replication = config["replication"]
         self.superuser = config.get('superuser')
-        self.admin_user = config.get('admin')
+        self.admin = config.get('admin')
 
         self.config = config
 
