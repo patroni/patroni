@@ -26,6 +26,7 @@ class Postgresql:
         self.data_dir = config['data_dir']
         self.replication = config['replication']
         self.recovery_conf = os.path.join(self.data_dir, 'recovery.conf')
+        self._pg_ctl = 'pg_ctl -w -D ' + self.data_dir
 
         self.config = config
 
@@ -69,7 +70,7 @@ class Postgresql:
         return not os.path.exists(self.data_dir) or os.listdir(self.data_dir) == []
 
     def initialize(self):
-        if os.system('initdb -D ' + self.data_dir) == 0:
+        if os.system(self._pg_ctl + ' initdb') == 0:
             self.write_pg_hba()
 
             return True
@@ -91,7 +92,7 @@ class Postgresql:
         return not self.query('SELECT pg_is_in_recovery()').fetchone()[0]
 
     def is_running(self):
-        return os.system('pg_ctl status -D {} > /dev/null'.format(self.data_dir)) == 0
+        return os.system(self._pg_ctl + ' status > /dev/null') == 0
 
     def start(self):
         if self.is_running():
@@ -103,24 +104,23 @@ class Postgresql:
             os.remove(pid_path)
             logger.info('Removed %s', pid_path)
 
-        command_code = os.system('postgres -D {} {} &'.format(self.data_dir, self.server_options()))
-        time.sleep(5)
-        return command_code != 0
+        print(self._pg_ctl + ' start -o "{}"'.format(self.server_options()))
+        return os.system(self._pg_ctl + ' start -o "{}"'.format(self.server_options())) == 0
 
     def stop(self):
-        return os.system('pg_ctl stop -w -m fast -D ' + self.data_dir) != 0
+        return os.system(self._pg_ctl + ' stop') != 0
 
     def reload(self):
-        return os.system('pg_ctl reload -w -D ' + self.data_dir) == 0
+        return os.system(self._pg_ctl + ' reload') == 0
 
     def restart(self):
-        return os.system('pg_ctl restart -w -m fast -D ' + self.data_dir) == 0
+        return os.system(self._pg_ctl + ' restart -m fast') == 0
 
     def server_options(self):
         host, port = self.config['listen'].split(':')
-        options = '-c listen_addresses={} -c port={}'.format(host, port)
+        options = '--listen_addresses={} --port={}'.format(host, port)
         for setting, value in self.config['parameters'].iteritems():
-            options += ' -c "{}={}"'.format(setting, value)
+            options += " --{}='{}'".format(setting, value)
         return options
 
     def is_healthy(self):
@@ -184,7 +184,7 @@ primary_conninfo = 'user={username} password={password} host={hostname} port={po
         self.restart()
 
     def promote(self):
-        return os.system('pg_ctl promote -w -D ' + self.data_dir) == 0
+        return os.system(self._pg_ctl + ' promote') == 0
 
     def demote(self, leader):
         self.write_recovery_conf(leader)
