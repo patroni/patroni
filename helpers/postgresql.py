@@ -23,7 +23,6 @@ class Postgresql:
 
     def __init__(self, config):
         self.name = config['name']
-        self.host, self.port = config['listen'].split(':')
         self.data_dir = config['data_dir']
         self.replication = config['replication']
 
@@ -81,7 +80,7 @@ class Postgresql:
 
         pgpass = 'pgpass'
         with open(pgpass, 'w') as f:
-            os.fchmod(f.fileno(), 0644)
+            os.fchmod(f.fileno(), 0600)
             f.write('{hostname}:{port}:*:{username}:{password}\n'.format(**r))
 
         return os.system('PGPASSFILE={pgpass} pg_basebackup -R -D {data_dir} --host={hostname} --port={port} -U {username}'.format(
@@ -117,7 +116,8 @@ class Postgresql:
         return os.system('pg_ctl restart -w -m fast -D ' + self.data_dir) == 0
 
     def server_options(self):
-        options = '-c listen_addresses={} -c port={}'.format(self.host, self.port)
+        host, port = self.config['listen'].split(':')
+        options = '-c listen_addresses={} -c port={}'.format(host, port)
         for setting, value in self.config['parameters'].iteritems():
             options += ' -c "{}={}"'.format(setting, value)
         return options
@@ -174,7 +174,7 @@ recovery_target_timeline = 'latest'
     def follow_the_leader(self, leader_hash):
         r = parseurl(leader_hash['address'])
         pattern = 'host={hostname} port={port}'.format(**r)
-        with open(os.path.join(self.data_dir, 'recovery.conf', 'r')) as f:
+        with open(os.path.join(self.data_dir, 'recovery.conf'), 'r') as f:
             for line in f:
                 if pattern in line:
                     return
