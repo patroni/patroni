@@ -1,4 +1,7 @@
-import os, psycopg2, re, time
+import os
+import psycopg2
+import re
+import time
 import logging
 
 from urlparse import urlparse
@@ -18,7 +21,8 @@ class Postgresql:
         self.config = config
 
         self.cursor_holder = None
-        self.connection_string = "postgres://%s:%s@%s:%s/postgres" % (self.replication["username"], self.replication["password"], self.host, self.port)
+        self.connection_string = "postgres://%s:%s@%s:%s/postgres" % (
+            self.replication["username"], self.replication["password"], self.host, self.port)
 
         self.conn = None
 
@@ -74,7 +78,7 @@ class Postgresql:
         os.system("chmod 600 pgpass")
 
         return os.system("PGPASSFILE=pgpass pg_basebackup -R -D %(data_dir)s --host=%(host)s --port=%(port)s -U %(username)s" %
-                {"data_dir": self.data_dir, "host": leader.hostname, "port": leader.port, "username": leader.username}) == 0
+                         {"data_dir": self.data_dir, "host": leader.hostname, "port": leader.port, "username": leader.username}) == 0
 
     def is_leader(self):
         return not self.query("SELECT pg_is_in_recovery();").fetchone()[0]
@@ -126,7 +130,8 @@ class Postgresql:
                 member_conn = psycopg2.connect(member["address"])
                 member_conn.autocommit = True
                 member_cursor = member_conn.cursor()
-                member_cursor.execute("SELECT '%s'::pg_lsn - pg_last_xlog_replay_location() AS bytes;" % self.xlog_position())
+                member_cursor.execute(
+                    "SELECT '%s'::pg_lsn - pg_last_xlog_replay_location() AS bytes;" % self.xlog_position())
                 xlog_diff = member_cursor.fetchone()[0]
                 logger.info([self.name, member["hostname"], xlog_diff])
                 if xlog_diff < 0:
@@ -178,7 +183,8 @@ recovery_target_timeline = 'latest'
         self.restart()
 
     def create_replication_user(self):
-        self.query("CREATE USER \"%s\" WITH REPLICATION ENCRYPTED PASSWORD '%s';" % (self.replication["username"], self.replication["password"]))
+        self.query("CREATE USER \"%s\" WITH REPLICATION ENCRYPTED PASSWORD '%s';" %
+                   (self.replication["username"], self.replication["password"]))
 
     def xlog_position(self):
         return self.query("SELECT pg_last_xlog_replay_location();").fetchone()[0]
