@@ -1,13 +1,22 @@
+import logging
 import os
 import psycopg2
 import re
 import time
-import logging
-
-from urlparse import urlparse
+import urlparse
 
 
 logger = logging.getLogger(__name__)
+
+
+def parseurl(url):
+    r = urlparse.urlparse(url)
+    return {
+        'hostname': r.hostname,
+        'port': r.port,
+        'username': r.username,
+        'password': r.password,
+    }
 
 
 class Postgresql:
@@ -60,7 +69,7 @@ class Postgresql:
         return not os.path.exists(self.data_dir) or os.listdir(self.data_dir) == []
 
     def initialize(self):
-        if os.system("initdb -D %s" % self.data_dir) == 0:
+        if os.system('initdb -D ' + self.data_dir) == 0:
             self.write_pg_hba()
 
             return True
@@ -68,52 +77,49 @@ class Postgresql:
         return False
 
     def sync_from_leader(self, leader):
-        pgpass = "pgpass"
-        leader = urlparse(leader["address"])
+        r = parseurl(leader['address'])
 
-        f = open(pgpass, "w")
-        f.write("%(hostname)s:%(port)s:*:%(username)s:%(password)s\n" %
-                {"hostname": leader.hostname, "port": leader.port, "username": leader.username, "password": leader.password})
-        f.close()
+        pgpass = 'pgpass'
+        with open(pgpass, 'w') as f:
+            os.fchmod(f.fileno(), 0644)
+            f.write('{hostname}:{port}:*:{username}:{password}\n'.format(**r))
 
-        os.chmod(pgpass, 0600)
-
-        return os.system("PGPASSFILE={pgpass} pg_basebackup -R -D {data_dir} --host={hostname} --port={port} -U {username}".format(
-            pgpass=pgpass, data_dir=self.data_dir, hostname=leader.hostname, port=leader.port, username=leader.username)) == 0
+        return os.system('PGPASSFILE={pgpass} pg_basebackup -R -D {data_dir} --host={hostname} --port={port} -U {username}'.format(
+            pgpass=pgpass, data_dir=self.data_dir, **r)) == 0
 
     def is_leader(self):
         return not self.query("SELECT pg_is_in_recovery();").fetchone()[0]
 
     def is_running(self):
-        return os.system("pg_ctl status -D %s > /dev/null" % self.data_dir) == 0
+        return os.system('pg_ctl status -D {} > /dev/null'.format(self.data_dir)) == 0
 
     def start(self):
         if self.is_running():
             logger.error("Cannot start PostgreSQL because one is already running.")
             return False
 
-        pid_path = "%s/postmaster.pid" % self.data_dir
+        pid_path = os.path.join(self.data_dir, 'postmaster.pid')
         if os.path.exists(pid_path):
             os.remove(pid_path)
-            logger.info("Removed %s" % pid_path)
+            logger.info('Removed %s', pid_path)
 
-        command_code = os.system("postgres -D %s %s &" % (self.data_dir, self.server_options()))
+        command_code = os.system('postgres -D {} {} &'.format(self.data_dir, self.server_options()))
         time.sleep(5)
         return command_code != 0
 
     def stop(self):
-        return os.system("pg_ctl stop -w -D %s -m fast -w" % self.data_dir) != 0
+        return os.system('pg_ctl stop -w -m fast -D ' + self.data_dir) != 0
 
     def reload(self):
-        return os.system("pg_ctl reload -w -D %s" % self.data_dir) == 0
+        return os.system('pg_ctl reload -w -D ' + self.data_dir) == 0
 
     def restart(self):
-        return os.system("pg_ctl restart -w -D %s -m fast" % self.data_dir) == 0
+        return os.system('pg_ctl restart -w -m fast -D ' + self.data_dir) == 0
 
     def server_options(self):
-        options = "-c listen_addresses=%s -c port=%s" % (self.host, self.port)
-        for setting, value in self.config["parameters"].iteritems():
-            options += " -c \"%s=%s\"" % (setting, value)
+        options = '-c listen_addresses={} -c port={}'.format(self.host, self.port)
+        for setting, value in self.config['parameters'].iteritems():
+            options += ' -c "{}={}"'.format(setting, value)
         return options
 
     def is_healthy(self):
@@ -132,9 +138,9 @@ class Postgresql:
                 member_conn.autocommit = True
                 member_cursor = member_conn.cursor()
                 member_cursor.execute(
-                    "SELECT '%s'::pg_lsn - pg_last_xlog_replay_location() AS bytes;" % self.xlog_position())
+                    'SELECT %s::pg_lsn - pg_last_xlog_replay_location() AS bytes', (self.xlog_position(), ))
                 xlog_diff = member_cursor.fetchone()[0]
-                logger.info([self.name, member["hostname"], xlog_diff])
+                logger.info([self.name, member['hostname'], xlog_diff])
                 if xlog_diff < 0:
                     member_cursor.close()
                     return False
@@ -149,29 +155,25 @@ class Postgresql:
         return member
 
     def write_pg_hba(self):
-        f = open("%s/pg_hba.conf" % self.data_dir, "a")
-        f.write("host replication %(username)s %(network)s md5" %
-                {"username": self.replication["username"], "network": self.replication["network"]})
-        f.close()
+        with open(os.path.join(self.data_dir, 'pg_hba.conf'), 'a') as f:
+            f.write('host replication {} {} md5'.format(self.replication['username'], self.replication['network']))
 
     def write_recovery_conf(self, leader_hash):
-        leader = urlparse(leader_hash["address"])
+        r = parseurl(leader_hash['address'])
 
-        f = open("%s/recovery.conf" % self.data_dir, "w")
-        f.write("""
+        with open(os.path.join(self.data_dir, 'recovery.conf'), 'w') as f:
+            f.write("""
 standby_mode = 'on'
-primary_slot_name = '%(recovery_slot)s'
-primary_conninfo = 'user=%(user)s password=%(password)s host=%(hostname)s port=%(port)s sslmode=prefer sslcompression=1'
+primary_slot_name = '{recovery_slot}'
+primary_conninfo = 'user={username} password={password} host={hostname} port={port} sslmode=prefer sslcompression=1'
 recovery_target_timeline = 'latest'
-""" % {"recovery_slot": self.name, "user": leader.username, "password": leader.password, "hostname": leader.hostname, "port": leader.port})
-        if "recovery_conf" in self.config:
-            for name, value in self.config["recovery_conf"].iteritems():
-                f.write("%s = '%s'\n" % (name, value))
-        f.close()
+""".format(recovery_slot=self.name, **r))
+            for name, value in self.config.get('recovery_conf', {}).iteritems():
+                f.write("{} = '{}'\n".format(name, value))
 
     def follow_the_leader(self, leader_hash):
-        leader = urlparse(leader_hash["address"])
-        pattern = 'host={hostname} port={port}'.format(hostname=leader.hostname, port=leader.port)
+        r = parseurl(leader_hash['address'])
+        pattern = 'host={hostname} port={port}'.format(**r)
         with open(os.path.join(self.data_dir, 'recovery.conf', 'r')) as f:
             for line in f:
                 if pattern in line:
@@ -180,7 +182,7 @@ recovery_target_timeline = 'latest'
         self.restart()
 
     def promote(self):
-        return os.system("pg_ctl promote -w -D %s" % self.data_dir) == 0
+        return os.system('pg_ctl promote -w -D ' + self.data_dir) == 0
 
     def demote(self, leader):
         self.write_recovery_conf(leader)
@@ -191,4 +193,4 @@ recovery_target_timeline = 'latest'
                    (self.replication["username"], self.replication["password"]))
 
     def xlog_position(self):
-        return self.query("SELECT pg_last_xlog_replay_location();").fetchone()[0]
+        return self.query("SELECT pg_last_xlog_replay_location()").fetchone()[0]
