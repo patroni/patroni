@@ -68,17 +68,18 @@ class Postgresql:
         return False
 
     def sync_from_leader(self, leader):
+        pgpass = "pgpass"
         leader = urlparse(leader["address"])
 
-        f = open("./pgpass", "w")
+        f = open(pgpass, "w")
         f.write("%(hostname)s:%(port)s:*:%(username)s:%(password)s\n" %
                 {"hostname": leader.hostname, "port": leader.port, "username": leader.username, "password": leader.password})
         f.close()
 
-        os.system("chmod 600 pgpass")
+        os.chmod(pgpass, 0600)
 
-        return os.system("PGPASSFILE=pgpass pg_basebackup -R -D %(data_dir)s --host=%(host)s --port=%(port)s -U %(username)s" %
-                         {"data_dir": self.data_dir, "host": leader.hostname, "port": leader.port, "username": leader.username}) == 0
+        return os.system("PGPASSFILE={pgpass} pg_basebackup -R -D {data_dir} --host={hostname} --port={port} -U {username}".format(
+            pgpass=pgpass, data_dir=self.data_dir, hostname=leader.hostname, port=leader.port, username=leader.username)) == 0
 
     def is_leader(self):
         return not self.query("SELECT pg_is_in_recovery();").fetchone()[0]
@@ -170,10 +171,13 @@ recovery_target_timeline = 'latest'
 
     def follow_the_leader(self, leader_hash):
         leader = urlparse(leader_hash["address"])
-        if os.system("grep 'host=%(hostname)s port=%(port)s' %(data_dir)s/recovery.conf > /dev/null" % {"hostname": leader.hostname, "port": leader.port, "data_dir": self.data_dir}) != 0:
-            self.write_recovery_conf(leader_hash)
-            self.restart()
-        return True
+        pattern = 'host={hostname} port={port}'.format(hostname=leader.hostname, port=leader.port)
+        with open(os.path.join(self.data_dir, 'recovery.conf', 'r')) as f:
+            for line in f:
+                if pattern in line:
+                    return
+        self.write_recovery_conf(leader_hash)
+        self.restart()
 
     def promote(self):
         return os.system("pg_ctl promote -w -D %s" % self.data_dir) == 0
