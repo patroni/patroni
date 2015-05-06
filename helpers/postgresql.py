@@ -13,7 +13,7 @@ def parseurl(url):
     r = urlparse.urlparse(url)
     return {
         'hostname': r.hostname,
-        'port': r.port,
+        'port': r.port or 5432,
         'username': r.username,
         'password': r.password,
     }
@@ -22,22 +22,22 @@ def parseurl(url):
 class Postgresql:
 
     def __init__(self, config):
-        self.name = config["name"]
-        self.host, self.port = config["listen"].split(":")
-        self.data_dir = config["data_dir"]
-        self.replication = config["replication"]
+        self.name = config['name']
+        self.host, self.port = config['listen'].split(':')
+        self.data_dir = config['data_dir']
+        self.replication = config['replication']
 
         self.config = config
 
         self.cursor_holder = None
-        self.connection_string = "postgres://%s:%s@%s:%s/postgres" % (
-            self.replication["username"], self.replication["password"], self.host, self.port)
+        self.connection_string = 'postgres://{username}:{password}@{listen}/postgres'.format(
+            listen=self.config['listen'], **self.replication)
 
         self.conn = None
 
     def cursor(self):
         if not self.cursor_holder:
-            self.conn = psycopg2.connect("postgres://%s:%s/postgres" % (self.host, self.port))
+            self.conn = psycopg2.connect('postgres://{}/postgres'.format(self.config['listen']))
             self.conn.autocommit = True
             self.cursor_holder = self.conn.cursor()
 
@@ -46,8 +46,8 @@ class Postgresql:
     def disconnect(self):
         try:
             self.conn.close()
-        except Exception as e:
-            logger.error("Error disconnecting: %s" % e)
+        except:
+            logger.exception('Error disconnecting')
 
     def query(self, sql):
         max_attempts = 0
@@ -88,14 +88,14 @@ class Postgresql:
             pgpass=pgpass, data_dir=self.data_dir, **r)) == 0
 
     def is_leader(self):
-        return not self.query("SELECT pg_is_in_recovery();").fetchone()[0]
+        return not self.query('SELECT pg_is_in_recovery()').fetchone()[0]
 
     def is_running(self):
         return os.system('pg_ctl status -D {} > /dev/null'.format(self.data_dir)) == 0
 
     def start(self):
         if self.is_running():
-            logger.error("Cannot start PostgreSQL because one is already running.")
+            logger.error('Cannot start PostgreSQL because one is already running.')
             return False
 
         pid_path = os.path.join(self.data_dir, 'postmaster.pid')
@@ -124,17 +124,17 @@ class Postgresql:
 
     def is_healthy(self):
         if not self.is_running():
-            logger.warning("Postgresql is not running.")
+            logger.warning('Postgresql is not running.')
             return False
 
         return True
 
     def is_healthiest_node(self, members):
         for member in members:
-            if member["hostname"] == self.name:
+            if member['hostname'] == self.name:
                 continue
             try:
-                member_conn = psycopg2.connect(member["address"])
+                member_conn = psycopg2.connect(member['address'])
                 member_conn.autocommit = True
                 member_cursor = member_conn.cursor()
                 member_cursor.execute(
@@ -156,7 +156,7 @@ class Postgresql:
 
     def write_pg_hba(self):
         with open(os.path.join(self.data_dir, 'pg_hba.conf'), 'a') as f:
-            f.write('host replication {} {} md5'.format(self.replication['username'], self.replication['network']))
+            f.write('host replication {username} {network} md5'.format(**self.replication))
 
     def write_recovery_conf(self, leader_hash):
         r = parseurl(leader_hash['address'])
@@ -190,7 +190,7 @@ recovery_target_timeline = 'latest'
 
     def create_replication_user(self):
         self.query("CREATE USER \"%s\" WITH REPLICATION ENCRYPTED PASSWORD '%s';" %
-                   (self.replication["username"], self.replication["password"]))
+                   (self.replication['username'], self.replication['password']))
 
     def xlog_position(self):
-        return self.query("SELECT pg_last_xlog_replay_location()").fetchone()[0]
+        return self.query('SELECT pg_last_xlog_replay_location()').fetchone()[0]
