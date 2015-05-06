@@ -25,14 +25,15 @@ class Postgresql:
         self.name = config['name']
         self.data_dir = config['data_dir']
         self.replication = config['replication']
+        self.recovery_conf = os.path.join(self.data_dir, 'recovery.conf')
 
         self.config = config
 
-        self.cursor_holder = None
         self.connection_string = 'postgres://{username}:{password}@{listen}/postgres'.format(
             listen=self.config['listen'], **self.replication)
 
         self.conn = None
+        self.cursor_holder = None
 
     def cursor(self):
         if not self.cursor_holder:
@@ -159,22 +160,23 @@ class Postgresql:
             f.write('host replication {username} {network} md5'.format(**self.replication))
 
     def write_recovery_conf(self, leader_hash):
-        r = parseurl(leader_hash['address'])
-
-        with open(os.path.join(self.data_dir, 'recovery.conf'), 'w') as f:
-            f.write("""
-standby_mode = 'on'
+        with open(self.recovery_conf, 'w') as f:
+            f.write("""standby_mode = 'on'
+recovery_target_timeline = 'latest'
+""")
+            if leader_hash and 'address' in leader_hash:
+                r = parseurl(leader_hash['address'])
+                f.write("""
 primary_slot_name = '{recovery_slot}'
 primary_conninfo = 'user={username} password={password} host={hostname} port={port} sslmode=prefer sslcompression=1'
-recovery_target_timeline = 'latest'
 """.format(recovery_slot=self.name, **r))
-            for name, value in self.config.get('recovery_conf', {}).iteritems():
-                f.write("{} = '{}'\n".format(name, value))
+                for name, value in self.config.get('recovery_conf', {}).iteritems():
+                    f.write("{} = '{}'\n".format(name, value))
 
     def follow_the_leader(self, leader_hash):
         r = parseurl(leader_hash['address'])
         pattern = 'host={hostname} port={port}'.format(**r)
-        with open(os.path.join(self.data_dir, 'recovery.conf'), 'r') as f:
+        with open(self.recovery_conf, 'r') as f:
             for line in f:
                 if pattern in line:
                     return
