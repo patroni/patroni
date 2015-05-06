@@ -1,10 +1,9 @@
-import sys, time, re, urllib2, json, psycopg2
-import logging
-from base64 import b64decode
-
-import helpers.errors
-
 import inspect
+import logging
+import time
+
+from helpers.errors import CurrentLeaderError, HealthiestMemberError
+from psycopg2 import OperationalError
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +12,9 @@ def lineno():
     """Returns the current line number in our program."""
     return inspect.currentframe().f_back.f_lineno
 
+
 class Ha:
+
     def __init__(self, state_handler, etcd):
         self.state_handler = state_handler
         self.etcd = etcd
@@ -31,7 +32,7 @@ class Ha:
         return self.etcd.am_i_leader(self.state_handler.name)
 
     def fetch_current_leader(self):
-            return self.etcd.current_leader()
+        return self.etcd.current_leader()
 
     def run_cycle(self):
         try:
@@ -42,7 +43,6 @@ class Ha:
                             if not self.state_handler.is_leader():
                                 self.state_handler.promote()
                                 return "promoted self to leader by acquiring session lock"
-
                             return "acquired session lock as a leader"
                         else:
                             if self.state_handler.is_leader():
@@ -58,7 +58,6 @@ class Ha:
                         else:
                             self.state_handler.follow_the_leader(self.fetch_current_leader())
                             return "following a different leader because i am not the healthiest node"
-
                 else:
                     if self.has_lock():
                         self.update_lock()
@@ -81,11 +80,11 @@ class Ha:
                     self.state_handler.start()
                     return "postgresql was stopped.  starting again."
                 return "no action.  not healthy enough to do anything."
-        except helpers.errors.CurrentLeaderError:
+        except CurrentLeaderError:
             logger.error("failed to fetch current leader from etcd")
-        except psycopg2.OperationalError:
+        except OperationalError:
             logger.error("Error communicating with Postgresql.  Will try again.")
-        except helpers.errors.HealthiestMemberError:
+        except HealthiestMemberError:
             logger.error("failed to determine healthiest member fromt etcd")
 
     def run(self):
