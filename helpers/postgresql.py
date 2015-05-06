@@ -49,11 +49,11 @@ class Postgresql:
         except:
             logger.exception('Error disconnecting')
 
-    def query(self, sql):
+    def query(self, sql, *params):
         max_attempts = 0
         while True:
             try:
-                self.cursor().execute(sql)
+                self.cursor().execute(sql, params)
                 break
             except psycopg2.OperationalError as e:
                 if self.conn:
@@ -191,8 +191,8 @@ primary_conninfo = 'user={username} password={password} host={hostname} port={po
         self.restart()
 
     def create_replication_user(self):
-        self.query("CREATE USER \"%s\" WITH REPLICATION ENCRYPTED PASSWORD '%s';" %
-                   (self.replication['username'], self.replication['password']))
+        self.query('CREATE USER "{}" WITH REPLICATION ENCRYPTED PASSWORD %s'.format(
+            self.replication['username']), self.replication['password'])
 
     def xlog_position(self):
         return self.query('SELECT pg_last_xlog_replay_location()').fetchone()[0]
