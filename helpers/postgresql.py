@@ -104,7 +104,6 @@ class Postgresql:
             os.remove(pid_path)
             logger.info('Removed %s', pid_path)
 
-        print(self._pg_ctl + ' start -o "{}"'.format(self.server_options()))
         return os.system(self._pg_ctl + ' start -o "{}"'.format(self.server_options())) == 0
 
     def stop(self):
@@ -159,27 +158,42 @@ class Postgresql:
         with open(os.path.join(self.data_dir, 'pg_hba.conf'), 'a') as f:
             f.write('host replication {username} {network} md5'.format(**self.replication))
 
+    @staticmethod
+    def primary_conninfo(leader_url):
+        r = parseurl(leader_url)
+        return 'user={username} password={password} host={hostname} port={port} sslmode=prefer sslcompression=1'.format(**r)
+
+    def check_recovery_conf(self, leader_hash):
+        if not os.path.isfile(self.recovery_conf):
+            return False
+
+        pattern = leader_hash and 'address' in leader_hash and self.primary_conninfo(leader_hash['address'])
+
+        with open(self.recovery_conf, 'r') as f:
+            for line in f:
+                if line.startswith('primary_conninfo'):
+                    if not pattern:
+                        return False
+                    return pattern in line
+
+        return not pattern
+
     def write_recovery_conf(self, leader_hash):
         with open(self.recovery_conf, 'w') as f:
             f.write("""standby_mode = 'on'
 recovery_target_timeline = 'latest'
 """)
             if leader_hash and 'address' in leader_hash:
-                r = parseurl(leader_hash['address'])
                 f.write("""
-primary_slot_name = '{recovery_slot}'
-primary_conninfo = 'user={username} password={password} host={hostname} port={port} sslmode=prefer sslcompression=1'
-""".format(recovery_slot=self.name, **r))
+primary_slot_name = '{}'
+primary_conninfo = '{}'
+""".format(self.name, self.primary_conninfo(leader_hash['address'])))
                 for name, value in self.config.get('recovery_conf', {}).iteritems():
                     f.write("{} = '{}'\n".format(name, value))
 
     def follow_the_leader(self, leader_hash):
-        r = parseurl(leader_hash['address'])
-        pattern = 'host={hostname} port={port}'.format(**r)
-        with open(self.recovery_conf, 'r') as f:
-            for line in f:
-                if pattern in line:
-                    return
+        if self.check_recovery_conf(leader_hash):
+            return
         self.write_recovery_conf(leader_hash)
         self.restart()
 
@@ -187,8 +201,7 @@ primary_conninfo = 'user={username} password={password} host={hostname} port={po
         return os.system(self._pg_ctl + ' promote') == 0
 
     def demote(self, leader):
-        self.write_recovery_conf(leader)
-        self.restart()
+        self.follow_the_leader(leader)
 
     def create_replication_user(self):
         self.query('CREATE USER "{}" WITH REPLICATION ENCRYPTED PASSWORD %s'.format(
