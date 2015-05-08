@@ -85,8 +85,12 @@ class Postgresql:
             os.fchmod(f.fileno(), 0600)
             f.write('{hostname}:{port}:*:{username}:{password}\n'.format(**r))
 
-        return os.system('PGPASSFILE={pgpass} pg_basebackup -R -D {data_dir} --host={hostname} --port={port} -U {username}'.format(
-            pgpass=pgpass, data_dir=self.data_dir, **r)) == 0
+        try:
+            os.environ['PGPASSFILE'] = pgpass
+            return os.system('pg_basebackup -R -D {data_dir} --host={hostname} --port={port} -U {username}'.format(
+                data_dir=self.data_dir, **r)) == 0
+        finally:
+            os.environ.pop('PGPASSFILE')
 
     def is_leader(self):
         return not self.query('SELECT pg_is_in_recovery()').fetchone()[0]
