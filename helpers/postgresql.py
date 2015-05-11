@@ -115,7 +115,7 @@ class Postgresql:
         return ret
 
     def stop(self):
-        return os.system(self._pg_ctl + ' stop') != 0
+        return os.system(self._pg_ctl + ' stop -m fast') != 0
 
     def reload(self):
         return os.system(self._pg_ctl + ' reload') == 0
