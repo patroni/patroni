@@ -139,10 +139,10 @@ class Postgresql:
 
     def is_healthiest_node(self, members):
         for member in members:
-            if member['hostname'] == self.name:
+            if member.hostname == self.name:
                 continue
             try:
-                member_conn = psycopg2.connect(member['address'])
+                member_conn = psycopg2.connect(member.address)
                 member_conn.autocommit = True
                 member_cursor = member_conn.cursor()
                 member_cursor.execute(
@@ -171,11 +171,11 @@ class Postgresql:
         r = parseurl(leader_url)
         return 'user={username} password={password} host={hostname} port={port} sslmode=prefer sslcompression=1'.format(**r)
 
-    def check_recovery_conf(self, leader_hash):
+    def check_recovery_conf(self, leader):
         if not os.path.isfile(self.recovery_conf):
             return False
 
-        pattern = leader_hash and 'address' in leader_hash and self.primary_conninfo(leader_hash['address'])
+        pattern = leader and leader.address and self.primary_conninfo(leader.address)
 
         with open(self.recovery_conf, 'r') as f:
             for line in f:
@@ -186,23 +186,23 @@ class Postgresql:
 
         return not pattern
 
-    def write_recovery_conf(self, leader_hash):
+    def write_recovery_conf(self, leader):
         with open(self.recovery_conf, 'w') as f:
             f.write("""standby_mode = 'on'
 recovery_target_timeline = 'latest'
 """)
-            if leader_hash and 'address' in leader_hash:
+            if leader and leader.address:
                 f.write("""
 primary_slot_name = '{}'
 primary_conninfo = '{}'
-""".format(self.name, self.primary_conninfo(leader_hash['address'])))
+""".format(self.name, self.primary_conninfo(leader.address)))
                 for name, value in self.config.get('recovery_conf', {}).iteritems():
                     f.write("{} = '{}'\n".format(name, value))
 
-    def follow_the_leader(self, leader_hash):
-        if self.check_recovery_conf(leader_hash):
+    def follow_the_leader(self, leader):
+        if self.check_recovery_conf(leader):
             return
-        self.write_recovery_conf(leader_hash)
+        self.write_recovery_conf(leader)
         self.restart()
 
     def promote(self):

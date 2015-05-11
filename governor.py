@@ -67,9 +67,4 @@ else:
 while True:
     logging.info(ha.run_cycle())
 
-    # create replication slots
-    if postgresql.is_leader():
-        members = [m['hostname'] for m in etcd.members() if m['hostname'] != postgresql.name]
-        postgresql.create_replication_slots(members)
-
     time.sleep(config["loop_wait"])
