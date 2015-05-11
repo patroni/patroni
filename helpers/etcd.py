@@ -86,6 +86,7 @@ class Etcd:
     def update_leader(self, value):
         try:
             self.put_client_path("/leader", {"value": value, "ttl": self.ttl, "prevValue": value})
+            return True
         except urllib2.HTTPError:
             logger.error("Error updating TTL on ETCD for primary.")
             return False

@@ -59,7 +59,7 @@ class Ha:
                             self.state_handler.follow_the_leader(self.fetch_current_leader())
                             return "following a different leader because i am not the healthiest node"
                 else:
-                    if self.has_lock() and self.update_lock()
+                    if self.has_lock() and self.update_lock():
                         if not self.state_handler.is_leader():
                             self.state_handler.promote()
                             return "promoted self to leader because i had the session lock"
