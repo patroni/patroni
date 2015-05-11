@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from BaseHTTPServer import BaseHTTPRequestHandler
+from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 
 
 class StatusPage(BaseHTTPRequestHandler):
@@ -9,19 +9,21 @@ class StatusPage(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             if self.path == '/pg_master':
-                response = (200 if postgresql.is_leader else 503)
+                response = (200 if self.server.postgresql.is_leader else 503)
                 self.send_response(response)
             elif self.path == '/pg_slave':
-                response = (503 if postgresql.is_leader else 200)
+                response = (503 if self.server.postgresql.is_leader else 200)
                 self.send_response(response)
             elif self.path == '/pg_status':
                 self.send_response(200)
                 self.end_headers()
-                self.wfile.write(postgresql.status())
+                self.wfile.write(self.server.postgresql.status())
             else:
                 self.send_response(404)
-        except:
+        except Exception, e:
             self.send_response(500)
+            self.end_headers()
+            self.wfile.write(repr(e))
 
 
 def getHTTPServer(postgresql, http_port=8081, listen_address='0.0.0.0'):
