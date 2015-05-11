@@ -1,12 +1,21 @@
-import urllib2
-import json
-import time
 import logging
+import requests
+import time
 
-from helpers.errors import CurrentLeaderError
-from urllib import urlencode
+from collections import namedtuple
+from helpers.errors import CurrentLeaderError, EtcdError
 
 logger = logging.getLogger(__name__)
+
+
+class Member(namedtuple('Member', 'hostname,address')):
+
+    pass
+
+
+class Cluster(namedtuple('Cluster', 'leader,members')):
+
+    pass
 
 
 class Etcd:
@@ -14,104 +23,98 @@ class Etcd:
     def __init__(self, config):
         self.ttl = config['ttl']
         self.base_client_url = 'http://{host}/v2/keys/service/{scope}'.format(**config)
+        self.postgres_cluster = None
 
     def get_client_path(self, path, max_attempts=1):
         attempts = 0
         response = None
 
         while True:
+            ex = None
             try:
-                response = urllib2.urlopen(self.client_url(path)).read()
-                break
-            except (urllib2.HTTPError, urllib2.URLError) as e:
-                attempts += 1
-                if attempts < max_attempts:
-                    logger.info('Failed to return %s, trying again. (%s of %s)', path, attempts, max_attempts)
-                    time.sleep(3)
-                else:
-                    raise e
-        try:
-            return json.loads(response)
-        except ValueError:
-            return response
+                response = requests.get(self.client_url(path))
+                if response.status_code == 200:
+                    break
+            except Exception, e:
+                logger.exception('get_client_path')
+                ex = e
 
-    def put_client_path(self, path, data):
-        opener = urllib2.build_opener(urllib2.HTTPHandler)
-        request = urllib2.Request(self.client_url(path), data=urlencode(data).replace("false", "False"))
-        request.get_method = lambda: 'PUT'
-        opener.open(request)
+            attempts += 1
+            if attempts < max_attempts:
+                logger.info('Failed to return %s, trying again. (%s of %s)', path, attempts, max_attempts)
+                time.sleep(3)
+            elif ex:
+                raise ex
+
+        return response.json(), response.status_code
+
+    def put_client_path(self, path, **data):
+        try:
+            response = requests.put(self.client_url(path), data=data)
+            return response.status_code in [200, 201]
+        except:
+            logger.exception('PUT %s data=%s', path, data)
+            return False
 
     def client_url(self, path):
         return self.base_client_url + path
 
+    @staticmethod
+    def find_node(node, key):
+        if not node['dir']:
+            return None
+        key = node['key'] + key
+        for n in node['nodes']:
+            if n['key'] == key:
+                return n
+        return None
+
+    def get_cluster(self):
+        try:
+            response, status_code = self.get_client_path('?recursive=true')
+            if status_code == 200:
+                leader = None
+                members = self.find_node(response['node'], '/members')
+                members = [Member(n['key'].split('/')[-1], n['value']) for n in members['nodes']] if members else []
+
+                leader_node = self.find_node(response['node'], '/leader')
+                if leader_node:
+                    for m in members:
+                        if m.hostname == leader_node['value']:
+                            leader = m
+                            break
+                    if not leader:
+                        leader = Member(leader['value'], None)
+                return Cluster(leader, members)
+            elif status_code == 404:
+                return Cluster(None, [])
+        except:
+            logger.exception('get_cluster')
+
+        raise EtcdError('Etcd is not responding properly')
+
     def current_leader(self):
         try:
-            hostname = self.get_client_path('/leader')['node']['value']
-            address = self.get_client_path('/members/' + hostname)['node']['value']
-
-            return {'hostname': hostname, 'address': address}
-        except urllib2.HTTPError as e:
-            if e.code == 404:
+            cluster = self.get_cluster()
+            if not cluster['leader'] or not cluster['leader'].address:
                 return None
-            raise CurrentLeaderError("Etcd is not responding properly")
-
-    def members(self):
-        try:
-            members = []
-
-            r = self.get_client_path("/members?recursive=true")
-            for node in r["node"]["nodes"]:
-                members.append({"hostname": node["key"].split('/')[-1], "address": node["value"]})
-
-            return members
-        except urllib2.HTTPError as e:
-            if e.code == 404:
-                return None
+            return cluster['leader']
+        except:
             raise CurrentLeaderError("Etcd is not responding properly")
 
     def touch_member(self, member, connection_string):
-        self.put_client_path('/members/' + member, {"value": connection_string})
+        return self.put_client_path('/members/' + member, value=connection_string)
 
     def take_leader(self, value):
-        return self.put_client_path("/leader", {"value": value, "ttl": self.ttl}) is None
+        return self.put_client_path('/leader', value=value, ttl=self.ttl)
 
     def attempt_to_acquire_leader(self, value):
-        try:
-            return self.put_client_path("/leader", {"value": value, "ttl": self.ttl, "prevExist": False}) is None
-        except urllib2.HTTPError as e:
-            if e.code == 412:
-                logger.info('Could not take out TTL lock: %s', e)
-            return False
+        ret = self.put_client_path('/leader', value=value, ttl=self.ttl, prevExist=False)
+        ret or logger.info('Could not take out TTL lock')
+        return ret
 
     def update_leader(self, value):
-        try:
-            self.put_client_path("/leader", {"value": value, "ttl": self.ttl, "prevValue": value})
-            return True
-        except urllib2.HTTPError:
-            logger.error("Error updating TTL on ETCD for primary.")
-            return False
-
-    def leader_unlocked(self):
-        try:
-            self.get_client_path("/leader")
-            return False
-        except urllib2.HTTPError as e:
-            if e.code == 404:
-                return True
-            return False
-        except ValueError as e:
-            return False
-
-    def am_i_leader(self, value):
-        # try:
-            reponse = self.get_client_path("/leader")
-            logger.info('Lock owner: %s; I am %s', reponse["node"]["value"], value)
-            return reponse["node"]["value"] == value
-        # except Exception as e:
-            # return False
+        return self.put_client_path('/leader', value=value, ttl=self.ttl, prevValue=value)
 
     def race(self, path, value):
-        try:
-            return self.put_client_path(path, {"prevExist": False, "value": value}) is None
-        except urllib2.HTTPError:
-            return False
+        return self.put_client_path(path, value=value, prevExist=False)

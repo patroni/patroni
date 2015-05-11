@@ -1,11 +1,10 @@
 #!/usr/bin/env python
 
-import sys
-import yaml
-import time
-import urllib2
 import atexit
 import logging
+import sys
+import time
+import yaml
 
 from helpers.etcd import Etcd
 from helpers.postgresql import Postgresql
@@ -42,14 +41,9 @@ def stop_postgresql():
 atexit.register(stop_postgresql)
 
 # wait for etcd to be available
-etcd_ready = False
-while not etcd_ready:
-    try:
-        etcd.touch_member(postgresql.name, postgresql.connection_string)
-        etcd_ready = True
-    except urllib2.URLError:
-        logging.info("waiting on etcd")
-        time.sleep(5)
+while not etcd.touch_member(postgresql.name, postgresql.connection_string):
+    logging.info("waiting on etcd")
+    time.sleep(5)
 
 # is data directory empty?
 if postgresql.data_directory_empty():
@@ -73,16 +67,7 @@ if postgresql.data_directory_empty():
                 synced_from_leader = True
             else:
                 time.sleep(5)
-else:
-    postgresql.write_recovery_conf(None)
-    postgresql.start()
 
 while True:
     logging.info(ha.run_cycle())
-
-    # create replication slots
-    if postgresql.is_leader():
-        members = [m['hostname'] for m in etcd.members() if m['hostname'] != postgresql.name]
-        postgresql.create_replication_slots(members)
-
     time.sleep(config["loop_wait"])
