@@ -11,7 +11,7 @@ RUN apt-get update -y
 RUN apt-get upgrade -y
 
 ENV PGVERSION 9.4
-RUN apt-get install curl python python-pip python-psycopg2 python-yaml python-cherrypy postgresql-${PGVERSION} -y
+RUN apt-get install curl python python-pip python-psycopg2 python-yaml postgresql-${PGVERSION} -y
 
 RUN	ln -s /usr/lib/postgresql/* /usr/lib/postgresql/current
 ENV PATH /usr/lib/postgresql/current/bin:$PATH
