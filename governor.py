@@ -82,10 +82,7 @@ while True:
 
     # create replication slots
     if postgresql.is_leader():
-        for member in etcd.members():
-            if member['hostname'] != postgresql.name:
-                postgresql.query("""SELECT pg_create_physical_replication_slot(%s)
-                                     WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots
-                                     WHERE slot_name = %s)""", member['hostname'], member['hostname'])
+        members = [m['hostname'] for m in etcd.members() if m['hostname'] != postgresql.name]
+        postgresql.create_replication_slots(members)
 
     time.sleep(config["loop_wait"])

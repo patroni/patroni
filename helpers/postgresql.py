@@ -39,6 +39,7 @@ class Postgresql:
 
         self.conn = None
         self.cursor_holder = None
+        self.members = []  # list of already existing replication slots
 
     def cursor(self):
         if not self.cursor_holder:
@@ -104,6 +105,7 @@ class Postgresql:
 
     def start(self):
         if self.is_running():
+            self.load_replication_slots()
             logger.error('Cannot start PostgreSQL because one is already running.')
             return False
 
@@ -112,10 +114,12 @@ class Postgresql:
             os.remove(pid_path)
             logger.info('Removed %s', pid_path)
 
-        return os.system(self._pg_ctl + ' start -o "{}"'.format(self.server_options())) == 0
+        ret = os.system(self._pg_ctl + ' start -o "{}"'.format(self.server_options())) == 0
+        ret and self.load_replication_slots()
+        return ret
 
     def stop(self):
-        return os.system(self._pg_ctl + ' stop') != 0
+        return os.system(self._pg_ctl + ' stop -m fast') != 0
 
     def reload(self):
         return os.system(self._pg_ctl + ' reload') == 0
@@ -231,3 +235,21 @@ primary_conninfo = '{}'
 
     def xlog_position(self):
         return self.query('SELECT pg_last_xlog_replay_location()').fetchone()[0]
+
+    def load_replication_slots(self):
+        cursor = self.query("SELECT slot_name FROM pg_replication_slots WHERE slot_type='physical'")
+        self.members = [r[0] for r in cursor]
+
+    def create_replication_slots(self, members):
+        # drop unused slots
+        for slot in set(self.members) - set(members):
+            self.query("""SELECT pg_drop_replication_slot(%s)
+                           WHERE EXISTS(SELECT 1 FROM pg_replication_slots
+                           WHERE slot_name = %s)""", slot, slot)
+
+        # create new slots
+        for slot in set(members) - set(self.members):
+            self.query("""SELECT pg_create_physical_replication_slot(%s)
+                           WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots
+                           WHERE slot_name = %s)""", slot, slot)
+        self.members = members
