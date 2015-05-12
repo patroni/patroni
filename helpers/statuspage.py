@@ -8,6 +8,7 @@ import json
 class StatusPage(BaseHTTPRequestHandler):
 
     def do_GET(self):
+        content_type='text/plain'
         if self.path == '/pg_master':
             if not self.pg_is_in_recovery():
                 response, content = 200, 'I am currently a master'
@@ -20,10 +21,12 @@ class StatusPage(BaseHTTPRequestHandler):
                 response, content = 503, 'I am not a slave'
         elif self.path == '/pg_status':
             response, content = 200, self.pg_status()
+            content_type = 'application/json'
         else:
             response, content = 404, 'Page not found'
 
         self.send_response(response)
+        self.send_header('Content-Type', content_type)
         self.end_headers()
         self.wfile.write(content)
 
@@ -46,8 +49,6 @@ class StatusPage(BaseHTTPRequestHandler):
         res = cursor.fetchone()
         status = {'role': ('master' if not res[0] else 'slave'), 'recovery': {'last_transaction_timestamp': res[1]},
                   'server': {'hostaddr': res[3], 'port': res[4], 'start_time': res[5]}}
-
-        self.send_header('Content-Type', 'application/json')
 
         return json.dumps(status)
 
