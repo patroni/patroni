@@ -3,12 +3,14 @@
 import atexit
 import logging
 import sys
+import threading
 import time
 import yaml
 
 from helpers.etcd import Etcd
 from helpers.postgresql import Postgresql
 from helpers.ha import Ha
+from helpers.statuspage import StatusPage, getHTTPServer
 
 INSTANCE_METADATA_URL = "http://169.254.169.254/latest/meta-data/"
 
@@ -32,6 +34,12 @@ else:
 etcd = Etcd(config["etcd"])
 postgresql = Postgresql(config["postgresql"], aws_host_address)
 ha = Ha(postgresql, etcd)
+
+## Start the http_server to serve a simple healthcheck
+http_server = getHTTPServer(postgresql, http_port=8008, listen_address='0.0.0.0')
+http_thread = threading.Thread(target=http_server.serve_forever, args=())
+http_thread.daemon = True
+http_thread.start()
 
 # stop postgresql on script exit
 
