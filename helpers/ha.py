@@ -33,8 +33,9 @@ class Ha:
         return not (self.cluster.leader and self.cluster.leader.hostname)
 
     def has_lock(self):
-        logger.info('Lock owner: %s; I am %s', self.cluster.leader.hostname, self.state_handler.name)
-        return self.cluster.leader.hostname == self.state_handler.name
+        lock_owner = self.cluster.leader and self.cluster.leader.hostname
+        logger.info('Lock owner: %s; I am %s', lock_owner, self.state_handler.name)
+        return lock_owner == self.state_handler.name
 
     def demote(self):
         return self.state_handler.demote(self.cluster.leader)
