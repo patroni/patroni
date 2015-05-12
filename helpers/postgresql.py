@@ -12,6 +12,13 @@ class Postgresql:
     def __init__(self, config, aws_host_address=None):
         self.name = config["name"]
         self.host, self.port = config["listen"].split(":")
+        self.libpq_parameters = {
+            'host' : aws_host_address or self.host,
+            'port' : self.port,
+            'fallback_application_name' : 'Governor',
+            'connect_timeout' : 5,
+            'options' : '-c statement_timeout=2000'
+        }
         self.data_dir = config["data_dir"]
         self.replication = config["replication"]
         self.superuser = config.get('superuser')
@@ -20,15 +27,15 @@ class Postgresql:
         self.config = config
 
         self.cursor_holder = None
-        connection_host = aws_host_address or self.host
-        self.connection_string = "postgres://%s:%s@%s:%s/postgres" % (self.replication["username"], self.replication["password"], connection_host, self.port)
+        self.connection_string = "postgres://%s:%s@%s:%s/postgres" % (self.replication["username"], self.replication["password"], self.libpq_parameters['host'], self.port)
 
         self.conn = None
 
     def cursor(self):
-        if not self.cursor_holder:
-            self.conn = psycopg2.connect("postgres://%s:%s/postgres" % (self.host, self.port))
-            self.conn.autocommit = True
+        if (self.cursor_holder is None) or self.cursor_holder.closed:
+            if (self.conn is None) or self.conn.closed:
+                self.conn = psycopg2.connect(**self.libpq_parameters)
+                self.conn.autocommit = True
             self.cursor_holder = self.conn.cursor()
 
         return self.cursor_holder
