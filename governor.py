@@ -2,6 +2,7 @@
 
 import logging
 import os
+import requests
 import signal
 import sys
 import threading
@@ -11,7 +12,7 @@ import yaml
 from helpers.etcd import Etcd
 from helpers.postgresql import Postgresql
 from helpers.ha import Ha
-from helpers.statuspage import StatusPage, getHTTPServer
+from helpers.statuspage import getHTTPServer
 
 
 def sigterm_handler(signo, stack_frame):
@@ -38,7 +39,6 @@ class Governor:
 
         self.postgresql = Postgresql(config['postgresql'], aws_host_address)
         self.ha = Ha(self.postgresql, self.etcd)
-
 
     def initialize(self):
         # wait for etcd to be available
