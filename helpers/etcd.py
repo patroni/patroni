@@ -96,9 +96,9 @@ class Etcd:
     def current_leader(self):
         try:
             cluster = self.get_cluster()
-            if not cluster['leader'] or not cluster['leader'].address:
+            if not cluster.leader or not cluster.leader.address:
                 return None
-            return cluster['leader']
+            return cluster.leader
         except:
             raise CurrentLeaderError("Etcd is not responding properly")
 

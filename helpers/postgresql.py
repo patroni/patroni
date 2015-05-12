@@ -79,7 +79,7 @@ class Postgresql:
         return False
 
     def sync_from_leader(self, leader):
-        r = parseurl(leader['address'])
+        r = parseurl(leader.address)
 
         pgpass = 'pgpass'
         with open(pgpass, 'w') as f:
@@ -148,7 +148,7 @@ class Postgresql:
                 member_cursor.execute(
                     "SELECT %s - (pg_last_xlog_replay_location() - '0/0000000'::pg_lsn)", (self.xlog_position(), ))
                 xlog_diff = member_cursor.fetchone()[0]
-                logger.info([self.name, member['hostname'], xlog_diff])
+                logger.info([self.name, member.hostname, xlog_diff])
                 if xlog_diff < 0:
                     member_cursor.close()
                     return False
