@@ -1,6 +1,6 @@
 loop_wait: 10
 aws_use_host_address: "on"
-healthcheck_port: 8080
+healthcheck_port: 8008
 etcd:
   scope: batman
   ttl: 30
