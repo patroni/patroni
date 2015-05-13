@@ -22,7 +22,10 @@ def sigterm_handler(signo, stack_frame):
 # handle SIGCHILD, since we are the equivalent of the INIT process
 def sigchld_handler(signo, stack_frame):
     try:
-        os.waitpid(-1, os.WNOHANG)
+        while True:
+            ret = os.waitpid(-1, os.WNOHANG)
+            if ret == (0, 0):
+                break
     except OSError:
         pass
 
