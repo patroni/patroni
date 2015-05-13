@@ -92,7 +92,8 @@ class Postgresql:
             logger.info("Removed %s" % pid_path)
 
         command_code = os.system("postgres -D %s %s &" % (self.data_dir, self.server_options()))
-        time.sleep(5)
+        while not self.is_running():
+            time.sleep(5)
         return command_code != 0
 
     def stop(self):
@@ -183,8 +184,7 @@ primary_conninfo = 'user=%(user)s password=%(password)s host=%(hostname)s port=%
         return True
 
     def follow_no_leader(self):
-        print "initing leaderless follower"
-        if os.system("grep primary_conninfo %(data_dir)s/recovery.conf > /dev/null" % {"data_dir": self.data_dir}) == 0:
+        if not os.path.exists("%s/recovery.conf" % self.data_dir) or os.system("grep primary_conninfo %(data_dir)s/recovery.conf &> /dev/null" % {"data_dir": self.data_dir}) == 0:
             self.write_recovery_conf(None)
             if self.is_running():
                 self.restart()
