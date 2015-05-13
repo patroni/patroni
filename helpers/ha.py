@@ -1,4 +1,3 @@
-import inspect
 import logging
 import time
 
@@ -6,11 +5,6 @@ from helpers.errors import EtcdError, HealthiestMemberError
 from psycopg2 import OperationalError
 
 logger = logging.getLogger(__name__)
-
-
-def lineno():
-    """Returns the current line number in our program."""
-    return inspect.currentframe().f_back.f_lineno
 
 
 class Ha:
