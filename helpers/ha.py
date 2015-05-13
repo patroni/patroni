@@ -22,7 +22,10 @@ class Ha:
         return self.etcd.attempt_to_acquire_leader(self.state_handler.name)
 
     def update_lock(self):
-        return self.etcd.update_leader(self.state_handler.name)
+        return self.etcd.update_leader(self.state_handler)
+
+    def update_last_leader_operation(self):
+        return self.etcd.update_last_leader_operation(self.state_handler.last_operation)
 
     def is_unlocked(self):
         return self.etcd.leader_unlocked()
@@ -35,7 +38,7 @@ class Ha:
 
     def run_cycle(self):
         try:
-            if self.state_handler.is_healthy():
+            if self.state_handler.is_healthy(self.etcd.last_leader_operation()):
                 if self.is_unlocked():
                     if self.state_handler.is_healthiest_node(self.etcd.members()):
                         if self.acquire_lock():

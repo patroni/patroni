@@ -79,12 +79,21 @@ class Etcd:
                 logger.info("Could not take out TTL lock: %s" % e)
             return False
 
-    def update_leader(self, value):
+    def update_leader(self, state_handler):
         try:
-            self.put_client_path("/leader", {"value": value, "ttl": self.ttl, "prevValue": value})
+            self.put_client_path("/leader", {"value": state_handler.name, "ttl": self.ttl, "prevValue": state_handler.name})
+            self.put_client_path("/optime/leader", {"value": state_handler.last_operation()})
         except urllib2.HTTPError:
-            logger.error("Error updating TTL on ETCD for primary.")
+            logger.error("Error updating leader lock and optime on ETCD for primary.")
             return False
+
+    def last_leader_operation(self):
+        try:
+            return int(self.get_client_path("/optime/leader")["node"]["value"])
+        except urllib2.HTTPError as e:
+            if e.code == 404:
+                logger.error("Error updating TTL on ETCD for primary.")
+                return None
 
     def leader_unlocked(self):
         try:

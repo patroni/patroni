@@ -6,7 +6,6 @@ from urlparse import urlparse
 
 logger = logging.getLogger(__name__)
 
-
 class Postgresql:
 
     def __init__(self, config):
@@ -111,9 +110,19 @@ class Postgresql:
             options += " -c \"%s=%s\"" % (setting, value)
         return options
 
-    def is_healthy(self):
+    def is_healthy(self, last_leader_operation):
         if not self.is_running():
             logger.warning("Postgresql is not running.")
+            return False
+
+        if self.is_leader():
+            return True
+
+        # this should only happen on initialization
+        if last_leader_operation is None:
+            return True
+
+        if (last_leader_operation - self.xlog_position()) > self.config["maximum_lag_on_failover"]:
             return False
 
         return True
@@ -182,3 +191,6 @@ recovery_target_timeline = 'latest'
 
     def xlog_position(self):
         return self.query("SELECT pg_last_xlog_replay_location() - '0/0000000'::pg_lsn;").fetchone()[0]
+
+    def last_operation(self):
+        return self.query("SELECT pg_current_xlog_location() - '0/00000'::pg_lsn;").fetchone()[0]
