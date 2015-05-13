@@ -31,6 +31,13 @@ class Postgresql:
     def __init__(self, config, aws_host_address=None):
         self.name = config['name']
         self.host, self.port = config['listen'].split(':')
+        self.libpq_parameters = {
+            'host' : aws_host_address or self.host,
+            'port' : self.port,
+            'fallback_application_name' : 'Governor',
+            'connect_timeout' : 5,
+            'options' : '-c statement_timeout=2000'
+        }
         self.data_dir = config['data_dir']
         self.replication = config['replication']
         self.superuser = config['superuser']
@@ -40,9 +47,8 @@ class Postgresql:
 
         self.config = config
 
-        connection_host = aws_host_address or self.host
         self.connection_string = 'postgres://{username}:{password}@{host}:{port}/postgres'.format(
-            host=connection_host, port=self.port, **self.replication)
+            host=self.libpq_parameters['host'], port=self.port, **self.replication)
 
         self.conn = None
         self.cursor_holder = None
