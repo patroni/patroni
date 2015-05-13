@@ -126,7 +126,7 @@ class Etcd:
         return ret
 
     def update_leader(self, state_handler):
-        ret = self.put_client_path('/leader', value=value, ttl=self.ttl, prevValue=state_handler.name)
+        ret = self.put_client_path('/leader', value=state_handler.name, ttl=self.ttl, prevValue=state_handler.name)
         ret and self.put_client_path('/optime/leader', value=state_handler.last_operation())
         return ret
 
