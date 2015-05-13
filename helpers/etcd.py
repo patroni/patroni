@@ -56,6 +56,14 @@ class Etcd:
             logger.exception('PUT %s data=%s', path, data)
             return False
 
+    def delete_client_path(self, path):
+        try:
+            response = requests.delete(self.client_url(path))
+            return response.status_code == 204
+        except:
+            logger.exception('DELETE %s', path)
+            return False
+
     def client_url(self, path):
         return self.base_client_url + path
 
@@ -122,3 +130,9 @@ class Etcd:
 
     def race(self, path, value):
         return self.put_client_path(path, value=value, prevExist=False)
+
+    def delete_member(self, member):
+        return self.delete_client_path('/members/' + member)
+
+    def delete_leader(self, value):
+        return self.delete_client_path('/leader?prevValue=' + value)
