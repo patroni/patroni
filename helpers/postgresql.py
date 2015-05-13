@@ -158,15 +158,18 @@ class Postgresql:
         f.close()
 
     def write_recovery_conf(self, leader_hash):
-        leader = urlparse(leader_hash["address"])
-
         f = open("%s/recovery.conf" % self.data_dir, "w")
         f.write("""
 standby_mode = 'on'
 primary_slot_name = '%(recovery_slot)s'
-primary_conninfo = 'user=%(user)s password=%(password)s host=%(hostname)s port=%(port)s sslmode=prefer sslcompression=1'
 recovery_target_timeline = 'latest'
-""" % {"recovery_slot": self.name, "user": leader.username, "password": leader.password, "hostname": leader.hostname, "port": leader.port})
+""" % {"recovery_slot": self.name})
+        if leader_hash is not None:
+            leader = urlparse(leader_hash["address"])
+            f.write("""
+primary_conninfo = 'user=%(user)s password=%(password)s host=%(hostname)s port=%(port)s sslmode=prefer sslcompression=1'
+            """ % {"user": leader.username, "password": leader.password, "hostname": leader.hostname, "port": leader.port})
+
         if "recovery_conf" in self.config:
             for name, value in self.config["recovery_conf"].iteritems():
                 f.write("%s = '%s'\n" % (name, value))
@@ -177,6 +180,14 @@ recovery_target_timeline = 'latest'
         if os.system("grep 'host=%(hostname)s port=%(port)s' %(data_dir)s/recovery.conf > /dev/null" % {"hostname": leader.hostname, "port": leader.port, "data_dir": self.data_dir}) != 0:
             self.write_recovery_conf(leader_hash)
             self.restart()
+        return True
+
+    def follow_no_leader(self):
+        print "initing leaderless follower"
+        if os.system("grep primary_conninfo %(data_dir)s/recovery.conf > /dev/null" % {"data_dir": self.data_dir}) == 0:
+            self.write_recovery_conf(None)
+            if self.is_running():
+                self.restart()
         return True
 
     def promote(self):

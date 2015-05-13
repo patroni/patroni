@@ -59,6 +59,7 @@ class Ha:
                             self.state_handler.demote(self.fetch_current_leader())
                             return "demoting self because i am not the healthiest node"
                         elif self.fetch_current_leader() is None:
+                            self.state_handler.follow_no_leader()
                             return "waiting on leader to be elected because i am not the healthiest node"
                         else:
                             self.state_handler.follow_the_leader(self.fetch_current_leader())
