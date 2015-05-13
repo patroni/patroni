@@ -35,7 +35,7 @@ class Etcd:
                 response = requests.get(self.client_url(path))
                 if response.status_code == 200:
                     break
-            except Exception, e:
+            except Exception as e:
                 logger.exception('get_client_path')
                 ex = e
 
@@ -61,7 +61,11 @@ class Etcd:
 
     @staticmethod
     def find_node(node, key):
-        if not node['dir']:
+        """
+        >>> Etcd.find_node({}, None)
+        >>> Etcd.find_node({'dir': True, 'nodes': [], 'key': '/test/'}, 'test')
+        """
+        if not node.get('dir', False):
             return None
         key = node['key'] + key
         for n in node['nodes']:

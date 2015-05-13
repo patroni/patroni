@@ -2,15 +2,22 @@ import logging
 import os
 import psycopg2
 import re
+import sys
 import time
-import urlparse
+
+is_py3 = sys.hexversion >= 0x03000000
+
+if is_py3:
+    from urllib.parse import urlparse
+else:
+    from urlparse import urlparse
 
 
 logger = logging.getLogger(__name__)
 
 
 def parseurl(url):
-    r = urlparse.urlparse(url)
+    r = urlparse(url)
     return {
         'hostname': r.hostname,
         'port': r.port or 5432,
@@ -87,7 +94,7 @@ class Postgresql:
 
         pgpass = 'pgpass'
         with open(pgpass, 'w') as f:
-            os.fchmod(f.fileno(), 0600)
+            os.fchmod(f.fileno(), 0o600)
             f.write('{hostname}:{port}:*:{username}:{password}\n'.format(**r))
 
         try:
@@ -129,7 +136,7 @@ class Postgresql:
 
     def server_options(self):
         options = '--listen_addresses={} --port={}'.format(self.host, self.port)
-        for setting, value in self.config['parameters'].iteritems():
+        for setting, value in self.config['parameters'].items():
             options += " --{}='{}'".format(setting, value)
         return options
 
@@ -203,7 +210,7 @@ recovery_target_timeline = 'latest'
 primary_slot_name = '{}'
 primary_conninfo = '{}'
 """.format(self.name, self.primary_conninfo(leader.address)))
-                for name, value in self.config.get('recovery_conf', {}).iteritems():
+                for name, value in self.config.get('recovery_conf', {}).items():
                     f.write("{} = '{}'\n".format(name, value))
 
     def follow_the_leader(self, leader):
