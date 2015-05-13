@@ -141,10 +141,16 @@ class Postgresql:
         if not self.is_running():
             logger.warning('Postgresql is not running.')
             return False
-
         return True
 
-    def is_healthiest_node(self, members):
+    def is_healthiest_node(self, last_leader_operation, members):
+        # this should only happen on initialization
+        if last_leader_operation is None:
+            return True
+
+        if last_leader_operation - self.xlog_position() > self.config['maximum_lag_on_failover']:
+            return False
+
         for member in members:
             if member.hostname == self.name:
                 continue
@@ -242,3 +248,6 @@ primary_conninfo = '{}'
                            WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots
                            WHERE slot_name = %s)""", slot, slot)
         self.members = members
+
+    def last_operation(self):
+        return self.query("SELECT pg_current_xlog_location() - '0/00000'::pg_lsn").fetchone()[0]

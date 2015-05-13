@@ -21,7 +21,7 @@ class Ha:
         return self.etcd.attempt_to_acquire_leader(self.state_handler.name)
 
     def update_lock(self):
-        return self.etcd.update_leader(self.state_handler.name)
+        return self.etcd.update_leader(self.state_handler)
 
     def is_unlocked(self):
         return not (self.cluster.leader and self.cluster.leader.hostname)
@@ -50,7 +50,7 @@ class Ha:
                 self.load_cluster_from_etcd()
 
             if self.is_unlocked():
-                if self.state_handler.is_healthiest_node(self.cluster.members):
+                if self.state_handler.is_healthiest_node(self.etcd.last_leader_operation(), self.cluster.members):
                     if self.acquire_lock():
                         if not self.state_handler.is_leader():
                             self.state_handler.promote()

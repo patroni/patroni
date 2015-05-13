@@ -24,9 +24,12 @@ class Governor:
         self.postgresql = Postgresql(config['postgresql'])
         self.ha = Ha(self.postgresql, self.etcd)
 
+    def touch_member(self):
+        return self.etcd.touch_member(self.postgresql.name, self.postgresql.connection_string)
+
     def initialize(self):
         # wait for etcd to be available
-        while not self.etcd.touch_member(self.postgresql.name, self.postgresql.connection_string):
+        while not self.touch_member():
             logging.info('waiting on etcd')
             time.sleep(5)
 
@@ -49,6 +52,7 @@ class Governor:
 
     def run(self):
         while True:
+            self.touch_member()
             logging.info(self.ha.run_cycle())
             time.sleep(self.nap_time)
 
