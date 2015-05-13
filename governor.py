@@ -19,6 +19,17 @@ def sigterm_handler(signo, stack_frame):
     sys.exit()
 
 
+# handle SIGCHILD, since we are the equivalent of the INIT process
+def sigchld_handler(signo, stack_frame):
+    try:
+        while True:
+            ret = os.waitpid(-1, os.WNOHANG)
+            if ret == (0, 0):
+                break
+    except OSError:
+        pass
+
+
 class Governor:
 
     INSTANCE_METADATA_URL = "http://169.254.169.254/latest/meta-data/"
@@ -96,4 +107,5 @@ def main():
 if __name__ == '__main__':
     logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
     signal.signal(signal.SIGTERM, sigterm_handler)
+    signal.signal(signal.SIGCHLD, sigchld_handler)
     main()
