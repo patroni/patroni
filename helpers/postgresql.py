@@ -110,7 +110,7 @@ class Postgresql:
             options += " -c \"%s=%s\"" % (setting, value)
         return options
 
-    def is_healthy(self, last_leader_operation):
+    def is_healthy(self):
         if not self.is_running():
             logger.warning("Postgresql is not running.")
             return False
@@ -118,17 +118,17 @@ class Postgresql:
         if self.is_leader():
             return True
 
-        # this should only happen on initialization
-        if last_leader_operation is None:
-            return True
-
-        if (last_leader_operation - self.xlog_position()) > self.config["maximum_lag_on_failover"]:
-            return False
-
         return True
 
-    def is_healthiest_node(self, members):
-        for member in members:
+    def is_healthiest_node(self, state_store):
+        # this should only happen on initialization
+        if state_store.last_leader_operation() is None:
+            return True
+
+        if (state_store.last_leader_operation() - self.xlog_position()) > self.config["maximum_lag_on_failover"]:
+            return False
+
+        for member in state_store.members():
             if member["hostname"] == self.name:
                 continue
             try:

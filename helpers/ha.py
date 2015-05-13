@@ -38,9 +38,9 @@ class Ha:
 
     def run_cycle(self):
         try:
-            if self.state_handler.is_healthy(self.etcd.last_leader_operation()):
+            if self.state_handler.is_healthy():
                 if self.is_unlocked():
-                    if self.state_handler.is_healthiest_node(self.etcd.members()):
+                    if self.state_handler.is_healthiest_node(self.etcd):
                         if self.acquire_lock():
                             if not self.state_handler.is_leader():
                                 self.state_handler.promote()
@@ -58,6 +58,8 @@ class Ha:
                         if self.state_handler.is_leader():
                             self.state_handler.demote(self.fetch_current_leader())
                             return "demoting self because i am not the healthiest node"
+                        elif self.fetch_current_leader() is None:
+                            return "waiting on leader to be elected because i am not the healthiest node"
                         else:
                             self.state_handler.follow_the_leader(self.fetch_current_leader())
                             return "following a different leader because i am not the healthiest node"
