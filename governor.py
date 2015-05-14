@@ -40,7 +40,6 @@ if postgresql.data_directory_empty():
         postgresql.initialize()
         etcd.take_leader(postgresql.name)
         postgresql.start()
-        postgresql.create_replication_user()
     else:
         synced_from_leader = False
         while not synced_from_leader:
