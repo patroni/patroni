@@ -30,10 +30,10 @@ class Postgresql:
 
     def __init__(self, config):
         self.name = config['name']
-        host, port = config['connect_address'].split(':')
+        self.host, self.port = config['listen'].split(':')
         self.libpq_parameters = {
-            'host': host,
-            'port': port,
+            'host': self.host,
+            'port': self.port,
             'fallback_application_name': 'Governor',
             'connect_timeout': 5,
             'options': '-c statement_timeout=2000'
@@ -141,8 +141,7 @@ class Postgresql:
         return os.system(self._pg_ctl + ' restart -m fast') == 0
 
     def server_options(self):
-        host, port = self.config['listen'].split(':')
-        options = '--listen_addresses={} --port={}'.format(host, port)
+        options = '--listen_addresses={} --port={}'.format(self.host, self.port)
         for setting, value in self.config['parameters'].items():
             options += " --{}='{}'".format(setting, value)
         return options
