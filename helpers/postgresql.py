@@ -56,7 +56,7 @@ class Postgresql:
 
     def cursor(self):
         if not self.cursor_holder:
-            self.conn = psycopg2.connect('postgres://{}/postgres'.format(self.config['connect_address']))
+            self.conn = psycopg2.connect(**self.libpq_parameters)
             self.conn.autocommit = True
             self.cursor_holder = self.conn.cursor()
 
