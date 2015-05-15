@@ -45,6 +45,8 @@ class Etcd:
                 time.sleep(3)
             elif ex:
                 raise ex
+            else:
+                break
 
         return response.json(), response.status_code
 
