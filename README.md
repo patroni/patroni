@@ -35,6 +35,29 @@ We provide a haproxy configuration, which will give your application a single en
 
 For a diagram of the high availability decision loop, see the included a PDF: [postgres-ha.pdf](https://github.com/compose/template-etcd-based-postgres-ha/blob/master/postgres-ha.pdf)
 
+## YAML Configuration
+
+For an example file, see `postgres0.yml`.  Below is an explanation of settings:
+
+* *loop_wait*: the number of seconds the loop will sleep
+
+* *etcd*
+  * *scope*: the relative path used on etcd's http api for this deployment, thus you can run multiple HA deployments from a single etcd
+  * *ttl*: the TTL to acquire the leader lock.  Think of it as the length of time before automatic failover process is initiated.
+  * *host*: the host:port for the etcd endpoint
+
+* *postgresql*
+  * *name*: the name of the Postgres host, must be unique for the cluster
+  * *listen*: ip address + port that Postgres listening. Must be accessible from other nodes in the cluster if using streaming replication.
+  * *data_dir*: file path to initialize and store Postgres data files
+  * *maximum_lag_on_failover*: the maximum bytes a follower may lag before it is not eligible become leader
+  * *replication*
+    * *username*: replication username, user will be created during initialization
+    * *password*: replication password, user will be created during initialization
+    * *network*: network setting for replication in pg_hba.conf
+  * *recovery_conf*: configuration settings written to recovery.conf when configuring follower
+  * *parameters*: list of configuration settings for Postgres
+
 ## Requirements on a Mac
 
 Run the following on a Mac to install requirements:

@@ -45,6 +45,8 @@ class Etcd:
                 time.sleep(3)
             elif ex:
                 raise ex
+            else:
+                break
 
         return response.json(), response.status_code
 
@@ -115,7 +117,7 @@ class Etcd:
             raise CurrentLeaderError("Etcd is not responding properly")
 
     def touch_member(self, member, connection_string):
-        return self.put_client_path('/members/' + member, value=connection_string)
+        return self.put_client_path('/members/' + member, value=connection_string, ttl=self.ttl)
 
     def take_leader(self, value):
         return self.put_client_path('/leader', value=value, ttl=self.ttl)
@@ -125,11 +127,23 @@ class Etcd:
         ret or logger.info('Could not take out TTL lock')
         return ret
 
-    def update_leader(self, value):
-        return self.put_client_path('/leader', value=value, ttl=self.ttl, prevValue=value)
+    def update_leader(self, state_handler):
+        ret = self.put_client_path('/leader', value=state_handler.name, ttl=self.ttl, prevValue=state_handler.name)
+        ret and self.put_client_path('/optime/leader', value=state_handler.last_operation())
+        return ret
 
     def race(self, path, value):
         return self.put_client_path(path, value=value, prevExist=False)
+
+    def last_leader_operation(self):
+        try:
+            response, status_code = self.get_client_path('/optime/leader')
+            if status_code == 404:
+                return None
+            return int(response['node']['value'])
+        except:
+            logger.exception('last_leader_operation')
+        raise EtcdError('Etcd is not responding properly')
 
     def delete_member(self, member):
         return self.delete_client_path('/members/' + member)
