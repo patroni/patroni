@@ -1,5 +1,4 @@
 loop_wait: 10
-aws_use_host_address: "on"
 healthcheck_port: 8009
 etcd:
   scope: batman
@@ -8,6 +7,7 @@ etcd:
 postgresql:
   name: postgresql1
   listen: 127.0.0.1:5433
+  connect_address: 127.0.0.1:5433
   data_dir: data/postgresql1
   maximum_lag_on_failover: 1048576 # 1 megabyte in bytes
   replication:

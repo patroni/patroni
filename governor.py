@@ -2,7 +2,6 @@
 
 import logging
 import os
-import requests
 import signal
 import sys
 import threading
@@ -32,23 +31,10 @@ def sigchld_handler(signo, stack_frame):
 
 class Governor:
 
-    INSTANCE_METADATA_URL = "http://169.254.169.254/latest/meta-data/"
-
     def __init__(self, config):
         self.nap_time = config['loop_wait']
         self.etcd = Etcd(config['etcd'])
-        aws_host_address = None
-        if config.get('aws_use_host_address', False):
-            # get host address of the AWS host via a call to
-            # http://169.254.169.254/latest/meta-data/local-ipv4
-            try:
-                response = requests.get(Governor.INSTANCE_METADATA_URL + '/local-ipv4')
-                if response.status_code == 200:
-                    aws_host_address = response.content
-            except:
-                logging.exception('Error retrieiving IPv4 address from AWS instance')
-
-        self.postgresql = Postgresql(config['postgresql'], aws_host_address)
+        self.postgresql = Postgresql(config['postgresql'])
         self.ha = Ha(self.postgresql, self.etcd)
 
     def touch_member(self):
