@@ -38,7 +38,7 @@ class Postgresql:
         self.config = config
 
         self.connection_string = 'postgres://{username}:{password}@{listen}/postgres'.format(
-            listen=self.config['connection_address'], **self.replication)
+            listen=self.config['connect_address'], **self.replication)
 
         self.conn = None
         self.cursor_holder = None
@@ -46,7 +46,7 @@ class Postgresql:
 
     def cursor(self):
         if not self.cursor_holder:
-            self.conn = psycopg2.connect('postgres://{}/postgres'.format(self.config['connection_address']))
+            self.conn = psycopg2.connect('postgres://{}/postgres'.format(self.config['connect_address']))
             self.conn.autocommit = True
             self.cursor_holder = self.conn.cursor()
 
