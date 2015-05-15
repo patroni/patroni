@@ -28,15 +28,15 @@ def parseurl(url):
 
 class Postgresql:
 
-    def __init__(self, config, aws_host_address=None):
+    def __init__(self, config):
         self.name = config['name']
-        self.host, self.port = config['listen'].split(':')
+        host, port = config['connect_address'].split(':')
         self.libpq_parameters = {
-            'host' : aws_host_address or self.host,
-            'port' : self.port,
-            'fallback_application_name' : 'Governor',
-            'connect_timeout' : 5,
-            'options' : '-c statement_timeout=2000'
+            'host': host,
+            'port': port,
+            'fallback_application_name': 'Governor',
+            'connect_timeout': 5,
+            'options': '-c statement_timeout=2000'
         }
         self.data_dir = config['data_dir']
         self.replication = config['replication']
@@ -47,8 +47,8 @@ class Postgresql:
 
         self.config = config
 
-        self.connection_string = 'postgres://{username}:{password}@{host}:{port}/postgres'.format(
-            host=self.libpq_parameters['host'], port=self.port, **self.replication)
+        self.connection_string = 'postgres://{username}:{password}@{connect_address}/postgres'.format(
+            connect_address=self.config['connect_address'], **self.replication)
 
         self.conn = None
         self.cursor_holder = None
@@ -56,7 +56,7 @@ class Postgresql:
 
     def cursor(self):
         if not self.cursor_holder:
-            self.conn = psycopg2.connect('postgres://{}/postgres'.format(self.config['listen']))
+            self.conn = psycopg2.connect(**self.libpq_parameters)
             self.conn.autocommit = True
             self.cursor_holder = self.conn.cursor()
 
@@ -141,7 +141,8 @@ class Postgresql:
         return os.system(self._pg_ctl + ' restart -m fast') == 0
 
     def server_options(self):
-        options = '--listen_addresses={} --port={}'.format(self.host, self.port)
+        host, port = self.config['listen'].split(':')
+        options = '--listen_addresses={} --port={}'.format(host, port)
         for setting, value in self.config['parameters'].items():
             options += " --{}='{}'".format(setting, value)
         return options
@@ -240,13 +241,13 @@ primary_conninfo = '{}'
     def create_connection_users(self):
         if self.superuser:
             if 'username' in self.superuser:
-                self.query("CREATE ROLE \"{0}\" LOGIN SUPERUSER PASSWORD '{1}';".format(
-                    self.superuser["username"], self.superuser["password"]))
+                self.query('CREATE ROLE "{0}" WITH LOGIN SUPERUSER PASSWORD %s'.format(
+                    self.superuser['username']), self.superuser['password'])
             else:
-                self.query("ALTER ROLE postgres PASSWORD '{0}';".format(self.superuser['password']))
+                self.query('ALTER ROLE postgres WITH PASSWORD %s', self.superuser['password'])
         if self.admin:
-            self.query("CREATE ROLE \"{0}\" LOGIN CREATEDB CREATEROLE PASSWORD '{1}';".format(
-                self.admin["username"], self.admin["password"]))
+            self.query('CREATE ROLE "{0}" WITH LOGIN CREATEDB CREATEROLE PASSWORD %s'.format(
+                self.admin['username']), self.admin['password'])
 
     def xlog_position(self):
         return self.query("SELECT pg_last_xlog_replay_location() - '0/0000000'::pg_lsn").fetchone()[0]

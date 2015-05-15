@@ -1,2 +1,3 @@
 PyYAML
 psycopg2
+requests
