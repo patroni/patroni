@@ -144,11 +144,7 @@ class Postgresql:
         return True
 
     def is_healthiest_node(self, last_leader_operation, members):
-        # this should only happen on initialization
-        if last_leader_operation is None:
-            return True
-
-        if last_leader_operation - self.xlog_position() > self.config['maximum_lag_on_failover']:
+        if last_leader_operation and last_leader_operation - self.xlog_position() > self.config['maximum_lag_on_failover']:
             return False
 
         for member in members:
