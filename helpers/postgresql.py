@@ -1,6 +1,7 @@
 import logging
 import os
 import psycopg2
+import subprocess
 import sys
 import time
 
@@ -43,6 +44,7 @@ class Postgresql:
         self.admin = config['admin']
         self.recovery_conf = os.path.join(self.data_dir, 'recovery.conf')
         self._pg_ctl = 'pg_ctl -w -D ' + self.data_dir
+        self._wal_e = 'envdir {} wal-e --aws-instance-profile '.format(os.environ.get('WALE_ENV_DIR', '/home/postgres/etc/wal-e.d/env'))
 
         self.config = config
 
@@ -104,10 +106,81 @@ class Postgresql:
 
         try:
             os.environ['PGPASSFILE'] = pgpass
-            return os.system('pg_basebackup -R -D {data_dir} --host={hostname} --port={port} -U {username}'.format(
-                data_dir=self.data_dir, **r)) == 0
+            return self.create_replica(leader.address, r) == 0
         finally:
             os.environ.pop('PGPASSFILE')
+
+    def create_replica(self, master_connurl, master_connection):
+        """ creates a new replica using either pg_basebackup or WAL-E """
+        if self.should_use_s3_to_create_replica(master_connurl):
+            return self.create_replica_with_s3()
+        else:
+            return self.create_replica_with_pg_basebackup(master_connection)
+
+    def create_replica_with_pg_basebackup(self, master_connection):
+        return os.system('pg_basebackup -R -D {data_dir} --host={hostname} --port={port} -U {username}'.format(
+                data_dir=self.data_dir, **master_connection))
+
+    def create_replica_with_s3(self):
+        return os.system(self._wal_e + ' backup-fetch {} LATEST'.format(self.data_dir))
+
+    def should_use_s3_to_create_replica(self, master_connurl):
+        """ determine whether it makes sense to use S3 and not pg_basebackup """
+        try:
+            latest_backup = subprocess.check_output(self._wal_e + ' backup-list --detail LATEST')
+            #name    last_modified   expanded_size_bytes wal_segment_backup_start    wal_segment_offset_backup_start wal_segment_backup_stop wal_segment_offset_backup_stop
+            # base_00000001000000000000007F_00000040  2015-05-18T10:13:25.000Z    20310671    00000001000000000000007F    00000040    00000001000000000000007F    00000240
+            backup_strings = latest_backup.splitlines() if latest_backup else ()
+            if len(backup_strings) != 2:
+                return False
+
+            names = backup_strings[0].split()
+            vals = backup_strings[1].split()
+            if (len(names) != len(vals)) or (len(names) != 7):
+                return False
+
+            backup_info = dict(zip(names, vals))
+        except subprocess.CalledProcessError as e:
+            logger.error("could not query wal-e latest backup: {}".format(e))
+            return False
+
+        try:
+            backup_size = backup_info['expanded_size_bytes']
+            backup_start_segment = backup_info['wal_segment_backup_start']
+            backup_start_offset = backup_info('wal_segment_offset_backup_start')
+        except Exception as e:
+            logger.error("unable to get some of S3 backup parameters: {}".format(e))
+            return False
+
+        # WAL filename is XXXXXXXXYYYYYYYY000000ZZ, where X - timeline, Y - LSN logical log file,
+        # ZZ - 2 high digits of LSN offset. The rest of the offset is the provided decimal offset,
+        # that we have to convert to hex and 'prepend' to the high offset digits.
+
+        lsn_segment = backup_start_segment[8:16]
+        lsn_offset = hex(int(backup_start_segment[16:32], 16) << 24 + backup_start_offset)[2:]
+
+        # construct the LSN from the segment and offset
+        backup_start_lsn = '{}/{}'.format(lsn_segment, lsn_offset)
+
+        conn = None
+        cursor = None
+        diff_in_bytes = backup_size
+        try:
+            # get the difference in bytes between the current WAL location and the backup start offset
+            conn = psycopg2.connect(master_connurl)
+            conn.autocommit = True
+            cursor = conn.cursor()
+            cursor.execute("SELECT pg_xlog_location_diff(pg_current_xlog_location(), %s)", (backup_start_lsn,))
+            diff_in_bytes = long(cursor.fetchone()[0])
+        except psycopg2.Error as e:
+            logger.error('could not determine difference with the master location: {}'.format(e))
+            return False
+        finally:
+            cursor and cursor.close()
+            conn and conn.close()
+
+        # if the size of the accumulated WAL segments is more than 5% of the backup size - we should use the pg_basebackup
+        return diff_in_bytes < long(backup_size) * 0.05
 
     def is_leader(self):
         return not self.query('SELECT pg_is_in_recovery()').fetchone()[0]
