@@ -92,7 +92,6 @@ class Etcd:
                     node = self.find_node(node, '/leader')
                     if node:
                         last_leader_operation = int(node['value'])
-                        print(last_leader_operation)
 
                 # get leader
                 leader = None
