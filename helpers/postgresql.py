@@ -167,6 +167,7 @@ class Postgresql:
                 xlog_diff = member_cursor.fetchone()[0]
                 logger.info([self.name, member.hostname, xlog_diff])
                 member_cursor.close()
+                member_conn.close()
                 if xlog_diff < 0:
                     return False
             except psycopg2.OperationalError:
