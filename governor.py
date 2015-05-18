@@ -60,6 +60,8 @@ class Governor:
                         self.postgresql.start()
                         break
                     time.sleep(5)
+        elif self.postgresql.is_running():
+            self.postgresql.load_replication_slots()
 
     def run(self):
         while True:
