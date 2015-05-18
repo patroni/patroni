@@ -79,7 +79,7 @@ class Postgresql:
         return not os.path.exists(self.data_dir) or os.listdir(self.data_dir) == []
 
     def initialize(self):
-        ret = os.system(self._pg_ctl + ' initdb') == 0
+        ret = os.system(self._pg_ctl + ' initdb -o --encoding=UTF8') == 0
         ret and self.write_pg_hba()
         return ret
 
