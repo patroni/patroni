@@ -58,6 +58,29 @@ For an example file, see `postgres0.yml`.  Below is an explanation of settings:
   * *recovery_conf*: configuration settings written to recovery.conf when configuring follower
   * *parameters*: list of configuration settings for Postgres
 
+## Replication choices
+
+Governor uses Postgres' streaming replication.  By default, this replication is asynchronous.  For more information, see the [Postgres documentation on streaming replication](http://www.postgresql.org/docs/current/static/warm-standby.html#STREAMING-REPLICATION). 
+
+Governor's asynchronous replication configuration allows for `maximum_lag_on_failover` settings. This setting ensures replication will not occur if a follower is more than a certain number of bytes behind the follower.  This setting should be increased or decreased based on business requirements.
+
+When asynchronous replication is not best for your use-case, investigate how Postgres's [synchronous replication](http://www.postgresql.org/docs/current/static/warm-standby.html#SYNCHRONOUS-REPLICATION) works.  Synchronous replication ensures consistency across a cluster by confirming that writes are written to a secondary before returning to the connecting client with a success.  The cost of synchronous replication will be reduced throughput on writes.  This throughput will be entirely based on network performance.  In hosted datacenter environments (like AWS, Rackspace, or any network you do not control), synchrous replication increases the variability of write performance significantly.  If followers become inaccessible from the leader, the leader will becomes effectively readonly.
+
+To enable a simple synchronous replication test, add the follow lines to the `parameters` section of your YAML configuration files.
+
+```YAML
+    synchronous_commit: "on"
+    synchronous_standby_names: "*"
+```
+
+When using synchronous replication, use at least a 3-Postgres data nodes to ensure write availability if one host fails.
+
+Choosing your replication schema is dependent on the many business decisions.  Investigate both async and sync replication, as well as other HA solutions, to determine which solution is best for you.
+
+## Applications should not use superusers
+
+When connecting from an application, always use a non-superuser. Governor requires access to the database to function properly.  By using a superuser from application, you can potentially use the entire connection pool, including the connections reserved for superusers with the `superuser_reserved_connections` setting. If Governor cannot access the Primary, because the connection pool is full, behavior will be undesireable.
+
 ## Requirements on a Mac
 
 Run the following on a Mac to install requirements:
