@@ -54,6 +54,7 @@ class Governor:
                 self.etcd.take_leader(self.postgresql.name)
                 self.postgresql.start()
                 self.postgresql.create_replication_user()
+                self.postgresql.create_connection_users()
             else:
                 while True:
                     leader = self.etcd.current_leader()
