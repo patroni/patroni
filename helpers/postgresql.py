@@ -1,7 +1,6 @@
 import logging
 import os
 import psycopg2
-import re
 import sys
 import time
 
@@ -30,9 +29,9 @@ class Postgresql:
 
     def __init__(self, config):
         self.name = config['name']
-        self.host, self.port = config['listen'].split(':')
+        self.listen_addresses, self.port = config['listen'].split(':')
         self.libpq_parameters = {
-            'host': self.host,
+            'host': self.listen_addresses.split(',')[0].strip(),
             'port': self.port,
             'fallback_application_name': 'Governor',
             'connect_timeout': 5,
@@ -141,7 +140,7 @@ class Postgresql:
         return os.system(self._pg_ctl + ' restart -m fast') == 0
 
     def server_options(self):
-        options = '--listen_addresses={} --port={}'.format(self.host, self.port)
+        options = "--listen_addresses='{}' --port={}".format(self.listen_addresses, self.port)
         for setting, value in self.config['parameters'].items():
             options += " --{}='{}'".format(setting, value)
         return options
@@ -152,11 +151,11 @@ class Postgresql:
             return False
         return True
 
-    def is_healthiest_node(self, last_leader_operation, members):
-        if (last_leader_operation or 0) - self.xlog_position() > self.config.get('maximum_lag_on_failover', 0):
+    def is_healthiest_node(self, cluster):
+        if cluster.last_leader_operation - self.xlog_position() > self.config.get('maximum_lag_on_failover', 0):
             return False
 
-        for member in members:
+        for member in cluster.members:
             if member.hostname == self.name:
                 continue
             try:
@@ -167,18 +166,13 @@ class Postgresql:
                     "SELECT %s - (pg_last_xlog_replay_location() - '0/0000000'::pg_lsn)", (self.xlog_position(), ))
                 xlog_diff = member_cursor.fetchone()[0]
                 logger.info([self.name, member.hostname, xlog_diff])
-                if xlog_diff < 0:
-                    member_cursor.close()
-                    return False
                 member_cursor.close()
+                member_conn.close()
+                if xlog_diff < 0:
+                    return False
             except psycopg2.OperationalError:
                 continue
         return True
-
-    def replication_slot_name(self):
-        member = os.environ.get("MEMBER")
-        (member, _) = re.subn(r'[^a-z0-9]+', r'_', member)
-        return member
 
     def write_pg_hba(self):
         with open(os.path.join(self.data_dir, 'pg_hba.conf'), 'a') as f:
