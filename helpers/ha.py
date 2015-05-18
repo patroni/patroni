@@ -1,5 +1,4 @@
 import logging
-import time
 
 from helpers.errors import EtcdError, HealthiestMemberError
 from psycopg2 import OperationalError
@@ -50,7 +49,7 @@ class Ha:
                 self.load_cluster_from_etcd()
 
             if self.is_unlocked():
-                if self.state_handler.is_healthiest_node(self.etcd.last_leader_operation(), self.cluster.members):
+                if self.state_handler.is_healthiest_node(self.cluster):
                     if self.acquire_lock():
                         if not self.state_handler.is_leader():
                             self.state_handler.promote()
@@ -97,8 +96,3 @@ class Ha:
             logger.error('Error communicating with Postgresql.  Will try again')
         except HealthiestMemberError:
             logger.error('failed to determine healthiest member fromt etcd')
-
-    def run(self):
-        while True:
-            self.run_cycle()
-            time.sleep(10)

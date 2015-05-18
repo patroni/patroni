@@ -8,14 +8,8 @@ from helpers.errors import CurrentLeaderError, EtcdError
 logger = logging.getLogger(__name__)
 
 
-class Member(namedtuple('Member', 'hostname,address')):
-
-    pass
-
-
-class Cluster(namedtuple('Cluster', 'leader,members')):
-
-    pass
+Member = namedtuple('Member', 'hostname,address,ttl')
+Cluster = namedtuple('Cluster', 'leader,last_leader_operation,members')
 
 
 class Etcd:
@@ -87,21 +81,32 @@ class Etcd:
         try:
             response, status_code = self.get_client_path('?recursive=true')
             if status_code == 200:
-                leader = None
-                members = self.find_node(response['node'], '/members')
-                members = [Member(n['key'].split('/')[-1], n['value']) for n in members['nodes']] if members else []
+                # get list of members
+                node = self.find_node(response['node'], '/members') or {'nodes': []}
+                members = [Member(n['key'].split('/')[-1], n['value'], n.get('ttl', None)) for n in node['nodes']]
 
-                leader_node = self.find_node(response['node'], '/leader')
-                if leader_node:
+                # get last leader operation
+                last_leader_operation = 0
+                node = self.find_node(response['node'], '/optime')
+                if node:
+                    node = self.find_node(node, '/leader')
+                    if node:
+                        last_leader_operation = int(node['value'])
+
+                # get leader
+                leader = None
+                node = self.find_node(response['node'], '/leader')
+                if node:
                     for m in members:
-                        if m.hostname == leader_node['value']:
+                        if m.hostname == node['value']:
                             leader = m
                             break
                     if not leader:
-                        leader = Member(leader['value'], None)
-                return Cluster(leader, members)
+                        leader = Member(leader['value'], None, None)
+
+                return Cluster(leader, last_leader_operation, members)
             elif status_code == 404:
-                return Cluster(None, [])
+                return Cluster(None, None, [])
         except:
             logger.exception('get_cluster')
 
@@ -134,16 +139,6 @@ class Etcd:
 
     def race(self, path, value):
         return self.put_client_path(path, value=value, prevExist=False)
-
-    def last_leader_operation(self):
-        try:
-            response, status_code = self.get_client_path('/optime/leader')
-            if status_code == 404:
-                return None
-            return int(response['node']['value'])
-        except:
-            logger.exception('last_leader_operation')
-        raise EtcdError('Etcd is not responding properly')
 
     def delete_member(self, member):
         return self.delete_client_path('/members/' + member)
