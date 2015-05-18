@@ -30,6 +30,7 @@ class Postgresql:
 
     def __init__(self, config):
         self.name = config['name']
+        self.listen_addresses, self.port = config['listen'].split(':')
         self.data_dir = config['data_dir']
         self.replication = config['replication']
         self.recovery_conf = os.path.join(self.data_dir, 'recovery.conf')
@@ -46,7 +47,8 @@ class Postgresql:
 
     def cursor(self):
         if not self.cursor_holder:
-            self.conn = psycopg2.connect('postgres://{}/postgres'.format(self.config['listen']))
+            self.conn = psycopg2.connect('postgres://{}:{}/postgres'.format(
+                self.listen_addresses.split(',')[0].strip(), self.port))
             self.conn.autocommit = True
             self.cursor_holder = self.conn.cursor()
 
@@ -131,8 +133,7 @@ class Postgresql:
         return os.system(self._pg_ctl + ' restart -m fast') == 0
 
     def server_options(self):
-        host, port = self.config['listen'].split(':')
-        options = '--listen_addresses={} --port={}'.format(host, port)
+        options = "--listen_addresses='{}' --port={}".format(self.listen_addresses, self.port)
         for setting, value in self.config['parameters'].items():
             options += " --{}='{}'".format(setting, value)
         return options
