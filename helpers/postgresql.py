@@ -1,6 +1,7 @@
 import logging
 import os
 import psycopg2
+import shutil
 import subprocess
 import sys
 import time
@@ -43,6 +44,7 @@ class Postgresql:
         self.superuser = config['superuser']
         self.admin = config['admin']
         self.recovery_conf = os.path.join(self.data_dir, 'recovery.conf')
+        self.postgresql_conf = os.path.join(self.data_dir, 'postgresql.conf')
         self._pg_ctl = 'pg_ctl -w -D ' + self.data_dir
         self._wal_e = 'envdir {} wal-e --aws-instance-profile '.format(os.environ.get('WALE_ENV_DIR', '/home/postgres/etc/wal-e.d/env'))
 
@@ -89,7 +91,8 @@ class Postgresql:
         return not os.path.exists(self.data_dir) or os.listdir(self.data_dir) == []
 
     def initialize(self):
-        if os.system(self._pg_ctl + ' initdb -o --encoding=UTF8') == 0:
+        if os.system(self._pg_ctl + ' initdb') == 0:
+            self.save_postgresql_conf()
             self.write_pg_hba()
 
             return True
@@ -122,7 +125,10 @@ class Postgresql:
                 data_dir=self.data_dir, **master_connection))
 
     def create_replica_with_s3(self):
-        return os.system(self._wal_e + ' backup-fetch {} LATEST'.format(self.data_dir))
+        ret = os.system(self._wal_e + ' backup-fetch {} LATEST'.format(self.data_dir))
+        self.restore_postgresql_conf()
+        return ret
+
 
     def should_use_s3_to_create_replica(self, master_connurl):
         """ determine whether it makes sense to use S3 and not pg_basebackup """
@@ -295,6 +301,20 @@ primary_conninfo = '{}'
             return
         self.write_recovery_conf(leader)
         self.restart()
+
+    def save_posgresql_conf(self):
+        """
+            copy postgresql.conf to postgresql.conf.backup to preserve it in the WAL-e backup.
+            see http://comments.gmane.org/gmane.comp.db.postgresql.wal-e/239
+        """
+        shutil.copy(self.postgresql_conf, self.postgresql_conf+'.backup')
+
+    def restore_postgresql_conf(self):
+        """ restore a previously saved postgresql.conf """
+        try:
+            shutil.copy(self.postgresql_conf+'.backup', self.postgresql_conf)
+        except Exception as e:
+            logger.error("unable to restore postgresql.conf from WAL-E backup: {}".format(e))
 
     def promote(self):
         return os.system(self._pg_ctl + ' promote') == 0
