@@ -179,8 +179,9 @@ class Postgresql:
             f.write('host replication {username} {network} md5'.format(**self.replication))
             # allow TCP connections from the host's own address
             f.write("\nhost postgres postgres samehost trust\n")
-            # allow TCP connections from the rest of the world with a password
-            f.write("\nhost all all 0.0.0.0/0 md5\n")
+            # allow TCP connections from the rest of the world with a password, prefer ssl
+            f.write("\nhostssl all all 0.0.0.0/0 md5\n")
+            f.write("\nhost    all all 0.0.0.0/0 md5\n")
 
     @staticmethod
     def primary_conninfo(leader_url):
