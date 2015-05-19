@@ -158,14 +158,15 @@ class Postgresql:
         # that we have to convert to hex and 'prepend' to the high offset digits.
 
         lsn_segment = backup_start_segment[8:16]
-        lsn_offset = hex(int(backup_start_segment[16:32], 16) << 24 + backup_start_offset)[2:]
+        # first 2 characters of the result are 0x and the last one is L
+        lsn_offset = hex((long(backup_start_segment[16:32], 16) << 24) + long(backup_start_offset))[2:-1]
 
         # construct the LSN from the segment and offset
         backup_start_lsn = '{}/{}'.format(lsn_segment, lsn_offset)
 
         conn = None
         cursor = None
-        diff_in_bytes = backup_size
+        diff_in_bytes = long(backup_size)
         try:
             # get the difference in bytes between the current WAL location and the backup start offset
             conn = psycopg2.connect(master_connurl)
