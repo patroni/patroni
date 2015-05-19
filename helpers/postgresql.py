@@ -44,7 +44,7 @@ class Postgresql:
         self.superuser = config['superuser']
         self.admin = config['admin']
         self.recovery_conf = os.path.join(self.data_dir, 'recovery.conf')
-        self.postgresql_conf = os.path.join(self.data_dir, 'postgresql.conf')
+        self.configuration_to_save = (os.path.join(self.data_dir, 'pg_hba.conf'), os.path.join(self.data_dir, 'postgresql.conf'))
         self._pg_ctl = 'pg_ctl -w -D ' + self.data_dir
         self._wal_e = 'envdir {} wal-e --aws-instance-profile '.format(os.environ.get('WALE_ENV_DIR', '/home/postgres/etc/wal-e.d/env'))
 
@@ -125,8 +125,7 @@ class Postgresql:
 
     def create_replica_with_s3(self):
         ret = os.system(self._wal_e + ' backup-fetch {} LATEST'.format(self.data_dir))
-        self.restore_postgresql_conf()
-        self.write_pg_hba()
+        self.restore_configuration_files()
         return ret
 
 
@@ -208,7 +207,7 @@ class Postgresql:
 
         ret = os.system(self._pg_ctl + ' start -o "{}"'.format(self.server_options())) == 0
         ret and self.load_replication_slots()
-        self.save_postgresql_conf()
+        self.save_configuration_files()
         return ret
 
     def stop(self):
@@ -303,19 +302,21 @@ primary_conninfo = '{}'
         self.write_recovery_conf(leader)
         self.restart()
 
-    def save_postgresql_conf(self):
+    def save_configuration_files(self):
         """
             copy postgresql.conf to postgresql.conf.backup to preserve it in the WAL-e backup.
             see http://comments.gmane.org/gmane.comp.db.postgresql.wal-e/239
         """
-        shutil.copy(self.postgresql_conf, self.postgresql_conf+'.backup')
+        for f in self.configuration_to_save:
+            shutil.copy(f, f+'.backup')
 
-    def restore_postgresql_conf(self):
+    def restore_configuration_files(self):
         """ restore a previously saved postgresql.conf """
         try:
-            shutil.copy(self.postgresql_conf+'.backup', self.postgresql_conf)
+            for f in self.configuration_to_save:
+                shutil.copy(f+'.backup', f)
         except Exception as e:
-            logger.error("unable to restore postgresql.conf from WAL-E backup: {}".format(e))
+            logger.error("unable to restore configuration from WAL-E backup: {}".format(e))
 
     def promote(self):
         return os.system(self._pg_ctl + ' promote') == 0
