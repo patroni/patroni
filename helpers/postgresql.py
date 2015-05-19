@@ -93,7 +93,6 @@ class Postgresql:
 
     def initialize(self):
         if os.system(self._pg_ctl + ' initdb') == 0:
-            self.save_postgresql_conf()
             self.write_pg_hba()
 
             return True
@@ -209,6 +208,7 @@ class Postgresql:
 
         ret = os.system(self._pg_ctl + ' start -o "{}"'.format(self.server_options())) == 0
         ret and self.load_replication_slots()
+        self.save_postgresql_conf()
         return ret
 
     def stop(self):
