@@ -148,7 +148,7 @@ class Postgresql:
         try:
             backup_size = backup_info['expanded_size_bytes']
             backup_start_segment = backup_info['wal_segment_backup_start']
-            backup_start_offset = backup_info('wal_segment_offset_backup_start')
+            backup_start_offset = backup_info['wal_segment_offset_backup_start']
         except Exception as e:
             logger.error("unable to get some of S3 backup parameters: {}".format(e))
             return False
