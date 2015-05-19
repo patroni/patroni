@@ -116,9 +116,11 @@ class Postgresql:
     def create_replica(self, master_connurl, master_connection):
         """ creates a new replica using either pg_basebackup or WAL-E """
         if self.should_use_s3_to_create_replica(master_connurl):
-            return self.create_replica_with_s3()
-        else:
-            return self.create_replica_with_pg_basebackup(master_connection)
+            result = self.create_replica_with_s3()
+            # if restore from the backup on S3 failed - try with the pg_basebackup
+            if result == 0:
+                return result
+        return self.create_replica_with_pg_basebackup(master_connection)
 
     def create_replica_with_pg_basebackup(self, master_connection):
         return os.system('pg_basebackup -R -D {data_dir} --host={hostname} --port={port} -U {username}'.format(
