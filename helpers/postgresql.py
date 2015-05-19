@@ -127,7 +127,7 @@ class Postgresql:
     def should_use_s3_to_create_replica(self, master_connurl):
         """ determine whether it makes sense to use S3 and not pg_basebackup """
         try:
-            latest_backup = subprocess.check_output(self._wal_e + ' backup-list --detail LATEST')
+            latest_backup = subprocess.check_output(self._wal_e.split() + ['backup-list', '--detail', 'LATEST'])
             #name    last_modified   expanded_size_bytes wal_segment_backup_start    wal_segment_offset_backup_start wal_segment_backup_stop wal_segment_offset_backup_stop
             # base_00000001000000000000007F_00000040  2015-05-18T10:13:25.000Z    20310671    00000001000000000000007F    00000040    00000001000000000000007F    00000240
             backup_strings = latest_backup.splitlines() if latest_backup else ()
