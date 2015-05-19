@@ -307,7 +307,7 @@ primary_conninfo = '{}'
         self.write_recovery_conf(leader)
         self.restart()
 
-    def save_posgresql_conf(self):
+    def save_postgresql_conf(self):
         """
             copy postgresql.conf to postgresql.conf.backup to preserve it in the WAL-e backup.
             see http://comments.gmane.org/gmane.comp.db.postgresql.wal-e/239
