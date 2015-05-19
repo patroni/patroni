@@ -127,6 +127,7 @@ class Postgresql:
     def create_replica_with_s3(self):
         ret = os.system(self._wal_e + ' backup-fetch {} LATEST'.format(self.data_dir))
         self.restore_postgresql_conf()
+        self.write_pg_hba()
         return ret
 
 
@@ -187,7 +188,7 @@ class Postgresql:
             conn and conn.close()
 
         # if the size of the accumulated WAL segments is more than 5% of the backup size - we should use the pg_basebackup
-        return diff_in_bytes < long(backup_size) * 0.05
+        return True or (diff_in_bytes < long(backup_size) * 0.05)
 
     def is_leader(self):
         return not self.query('SELECT pg_is_in_recovery()').fetchone()[0]
