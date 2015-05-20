@@ -7,8 +7,16 @@ from helpers.etcd import Cluster, Member
 from helpers.postgresql import Postgresql
 
 
+def nop(*args, **kwargs):
+    pass
+
+
 def os_system(cmd):
     return 0
+
+
+def false(*args, **kwargs):
+    return False
 
 
 class MockCursor:
@@ -75,8 +83,12 @@ class TestPostgresql(unittest.TestCase):
 
     def set_up(self):
         os.system = os_system
-        self.p = Postgresql({'name': 'test0', 'data_dir': 'data/test0', 'listen': '127.0.0.1, 127.0.0.2:5432', 'connect_address': '127.0.0.2:5432', 'replication': {
-                            'username': 'replicator', 'password': 'rep-pass', 'network': '127.0.0.1/32'}, 'parameters': {'foo': 'bar'}, 'recovery_conf': {'foo': 'bar'}})
+        shutil.copy = nop
+        self.p = Postgresql({'name': 'test0', 'data_dir': 'data/test0', 'listen': '127.0.0.1, 127.0.0.2:5432',
+                             'connect_address': '127.0.0.2:5432', 'superuser': {'password': ''},
+                             'admin': {'username': 'admin', 'password': 'admin'}, 'replication': {
+                             'username': 'replicator', 'password': 'rep-pass', 'network': '127.0.0.1/32'},
+                             'parameters': {'foo': 'bar'}, 'recovery_conf': {'foo': 'bar'}})
         psycopg2.connect = psycopg2_connect
         if not os.path.exists(self.p.data_dir):
             os.makedirs(self.p.data_dir)

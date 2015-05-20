@@ -52,6 +52,7 @@ class TestGovernor(unittest.TestCase):
         with open('postgres0.yml', 'r') as f:
             config = yaml.load(f)
             g = Governor(config)
+            g.postgresql.should_use_s3_to_create_replica = false
             g.etcd.base_client_url = 'http://remote'
             g.etcd.client_url
             g.postgresql.data_directory_empty = true
