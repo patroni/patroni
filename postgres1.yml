@@ -21,6 +21,10 @@ postgresql:
     password: admin
   #recovery_conf:
     #restore_command: cp ../wal_archive/%f %p
+  wal_e:
+    env_dir: /home/postgres/etc/wal-e.d/env
+    threshold_megabytes: 10240
+    threshold_backup_size_percentage: 30
   parameters:
     archive_mode: "on"
     wal_level: hot_standby

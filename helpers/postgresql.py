@@ -44,9 +44,13 @@ class Postgresql:
         self.superuser = config['superuser']
         self.admin = config['admin']
         self.recovery_conf = os.path.join(self.data_dir, 'recovery.conf')
-        self.configuration_to_save = (os.path.join(self.data_dir, 'pg_hba.conf'), os.path.join(self.data_dir, 'postgresql.conf'))
+        self.configuration_to_save = (os.path.join(self.data_dir, 'pg_hba.conf'),
+                                      os.path.join(self.data_dir, 'postgresql.conf'))
         self._pg_ctl = 'pg_ctl -w -D ' + self.data_dir
-        self._wal_e = 'envdir {} wal-e --aws-instance-profile '.format(os.environ.get('WALE_ENV_DIR', '/home/postgres/etc/wal-e.d/env'))
+        self.wal_e = config.get('wal_e', None)
+        if self.wal_e:
+            self.wal_e_path = 'envdir {} wal-e --aws-instance-profile '.\
+                               format(self.wal_e.get('env_dir', '/home/postgres/etc/wal-e.d/env'))
 
         self.config = config
 
@@ -126,15 +130,23 @@ class Postgresql:
                 data_dir=self.data_dir, **master_connection))
 
     def create_replica_with_s3(self):
-        ret = os.system(self._wal_e + ' backup-fetch {} LATEST'.format(self.data_dir))
+        if not self.wal_e or not self.wal_e_path:
+            return 1
+
+        ret = os.system(self.wal_e_path + ' backup-fetch {} LATEST'.format(self.data_dir))
         self.restore_configuration_files()
         return ret
 
-
     def should_use_s3_to_create_replica(self, master_connurl):
         """ determine whether it makes sense to use S3 and not pg_basebackup """
+        if not self.wal_e or not self.wal_e_path:
+            return False
+
+        threshold_megabytes = self.wal_e.get('threshold_megabytes', 10240)
+        threshold_backup_size_percentage = self.wal_e.get('threshold_backup_size_percentage', 30)
+
         try:
-            latest_backup = subprocess.check_output(self._wal_e.split() + ['backup-list', '--detail', 'LATEST'])
+            latest_backup = subprocess.check_output(self.wal_e_path.split() + ['backup-list', '--detail', 'LATEST'])
             #name    last_modified   expanded_size_bytes wal_segment_backup_start    wal_segment_offset_backup_start wal_segment_backup_stop wal_segment_offset_backup_stop
             # base_00000001000000000000007F_00000040  2015-05-18T10:13:25.000Z    20310671    00000001000000000000007F    00000040    00000001000000000000007F    00000240
             backup_strings = latest_backup.splitlines() if latest_backup else ()
@@ -187,8 +199,10 @@ class Postgresql:
             cursor and cursor.close()
             conn and conn.close()
 
-        # if the size of the accumulated WAL segments is more than 5% of the backup size - we should use the pg_basebackup
-        return diff_in_bytes < long(backup_size) * 0.05
+        # if the size of the accumulated WAL segments is more than a certan percentage of the backup size
+        # or exceeds the pre-determined size - pg_basebackup is chosen instead.
+        return (diff_in_bytes < long(threshold_megabytes) * 1048576) and\
+               (diff_in_bytes < long(backup_size) * float(threshold_backup_size_percentage)/100)
 
     def is_leader(self):
         return not self.query('SELECT pg_is_in_recovery()').fetchone()[0]
