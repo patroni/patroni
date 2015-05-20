@@ -1,14 +1,19 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 import json
+import sys
+
+if sys.hexversion >= 0x03000000:
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+else:
+    from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 
 
 class StatusPage(BaseHTTPRequestHandler):
 
     def do_GET(self):
-        content_type='text/plain'
+        content_type = 'text/plain'
         if self.path == '/pg_master':
             if not self.pg_is_in_recovery():
                 response, content = 200, 'I am currently a master'
@@ -67,7 +72,7 @@ if __name__ == '__main__':
     logging.basicConfig(format='%(levelname)-6s %(asctime)s - %(message)s', level=logging.DEBUG)
     logging.debug('Starting as a standalone application')
 
-    # # Create a dummy configuration to be able to use the Postgresql class
+    # Create a dummy configuration to be able to use the Postgresql class
     from postgresql import Postgresql
     postgres_config = {
         'name': 'dummy',
