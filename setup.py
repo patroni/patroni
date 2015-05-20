@@ -12,8 +12,8 @@ import setuptools
 from setuptools.command.test import test as TestCommand
 from setuptools import setup
 
-if sys.version_info < (2, 6, 0):
-    sys.stderr.write('FATAL: governor needs to be run with Python 2.6+\n')
+if sys.version_info < (2, 7, 0):
+    sys.stderr.write('FATAL: governor needs to be run with Python 2.7+\n')
     sys.exit(1)
 
 __location__ = os.path.join(os.getcwd(), os.path.dirname(inspect.getfile(inspect.currentframe())))
@@ -25,9 +25,6 @@ HELPERS = 'helpers'
 VERSION = '0.1'
 DESCRIPTION = 'A Template for PostgreSQL HA with etcd'
 LICENSE = 'The MIT License'
-URL = 'https://github.com/zalando/governor'
-AUTHOR = 'Alexander Kukushkin'
-EMAIL = 'alexander.kukushkins@zalando.de'
 
 COVERAGE_XML = True
 COVERAGE_HTML = False
@@ -43,16 +40,11 @@ CLASSIFIERS = [
     'License :: OSI Approved :: The MIT License',
     'Operating System :: POSIX :: Linux',
     'Programming Language :: Python',
-    'Programming Language :: Python :: 2',
-    'Programming Language :: Python :: 2.6',
     'Programming Language :: Python :: 2.7',
-    'Programming Language :: Python :: 3',
     'Programming Language :: Python :: 3.3',
     'Programming Language :: Python :: 3.4',
     'Programming Language :: Python :: Implementation :: CPython',
 ]
-
-CONSOLE_SCRIPTS = ['governor = governor:main']
 
 
 class PyTest(TestCommand):
@@ -102,18 +94,6 @@ def read(fname):
     return open(os.path.join(__location__, fname)).read()
 
 
-def check_deps(deps):
-    '''check dependency licenses'''
-    from pkg_resources import Requirement
-    import requests
-    for dep in deps:
-        dep = Requirement.parse(dep)
-        url = 'https://pypi.python.org/pypi/{}/json'.format(dep.project_name)
-        r = requests.get(url)
-        data = r.json()
-        print(data['info'].get('name'), data['info'].get('license'))
-
-
 def setup_package():
     # Assemble additional setup commands
     cmdclass = {}
@@ -123,8 +103,6 @@ def setup_package():
     version = os.getenv('GO_PIPELINE_LABEL', VERSION)
 
     install_reqs = get_install_requirements('requirements.txt')
-
-    # check_deps(install_reqs)
 
     command_options = {'test': {'test_suite': ('setup.py', 'tests')}}
     if JUNIT_XML:
@@ -137,12 +115,9 @@ def setup_package():
     setup(
         name=NAME,
         version=version,
-        url=URL,
         description=DESCRIPTION,
-        author=AUTHOR,
-        author_email=EMAIL,
         license=LICENSE,
-        keywords='aws docker ec2 elb lb boto deployment route53 stack traffic',
+        keywords='etcd governor postgresql postgres ha',
         long_description=read('README.md'),
         classifiers=CLASSIFIERS,
         test_suite='tests',
@@ -153,7 +128,6 @@ def setup_package():
         cmdclass=cmdclass,
         tests_require=['pytest-cov', 'pytest'],
         command_options=command_options,
-        entry_points={'console_scripts': CONSOLE_SCRIPTS},
     )
 
 
