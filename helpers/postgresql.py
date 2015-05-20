@@ -50,7 +50,7 @@ class Postgresql:
         self.wal_e = config.get('wal_e', None)
         if self.wal_e:
             self.wal_e_path = 'envdir {} wal-e --aws-instance-profile '.\
-                               format(self.wal_e.get('env_dir', '/home/postgres/etc/wal-e.d/env'))
+                format(self.wal_e.get('env_dir', '/home/postgres/etc/wal-e.d/env'))
 
         self.config = config
 
@@ -124,7 +124,7 @@ class Postgresql:
 
     def create_replica_with_pg_basebackup(self, master_connection):
         return os.system('pg_basebackup -R -D {data_dir} --host={hostname} --port={port} -U {username}'.format(
-                data_dir=self.data_dir, **master_connection))
+            data_dir=self.data_dir, **master_connection))
 
     def create_replica_with_s3(self):
         if not self.wal_e or not self.wal_e_path:
@@ -144,8 +144,10 @@ class Postgresql:
 
         try:
             latest_backup = subprocess.check_output(self.wal_e_path.split() + ['backup-list', '--detail', 'LATEST'])
-            #name    last_modified   expanded_size_bytes wal_segment_backup_start    wal_segment_offset_backup_start wal_segment_backup_stop wal_segment_offset_backup_stop
-            # base_00000001000000000000007F_00000040  2015-05-18T10:13:25.000Z    20310671    00000001000000000000007F    00000040    00000001000000000000007F    00000240
+            # name    last_modified   expanded_size_bytes wal_segment_backup_start    wal_segment_offset_backup_start wal_segment_backup_stop wal_segment_offset_backup_stop
+            # base_00000001000000000000007F_00000040  2015-05-18T10:13:25.000Z
+            # 20310671    00000001000000000000007F    00000040
+            # 00000001000000000000007F    00000240
             backup_strings = latest_backup.splitlines() if latest_backup else ()
             if len(backup_strings) != 2:
                 return False
@@ -199,7 +201,7 @@ class Postgresql:
         # if the size of the accumulated WAL segments is more than a certan percentage of the backup size
         # or exceeds the pre-determined size - pg_basebackup is chosen instead.
         return (diff_in_bytes < long(threshold_megabytes) * 1048576) and\
-               (diff_in_bytes < long(backup_size) * float(threshold_backup_size_percentage)/100)
+               (diff_in_bytes < long(backup_size) * float(threshold_backup_size_percentage) / 100)
 
     def is_leader(self):
         return not self.query('SELECT pg_is_in_recovery()').fetchone()[0]
@@ -321,13 +323,13 @@ primary_conninfo = '{}'
             see http://comments.gmane.org/gmane.comp.db.postgresql.wal-e/239
         """
         for f in self.configuration_to_save:
-            shutil.copy(f, f+'.backup')
+            shutil.copy(f, f + '.backup')
 
     def restore_configuration_files(self):
         """ restore a previously saved postgresql.conf """
         try:
             for f in self.configuration_to_save:
-                shutil.copy(f+'.backup', f)
+                shutil.copy(f + '.backup', f)
         except Exception as e:
             logger.error("unable to restore configuration from WAL-E backup: {}".format(e))
 

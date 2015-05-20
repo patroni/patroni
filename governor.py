@@ -84,7 +84,8 @@ def main():
     governor = Governor(config)
 
     # Start the http_server to serve a simple healthcheck
-    http_server = getHTTPServer(governor.postgresql, http_port=config.get('healtcheck_port', 8008), listen_address='0.0.0.0')
+    http_server = getHTTPServer(governor.postgresql, http_port=config.get(
+        'healtcheck_port', 8008), listen_address='0.0.0.0')
     http_thread = threading.Thread(target=http_server.serve_forever, args=())
     http_thread.daemon = True
 
