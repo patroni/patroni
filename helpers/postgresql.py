@@ -95,12 +95,9 @@ class Postgresql:
         return not os.path.exists(self.data_dir) or os.listdir(self.data_dir) == []
 
     def initialize(self):
-        if os.system(self._pg_ctl + ' initdb --encoding=UTF8') == 0:
-            self.write_pg_hba()
-
-            return True
-
-        return False
+        ret = os.system(self._pg_ctl + ' initdb -o --encoding=UTF8') == 0
+        ret and self.write_pg_hba()
+        return ret
 
     def sync_from_leader(self, leader):
         r = parseurl(leader.address)

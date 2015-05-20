@@ -47,7 +47,7 @@ class Etcd:
     def put_client_path(self, path, **data):
         try:
             response = requests.put(self.client_url(path), data=data)
-            return response.status_code in [200, 201]
+            return response.status_code in [200, 201, 202, 204]
         except:
             logger.exception('PUT %s data=%s', path, data)
             return False
@@ -55,7 +55,7 @@ class Etcd:
     def delete_client_path(self, path):
         try:
             response = requests.delete(self.client_url(path))
-            return response.status_code == 204
+            return response.status_code in [200, 202, 204]
         except:
             logger.exception('DELETE %s', path)
             return False
