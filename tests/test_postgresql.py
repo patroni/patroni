@@ -37,9 +37,9 @@ class MockCursor:
         elif sql.startswith('SELECT pg_last_xlog_replay_location()'):
             self.results = [(0,)]
         elif sql.startswith('SELECT pg_is_in_recovery()'):
-            self.results = [(False, )]
+            self.results = [(False, None, None, None, None, None, None, None, None, None)]
         else:
-            self.results = []
+            self.results = [(None, None, None, None, None, None, None, None, None, None)]
 
     def fetchone(self):
         return self.results[0]
