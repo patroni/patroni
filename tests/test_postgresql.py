@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 import os
 import psycopg2
 import unittest
@@ -21,25 +24,48 @@ def false(*args, **kwargs):
 
 class MockCursor:
 
-    def __init__(self):
+    def __init__(self, server):
         self.current = 0
         self.results = []
+        self.server = server
 
     def execute(self, sql, *params):
         if sql.startswith('blabla'):
             raise psycopg2.OperationalError()
         elif sql.startswith('SELECT slot_name'):
-            self.results = [('blabla'), ('foobar')]
+            self.results = [('blabla',), ('foobar',)]
         elif sql.startswith('SELECT pg_current_xlog_location()'):
-            self.results = [(0,)]
+            self.results = [(0, )]
         elif sql.startswith('SELECT %s - (pg_last_xlog_replay_location()'):
-            self.results = [(0,)]
+            self.results = [(0, )]
         elif sql.startswith('SELECT pg_last_xlog_replay_location()'):
-            self.results = [(0,)]
+            self.results = [(0, )]
         elif sql.startswith('SELECT pg_is_in_recovery()'):
-            self.results = [(False, )]
+            self.results = [(
+                self.server.mock_values['mock_recovery'],
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )]
         else:
-            self.results = []
+            self.results = [(
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )]
 
     def fetchone(self):
         return self.results[0]
@@ -56,9 +82,10 @@ class MockConnect:
 
     def __init__(self):
         self.autocommit = False
+        self.mock_values = {'mock_recovery': False}
 
     def cursor(self):
-        return MockCursor()
+        return MockCursor(self)
 
     def close(self):
         if not self.autocommit:
@@ -84,11 +111,17 @@ class TestPostgresql(unittest.TestCase):
     def set_up(self):
         os.system = os_system
         shutil.copy = nop
-        self.p = Postgresql({'name': 'test0', 'data_dir': 'data/test0', 'listen': '127.0.0.1, 127.0.0.2:5432',
-                             'connect_address': '127.0.0.2:5432', 'superuser': {'password': ''},
-                             'admin': {'username': 'admin', 'password': 'admin'}, 'replication': {
-                             'username': 'replicator', 'password': 'rep-pass', 'network': '127.0.0.1/32'},
-                             'parameters': {'foo': 'bar'}, 'recovery_conf': {'foo': 'bar'}})
+        self.p = Postgresql({
+            'name': 'test0',
+            'data_dir': 'data/test0',
+            'listen': '127.0.0.1, 127.0.0.2:5432',
+            'connect_address': '127.0.0.2:5432',
+            'superuser': {'password': ''},
+            'admin': {'username': 'admin', 'password': 'admin'},
+            'replication': {'username': 'replicator', 'password': 'rep-pass', 'network': '127.0.0.1/32'},
+            'parameters': {'foo': 'bar'},
+            'recovery_conf': {'foo': 'bar'},
+        })
         psycopg2.connect = psycopg2_connect
         if not os.path.exists(self.p.data_dir):
             os.makedirs(self.p.data_dir)
@@ -156,3 +189,5 @@ class TestPostgresql(unittest.TestCase):
 
     def test_last_operation(self):
         self.assertEquals(self.p.last_operation(), 0)
+
+
