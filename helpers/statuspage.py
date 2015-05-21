@@ -63,35 +63,3 @@ def getHTTPServer(postgresql, http_port=8081, listen_address='0.0.0.0'):
     server.postgresql = postgresql
 
     return server
-
-def main():
-    import logging
-
-    logging.basicConfig(format='%(levelname)-6s %(asctime)s - %(message)s', level=logging.DEBUG)
-    logging.debug('Starting as a standalone application')
-
-    # Create a dummy configuration to be able to use the Postgresql class
-    from postgresql import Postgresql
-    postgres_config = {
-        'name': 'dummy',
-        'listen': 'localhost:5432',
-        'data_dir': 'nonsense',
-        'replication': {'username': None, 'password': None},
-        'superuser': None,
-        'admin': None,
-    }
-    aws_host_address = None
-    if len(sys.argv) > 1:
-        postgres_config['listen'] = sys.argv[1]
-    postgresql = Postgresql(postgres_config, aws_host_address)
-
-    http_port = 8081
-    if len(sys.argv) > 2:
-        http_port = int(sys.argv[2])
-
-    getHTTPServer(postgresql, http_port, '0.0.0.0').serve_forever()
-    
-
-
-if __name__ == '__main__':
-    main()
