@@ -33,7 +33,7 @@ class MockCursor:
         if sql.startswith('blabla'):
             raise psycopg2.OperationalError()
         elif sql.startswith('SELECT slot_name'):
-            self.results = ['blabla', 'foobar']
+            self.results = [('blabla',), ('foobar',)]
         elif sql.startswith('SELECT pg_current_xlog_location()'):
             self.results = [(0, )]
         elif sql.startswith('SELECT %s - (pg_last_xlog_replay_location()'):
