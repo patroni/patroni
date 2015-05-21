@@ -36,7 +36,3 @@ class MockServer(object):
         self.postgresql = MockConnect()
         self.postgresql.mock_values['mock_recovery'] = mock_recovery
         Handler(MockRequest(path), ip_port, self)
-
-
-if __name__ == '__main__':
-    unittest.main()
