@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/zalando/governor.svg?branch=master)](https://travis-ci.org/zalando/governor)
+[![Coverage Status](https://coveralls.io/repos/zalando/governor/badge.svg?branch=master)](https://coveralls.io/r/zalando/governor?branch=master)
 # Governor: A Template for PostgreSQL HA with etcd
 
 *There are many ways to run high availability with PostgreSQL; here we present a template for you to create your own custom fit high availability solution using etcd and python for maximum accessibility.*
