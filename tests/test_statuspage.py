@@ -2,10 +2,15 @@
 # -*- coding: utf-8 -*-
 
 import unittest
+import sys
 
 from helpers.statuspage import StatusPage
 from test_postgresql import MockConnect
-from StringIO import StringIO as IO
+
+if sys.hexversion >= 0x03000000:
+    from io import BytesIO as IO
+else:
+    from StringIO import StringIO as IO
 
 
 class TestStatusPage(unittest.TestCase):
@@ -28,10 +33,10 @@ class TestStatusPage(unittest.TestCase):
         pass
 
     def test_do_GET(self):
-        self.http_server = MockServer(('0.0.0.0', 8888), StatusPage, '/pg_master')
-        self.http_server = MockServer(('0.0.0.0', 8888), StatusPage, '/pg_slave')
-        self.http_server = MockServer(('0.0.0.0', 8888), StatusPage, '/pg_status')
-        self.http_server = MockServer(('0.0.0.0', 8888), StatusPage, '/not_found')
+        for mock_recovery in [True, False]:
+            for page in [b'GET /pg_master', b'GET /pg_slave', b'GET /pg_status', b'GET /not_found']:
+                self.http_server = MockServer(('0.0.0.0', 8888), StatusPage, page, mock_recovery)
+
 
 class MockRequest(object):
 
@@ -39,13 +44,14 @@ class MockRequest(object):
         self.path = path
 
     def makefile(self, *args, **kwargs):
-        return IO(b"GET " + self.path)
+        return IO(self.path)
 
 
 class MockServer(object):
 
-    def __init__(self, ip_port, Handler, path):
+    def __init__(self, ip_port, Handler, path, mock_recovery=False):
         self.postgresql = MockConnect()
+        self.postgresql.mock_values['mock_recovery'] = mock_recovery
         Handler(MockRequest(path), ip_port, self)
 
 

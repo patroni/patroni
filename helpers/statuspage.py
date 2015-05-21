@@ -33,7 +33,7 @@ class StatusPage(BaseHTTPRequestHandler):
         self.send_response(response)
         self.send_header('Content-Type', content_type)
         self.end_headers()
-        self.wfile.write(content)
+        self.wfile.write(content.encode('utf-8'))
 
     def pg_is_in_recovery(self):
         cursor = self.server.postgresql.cursor()
@@ -64,9 +64,7 @@ def getHTTPServer(postgresql, http_port=8081, listen_address='0.0.0.0'):
 
     return server
 
-
-if __name__ == '__main__':
-    import sys
+def main():
     import logging
 
     logging.basicConfig(format='%(levelname)-6s %(asctime)s - %(message)s', level=logging.DEBUG)
@@ -92,3 +90,8 @@ if __name__ == '__main__':
         http_port = int(sys.argv[2])
 
     getHTTPServer(postgresql, http_port, '0.0.0.0').serve_forever()
+    
+
+
+if __name__ == '__main__':
+    main()
