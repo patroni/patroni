@@ -9,13 +9,19 @@ logger = logging.getLogger(__name__)
 
 
 Member = namedtuple('Member', 'hostname,address,ttl')
-Cluster = namedtuple('Cluster', 'leader,last_leader_operation,members')
+
+
+class Cluster(namedtuple('Cluster', 'leader,last_leader_operation,members')):
+
+    def is_unlocked(self):
+        return not (self.leader and self.leader.hostname)
 
 
 class Etcd:
 
     def __init__(self, config):
         self.ttl = config['ttl']
+        self.member_ttl = config.get('member_ttl', 3600)
         self.base_client_url = 'http://{host}/v2/keys/service/{scope}'.format(**config)
         self.postgres_cluster = None
 
@@ -115,14 +121,12 @@ class Etcd:
     def current_leader(self):
         try:
             cluster = self.get_cluster()
-            if not cluster.leader or not cluster.leader.address:
-                return None
-            return cluster.leader
+            return None if cluster.is_unlocked() else cluster.leader
         except:
             raise CurrentLeaderError("Etcd is not responding properly")
 
     def touch_member(self, member, connection_string):
-        return self.put_client_path('/members/' + member, value=connection_string, ttl=self.ttl)
+        return self.put_client_path('/members/' + member, value=connection_string, ttl=self.member_ttl)
 
     def take_leader(self, value):
         return self.put_client_path('/leader', value=value, ttl=self.ttl)

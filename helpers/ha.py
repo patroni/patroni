@@ -22,9 +22,6 @@ class Ha:
     def update_lock(self):
         return self.etcd.update_leader(self.state_handler)
 
-    def is_unlocked(self):
-        return not (self.cluster.leader and self.cluster.leader.hostname)
-
     def has_lock(self):
         lock_owner = self.cluster.leader and self.cluster.leader.hostname
         logger.info('Lock owner: %s; I am %s', lock_owner, self.state_handler.name)
@@ -48,7 +45,7 @@ class Ha:
                 logging.info('started as readonly because i had the session lock')
                 self.load_cluster_from_etcd()
 
-            if self.is_unlocked():
+            if self.cluster.is_unlocked():
                 if self.state_handler.is_healthiest_node(self.cluster):
                     if self.acquire_lock():
                         if not self.state_handler.is_leader():
@@ -92,6 +89,9 @@ class Ha:
                         return 'no action.  i am a secondary and i am following a leader'
         except EtcdError:
             logger.error('Error communicating with Etcd')
+            if self.state_handler.is_leader():
+                self.state_handler.demote(None)
+                return 'demoted self because etcd is not accessible and i was a leader'
         except OperationalError:
             logger.error('Error communicating with Postgresql.  Will try again')
         except HealthiestMemberError:
