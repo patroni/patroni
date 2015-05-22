@@ -89,6 +89,9 @@ class Ha:
                         return 'no action.  i am a secondary and i am following a leader'
         except EtcdError:
             logger.error('Error communicating with Etcd')
+            if self.state_handler.is_leader():
+                self.state_handler.demote(None)
+                return 'demoted self because etcd is not accessible and i was a leader'
         except OperationalError:
             logger.error('Error communicating with Postgresql.  Will try again')
         except HealthiestMemberError:
