@@ -1,7 +1,7 @@
 import unittest
 import requests
 
-from helpers.etcd import Etcd
+from helpers.etcd import Cluster, Etcd
 from helpers.ha import Ha
 from test_etcd import requests_get, requests_put, requests_delete
 
@@ -50,6 +50,10 @@ class MockPostgresql:
         return 0
 
 
+def nop(*args, **kwargs):
+    pass
+
+
 class TestHa(unittest.TestCase):
 
     def __init__(self, method_name='runTest'):
@@ -63,59 +67,60 @@ class TestHa(unittest.TestCase):
         self.p = MockPostgresql()
         self.e = Etcd({'ttl': 30, 'host': 'remotehost', 'scope': 'test'})
         self.ha = Ha(self.p, self.e)
+        self.ha.cluster = Cluster(None, None, [])
+        self.ha.load_cluster_from_etcd = nop
 
     def test_start_as_slave(self):
         self.p.is_healthy = false
         self.assertEquals(self.ha.run_cycle(), 'started as a secondary')
 
     def test_start_as_readonly(self):
+        self.ha.cluster.is_unlocked = false
         self.p.is_leader = self.p.is_healthy = false
         self.ha.has_lock = true
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader because i had the session lock')
 
     def test_acquire_lock_as_master(self):
-        self.ha.is_unlocked = true
         self.assertEquals(self.ha.run_cycle(), 'acquired session lock as a leader')
 
     def test_promoted_by_acquiring_lock(self):
-        self.ha.is_unlocked = true
         self.p.is_leader = false
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
 
     def test_demote_after_failing_to_obtain_lock(self):
-        self.ha.is_unlocked = true
         self.ha.acquire_lock = false
         self.assertEquals(self.ha.run_cycle(), 'demoted self due after trying and failing to obtain lock')
 
     def test_follow_new_leader_after_failing_to_obtain_lock(self):
-        self.ha.is_unlocked = true
         self.ha.acquire_lock = false
         self.p.is_leader = false
         self.assertEquals(self.ha.run_cycle(), 'following new leader after trying and failing to obtain lock')
 
     def test_demote_because_not_healthiest(self):
-        self.ha.is_unlocked = true
         self.p.is_healthiest_node = false
         self.assertEquals(self.ha.run_cycle(), 'demoting self because i am not the healthiest node')
 
     def test_follow_new_leader_because_not_healthiest(self):
-        self.ha.is_unlocked = true
         self.p.is_healthiest_node = false
         self.p.is_leader = false
         self.assertEquals(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
 
     def test_promote_because_have_lock(self):
+        self.ha.cluster.is_unlocked = false
         self.ha.has_lock = true
         self.p.is_leader = false
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader because i had the session lock')
 
     def test_leader_with_lock(self):
+        self.ha.cluster.is_unlocked = false
         self.ha.has_lock = true
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
 
     def test_demote_because_not_having_lock(self):
+        self.ha.cluster.is_unlocked = false
         self.assertEquals(self.ha.run_cycle(), 'demoting self because i do not have the lock and i was a leader')
 
     def test_follow_the_leader(self):
+        self.ha.cluster.is_unlocked = false
         self.p.is_leader = false
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am a secondary and i am following a leader')

@@ -9,7 +9,12 @@ logger = logging.getLogger(__name__)
 
 
 Member = namedtuple('Member', 'hostname,address,ttl')
-Cluster = namedtuple('Cluster', 'leader,last_leader_operation,members')
+
+
+class Cluster(namedtuple('Cluster', 'leader,last_leader_operation,members')):
+
+    def is_unlocked(self):
+        return not (self.leader and self.leader.hostname)
 
 
 class Etcd:
@@ -115,9 +120,7 @@ class Etcd:
     def current_leader(self):
         try:
             cluster = self.get_cluster()
-            if not cluster.leader or not cluster.leader.address:
-                return None
-            return cluster.leader
+            return None if cluster.is_unlocked() else cluster.leader
         except:
             raise CurrentLeaderError("Etcd is not responding properly")
 
