@@ -84,7 +84,6 @@ def main():
         governor.run()
     finally:
         governor.postgresql.stop()
-        governor.etcd.delete_member(governor.postgresql.name)
         governor.etcd.delete_leader(governor.postgresql.name)
 
 
