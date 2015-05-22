@@ -37,8 +37,9 @@ class Postgresql:
 
         self.config = config
 
+        connect_address = config.get('connect_address', config['listen']) or config['listen']
         self.connection_string = 'postgres://{username}:{password}@{connect_address}/postgres'.format(
-            connect_address=self.config['connect_address'], **self.replication)
+            connect_address=connect_address, **self.replication)
 
         self.conn = None
         self.cursor_holder = None
