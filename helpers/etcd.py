@@ -21,6 +21,7 @@ class Etcd:
 
     def __init__(self, config):
         self.ttl = config['ttl']
+        self.member_ttl = config.get('member_ttl', 3600)
         self.base_client_url = 'http://{host}/v2/keys/service/{scope}'.format(**config)
         self.postgres_cluster = None
 
@@ -125,7 +126,7 @@ class Etcd:
             raise CurrentLeaderError("Etcd is not responding properly")
 
     def touch_member(self, member, connection_string):
-        return self.put_client_path('/members/' + member, value=connection_string, ttl=self.ttl)
+        return self.put_client_path('/members/' + member, value=connection_string, ttl=self.member_ttl)
 
     def take_leader(self, value):
         return self.put_client_path('/leader', value=value, ttl=self.ttl)
