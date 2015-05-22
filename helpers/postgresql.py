@@ -165,7 +165,7 @@ class Postgresql:
 
     def write_pg_hba(self):
         with open(os.path.join(self.data_dir, 'pg_hba.conf'), 'a') as f:
-            f.write('host replication {username} {network} md5'.format(**self.replication))
+            f.write('\nhost replication {username} {network} md5\n'.format(**self.replication))
 
     @staticmethod
     def primary_conninfo(leader_url):
