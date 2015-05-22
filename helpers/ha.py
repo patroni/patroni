@@ -22,9 +22,6 @@ class Ha:
     def update_lock(self):
         return self.etcd.update_leader(self.state_handler)
 
-    def is_unlocked(self):
-        return not (self.cluster.leader and self.cluster.leader.hostname)
-
     def has_lock(self):
         lock_owner = self.cluster.leader and self.cluster.leader.hostname
         logger.info('Lock owner: %s; I am %s', lock_owner, self.state_handler.name)
@@ -48,7 +45,7 @@ class Ha:
                 logging.info('started as readonly because i had the session lock')
                 self.load_cluster_from_etcd()
 
-            if self.is_unlocked():
+            if self.cluster.is_unlocked():
                 if self.state_handler.is_healthiest_node(self.cluster):
                     if self.acquire_lock():
                         if not self.state_handler.is_leader():

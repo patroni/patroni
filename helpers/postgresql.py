@@ -54,8 +54,9 @@ class Postgresql:
 
         self.config = config
 
+        connect_address = config.get('connect_address', config['listen']) or config['listen']
         self.connection_string = 'postgres://{username}:{password}@{connect_address}/postgres'.format(
-            connect_address=self.config['connect_address'], **self.replication)
+            connect_address=connect_address, **self.replication)
 
         self.conn = None
         self.cursor_holder = None
@@ -271,11 +272,12 @@ class Postgresql:
 
     def write_pg_hba(self):
         with open(os.path.join(self.data_dir, 'pg_hba.conf'), 'a') as f:
-            f.write('host replication {username} {network} md5'.format(**self.replication))
+            f.write('\nhost replication {username} {network} md5\n'.format(**self.replication))
             # allow TCP connections from the host's own address
             f.write("\nhost postgres postgres samehost trust\n")
             # allow TCP connections from the rest of the world with a password, prefer ssl
-            f.write("\nhostssl all all 0.0.0.0/0 md5\n")
+            if self.config['parameters'].get('ssl', 'off').lower() == 'on':
+                f.write("\nhostssl all all 0.0.0.0/0 md5\n")
             f.write("\nhost    all all 0.0.0.0/0 md5\n")
 
     @staticmethod
