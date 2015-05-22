@@ -1,6 +1,7 @@
 import unittest
 import requests
 
+from helpers.errors import EtcdError
 from helpers.etcd import Cluster, Etcd
 from helpers.ha import Ha
 from test_etcd import requests_get, requests_put, requests_delete
@@ -52,6 +53,10 @@ class MockPostgresql:
 
 def nop(*args, **kwargs):
     pass
+
+
+def dead_etcd():
+    raise EtcdError('Etcd is not responding properly')
 
 
 class TestHa(unittest.TestCase):
@@ -124,3 +129,7 @@ class TestHa(unittest.TestCase):
         self.ha.cluster.is_unlocked = false
         self.p.is_leader = false
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am a secondary and i am following a leader')
+
+    def test_no_etcd_connection_master_demote(self):
+        self.ha.load_cluster_from_etcd = dead_etcd
+        self.assertEquals(self.ha.run_cycle(), 'demoted self because etcd is not accessible and i was a leader')
