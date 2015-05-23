@@ -11,9 +11,18 @@ def os_system(cmd):
     return 0
 
 
+def false(*args, **kwargs):
+    return False
+
+
+def xlog_position():
+    return 1
+
+
 class MockCursor:
 
     def __init__(self):
+        self.closed = 0
         self.current = 0
         self.results = []
 
@@ -21,15 +30,19 @@ class MockCursor:
         if sql.startswith('blabla'):
             raise psycopg2.OperationalError()
         elif sql.startswith('SELECT slot_name'):
-            self.results = [('blabla'), ('foobar')]
+            self.results = [('blabla',), ('foobar',)]
         elif sql.startswith('SELECT pg_current_xlog_location()'):
             self.results = [(0,)]
-        elif sql.startswith('SELECT %s - (pg_last_xlog_replay_location()'):
-            self.results = [(0,)]
-        elif sql.startswith('SELECT pg_last_xlog_replay_location()'):
+        elif sql.startswith('SELECT pg_is_in_recovery(), %s'):
+            if params[0][0] != 0:
+                raise psycopg2.OperationalError()
+            self.results = [(False, 0)]
+        elif sql.startswith('SELECT CASE WHEN pg_is_in_recovery()'):
             self.results = [(0,)]
         elif sql.startswith('SELECT pg_is_in_recovery()'):
             self.results = [(False, )]
+        elif sql.startswith('SELECT to_char(pg_postmaster_start_time'):
+            self.results = [('', True, '', '', '', False)]
         else:
             self.results = []
 
@@ -48,13 +61,13 @@ class MockConnect:
 
     def __init__(self):
         self.autocommit = False
+        self.closed = False
 
     def cursor(self):
         return MockCursor()
 
     def close(self):
-        if not self.autocommit:
-            raise psycopg2.OperationalError()
+        pass
 
 
 def psycopg2_connect(*args, **kwargs):
@@ -115,17 +128,19 @@ class TestPostgresql(unittest.TestCase):
 
     def test_query(self):
         self.p.query('select 1')
-        self.p.conn.autocommit = False
         self.assertRaises(psycopg2.OperationalError, self.p.query, 'blabla')
-        self.p.query('select %s', 1)
 
     def test_is_healthiest_node(self):
         leader = Member('leader', 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres', 28)
         me = Member('test0', 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres', 28)
         other = Member('test1', 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres', 28)
-        cluster = Cluster(leader, 0, [leader, me, other])
+        cluster = Cluster(leader, 0, [me, other, leader])
         self.assertTrue(self.p.is_healthiest_node(cluster))
-        self.p.config['maximum_lag_on_failover'] = -1
+        self.p.is_leader = false
+        self.assertFalse(self.p.is_healthiest_node(cluster))
+        self.p.xlog_position = xlog_position
+        self.assertTrue(self.p.is_healthiest_node(cluster))
+        self.p.config['maximum_lag_on_failover'] = -2
         self.assertFalse(self.p.is_healthiest_node(cluster))
 
     def test_is_leader(self):
