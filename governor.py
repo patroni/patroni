@@ -7,6 +7,7 @@ import sys
 import time
 import yaml
 
+from helpers.api import RestApiServer
 from helpers.etcd import Etcd
 from helpers.postgresql import Postgresql
 from helpers.ha import Ha
@@ -81,6 +82,7 @@ def main():
     governor = Governor(config)
     try:
         governor.initialize()
+        RestApiServer(governor).start()
         governor.run()
     finally:
         governor.postgresql.stop()
