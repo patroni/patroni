@@ -65,6 +65,6 @@ class RestApiServer(HTTPServer, Thread):
         self.daemon = True
 
     def cursor(self):
-        if not self._cursor_holder or self._cursor_holder.closed != 0:
+        if not self._cursor_holder or self._cursor_holder.closed:
             self._cursor_holder = self.governor.postgresql.connection().cursor()
         return self._cursor_holder
