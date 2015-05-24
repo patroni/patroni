@@ -22,13 +22,15 @@ def xlog_position():
 class MockCursor:
 
     def __init__(self):
-        self.closed = 0
+        self.closed = False
         self.current = 0
         self.results = []
 
     def execute(self, sql, *params):
         if sql.startswith('blabla'):
             raise psycopg2.OperationalError()
+        elif sql.startswith('InterfaceError'):
+            raise psycopg2.InterfaceError()
         elif sql.startswith('SELECT slot_name'):
             self.results = [('blabla',), ('foobar',)]
         elif sql.startswith('SELECT pg_current_xlog_location()'):
@@ -61,7 +63,7 @@ class MockConnect:
 
     def __init__(self):
         self.autocommit = False
-        self.closed = False
+        self.closed = 0
 
     def cursor(self):
         return MockCursor()
@@ -128,6 +130,12 @@ class TestPostgresql(unittest.TestCase):
 
     def test_query(self):
         self.p.query('select 1')
+        self.assertRaises(psycopg2.InterfaceError, self.p.query, 'InterfaceError')
+        self.assertRaises(psycopg2.OperationalError, self.p.query, 'blabla')
+        self.p._connection.closed = 2
+        self.assertRaises(psycopg2.OperationalError, self.p.query, 'blabla')
+        self.p._connection.closed = 2
+        self.p.disconnect = false
         self.assertRaises(psycopg2.OperationalError, self.p.query, 'blabla')
 
     def test_is_healthiest_node(self):

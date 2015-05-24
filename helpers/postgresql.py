@@ -54,13 +54,13 @@ class Postgresql:
         return self.listen_addresses.split(',')[0].strip() + ':' + self.port
 
     def connection(self):
-        if not self._connection or self._connection.closed:
+        if not self._connection or self._connection.closed != 0:
             self._connection = psycopg2.connect('postgres://{}/postgres'.format(self.local_address))
             self._connection.autocommit = True
         return self._connection
 
     def _cursor(self):
-        if not self._cursor_holder or self._cursor_holder.closed != 0:
+        if not self._cursor_holder or self._cursor_holder.closed:
             self._cursor_holder = self.connection().cursor()
         return self._cursor_holder
 
@@ -71,15 +71,22 @@ class Postgresql:
     def query(self, sql, *params):
         max_attempts = 0
         while True:
+            ex = None
             try:
                 cursor = self._cursor()
                 cursor.execute(sql, params)
                 return cursor
-            except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
+            except psycopg2.InterfaceError as e:
+                ex = e
+            except psycopg2.OperationalError as e:
+                if self._connection and self._connection.closed == 0:
+                    raise e
+                ex = e
+            if ex:
                 self.disconnect()
                 max_attempts += 1
                 if max_attempts >= 3:
-                    raise e
+                    raise ex
                 time.sleep(5)
 
     def data_directory_empty(self):
