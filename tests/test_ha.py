@@ -73,7 +73,7 @@ class TestHa(unittest.TestCase):
         self.e = Etcd({'ttl': 30, 'host': 'remotehost', 'scope': 'test'})
         self.ha = Ha(self.p, self.e)
         self.ha.load_cluster_from_etcd()
-        self.ha.cluster = Cluster(None, None, [])
+        self.ha.cluster = Cluster(False, None, None, [])
         self.ha.load_cluster_from_etcd = nop
 
     def test_start_as_slave(self):

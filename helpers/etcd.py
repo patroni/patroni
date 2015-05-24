@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 Member = namedtuple('Member', 'hostname,address,ttl')
 
 
-class Cluster(namedtuple('Cluster', 'leader,last_leader_operation,members')):
+class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,members')):
 
     def is_unlocked(self):
         return not (self.leader and self.leader.hostname)
@@ -87,6 +87,8 @@ class Etcd:
         try:
             response, status_code = self.get_client_path('?recursive=true')
             if status_code == 200:
+                node = self.find_node(response['node'], '/initialize')
+                initialize = True if node else False
                 # get list of members
                 node = self.find_node(response['node'], '/members') or {'nodes': []}
                 members = [Member(n['key'].split('/')[-1], n['value'], n.get('ttl', None)) for n in node['nodes']]
@@ -110,9 +112,9 @@ class Etcd:
                     if not leader:
                         leader = Member(node['value'], None, None)
 
-                return Cluster(leader, last_leader_operation, members)
+                return Cluster(initialize, leader, last_leader_operation, members)
             elif status_code == 404:
-                return Cluster(None, None, [])
+                return Cluster(False, None, None, [])
         except:
             logger.exception('get_cluster')
 
