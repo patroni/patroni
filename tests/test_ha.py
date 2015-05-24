@@ -72,6 +72,7 @@ class TestHa(unittest.TestCase):
         self.p = MockPostgresql()
         self.e = Etcd({'ttl': 30, 'host': 'remotehost', 'scope': 'test'})
         self.ha = Ha(self.p, self.e)
+        self.ha.load_cluster_from_etcd()
         self.ha.cluster = Cluster(None, None, [])
         self.ha.load_cluster_from_etcd = nop
 
