@@ -36,8 +36,8 @@ class Governor:
         self.postgresql = Postgresql(config['postgresql'])
         self.ha = Ha(self.postgresql, self.etcd)
 
-    def touch_member(self):
-        return self.etcd.touch_member(self.postgresql.name, self.postgresql.connection_string)
+    def touch_member(self, ttl=None):
+        return self.etcd.touch_member(self.postgresql.name, self.postgresql.connection_string, ttl)
 
     def initialize(self):
         # wait for etcd to be available
@@ -72,6 +72,10 @@ class Governor:
 
 
 def main():
+    logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
+    signal.signal(signal.SIGTERM, sigterm_handler)
+    signal.signal(signal.SIGCHLD, sigchld_handler)
+
     if len(sys.argv) < 2 or not os.path.isfile(sys.argv[1]):
         print('Usage: {} config.yml'.format(sys.argv[0]))
         return
@@ -85,12 +89,10 @@ def main():
         RestApiServer(governor).start()
         governor.run()
     finally:
+        governor.touch_member(300)  # schedule member removal
         governor.postgresql.stop()
         governor.etcd.delete_leader(governor.postgresql.name)
 
 
 if __name__ == '__main__':
-    logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
-    signal.signal(signal.SIGTERM, sigterm_handler)
-    signal.signal(signal.SIGCHLD, sigchld_handler)
     main()
