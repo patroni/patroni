@@ -11,6 +11,11 @@ from test_ha import true, false
 from test_postgresql import Postgresql, os_system, psycopg2_connect
 from test_etcd import requests_get, requests_put, requests_delete
 
+if sys.hexversion >= 0x03000000:
+    import http.server as BaseHTTPServer
+else:
+    import BaseHTTPServer
+
 
 def nop(*args, **kwargs):
     pass
@@ -43,6 +48,7 @@ class TestGovernor(unittest.TestCase):
         self.write_recovery_conf = Postgresql.write_recovery_conf
         Postgresql.write_pg_hba = nop
         Postgresql.write_recovery_conf = nop
+        BaseHTTPServer.HTTPServer.__init__ = nop
 
     def tear_down(self):
         Postgresql.write_pg_hba = self.write_pg_hba
