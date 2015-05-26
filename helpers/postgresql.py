@@ -19,26 +19,27 @@ logger = logging.getLogger(__name__)
 
 def parseurl(url):
     r = urlparse(url)
-    return {
-        'hostname': r.hostname,
+    ret = {
+        'host': r.hostname,
         'port': r.port or 5432,
-        'username': r.username,
-        'password': r.password,
+        'database': r.path[1:],
+        'fallback_application_name': 'Governor',
+        'connect_timeout': 3,
+        'options': '-c statement_timeout=2000',
     }
+    if r.username:
+        ret['user'] = r.username
+    if r.password:
+        ret['password'] = r.password
+    return ret
 
 
 class Postgresql:
 
     def __init__(self, config):
+        self.config = config
         self.name = config['name']
         self.listen_addresses, self.port = config['listen'].split(':')
-        self.libpq_parameters = {
-            'host': self.listen_addresses.split(',')[0].strip(),
-            'port': self.port,
-            'fallback_application_name': 'Governor',
-            'connect_timeout': 5,
-            'options': '-c statement_timeout=2000'
-        }
         self.data_dir = config['data_dir']
         self.replication = config['replication']
         self.superuser = config['superuser']
@@ -46,51 +47,62 @@ class Postgresql:
         self.recovery_conf = os.path.join(self.data_dir, 'recovery.conf')
         self.configuration_to_save = (os.path.join(self.data_dir, 'pg_hba.conf'),
                                       os.path.join(self.data_dir, 'postgresql.conf'))
+        self.pid_path = os.path.join(self.data_dir, 'postmaster.pid')
         self._pg_ctl = 'pg_ctl -w -D ' + self.data_dir
         self.wal_e = config.get('wal_e', None)
         if self.wal_e:
             self.wal_e_path = 'envdir {} wal-e --aws-instance-profile '.\
                 format(self.wal_e.get('env_dir', '/home/postgres/etc/wal-e.d/env'))
 
-        self.config = config
-
-        connect_address = config.get('connect_address', config['listen']) or config['listen']
+        self.local_address = self.get_local_address()
+        connect_address = config.get('connect_address', None) or self.local_address
         self.connection_string = 'postgres://{username}:{password}@{connect_address}/postgres'.format(
             connect_address=connect_address, **self.replication)
 
-        self.conn = None
-        self.cursor_holder = None
+        self._connection = None
+        self._cursor_holder = None
         self.members = []  # list of already existing replication slots
 
-    def cursor(self):
-        if not self.cursor_holder:
-            self.conn = psycopg2.connect(**self.libpq_parameters)
-            self.conn.autocommit = True
-            self.cursor_holder = self.conn.cursor()
+    def get_local_address(self):
+        # TODO: try to get unix_socket_directory from postmaster.pid
+        return self.listen_addresses.split(',')[0].strip() + ':' + self.port
 
-        return self.cursor_holder
+    def connection(self):
+        if not self._connection or self._connection.closed != 0:
+            r = parseurl('postgres://{}/postgres'.format(self.local_address))
+            self._connection = psycopg2.connect(**r)
+            self._connection.autocommit = True
+        return self._connection
+
+    def _cursor(self):
+        if not self._cursor_holder or self._cursor_holder.closed:
+            self._cursor_holder = self.connection().cursor()
+        return self._cursor_holder
 
     def disconnect(self):
-        try:
-            self.conn.close()
-        except:
-            logger.exception('Error disconnecting')
+        self._connection and self._connection.close()
+        self._connection = self._cursor_holder = None
 
     def query(self, sql, *params):
         max_attempts = 0
         while True:
+            ex = None
             try:
-                self.cursor().execute(sql, params)
-                break
+                cursor = self._cursor()
+                cursor.execute(sql, params)
+                return cursor
+            except psycopg2.InterfaceError as e:
+                ex = e
             except psycopg2.OperationalError as e:
-                if self.conn:
-                    self.disconnect()
-                self.cursor_holder = None
-                if max_attempts > 4:
+                if self._connection and self._connection.closed == 0:
                     raise e
+                ex = e
+            if ex:
+                self.disconnect()
                 max_attempts += 1
+                if max_attempts >= 3:
+                    raise ex
                 time.sleep(5)
-        return self.cursor()
 
     def data_directory_empty(self):
         return not os.path.exists(self.data_dir) or os.listdir(self.data_dir) == []
@@ -106,17 +118,17 @@ class Postgresql:
         pgpass = 'pgpass'
         with open(pgpass, 'w') as f:
             os.fchmod(f.fileno(), 0o600)
-            f.write('{hostname}:{port}:*:{username}:{password}\n'.format(**r))
+            f.write('{host}:{port}:*:{user}:{password}\n'.format(**r))
 
         try:
             os.environ['PGPASSFILE'] = pgpass
-            return self.create_replica(leader.address, r) == 0
+            return self.create_replica(r) == 0
         finally:
             os.environ.pop('PGPASSFILE')
 
-    def create_replica(self, master_connurl, master_connection):
+    def create_replica(self, master_connection):
         """ creates a new replica using either pg_basebackup or WAL-E """
-        if self.should_use_s3_to_create_replica(master_connurl):
+        if self.should_use_s3_to_create_replica(master_connection):
             result = self.create_replica_with_s3()
             # if restore from the backup on S3 failed - try with the pg_basebackup
             if result == 0:
@@ -124,7 +136,7 @@ class Postgresql:
         return self.create_replica_with_pg_basebackup(master_connection)
 
     def create_replica_with_pg_basebackup(self, master_connection):
-        return os.system('pg_basebackup -R -D {data_dir} --host={hostname} --port={port} -U {username}'.format(
+        return os.system('pg_basebackup -R -D {data_dir} --host={host} --port={port} -U {user}'.format(
             data_dir=self.data_dir, **master_connection))
 
     def create_replica_with_s3(self):
@@ -135,7 +147,7 @@ class Postgresql:
         self.restore_configuration_files()
         return ret
 
-    def should_use_s3_to_create_replica(self, master_connurl):
+    def should_use_s3_to_create_replica(self, master_connection):
         """ determine whether it makes sense to use S3 and not pg_basebackup """
         if not self.wal_e or not self.wal_e_path:
             return False
@@ -187,7 +199,7 @@ class Postgresql:
         diff_in_bytes = long(backup_size)
         try:
             # get the difference in bytes between the current WAL location and the backup start offset
-            conn = psycopg2.connect(master_connurl)
+            conn = psycopg2.connect(master_connection)
             conn.autocommit = True
             cursor = conn.cursor()
             cursor.execute("SELECT pg_xlog_location_diff(pg_current_xlog_location(), %s)", (backup_start_lsn,))
@@ -216,10 +228,9 @@ class Postgresql:
             logger.error('Cannot start PostgreSQL because one is already running.')
             return False
 
-        pid_path = os.path.join(self.data_dir, 'postmaster.pid')
-        if os.path.exists(pid_path):
-            os.remove(pid_path)
-            logger.info('Removed %s', pid_path)
+        if os.path.exists(self.pid_path):
+            os.remove(self.pid_path)
+            logger.info('Removed %s', self.pid_path)
 
         ret = os.system(self._pg_ctl + ' start -o "{}"'.format(self.server_options())) == 0
         ret and self.load_replication_slots()
@@ -248,6 +259,9 @@ class Postgresql:
         return True
 
     def is_healthiest_node(self, cluster):
+        if self.is_leader():
+            return True
+
         if cluster.last_leader_operation - self.xlog_position() > self.config.get('maximum_lag_on_failover', 0):
             return False
 
@@ -255,18 +269,19 @@ class Postgresql:
             if member.hostname == self.name:
                 continue
             try:
-                member_conn = psycopg2.connect(member.address)
+                member_conn = psycopg2.connect(parseurl(member.address))
                 member_conn.autocommit = True
                 member_cursor = member_conn.cursor()
                 member_cursor.execute(
-                    "SELECT %s - (pg_last_xlog_replay_location() - '0/0000000'::pg_lsn)", (self.xlog_position(), ))
-                xlog_diff = member_cursor.fetchone()[0]
-                logger.info([self.name, member.hostname, xlog_diff])
+                    "SELECT pg_is_in_recovery(), %s - (pg_last_xlog_replay_location() - '0/0000000'::pg_lsn)",
+                    (self.xlog_position(), ))
+                row = member_cursor.fetchone()
                 member_cursor.close()
                 member_conn.close()
-                if xlog_diff < 0:
+                logger.error([self.name, member.hostname, row])
+                if not row[0] or row[1] < 0:
                     return False
-            except psycopg2.OperationalError:
+            except psycopg2.Error:
                 continue
         return True
 
@@ -283,7 +298,7 @@ class Postgresql:
     @staticmethod
     def primary_conninfo(leader_url):
         r = parseurl(leader_url)
-        return 'user={username} password={password} host={hostname} port={port} sslmode=prefer sslcompression=1'.format(**r)
+        return 'user={user} password={password} host={host} port={port} sslmode=prefer sslcompression=1'.format(**r)
 
     def check_recovery_conf(self, leader):
         if not os.path.isfile(self.recovery_conf):
@@ -357,7 +372,9 @@ primary_conninfo = '{}'
                 self.admin['username']), self.admin['password'])
 
     def xlog_position(self):
-        return self.query("SELECT pg_last_xlog_replay_location() - '0/0000000'::pg_lsn").fetchone()[0]
+        return self.query("""SELECT CASE WHEN pg_is_in_recovery()
+                                         THEN pg_last_xlog_replay_location() - '0/0000000'::pg_lsn
+                                         ELSE pg_current_xlog_location() - '0/00000'::pg_lsn END""").fetchone()[0]
 
     def load_replication_slots(self):
         cursor = self.query("SELECT slot_name FROM pg_replication_slots WHERE slot_type='physical'")
@@ -378,4 +395,4 @@ primary_conninfo = '{}'
         self.members = members
 
     def last_operation(self):
-        return self.query("SELECT pg_current_xlog_location() - '0/00000'::pg_lsn").fetchone()[0]
+        return self.xlog_position()

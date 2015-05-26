@@ -4,14 +4,13 @@ import logging
 import os
 import signal
 import sys
-import threading
 import time
 import yaml
 
+from helpers.api import RestApiServer
 from helpers.etcd import Etcd
 from helpers.postgresql import Postgresql
 from helpers.ha import Ha
-from helpers.statuspage import getHTTPServer
 
 
 def sigterm_handler(signo, stack_frame):
@@ -37,8 +36,8 @@ class Governor:
         self.postgresql = Postgresql(config['postgresql'])
         self.ha = Ha(self.postgresql, self.etcd)
 
-    def touch_member(self):
-        return self.etcd.touch_member(self.postgresql.name, self.postgresql.connection_string)
+    def touch_member(self, ttl=None):
+        return self.etcd.touch_member(self.postgresql.name, self.postgresql.connection_string, ttl)
 
     def initialize(self):
         # wait for etcd to be available
@@ -74,6 +73,10 @@ class Governor:
 
 
 def main():
+    logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
+    signal.signal(signal.SIGTERM, sigterm_handler)
+    signal.signal(signal.SIGCHLD, sigchld_handler)
+
     if len(sys.argv) < 2 or not os.path.isfile(sys.argv[1]):
         print('Usage: {} config.yml'.format(sys.argv[0]))
         return
@@ -82,25 +85,17 @@ def main():
         config = yaml.load(f)
 
     governor = Governor(config)
-
-    # Start the http_server to serve a simple healthcheck
-    http_server = getHTTPServer(governor.postgresql, http_port=config.get(
-        'healtcheck_port', 8008), listen_address='0.0.0.0')
-    http_thread = threading.Thread(target=http_server.serve_forever, args=())
-    http_thread.daemon = True
-
-    governor.initialize()
-    http_thread.start()
-
     try:
+        governor.initialize()
+        # Start the http_server to serve a simple healthcheck
+        host, port = config['restapi']['listen'].split(':')
+        RestApiServer(governor, host, int(port)).start()
         governor.run()
     finally:
+        governor.touch_member(300)  # schedule member removal
         governor.postgresql.stop()
         governor.etcd.delete_leader(governor.postgresql.name)
 
 
 if __name__ == '__main__':
-    logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
-    signal.signal(signal.SIGTERM, sigterm_handler)
-    signal.signal(signal.SIGCHLD, sigchld_handler)
     main()

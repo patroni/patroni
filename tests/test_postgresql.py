@@ -22,37 +22,36 @@ def false(*args, **kwargs):
     return False
 
 
+def xlog_position():
+    return 1
+
+
 class MockCursor:
 
-    def __init__(self, server):
+    def __init__(self):
+        self.closed = False
         self.current = 0
         self.results = []
-        self.server = server
 
     def execute(self, sql, *params):
         if sql.startswith('blabla'):
             raise psycopg2.OperationalError()
+        elif sql.startswith('InterfaceError'):
+            raise psycopg2.InterfaceError()
         elif sql.startswith('SELECT slot_name'):
             self.results = [('blabla',), ('foobar',)]
         elif sql.startswith('SELECT pg_current_xlog_location()'):
-            self.results = [(0, )]
-        elif sql.startswith('SELECT %s - (pg_last_xlog_replay_location()'):
-            self.results = [(0, )]
-        elif sql.startswith('SELECT pg_last_xlog_replay_location()'):
-            self.results = [(0, )]
+            self.results = [(0,)]
+        elif sql.startswith('SELECT pg_is_in_recovery(), %s'):
+            if params[0][0] != 0:
+                raise psycopg2.OperationalError()
+            self.results = [(False, 0)]
+        elif sql.startswith('SELECT CASE WHEN pg_is_in_recovery()'):
+            self.results = [(0,)]
         elif sql.startswith('SELECT pg_is_in_recovery()'):
-            self.results = [(
-                self.server.mock_values['mock_recovery'],
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )]
+            self.results = [(False, )]
+        elif sql.startswith('SELECT to_char(pg_postmaster_start_time'):
+            self.results = [('', True, '', '', '', False)]
         else:
             self.results = [(
                 None,
@@ -82,14 +81,13 @@ class MockConnect:
 
     def __init__(self):
         self.autocommit = False
-        self.mock_values = {'mock_recovery': False}
+        self.closed = 0
 
     def cursor(self):
-        return MockCursor(self)
+        return MockCursor()
 
     def close(self):
-        if not self.autocommit:
-            raise psycopg2.OperationalError()
+        pass
 
 
 def psycopg2_connect(*args, **kwargs):
@@ -160,17 +158,25 @@ class TestPostgresql(unittest.TestCase):
 
     def test_query(self):
         self.p.query('select 1')
-        self.p.conn.autocommit = False
+        self.assertRaises(psycopg2.InterfaceError, self.p.query, 'InterfaceError')
         self.assertRaises(psycopg2.OperationalError, self.p.query, 'blabla')
-        self.p.query('select %s', 1)
+        self.p._connection.closed = 2
+        self.assertRaises(psycopg2.OperationalError, self.p.query, 'blabla')
+        self.p._connection.closed = 2
+        self.p.disconnect = false
+        self.assertRaises(psycopg2.OperationalError, self.p.query, 'blabla')
 
     def test_is_healthiest_node(self):
         leader = Member('leader', 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres', 28)
         me = Member('test0', 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres', 28)
         other = Member('test1', 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres', 28)
-        cluster = Cluster(leader, 0, [leader, me, other])
+        cluster = Cluster(True, leader, 0, [me, other, leader])
         self.assertTrue(self.p.is_healthiest_node(cluster))
-        self.p.config['maximum_lag_on_failover'] = -1
+        self.p.is_leader = false
+        self.assertFalse(self.p.is_healthiest_node(cluster))
+        self.p.xlog_position = xlog_position
+        self.assertTrue(self.p.is_healthiest_node(cluster))
+        self.p.config['maximum_lag_on_failover'] = -2
         self.assertFalse(self.p.is_healthiest_node(cluster))
 
     def test_is_leader(self):
