@@ -87,7 +87,7 @@ def main():
     try:
         governor.initialize()
         host, port = config['restapi']['listen'].split(':')
-        RestApiServer(governor, host, port).start()
+        RestApiServer(governor, host, int(port)).start()
         governor.run()
     finally:
         governor.touch_member(300)  # schedule member removal
