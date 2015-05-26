@@ -37,7 +37,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
         cursor = self.server.cursor()
         cursor.execute("""SELECT to_char(pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),
                                  pg_is_in_recovery(),
-                                 pg_current_xlog_location(),
+                                 CASE WHEN pg_is_in_recovery()
+                                      THEN null
+                                      ELSE pg_current_xlog_location() END,
                                  pg_last_xlog_receive_location(),
                                  pg_last_xlog_replay_location(),
                                  pg_is_in_recovery() AND pg_is_xlog_replay_paused()""")
