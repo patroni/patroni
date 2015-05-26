@@ -169,7 +169,8 @@ class Postgresql:
             if member.hostname == self.name:
                 continue
             try:
-                member_conn = psycopg2.connect(parseurl(member.address))
+                r = parseurl(member.address)
+                member_conn = psycopg2.connect(**r)
                 member_conn.autocommit = True
                 member_cursor = member_conn.cursor()
                 member_cursor.execute(
