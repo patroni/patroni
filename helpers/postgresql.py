@@ -199,7 +199,7 @@ class Postgresql:
         diff_in_bytes = long(backup_size)
         try:
             # get the difference in bytes between the current WAL location and the backup start offset
-            conn = psycopg2.connect(master_connection)
+            conn = psycopg2.connect(**master_connection)
             conn.autocommit = True
             cursor = conn.cursor()
             cursor.execute("SELECT pg_xlog_location_diff(pg_current_xlog_location(), %s)", (backup_start_lsn,))
@@ -269,7 +269,8 @@ class Postgresql:
             if member.hostname == self.name:
                 continue
             try:
-                member_conn = psycopg2.connect(parseurl(member.address))
+                r = parseurl(member.address)
+                member_conn = psycopg2.connect(**r)
                 member_conn.autocommit = True
                 member_cursor = member_conn.cursor()
                 member_cursor.execute(
