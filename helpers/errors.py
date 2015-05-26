@@ -9,7 +9,3 @@ class EtcdError(Exception):
 
 class CurrentLeaderError(EtcdError):
     pass
-
-
-class HealthiestMemberError(EtcdError):
-    pass

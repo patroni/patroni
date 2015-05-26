@@ -1,5 +1,6 @@
 loop_wait: 10
-healthcheck_port: 8008
+restapi:
+  listen: 127.0.0.1:8008
 etcd:
   scope: batman
   ttl: 30
