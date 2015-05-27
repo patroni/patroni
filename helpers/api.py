@@ -34,7 +34,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def get_postgresql_status(self):
         if not self.server.governor.postgresql.is_running():
             return {'running': False}
-        cursor = self.server.cursor()
+        cursor = self.server._cursor()
         cursor.execute("""SELECT to_char(pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),
                                  pg_is_in_recovery(),
                                  CASE WHEN pg_is_in_recovery()
@@ -59,14 +59,16 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
 class RestApiServer(HTTPServer, Thread):
 
-    def __init__(self, governor, listen_address='0.0.0.0', listen_port=8080):
-        HTTPServer.__init__(self, (listen_address, listen_port), RestApiHandler)
+    def __init__(self, governor, config):
+        self.connection_string = 'http://{}/governor'.format(config.get('connect_address', None) or config['listen'])
+        host, port = config['listen'].split(':')
+        HTTPServer.__init__(self, (host, int(port)), RestApiHandler)
         Thread.__init__(self, target=self.serve_forever)
         self.governor = governor
         self._cursor_holder = None
         self.daemon = True
 
-    def cursor(self):
+    def _cursor(self):
         if not self._cursor_holder or self._cursor_holder.closed:
             self._cursor_holder = self.governor.postgresql.connection().cursor()
         return self._cursor_holder

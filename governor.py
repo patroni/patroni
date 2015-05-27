@@ -35,9 +35,12 @@ class Governor:
         self.etcd = Etcd(config['etcd'])
         self.postgresql = Postgresql(config['postgresql'])
         self.ha = Ha(self.postgresql, self.etcd)
+        host, port = config['restapi']['listen'].split(':')
+        self.api = RestApiServer(self, config['restapi'])
 
     def touch_member(self, ttl=None):
-        return self.etcd.touch_member(self.postgresql.name, self.postgresql.connection_string, ttl)
+        connection_string = self.postgresql.connection_string + '?application_name=' + self.api.connection_string
+        return self.etcd.touch_member(self.postgresql.name, connection_string, ttl)
 
     def initialize(self):
         # wait for etcd to be available
@@ -66,6 +69,7 @@ class Governor:
             self.postgresql.load_replication_slots()
 
     def run(self):
+        self.api.start()
         while True:
             self.touch_member()
             logging.info(self.ha.run_cycle())
@@ -87,9 +91,6 @@ def main():
     governor = Governor(config)
     try:
         governor.initialize()
-        # Start the http_server to serve a simple healthcheck
-        host, port = config['restapi']['listen'].split(':')
-        RestApiServer(governor, host, int(port)).start()
         governor.run()
     finally:
         governor.touch_member(300)  # schedule member removal
