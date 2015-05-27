@@ -1,14 +1,15 @@
 import os
 import psycopg2
-import unittest
 import requests
+import subprocess
 import sys
 import time
+import unittest
 import yaml
 
 from governor import Governor, main, sigchld_handler, sigterm_handler
 from test_ha import true, false
-from test_postgresql import Postgresql, os_system, psycopg2_connect
+from test_postgresql import Postgresql, subprocess_call, psycopg2_connect
 from test_etcd import requests_get, requests_put, requests_delete
 
 if sys.hexversion >= 0x03000000:
@@ -38,7 +39,7 @@ class TestGovernor(unittest.TestCase):
 
     def set_up(self):
         self.touched = False
-        os.system = os_system
+        subprocess.call = subprocess_call
         psycopg2.connect = psycopg2_connect
         requests.get = requests_get
         requests.put = requests_put
