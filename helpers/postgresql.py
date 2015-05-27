@@ -48,7 +48,7 @@ class Postgresql:
         self.configuration_to_save = (os.path.join(self.data_dir, 'pg_hba.conf'),
                                       os.path.join(self.data_dir, 'postgresql.conf'))
         self.pid_path = os.path.join(self.data_dir, 'postmaster.pid')
-        self._pg_ctl = 'pg_ctl -w -D ' + self.data_dir
+        self._pg_ctl = ['pg_ctl', '-w', '-D', self.data_dir]
         self.wal_e = config.get('wal_e', None)
         if self.wal_e:
             self.wal_e_path = 'envdir {} wal-e --aws-instance-profile '.\
@@ -108,7 +108,7 @@ class Postgresql:
         return not os.path.exists(self.data_dir) or os.listdir(self.data_dir) == []
 
     def initialize(self):
-        ret = os.system(self._pg_ctl + ' initdb -o --encoding=UTF8') == 0
+        ret = subprocess.call(self._pg_ctl + ['initdb', '-o', '--encoding=UTF8']) == 0
         ret and self.write_pg_hba()
         return ret
 
@@ -136,14 +136,14 @@ class Postgresql:
         return self.create_replica_with_pg_basebackup(master_connection)
 
     def create_replica_with_pg_basebackup(self, master_connection):
-        return os.system('pg_basebackup -R -D {data_dir} --host={host} --port={port} -U {user}'.format(
-            data_dir=self.data_dir, **master_connection))
+        return subprocess.call(['pg_basebackup', '-R', '-D', self.data_dir, '--host=' + master_connection['host'],
+                                '--port=' + str(master_connection['port']), '-U', master_connection['user']])
 
     def create_replica_with_s3(self):
         if not self.wal_e or not self.wal_e_path:
             return 1
 
-        ret = os.system(self.wal_e_path + ' backup-fetch {} LATEST'.format(self.data_dir))
+        ret = subprocess.call(self.wal_e_path + ' backup-fetch {} LATEST'.format(self.data_dir), shell=True)
         self.restore_configuration_files()
         return ret
 
@@ -220,7 +220,7 @@ class Postgresql:
         return not self.query('SELECT pg_is_in_recovery()').fetchone()[0]
 
     def is_running(self):
-        return os.system(self._pg_ctl + ' status > /dev/null') == 0
+        return subprocess.call(' '.join(self._pg_ctl) + ' status > /dev/null', shell=True) == 0
 
     def start(self):
         if self.is_running():
@@ -232,19 +232,19 @@ class Postgresql:
             os.remove(self.pid_path)
             logger.info('Removed %s', self.pid_path)
 
-        ret = os.system(self._pg_ctl + ' start -o "{}"'.format(self.server_options())) == 0
+        ret = subprocess.call(self._pg_ctl + ['start', '-o', self.server_options()]) == 0
         ret and self.load_replication_slots()
         self.save_configuration_files()
         return ret
 
     def stop(self):
-        return os.system(self._pg_ctl + ' stop -m fast') != 0
+        return subprocess.call(self._pg_ctl + ['stop', '-m', 'fast']) != 0
 
     def reload(self):
-        return os.system(self._pg_ctl + ' reload') == 0
+        return subprocess.call(self._pg_ctl + ['reload']) == 0
 
     def restart(self):
-        return os.system(self._pg_ctl + ' restart -m fast') == 0
+        return subprocess.call(self._pg_ctl + ['restart', '-m', 'fast']) == 0
 
     def server_options(self):
         options = "--listen_addresses='{}' --port={}".format(self.listen_addresses, self.port)
@@ -352,7 +352,7 @@ primary_conninfo = '{}'
             logger.error("unable to restore configuration from WAL-E backup: {}".format(e))
 
     def promote(self):
-        return os.system(self._pg_ctl + ' promote') == 0
+        return subprocess.call(self._pg_ctl + ['promote']) == 0
 
     def demote(self, leader):
         self.follow_the_leader(leader)
