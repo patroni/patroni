@@ -1,13 +1,14 @@
 import os
 import psycopg2
-import unittest
 import shutil
+import subprocess
+import unittest
 
 from helpers.etcd import Cluster, Member
 from helpers.postgresql import Postgresql
 
 
-def os_system(cmd):
+def subprocess_call(cmd, shell=False):
     return 0
 
 
@@ -89,7 +90,7 @@ class TestPostgresql(unittest.TestCase):
         super(TestPostgresql, self).__init__(method_name)
 
     def set_up(self):
-        os.system = os_system
+        subprocess.call = subprocess_call
         self.p = Postgresql({'name': 'test0', 'data_dir': 'data/test0', 'listen': '127.0.0.1, 127.0.0.2:5432', 'connect_address': '127.0.0.2:5432', 'replication': {
                             'username': 'replicator', 'password': 'rep-pass', 'network': '127.0.0.1/32'}, 'parameters': {'foo': 'bar'}, 'recovery_conf': {'foo': 'bar'}})
         psycopg2.connect = psycopg2_connect
