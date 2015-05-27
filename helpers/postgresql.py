@@ -1,6 +1,7 @@
 import logging
 import os
 import psycopg2
+import subprocess
 import sys
 import time
 
@@ -42,7 +43,7 @@ class Postgresql:
         self.replication = config['replication']
         self.recovery_conf = os.path.join(self.data_dir, 'recovery.conf')
         self.pid_path = os.path.join(self.data_dir, 'postmaster.pid')
-        self._pg_ctl = 'pg_ctl -w -D ' + self.data_dir
+        self._pg_ctl = ['pg_ctl', '-w', '-D', self.data_dir]
 
         self.local_address = self.get_local_address()
         connect_address = config.get('connect_address', None) or self.local_address
@@ -98,7 +99,7 @@ class Postgresql:
         return not os.path.exists(self.data_dir) or os.listdir(self.data_dir) == []
 
     def initialize(self):
-        ret = os.system(self._pg_ctl + ' initdb -o --encoding=UTF8') == 0
+        ret = subprocess.call(self._pg_ctl + ['initdb', '-o', '--encoding=UTF8']) == 0
         ret and self.write_pg_hba()
         return ret
 
@@ -112,8 +113,8 @@ class Postgresql:
 
         try:
             os.environ['PGPASSFILE'] = pgpass
-            return os.system('pg_basebackup -R -D {data_dir} --host={host} --port={port} -U {user}'.format(
-                data_dir=self.data_dir, **r)) == 0
+            return subprocess.call(['pg_basebackup', '-R', '-D', self.data_dir,
+                                    '--host=' + r['host'], '--port=' + str(r['port']), '-U', r['user']]) == 0
         finally:
             os.environ.pop('PGPASSFILE')
 
@@ -121,7 +122,7 @@ class Postgresql:
         return not self.query('SELECT pg_is_in_recovery()').fetchone()[0]
 
     def is_running(self):
-        return os.system(self._pg_ctl + ' status > /dev/null') == 0
+        return subprocess.call(' '.join(self._pg_ctl) + ' status > /dev/null', shell=True) == 0
 
     def start(self):
         if self.is_running():
@@ -133,18 +134,18 @@ class Postgresql:
             os.remove(self.pid_path)
             logger.info('Removed %s', self.pid_path)
 
-        ret = os.system(self._pg_ctl + ' start -o "{}"'.format(self.server_options())) == 0
+        ret = subprocess.call(self._pg_ctl + ['start', '-o', self.server_options()]) == 0
         ret and self.load_replication_slots()
         return ret
 
     def stop(self):
-        return os.system(self._pg_ctl + ' stop -m fast') != 0
+        return subprocess.call(self._pg_ctl + ['stop', '-m', 'fast']) != 0
 
     def reload(self):
-        return os.system(self._pg_ctl + ' reload') == 0
+        return subprocess.call(self._pg_ctl + ['reload']) == 0
 
     def restart(self):
-        return os.system(self._pg_ctl + ' restart -m fast') == 0
+        return subprocess.call(self._pg_ctl + ['restart', '-m', 'fast']) == 0
 
     def server_options(self):
         options = "--listen_addresses='{}' --port={}".format(self.listen_addresses, self.port)
@@ -230,7 +231,7 @@ primary_conninfo = '{}'
         self.restart()
 
     def promote(self):
-        return os.system(self._pg_ctl + ' promote') == 0
+        return subprocess.call(self._pg_ctl + ['promote']) == 0
 
     def demote(self, leader):
         self.follow_the_leader(leader)
