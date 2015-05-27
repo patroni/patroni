@@ -17,28 +17,39 @@ class MockResponse:
         return json.loads(self.content)
 
 
+class MockPostgresql:
+    name = ''
+
+    def last_operation(self):
+        return 0
+
+
 def requests_get(url, **kwargs):
     if url.startswith('http://local'):
-        raise Exception()
+        raise requests.exceptions.RequestException()
     response = MockResponse()
-    if url.startswith('http://remote'):
+    if url.startswith('http://remote') or url.startswith('http://127.0.0.1'):
         response.content = '{"action":"get","node":{"key":"/service/batman5","dir":true,"nodes":[{"key":"/service/batman5/initialize","value":"postgresql0","modifiedIndex":1582,"createdIndex":1582},{"key":"/service/batman5/leader","value":"postgresql1","expiration":"2015-05-15T09:11:00.037397538Z","ttl":21,"modifiedIndex":20728,"createdIndex":20434},{"key":"/service/batman5/optime","dir":true,"nodes":[{"key":"/service/batman5/optime/leader","value":"2164261704","modifiedIndex":20729,"createdIndex":20729}],"modifiedIndex":20437,"createdIndex":20437},{"key":"/service/batman5/members","dir":true,"nodes":[{"key":"/service/batman5/members/postgresql1","value":"postgres://replicator:rep-pass@127.0.0.1:5434/postgres","expiration":"2015-05-15T09:10:59.949384522Z","ttl":21,"modifiedIndex":20727,"createdIndex":20727},{"key":"/service/batman5/members/postgresql0","value":"postgres://replicator:rep-pass@127.0.0.1:5433/postgres","expiration":"2015-05-15T09:11:09.611860899Z","ttl":30,"modifiedIndex":20730,"createdIndex":20730}],"modifiedIndex":1581,"createdIndex":1581}],"modifiedIndex":1581,"createdIndex":1581}}'
     elif url.startswith('http://other'):
         response.status_code = 404
+    elif url.startswith('http://noleader'):
+        response.content = '{"action":"get","node":{"key":"/service/batman5","dir":true,"nodes":[{"key":"/service/batman5/initialize","value":"postgresql0","modifiedIndex":1582,"createdIndex":1582},{"key":"/service/batman5/leader","value":"postgresql1","expiration":"2015-05-15T09:11:00.037397538Z","ttl":21,"modifiedIndex":20728,"createdIndex":20434},{"key":"/service/batman5/optime","dir":true,"nodes":[{"key":"/service/batman5/optime/leader","value":"2164261704","modifiedIndex":20729,"createdIndex":20729}],"modifiedIndex":20437,"createdIndex":20437},{"key":"/service/batman5/members","dir":true,"nodes":[{"key":"/service/batman5/members/postgresql0","value":"postgres://replicator:rep-pass@127.0.0.1:5433/postgres","expiration":"2015-05-15T09:11:09.611860899Z","ttl":30,"modifiedIndex":20730,"createdIndex":20730}],"modifiedIndex":1581,"createdIndex":1581}],"modifiedIndex":1581,"createdIndex":1581}}'
     return response
 
 
 def requests_put(url, **kwargs):
-    if url.startswith('http://local'):
-        raise Exception()
+    if url.startswith('http://local') or '/optime/leader' in url:
+        raise requests.exceptions.RequestException()
     response = MockResponse()
     response.status_code = 201
+    if url.startswith('http://other'):
+        response.status_code = 404
     return response
 
 
 def requests_delete(url):
     if url.startswith('http://local'):
-        raise Exception()
+        raise requests.exceptions.RequestException()
     response = MockResponse()
     response.status_code = 204
     return response
@@ -65,7 +76,7 @@ class TestEtcd(unittest.TestCase):
         self.assertRaises(Exception, self.etcd.get_client_path, '', 2)
 
     def test_put_client_path(self):
-        self.assertFalse(self.etcd.put_client_path(''))
+        self.assertRaises(EtcdError, self.etcd.put_client_path, '')
 
     def test_delete_client_path(self):
         self.assertFalse(self.etcd.delete_client_path(''))
@@ -77,6 +88,29 @@ class TestEtcd(unittest.TestCase):
         self.assertIsInstance(cluster, Cluster)
         self.etcd.base_client_url = self.etcd.base_client_url.replace('remote', 'other')
         self.etcd.get_cluster()
+        self.etcd.base_client_url = self.etcd.base_client_url.replace('other', 'noleader')
+        self.etcd.get_cluster()
 
     def test_current_leader(self):
         self.assertRaises(CurrentLeaderError, self.etcd.current_leader)
+
+    def test_touch_member(self):
+        self.assertFalse(self.etcd.touch_member('', ''))
+
+    def test_take_leader(self):
+        self.assertFalse(self.etcd.take_leader(''))
+
+    def test_attempt_to_acquire_leader(self):
+        self.assertFalse(self.etcd.attempt_to_acquire_leader(''))
+
+    def test_update_leader(self):
+        self.etcd.base_client_url = self.etcd.base_client_url.replace('local', 'remote')
+        self.assertTrue(self.etcd.update_leader(MockPostgresql()))
+        self.etcd.base_client_url = self.etcd.base_client_url.replace('remote', 'other')
+        self.assertFalse(self.etcd.update_leader(MockPostgresql()))
+
+    def test_race(self):
+        self.assertFalse(self.etcd.race('', ''))
+
+    def test_delete_member(self):
+        self.assertFalse(self.etcd.delete_member(''))

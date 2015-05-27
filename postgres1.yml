@@ -1,4 +1,7 @@
 loop_wait: 10
+restapi:
+  listen: 127.0.0.1:8009
+  connect_address: 127.0.0.1:8009
 etcd:
   scope: batman
   ttl: 30

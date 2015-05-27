@@ -7,6 +7,7 @@ import sys
 import time
 import yaml
 
+from helpers.api import RestApiServer
 from helpers.etcd import Etcd
 from helpers.postgresql import Postgresql
 from helpers.ha import Ha
@@ -34,9 +35,12 @@ class Governor:
         self.etcd = Etcd(config['etcd'])
         self.postgresql = Postgresql(config['postgresql'])
         self.ha = Ha(self.postgresql, self.etcd)
+        host, port = config['restapi']['listen'].split(':')
+        self.api = RestApiServer(self, config['restapi'])
 
-    def touch_member(self):
-        return self.etcd.touch_member(self.postgresql.name, self.postgresql.connection_string)
+    def touch_member(self, ttl=None):
+        connection_string = self.postgresql.connection_string + '?application_name=' + self.api.connection_string
+        return self.etcd.touch_member(self.postgresql.name, connection_string, ttl)
 
     def initialize(self):
         # wait for etcd to be available
@@ -64,6 +68,7 @@ class Governor:
             self.postgresql.load_replication_slots()
 
     def run(self):
+        self.api.start()
         while True:
             self.touch_member()
             logging.info(self.ha.run_cycle())
@@ -71,6 +76,10 @@ class Governor:
 
 
 def main():
+    logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
+    signal.signal(signal.SIGTERM, sigterm_handler)
+    signal.signal(signal.SIGCHLD, sigchld_handler)
+
     if len(sys.argv) < 2 or not os.path.isfile(sys.argv[1]):
         print('Usage: {} config.yml'.format(sys.argv[0]))
         return
@@ -83,12 +92,10 @@ def main():
         governor.initialize()
         governor.run()
     finally:
+        governor.touch_member(300)  # schedule member removal
         governor.postgresql.stop()
         governor.etcd.delete_leader(governor.postgresql.name)
 
 
 if __name__ == '__main__':
-    logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
-    signal.signal(signal.SIGTERM, sigterm_handler)
-    signal.signal(signal.SIGCHLD, sigchld_handler)
     main()

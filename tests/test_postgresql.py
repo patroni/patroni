@@ -1,13 +1,14 @@
 import os
 import psycopg2
-import unittest
 import shutil
+import subprocess
+import unittest
 
 from helpers.etcd import Cluster, Member
 from helpers.postgresql import Postgresql
 
 
-def os_system(cmd):
+def subprocess_call(cmd, shell=False):
     return 0
 
 
@@ -89,7 +90,7 @@ class TestPostgresql(unittest.TestCase):
         super(TestPostgresql, self).__init__(method_name)
 
     def set_up(self):
-        os.system = os_system
+        subprocess.call = subprocess_call
         self.p = Postgresql({'name': 'test0', 'data_dir': 'data/test0', 'listen': '127.0.0.1, 127.0.0.2:5432', 'connect_address': '127.0.0.2:5432', 'replication': {
                             'username': 'replicator', 'password': 'rep-pass', 'network': '127.0.0.1/32'}, 'parameters': {'foo': 'bar'}, 'recovery_conf': {'foo': 'bar'}})
         psycopg2.connect = psycopg2_connect
@@ -142,7 +143,7 @@ class TestPostgresql(unittest.TestCase):
         leader = Member('leader', 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres', 28)
         me = Member('test0', 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres', 28)
         other = Member('test1', 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres', 28)
-        cluster = Cluster(leader, 0, [me, other, leader])
+        cluster = Cluster(True, leader, 0, [me, other, leader])
         self.assertTrue(self.p.is_healthiest_node(cluster))
         self.p.is_leader = false
         self.assertFalse(self.p.is_healthiest_node(cluster))

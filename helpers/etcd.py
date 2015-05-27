@@ -2,16 +2,16 @@ import logging
 import requests
 import time
 
+from requests.exceptions import RequestException
 from collections import namedtuple
 from helpers.errors import CurrentLeaderError, EtcdError
 
 logger = logging.getLogger(__name__)
 
-
 Member = namedtuple('Member', 'hostname,address,ttl')
 
 
-class Cluster(namedtuple('Cluster', 'leader,last_leader_operation,members')):
+class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,members')):
 
     def is_unlocked(self):
         return not (self.leader and self.leader.hostname)
@@ -35,7 +35,7 @@ class Etcd:
                 response = requests.get(self.client_url(path))
                 if response.status_code == 200:
                     break
-            except Exception as e:
+            except RequestException as e:
                 logger.exception('get_client_path')
                 ex = e
 
@@ -54,15 +54,15 @@ class Etcd:
         try:
             response = requests.put(self.client_url(path), data=data)
             return response.status_code in [200, 201, 202, 204]
-        except:
+        except RequestException:
             logger.exception('PUT %s data=%s', path, data)
-            return False
+        raise EtcdError('Etcd is not responding properly')
 
     def delete_client_path(self, path):
         try:
             response = requests.delete(self.client_url(path))
             return response.status_code in [200, 202, 204]
-        except:
+        except RequestException:
             logger.exception('DELETE %s', path)
             return False
 
@@ -87,6 +87,8 @@ class Etcd:
         try:
             response, status_code = self.get_client_path('?recursive=true')
             if status_code == 200:
+                node = self.find_node(response['node'], '/initialize')
+                initialize = True if node else False
                 # get list of members
                 node = self.find_node(response['node'], '/members') or {'nodes': []}
                 members = [Member(n['key'].split('/')[-1], n['value'], n.get('ttl', None)) for n in node['nodes']]
@@ -108,11 +110,11 @@ class Etcd:
                             leader = m
                             break
                     if not leader:
-                        leader = Member(leader['value'], None, None)
+                        leader = Member(node['value'], None, None)
 
-                return Cluster(leader, last_leader_operation, members)
+                return Cluster(initialize, leader, last_leader_operation, members)
             elif status_code == 404:
-                return Cluster(None, None, [])
+                return Cluster(False, None, None, [])
         except:
             logger.exception('get_cluster')
 
@@ -122,27 +124,43 @@ class Etcd:
         try:
             cluster = self.get_cluster()
             return None if cluster.is_unlocked() else cluster.leader
-        except:
-            raise CurrentLeaderError("Etcd is not responding properly")
+        except EtcdError:
+            raise CurrentLeaderError('Etcd is not responding properly')
 
-    def touch_member(self, member, connection_string):
-        return self.put_client_path('/members/' + member, value=connection_string, ttl=self.member_ttl)
+    def touch_member(self, member, connection_string, ttl=None):
+        try:
+            return self.put_client_path('/members/' + member, value=connection_string, ttl=ttl or self.member_ttl)
+        except EtcdError:
+            return False
 
     def take_leader(self, value):
-        return self.put_client_path('/leader', value=value, ttl=self.ttl)
+        try:
+            return self.put_client_path('/leader', value=value, ttl=self.ttl)
+        except EtcdError:
+            return False
 
     def attempt_to_acquire_leader(self, value):
-        ret = self.put_client_path('/leader', value=value, ttl=self.ttl, prevExist=False)
-        ret or logger.info('Could not take out TTL lock')
-        return ret
+        try:
+            ret = self.put_client_path('/leader', value=value, ttl=self.ttl, prevExist=False)
+            ret or logger.info('Could not take out TTL lock')
+            return ret
+        except EtcdError:
+            return False
 
     def update_leader(self, state_handler):
-        ret = self.put_client_path('/leader', value=state_handler.name, ttl=self.ttl, prevValue=state_handler.name)
-        ret and self.put_client_path('/optime/leader', value=state_handler.last_operation())
-        return ret
+        if self.put_client_path('/leader', value=state_handler.name, ttl=self.ttl, prevValue=state_handler.name):
+            try:
+                self.put_client_path('/optime/leader', value=state_handler.last_operation())
+            except EtcdError:
+                pass
+            return True
+        return False
 
     def race(self, path, value):
-        return self.put_client_path(path, value=value, prevExist=False)
+        try:
+            return self.put_client_path(path, value=value, prevExist=False)
+        except EtcdError:
+            return False
 
     def delete_member(self, member):
         return self.delete_client_path('/members/' + member)
