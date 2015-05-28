@@ -1,10 +1,10 @@
 import logging
 import requests
-import time
 
 from requests.exceptions import RequestException
 from collections import namedtuple
 from helpers.errors import CurrentLeaderError, EtcdError
+from helpers.utils import sleep
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ class Etcd:
             attempts += 1
             if attempts < max_attempts:
                 logger.info('Failed to return %s, trying again. (%s of %s)', path, attempts, max_attempts)
-                time.sleep(3)
+                sleep(3)
             elif ex:
                 raise ex
             else:
