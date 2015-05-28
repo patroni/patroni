@@ -1,4 +1,3 @@
-import os
 import psycopg2
 import requests
 import subprocess
@@ -7,7 +6,7 @@ import time
 import unittest
 import yaml
 
-from governor import Governor, main, sigchld_handler, sigterm_handler
+from governor import Governor, main
 from test_ha import true, false
 from test_postgresql import Postgresql, subprocess_call, psycopg2_connect
 from test_etcd import requests_get, requests_put, requests_delete
@@ -20,10 +19,6 @@ else:
 
 def nop(*args, **kwargs):
     pass
-
-
-def os_waitpid(a, b):
-    return (0, 0)
 
 
 def time_sleep(_):
@@ -44,19 +39,21 @@ class TestGovernor(unittest.TestCase):
         requests.get = requests_get
         requests.put = requests_put
         requests.delete = requests_delete
+        self.time_sleep = time.sleep
         time.sleep = nop
         self.write_pg_hba = Postgresql.write_pg_hba
         self.write_recovery_conf = Postgresql.write_recovery_conf
         Postgresql.write_pg_hba = nop
         Postgresql.write_recovery_conf = nop
         BaseHTTPServer.HTTPServer.__init__ = nop
+        with open('postgres0.yml', 'r') as f:
+            config = yaml.load(f)
+            self.g = Governor(config)
 
     def tear_down(self):
+        time.sleep = self.time_sleep
         Postgresql.write_pg_hba = self.write_pg_hba
         Postgresql.write_recovery_conf = self.write_recovery_conf
-
-    def test_sigterm_handler(self):
-        self.assertRaises(SystemExit, sigterm_handler, None, None)
 
     def test_governor_main(self):
         main()
@@ -71,25 +68,21 @@ class TestGovernor(unittest.TestCase):
         return True
 
     def test_governor_initialize(self):
-        with open('postgres0.yml', 'r') as f:
-            config = yaml.load(f)
-            g = Governor(config)
-            g.etcd.base_client_url = 'http://remote'
-            g.etcd.client_url
-            g.postgresql.data_directory_empty = true
-            g.etcd.race = true
-            g.initialize()
-            g.etcd.race = false
-            g.initialize()
-            g.postgresql.data_directory_empty = false
-            g.touch_member = self.touch_member
-            g.initialize()
-            g.postgresql.data_directory_empty = true
-            time.sleep = time_sleep
-            g.postgresql.sync_from_leader = false
-            self.assertRaises(Exception, g.initialize)
+        self.g.etcd.base_client_url = 'http://remote'
+        self.g.etcd.client_url
+        self.g.postgresql.data_directory_empty = true
+        self.g.etcd.race = true
+        self.g.initialize()
+        self.g.etcd.race = false
+        self.g.initialize()
+        self.g.postgresql.data_directory_empty = false
+        self.g.touch_member = self.touch_member
+        self.g.initialize()
+        self.g.postgresql.data_directory_empty = true
+        time.sleep = time_sleep
+        self.g.postgresql.sync_from_leader = false
+        self.assertRaises(Exception, self.g.initialize)
 
-    def test_sigchld_handler(self):
-        sigchld_handler(None, None)
-        os.waitpid = os_waitpid
-        sigchld_handler(None, None)
+    def test_schedule_next_run(self):
+        self.g.next_run = time.time() - self.g.nap_time - 1
+        self.g.schedule_next_run()

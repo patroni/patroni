@@ -3,15 +3,13 @@ import os
 import psycopg2
 import subprocess
 import sys
-import time
 
-is_py3 = sys.hexversion >= 0x03000000
+from helpers.utils import sleep
 
-if is_py3:
+if sys.hexversion >= 0x03000000:
     from urllib.parse import urlparse
 else:
     from urlparse import urlparse
-
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +91,7 @@ class Postgresql:
                 max_attempts += 1
                 if max_attempts >= 3:
                     raise ex
-                time.sleep(5)
+                sleep(5)
 
     def data_directory_empty(self):
         return not os.path.exists(self.data_dir) or os.listdir(self.data_dir) == []
