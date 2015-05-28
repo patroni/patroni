@@ -1,3 +1,4 @@
+import os
 import psycopg2
 import requests
 import subprocess
@@ -6,7 +7,7 @@ import time
 import unittest
 import yaml
 
-from governor import Governor, main, sigterm_handler
+from governor import Governor, main, sigchld_handler, sigterm_handler
 from test_ha import true, false
 from test_postgresql import Postgresql, subprocess_call, psycopg2_connect
 from test_etcd import requests_get, requests_put, requests_delete
@@ -19,6 +20,10 @@ else:
 
 def nop(*args, **kwargs):
     pass
+
+
+def os_waitpid(a, b):
+    return (0, 0)
 
 
 def time_sleep(_):
@@ -84,3 +89,8 @@ class TestGovernor(unittest.TestCase):
             time.sleep = time_sleep
             g.postgresql.sync_from_leader = false
             self.assertRaises(Exception, g.initialize)
+
+    def test_sigchld_handler(self):
+        sigchld_handler(None, None)
+        os.waitpid = os_waitpid
+        sigchld_handler(None, None)
