@@ -46,6 +46,10 @@ class Postgresql:
         self.configuration_to_save = (os.path.join(self.data_dir, 'pg_hba.conf'),
                                       os.path.join(self.data_dir, 'postgresql.conf'))
         self.pid_path = os.path.join(self.data_dir, 'postmaster.pid')
+        self.trigger_file = config.get('recovery_conf', {}).get('trigger_file', None) or 'promote'
+        self.trigger_file = os.path.abspath(os.path.join(self.data_dir, self.trigger_file))
+        self.is_promoted = False
+
         self._pg_ctl = ['pg_ctl', '-w', '-D', self.data_dir]
         self.wal_e = config.get('wal_e', None)
         if self.wal_e:
@@ -110,6 +114,9 @@ class Postgresql:
         ret and self.write_pg_hba()
         return ret
 
+    def delete_trigger_file(self):
+        os.path.exists(self.trigger_file) and os.unlink(self.trigger_file)
+
     def sync_from_leader(self, leader):
         r = parseurl(leader.address)
 
@@ -118,24 +125,24 @@ class Postgresql:
             os.fchmod(f.fileno(), 0o600)
             f.write('{host}:{port}:*:{user}:{password}\n'.format(**r))
 
-        try:
-            os.environ['PGPASSFILE'] = pgpass
-            return self.create_replica(r) == 0
-        finally:
-            os.environ.pop('PGPASSFILE')
+        env = os.environ.copy()
+        env['PGPASSFILE'] = pgpass
+        return self.create_replica(r, env) == 0
 
-    def create_replica(self, master_connection):
+    def create_replica(self, master_connection, env):
         """ creates a new replica using either pg_basebackup or WAL-E """
         if self.should_use_s3_to_create_replica(master_connection):
             result = self.create_replica_with_s3()
             # if restore from the backup on S3 failed - try with the pg_basebackup
             if result == 0:
                 return result
-        return self.create_replica_with_pg_basebackup(master_connection)
+        return self.create_replica_with_pg_basebackup(master_connection, env)
 
-    def create_replica_with_pg_basebackup(self, master_connection):
-        return subprocess.call(['pg_basebackup', '-R', '-D', self.data_dir, '--host=' + master_connection['host'],
-                                '--port=' + str(master_connection['port']), '-U', master_connection['user']])
+    def create_replica_with_pg_basebackup(self, master_connection, env):
+        ret = subprocess.call(['pg_basebackup', '-R', '-D', self.data_dir, '--host=' + master_connection['host'],
+                               '--port=' + str(master_connection['port']), '-U', master_connection['user']], env=env)
+        self.delete_trigger_file()
+        return ret
 
     def create_replica_with_s3(self):
         if not self.wal_e or not self.wal_e_path:
@@ -215,7 +222,11 @@ class Postgresql:
                (diff_in_bytes < long(backup_size) * float(threshold_backup_size_percentage) / 100)
 
     def is_leader(self):
-        return not self.query('SELECT pg_is_in_recovery()').fetchone()[0]
+        ret = not self.query('SELECT pg_is_in_recovery()').fetchone()[0]
+        if ret and self.is_promoted:
+            self.delete_trigger_file()
+            self.is_promoted = False
+        return ret
 
     def is_running(self):
         return subprocess.call(' '.join(self._pg_ctl) + ' status > /dev/null', shell=True) == 0
@@ -328,10 +339,9 @@ primary_conninfo = '{}'
                     f.write("{} = '{}'\n".format(name, value))
 
     def follow_the_leader(self, leader):
-        if self.check_recovery_conf(leader):
-            return
-        self.write_recovery_conf(leader)
-        self.restart()
+        if not self.check_recovery_conf(leader):
+            self.write_recovery_conf(leader)
+            self.restart()
 
     def save_configuration_files(self):
         """
@@ -350,7 +360,8 @@ primary_conninfo = '{}'
             logger.error("unable to restore configuration from WAL-E backup: {}".format(e))
 
     def promote(self):
-        return subprocess.call(self._pg_ctl + ['promote']) == 0
+        self.is_promoted = subprocess.call(self._pg_ctl + ['promote']) == 0
+        return self.is_promoted
 
     def demote(self, leader):
         self.follow_the_leader(leader)
@@ -379,7 +390,8 @@ primary_conninfo = '{}'
         cursor = self.query("SELECT slot_name FROM pg_replication_slots WHERE slot_type='physical'")
         self.members = [r[0] for r in cursor]
 
-    def create_replication_slots(self, members):
+    def create_replication_slots(self, cluster):
+        members = [m.hostname for m in cluster.members if m.hostname != self.name]
         # drop unused slots
         for slot in set(self.members) - set(members):
             self.query("""SELECT pg_drop_replication_slot(%s)
