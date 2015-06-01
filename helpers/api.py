@@ -10,21 +10,16 @@ if sys.hexversion >= 0x03000000:
 else:
     from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 
-
 logger = logging.getLogger(__name__)
 
 
 class RestApiHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
-        try:
-            response = self.get_postgresql_status()
-        except (psycopg2.OperationalError, psycopg2.InterfaceError):
-            logging.exception('get_postgresql_status')
-            response = {'running': False}
+        response = self.get_postgresql_status()
 
         path = '/master' if self.path == '/' else self.path
-        status_code = 200 if response['running'] and response['role'] in path else 503
+        status_code = 200 if response['running'] and 'role' in response and response['role'] in path else 503
 
         self.send_response(status_code)
         self.send_header('Content-Type', 'application/json')
@@ -32,29 +27,31 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(response).encode('utf-8'))
 
     def get_postgresql_status(self):
-        if not self.server.governor.postgresql.is_running():
-            return {'running': False}
-        cursor = self.server._cursor()
-        cursor.execute("""SELECT to_char(pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),
-                                 pg_is_in_recovery(),
-                                 CASE WHEN pg_is_in_recovery()
-                                      THEN null
-                                      ELSE pg_current_xlog_location() END,
-                                 pg_last_xlog_receive_location(),
-                                 pg_last_xlog_replay_location(),
-                                 pg_is_in_recovery() AND pg_is_xlog_replay_paused()""")
-        row = cursor.fetchone()
-        return {
-            'running': True,
-            'postmaster_start_time': row[0],
-            'role': 'slave' if row[1] else 'master',
-            'xlog': ({
-                'received_location': row[3],
-                'replayed_location': row[4],
-                'paused': row[5]} if row[1] else {
-                'location': row[2]
-            })
-        }
+        try:
+            cursor = self.server._cursor()
+            cursor.execute("""SELECT to_char(pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),
+                                     pg_is_in_recovery(),
+                                     CASE WHEN pg_is_in_recovery()
+                                          THEN null
+                                          ELSE pg_current_xlog_location() END,
+                                     pg_last_xlog_receive_location(),
+                                     pg_last_xlog_replay_location(),
+                                     pg_is_in_recovery() AND pg_is_xlog_replay_paused()""")
+            row = cursor.fetchone()
+            return {
+                'running': True,
+                'postmaster_start_time': row[0],
+                'role': 'slave' if row[1] else 'master',
+                'xlog': ({
+                    'received_location': row[3],
+                    'replayed_location': row[4],
+                    'paused': row[5]} if row[1] else {
+                    'location': row[2]
+                })
+            }
+        except (psycopg2.OperationalError, psycopg2.InterfaceError):
+            logger.exception('get_postgresql_status')
+            return {'running': self.server.governor.postgresql.is_running()}
 
 
 class RestApiServer(HTTPServer, Thread):

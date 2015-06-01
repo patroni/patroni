@@ -88,6 +88,8 @@ def main():
     try:
         governor.initialize()
         governor.run()
+    except KeyboardInterrupt:
+        pass
     finally:
         governor.touch_member(300)  # schedule member removal
         governor.postgresql.stop()

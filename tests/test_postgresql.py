@@ -15,7 +15,7 @@ def nop(*args, **kwargs):
     pass
 
 
-def subprocess_call(cmd, shell=False):
+def subprocess_call(cmd, shell=False, env=None):
     return 0
 
 
@@ -110,17 +110,13 @@ class TestPostgresql(unittest.TestCase):
     def set_up(self):
         subprocess.call = subprocess_call
         shutil.copy = nop
-        self.p = Postgresql({
-            'name': 'test0',
-            'data_dir': 'data/test0',
-            'listen': '127.0.0.1, 127.0.0.2:5432',
-            'connect_address': '127.0.0.2:5432',
-            'superuser': {'password': ''},
-            'admin': {'username': 'admin', 'password': 'admin'},
-            'replication': {'username': 'replicator', 'password': 'rep-pass', 'network': '127.0.0.1/32'},
-            'parameters': {'foo': 'bar'},
-            'recovery_conf': {'foo': 'bar'},
-        })
+        self.p = Postgresql({'name': 'test0', 'data_dir': 'data/test0', 'listen': '127.0.0.1, 127.0.0.2:5432',
+                             'connect_address': '127.0.0.2:5432', 'superuser': {'password': ''},
+                             'admin': {'username': 'admin', 'password': 'admin'},
+                             'replication': {'username': 'replicator',
+                                             'password': 'rep-pass',
+                                             'network': '127.0.0.1/32'},
+                             'parameters': {'foo': 'bar'}, 'recovery_conf': {'foo': 'bar'}})
         psycopg2.connect = psycopg2_connect
         if not os.path.exists(self.p.data_dir):
             os.makedirs(self.p.data_dir)
@@ -155,7 +151,10 @@ class TestPostgresql(unittest.TestCase):
 
     def test_create_replication_slots(self):
         self.p.start()
-        self.p.create_replication_slots('qaz')
+        me = Member('test0', 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres', 28)
+        other = Member('test1', 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres', 28)
+        cluster = Cluster(True, self.leader, 0, [me, other, self.leader])
+        self.p.create_replication_slots(cluster)
 
     def test_query(self):
         self.p.query('select 1')
@@ -181,7 +180,9 @@ class TestPostgresql(unittest.TestCase):
         self.assertFalse(self.p.is_healthiest_node(cluster))
 
     def test_is_leader(self):
+        self.p.is_promoted = True
         self.assertTrue(self.p.is_leader())
+        self.assertFalse(self.p.is_promoted)
 
     def test_reload(self):
         self.assertTrue(self.p.reload())
