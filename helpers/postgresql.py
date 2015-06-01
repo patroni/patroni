@@ -40,7 +40,7 @@ class Postgresql:
         self.data_dir = config['data_dir']
         self.replication = config['replication']
         self.recovery_conf = os.path.join(self.data_dir, 'recovery.conf')
-        self.pid_path = os.path.join(self.data_dir, 'postmaster.pid')
+        self.postmaster_pid = os.path.join(self.data_dir, 'postmaster.pid')
         self.trigger_file = config.get('recovery_conf', {}).get('trigger_file', None) or 'promote'
         self.trigger_file = os.path.abspath(os.path.join(self.data_dir, self.trigger_file))
         self.is_promoted = False
@@ -139,9 +139,9 @@ class Postgresql:
             logger.error('Cannot start PostgreSQL because one is already running.')
             return False
 
-        if os.path.exists(self.pid_path):
-            os.remove(self.pid_path)
-            logger.info('Removed %s', self.pid_path)
+        if os.path.exists(self.postmaster_pid):
+            os.remove(self.postmaster_pid)
+            logger.info('Removed %s', self.postmaster_pid)
 
         ret = subprocess.call(self._pg_ctl + ['start', '-o', self.server_options()]) == 0
         ret and self.load_replication_slots()
