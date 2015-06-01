@@ -93,6 +93,9 @@ class TestPostgresql(unittest.TestCase):
         subprocess.call = subprocess_call
         self.p = Postgresql({'name': 'test0', 'data_dir': 'data/test0', 'listen': '127.0.0.1, 127.0.0.2:5432',
                              'connect_address': '127.0.0.2:5432',
+                             'pg_hba': [{'type': 'hostssl', 'database': 'all', 'user': 'all', 'address': '0.0.0.0/0',
+                                         'method': 'md5'}, {'type': 'host', 'database': 'all', 'user': 'all',
+                                                            'address': '0.0.0.0/0', 'method': 'md5'}],
                              'replication': {'username': 'replicator',
                                              'password': 'rep-pass',
                                              'network': '127.0.0.1/32'},
