@@ -11,10 +11,6 @@ else:
     from StringIO import StringIO as IO
 
 
-def false(*args, **kwargs):
-    return False
-
-
 def throws(*args, **kwargs):
     raise psycopg2.OperationalError()
 
@@ -48,7 +44,7 @@ class MockRestApiServer(RestApiServer):
     def __init__(self, Handler, path, *args):
         self.governor = MockGovernor()
         if len(args) > 0:
-            self.governor.postgresql.is_running = args[0]
+            self._cursor = args[0]
         self._cursor_holder = None
         Handler(MockRequest(path), ('0.0.0.0', 8080), self)
 
@@ -61,6 +57,3 @@ class TestRestApiHandler(unittest.TestCase):
     def test_do_GET(self):
         MockRestApiServer(RestApiHandler, b'GET /')
         MockRestApiServer(RestApiHandler, b'GET /', throws)
-
-    def test_get_postgresql_status(self):
-        MockRestApiServer(RestApiHandler, b'GET /', false)
