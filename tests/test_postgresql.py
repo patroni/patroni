@@ -160,7 +160,9 @@ class TestPostgresql(unittest.TestCase):
         self.assertFalse(self.p.is_healthiest_node(cluster))
 
     def test_is_leader(self):
+        self.p.is_promoted = True
         self.assertTrue(self.p.is_leader())
+        self.assertFalse(self.p.is_promoted)
 
     def test_reload(self):
         self.assertTrue(self.p.reload())

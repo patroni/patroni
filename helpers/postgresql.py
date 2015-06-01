@@ -41,6 +41,10 @@ class Postgresql:
         self.replication = config['replication']
         self.recovery_conf = os.path.join(self.data_dir, 'recovery.conf')
         self.pid_path = os.path.join(self.data_dir, 'postmaster.pid')
+        self.trigger_file = config.get('recovery_conf', {}).get('trigger_file', None) or 'promote'
+        self.trigger_file = os.path.abspath(os.path.join(self.data_dir, self.trigger_file))
+        self.is_promoted = False
+
         self._pg_ctl = ['pg_ctl', '-w', '-D', self.data_dir]
 
         self.local_address = self.get_local_address()
@@ -101,6 +105,9 @@ class Postgresql:
         ret and self.write_pg_hba()
         return ret
 
+    def delete_trigger_file(self):
+        os.path.exists(self.trigger_file) and os.unlink(self.trigger_file)
+
     def sync_from_leader(self, leader):
         r = parseurl(leader.address)
 
@@ -111,11 +118,17 @@ class Postgresql:
 
         env = os.environ.copy()
         env['PGPASSFILE'] = pgpass
-        return subprocess.call(['pg_basebackup', '-R', '-D', self.data_dir, '--host=' + r['host'],
-                                '--port=' + str(r['port']), '-U', r['user']], env=env) == 0
+        ret = subprocess.call(['pg_basebackup', '-R', '-D', self.data_dir, '--host=' + r['host'],
+                               '--port=' + str(r['port']), '-U', r['user']], env=env) == 0
+        self.delete_trigger_file()
+        return ret
 
     def is_leader(self):
-        return not self.query('SELECT pg_is_in_recovery()').fetchone()[0]
+        ret = not self.query('SELECT pg_is_in_recovery()').fetchone()[0]
+        if ret and self.is_promoted:
+            self.delete_trigger_file()
+            self.is_promoted = False
+        return ret
 
     def is_running(self):
         return subprocess.call(' '.join(self._pg_ctl) + ' status > /dev/null', shell=True) == 0
@@ -226,7 +239,8 @@ primary_conninfo = '{}'
             self.restart()
 
     def promote(self):
-        return subprocess.call(self._pg_ctl + ['promote']) == 0
+        self.is_promoted = subprocess.call(self._pg_ctl + ['promote']) == 0
+        return self.is_promoted
 
     def demote(self, leader):
         self.follow_the_leader(leader)
