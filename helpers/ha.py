@@ -78,7 +78,7 @@ class Ha:
                             return 'no action.  i am the leader with the lock'
                     finally:
                         # create replication slots
-                        self.state_handler.create_replication_slots([m.hostname for m in self.cluster.members])
+                        self.state_handler.create_replication_slots(self.cluster)
                 else:
                     logger.info('does not have lock')
                     if self.state_handler.is_leader():

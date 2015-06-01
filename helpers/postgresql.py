@@ -247,7 +247,8 @@ primary_conninfo = '{}'
         cursor = self.query("SELECT slot_name FROM pg_replication_slots WHERE slot_type='physical'")
         self.members = [r[0] for r in cursor]
 
-    def create_replication_slots(self, members):
+    def create_replication_slots(self, cluster):
+        members = [m.hostname for m in cluster.members if m.hostname != self.name]
         # drop unused slots
         for slot in set(self.members) - set(members):
             self.query("""SELECT pg_drop_replication_slot(%s)

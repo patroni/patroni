@@ -20,7 +20,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         try:
             response = self.get_postgresql_status()
         except (psycopg2.OperationalError, psycopg2.InterfaceError):
-            logging.exception('get_postgresql_status')
+            logger.exception('get_postgresql_status')
             response = {'running': False}
 
         path = '/master' if self.path == '/' else self.path
