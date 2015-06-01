@@ -57,8 +57,14 @@ class Postgresql:
         self.members = []  # list of already existing replication slots
 
     def get_local_address(self):
-        # TODO: try to get unix_socket_directory from postmaster.pid
-        return self.listen_addresses.split(',')[0].strip() + ':' + self.port
+        listen_addresses = self.listen_addresses.split(',')
+        local_address = listen_addresses[0].strip()  # take first address from listen_addresses
+
+        for la in listen_addresses:
+            if la.strip() in ['*', '0.0.0.0']:  # we are listening on *
+                local_address = 'localhost'  # connection via localhost is preferred
+                break
+        return local_address + ':' + self.port
 
     def connection(self):
         if not self._connection or self._connection.closed != 0:
