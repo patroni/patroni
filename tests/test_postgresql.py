@@ -8,7 +8,7 @@ from helpers.etcd import Cluster, Member
 from helpers.postgresql import Postgresql
 
 
-def subprocess_call(cmd, shell=False):
+def subprocess_call(cmd, shell=False, env=None):
     return 0
 
 

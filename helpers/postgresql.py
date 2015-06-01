@@ -109,12 +109,10 @@ class Postgresql:
             os.fchmod(f.fileno(), 0o600)
             f.write('{host}:{port}:*:{user}:{password}\n'.format(**r))
 
-        try:
-            os.environ['PGPASSFILE'] = pgpass
-            return subprocess.call(['pg_basebackup', '-R', '-D', self.data_dir,
-                                    '--host=' + r['host'], '--port=' + str(r['port']), '-U', r['user']]) == 0
-        finally:
-            os.environ.pop('PGPASSFILE')
+        env = os.environ.copy()
+        env['PGPASSFILE'] = pgpass
+        return subprocess.call(['pg_basebackup', '-R', '-D', self.data_dir, '--host=' + r['host'],
+                                '--port=' + str(r['port']), '-U', r['user']], env=env) == 0
 
     def is_leader(self):
         return not self.query('SELECT pg_is_in_recovery()').fetchone()[0]
@@ -223,10 +221,9 @@ primary_conninfo = '{}'
                     f.write("{} = '{}'\n".format(name, value))
 
     def follow_the_leader(self, leader):
-        if self.check_recovery_conf(leader):
-            return
-        self.write_recovery_conf(leader)
-        self.restart()
+        if not self.check_recovery_conf(leader):
+            self.write_recovery_conf(leader)
+            self.restart()
 
     def promote(self):
         return subprocess.call(self._pg_ctl + ['promote']) == 0
