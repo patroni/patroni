@@ -115,7 +115,7 @@ class Postgresql:
         os.path.exists(self.trigger_file) and os.unlink(self.trigger_file)
 
     def sync_from_leader(self, leader):
-        r = parseurl(leader.address)
+        r = parseurl(leader.conn_url)
 
         pgpass = 'pgpass'
         with open(pgpass, 'w') as f:
@@ -185,7 +185,7 @@ class Postgresql:
             if member.hostname == self.name:
                 continue
             try:
-                r = parseurl(member.address)
+                r = parseurl(member.conn_url)
                 member_conn = psycopg2.connect(**r)
                 member_conn.autocommit = True
                 member_cursor = member_conn.cursor()
@@ -219,7 +219,7 @@ class Postgresql:
         if not os.path.isfile(self.recovery_conf):
             return False
 
-        pattern = leader and leader.address and self.primary_conninfo(leader.address)
+        pattern = leader and leader.conn_url and self.primary_conninfo(leader.conn_url)
 
         with open(self.recovery_conf, 'r') as f:
             for line in f:
@@ -235,11 +235,11 @@ class Postgresql:
             f.write("""standby_mode = 'on'
 recovery_target_timeline = 'latest'
 """)
-            if leader and leader.address:
+            if leader and leader.conn_url:
                 f.write("""
 primary_slot_name = '{}'
 primary_conninfo = '{}'
-""".format(self.name, self.primary_conninfo(leader.address)))
+""".format(self.name, self.primary_conninfo(leader.conn_url)))
                 for name, value in self.config.get('recovery_conf', {}).items():
                     f.write("{} = '{}'\n".format(name, value))
 

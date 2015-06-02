@@ -8,7 +8,7 @@ from helpers.utils import sleep
 
 logger = logging.getLogger(__name__)
 
-Member = namedtuple('Member', 'hostname,address,ttl')
+Member = namedtuple('Member', 'hostname,conn_url,api_url,ttl')
 
 
 class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,members')):
@@ -91,7 +91,7 @@ class Etcd:
                 initialize = True if node else False
                 # get list of members
                 node = self.find_node(response['node'], '/members') or {'nodes': []}
-                members = [Member(n['key'].split('/')[-1], n['value'], n.get('ttl', None)) for n in node['nodes']]
+                members = [Member(n['key'].split('/')[-1], n['value'], None, n.get('ttl', None)) for n in node['nodes']]
 
                 # get last leader operation
                 last_leader_operation = 0
@@ -110,7 +110,7 @@ class Etcd:
                             leader = m
                             break
                     if not leader:
-                        leader = Member(node['value'], None, None)
+                        leader = Member(node['value'], None, None, None)
 
                 return Cluster(initialize, leader, last_leader_operation, members)
             elif status_code == 404:
