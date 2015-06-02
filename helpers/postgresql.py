@@ -305,9 +305,9 @@ class Postgresql:
         with open(os.path.join(self.data_dir, 'pg_hba.conf'), 'a') as f:
             f.write('\nhost replication {username} {network} md5\n'.format(**self.replication))
             for line in self.config.get('pg_hba', []):
-                if line['type'] == 'hostssl' and self.config['parameters'].get('ssl', 'off').lower() != 'on':
+                if line.split()[0].strip() == 'hostssl' and self.config['parameters'].get('ssl', 'off').lower() != 'on':
                     continue
-                f.write('{type} {database} {user} {address} {method}\n'. format(**line))
+                f.write(line + '\n')
 
     @staticmethod
     def primary_conninfo(leader_url):

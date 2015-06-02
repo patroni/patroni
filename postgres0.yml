@@ -13,16 +13,8 @@ postgresql:
   data_dir: data/postgresql0
   maximum_lag_on_failover: 1048576 # 1 megabyte in bytes
   pg_hba:
-  - type: host
-    database: all
-    user: all
-    address: 0.0.0.0/0
-    method: md5
-  - type: hostssl
-    database: all
-    user: all
-    address: 0.0.0.0/0
-    method: md5
+  - host all all 0.0.0.0/0 md5
+  - hostssl all all 0.0.0.0/0 md5
   replication:
     username: replicator
     password: rep-pass
