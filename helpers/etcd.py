@@ -1,14 +1,32 @@
 import logging
 import requests
+import sys
 
 from requests.exceptions import RequestException
 from collections import namedtuple
 from helpers.errors import CurrentLeaderError, EtcdError
 from helpers.utils import sleep
 
+if sys.hexversion >= 0x03000000:
+    from urllib.parse import urlparse, urlunparse, parse_qsl
+else:
+    from urlparse import urlparse, urlunparse, parse_qsl
+
 logger = logging.getLogger(__name__)
 
-Member = namedtuple('Member', 'hostname,address,ttl')
+
+class Member(namedtuple('Member', 'hostname,conn_url,api_url,ttl')):
+
+    @staticmethod
+    def fromNode(node):
+        scheme, netloc, path, params, query, fragment = urlparse(node['value'])
+        conn_url = urlunparse((scheme, netloc, path, params, '', fragment))
+        api_url = None
+        for name, value in parse_qsl(query):
+            if name == 'application_name' and value:
+                api_url = value
+                break
+        return Member(node['key'].split('/')[-1], conn_url, api_url, node.get('ttl', None))
 
 
 class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,members')):
@@ -91,7 +109,7 @@ class Etcd:
                 initialize = True if node else False
                 # get list of members
                 node = self.find_node(response['node'], '/members') or {'nodes': []}
-                members = [Member(n['key'].split('/')[-1], n['value'], n.get('ttl', None)) for n in node['nodes']]
+                members = [Member.fromNode(n) for n in node['nodes']]
 
                 # get last leader operation
                 last_leader_operation = 0
@@ -110,7 +128,7 @@ class Etcd:
                             leader = m
                             break
                     if not leader:
-                        leader = Member(node['value'], None, None)
+                        leader = Member(node['value'], None, None, None)
 
                 return Cluster(initialize, leader, last_leader_operation, members)
             elif status_code == 404:
