@@ -7,6 +7,7 @@ from threading import Thread
 
 if sys.hexversion >= 0x03000000:
     from http.server import BaseHTTPRequestHandler, HTTPServer
+    from socketserver import ThreadingMixIn
 else:
     from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
     from SocketServer import ThreadingMixIn
