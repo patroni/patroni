@@ -44,12 +44,14 @@ class Governor:
                 self.postgresql.start()
                 self.postgresql.create_replication_user()
                 self.postgresql.create_connection_users()
+                self.aws.on_role_change('master')
             else:
                 while True:
                     leader = self.etcd.current_leader()
                     if leader and self.postgresql.sync_from_leader(leader):
                         self.postgresql.write_recovery_conf(leader)
                         self.postgresql.start()
+                        self.aws.on_role_change('replica')
                         break
                     sleep(5)
         elif self.postgresql.is_running():
