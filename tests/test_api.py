@@ -44,8 +44,7 @@ class MockRestApiServer(RestApiServer):
     def __init__(self, Handler, path, *args):
         self.governor = MockGovernor()
         if len(args) > 0:
-            self._cursor = args[0]
-        self._cursor_holder = None
+            self.query = args[0]
         Handler(MockRequest(path), ('0.0.0.0', 8080), self)
 
 
