@@ -45,7 +45,7 @@ class Postgresql:
         self.recovery_conf = os.path.join(self.data_dir, 'recovery.conf')
         self.configuration_to_save = (os.path.join(self.data_dir, 'pg_hba.conf'),
                                       os.path.join(self.data_dir, 'postgresql.conf'))
-        self.pid_path = os.path.join(self.data_dir, 'postmaster.pid')
+        self.postmaster_pid = os.path.join(self.data_dir, 'postmaster.pid')
         self.trigger_file = config.get('recovery_conf', {}).get('trigger_file', None) or 'promote'
         self.trigger_file = os.path.abspath(os.path.join(self.data_dir, self.trigger_file))
         self.is_promoted = False
@@ -66,8 +66,14 @@ class Postgresql:
         self.members = []  # list of already existing replication slots
 
     def get_local_address(self):
-        # TODO: try to get unix_socket_directory from postmaster.pid
-        return self.listen_addresses.split(',')[0].strip() + ':' + self.port
+        listen_addresses = self.listen_addresses.split(',')
+        local_address = listen_addresses[0].strip()  # take first address from listen_addresses
+
+        for la in listen_addresses:
+            if la.strip() in ['*', '0.0.0.0']:  # we are listening on *
+                local_address = 'localhost'  # connection via localhost is preferred
+                break
+        return local_address + ':' + self.port
 
     def connection(self):
         if not self._connection or self._connection.closed != 0:
@@ -118,7 +124,7 @@ class Postgresql:
         os.path.exists(self.trigger_file) and os.unlink(self.trigger_file)
 
     def sync_from_leader(self, leader):
-        r = parseurl(leader.address)
+        r = parseurl(leader.conn_url)
 
         pgpass = 'pgpass'
         with open(pgpass, 'w') as f:
@@ -237,9 +243,9 @@ class Postgresql:
             logger.error('Cannot start PostgreSQL because one is already running.')
             return False
 
-        if os.path.exists(self.pid_path):
-            os.remove(self.pid_path)
-            logger.info('Removed %s', self.pid_path)
+        if os.path.exists(self.postmaster_pid):
+            os.remove(self.postmaster_pid)
+            logger.info('Removed %s', self.postmaster_pid)
 
         ret = subprocess.call(self._pg_ctl + ['start', '-o', self.server_options()]) == 0
         ret and self.load_replication_slots()
@@ -278,7 +284,7 @@ class Postgresql:
             if member.hostname == self.name:
                 continue
             try:
-                r = parseurl(member.address)
+                r = parseurl(member.conn_url)
                 member_conn = psycopg2.connect(**r)
                 member_conn.autocommit = True
                 member_cursor = member_conn.cursor()
@@ -298,12 +304,10 @@ class Postgresql:
     def write_pg_hba(self):
         with open(os.path.join(self.data_dir, 'pg_hba.conf'), 'a') as f:
             f.write('\nhost replication {username} {network} md5\n'.format(**self.replication))
-            # allow TCP connections from the host's own address
-            f.write("\nhost postgres postgres samehost trust\n")
-            # allow TCP connections from the rest of the world with a password, prefer ssl
-            if self.config['parameters'].get('ssl', 'off').lower() == 'on':
-                f.write("\nhostssl all all 0.0.0.0/0 md5\n")
-            f.write("\nhost    all all 0.0.0.0/0 md5\n")
+            for line in self.config.get('pg_hba', []):
+                if line.split()[0].strip() == 'hostssl' and self.config['parameters'].get('ssl', 'off').lower() != 'on':
+                    continue
+                f.write(line + '\n')
 
     @staticmethod
     def primary_conninfo(leader_url):
@@ -314,7 +318,7 @@ class Postgresql:
         if not os.path.isfile(self.recovery_conf):
             return False
 
-        pattern = leader and leader.address and self.primary_conninfo(leader.address)
+        pattern = leader and leader.conn_url and self.primary_conninfo(leader.conn_url)
 
         with open(self.recovery_conf, 'r') as f:
             for line in f:
@@ -330,11 +334,11 @@ class Postgresql:
             f.write("""standby_mode = 'on'
 recovery_target_timeline = 'latest'
 """)
-            if leader and leader.address:
+            if leader and leader.conn_url:
                 f.write("""
 primary_slot_name = '{}'
 primary_conninfo = '{}'
-""".format(self.name, self.primary_conninfo(leader.address)))
+""".format(self.name, self.primary_conninfo(leader.conn_url)))
                 for name, value in self.config.get('recovery_conf', {}).items():
                     f.write("{} = '{}'\n".format(name, value))
 
