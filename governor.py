@@ -10,7 +10,7 @@ from helpers.etcd import Etcd
 from helpers.postgresql import Postgresql
 from helpers.ha import Ha
 from helpers.utils import setup_signal_handlers, sleep
-import helpers.aws import AWSConnection
+from helpers.aws import AWSConnection
 
 
 class Governor:
