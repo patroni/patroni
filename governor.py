@@ -10,6 +10,7 @@ from helpers.etcd import Etcd
 from helpers.postgresql import Postgresql
 from helpers.ha import Ha
 from helpers.utils import setup_signal_handlers, sleep
+import helpers.aws import AWSConnection
 
 
 class Governor:
@@ -17,7 +18,8 @@ class Governor:
     def __init__(self, config):
         self.nap_time = config['loop_wait']
         self.etcd = Etcd(config['etcd'])
-        self.postgresql = Postgresql(config['postgresql'])
+        self.aws = AWSConnection(config)
+        self.postgresql = Postgresql(config['postgresql'], self.aws.on_role_change)
         self.ha = Ha(self.postgresql, self.etcd)
         host, port = config['restapi']['listen'].split(':')
         self.api = RestApiServer(self, config['restapi'])
