@@ -43,7 +43,7 @@ class AWSConnection:
         if not self.available:
             return False
 
-        tags = {'Name': self.cluster_name, 'Role': role, 'Instance': self.instance_id}
+        tags = {'Name': 'spilo_'+self.cluster_name, 'Role': role, 'Instance': self.instance_id}
         try:
             conn = boto.ec2.connect_to_region(self.region)
             # get all volumes attached to the current instance
@@ -72,7 +72,7 @@ class AWSConnection:
 
     def on_role_change(self, new_role):
         self._tag_ec2(new_role)
-        self._tag_ebs('spilo_' + self.cluster_name, new_role)
+        self._tag_ebs(new_role)
 
 if __name__ == '__main__':
     import yaml
