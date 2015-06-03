@@ -47,7 +47,7 @@ class AWSConnection:
         try:
             conn = boto.ec2.connect_to_region(self.region)
             # get all volumes attached to the current instance
-            volumes = conn.get_all_volumes(filter={'attachment.instance-id': self.instance_id})
+            volumes = conn.get_all_volumes(filters={'attachment.instance-id': self.instance_id})
             if volumes:
                 conn.create_tags([v.id for v in volumes], tags)
         except Exception as e:
@@ -64,7 +64,7 @@ class AWSConnection:
             conn = boto.ec2.connect_to_region(self.region)
             instances = conn.get_all_reservations(instance_ids=[self.instance_id])
             if instances:
-                conn.create_tag([instances[0].id], tags)
+                conn.create_tags([instances[0].id], tags)
         except Exception as e:
             logger.info("could not set tags for EC2 instance {}: {}".format(self.instance_id, e))
             return False
