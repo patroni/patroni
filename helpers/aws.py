@@ -59,12 +59,10 @@ class AWSConnection:
         """ tag the current EC2 instance with a cluster role """
         if not self.available:
             return False
-        tags = {'Role', role}
+        tags = {'Role': role}
         try:
             conn = boto.ec2.connect_to_region(self.region)
-            instances = conn.get_all_reservations(instance_ids=[self.instance_id])
-            if instances:
-                conn.create_tags([instances[0].id], tags)
+            conn.create_tags([self.instance_id], tags)
         except Exception as e:
             logger.info("could not set tags for EC2 instance {}: {}".format(self.instance_id, e))
             return False
