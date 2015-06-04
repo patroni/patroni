@@ -7,8 +7,10 @@ from threading import Thread
 
 if sys.hexversion >= 0x03000000:
     from http.server import BaseHTTPRequestHandler, HTTPServer
+    from socketserver import ThreadingMixIn
 else:
     from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
+    from SocketServer import ThreadingMixIn
 
 logger = logging.getLogger(__name__)
 
@@ -28,16 +30,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     def get_postgresql_status(self):
         try:
-            cursor = self.server._cursor()
-            cursor.execute("""SELECT to_char(pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),
-                                     pg_is_in_recovery(),
-                                     CASE WHEN pg_is_in_recovery()
-                                          THEN null
-                                          ELSE pg_current_xlog_location() END,
-                                     pg_last_xlog_receive_location(),
-                                     pg_last_xlog_replay_location(),
-                                     pg_is_in_recovery() AND pg_is_xlog_replay_paused()""")
-            row = cursor.fetchone()
+            row = self.server.query("""SELECT to_char(pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),
+                                              pg_is_in_recovery(),
+                                              CASE WHEN pg_is_in_recovery()
+                                                   THEN null
+                                                   ELSE pg_current_xlog_location() END,
+                                              pg_last_xlog_receive_location(),
+                                              pg_last_xlog_replay_location(),
+                                              pg_is_in_recovery() AND pg_is_xlog_replay_paused()""")[0]
             return {
                 'running': True,
                 'postmaster_start_time': row[0],
@@ -54,7 +54,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             return {'running': self.server.governor.postgresql.is_running()}
 
 
-class RestApiServer(HTTPServer, Thread):
+class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
     def __init__(self, governor, config):
         self.connection_string = 'http://{}/governor'.format(config.get('connect_address', None) or config['listen'])
@@ -62,10 +62,11 @@ class RestApiServer(HTTPServer, Thread):
         HTTPServer.__init__(self, (host, int(port)), RestApiHandler)
         Thread.__init__(self, target=self.serve_forever)
         self.governor = governor
-        self._cursor_holder = None
         self.daemon = True
 
-    def _cursor(self):
-        if not self._cursor_holder or self._cursor_holder.closed:
-            self._cursor_holder = self.governor.postgresql.connection().cursor()
-        return self._cursor_holder
+    def query(self, sql, *params):
+        cursor = self.governor.postgresql.connection().cursor()
+        cursor.execute(sql, params)
+        ret = [r for r in cursor]
+        cursor.close()
+        return ret
