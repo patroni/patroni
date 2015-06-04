@@ -46,10 +46,8 @@ class AWSConnection:
         tags = {'Name': 'spilo_'+self.cluster_name, 'Role': role, 'Instance': self.instance_id}
         try:
             conn = boto.ec2.connect_to_region(self.region)
-            # get all volumes attached to the current instance
             volumes = conn.get_all_volumes(filters={'attachment.instance-id': self.instance_id})
-            if volumes:
-                conn.create_tags([v.id for v in volumes], tags)
+            conn.create_tags([v.id for v in volumes], tags)
         except Exception as e:
             logger.info('could not set tags for EBS storage devices attached: {}'.format(e))
             return False
@@ -69,45 +67,5 @@ class AWSConnection:
         return True
 
     def on_role_change(self, new_role):
-        self._tag_ec2(new_role)
-        self._tag_ebs(new_role)
-
-if __name__ == '__main__':
-    import yaml
-    config_string = """
-loop_wait: 10
-restapi:
-  listen: 0.0.0.0:8008
-  connect_address: 127.0.0.1:5432
-etcd:
-  scope: test
-  ttl: 30
-  host: 127.0.0.1:8080
-postgresql:
-  name: postgresql_foo
-  listen: 0.0.0.0:5432
-  connect_address: 127.0.0.1:5432
-  data_dir: /home/postgres/pgdata/data
-  replication:
-    username: standby
-    password: standby
-    network: 0.0.0.0/0
-  superuser:
-    password: zalando
-  admin:
-    username: admin
-    password: admin
-  parameters:
-    archive_mode: "on"
-    wal_level: hot_standby
-    max_wal_senders: 5
-    wal_keep_segments: 8
-    archive_timeout: 1800s
-    max_replication_slots: 5
-    hot_standby: "on"
-    ssl: "on"
-"""
-    awsconnection = AWSConnection(yaml.load(config_string))
-    print "AWS available: {}, Cluster_name: {}".format(awsconnection.available, awsconnection.cluster_name)
-    if awsconnection.available:
-        print "AWS Region: {}, Instance_id: {}".format(awsconnection.region, awsconnection.instance_id)
+        ret = self._tag_ec2(new_role)
+        return self._tag_ebs(new_role) and ret
