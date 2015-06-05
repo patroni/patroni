@@ -245,10 +245,11 @@ class Postgresql:
         ret = subprocess.call(self._pg_ctl + ['start', '-o', self.server_options()]) == 0
         ret and self.load_replication_slots()
         self.save_configuration_files()
-        if os.path.exists(self.recovery_conf):
-            self.on_change_callback('replica')
-        else:
-            self.on_change_callback('master')
+        if self.on_change_callback:
+            if os.path.exists(self.recovery_conf):
+                self.on_change_callback('replica')
+            else:
+                self.on_change_callback('master')
         return ret
 
     def stop(self):
