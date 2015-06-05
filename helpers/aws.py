@@ -2,7 +2,6 @@ import logging
 import re
 import requests
 from requests.exceptions import RequestException
-import types
 import boto.ec2
 
 logger = logging.getLogger(__name__)
@@ -15,7 +14,7 @@ class AWSConnection:
 
         if 'cluster_name' in config:
             self.cluster_name = config.get('cluster_name')
-        elif 'etcd' in config and type(config['etcd']) == types.DictType:
+        elif 'etcd' in config and isinstance(config['etcd'], dict):
             self.cluster_name = config['etcd'].get('scope', 'unknown')
         else:
             self.cluster_name = 'unknown'
