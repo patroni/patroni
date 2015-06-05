@@ -12,6 +12,9 @@ postgresql:
   connect_address: 127.0.0.1:5433
   data_dir: data/postgresql1
   maximum_lag_on_failover: 1048576 # 1 megabyte in bytes
+  pg_hba:
+  - host all all 0.0.0.0/0 md5
+  - hostssl all all 0.0.0.0/0 md5
   replication:
     username: replicator
     password: rep-pass
