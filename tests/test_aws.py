@@ -43,8 +43,8 @@ class TestAWSConnection(unittest.TestCase):
             raise RequestException("foo")
         result = namedtuple('Request', 'ok content')
         result.ok = True
-        if url.split('/')[-1] == 'availability-zone':
-            result.content = 'eu-west-1c'
+        if url.split('/')[-1] == 'document':
+            result.content = '{\n  "instanceId" : "012345",\n "region" : "eu-west-1"\n}'
         else:
             result.content = 'foo'
         return result

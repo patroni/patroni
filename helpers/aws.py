@@ -2,6 +2,7 @@ import logging
 import re
 import requests
 from requests.exceptions import RequestException
+import yaml
 import boto.ec2
 
 logger = logging.getLogger(__name__)
@@ -20,19 +21,19 @@ class AWSConnection:
             self.cluster_name = 'unknown'
         try:
             # get the instance id
-            r = requests.get('http://169.254.169.254/latest/meta-data/instance-id', timeout=0.1)
-            if r.ok:
-                self.instance_id = r.content.strip()
-                r = requests.get('http://169.254.169.254/latest/meta-data/placement/availability-zone', timeout=0.1)
-                if r.ok:
-                    # get the region from the availability zone, i.e. eu-west-1 from eu-west-1c
-                    m = re.match(r'(\w+-\w+-\d+)[a-z]+', r.content)
-                    if m:
-                        self.region = m.group(1)
-                        self.available = True
+            r = requests.get('http://169.254.169.254/latest/dynamic/instance-identity/document', timeout=0.1)
         except RequestException:
             logger.info("cannot query AWS meta-data")
-            pass
+            return
+        if r.ok:
+            try:
+                content = yaml.load(r.content)
+                self.instance_id = content['instanceId']
+                self.region = content['region']
+            except Exception as e:
+                logger.info('unable to fetch instance id and region from AWS meta-data: {}'.format(e))
+                return
+            self.available = True
 
     def aws_available(self):
         return self.available
