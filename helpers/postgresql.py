@@ -252,10 +252,7 @@ class Postgresql:
         ret and self.load_replication_slots()
         self.save_configuration_files()
         if self.on_change_callback:
-            if os.path.exists(self.recovery_conf):
-                self.on_change_callback('replica')
-            else:
-                self.on_change_callback('master')
+            self.on_change_callback('replica' if os.path.exists(self.recovery_conf) else 'master')
         return ret
 
     def stop(self):
