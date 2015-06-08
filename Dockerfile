@@ -10,7 +10,7 @@ RUN apt-get update -y
 RUN apt-get upgrade -y
 
 ENV PGVERSION 9.4
-RUN apt-get install python python-psycopg2 python-yaml python-requests postgresql-${PGVERSION} -y
+RUN apt-get install python python-psycopg2 python-yaml python-requests python-boto postgresql-${PGVERSION} -y
 
 ENV PATH /usr/lib/postgresql/${PGVERSION}/bin:$PATH
 
@@ -19,7 +19,7 @@ ADD governor.py /governor/governor.py
 ADD helpers /governor/helpers
 ADD postgres0.yml /governor/
 
-ENV ETCDVERSION 2.0.10
+ENV ETCDVERSION 2.0.11
 RUN curl -L https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v${ETCDVERSION}-linux-amd64.tar.gz | tar xz -C /bin --strip=1 --wildcards --no-anchored etcd etcdctl
 
 ## Setting up a simple script that will serve as an entrypoint
