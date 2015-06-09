@@ -1,4 +1,5 @@
 import logging
+import random
 import requests
 import socket
 import sys
@@ -104,13 +105,17 @@ class Client:
     def load_members(self):
         load_from_srv = False
         if not self._base_uri:
+            if not 'discovery_srv' in self._config and not 'host' in self._config:
+                raise Exception('Neither discovery_srv nor host are defined in etcd section of config')
+
             if 'discovery_srv' in self._config:
                 load_from_srv = True
                 self._members_cache = self.get_peers_urls_from_dns(self._config['discovery_srv'])
-            elif 'host' in self._config:
+
+            if not self._members_cache and 'host' in self._config:
+                load_from_srv = False
                 self._members_cache = self.get_client_urls_from_dns(self._config['host'])
-            else:
-                raise Exception('Neither discovery_srv nor host are defined in etcd section of config')
+
             self._next_server()
 
         response, status_code = self._get('/members')
@@ -120,7 +125,8 @@ class Client:
         members_cache = []
         for member in response if load_from_srv else response['members']:
             members_cache.extend([m + '/' + self.API_VERSION for m in member['clientURLs']])
-        self._members_cache = list(set(members_cache))  # TODO: randomize
+        self._members_cache = list(set(members_cache))
+        random.shuffle(self._members_cache)
         if load_from_srv:
             self._next_server()
         else:
