@@ -1,4 +1,5 @@
 import logging
+import random
 import requests
 import socket
 import sys
@@ -124,7 +125,8 @@ class Client:
         members_cache = []
         for member in response if load_from_srv else response['members']:
             members_cache.extend([m + '/' + self.API_VERSION for m in member['clientURLs']])
-        self._members_cache = list(set(members_cache))  # TODO: randomize
+        self._members_cache = list(set(members_cache))
+        random.shuffle(self._members_cache)
         if load_from_srv:
             self._next_server()
         else:
