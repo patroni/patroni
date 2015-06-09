@@ -67,7 +67,7 @@ class Client:
         while response is None:
             uri = self.client_url(path)
             try:
-                logger.info(uri)
+                logger.info('GET %s', uri)
                 response = requests.get(uri, timeout=self.timeout)
             except RequestException:
                 self._next_server()
@@ -150,7 +150,7 @@ class Client:
         while response is None:
             uri = self.client_url(path)
             try:
-                logger.info(uri)
+                logger.info('PUT %s', uri)
                 response = requests.put(uri, timeout=self.timeout, data=data)
             except RequestException:
                 logger.exception('PUT %s data=%s', uri, data)
@@ -171,6 +171,7 @@ class Client:
         while response is None:
             uri = self.client_url(path)
             try:
+                logger.info('DELETE %s', uri)
                 response = requests.delete(uri, timeout=self.timeout)
             except RequestException:
                 logger.exception('DELETE %s', uri)
