@@ -9,3 +9,7 @@ class EtcdError(Exception):
 
 class CurrentLeaderError(EtcdError):
     pass
+
+
+class EtcdConnectionFailed(EtcdError):
+    pass

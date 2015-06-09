@@ -69,8 +69,7 @@ class TestGovernor(unittest.TestCase):
 
     def test_governor_initialize(self):
         self.g.postgresql.should_use_s3_to_create_replica = false
-        self.g.etcd.base_client_url = 'http://remote'
-        self.g.etcd.client_url
+        self.g.etcd.client._base_uri = 'http://remote'
         self.g.postgresql.data_directory_empty = true
         self.g.etcd.race = true
         self.g.initialize()
