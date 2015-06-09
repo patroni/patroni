@@ -68,8 +68,7 @@ class TestGovernor(unittest.TestCase):
         return True
 
     def test_governor_initialize(self):
-        self.g.etcd.base_client_url = 'http://remote'
-        self.g.etcd.client_url
+        self.g.etcd.client._base_uri = 'http://remote'
         self.g.postgresql.data_directory_empty = true
         self.g.etcd.race = true
         self.g.initialize()

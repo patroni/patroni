@@ -4,7 +4,8 @@ python:
   - "3.3"
   - "3.4"
 install:
-  - pip install -r requirements.txt
+  - [[ $TRAVIS_PYTHON_VERSION == 2* ]] && pip install -r requirements-py2.txt --use-mirrors
+  - [[ $TRAVIS_PYTHON_VERSION == 3* ]] && pip install -r requirements-py3.txt --use-mirrors
   - pip install coveralls
 script:
   - python setup.py test
