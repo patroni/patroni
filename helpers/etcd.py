@@ -104,13 +104,17 @@ class Client:
     def load_members(self):
         load_from_srv = False
         if not self._base_uri:
+            if not 'discovery_srv' in self._config and not 'host' in self._config:
+                raise Exception('Neither discovery_srv nor host are defined in etcd section of config')
+
             if 'discovery_srv' in self._config:
                 load_from_srv = True
                 self._members_cache = self.get_peers_urls_from_dns(self._config['discovery_srv'])
-            elif 'host' in self._config:
+
+            if not self._members_cache and 'host' in self._config:
+                load_from_srv = False
                 self._members_cache = self.get_client_urls_from_dns(self._config['host'])
-            else:
-                raise Exception('Neither discovery_srv nor host are defined in etcd section of config')
+
             self._next_server()
 
         response, status_code = self._get('/members')
