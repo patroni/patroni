@@ -82,7 +82,7 @@ class Client:
     @staticmethod
     def get_srv_record(host):
         try:
-            return [(r.target.rstrip('.'), r.port) for r in resolver.query('_etcd-server._tcp.' + host, 'SRV')]
+            return [(str(r.target).rstrip('.'), r.port) for r in resolver.query('_etcd-server._tcp.' + host, 'SRV')]
         except DNSException:
             logger.exception('Can not resolve SRV for %s', host)
         return []
