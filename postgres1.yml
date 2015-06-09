@@ -6,6 +6,7 @@ etcd:
   scope: batman
   ttl: 30
   host: 127.0.0.1:4001
+  #discovery_srv: my-etcd.domain
 postgresql:
   name: postgresql1
   listen: 127.0.0.1:5433

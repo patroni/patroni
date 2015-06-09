@@ -42,7 +42,7 @@ class Ha:
                 self.state_handler.start()
                 if not has_lock:
                     return 'started as a secondary'
-                logging.info('started as readonly because i had the session lock')
+                logger.info('started as readonly because i had the session lock')
                 self.load_cluster_from_etcd()
 
             if self.cluster.is_unlocked():

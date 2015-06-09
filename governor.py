@@ -77,6 +77,7 @@ class Governor:
 
 def main():
     logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
+    logging.getLogger('requests').setLevel(logging.WARNING)
     setup_signal_handlers()
 
     if len(sys.argv) < 2 or not os.path.isfile(sys.argv[1]):

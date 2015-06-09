@@ -1,4 +1,5 @@
 boto
-PyYAML
+dnspython
 psycopg2
+PyYAML
 requests
