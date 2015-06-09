@@ -10,7 +10,7 @@ RUN apt-get update -y
 RUN apt-get upgrade -y
 
 ENV PGVERSION 9.4
-RUN apt-get install python python-psycopg2 python-yaml python-requests python-boto postgresql-${PGVERSION} -y
+RUN apt-get install python python-psycopg2 python-yaml python-requests python-boto postgresql-${PGVERSION} python-dnspython -y
 
 ENV PATH /usr/lib/postgresql/${PGVERSION}/bin:$PATH
 
