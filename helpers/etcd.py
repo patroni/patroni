@@ -19,18 +19,16 @@ else:
 logger = logging.getLogger(__name__)
 
 
-class Member(namedtuple('Member', 'hostname,conn_url,api_url,ttl')):
+class Member(namedtuple('Member', 'hostname,conn_url,api_url,expiration,ttl')):
 
     @staticmethod
     def fromNode(node):
         scheme, netloc, path, params, query, fragment = urlparse(node['value'])
         conn_url = urlunparse((scheme, netloc, path, params, '', fragment))
-        api_url = None
-        for name, value in parse_qsl(query):
-            if name == 'application_name' and value:
-                api_url = value
-                break
-        return Member(node['key'].split('/')[-1], conn_url, api_url, node.get('ttl', None))
+        api_url = ([v for n, v in parse_qsl(query) if n == 'application_name'] or [None])[0]
+        expiration = node.get('expiration', None)
+        ttl = node.get('ttl', None)
+        return Member(node['key'].split('/')[-1], conn_url, api_url, expiration, ttl)
 
 
 class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,members')):
@@ -271,7 +269,7 @@ class Etcd:
                             leader = m
                             break
                     if not leader:
-                        leader = Member(node['value'], None, None, None)
+                        leader = Member(node['value'], None, None, None, None)
 
                 return Cluster(initialize, leader, last_leader_operation, members)
             elif status_code == 404:
