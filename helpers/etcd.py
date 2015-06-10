@@ -105,7 +105,7 @@ class Client:
     def load_members(self):
         load_from_srv = False
         if not self._base_uri:
-            if not 'discovery_srv' in self._config and not 'host' in self._config:
+            if 'discovery_srv' not in self._config and 'host' not in self._config:
                 raise Exception('Neither discovery_srv nor host are defined in etcd section of config')
 
             if 'discovery_srv' in self._config:
@@ -167,7 +167,10 @@ class Client:
                 self.load_members()
             except EtcdError:
                 logger.exception('load_members')
-        return response.status_code in [200, 201, 202, 204]
+        if response.status_code in [200, 201, 202, 204]:
+            return True
+        logger.error('Unexpected response: %s %s', response.status_code, response.content)
+        return False
 
     def delete(self, path):
         if not self._base_uri:
@@ -188,7 +191,10 @@ class Client:
                 self.load_members()
             except EtcdError:
                 logger.exception('load_members')
-        return response.status_code in [200, 202, 204]
+        if response.status_code in [200, 202, 204]:
+            return True
+        logger.error('Unexpected response: %s %s', response.status_code, response.content)
+        return False
 
 
 class Etcd:
