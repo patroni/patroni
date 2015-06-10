@@ -67,7 +67,7 @@ def requests_delete(url, **kwargs):
     if url.startswith('http://local'):
         raise requests.exceptions.RequestException()
     response = MockResponse()
-    response.status_code = 204
+    response.status_code = 503 if url.startswith('http://error') else 204
     return response
 
 
