@@ -1,7 +1,10 @@
 ## This Dockerfile is meant to aid in the building and debugging governor whilst developing on your local machine
 ## It has all the necessary components to play/debug with a single node appliance, running etcd
-FROM zalando/ubuntu:14.04.1-1
+FROM ubuntu:14.04
 MAINTAINER Feike Steenbergen <feike.steenbergen@zalando.de>
+
+# We need curl
+RUN apt-get update -y && apt-get install curl -y
 
 # Add PGDG repositories
 RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list
@@ -19,7 +22,7 @@ ADD governor.py /governor/governor.py
 ADD helpers /governor/helpers
 ADD postgres0.yml /governor/
 
-ENV ETCDVERSION 2.0.11
+ENV ETCDVERSION 2.0.12
 RUN curl -L https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v${ETCDVERSION}-linux-amd64.tar.gz | tar xz -C /bin --strip=1 --wildcards --no-anchored etcd etcdctl
 
 ## Setting up a simple script that will serve as an entrypoint
