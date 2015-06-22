@@ -62,7 +62,7 @@ For an example file, see `postgres0.yml`.  Below is an explanation of settings:
 
 Governor uses Postgres' streaming replication.  By default, this replication is asynchronous.  For more information, see the [Postgres documentation on streaming replication](http://www.postgresql.org/docs/current/static/warm-standby.html#STREAMING-REPLICATION). 
 
-Governor's asynchronous replication configuration allows for `maximum_lag_on_failover` settings. This setting ensures replication will not occur if a follower is more than a certain number of bytes behind the follower.  This setting should be increased or decreased based on business requirements.
+Governor's asynchronous replication configuration allows for `maximum_lag_on_failover` settings. This setting ensures failover will not occur if a follower is more than a certain number of bytes behind the follower.  This setting should be increased or decreased based on business requirements.
 
 When asynchronous replication is not best for your use-case, investigate how Postgres's [synchronous replication](http://www.postgresql.org/docs/current/static/warm-standby.html#SYNCHRONOUS-REPLICATION) works.  Synchronous replication ensures consistency across a cluster by confirming that writes are written to a secondary before returning to the connecting client with a success.  The cost of synchronous replication will be reduced throughput on writes.  This throughput will be entirely based on network performance.  In hosted datacenter environments (like AWS, Rackspace, or any network you do not control), synchrous replication increases the variability of write performance significantly.  If followers become inaccessible from the leader, the leader will becomes effectively readonly.
 
