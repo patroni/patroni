@@ -104,7 +104,7 @@ class TestMember(unittest.TestCase):
         now = datetime.datetime.utcnow()
         member = Member('a', 'b', 'c', (now + datetime.timedelta(seconds=2)).strftime('%Y-%m-%dT%H:%M:%S.%fZ'), None)
         self.assertLess(member.real_ttl(), 2)
-        self.assertIsNone(Member('a', 'b', 'c', '', None).real_ttl())
+        self.assertEquals(Member('a', 'b', 'c', '', None).real_ttl(), -1)
 
 
 class TestClient(unittest.TestCase):

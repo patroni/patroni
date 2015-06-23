@@ -28,6 +28,12 @@ def parse_datetime(time_str):
 
 
 def calculate_ttl(expiration):
+    """
+    >>> calculate_ttl(None)
+    >>> calculate_ttl('2015-06-10 12:56:30.552539016Z')
+    """
+    if not expiration:
+        return None
     expiration = parse_datetime(expiration)
     if not expiration:
         return None
