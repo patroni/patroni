@@ -19,7 +19,7 @@ else:
 logger = logging.getLogger(__name__)
 
 
-class Member(namedtuple('Member', 'hostname,conn_url,api_url,expiration,ttl')):
+class Member(namedtuple('Member', 'name,conn_url,api_url,expiration,ttl')):
 
     @staticmethod
     def fromNode(node):
@@ -37,7 +37,7 @@ class Member(namedtuple('Member', 'hostname,conn_url,api_url,expiration,ttl')):
 class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,members')):
 
     def is_unlocked(self):
-        return not (self.leader and self.leader.hostname)
+        return not (self.leader and self.leader.name)
 
 
 class Client:
@@ -268,7 +268,7 @@ class Etcd:
                 node = self.find_node(response['node'], '/leader')
                 if node:
                     for m in members:
-                        if m.hostname == node['value']:
+                        if m.name == node['value']:
                             leader = m
                             break
                     if not leader:

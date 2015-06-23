@@ -29,7 +29,7 @@ class Governor:
         if self.ha.cluster:
             for m in self.ha.cluster.members:
                 # Do not update member TTL when it is far from being expired
-                if m.hostname == self.postgresql.name and m.real_ttl() > self.shutdown_member_ttl:
+                if m.name == self.postgresql.name and m.real_ttl() > self.shutdown_member_ttl:
                     return True
         return self.etcd.touch_member(self.postgresql.name, connection_string, ttl)
 
