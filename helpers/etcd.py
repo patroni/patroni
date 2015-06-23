@@ -31,7 +31,7 @@ class Member(namedtuple('Member', 'name,conn_url,api_url,expiration,ttl')):
         return Member(node['key'].split('/')[-1], conn_url, api_url, expiration, ttl)
 
     def real_ttl(self):
-        return calculate_ttl(self.expiration)
+        return calculate_ttl(self.expiration) or -1
 
 
 class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,members')):
