@@ -101,7 +101,9 @@ class TestPostgresql(unittest.TestCase):
         psycopg2.connect = psycopg2_connect
         if not os.path.exists(self.p.data_dir):
             os.makedirs(self.p.data_dir)
-        self.leader = Member('leader', 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres', None, 28)
+        self.leader = Member('leader', 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres', None, None, 28)
+        self.other = Member('test1', 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres', None, None, 28)
+        self.me = Member('test0', 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres', None, None, 28)
 
     def tear_down(self):
         shutil.rmtree('data')
@@ -128,13 +130,11 @@ class TestPostgresql(unittest.TestCase):
         self.p.follow_the_leader(None)
         self.p.demote(self.leader)
         self.p.follow_the_leader(self.leader)
-        self.p.follow_the_leader(Member('leader', 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres', None, 28))
+        self.p.follow_the_leader(self.other)
 
     def test_create_replication_slots(self):
         self.p.start()
-        me = Member('test0', 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres', None, 28)
-        other = Member('test1', 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres', None, 28)
-        cluster = Cluster(True, self.leader, 0, [me, other, self.leader])
+        cluster = Cluster(True, self.leader, 0, [self.me, self.other, self.leader])
         self.p.create_replication_slots(cluster)
 
     def test_query(self):
@@ -148,10 +148,7 @@ class TestPostgresql(unittest.TestCase):
         self.assertRaises(psycopg2.OperationalError, self.p.query, 'blabla')
 
     def test_is_healthiest_node(self):
-        leader = Member('leader', 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres', None, 28)
-        me = Member('test0', 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres', None, 28)
-        other = Member('test1', 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres', None, 28)
-        cluster = Cluster(True, leader, 0, [me, other, leader])
+        cluster = Cluster(True, self.leader, 0, [self.me, self.other, self.leader])
         self.assertTrue(self.p.is_healthiest_node(cluster))
         self.p.is_leader = false
         self.assertFalse(self.p.is_healthiest_node(cluster))

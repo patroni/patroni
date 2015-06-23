@@ -22,9 +22,15 @@ class Governor:
         host, port = config['restapi']['listen'].split(':')
         self.api = RestApiServer(self, config['restapi'])
         self.next_run = time.time()
+        self.shutdown_member_ttl = 300
 
     def touch_member(self, ttl=None):
         connection_string = self.postgresql.connection_string + '?application_name=' + self.api.connection_string
+        if self.ha.cluster:
+            for m in self.ha.cluster.members:
+                # Do not update member TTL when it is far from being expired
+                if m.name == self.postgresql.name and m.real_ttl() > self.shutdown_member_ttl:
+                    return True
         return self.etcd.touch_member(self.postgresql.name, connection_string, ttl)
 
     def initialize(self):
@@ -74,6 +80,7 @@ class Governor:
 
 def main():
     logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
+    logging.getLogger('requests').setLevel(logging.WARNING)
     setup_signal_handlers()
 
     if len(sys.argv) < 2 or not os.path.isfile(sys.argv[1]):
@@ -90,7 +97,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        governor.touch_member(300)  # schedule member removal
+        governor.touch_member(governor.shutdown_member_ttl)  # schedule member removal
         governor.postgresql.stop()
         governor.etcd.delete_leader(governor.postgresql.name)
 

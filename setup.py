@@ -102,7 +102,8 @@ def setup_package():
     # Some helper variables
     version = os.getenv('GO_PIPELINE_LABEL', VERSION)
 
-    install_reqs = get_install_requirements('requirements.txt')
+    requirements = 'requirements-py2.txt' if sys.version_info[0] == 2 else 'requirements-py3.txt'
+    install_reqs = get_install_requirements(requirements)
 
     command_options = {'test': {'test_suite': ('setup.py', 'tests')}}
     if JUNIT_XML:

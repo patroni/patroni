@@ -23,7 +23,7 @@ class Ha:
         return self.etcd.update_leader(self.state_handler)
 
     def has_lock(self):
-        lock_owner = self.cluster.leader and self.cluster.leader.hostname
+        lock_owner = self.cluster.leader and self.cluster.leader.name
         logger.info('Lock owner: %s; I am %s', lock_owner, self.state_handler.name)
         return lock_owner == self.state_handler.name
 
@@ -42,7 +42,7 @@ class Ha:
                 self.state_handler.start()
                 if not has_lock:
                     return 'started as a secondary'
-                logging.info('started as readonly because i had the session lock')
+                logger.info('started as readonly because i had the session lock')
                 self.load_cluster_from_etcd()
 
             if self.cluster.is_unlocked():

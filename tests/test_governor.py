@@ -1,3 +1,4 @@
+import datetime
 import psycopg2
 import requests
 import subprocess
@@ -7,6 +8,7 @@ import unittest
 import yaml
 
 from governor import Governor, main
+from helpers.etcd import Cluster, Member
 from test_ha import true, false
 from test_postgresql import Postgresql, subprocess_call, psycopg2_connect
 from test_etcd import requests_get, requests_put, requests_delete
@@ -67,9 +69,15 @@ class TestGovernor(unittest.TestCase):
             return False
         return True
 
+    def test_touch_member(self):
+        now = datetime.datetime.utcnow()
+        member = Member(self.g.postgresql.name, 'b', 'c', (now + datetime.timedelta(
+            seconds=self.g.shutdown_member_ttl + 10)).strftime('%Y-%m-%dT%H:%M:%S.%fZ'), None)
+        self.g.ha.cluster = Cluster(True, member, 0, [member])
+        self.g.touch_member()
+
     def test_governor_initialize(self):
-        self.g.etcd.base_client_url = 'http://remote'
-        self.g.etcd.client_url
+        self.g.etcd.client._base_uri = 'http://remote'
         self.g.postgresql.data_directory_empty = true
         self.g.etcd.race = true
         self.g.initialize()
