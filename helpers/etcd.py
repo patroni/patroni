@@ -8,7 +8,7 @@ from collections import namedtuple
 from dns.exception import DNSException
 from dns import resolver
 from helpers.errors import CurrentLeaderError, EtcdError, EtcdConnectionFailed
-from helpers.utils import sleep
+from helpers.utils import calculate_ttl, sleep
 from requests.exceptions import RequestException
 
 if sys.hexversion >= 0x03000000:
@@ -29,6 +29,9 @@ class Member(namedtuple('Member', 'hostname,conn_url,api_url,expiration,ttl')):
         expiration = node.get('expiration', None)
         ttl = node.get('ttl', None)
         return Member(node['key'].split('/')[-1], conn_url, api_url, expiration, ttl)
+
+    def real_ttl(self):
+        return calculate_ttl(self.expiration)
 
 
 class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,members')):

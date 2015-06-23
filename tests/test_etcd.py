@@ -1,3 +1,4 @@
+import datetime
 import dns.resolver
 import json
 import requests
@@ -7,7 +8,7 @@ import unittest
 
 from dns.exception import DNSException
 from helpers.errors import EtcdError, CurrentLeaderError, EtcdConnectionFailed
-from helpers.etcd import Client, Cluster, Etcd
+from helpers.etcd import Client, Cluster, Etcd, Member
 
 
 class MockResponse:
@@ -92,6 +93,18 @@ def socket_getaddrinfo(*args):
     if args[0] == 'ok':
         return [(2, 1, 6, '', ('127.0.0.1', 2379)), (2, 1, 6, '', ('127.0.0.1', 2379))]
     raise socket.error()
+
+
+class TestMember(unittest.TestCase):
+
+    def __init__(self, method_name='runTest'):
+        super(TestMember, self).__init__(method_name)
+
+    def test_real_ttl(self):
+        now = datetime.datetime.utcnow()
+        member = Member('a', 'b', 'c', (now + datetime.timedelta(seconds=2)).strftime('%Y-%m-%dT%H:%M:%S.%fZ'), None)
+        self.assertLess(member.real_ttl(), 2)
+        self.assertIsNone(Member('a', 'b', 'c', '', None).real_ttl())
 
 
 class TestClient(unittest.TestCase):
