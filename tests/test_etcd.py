@@ -37,7 +37,10 @@ def requests_get(url, **kwargs):
         if url.startswith('http://error'):
             response.status_code = 404
     elif url.endswith('/members'):
-        response.content = members
+        if url.startswith('http://error'):
+            response.content = '[{}]'
+        else:
+            response.content = members
     elif url.endswith('/bad_response'):
         response.content = '{'
     elif url.startswith('http://local'):
@@ -137,6 +140,8 @@ class TestClient(unittest.TestCase):
 
     def test_load_members(self):
         self.client._base_uri = self.client._base_uri.replace('localhost', 'error_code')
+        self.assertRaises(EtcdError, self.client.load_members)
+        self.client._base_uri = 'http://error_code:2380'
         self.assertRaises(EtcdError, self.client.load_members)
         self.client._base_uri = None
         self.client._config = {}
