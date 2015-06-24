@@ -1,9 +1,44 @@
+import datetime
 import os
+import re
 import signal
 import sys
 import time
 
 received_sigchld = False
+
+_DATE_TIME_RE = re.compile(r'''^
+(?P<year>\d{4})\-(?P<month>\d{2})\-(?P<day>\d{2})  # date
+T
+(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2})\.(?P<microsecond>\d{6})  # time
+\d*Z$''', re.X)
+
+
+def parse_datetime(time_str):
+    """
+    >>> parse_datetime('2015-06-10T12:56:30.552539016Z')
+    datetime.datetime(2015, 6, 10, 12, 56, 30, 552539)
+    >>> parse_datetime('2015-06-10 12:56:30.552539016Z')
+    """
+    m = _DATE_TIME_RE.match(time_str)
+    if not m:
+        return None
+    p = dict((n, int(m.group(n))) for n in 'year month day hour minute second microsecond'.split(' '))
+    return datetime.datetime(**p)
+
+
+def calculate_ttl(expiration):
+    """
+    >>> calculate_ttl(None)
+    >>> calculate_ttl('2015-06-10 12:56:30.552539016Z')
+    """
+    if not expiration:
+        return None
+    expiration = parse_datetime(expiration)
+    if not expiration:
+        return None
+    now = datetime.datetime.utcnow()
+    return int((expiration - now).total_seconds())
 
 
 def lsn_to_bytes(value):

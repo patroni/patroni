@@ -284,7 +284,7 @@ class Postgresql:
             return False
 
         for member in cluster.members:
-            if member.hostname == self.name:
+            if member.name == self.name:
                 continue
             try:
                 r = parseurl(member.conn_url)
@@ -297,7 +297,7 @@ class Postgresql:
                 row = member_cursor.fetchone()
                 member_cursor.close()
                 member_conn.close()
-                logger.error([self.name, member.hostname, row])
+                logger.error([self.name, member.name, row])
                 if not row[0] or row[1] < 0:
                     return False
             except psycopg2.Error:
@@ -402,7 +402,7 @@ primary_conninfo = '{}'
         self.members = [r[0] for r in cursor]
 
     def create_replication_slots(self, cluster):
-        members = [m.hostname for m in cluster.members if m.hostname != self.name]
+        members = [m.name for m in cluster.members if m.name != self.name]
         # drop unused slots
         for slot in set(self.members) - set(members):
             self.query("""SELECT pg_drop_replication_slot(%s)

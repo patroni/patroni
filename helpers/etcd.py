@@ -8,7 +8,7 @@ from collections import namedtuple
 from dns.exception import DNSException
 from dns import resolver
 from helpers.errors import CurrentLeaderError, EtcdError, EtcdConnectionFailed
-from helpers.utils import sleep
+from helpers.utils import calculate_ttl, sleep
 from requests.exceptions import RequestException
 
 if sys.hexversion >= 0x03000000:
@@ -19,24 +19,25 @@ else:
 logger = logging.getLogger(__name__)
 
 
-class Member(namedtuple('Member', 'hostname,conn_url,api_url,ttl')):
+class Member(namedtuple('Member', 'name,conn_url,api_url,expiration,ttl')):
 
     @staticmethod
     def fromNode(node):
         scheme, netloc, path, params, query, fragment = urlparse(node['value'])
         conn_url = urlunparse((scheme, netloc, path, params, '', fragment))
-        api_url = None
-        for name, value in parse_qsl(query):
-            if name == 'application_name' and value:
-                api_url = value
-                break
-        return Member(node['key'].split('/')[-1], conn_url, api_url, node.get('ttl', None))
+        api_url = ([v for n, v in parse_qsl(query) if n == 'application_name'] or [None])[0]
+        expiration = node.get('expiration', None)
+        ttl = node.get('ttl', None)
+        return Member(node['key'].split('/')[-1], conn_url, api_url, expiration, ttl)
+
+    def real_ttl(self):
+        return calculate_ttl(self.expiration) or -1
 
 
 class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,members')):
 
     def is_unlocked(self):
-        return not (self.leader and self.leader.hostname)
+        return not (self.leader and self.leader.name)
 
 
 class Client:
@@ -267,11 +268,11 @@ class Etcd:
                 node = self.find_node(response['node'], '/leader')
                 if node:
                     for m in members:
-                        if m.hostname == node['value']:
+                        if m.name == node['value']:
                             leader = m
                             break
                     if not leader:
-                        leader = Member(node['value'], None, None, None)
+                        leader = Member(node['value'], None, None, None, None)
 
                 return Cluster(initialize, leader, last_leader_operation, members)
             elif status_code == 404:
