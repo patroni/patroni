@@ -121,11 +121,17 @@ class Client:
 
         response, status_code = self._get('/members')
         if status_code != 200:
+            self._base_uri = None
             raise EtcdError('Got response with code=%s from %s' % (status_code, self._base_uri))
 
         members_cache = []
-        for member in response if load_from_srv else response['members']:
-            members_cache.extend([m + '/' + self.API_VERSION for m in member['clientURLs']])
+        try:
+            for member in response if load_from_srv else response['members']:
+                members_cache.extend([m + '/' + self.API_VERSION for m in member['clientURLs']])
+        except:
+            self._base_uri = None
+            raise EtcdError('Got invalid response from %s: %s' % (self._base_uri, response))
+
         self._members_cache = list(set(members_cache))
         random.shuffle(self._members_cache)
         if load_from_srv:
