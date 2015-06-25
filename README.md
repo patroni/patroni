@@ -23,8 +23,6 @@ We provide a haproxy configuration, which will give your application a single en
 
 ```
 > haproxy -f haproxy.cfg
-> sh haproxy_status.sh 127.0.0.1 5432 15432
-> sh haproxy_status.sh 127.0.0.1 5433 15433
 ```
 
 ```
