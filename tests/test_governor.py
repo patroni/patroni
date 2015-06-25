@@ -23,7 +23,7 @@ def nop(*args, **kwargs):
     pass
 
 
-def time_sleep(_):
+def time_sleep(*args):
     raise Exception()
 
 
@@ -62,6 +62,12 @@ class TestGovernor(unittest.TestCase):
         sys.argv = ['governor.py', 'postgres0.yml']
         time.sleep = time_sleep
         self.assertRaises(Exception, main)
+
+    def test_governor_run(self):
+        time.sleep = time_sleep
+        self.g.postgresql.is_leader = lambda: False
+        self.g.ha.state_handler.sync_replication_slots = time_sleep
+        self.assertRaises(Exception, self.g.run)
 
     def touch_member(self):
         if not self.touched:

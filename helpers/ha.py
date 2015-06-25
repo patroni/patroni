@@ -50,8 +50,9 @@ class Ha:
                     if self.acquire_lock():
                         if self.state_handler.is_leader() or self.state_handler.is_promoted:
                             return 'acquired session lock as a leader'
-                        self.state_handler.promote()
-                        return 'promoted self to leader by acquiring session lock'
+                        else:
+                            self.state_handler.promote()
+                            return 'promoted self to leader by acquiring session lock'
                     else:
                         self.load_cluster_from_etcd()
                         if self.state_handler.is_leader():
@@ -70,14 +71,11 @@ class Ha:
                         return 'following a different leader because i am not the healthiest node'
             else:
                 if self.has_lock() and self.update_lock():
-                    try:
-                        if self.state_handler.is_leader() or self.state_handler.is_promoted:
-                            return 'no action.  i am the leader with the lock'
+                    if self.state_handler.is_leader() or self.state_handler.is_promoted:
+                        return 'no action.  i am the leader with the lock'
+                    else:
                         self.state_handler.promote()
                         return 'promoted self to leader because i had the session lock'
-                    finally:
-                        # create replication slots
-                        self.state_handler.create_replication_slots(self.cluster)
                 else:
                     logger.info('does not have lock')
                     if self.state_handler.is_leader():
