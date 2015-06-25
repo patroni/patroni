@@ -74,7 +74,13 @@ class Governor:
         while True:
             self.touch_member()
             logging.info(self.ha.run_cycle())
-
+            try:
+                if self.ha.state_handler.is_leader():
+                    self.ha.cluster and self.ha.state_handler.create_replication_slots(self.ha.cluster)
+                else:
+                    self.ha.state_handler.drop_replication_slots()
+            except:
+                logging.exception('Exception when changing replication slots')
             self.schedule_next_run()
 
 
