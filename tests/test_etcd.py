@@ -8,7 +8,8 @@ import unittest
 
 from dns.exception import DNSException
 from helpers.errors import EtcdError, CurrentLeaderError, EtcdConnectionFailed
-from helpers.etcd import Client, Cluster, Etcd, Member
+from helpers.dcs import Cluster, Member
+from helpers.etcd import Client, Etcd
 
 
 class MockResponse:
