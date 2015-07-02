@@ -16,13 +16,18 @@ class Governor:
 
     def __init__(self, config):
         self.nap_time = config['loop_wait']
-        self.etcd = Etcd(config['etcd'])
         self.postgresql = Postgresql(config['postgresql'])
-        self.ha = Ha(self.postgresql, self.etcd)
+        self.ha = Ha(self.postgresql, self.get_dcs(config))
         host, port = config['restapi']['listen'].split(':')
         self.api = RestApiServer(self, config['restapi'])
         self.next_run = time.time()
         self.shutdown_member_ttl = 300
+
+    @staticmethod
+    def get_dcs(config):
+        if 'etcd' in config:
+            return Etcd(config['etcd'])
+        raise Exception('Can not find sutable configuration of distributed configuration store')
 
     def touch_member(self, ttl=None):
         connection_string = self.postgresql.connection_string + '?application_name=' + self.api.connection_string
@@ -31,7 +36,7 @@ class Governor:
                 # Do not update member TTL when it is far from being expired
                 if m.name == self.postgresql.name and m.real_ttl() > self.shutdown_member_ttl:
                     return True
-        return self.etcd.touch_member(self.postgresql.name, connection_string, ttl)
+        return self.ha.dcs.touch_member(self.postgresql.name, connection_string, ttl)
 
     def initialize(self):
         # wait for etcd to be available
@@ -42,14 +47,14 @@ class Governor:
         # is data directory empty?
         if self.postgresql.data_directory_empty():
             # racing to initialize
-            if self.etcd.race('/initialize', self.postgresql.name):
+            if self.ha.dcs.race('/initialize', self.postgresql.name):
                 self.postgresql.initialize()
-                self.etcd.take_leader(self.postgresql.name)
+                self.ha.dcs.take_leader(self.postgresql.name)
                 self.postgresql.start()
                 self.postgresql.create_replication_user()
             else:
                 while True:
-                    leader = self.etcd.current_leader()
+                    leader = self.ha.dcs.current_leader()
                     if leader and self.postgresql.sync_from_leader(leader):
                         self.postgresql.write_recovery_conf(leader)
                         self.postgresql.start()
@@ -105,7 +110,7 @@ def main():
     finally:
         governor.touch_member(governor.shutdown_member_ttl)  # schedule member removal
         governor.postgresql.stop()
-        governor.etcd.delete_leader(governor.postgresql.name)
+        governor.ha.dcs.delete_leader(governor.postgresql.name)
 
 
 if __name__ == '__main__':

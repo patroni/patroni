@@ -73,9 +73,9 @@ class TestHa(unittest.TestCase):
         self.p = MockPostgresql()
         self.e = Etcd({'ttl': 30, 'host': 'remotehost:2379', 'scope': 'test'})
         self.ha = Ha(self.p, self.e)
-        self.ha.load_cluster_from_etcd()
+        self.ha.load_cluster_from_dcs()
         self.ha.cluster = Cluster(False, None, None, [])
-        self.ha.load_cluster_from_etcd = nop
+        self.ha.load_cluster_from_dcs = nop
 
     def test_start_as_slave(self):
         self.p.is_healthy = false
@@ -133,5 +133,5 @@ class TestHa(unittest.TestCase):
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am a secondary and i am following a leader')
 
     def test_no_etcd_connection_master_demote(self):
-        self.ha.load_cluster_from_etcd = dead_etcd
+        self.ha.load_cluster_from_dcs = dead_etcd
         self.assertEquals(self.ha.run_cycle(), 'demoted self because DCS is not accessible and i was a leader')

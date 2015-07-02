@@ -83,11 +83,11 @@ class TestGovernor(unittest.TestCase):
         self.g.touch_member()
 
     def test_governor_initialize(self):
-        self.g.etcd.client._base_uri = 'http://remote'
+        self.g.ha.dcs.client._base_uri = 'http://remote'
         self.g.postgresql.data_directory_empty = true
-        self.g.etcd.race = true
+        self.g.ha.dcs.race = true
         self.g.initialize()
-        self.g.etcd.race = false
+        self.g.ha.dcs.race = false
         self.g.initialize()
         self.g.postgresql.data_directory_empty = false
         self.g.touch_member = self.touch_member
