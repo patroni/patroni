@@ -4,7 +4,7 @@ import shutil
 import subprocess
 import unittest
 
-from helpers.etcd import Cluster, Member
+from helpers.dcs import Cluster, Member
 from helpers.postgresql import Postgresql
 
 
@@ -101,9 +101,9 @@ class TestPostgresql(unittest.TestCase):
         psycopg2.connect = psycopg2_connect
         if not os.path.exists(self.p.data_dir):
             os.makedirs(self.p.data_dir)
-        self.leader = Member('leader', 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres', None, None, 28)
-        self.other = Member('test1', 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres', None, None, 28)
-        self.me = Member('test0', 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres', None, None, 28)
+        self.leader = Member(0, 'leader', 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres', None, None, 28)
+        self.other = Member(0, 'test1', 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres', None, None, 28)
+        self.me = Member(0, 'test0', 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres', None, None, 28)
 
     def tear_down(self):
         shutil.rmtree('data')

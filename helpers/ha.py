@@ -1,6 +1,6 @@
 import logging
 
-from helpers.errors import EtcdError
+from helpers.dcs import DCSError
 from psycopg2 import InterfaceError, OperationalError
 
 logger = logging.getLogger(__name__)
@@ -84,10 +84,10 @@ class Ha:
                     else:
                         self.follow_the_leader()
                         return 'no action.  i am a secondary and i am following a leader'
-        except EtcdError:
-            logger.error('Error communicating with Etcd')
+        except DCSError as e:
+            logger.error('Error communicating with DCS')
             if self.state_handler.is_leader():
                 self.state_handler.demote(None)
-                return 'demoted self because etcd is not accessible and i was a leader'
+                return 'demoted self because DCS is not accessible and i was a leader'
         except (InterfaceError, OperationalError):
             logger.error('Error communicating with Postgresql.  Will try again')

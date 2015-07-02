@@ -7,9 +7,8 @@ import time
 import unittest
 
 from dns.exception import DNSException
-from helpers.errors import EtcdError, CurrentLeaderError, EtcdConnectionFailed
 from helpers.dcs import Cluster, Member
-from helpers.etcd import Client, Etcd
+from helpers.etcd import Client, CurrentLeaderError, Etcd, EtcdConnectionFailed, EtcdError
 
 
 class MockResponse:
@@ -106,9 +105,9 @@ class TestMember(unittest.TestCase):
 
     def test_real_ttl(self):
         now = datetime.datetime.utcnow()
-        member = Member('a', 'b', 'c', (now + datetime.timedelta(seconds=2)).strftime('%Y-%m-%dT%H:%M:%S.%fZ'), None)
+        member = Member(0, 'a', 'b', 'c', (now + datetime.timedelta(seconds=2)).strftime('%Y-%m-%dT%H:%M:%S.%fZ'), None)
         self.assertLess(member.real_ttl(), 2)
-        self.assertEquals(Member('a', 'b', 'c', '', None).real_ttl(), -1)
+        self.assertEquals(Member(0, 'a', 'b', 'c', '', None).real_ttl(), -1)
 
 
 class TestClient(unittest.TestCase):
@@ -203,7 +202,7 @@ class TestEtcd(unittest.TestCase):
         self.etcd.get_cluster()
 
     def test_current_leader(self):
-        self.assertRaises(CurrentLeaderError, self.etcd.current_leader)
+        self.assertIsNone(self.etcd.current_leader())
 
     def test_touch_member(self):
         self.assertFalse(self.etcd.touch_member('', ''))

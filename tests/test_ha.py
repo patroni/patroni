@@ -1,7 +1,7 @@
 import unittest
 import requests
 
-from helpers.errors import EtcdError
+from helpers.dcs import DCSError
 from helpers.etcd import Cluster, Etcd
 from helpers.ha import Ha
 from test_etcd import requests_get, requests_put, requests_delete
@@ -57,7 +57,7 @@ def nop(*args, **kwargs):
 
 
 def dead_etcd():
-    raise EtcdError('Etcd is not responding properly')
+    raise DCSError('Etcd is not responding properly')
 
 
 class TestHa(unittest.TestCase):
@@ -134,4 +134,4 @@ class TestHa(unittest.TestCase):
 
     def test_no_etcd_connection_master_demote(self):
         self.ha.load_cluster_from_etcd = dead_etcd
-        self.assertEquals(self.ha.run_cycle(), 'demoted self because etcd is not accessible and i was a leader')
+        self.assertEquals(self.ha.run_cycle(), 'demoted self because DCS is not accessible and i was a leader')

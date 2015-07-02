@@ -8,7 +8,7 @@ import unittest
 import yaml
 
 from governor import Governor, main
-from helpers.etcd import Cluster, Member
+from helpers.dcs import Cluster, Member
 from test_ha import true, false
 from test_postgresql import Postgresql, subprocess_call, psycopg2_connect
 from test_etcd import requests_get, requests_put, requests_delete
@@ -77,7 +77,7 @@ class TestGovernor(unittest.TestCase):
 
     def test_touch_member(self):
         now = datetime.datetime.utcnow()
-        member = Member(self.g.postgresql.name, 'b', 'c', (now + datetime.timedelta(
+        member = Member(0, self.g.postgresql.name, 'b', 'c', (now + datetime.timedelta(
             seconds=self.g.shutdown_member_ttl + 10)).strftime('%Y-%m-%dT%H:%M:%S.%fZ'), None)
         self.g.ha.cluster = Cluster(True, member, 0, [member])
         self.g.touch_member()
