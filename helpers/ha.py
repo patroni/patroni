@@ -17,7 +17,7 @@ class Ha:
         self.cluster = self.dcs.get_cluster()
 
     def acquire_lock(self):
-        return self.dcs.attempt_to_acquire_leader(self.state_handler.name)
+        return self.dcs.attempt_to_acquire_leader()
 
     def update_lock(self):
         return self.dcs.update_leader(self.state_handler)

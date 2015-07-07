@@ -8,7 +8,7 @@ import unittest
 
 from dns.exception import DNSException
 from helpers.dcs import Cluster, Member
-from helpers.etcd import Client, CurrentLeaderError, Etcd, EtcdConnectionFailed, EtcdError
+from helpers.etcd import Client, Etcd, EtcdConnectionFailed, EtcdError
 
 
 class MockResponse:
@@ -176,7 +176,7 @@ class TestEtcd(unittest.TestCase):
         requests.put = requests_put
         requests.delete = requests_delete
         time.sleep = time_sleep
-        self.etcd = Etcd({'ttl': 30, 'host': 'localhost:2379', 'scope': 'test'})
+        self.etcd = Etcd('foo', {'ttl': 30, 'host': 'localhost:2379', 'scope': 'test'})
 
     def test_get_etcd_client(self):
         time.sleep = time_sleep_exception
@@ -208,10 +208,10 @@ class TestEtcd(unittest.TestCase):
         self.assertFalse(self.etcd.touch_member('', ''))
 
     def test_take_leader(self):
-        self.assertFalse(self.etcd.take_leader(''))
+        self.assertFalse(self.etcd.take_leader())
 
     def test_attempt_to_acquire_leader(self):
-        self.assertFalse(self.etcd.attempt_to_acquire_leader(''))
+        self.assertFalse(self.etcd.attempt_to_acquire_leader())
 
     def test_update_leader(self):
         url = self.etcd.client._base_uri = self.etcd.client._base_uri.replace('local', 'remote')
@@ -220,7 +220,4 @@ class TestEtcd(unittest.TestCase):
         self.assertFalse(self.etcd.update_leader(MockPostgresql()))
 
     def test_race(self):
-        self.assertFalse(self.etcd.race('', ''))
-
-    def test_delete_member(self):
-        self.assertFalse(self.etcd.delete_member(''))
+        self.assertFalse(self.etcd.race(''))

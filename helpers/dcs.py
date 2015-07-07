@@ -1,7 +1,20 @@
 import abc
+import sys
 
 from collections import namedtuple
-from helpers.utils import calculate_ttl
+from helpers.utils import calculate_ttl, sleep
+
+if sys.hexversion >= 0x03000000:
+    from urllib.parse import urlparse, urlunparse, parse_qsl
+else:
+    from urlparse import urlparse, urlunparse, parse_qsl
+
+
+def parse_connection_string(value):
+    scheme, netloc, path, params, query, fragment = urlparse(value)
+    conn_url = urlunparse((scheme, netloc, path, params, '', fragment))
+    api_url = ([v for n, v in parse_qsl(query) if n == 'application_name'] or [None])[0]
+    return conn_url, api_url
 
 
 class DCSError(Exception):
@@ -10,6 +23,10 @@ class DCSError(Exception):
         self.value = value
 
     def __str__(self):
+        """
+        >>> str(DCSError('foo'))
+        "'foo'"
+        """
         return repr(self.value)
 
 
@@ -29,7 +46,8 @@ class AbstractDCS:
 
     __metaclass__ = abc.ABCMeta
 
-    def __init__(self, config):
+    def __init__(self, name, config):
+        self._name = name
         self._base_path = '/service/' + config['scope']
 
     def client_path(self, path):
@@ -37,15 +55,15 @@ class AbstractDCS:
 
     @abc.abstractmethod
     def get_cluster(self):
-        raise NotImplementedError
+        """get_cluster"""
 
     @abc.abstractmethod
     def update_leader(self, state_handler):
-        raise NotImplementedError
+        """update_leader"""
 
     @abc.abstractmethod
-    def attempt_to_acquire_leader(self, value):
-        raise NotImplementedError
+    def attempt_to_acquire_leader(self):
+        """attempt_to_acquire_leader"""
 
     def current_leader(self):
         try:
@@ -55,21 +73,20 @@ class AbstractDCS:
             return None
 
     @abc.abstractmethod
-    def touch_member(self, member, connection_string, ttl=None):
-        raise NotImplementedError
+    def touch_member(self, connection_string, ttl=None):
+        """touch_member"""
 
     @abc.abstractmethod
-    def take_leader(self, value):
-        raise NotImplementedError
+    def take_leader(self):
+        """take_leader"""
 
     @abc.abstractmethod
-    def race(self, path, value):
-        raise NotImplementedError
+    def race(self, path):
+        """race"""
 
     @abc.abstractmethod
-    def delete_member(self, member):
-        raise NotImplementedError
+    def delete_leader(self):
+        """delete_leader"""
 
-    @abc.abstractmethod
-    def delete_leader(self, value):
-        raise NotImplementedError
+    def sleep(self, timeout):
+        sleep(timeout)

@@ -71,7 +71,7 @@ class TestHa(unittest.TestCase):
         requests.put = requests_put
         requests.delete = requests_delete
         self.p = MockPostgresql()
-        self.e = Etcd({'ttl': 30, 'host': 'remotehost:2379', 'scope': 'test'})
+        self.e = Etcd('foo', {'ttl': 30, 'host': 'remotehost:2379', 'scope': 'test'})
         self.ha = Ha(self.p, self.e)
         self.ha.load_cluster_from_dcs()
         self.ha.cluster = Cluster(False, None, None, [])
