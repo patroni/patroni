@@ -7,9 +7,10 @@ import yaml
 
 from helpers.api import RestApiServer
 from helpers.etcd import Etcd
-from helpers.postgresql import Postgresql
 from helpers.ha import Ha
+from helpers.postgresql import Postgresql
 from helpers.utils import setup_signal_handlers, sleep
+from helpers.zookeeper import ZooKeeper
 
 
 class Governor:
@@ -27,6 +28,8 @@ class Governor:
     def get_dcs(name, config):
         if 'etcd' in config:
             return Etcd(name, config['etcd'])
+        if 'zookeeper' in config:
+            return ZooKeeper(name, config['zookeeper'])
         raise Exception('Can not find sutable configuration of distributed configuration store')
 
     def touch_member(self, ttl=None):

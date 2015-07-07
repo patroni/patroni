@@ -2,3 +2,4 @@ dnspython
 psycopg2
 PyYAML
 requests
+kazoo>=2.2.1
