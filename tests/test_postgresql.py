@@ -174,4 +174,4 @@ class TestPostgresql(unittest.TestCase):
         self.assertTrue(self.p.promote())
 
     def test_last_operation(self):
-        self.assertEquals(self.p.last_operation(), 0)
+        self.assertEquals(self.p.last_operation(), '0')
