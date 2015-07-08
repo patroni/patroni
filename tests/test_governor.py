@@ -1,4 +1,5 @@
 import datetime
+import helpers.zookeeper
 import psycopg2
 import requests
 import subprocess
@@ -8,10 +9,12 @@ import unittest
 import yaml
 
 from governor import Governor, main
-from helpers.etcd import Cluster, Member
+from helpers.dcs import Cluster, Member
+from helpers.zookeeper import ZooKeeper
+from test_etcd import requests_get, requests_put, requests_delete
 from test_ha import true, false
 from test_postgresql import Postgresql, subprocess_call, psycopg2_connect
-from test_etcd import requests_get, requests_put, requests_delete
+from test_zookeeper import MockKazooClient
 
 if sys.hexversion >= 0x03000000:
     import http.server as BaseHTTPServer
@@ -57,6 +60,11 @@ class TestGovernor(unittest.TestCase):
         Postgresql.write_pg_hba = self.write_pg_hba
         Postgresql.write_recovery_conf = self.write_recovery_conf
 
+    def test_get_dcs(self):
+        helpers.zookeeper.KazooClient = MockKazooClient
+        self.assertIsInstance(self.g.get_dcs('', {'zookeeper': {'scope': '', 'hosts': ''}}), ZooKeeper)
+        self.assertRaises(Exception, self.g.get_dcs, '', {})
+
     def test_governor_main(self):
         main()
         sys.argv = ['governor.py', 'postgres0.yml']
@@ -77,18 +85,18 @@ class TestGovernor(unittest.TestCase):
 
     def test_touch_member(self):
         now = datetime.datetime.utcnow()
-        member = Member(self.g.postgresql.name, 'b', 'c', (now + datetime.timedelta(
+        member = Member(0, self.g.postgresql.name, 'b', 'c', (now + datetime.timedelta(
             seconds=self.g.shutdown_member_ttl + 10)).strftime('%Y-%m-%dT%H:%M:%S.%fZ'), None)
         self.g.ha.cluster = Cluster(True, member, 0, [member])
         self.g.touch_member()
 
     def test_governor_initialize(self):
         self.g.postgresql.should_use_s3_to_create_replica = false
-        self.g.etcd.client._base_uri = 'http://remote'
+        self.g.ha.dcs.client._base_uri = 'http://remote'
         self.g.postgresql.data_directory_empty = true
-        self.g.etcd.race = true
+        self.g.ha.dcs.race = true
         self.g.initialize()
-        self.g.etcd.race = false
+        self.g.ha.dcs.race = false
         self.g.initialize()
         self.g.postgresql.data_directory_empty = false
         self.g.touch_member = self.touch_member
