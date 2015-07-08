@@ -14,7 +14,7 @@ from helpers.utils import setup_signal_handlers, sleep
 from helpers.zookeeper import ZooKeeper
 
 
-class Governor:
+class Patroni:
 
     def __init__(self, config):
         self.nap_time = config['loop_wait']
@@ -107,16 +107,16 @@ def main():
     with open(sys.argv[1], 'r') as f:
         config = yaml.load(f)
 
-    governor = Governor(config)
+    patroni = Patroni(config)
     try:
-        governor.initialize()
-        governor.run()
+        patroni.initialize()
+        patroni.run()
     except KeyboardInterrupt:
         pass
     finally:
-        governor.touch_member(governor.shutdown_member_ttl)  # schedule member removal
-        governor.postgresql.stop()
-        governor.ha.dcs.delete_leader()
+        patroni.touch_member(patroni.shutdown_member_ttl)  # schedule member removal
+        patroni.postgresql.stop()
+        patroni.ha.dcs.delete_leader()
 
 
 if __name__ == '__main__':

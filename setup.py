@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-    Setup file for governor
+    Setup file for patroni
 """
 
 import sys
@@ -13,14 +13,14 @@ from setuptools.command.test import test as TestCommand
 from setuptools import setup
 
 if sys.version_info < (2, 7, 0):
-    sys.stderr.write('FATAL: governor needs to be run with Python 2.7+\n')
+    sys.stderr.write('FATAL: patroni needs to be run with Python 2.7+\n')
     sys.exit(1)
 
 __location__ = os.path.join(os.getcwd(), os.path.dirname(inspect.getfile(inspect.currentframe())))
 
 
-NAME = 'governor'
-MAIN_PACKAGE = 'governor.py'
+NAME = 'patroni'
+MAIN_PACKAGE = 'patroni.py'
 HELPERS = 'helpers'
 VERSION = '0.1'
 DESCRIPTION = 'A Template for PostgreSQL HA with etcd'
@@ -118,7 +118,7 @@ def setup_package():
         version=version,
         description=DESCRIPTION,
         license=LICENSE,
-        keywords='etcd governor postgresql postgres ha',
+        keywords='etcd governor patroni postgresql postgres ha zookeeper',
         long_description=read('README.md'),
         classifiers=CLASSIFIERS,
         test_suite='tests',
