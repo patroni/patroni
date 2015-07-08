@@ -2,6 +2,8 @@
 [![Coverage Status](https://coveralls.io/repos/zalando/patroni/badge.svg?branch=master)](https://coveralls.io/r/zalando/patroni?branch=master)
 # Patroni: A Template for PostgreSQL HA with ZooKeeper or etcd
 
+Patroni was previously known as Governor.
+
 *There are many ways to run high availability with PostgreSQL; here we present a template for you to create your own custom fit high availability solution using python and distributed configuration store (like ZooKeeper or etcd) for maximum accessibility.*
 
 ## Getting Started
