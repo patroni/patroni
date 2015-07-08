@@ -21,7 +21,7 @@ def parseurl(url):
         'host': r.hostname,
         'port': r.port or 5432,
         'database': r.path[1:],
-        'fallback_application_name': 'Governor',
+        'fallback_application_name': 'Patroni',
         'connect_timeout': 3,
         'options': '-c statement_timeout=2000',
     }

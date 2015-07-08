@@ -24,7 +24,7 @@ class MockPostgresql:
         return True
 
 
-class MockGovernor:
+class MockPatroni:
 
     def __init__(self):
         self.postgresql = MockPostgresql()
@@ -42,7 +42,7 @@ class MockRequest:
 class MockRestApiServer(RestApiServer):
 
     def __init__(self, Handler, path, *args):
-        self.governor = MockGovernor()
+        self.patroni = MockPatroni()
         if len(args) > 0:
             self.query = args[0]
         Handler(MockRequest(path), ('0.0.0.0', 8080), self)

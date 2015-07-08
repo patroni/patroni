@@ -56,7 +56,7 @@ class MockKazooClient:
             raise Exception()
         elif '/members/' in path:
             return (
-                'postgres://repuser:rep-pass@localhost:5434/postgres?application_name=http://127.0.0.1:8009/governor',
+                'postgres://repuser:rep-pass@localhost:5434/postgres?application_name=http://127.0.0.1:8009/patroni',
                 ZnodeStat(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
             )
         elif path.endswith('/optime/leader'):

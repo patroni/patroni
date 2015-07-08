@@ -51,21 +51,21 @@ class RestApiHandler(BaseHTTPRequestHandler):
             }
         except (psycopg2.OperationalError, psycopg2.InterfaceError):
             logger.exception('get_postgresql_status')
-            return {'running': self.server.governor.postgresql.is_running()}
+            return {'running': self.server.patroni.postgresql.is_running()}
 
 
 class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
-    def __init__(self, governor, config):
-        self.connection_string = 'http://{}/governor'.format(config.get('connect_address', None) or config['listen'])
+    def __init__(self, patroni, config):
+        self.connection_string = 'http://{}/patroni'.format(config.get('connect_address', None) or config['listen'])
         host, port = config['listen'].split(':')
         HTTPServer.__init__(self, (host, int(port)), RestApiHandler)
         Thread.__init__(self, target=self.serve_forever)
-        self.governor = governor
+        self.patroni = patroni
         self.daemon = True
 
     def query(self, sql, *params):
-        cursor = self.governor.postgresql.connection().cursor()
+        cursor = self.patroni.postgresql.connection().cursor()
         cursor.execute(sql, params)
         ret = [r for r in cursor]
         cursor.close()

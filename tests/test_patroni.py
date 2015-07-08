@@ -8,7 +8,7 @@ import time
 import unittest
 import yaml
 
-from governor import Governor, main
+from patroni import Patroni, main
 from helpers.dcs import Cluster, Member
 from helpers.zookeeper import ZooKeeper
 from test_etcd import requests_get, requests_put, requests_delete
@@ -30,12 +30,12 @@ def time_sleep(*args):
     raise Exception()
 
 
-class TestGovernor(unittest.TestCase):
+class TestPatroni(unittest.TestCase):
 
     def __init__(self, method_name='runTest'):
         self.setUp = self.set_up
         self.tearDown = self.tear_down
-        super(TestGovernor, self).__init__(method_name)
+        super(TestPatroni, self).__init__(method_name)
 
     def set_up(self):
         self.touched = False
@@ -53,7 +53,7 @@ class TestGovernor(unittest.TestCase):
         BaseHTTPServer.HTTPServer.__init__ = nop
         with open('postgres0.yml', 'r') as f:
             config = yaml.load(f)
-            self.g = Governor(config)
+            self.g = Patroni(config)
 
     def tear_down(self):
         time.sleep = self.time_sleep
@@ -65,13 +65,13 @@ class TestGovernor(unittest.TestCase):
         self.assertIsInstance(self.g.get_dcs('', {'zookeeper': {'scope': '', 'hosts': ''}}), ZooKeeper)
         self.assertRaises(Exception, self.g.get_dcs, '', {})
 
-    def test_governor_main(self):
+    def test_patroni_main(self):
         main()
-        sys.argv = ['governor.py', 'postgres0.yml']
+        sys.argv = ['patroni.py', 'postgres0.yml']
         time.sleep = time_sleep
         self.assertRaises(Exception, main)
 
-    def test_governor_run(self):
+    def test_patroni_run(self):
         time.sleep = time_sleep
         self.g.postgresql.is_leader = lambda: False
         self.g.ha.state_handler.sync_replication_slots = time_sleep
@@ -90,7 +90,7 @@ class TestGovernor(unittest.TestCase):
         self.g.ha.cluster = Cluster(True, member, 0, [member])
         self.g.touch_member()
 
-    def test_governor_initialize(self):
+    def test_patroni_initialize(self):
         self.g.postgresql.should_use_s3_to_create_replica = false
         self.g.ha.dcs.client._base_uri = 'http://remote'
         self.g.postgresql.data_directory_empty = true
