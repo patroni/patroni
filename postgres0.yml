@@ -1,12 +1,18 @@
-loop_wait: 10
+ttl: &ttl 30
+loop_wait: &loop_wait 10
 restapi:
   listen: 127.0.0.1:8008
   connect_address: 127.0.0.1:8008
 etcd:
   scope: batman
-  ttl: 30
+  ttl: *ttl
   host: 127.0.0.1:4001
   #discovery_srv: my-etcd.domain
+#zookeeper:
+#  scope: batman
+#  session_timeout: *ttl
+#  reconnect_timeout: *loop_wait
+#  hosts: 127.0.0.1:2181
 postgresql:
   name: postgresql0
   listen: 127.0.0.1:5432

@@ -6,25 +6,33 @@ import time
 import yaml
 
 from helpers.api import RestApiServer
-from helpers.etcd import Etcd
-from helpers.postgresql import Postgresql
-from helpers.ha import Ha
-from helpers.utils import setup_signal_handlers, sleep
 from helpers.aws import AWSConnection
+from helpers.etcd import Etcd
+from helpers.ha import Ha
+from helpers.postgresql import Postgresql
+from helpers.utils import setup_signal_handlers, sleep
+from helpers.zookeeper import ZooKeeper
 
 
 class Governor:
 
     def __init__(self, config):
         self.nap_time = config['loop_wait']
-        self.etcd = Etcd(config['etcd'])
         self.aws = AWSConnection(config)
-        self.postgresql = Postgresql(config['postgresql'], self.aws.on_role_change)
-        self.ha = Ha(self.postgresql, self.etcd)
+        self.postgresql = Postgresql(config['postgresql'])
+        self.ha = Ha(self.postgresql, self.get_dcs(self.postgresql.name, config))
         host, port = config['restapi']['listen'].split(':')
         self.api = RestApiServer(self, config['restapi'])
         self.next_run = time.time()
         self.shutdown_member_ttl = 300
+
+    @staticmethod
+    def get_dcs(name, config):
+        if 'etcd' in config:
+            return Etcd(name, config['etcd'])
+        if 'zookeeper' in config:
+            return ZooKeeper(name, config['zookeeper'])
+        raise Exception('Can not find sutable configuration of distributed configuration store')
 
     def touch_member(self, ttl=None):
         connection_string = self.postgresql.connection_string + '?application_name=' + self.api.connection_string
@@ -33,26 +41,26 @@ class Governor:
                 # Do not update member TTL when it is far from being expired
                 if m.name == self.postgresql.name and m.real_ttl() > self.shutdown_member_ttl:
                     return True
-        return self.etcd.touch_member(self.postgresql.name, connection_string, ttl)
+        return self.ha.dcs.touch_member(connection_string, ttl)
 
     def initialize(self):
         # wait for etcd to be available
         while not self.touch_member():
-            logging.info('waiting on etcd')
+            logging.info('waiting on DCS')
             sleep(5)
 
         # is data directory empty?
         if self.postgresql.data_directory_empty():
             # racing to initialize
-            if self.etcd.race('/initialize', self.postgresql.name):
+            if self.ha.dcs.race('/initialize'):
                 self.postgresql.initialize()
-                self.etcd.take_leader(self.postgresql.name)
+                self.ha.dcs.take_leader()
                 self.postgresql.start()
                 self.postgresql.create_replication_user()
                 self.postgresql.create_connection_users()
             else:
                 while True:
-                    leader = self.etcd.current_leader()
+                    leader = self.ha.dcs.current_leader()
                     if leader and self.postgresql.sync_from_leader(leader):
                         self.postgresql.write_recovery_conf(leader)
                         self.postgresql.start()
@@ -68,7 +76,7 @@ class Governor:
         if nap_time <= 0:
             self.next_run = current_time
         else:
-            sleep(nap_time)
+            self.ha.dcs.sleep(nap_time)
 
     def run(self):
         self.api.start()
@@ -108,7 +116,7 @@ def main():
     finally:
         governor.touch_member(governor.shutdown_member_ttl)  # schedule member removal
         governor.postgresql.stop()
-        governor.etcd.delete_leader(governor.postgresql.name)
+        governor.ha.dcs.delete_leader()
 
 
 if __name__ == '__main__':

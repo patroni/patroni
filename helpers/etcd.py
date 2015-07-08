@@ -2,42 +2,22 @@ import logging
 import random
 import requests
 import socket
-import sys
 
-from collections import namedtuple
 from dns.exception import DNSException
 from dns import resolver
-from helpers.errors import CurrentLeaderError, EtcdError, EtcdConnectionFailed
-from helpers.utils import calculate_ttl, sleep
+from helpers.dcs import AbstractDCS, Cluster, DCSError, Member, parse_connection_string
+from helpers.utils import sleep
 from requests.exceptions import RequestException
-
-if sys.hexversion >= 0x03000000:
-    from urllib.parse import urlparse, urlunparse, parse_qsl
-else:
-    from urlparse import urlparse, urlunparse, parse_qsl
 
 logger = logging.getLogger(__name__)
 
 
-class Member(namedtuple('Member', 'name,conn_url,api_url,expiration,ttl')):
-
-    @staticmethod
-    def fromNode(node):
-        scheme, netloc, path, params, query, fragment = urlparse(node['value'])
-        conn_url = urlunparse((scheme, netloc, path, params, '', fragment))
-        api_url = ([v for n, v in parse_qsl(query) if n == 'application_name'] or [None])[0]
-        expiration = node.get('expiration', None)
-        ttl = node.get('ttl', None)
-        return Member(node['key'].split('/')[-1], conn_url, api_url, expiration, ttl)
-
-    def real_ttl(self):
-        return calculate_ttl(self.expiration) or -1
+class EtcdError(DCSError):
+    pass
 
 
-class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,members')):
-
-    def is_unlocked(self):
-        return not (self.leader and self.leader.name)
+class EtcdConnectionFailed(EtcdError):
+    pass
 
 
 class Client:
@@ -204,12 +184,12 @@ class Client:
         return False
 
 
-class Etcd:
+class Etcd(AbstractDCS):
 
-    def __init__(self, config):
+    def __init__(self, name, config):
+        super(Etcd, self).__init__(name, config)
         self.ttl = config['ttl']
         self.member_ttl = config.get('member_ttl', 3600)
-        self._base_path = '/keys/service/' + config['scope']
         self.client = self.get_etcd_client(config)
 
     def get_etcd_client(self, config):
@@ -223,7 +203,7 @@ class Etcd:
         return client
 
     def client_path(self, path):
-        return self._base_path + path
+        return '/keys' + super(Etcd, self).client_path(path)
 
     def get_client_path(self, path):
         return self.client.get(self.client_path(path))
@@ -251,6 +231,13 @@ class Etcd:
                 return n
         return None
 
+    @staticmethod
+    def member(node):
+        conn_url, api_url = parse_connection_string(node['value'])
+        expiration = node.get('expiration', None)
+        ttl = node.get('ttl', None)
+        return Member(node['modifiedIndex'], node['key'].split('/')[-1], conn_url, api_url, expiration, ttl)
+
     def get_cluster(self):
         try:
             response, status_code = self.get_client_path('?recursive=true')
@@ -259,7 +246,7 @@ class Etcd:
                 initialize = True if node else False
                 # get list of members
                 node = self.find_node(response['node'], '/members') or {'nodes': []}
-                members = [Member.fromNode(n) for n in node['nodes']]
+                members = [self.member(n) for n in node['nodes']]
 
                 # get last leader operation
                 last_leader_operation = 0
@@ -278,7 +265,7 @@ class Etcd:
                             leader = m
                             break
                     if not leader:
-                        leader = Member(node['value'], None, None, None, None)
+                        leader = Member(-1, node['value'], None, None, None, None)
 
                 return Cluster(initialize, leader, last_leader_operation, members)
             elif status_code == 404:
@@ -288,28 +275,21 @@ class Etcd:
 
         raise EtcdError('Etcd is not responding properly')
 
-    def current_leader(self):
+    def touch_member(self, connection_string, ttl=None):
         try:
-            cluster = self.get_cluster()
-            return None if cluster.is_unlocked() else cluster.leader
-        except EtcdError:
-            raise CurrentLeaderError('Etcd is not responding properly')
-
-    def touch_member(self, member, connection_string, ttl=None):
-        try:
-            return self.put_client_path('/members/' + member, value=connection_string, ttl=ttl or self.member_ttl)
+            return self.put_client_path('/members/' + self._name, value=connection_string, ttl=ttl or self.member_ttl)
         except EtcdError:
             return False
 
-    def take_leader(self, value):
+    def take_leader(self):
         try:
-            return self.put_client_path('/leader', value=value, ttl=self.ttl)
+            return self.put_client_path('/leader', value=self._name, ttl=self.ttl)
         except EtcdError:
             return False
 
-    def attempt_to_acquire_leader(self, value):
+    def attempt_to_acquire_leader(self):
         try:
-            ret = self.put_client_path('/leader', value=value, ttl=self.ttl, prevExist=False)
+            ret = self.put_client_path('/leader', value=self._name, ttl=self.ttl, prevExist=False)
             ret or logger.info('Could not take out TTL lock')
             return ret
         except EtcdError:
@@ -324,14 +304,11 @@ class Etcd:
             return True
         return False
 
-    def race(self, path, value):
+    def race(self, path):
         try:
-            return self.put_client_path(path, value=value, prevExist=False)
+            return self.put_client_path(path, value=self._name, prevExist=False)
         except EtcdError:
             return False
 
-    def delete_member(self, member):
-        return self.delete_client_path('/members/' + member)
-
-    def delete_leader(self, value):
-        return self.delete_client_path('/leader?prevValue=' + value)
+    def delete_leader(self):
+        return self.delete_client_path('/leader?prevValue=' + self._name)

@@ -422,4 +422,4 @@ primary_conninfo = '{}'
         self.sync_replication_slots([])
 
     def last_operation(self):
-        return self.xlog_position()
+        return str(self.xlog_position())

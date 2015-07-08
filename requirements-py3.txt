@@ -3,3 +3,4 @@ dnspython3
 psycopg2
 PyYAML
 requests
+kazoo>=2.2.1
