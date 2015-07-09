@@ -1,6 +1,7 @@
 import logging
 import os
 import psycopg2
+import shlex
 import shutil
 import subprocess
 import sys
@@ -42,6 +43,7 @@ class Postgresql:
         self.replication = config['replication']
         self.superuser = config['superuser']
         self.admin = config['admin']
+        self.callback = config.get(['callback'], {})
         self.recovery_conf = os.path.join(self.data_dir, 'recovery.conf')
         self.configuration_to_save = (os.path.join(self.data_dir, 'pg_hba.conf'),
                                       os.path.join(self.data_dir, 'postgresql.conf'))
@@ -238,6 +240,16 @@ class Postgresql:
     def is_running(self):
         return subprocess.call(' '.join(self._pg_ctl) + ' status > /dev/null', shell=True) == 0
 
+    def call_nowait(self, cb_name):
+        """ pick a callback command and call it without waiting for it to finish """
+        if not self.callback or cb_name not in self.callback:
+            return False
+        cmd = self.callback[cb_name]
+        is_master = self.is_leader()
+        name = self.name
+        subprocess.Popen(shlex.split(cmd)+[is_master, name])
+        return True
+
     def start(self):
         if self.is_running():
             self.load_replication_slots()
@@ -251,18 +263,29 @@ class Postgresql:
         ret = subprocess.call(self._pg_ctl + ['start', '-o', self.server_options()]) == 0
         ret and self.load_replication_slots()
         self.save_configuration_files()
+        if ret and 'on_start' in self.callback:
+            self.call_nowait('on_start')
         if self.on_change_callback:
             self.on_change_callback('replica' if os.path.exists(self.recovery_conf) else 'master')
         return ret
 
     def stop(self):
-        return subprocess.call(self._pg_ctl + ['stop', '-m', 'fast']) != 0
+        ret = subprocess.call(self._pg_ctl + ['stop', '-m', 'fast'])
+        if ret == 0 and 'on_stop' in self.callback:
+            self.call_nowait('on_stop')
+        return ret != 0
 
     def reload(self):
-        return subprocess.call(self._pg_ctl + ['reload']) == 0
+        ret = subprocess.call(self._pg_ctl + ['reload'])
+        if ret == 0 and 'on_reload' in self.callback:
+            self.call_nowait('on_reload')
+        return ret == 0
 
     def restart(self):
-        return subprocess.call(self._pg_ctl + ['restart', '-m', 'fast']) == 0
+        ret = subprocess.call(self._pg_ctl + ['restart', '-m', 'fast'])
+        if ret == 0 and 'on_restart' in self.callback:
+            self.call_nowait('on_restart')
+        return ret == 0
 
     def server_options(self):
         options = "--listen_addresses='{}' --port={}".format(self.listen_addresses, self.port)
@@ -349,6 +372,8 @@ primary_conninfo = '{}'
         if not self.check_recovery_conf(leader):
             self.write_recovery_conf(leader)
             self.restart()
+            if self.on_change_callback['on_role_change']:
+                self.call_nowait('on_role_change')
             if self.on_change_callback:
                 self.on_change_callback('replica')
 
@@ -370,6 +395,8 @@ primary_conninfo = '{}'
 
     def promote(self):
         self.is_promoted = subprocess.call(self._pg_ctl + ['promote']) == 0
+        if self.is_promoted and self.on_change_callback['on_role_change']:
+            self.call_nowait('on_role_change')
         if self.on_change_callback:
             self.on_change_callback('master')
         return self.is_promoted
