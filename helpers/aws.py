@@ -1,6 +1,7 @@
 import logging
 import requests
 from requests.exceptions import RequestException
+import sys
 import boto.ec2
 
 logger = logging.getLogger(__name__)
@@ -67,3 +68,15 @@ class AWSConnection:
     def on_role_change(self, new_role):
         ret = self._tag_ec2(new_role)
         return self._tag_ebs(new_role) and ret
+
+
+if __name__ == '__main__':
+    if len(sys.argv) != 3:
+        print ("Usage: {0} action role name".format(sys.argv[0]))
+        return 1
+    action, role, name = sys.argv[1:]
+    if action in ('on_start', 'on_stop', 'on_role_change'):
+        aws = gAWSConnection({'cluster_name': name})
+        aws.on_role_change(role)
+        return 0
+    return 2
