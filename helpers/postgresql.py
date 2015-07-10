@@ -35,7 +35,7 @@ def parseurl(url):
 
 class Postgresql:
 
-    def __init__(self, config, on_change_callback=None):
+    def __init__(self, config):
         self.config = config
         self.name = config['name']
         self.listen_addresses, self.port = config['listen'].split(':')
@@ -66,7 +66,6 @@ class Postgresql:
         self._connection = None
         self._cursor_holder = None
         self.members = []  # list of already existing replication slots
-        self.on_change_callback = on_change_callback
 
     def get_local_address(self):
         listen_addresses = self.listen_addresses.split(',')
@@ -265,8 +264,6 @@ class Postgresql:
         self.save_configuration_files()
         if ret and 'on_start' in self.callback:
             self.call_nowait('on_start')
-        if self.on_change_callback:
-            self.on_change_callback('replica' if os.path.exists(self.recovery_conf) else 'master')
         return ret
 
     def stop(self):
@@ -372,10 +369,8 @@ primary_conninfo = '{}'
         if not self.check_recovery_conf(leader):
             self.write_recovery_conf(leader)
             self.restart()
-            if self.on_change_callback['on_role_change']:
+            if 'on_role_change' in self.callback:
                 self.call_nowait('on_role_change')
-            if self.on_change_callback:
-                self.on_change_callback('replica')
 
     def save_configuration_files(self):
         """
@@ -395,10 +390,8 @@ primary_conninfo = '{}'
 
     def promote(self):
         self.is_promoted = subprocess.call(self._pg_ctl + ['promote']) == 0
-        if self.is_promoted and self.on_change_callback['on_role_change']:
+        if self.is_promoted and 'on_role_change' in self.callback:
             self.call_nowait('on_role_change')
-        if self.on_change_callback:
-            self.on_change_callback('master')
         return self.is_promoted
 
     def demote(self, leader):

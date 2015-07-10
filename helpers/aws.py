@@ -76,7 +76,7 @@ if __name__ == '__main__':
         return 1
     action, role, name = sys.argv[1:]
     if action in ('on_start', 'on_stop', 'on_role_change'):
-        aws = gAWSConnection({'cluster_name': name})
+        aws = AWSConnection({'cluster_name': name})
         aws.on_role_change(role)
         return 0
     return 2
