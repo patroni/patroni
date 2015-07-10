@@ -118,7 +118,7 @@ class TestPostgresql(unittest.TestCase):
                                              'password': 'rep-pass',
                                              'network': '127.0.0.1/32'},
                              'parameters': {'foo': 'bar'}, 'recovery_conf': {'foo': 'bar'}},
-                             on_change_callback=lambda state: True)
+                            on_change_callback=lambda state: True)
         psycopg2.connect = psycopg2_connect
         if not os.path.exists(self.p.data_dir):
             os.makedirs(self.p.data_dir)

@@ -9,5 +9,6 @@ install:
   - pip install coveralls
 script:
   - python setup.py test
+  - python setup.py flake8
 after_success:
   - coveralls
