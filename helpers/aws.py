@@ -1,8 +1,6 @@
 import logging
-import re
 import requests
 from requests.exceptions import RequestException
-import yaml
 import boto.ec2
 
 logger = logging.getLogger(__name__)
@@ -27,7 +25,7 @@ class AWSConnection:
             return
         if r.ok:
             try:
-                content = yaml.load(r.content)
+                content = r.json()
                 self.instance_id = content['instanceId']
                 self.region = content['region']
             except Exception as e:
