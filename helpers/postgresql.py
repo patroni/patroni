@@ -246,7 +246,7 @@ class Postgresql:
         cmd = self.callback[cb_name]
         is_master = self.is_leader()
         name = self.name
-        subprocess.Popen(shlex.split(cmd)+[is_master, name])
+        subprocess.Popen(shlex.split(os.path.abspath(cmd))+[cb_name, is_master, name])
         return True
 
     def start(self):
