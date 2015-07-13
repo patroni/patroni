@@ -9,6 +9,7 @@ from helpers.utils import sleep
 
 if sys.hexversion >= 0x03000000:
     from urllib.parse import urlparse
+    long = int
 else:
     from urlparse import urlparse
 
@@ -169,7 +170,8 @@ class Postgresql:
 
         try:
             latest_backup = subprocess.check_output(self.wal_e_path.split() + ['backup-list', '--detail', 'LATEST'])
-            # name    last_modified   expanded_size_bytes wal_segment_backup_start    wal_segment_offset_backup_start wal_segment_backup_stop wal_segment_offset_backup_stop
+            # name    last_modified   expanded_size_bytes wal_segment_backup_start    wal_segment_offset_backup_start
+            #                                                   wal_segment_backup_stop wal_segment_offset_backup_stop
             # base_00000001000000000000007F_00000040  2015-05-18T10:13:25.000Z
             # 20310671    00000001000000000000007F    00000040
             # 00000001000000000000007F    00000240

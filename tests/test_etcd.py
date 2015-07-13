@@ -43,6 +43,8 @@ def requests_get(url, **kwargs):
             response.content = members
     elif url.endswith('/bad_response'):
         response.content = '{'
+    elif url.startswith('http://exhibitor'):
+        response.content = '{"servers":["127.0.0.1","127.0.0.2","127.0.0.3"],"port":2181}'
     elif url.startswith('http://local'):
         raise requests.exceptions.RequestException()
     elif url.startswith('http://remote') or url.startswith('http://127.0.0.1') or url.startswith('http://error'):
