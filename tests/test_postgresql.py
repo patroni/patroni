@@ -152,6 +152,12 @@ class TestPostgresql(unittest.TestCase):
         self.p.follow_the_leader(self.leader)
         self.p.follow_the_leader(self.other)
 
+    def test_create_connection_users(self):
+        cfg = self.p.config
+        cfg['superuser']['username'] = 'test'
+        p = Postgresql(cfg)
+        p.create_connection_users()
+
     def test_create_replication_slots(self):
         self.p.start()
         cluster = Cluster(True, self.leader, 0, [self.me, self.other, self.leader])
