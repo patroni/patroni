@@ -55,8 +55,11 @@ For an example file, see `postgres0.yml`.  Below is an explanation of settings:
   * *scope*: the relative path used on etcd's http api for this deployment, thus you can run multiple HA deployments from a single etcd
   * *session_timeout*: the TTL to acquire the leader lock. Think of it as the length of time before automatic failover process is initiated.
   * *reconnects_timeout*: how long we should try to reconnect to ZooKeeper after connection loss. After this timeout we assume that we don't have lock anymore and will restart in read-only mode.
-  * *hosts*: List of ZooKeeper cluster members in format: 'host1:port1,host2:port2,..etc...'
-
+  * *hosts*: list of ZooKeeper cluster members in format: [ 'host1:port1', 'host2:port2', 'etc...']
+  * *exhibitor*: if you are running ZooKeeper cluster under Exhibitor supervisory the following section could be interesting for you
+    * *poll_interval*: how often list of ZooKeeper and Exhibitor nodes should be updated from Exhibitor
+    * *port*: Exhibitor port
+    * *hosts*: initial list of Exhibitor (ZooKeeper) nodes in format: [ 'host1', 'host2', 'etc...' ]. This list would be updated automatically when Exhibitor (ZooKeeper) cluster topology changes.
 
 * *postgresql*
   * *name*: the name of the Postgres host, must be unique for the cluster
