@@ -11,15 +11,11 @@ import yaml
 from patroni import Patroni, main
 from helpers.dcs import Cluster, Member
 from helpers.zookeeper import ZooKeeper
+from six.moves import BaseHTTPServer
 from test_etcd import requests_get, requests_put, requests_delete
 from test_ha import true, false
 from test_postgresql import Postgresql, subprocess_call, psycopg2_connect
 from test_zookeeper import MockKazooClient
-
-if sys.hexversion >= 0x03000000:
-    import http.server as BaseHTTPServer
-else:
-    import BaseHTTPServer
 
 
 def nop(*args, **kwargs):

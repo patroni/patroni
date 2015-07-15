@@ -3,15 +3,13 @@ import os
 import psycopg2
 import shutil
 import subprocess
-import sys
+import six
 
 from helpers.utils import sleep
+from six.moves.urllib_parse import urlparse
 
-if sys.hexversion >= 0x03000000:
-    from urllib.parse import urlparse
+if six.PY3:
     long = int
-else:
-    from urlparse import urlparse
 
 logger = logging.getLogger(__name__)
 
