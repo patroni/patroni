@@ -23,10 +23,6 @@ def false(*args, **kwargs):
     return False
 
 
-def xlog_position():
-    return 1
-
-
 class MockCursor:
 
     def __init__(self):
@@ -44,9 +40,12 @@ class MockCursor:
         elif sql.startswith('SELECT pg_current_xlog_location()'):
             self.results = [(0,)]
         elif sql.startswith('SELECT pg_is_in_recovery(), %s'):
-            if params[0][0] != 0:
+            if params[0][0] == 1:
                 raise psycopg2.OperationalError()
-            self.results = [(False, 0)]
+            elif params[0][0] == 2:
+                self.results = [(True, -1)]
+            else:
+                self.results = [(False, 0)]
         elif sql.startswith('SELECT CASE WHEN pg_is_in_recovery()'):
             self.results = [(0,)]
         elif sql.startswith('SELECT pg_is_in_recovery()'):
@@ -173,8 +172,10 @@ class TestPostgresql(unittest.TestCase):
         self.assertTrue(self.p.is_healthiest_node(cluster))
         self.p.is_leader = false
         self.assertFalse(self.p.is_healthiest_node(cluster))
-        self.p.xlog_position = xlog_position
+        self.p.xlog_position = lambda: 1
         self.assertTrue(self.p.is_healthiest_node(cluster))
+        self.p.xlog_position = lambda: 2
+        self.assertFalse(self.p.is_healthiest_node(cluster))
         self.p.config['maximum_lag_on_failover'] = -2
         self.assertFalse(self.p.is_healthiest_node(cluster))
 
