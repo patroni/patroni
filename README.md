@@ -67,10 +67,17 @@ For an example file, see `postgres0.yml`.  Below is an explanation of settings:
   * *connect_address*: ip address + port through which Postgres is accessible from other nodes and applications.
   * *data_dir*: file path to initialize and store Postgres data files
   * *maximum_lag_on_failover*: the maximum bytes a follower may lag before it is not eligible become leader
+  * *pg_hba*: list of lines which should be added to pg_hba.conf
+    * *- host all all 0.0.0.0/0 md5*
   * *replication*
     * *username*: replication username, user will be created during initialization
     * *password*: replication password, user will be created during initialization
     * *network*: network setting for replication in pg_hba.conf
+  * *superuser*
+    * *password*: password for postgres user. It would be set during initialization
+  * *admin*:
+    * *username*: admin username, user will be created during initialization. It would have CREATEDB and CREATEROLE privileges
+    * *password*: admin password, user will be created during initialization.
   * *recovery_conf*: configuration settings written to recovery.conf when configuring follower
   * *parameters*: list of configuration settings for Postgres
 
