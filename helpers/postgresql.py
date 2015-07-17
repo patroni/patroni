@@ -244,7 +244,7 @@ class Postgresql:
         if not self.callback or cb_name not in self.callback:
             return False
         cmd = self.callback[cb_name]
-        if not is_leader:
+        if is_leader is None:
             try:
                 is_leader = self.is_leader()
             except psycopg2.OperationalError as e:
