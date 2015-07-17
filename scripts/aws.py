@@ -74,9 +74,9 @@ if __name__ == '__main__':
     if len(sys.argv) != 3:
         print ("Usage: {0} action role name".format(sys.argv[0]))
         return 1
-    action, is_master, name = sys.argv[1:]
+    action, role, name = sys.argv[1:]
     if action in ('on_start', 'on_stop', 'on_role_change'):
         aws = AWSConnection({'cluster_name': name})
-        aws.on_role_change('master' if is_master else 'replica')
+        aws.on_role_change(role)
         return 0
     return 2
