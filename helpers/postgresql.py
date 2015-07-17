@@ -239,14 +239,19 @@ class Postgresql:
     def is_running(self):
         return subprocess.call(' '.join(self._pg_ctl) + ' status > /dev/null', shell=True) == 0
 
-    def call_nowait(self, cb_name):
+    def call_nowait(self, cb_name, is_leader=None):
         """ pick a callback command and call it without waiting for it to finish """
         if not self.callback or cb_name not in self.callback:
             return False
         cmd = self.callback[cb_name]
-        is_master = self.is_leader()
+        if not is_leader:
+            try:
+                is_leader = self.is_leader()
+            except psycopg2.OperationalError as e:
+                logger.warning("unable to perform {0} action, cannot obtain the cluster role: {1}".format(cb_name, e))
+                return False
         name = self.name
-        subprocess.Popen(shlex.split(os.path.abspath(cmd))+[cb_name, is_master, name])
+        subprocess.Popen(shlex.split(os.path.abspath(cmd))+[cb_name, is_leader, name])
         return True
 
     def start(self):
@@ -267,9 +272,14 @@ class Postgresql:
         return ret
 
     def stop(self):
+        try:
+            is_leader = self.is_leader()
+        except:
+            is_leader = None
+            pass
         ret = subprocess.call(self._pg_ctl + ['stop', '-m', 'fast'])
         if ret == 0 and 'on_stop' in self.callback:
-            self.call_nowait('on_stop')
+            self.call_nowait('on_stop', is_leader=is_leader)
         return ret != 0
 
     def reload(self):
@@ -279,9 +289,14 @@ class Postgresql:
         return ret == 0
 
     def restart(self):
+        try:
+            is_leader = self.is_leader()
+        except:
+            is_leader = None
+            pass
         ret = subprocess.call(self._pg_ctl + ['restart', '-m', 'fast'])
         if ret == 0 and 'on_restart' in self.callback:
-            self.call_nowait('on_restart')
+            self.call_nowait('on_restart', is_leader=is_leader)
         return ret == 0
 
     def server_options(self):
