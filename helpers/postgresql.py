@@ -251,7 +251,12 @@ class Postgresql:
                 logger.warning("unable to perform {0} action, cannot obtain the cluster role: {1}".format(cb_name, e))
                 return False
         name = self.name
-        subprocess.Popen(shlex.split(os.path.abspath(cmd))+[cb_name, "master" if is_leader else "replica", name])
+        try:
+            role = "master" if is_leader else "replica"
+            subprocess.Popen(shlex.split(os.path.abspath(cmd))+[cb_name, role, name])
+        except Exception as e:
+            logger.warning("callback {0} {1} {2} {3} failed: {4}".format(os.path.abspath(cmd), cb_name, role, name, e))
+            return False
         return True
 
     def start(self):
