@@ -1,3 +1,5 @@
+#!/usr/bin/python
+
 import logging
 import requests
 from requests.exceptions import RequestException
@@ -71,12 +73,12 @@ class AWSConnection:
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 3:
+    if len(sys.argv) != 4:
         print ("Usage: {0} action role name".format(sys.argv[0]))
-        return 1
+        sys.exit(1)
     action, role, name = sys.argv[1:]
     if action in ('on_start', 'on_stop', 'on_role_change'):
         aws = AWSConnection({'cluster_name': name})
         aws.on_role_change(role)
-        return 0
-    return 2
+        sys.exit(0)
+    sys.exit(2)

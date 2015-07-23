@@ -38,6 +38,7 @@ class Postgresql:
     def __init__(self, config):
         self.config = config
         self.name = config['name']
+        self.scope = config['scope']
         self.listen_addresses, self.port = config['listen'].split(':')
         self.data_dir = config['data_dir']
         self.replication = config['replication']
@@ -250,7 +251,7 @@ class Postgresql:
             except psycopg2.OperationalError as e:
                 logger.warning("unable to perform {0} action, cannot obtain the cluster role: {1}".format(cb_name, e))
                 return False
-        name = self.name
+        name = self.scope
         try:
             role = "master" if is_leader else "replica"
             subprocess.Popen(shlex.split(os.path.abspath(cmd))+[cb_name, role, name])
