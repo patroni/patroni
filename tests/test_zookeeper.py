@@ -1,11 +1,12 @@
 import helpers.zookeeper
 import unittest
+import requests
 
-from helpers.zookeeper import ZooKeeper, ZooKeeperError
+from helpers.zookeeper import ExhibitorEnsembleProvider, ZooKeeper, ZooKeeperError
 from kazoo.client import KazooState
 from kazoo.exceptions import NoNodeError, NodeExistsError
 from kazoo.protocol.states import ZnodeStat
-from test_etcd import MockPostgresql
+from test_etcd import MockPostgresql, requests_get
 
 
 class MockEvent:
@@ -88,6 +89,27 @@ class MockKazooClient:
             self.leader = True
             raise Exception
 
+    def set_hosts(self, hosts, randomize_hosts=None):
+        pass
+
+
+def exhibitor_sleep(_):
+    raise Exception
+
+
+class TestExhibitorEnsembleProvider(unittest.TestCase):
+
+    def __init__(self, method_name='runTest'):
+        self.setUp = self.set_up
+        super(TestExhibitorEnsembleProvider, self).__init__(method_name)
+
+    def set_up(self):
+        requests.get = requests_get
+        helpers.zookeeper.sleep = exhibitor_sleep
+
+    def test_init(self):
+        self.assertRaises(Exception, ExhibitorEnsembleProvider, ['localhost'], 8181)
+
 
 class TestZooKeeper(unittest.TestCase):
 
@@ -96,8 +118,9 @@ class TestZooKeeper(unittest.TestCase):
         super(TestZooKeeper, self).__init__(method_name)
 
     def set_up(self):
+        requests.get = requests_get
         helpers.zookeeper.KazooClient = MockKazooClient
-        self.zk = ZooKeeper('foo', {'hosts': 'localhost:2181', 'scope': 'test'})
+        self.zk = ZooKeeper('foo', {'exhibitor': {'hosts': ['localhost', 'exhibitor'], 'port': 8181}, 'scope': 'test'})
 
     def test_session_listener(self):
         self.zk.session_listener(KazooState.SUSPENDED)
@@ -112,6 +135,7 @@ class TestZooKeeper(unittest.TestCase):
 
     def test_get_cluster(self):
         self.assertRaises(ZooKeeperError, self.zk.get_cluster)
+        self.zk.exhibitor.poll = lambda: True
         self.zk.get_cluster()
         self.zk.touch_member('foo')
         self.zk.delete_leader()

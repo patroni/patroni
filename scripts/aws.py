@@ -37,7 +37,7 @@ class AWSConnection:
         if not self.available:
             return False
 
-        tags = {'Name': 'spilo_'+self.cluster_name, 'Role': role, 'Instance': self.instance_id}
+        tags = {'Name': 'spilo_' + self.cluster_name, 'Role': role, 'Instance': self.instance_id}
         try:
             conn = boto.ec2.connect_to_region(self.region)
             volumes = conn.get_all_volumes(filters={'attachment.instance-id': self.instance_id})
