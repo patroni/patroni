@@ -230,9 +230,9 @@ class Postgresql:
         return (diff_in_bytes < long(threshold_megabytes) * 1048576) and\
                (diff_in_bytes < long(backup_size) * float(threshold_backup_size_percentage) / 100)
 
-    def is_leader(self):
+    def is_leader(self, check_only=False):
         ret = not self.query('SELECT pg_is_in_recovery()').fetchone()[0]
-        if ret and self.is_promoted:
+        if ret and self.is_promoted and not check_only:
             self.delete_trigger_file()
             self.is_promoted = False
         return ret
@@ -247,7 +247,7 @@ class Postgresql:
         cmd = self.callback[cb_name]
         if is_leader is None:
             try:
-                is_leader = self.is_leader()
+                is_leader = self.is_leader(check_only=True)
             except psycopg2.OperationalError as e:
                 logger.warning("unable to perform {0} action, cannot obtain the cluster role: {1}".format(cb_name, e))
                 return False
@@ -279,7 +279,7 @@ class Postgresql:
 
     def stop(self):
         try:
-            is_leader = self.is_leader()
+            is_leader = self.is_leader(check_only=True)
         except:
             is_leader = None
             pass
@@ -296,7 +296,7 @@ class Postgresql:
 
     def restart(self):
         try:
-            is_leader = self.is_leader()
+            is_leader = self.is_leader(check_only=True)
         except:
             is_leader = None
             pass
