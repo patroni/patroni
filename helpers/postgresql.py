@@ -286,7 +286,7 @@ class Postgresql:
         ret = subprocess.call(self._pg_ctl + ['stop', '-m', 'fast'])
         if ret == 0 and 'on_stop' in self.callback:
             self.call_nowait('on_stop', is_leader=is_leader)
-        return ret != 0
+        return ret == 0
 
     def reload(self):
         ret = subprocess.call(self._pg_ctl + ['reload'])
