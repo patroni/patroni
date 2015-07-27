@@ -22,6 +22,7 @@ __location__ = os.path.join(os.getcwd(), os.path.dirname(inspect.getfile(inspect
 NAME = 'patroni'
 MAIN_PACKAGE = 'patroni.py'
 HELPERS = 'helpers'
+SCRIPTS = 'scripts'
 VERSION = '0.1'
 DESCRIPTION = 'A Template for PostgreSQL HA with etcd'
 LICENSE = 'The MIT License'
@@ -61,7 +62,8 @@ class PyTest(TestCommand):
     def finalize_options(self):
         TestCommand.finalize_options(self)
         if self.cov_xml or self.cov_html:
-            self.cov = ['--cov', MAIN_PACKAGE, '--cov', HELPERS, '--cov-report', 'term-missing']
+            self.cov = ['--cov', MAIN_PACKAGE, '--cov', HELPERS, '--cov', SCRIPTS, '--cov-report',
+                        'term-missing']
             if self.cov_xml:
                 self.cov.extend(['--cov-report', 'xml'])
             if self.cov_html:
