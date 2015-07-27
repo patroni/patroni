@@ -110,15 +110,15 @@ class TestPostgresql(unittest.TestCase):
     def set_up(self):
         subprocess.call = subprocess_call
         shutil.copy = nop
-        self.p = Postgresql({'name': 'test0', 'data_dir': 'data/test0', 'listen': '127.0.0.1, *:5432',
-                             'connect_address': '127.0.0.2:5432',
+        self.p = Postgresql({'name': 'test0', 'scope': 'batman', 'data_dir': 'data/test0',
+                             'listen': '127.0.0.1, *:5432', 'connect_address': '127.0.0.2:5432',
                              'pg_hba': ['hostssl all all 0.0.0.0/0 md5', 'host all all 0.0.0.0/0 md5'],
-                             'superuser': {'password': ''}, 'admin': {'username': 'admin', 'password': 'admin'},
+                             'superuser': {'password': ''},
+                             'admin': {'username': 'admin', 'password': 'admin'},
                              'replication': {'username': 'replicator',
                                              'password': 'rep-pass',
                                              'network': '127.0.0.1/32'},
-                             'parameters': {'foo': 'bar'}, 'recovery_conf': {'foo': 'bar'}},
-                             on_change_callback=lambda state: True)
+                             'parameters': {'foo': 'bar'}, 'recovery_conf': {'foo': 'bar'}})
         psycopg2.connect = psycopg2_connect
         if not os.path.exists(self.p.data_dir):
             os.makedirs(self.p.data_dir)

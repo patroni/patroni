@@ -1,20 +1,22 @@
 ttl: &ttl 30
 loop_wait: &loop_wait 10
+scope: &scope batman
 restapi:
   listen: 127.0.0.1:8008
   connect_address: 127.0.0.1:8008
 etcd:
-  scope: batman
+  scope: *scope
   ttl: *ttl
   host: 127.0.0.1:4001
   #discovery_srv: my-etcd.domain
 #zookeeper:
-#  scope: batman
+#  scope: *scope
 #  session_timeout: *ttl
 #  reconnect_timeout: *loop_wait
 #  hosts: 127.0.0.1:2181
 postgresql:
   name: postgresql0
+  scope: *scope
   listen: 127.0.0.1:5432
   connect_address: 127.0.0.1:5432
   data_dir: data/postgresql0

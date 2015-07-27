@@ -2,7 +2,7 @@ import unittest
 import requests
 import boto.ec2
 from collections import namedtuple
-from helpers.aws import AWSConnection
+from scripts.aws import AWSConnection
 from requests.exceptions import RequestException
 import yaml
 
@@ -22,6 +22,16 @@ class MockEc2Connection:
         if self.error or len(objects) == 0:
             raise Exception("create_tags")
         return True
+
+
+class MockResponse:
+
+    def __init__(self, content):
+        self.content = content
+        self.ok = True
+
+    def json(self):
+        return self.content
 
 
 class TestAWSConnection(unittest.TestCase):
@@ -44,25 +54,28 @@ class TestAWSConnection(unittest.TestCase):
         result = namedtuple('Request', 'ok content')
         result.ok = True
         if url.split('/')[-1] == 'document':
-            result.content = '{\n  "instanceId" : "012345",\n "region" : "eu-west-1"\n}'
+            result = {"instanceId": "012345", "region": "eu-west-1"}
         else:
-            result.content = 'foo'
-        return result
+            result = 'foo'
+        return MockResponse(result)
 
     def setUp(self):
         self.error = False
         requests.get = self.requests_get
         boto.ec2.connect_to_region = self.boto_ec2_connect_to_region
         self.config_string = """
-loop_wait: 10
+scope: &scope test
+ttl: &ttl 30
+loop_wait: &loop_wait 10
 restapi:
   listen: 0.0.0.0:8008
   connect_address: 127.0.0.1:5432
 etcd:
-  scope: test
-  ttl: 30
+  scope: *scope
+  ttl: *ttl
   host: 127.0.0.1:8080
 postgresql:
+  scope: *scope
   name: postgresql_foo
   listen: 0.0.0.0:5432
   connect_address: 127.0.0.1:5432
@@ -76,6 +89,11 @@ postgresql:
   admin:
     username: admin
     password: admin
+  callbacks:
+    on_start: patroni/scripts/aws.py
+    on_stop: patroni/scripts/aws.py
+    on_restart: patroni/scripts/aws.py
+    on_role_change: patroni/scripts/aws.py
   parameters:
     archive_mode: "on"
     wal_level: hot_standby
