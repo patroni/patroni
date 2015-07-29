@@ -66,7 +66,7 @@ class AWSConnection:
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 4 and sys.argv[1] in ('on_start', 'on_stop', 'on_role_change'):
+    if len(sys.argv) == 4 and sys.argv[1] in ('on_start', 'on_stop', 'on_role_change'):
         AWSConnection(cluster_name=sys.argv[3]).on_role_change(sys.argv[2])
     else:
         sys.exit("Usage: {0} action role name".format(sys.argv[0]))
