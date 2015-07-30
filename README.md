@@ -73,6 +73,12 @@ For an example file, see `postgres0.yml`.  Below is an explanation of settings:
     * *username*: replication username, user will be created during initialization
     * *password*: replication password, user will be created during initialization
     * *network*: network setting for replication in pg_hba.conf
+  * *callbacks* callback scripts to run on certain actions. Patroni will pass current action, role and cluster name. See scripts/aws.py as an example on how to write them.
+    * *on_start*: a script to run when the cluster starts
+    * *on_stop*: a script to run when the cluster stops
+    * *on_restart*: a script to run when the cluster restarts
+    * *on_reload*: a script to run when configuration reload is triggered
+    * *on_role_change*: a script to run when the cluster is being promoted or demoted
   * *superuser*
     * *password*: password for postgres user. It would be set during initialization
   * *admin*:

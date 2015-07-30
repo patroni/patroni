@@ -1,6 +1,7 @@
 import logging
 import os
 import psycopg2
+import shlex
 import shutil
 import subprocess
 import sys
@@ -14,6 +15,12 @@ else:
     from urlparse import urlparse
 
 logger = logging.getLogger(__name__)
+
+ACTION_ON_START = "on_start"
+ACTION_ON_STOP = "on_stop"
+ACTION_ON_RESTART = "on_restart"
+ACTION_ON_RELOAD = "on_reload"
+ACTION_ON_ROLE_CHANGE = "on_role_change"
 
 
 def parseurl(url):
@@ -35,14 +42,16 @@ def parseurl(url):
 
 class Postgresql:
 
-    def __init__(self, config, on_change_callback=None):
+    def __init__(self, config):
         self.config = config
         self.name = config['name']
+        self.scope = config['scope']
         self.listen_addresses, self.port = config['listen'].split(':')
         self.data_dir = config['data_dir']
         self.replication = config['replication']
         self.superuser = config['superuser']
         self.admin = config['admin']
+        self.callback = config.get('callbacks', {})
         self.recovery_conf = os.path.join(self.data_dir, 'recovery.conf')
         self.configuration_to_save = (os.path.join(self.data_dir, 'pg_hba.conf'),
                                       os.path.join(self.data_dir, 'postgresql.conf'))
@@ -65,7 +74,6 @@ class Postgresql:
         self._connection = None
         self._cursor_holder = None
         self.members = []  # list of already existing replication slots
-        self.on_change_callback = on_change_callback
 
     def get_local_address(self):
         listen_addresses = self.listen_addresses.split(',')
@@ -230,15 +238,35 @@ class Postgresql:
         return (diff_in_bytes < long(threshold_megabytes) * 1048576) and\
                (diff_in_bytes < long(backup_size) * float(threshold_backup_size_percentage) / 100)
 
-    def is_leader(self):
+    def is_leader(self, check_only=False):
         ret = not self.query('SELECT pg_is_in_recovery()').fetchone()[0]
-        if ret and self.is_promoted:
+        if ret and self.is_promoted and not check_only:
             self.delete_trigger_file()
             self.is_promoted = False
         return ret
 
     def is_running(self):
         return subprocess.call(' '.join(self._pg_ctl) + ' status > /dev/null', shell=True) == 0
+
+    def call_nowait(self, cb_name, is_leader=None):
+        """ pick a callback command and call it without waiting for it to finish """
+        if not self.callback or cb_name not in self.callback:
+            return False
+        cmd = self.callback[cb_name]
+        if is_leader is None:
+            try:
+                is_leader = self.is_leader(check_only=True)
+            except psycopg2.OperationalError as e:
+                logger.warning("unable to perform {0} action, cannot obtain the cluster role: {1}".format(cb_name, e))
+                return False
+        scope = self.scope
+        try:
+            role = "master" if is_leader else "replica"
+            subprocess.Popen(shlex.split(os.path.abspath(cmd))+[cb_name, role, scope])
+        except Exception as e:
+            logger.warning("callback {0} {1} {2} {3} failed: {4}".format(os.path.abspath(cmd), cb_name, role, scope, e))
+            return False
+        return True
 
     def start(self):
         if self.is_running():
@@ -253,18 +281,37 @@ class Postgresql:
         ret = subprocess.call(self._pg_ctl + ['start', '-o', self.server_options()]) == 0
         ret and self.load_replication_slots()
         self.save_configuration_files()
-        if self.on_change_callback:
-            self.on_change_callback('replica' if os.path.exists(self.recovery_conf) else 'master')
+        if ret and ACTION_ON_START in self.callback:
+            self.call_nowait(ACTION_ON_START)
         return ret
 
     def stop(self):
-        return subprocess.call(self._pg_ctl + ['stop', '-m', 'fast']) != 0
+        try:
+            is_leader = self.is_leader(check_only=True)
+        except:
+            is_leader = None
+            pass
+        ret = subprocess.call(self._pg_ctl + ['stop', '-m', 'fast'])
+        if ret == 0 and ACTION_ON_STOP in self.callback:
+            self.call_nowait(ACTION_ON_STOP, is_leader=is_leader)
+        return ret == 0
 
     def reload(self):
-        return subprocess.call(self._pg_ctl + ['reload']) == 0
+        ret = subprocess.call(self._pg_ctl + ['reload'])
+        if ret == 0 and ACTION_ON_RELOAD in self.callback:
+            self.call_nowait(ACTION_ON_RELOAD)
+        return ret == 0
 
     def restart(self):
-        return subprocess.call(self._pg_ctl + ['restart', '-m', 'fast']) == 0
+        try:
+            is_leader = self.is_leader(check_only=True)
+        except:
+            is_leader = None
+            pass
+        ret = subprocess.call(self._pg_ctl + ['restart', '-m', 'fast'])
+        if ret == 0 and ACTION_ON_RESTART in self.callback:
+            self.call_nowait(ACTION_ON_RESTART, is_leader=is_leader)
+        return ret == 0
 
     def server_options(self):
         options = "--listen_addresses='{}' --port={}".format(self.listen_addresses, self.port)
@@ -351,8 +398,8 @@ primary_conninfo = '{}'
         if not self.check_recovery_conf(leader):
             self.write_recovery_conf(leader)
             self.restart()
-            if self.on_change_callback:
-                self.on_change_callback('replica')
+            if ACTION_ON_ROLE_CHANGE in self.callback:
+                self.call_nowait(ACTION_ON_ROLE_CHANGE)
 
     def save_configuration_files(self):
         """
@@ -372,8 +419,8 @@ primary_conninfo = '{}'
 
     def promote(self):
         self.is_promoted = subprocess.call(self._pg_ctl + ['promote']) == 0
-        if self.on_change_callback:
-            self.on_change_callback('master')
+        if self.is_promoted and ACTION_ON_ROLE_CHANGE in self.callback:
+            self.call_nowait(ACTION_ON_ROLE_CHANGE)
         return self.is_promoted
 
     def demote(self, leader):
