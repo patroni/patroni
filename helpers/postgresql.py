@@ -16,6 +16,12 @@ else:
 
 logger = logging.getLogger(__name__)
 
+ACTION_ON_START = "on_start"
+ACTION_ON_STOP = "on_stop"
+ACTION_ON_RESTART = "on_restart"
+ACTION_ON_RELOAD = "on_reload"
+ACTION_ON_ROLE_CHANGE = "on_role_change"
+
 
 def parseurl(url):
     r = urlparse(url)
@@ -253,12 +259,12 @@ class Postgresql:
             except psycopg2.OperationalError as e:
                 logger.warning("unable to perform {0} action, cannot obtain the cluster role: {1}".format(cb_name, e))
                 return False
-        name = self.scope
+        scope = self.scope
         try:
             role = "master" if is_leader else "replica"
-            subprocess.Popen(shlex.split(os.path.abspath(cmd))+[cb_name, role, name])
+            subprocess.Popen(shlex.split(os.path.abspath(cmd))+[cb_name, role, scope])
         except Exception as e:
-            logger.warning("callback {0} {1} {2} {3} failed: {4}".format(os.path.abspath(cmd), cb_name, role, name, e))
+            logger.warning("callback {0} {1} {2} {3} failed: {4}".format(os.path.abspath(cmd), cb_name, role, scope, e))
             return False
         return True
 
@@ -275,8 +281,8 @@ class Postgresql:
         ret = subprocess.call(self._pg_ctl + ['start', '-o', self.server_options()]) == 0
         ret and self.load_replication_slots()
         self.save_configuration_files()
-        if ret and 'on_start' in self.callback:
-            self.call_nowait('on_start')
+        if ret and ACTION_ON_START in self.callback:
+            self.call_nowait(ACTION_ON_START)
         return ret
 
     def stop(self):
@@ -286,14 +292,14 @@ class Postgresql:
             is_leader = None
             pass
         ret = subprocess.call(self._pg_ctl + ['stop', '-m', 'fast'])
-        if ret == 0 and 'on_stop' in self.callback:
-            self.call_nowait('on_stop', is_leader=is_leader)
+        if ret == 0 and ACTION_ON_STOP in self.callback:
+            self.call_nowait(ACTION_ON_STOP, is_leader=is_leader)
         return ret == 0
 
     def reload(self):
         ret = subprocess.call(self._pg_ctl + ['reload'])
-        if ret == 0 and 'on_reload' in self.callback:
-            self.call_nowait('on_reload')
+        if ret == 0 and ACTION_ON_RELOAD in self.callback:
+            self.call_nowait(ACTION_ON_RELOAD)
         return ret == 0
 
     def restart(self):
@@ -303,8 +309,8 @@ class Postgresql:
             is_leader = None
             pass
         ret = subprocess.call(self._pg_ctl + ['restart', '-m', 'fast'])
-        if ret == 0 and 'on_restart' in self.callback:
-            self.call_nowait('on_restart', is_leader=is_leader)
+        if ret == 0 and ACTION_ON_RESTART in self.callback:
+            self.call_nowait(ACTION_ON_RESTART, is_leader=is_leader)
         return ret == 0
 
     def server_options(self):
@@ -392,8 +398,8 @@ primary_conninfo = '{}'
         if not self.check_recovery_conf(leader):
             self.write_recovery_conf(leader)
             self.restart()
-            if 'on_role_change' in self.callback:
-                self.call_nowait('on_role_change')
+            if ACTION_ON_ROLE_CHANGE in self.callback:
+                self.call_nowait(ACTION_ON_ROLE_CHANGE)
 
     def save_configuration_files(self):
         """
@@ -413,8 +419,8 @@ primary_conninfo = '{}'
 
     def promote(self):
         self.is_promoted = subprocess.call(self._pg_ctl + ['promote']) == 0
-        if self.is_promoted and 'on_role_change' in self.callback:
-            self.call_nowait('on_role_change')
+        if self.is_promoted and ACTION_ON_ROLE_CHANGE in self.callback:
+            self.call_nowait(ACTION_ON_ROLE_CHANGE)
         return self.is_promoted
 
     def demote(self, leader):
