@@ -48,7 +48,8 @@ class Restore:
     def create_replica_with_pg_basebackup(self):
         master_connection = self.parse_connstring()
         ret = subprocess.call(['pg_basebackup', '-R', '-D', self.data_dir, '--host=' + master_connection['host'],
-                               '--port=' + str(master_connection['port']), '-U', master_connection['user']], env=self.env)
+                               '--port=' + str(master_connection['port']), '-U', master_connection['user']],
+                              env=self.env)
         self.delete_trigger_file()
         return ret
 

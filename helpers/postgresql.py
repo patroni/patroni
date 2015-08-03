@@ -152,7 +152,8 @@ class Postgresql:
     def create_replica(self, master_connection, env):
         connstring = self.build_connstring(master_connection, master_connection)
         cmd = self.config['restore']
-        ret = subprocess.call(shlex.split(os.path.abspath(cmd))+[self.scope, "replica", self.data_dir, connstring], env=env)
+        ret = subprocess.call(shlex.split(os.path.abspath(cmd))+[self.scope, "replica",
+                              self.data_dir, connstring], env=env)
         return ret
 
     def is_leader(self, check_only=False):
