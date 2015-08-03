@@ -154,6 +154,7 @@ class Postgresql:
         cmd = self.config['restore']
         ret = subprocess.call(shlex.split(os.path.abspath(cmd))+[self.scope, "replica",
                               self.data_dir, connstring], env=env)
+        self.delete_trigger_file()
         return ret
 
     def is_leader(self, check_only=False):

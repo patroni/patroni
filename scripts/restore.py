@@ -1,3 +1,4 @@
+#!/usr/bin/python
 # arguments are:
 #   - cluster scope
 #   - cluster role
@@ -17,7 +18,7 @@ class Restore:
         self.scope = scope
         self.role = role
         self.connstring = connstring
-        self.datadir = datadir
+        self.data_dir = datadir
         self.env = os.environ.copy()
 
     def parse_connstring(self):
@@ -50,7 +51,6 @@ class Restore:
         ret = subprocess.call(['pg_basebackup', '-R', '-D', self.data_dir, '--host=' + master_connection['host'],
                                '--port=' + str(master_connection['port']), '-U', master_connection['user']],
                               env=self.env)
-        self.delete_trigger_file()
         return ret
 
 
