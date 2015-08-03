@@ -122,7 +122,8 @@ class TestPostgresql(unittest.TestCase):
                              'callbacks': {'on_start': '/usr/bin/true', 'on_stop': '/usr/bin/true',
                                            'on_restart': '/usr/bin/true', 'on_role_change': '/bin/true',
                                            'on_reload': '/usr/bin/true'
-                                           }})
+                                           },
+                             'restore': '/usr/bin/true'})
         psycopg2.connect = psycopg2_connect
         if not os.path.exists(self.p.data_dir):
             os.makedirs(self.p.data_dir)
