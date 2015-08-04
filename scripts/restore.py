@@ -194,6 +194,6 @@ class WALERestore(Restore):
 if __name__ == '__main__':
     if len(sys.argv) == 5:
         # scope, role, datadir, connstring
-        restore = Restore(*(sys.argv[1:]))
+        restore = WALERestore(*(sys.argv[1:]))
         sys.exit(restore.run())
     sys.exit("Usage: {0} scope role datadir connstring".format(sys.argv[0]))
