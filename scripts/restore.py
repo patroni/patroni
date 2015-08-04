@@ -3,6 +3,14 @@
 #   - cluster scope
 #   - cluster role
 #   - master connection string
+
+# for the AWS, the folliowing environment variables should be defined:
+# - WALE_ENV_DIR: directory where WAL-E environment is kept
+# - WAL_S3_BUCKET: a name of the S3 bucket for WAL-E
+# - WALE_BACKUP_THRESHOLD_MEGABYTES if WAL amount is above that - use pg_basebackup
+# - WALE_BACKUP_THRESHOLD_PERCENTAGE if WAL size exceeds a certain percentage of the
+#   latest backup size
+from collections import namedtuple
 import logging
 import os
 import psycopg2
@@ -17,16 +25,17 @@ class Restore:
     def __init__(self, scope, role, datadir, connstring):
         self.scope = scope
         self.role = role
-        self.connstring = connstring
+        self.master_connection = Restore.parse_connstring(connstring)
         self.data_dir = datadir
         self.env = os.environ.copy()
 
-    def parse_connstring(self):
+    @staticmethod
+    def parse_connstring(self, connstring):
         # the connection string is in the form host= port= user=
         # return the dictionary with all components as separare keys
         result = {}
-        if self.connstring:
-            for x in self.connstring.split():
+        if connstring:
+            for x in connstring.split():
                 if x and '=' in x:
                     key, val = x.split('=')
                 result[key.strip()] = val.strip()
@@ -47,9 +56,10 @@ class Restore:
         return ret
 
     def create_replica_with_pg_basebackup(self):
-        master_connection = self.parse_connstring()
-        ret = subprocess.call(['pg_basebackup', '-R', '-D', self.data_dir, '--host=' + master_connection['host'],
-                               '--port=' + str(master_connection['port']), '-U', master_connection['user']],
+        ret = subprocess.call(['pg_basebackup', '-R', '-D',
+                               self.data_dir, '--host=' + self.master_connection['host'],
+                               '--port=' + str(self.master_connection['port']),
+                               '-U', self.master_connection['user']],
                               env=self.env)
         return ret
 
@@ -58,25 +68,60 @@ class WALERestore(Restore):
 
     def __init__(self, scope, role, datadir, connstring):
         super(WALERestore, self).__init__(scope, role, datadir, connstring)
+        # check the environment variables
+        self.init_error = False
+        if (self.env.get('WAL_S3_BUCKET') and
+            self.env.get('WALE_BACKUP_THRESHOLD_PERCENTAGE') and
+           self.env.get('WALE_BACKUP_THRESHOLD_MEGABYTES')) is None:
+                self.init_error = True
+        else:
+            self.wal_e = namedtuple('WALE', 'threshold_megabytes', 'threshold_backup_size_percentage',
+                                    's3_bucket', 'cmd', 'dir', 'env_file')
+
+            self.wal_e.dir = self.env.get('WALE_ENV_DIR', '/home/postgres/etc/wal-e.d/env')
+            self.wal_e.env_file = os.path.join(self.wal_e.dir, 'WALE_S3_PREFIX')
+
+            self.wal_e.cmd = 'envdir {} wal-e --aws-instance-profile '.\
+                format(self.wal_e.dir)
+            self.wal_e.s3_bucket = self.env['WAL_S3_BUCKET']
+            self.wal_e.threshold_megabytes = self.env['WALE_BACKUP_THRESHOLD_MEGABYTES']
+            self.wal_e.threshold_backup_size_percentage = self.env['WALE_BACKUP_THRESHOLD_PERCENTAGE']
+
+            # check that the env file exists, create it otherwise
+            try:
+                if not os.path.exists(self.wal_e.dir):
+                    os.makedirs(self.wal_e.dir)
+                # if this is a directory - make sure we have full access there
+                elif not (os.path.isdir(self.wal_e.dir) and os.access(self.wal_e.dir, os.R_OK | os.W_OK | os.X_OK)):
+                    logger.error("Unable to access {} or not a directory".format(self.wal_e.dir))
+                    self.init_error = True
+                # if WAL_S3_PREFIX is not there - create it and write the full path to bucket
+                if not self.init_error and not os.path.exists(self.wal_e.env_file):
+                    with open(self.wal_e.env_file, 'w') as f:
+                        f.write("s3://{0}/spilo/{1}/wal/\n".format(self.wal_e.s3_bucket, self.scope))
+
+            except (os.error, IOError) as e:
+                logger.error("{0}: WAL-e archiving is disabled".format(e))
+                self.init_error = True
 
     def replica_method(self):
         if self.should_use_s3_to_create_replica(self):
             return self.create_replica_with_s3
-        return self.create_replica_with_pg_basebackup
+        return 1
 
     def replica_fallback_method(self):
         return self.create_replica_with_pg_basebackup
 
-    def should_use_s3_to_create_replica(self, master_connection):
+    def should_use_s3_to_create_replica(self):
         """ determine whether it makes sense to use S3 and not pg_basebackup """
-        if not self.wal_e or not self.wal_e_paselfth:
+        if self.init_error:
             return False
 
-        threshold_megabytes = self.wal_e.get('threshold_megabytes', 10240)
-        threshold_backup_size_percentage = self.wal_e.get('threshold_backup_size_percentage', 30)
+        threshold_megabytes = self.wal_e.threshold_megabytes
+        threshold_backup_size_percentage = self.wal_e.threshold_backup_size_percentage
 
         try:
-            latest_backup = subprocess.check_output(self.wal_e_path.split() + ['backup-list', '--detail', 'LATEST'])
+            latest_backup = subprocess.check_output(self.wal_e.cmd.split() + ['backup-list', '--detail', 'LATEST'], env=self.env)
             # name    last_modified   expanded_size_bytes wal_segment_backup_start    wal_segment_offset_backup_start
             #                                                   wal_segment_backup_stop wal_segment_offset_backup_stop
             # base_00000001000000000000007F_00000040  2015-05-18T10:13:25.000Z
@@ -120,7 +165,7 @@ class WALERestore(Restore):
         diff_in_bytes = long(backup_size)
         try:
             # get the difference in bytes between the current WAL location and the backup start offset
-            conn = psycopg2.connect(**master_connection)
+            conn = psycopg2.connect(**(self.master_connection))
             conn.autocommit = True
             cursor = conn.cursor()
             cursor.execute("SELECT pg_xlog_location_diff(pg_current_xlog_location(), %s)", (backup_start_lsn,))
@@ -138,10 +183,10 @@ class WALERestore(Restore):
                (diff_in_bytes < long(backup_size) * float(threshold_backup_size_percentage) / 100)
 
     def create_replica_with_s3(self):
-        if not self.wal_e or not self.wal_e_path:
+        if self.init_error:
             return 1
 
-        ret = subprocess.call(self.wal_e_path + ' backup-fetch {} LATEST'.format(self.data_dir), shell=True)
+        ret = subprocess.call(self.wal_e.cmd + ' backup-fetch {} LATEST'.format(self.data_dir), env=self.env)
         self.restore_configuration_files()
         return ret
 
