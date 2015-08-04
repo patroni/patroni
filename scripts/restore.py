@@ -30,7 +30,7 @@ class Restore:
         self.env = os.environ.copy()
 
     @staticmethod
-    def parse_connstring(self, connstring):
+    def parse_connstring(connstring):
         # the connection string is in the form host= port= user=
         # return the dictionary with all components as separare keys
         result = {}
