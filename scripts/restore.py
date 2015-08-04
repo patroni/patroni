@@ -75,8 +75,8 @@ class WALERestore(Restore):
            self.env.get('WALE_BACKUP_THRESHOLD_MEGABYTES')) is None:
                 self.init_error = True
         else:
-            self.wal_e = namedtuple('WALE', 'threshold_megabytes', 'threshold_backup_size_percentage',
-                                    's3_bucket', 'cmd', 'dir', 'env_file')
+            self.wal_e = namedtuple('WALE',
+                                    'threshold_megabytes threshold_backup_size_percentage s3_bucket cmd dir env_file')
 
             self.wal_e.dir = self.env.get('WALE_ENV_DIR', '/home/postgres/etc/wal-e.d/env')
             self.wal_e.env_file = os.path.join(self.wal_e.dir, 'WALE_S3_PREFIX')
