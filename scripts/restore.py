@@ -20,7 +20,7 @@ import sys
 logger = logging.getLogger(__name__)
 
 
-class Restore:
+class Restore(object):
 
     def __init__(self, scope, role, datadir, connstring):
         self.scope = scope
