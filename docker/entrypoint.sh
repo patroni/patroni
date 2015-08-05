@@ -35,6 +35,9 @@ while getopts "$optspec" optchar; do
                         -listen-peer-urls=http://0.0.0.0:2380 
                     exit 0
                     ;;
+                cheat)
+                    CHEAT=1
+                    ;;
                 name)
                     PATRONI_SCOPE="${!OPTIND}"; OPTIND=$(( $OPTIND + 1 ))
                     ;;
@@ -69,7 +72,10 @@ done
 
 if [ -z ${ETCD_CLUSTER} ]
 then
-    etcd --data-dir /tmp/etcd.data > /var/log/etcd.log 2> /var/log/etcd.err &
+    etcd --data-dir /tmp/etcd.data \
+        -advertise-client-urls=http://${DOCKER_IP}:4001 \
+        -listen-client-urls=http://0.0.0.0:4001 \
+        -listen-peer-urls=http://0.0.0.0:2380 > /var/log/etcd.log 2> /var/log/etcd.err &
     ETCD_CLUSTER="127.0.0.1:4001"
 fi
 
@@ -119,4 +125,12 @@ __EOF__
 
 cat /patroni/postgres.yml
 
-exec /patroni/patroni.py /patroni/postgres.yml
+if [ ! -z $CHEAT ]
+then
+    while :
+    do
+        sleep 60
+    done
+else
+    exec /patroni/patroni.py /patroni/postgres.yml
+fi
