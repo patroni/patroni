@@ -17,17 +17,21 @@ import psycopg2
 import subprocess
 import sys
 
+
+if sys.hexversion >= 0x03000000:
+    long = int
+
 logger = logging.getLogger(__name__)
 
 
 class Restore(object):
 
-    def __init__(self, scope, role, datadir, connstring):
+    def __init__(self, scope, role, datadir, connstring, env=None):
         self.scope = scope
         self.role = role
         self.master_connection = Restore.parse_connstring(connstring)
         self.data_dir = datadir
-        self.env = os.environ.copy()
+        self.env = os.environ.copy() if not env else env
 
     @staticmethod
     def parse_connstring(connstring):
@@ -41,6 +45,9 @@ class Restore(object):
                 result[key.strip()] = val.strip()
         return result
 
+    def setup(self):
+        pass
+
     def replica_method(self):
         return self.create_replica_with_pg_basebackup
 
@@ -50,26 +57,31 @@ class Restore(object):
     def run(self):
         """ creates a new replica using either pg_basebackup or WAL-E """
         method_fn = self.replica_method()
-        ret = method_fn()
+        ret = method_fn() if method_fn else 1
         if ret != 0 and self.replica_fallback_method() is not None:
             ret = (self.replica_fallback_method())()
         return ret
 
     def create_replica_with_pg_basebackup(self):
-        ret = subprocess.call(['pg_basebackup', '-R', '-D',
-                               self.data_dir, '--host=' + self.master_connection['host'],
-                               '--port=' + str(self.master_connection['port']),
-                               '-U', self.master_connection['user']],
-                              env=self.env)
+        try:
+            ret = subprocess.call(['pg_basebackup', '-R', '-D',
+                                   self.data_dir, '--host=' + self.master_connection['host'],
+                                   '--port=' + str(self.master_connection['port']),
+                                   '-U', self.master_connection['user']],
+                                  env=self.env)
+        except Exception as e:
+            logger.error('Error when fetching backup with pg_basebackup: {0}'.format(e))
+            return 1
         return ret
-
 
 class WALERestore(Restore):
 
-    def __init__(self, scope, role, datadir, connstring):
-        super(WALERestore, self).__init__(scope, role, datadir, connstring)
+    def __init__(self, scope, role, datadir, connstring, env=None):
+        super(WALERestore, self).__init__(scope, role, datadir, connstring, env)
         # check the environment variables
         self.init_error = False
+
+    def setup(self):
         if (self.env.get('WAL_S3_BUCKET') and
             self.env.get('WALE_BACKUP_THRESHOLD_PERCENTAGE') and
            self.env.get('WALE_BACKUP_THRESHOLD_MEGABYTES')) is None:
@@ -105,9 +117,9 @@ class WALERestore(Restore):
                 self.init_error = True
 
     def replica_method(self):
-        if self.should_use_s3_to_create_replica(self):
+        if self.should_use_s3_to_create_replica():
             return self.create_replica_with_s3
-        return 1
+        return None
 
     def replica_fallback_method(self):
         return self.create_replica_with_pg_basebackup
@@ -185,9 +197,11 @@ class WALERestore(Restore):
     def create_replica_with_s3(self):
         if self.init_error:
             return 1
-
-        ret = subprocess.call(self.wal_e.cmd + ' backup-fetch {} LATEST'.format(self.data_dir), env=self.env)
-        self.restore_configuration_files()
+        try:
+            ret = subprocess.call(self.wal_e.cmd + ' backup-fetch {} LATEST'.format(self.data_dir), env=self.env)
+        except Exception as e:
+            logger.error('Error when fetching backup with WAL-E: {0}'.format(e))
+            return 1
         return ret
 
 
@@ -195,5 +209,6 @@ if __name__ == '__main__':
     if len(sys.argv) == 5:
         # scope, role, datadir, connstring
         restore = WALERestore(*(sys.argv[1:]))
+        restore.setup()
         sys.exit(restore.run())
     sys.exit("Usage: {0} scope role datadir connstring".format(sys.argv[0]))

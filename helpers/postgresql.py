@@ -61,10 +61,6 @@ class Postgresql:
         self.is_promoted = False
 
         self._pg_ctl = ['pg_ctl', '-w', '-D', self.data_dir]
-        self.wal_e = config.get('wal_e', None)
-        if self.wal_e:
-            self.wal_e_path = 'envdir {} wal-e --aws-instance-profile '.\
-                format(self.wal_e.get('env_dir', '/home/postgres/etc/wal-e.d/env'))
 
         self.local_address = self.get_local_address()
         connect_address = config.get('connect_address', None) or self.local_address
@@ -152,9 +148,13 @@ class Postgresql:
     def create_replica(self, master_connection, env):
         connstring = self.build_connstring(master_connection, master_connection)
         cmd = self.config['restore']
-        ret = subprocess.call(shlex.split(os.path.abspath(cmd))+[self.scope, "replica",
-                              self.data_dir, connstring], env=env)
-        self.delete_trigger_file()
+        try:
+            ret = subprocess.call(shlex.split(os.path.abspath(cmd))+[self.scope, "replica",
+                                  self.data_dir, connstring], env=env)
+            self.delete_trigger_file()
+        except Exception as e:
+            logger.error("Error when creating replica: {0}".format(e))
+            return 1
         return ret
 
     def is_leader(self, check_only=False):

@@ -1,6 +1,8 @@
 boto
 dnspython
+mock
 psycopg2
 PyYAML
 requests
+six >= 1.7
 kazoo>=2.2.1
