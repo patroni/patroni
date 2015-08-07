@@ -50,7 +50,6 @@ class TestRestore(unittest.TestCase):
         self.assertEqual(ret, 1)
 
 
-
 @patch('os.access', MagicMock(return_value=True))
 @patch('os.makedirs', MagicMock(return_value=True))
 @patch('os.path.exists', MagicMock(return_value=True))
@@ -76,7 +75,6 @@ class TestWALERestore(unittest.TestCase):
         self.wale_restore.setup()
         self.assertFalse(self.wale_restore.init_error)
 
-
     # have to redefine the class-level os.access mock inside the function
     # since the class-level mock will be applied after the function level one.
     @patch('os.access', return_value=False)
@@ -84,7 +82,6 @@ class TestWALERestore(unittest.TestCase):
         os.access = mock_no_access
         self.wale_restore.setup()
         self.assertTrue(self.wale_restore.init_error)
-
 
     # The 3 tests above only differ with the mock function instead of a subprocess call
     # in the first one, subprocess call should return success only for wal-e command,

@@ -74,6 +74,7 @@ class Restore(object):
             return 1
         return ret
 
+
 class WALERestore(Restore):
 
     def __init__(self, scope, role, datadir, connstring, env=None):
@@ -133,7 +134,8 @@ class WALERestore(Restore):
         threshold_backup_size_percentage = self.wal_e.threshold_backup_size_percentage
 
         try:
-            latest_backup = subprocess.check_output(self.wal_e.cmd.split() + ['backup-list', '--detail', 'LATEST'], env=self.env)
+            latest_backup = subprocess.check_output(self.wal_e.cmd.split() + ['backup-list', '--detail', 'LATEST'],
+                                                    env=self.env)
             # name    last_modified   expanded_size_bytes wal_segment_backup_start    wal_segment_offset_backup_start
             #                                                   wal_segment_backup_stop wal_segment_offset_backup_stop
             # base_00000001000000000000007F_00000040  2015-05-18T10:13:25.000Z
