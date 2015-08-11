@@ -1,13 +1,8 @@
 import abc
-import sys
 
 from collections import namedtuple
 from helpers.utils import calculate_ttl, sleep
-
-if sys.hexversion >= 0x03000000:
-    from urllib.parse import urlparse, urlunparse, parse_qsl
-else:
-    from urlparse import urlparse, urlunparse, parse_qsl
+from six.moves.urllib_parse import urlparse, urlunparse, parse_qsl
 
 
 def parse_connection_string(value):

@@ -4,11 +4,7 @@ import unittest
 
 from helpers.api import RestApiHandler, RestApiServer
 from test_postgresql import psycopg2_connect
-
-if sys.hexversion >= 0x03000000:
-    from io import BytesIO as IO
-else:
-    from StringIO import StringIO as IO
+from six import BytesIO as IO
 
 
 def throws(*args, **kwargs):
