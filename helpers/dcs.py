@@ -132,7 +132,8 @@ class AbstractDCS:
     @abc.abstractmethod
     def take_leader(self):
         """This method should create leader key with value = `~self._name` and ttl=`~self.ttl`
-        Since it could be called only on initial cluster bootstrap it could create this key not atomically."""
+        Since it could be called only on initial cluster bootstrap it could create this key regardless,
+        overwriting the key if necessary."""
 
     @abc.abstractmethod
     def race(self, path):
