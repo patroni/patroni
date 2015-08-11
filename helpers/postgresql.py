@@ -140,11 +140,11 @@ class Postgresql:
         return self.create_replica(r, env) == 0
 
     @staticmethod
-    def build_connstring(self, conn):
+    def build_connstring(conn):
         return "host={host} port={port} user={user}".format(**conn)
 
     def create_replica(self, master_connection, env):
-        connstring = self.build_connstring(master_connection, master_connection)
+        connstring = self.build_connstring(master_connection)
         cmd = self.config['restore']
         try:
             ret = subprocess.call(shlex.split(os.path.abspath(cmd))+[self.scope, "replica",
