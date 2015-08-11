@@ -60,6 +60,10 @@ def dead_etcd():
     raise DCSError('Etcd is not responding properly')
 
 
+def get_unlocked_cluster():
+    return Cluster(False, None, None, [])
+
+
 class TestHa(unittest.TestCase):
 
     def __init__(self, method_name='runTest'):
@@ -74,8 +78,14 @@ class TestHa(unittest.TestCase):
         self.e = Etcd('foo', {'ttl': 30, 'host': 'remotehost:2379', 'scope': 'test'})
         self.ha = Ha(self.p, self.e)
         self.ha.load_cluster_from_dcs()
-        self.ha.cluster = Cluster(False, None, None, [])
+        self.ha.cluster = get_unlocked_cluster()
         self.ha.load_cluster_from_dcs = nop
+
+    def test_load_cluster_from_dcs(self):
+        ha = Ha(self.p, self.e)
+        ha.load_cluster_from_dcs()
+        self.e.get_cluster = get_unlocked_cluster
+        ha.load_cluster_from_dcs()
 
     def test_start_as_slave(self):
         self.p.is_healthy = false

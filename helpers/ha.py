@@ -12,9 +12,17 @@ class Ha:
         self.state_handler = state_handler
         self.dcs = etcd
         self.cluster = None
+        self.old_cluster = None
 
     def load_cluster_from_dcs(self):
-        self.cluster = self.dcs.get_cluster()
+        cluster = self.dcs.get_cluster()
+
+        # We want to keep the state of cluster when it was healhy
+        if cluster.is_unlocked() and self.cluster and not self.cluster.is_unlocked():
+            self.old_cluster = self.cluster
+        if not self.old_cluster:
+            self.old_cluster = cluster
+        self.cluster = cluster
 
     def acquire_lock(self):
         return self.dcs.attempt_to_acquire_leader()
@@ -46,7 +54,7 @@ class Ha:
                 self.load_cluster_from_dcs()
 
             if self.cluster.is_unlocked():
-                if self.state_handler.is_healthiest_node(self.cluster):
+                if self.state_handler.is_healthiest_node(self.old_cluster):
                     if self.acquire_lock():
                         if self.state_handler.is_leader() or self.state_handler.is_promoted:
                             return 'acquired session lock as a leader'

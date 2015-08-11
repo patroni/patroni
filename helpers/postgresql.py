@@ -4,15 +4,13 @@ import psycopg2
 import shlex
 import shutil
 import subprocess
-import sys
+import six
 
 from helpers.utils import sleep
+from six.moves.urllib_parse import urlparse
 
-if sys.hexversion >= 0x03000000:
-    from urllib.parse import urlparse
+if six.PY3:
     long = int
-else:
-    from urlparse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -266,7 +264,10 @@ class Postgresql:
                 member_cursor.close()
                 member_conn.close()
                 logger.error([self.name, member.name, row])
-                if not row[0] or row[1] < 0:
+                if not row[0]:
+                    logger.warning('Master (%s) is still alive', member.name)
+                    return False
+                if row[1] < 0:
                     return False
             except psycopg2.Error:
                 continue
