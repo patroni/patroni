@@ -110,15 +110,19 @@ class TestPostgresql(unittest.TestCase):
     def set_up(self):
         subprocess.call = subprocess_call
         shutil.copy = nop
-        self.p = Postgresql({'name': 'test0', 'data_dir': 'data/test0', 'listen': '127.0.0.1, *:5432',
-                             'connect_address': '127.0.0.2:5432',
+        self.p = Postgresql({'name': 'test0', 'scope': 'batman', 'data_dir': 'data/test0',
+                             'listen': '127.0.0.1, *:5432', 'connect_address': '127.0.0.2:5432',
                              'pg_hba': ['hostssl all all 0.0.0.0/0 md5', 'host all all 0.0.0.0/0 md5'],
-                             'superuser': {'password': ''}, 'admin': {'username': 'admin', 'password': 'admin'},
+                             'superuser': {'password': ''},
+                             'admin': {'username': 'admin', 'password': 'admin'},
                              'replication': {'username': 'replicator',
                                              'password': 'rep-pass',
                                              'network': '127.0.0.1/32'},
-                             'parameters': {'foo': 'bar'}, 'recovery_conf': {'foo': 'bar'}},
-                            on_change_callback=lambda state: True)
+                             'parameters': {'foo': 'bar'}, 'recovery_conf': {'foo': 'bar'},
+                             'callbacks': {'on_start': '/usr/bin/true', 'on_stop': '/usr/bin/true',
+                                           'on_restart': '/usr/bin/true', 'on_role_change': '/bin/true',
+                                           'on_reload': '/usr/bin/true'
+                                           }})
         psycopg2.connect = psycopg2_connect
         if not os.path.exists(self.p.data_dir):
             os.makedirs(self.p.data_dir)
@@ -129,6 +133,9 @@ class TestPostgresql(unittest.TestCase):
     def tear_down(self):
         shutil.rmtree('data')
 
+    def mock_query(self, p):
+        raise psycopg2.OperationalError("not supported")
+
     def test_data_directory_empty(self):
         self.assertTrue(self.p.data_directory_empty())
 
@@ -136,12 +143,13 @@ class TestPostgresql(unittest.TestCase):
         self.assertTrue(self.p.initialize())
         self.assertTrue(os.path.exists(os.path.join(self.p.data_dir, 'pg_hba.conf')))
 
-    def test_start(self):
+    def test_start_stop(self):
         self.assertFalse(self.p.start())
         self.p.is_running = is_running
         with open(os.path.join(self.p.data_dir, 'postmaster.pid'), 'w'):
             pass
         self.assertTrue(self.p.start())
+        self.assertTrue(self.p.stop())
 
     def test_sync_from_leader(self):
         self.assertTrue(self.p.sync_from_leader(self.leader))
@@ -202,3 +210,11 @@ class TestPostgresql(unittest.TestCase):
 
     def test_last_operation(self):
         self.assertEquals(self.p.last_operation(), '0')
+
+    def test_non_existing_callback(self):
+        self.assertFalse(self.p.call_nowait('foobar'))
+
+    def test_is_leader_exception(self):
+        self.p.start()
+        self.p.query = self.mock_query
+        self.assertTrue(self.p.stop())

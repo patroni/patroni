@@ -6,7 +6,6 @@ import time
 import yaml
 
 from helpers.api import RestApiServer
-from helpers.aws import AWSConnection
 from helpers.etcd import Etcd
 from helpers.ha import Ha
 from helpers.postgresql import Postgresql
@@ -18,7 +17,6 @@ class Patroni:
 
     def __init__(self, config):
         self.nap_time = config['loop_wait']
-        self.aws = AWSConnection(config)
         self.postgresql = Postgresql(config['postgresql'])
         self.ha = Ha(self.postgresql, self.get_dcs(self.postgresql.name, config))
         host, port = config['restapi']['listen'].split(':')
