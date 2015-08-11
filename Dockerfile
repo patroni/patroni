@@ -1,4 +1,4 @@
-## This Dockerfile is meant to aid in the building and debugging governor whilst developing on your local machine
+## This Dockerfile is meant to aid in the building and debugging patroni whilst developing on your local machine
 ## It has all the necessary components to play/debug with a single node appliance, running etcd
 FROM ubuntu:14.04
 MAINTAINER Feike Steenbergen <feike.steenbergen@zalando.de>
@@ -13,22 +13,23 @@ RUN apt-get update -y
 RUN apt-get upgrade -y
 
 ENV PGVERSION 9.4
-RUN apt-get install python python-psycopg2 python-yaml python-requests python-boto postgresql-${PGVERSION} python-dnspython -y
+RUN apt-get install python python-psycopg2 python-yaml python-requests python-boto postgresql-${PGVERSION} python-dnspython python-kazoo -y
 
 ENV PATH /usr/lib/postgresql/${PGVERSION}/bin:$PATH
 
-RUN mkdir -p /governor/helpers
-ADD governor.py /governor/governor.py
-ADD helpers /governor/helpers
-ADD postgres0.yml /governor/
+RUN mkdir -p /patroni/helpers
+ADD patroni.py /patroni/patroni.py
+ADD helpers /patroni/helpers
 
-ENV ETCDVERSION 2.0.12
+ENV ETCDVERSION 2.0.13
 RUN curl -L https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v${ETCDVERSION}-linux-amd64.tar.gz | tar xz -C /bin --strip=1 --wildcards --no-anchored etcd etcdctl
 
 ## Setting up a simple script that will serve as an entrypoint
-RUN mkdir /data/ && touch /var/log/etcd.log /var/log/etcd.err && chown postgres:postgres /var/log/etcd.*
-RUN chown postgres:postgres -R /governor/ /data/
-RUN /bin/echo -e "etcd --data-dir /tmp/etcd.data > /var/log/etcd.log 2> /var/log/etcd.err &\n/governor/governor.py /governor/postgres0.yml \"\$@\"" >> /entrypoint.sh && chmod +x /entrypoint.sh
+RUN mkdir /data/ && touch /var/log/etcd.log /var/log/etcd.err /pgpass /patroni/postgres.yml
+RUN chown postgres:postgres -R /patroni/ /data/ /pgpass /var/log/etcd.* /patroni/postgres.yml
+ADD docker/entrypoint.sh /entrypoint.sh
 
-ENTRYPOINT /entrypoint.sh
+EXPOSE 4001 5432 2380
+
+ENTRYPOINT ["/bin/bash", "/entrypoint.sh"]
 USER postgres
