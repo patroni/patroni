@@ -90,12 +90,12 @@ class AbstractDCS:
         """Update leader key (or session) ttl and `/optime/leader` key in DCS.
 
         :param state_handler: reference to `Postgresql` object
-        :returns: `!True` if leader lock (or session) has been updated successfully.
+        :returns: `!True` if leader key (or session) has been updated successfully.
             If not, `!False` must be returned and current instance would be demoted.
 
         If you failed to update `/optime/leader` this error is not critical and you can return `!True`
-        You have to use CAS operation on order to update leader key, for example for etcd `prevValue`
-        parameter have to be used."""
+        You have to use CAS (Compare And Swap) operation in order to update leader key,
+        for example for etcd `prevValue` parameter must be used."""
 
     @abc.abstractmethod
     def attempt_to_acquire_leader(self):
@@ -103,7 +103,7 @@ class AbstractDCS:
         This method should create `/leader` key with value=`~self._name`
         :returns: `!True` if key has been created successfully.
 
-        Key has to be created atomically. In case if key already exists it should not be
+        Key must be created atomically. In case if key already exists it should not be
         overwritten and `!False` must be returned"""
 
     def current_leader(self):
