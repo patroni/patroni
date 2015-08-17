@@ -145,13 +145,12 @@ class Postgresql:
 
     def create_replica(self, master_connection, env):
         connstring = self.build_connstring(master_connection)
-        cmd = self.config['restore']
+        cmd = os.path.abspath(self.config['restore'])
         try:
-            ret = subprocess.call(shlex.split(os.path.abspath(cmd))+[self.scope, "replica",
-                                  self.data_dir, connstring], env=env)
+            ret = subprocess.call(shlex.split(cmd) + [self.scope, "replica", self.data_dir, connstring], env=env)
             self.delete_trigger_file()
-        except Exception as e:
-            logger.error("Error when creating replica: {0}".format(e))
+        except:
+            logger.exception('Error when creating replica')
             return 1
         return ret
 
@@ -169,19 +168,18 @@ class Postgresql:
         """ pick a callback command and call it without waiting for it to finish """
         if not self.callback or cb_name not in self.callback:
             return False
-        cmd = self.callback[cb_name]
+        cmd = os.path.abspath(self.callback[cb_name])
         if is_leader is None:
             try:
                 is_leader = self.is_leader(check_only=True)
             except psycopg2.OperationalError as e:
                 logger.warning("unable to perform {0} action, cannot obtain the cluster role: {1}".format(cb_name, e))
                 return False
-        scope = self.scope
         try:
             role = "master" if is_leader else "replica"
-            subprocess.Popen(shlex.split(os.path.abspath(cmd))+[cb_name, role, scope])
-        except Exception as e:
-            logger.warning("callback {0} {1} {2} {3} failed: {4}".format(os.path.abspath(cmd), cb_name, role, scope, e))
+            subprocess.Popen(shlex.split(cmd) + [cb_name, role, self.scope])
+        except:
+            logger.exception('callback %s %s %s %s failed', cmd, cb_name, role, self.scope)
             return False
         return True
 
@@ -334,8 +332,8 @@ primary_conninfo = '{}'
         try:
             for f in self.configuration_to_save:
                 shutil.copy(f + '.backup', f)
-        except Exception as e:
-            logger.error("unable to restore configuration from WAL-E backup: {}".format(e))
+        except:
+            logger.exception('unable to restore configuration from WAL-E backup')
 
     def promote(self):
         self.is_promoted = subprocess.call(self._pg_ctl + ['promote']) == 0
