@@ -12,6 +12,8 @@ from helpers.postgresql import Postgresql
 from helpers.utils import setup_signal_handlers, sleep
 from helpers.zookeeper import ZooKeeper
 
+logger = logging.getLogger(__name__)
+
 
 class Patroni:
 
@@ -44,7 +46,7 @@ class Patroni:
     def initialize(self):
         # wait for etcd to be available
         while not self.touch_member():
-            logging.info('waiting on DCS')
+            logger.info('waiting on DCS')
             sleep(5)
 
         # is data directory empty?
@@ -82,14 +84,14 @@ class Patroni:
 
         while True:
             self.touch_member()
-            logging.info(self.ha.run_cycle())
+            logger.info(self.ha.run_cycle())
             try:
                 if self.ha.state_handler.is_leader():
                     self.ha.cluster and self.ha.state_handler.create_replication_slots(self.ha.cluster)
                 else:
                     self.ha.state_handler.drop_replication_slots()
             except:
-                logging.exception('Exception when changing replication slots')
+                logger.exception('Exception when changing replication slots')
             self.schedule_next_run()
 
 

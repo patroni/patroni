@@ -6,3 +6,4 @@ PyYAML
 requests
 six
 kazoo>=2.2.1
+python-etcd>=0.4.1
