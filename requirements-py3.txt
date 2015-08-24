@@ -1,4 +1,5 @@
 boto
+mock
 dnspython3
 psycopg2
 PyYAML
