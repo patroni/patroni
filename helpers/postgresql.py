@@ -145,7 +145,7 @@ class Postgresql:
 
     def create_replica(self, master_connection, env):
         connstring = self.build_connstring(master_connection)
-        cmd = os.path.abspath(self.config['restore'])
+        cmd = self.config['restore']
         try:
             ret = subprocess.call(shlex.split(cmd) + [self.scope, "replica", self.data_dir, connstring], env=env)
             self.delete_trigger_file()
@@ -168,7 +168,7 @@ class Postgresql:
         """ pick a callback command and call it without waiting for it to finish """
         if not self.callback or cb_name not in self.callback:
             return False
-        cmd = os.path.abspath(self.callback[cb_name])
+        cmd = self.callback[cb_name]
         if is_leader is None:
             try:
                 is_leader = self.is_leader(check_only=True)

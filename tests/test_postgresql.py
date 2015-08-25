@@ -115,9 +115,9 @@ class TestPostgresql(unittest.TestCase):
                                              'password': 'rep-pass',
                                              'network': '127.0.0.1/32'},
                              'parameters': {'foo': 'bar'}, 'recovery_conf': {'foo': 'bar'},
-                             'callbacks': {'on_start': '/usr/bin/true', 'on_stop': '/usr/bin/true',
-                                           'on_restart': '/usr/bin/true', 'on_role_change': '/bin/true',
-                                           'on_reload': '/usr/bin/true'
+                             'callbacks': {'on_start': 'true', 'on_stop': 'true',
+                                           'on_restart': 'true', 'on_role_change': 'true',
+                                           'on_reload': 'true'
                                            },
                              'restore': '/usr/bin/true'})
         psycopg2.connect = psycopg2_connect
