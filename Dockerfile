@@ -18,8 +18,10 @@ RUN apt-get install python python-psycopg2 python-yaml python-requests python-bo
 ENV PATH /usr/lib/postgresql/${PGVERSION}/bin:$PATH
 
 RUN mkdir -p /patroni/helpers
+RUN mkdir -p /patroni/scripts
 ADD patroni.py /patroni/patroni.py
 ADD helpers /patroni/helpers
+ADD scripts /patroni/scripts
 
 ENV ETCDVERSION 2.0.13
 RUN curl -L https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v${ETCDVERSION}-linux-amd64.tar.gz | tar xz -C /bin --strip=1 --wildcards --no-anchored etcd etcdctl

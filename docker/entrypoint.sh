@@ -108,6 +108,7 @@ postgresql:
     network:  127.0.0.1/32
   superuser:
     password: zalando
+  restore: patroni/scripts/restore.py
   admin:
     username: admin
     password: admin
@@ -115,7 +116,7 @@ postgresql:
     archive_mode: "on"
     wal_level: hot_standby
     archive_command: mkdir -p ../wal_archive && cp %p ../wal_archive/%f
-    max_wal_senders: 20 
+    max_wal_senders: 20
     listen_addresses: 0.0.0.0
     wal_keep_segments: 8
     archive_timeout: 1800s

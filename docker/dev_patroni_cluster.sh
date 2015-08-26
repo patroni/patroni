@@ -69,7 +69,7 @@ done
 
 function random_name()
 {
-    cat /dev/urandom | env LC_CTYPE=C tr -dc 'a-zA-Z0-9' | head -c 8
+    cat /dev/urandom | LC_ALL=C tr -dc 'a-zA-Z0-9' | head -c 8
 }
 
 if [ -z ${PATRONI_SCOPE} ]
@@ -77,14 +77,14 @@ then
     PATRONI_SCOPE=$(random_name)
 fi
 
-etcd_container=$(docker run -d --name="${PATRONI_SCOPE}_etcd" "${DOCKER_IMAGE}" --etcd-only)
+etcd_container=$(docker run -P -d --name="${PATRONI_SCOPE}_etcd" "${DOCKER_IMAGE}" --etcd-only)
 etcd_container_ip=$(docker inspect --format '{{ .NetworkSettings.IPAddress }}' ${etcd_container})
 echo "The etcd container is ${etcd_container}, ip=${etcd_container_ip}"
 
 for i in $(seq 1 "${MEMBERS}")
 do
     container_name=$(random_name)
-    patroni_container=$(docker run -d --name="${PATRONI_SCOPE}_${container_name}" "${DOCKER_IMAGE}" --etcd="${etcd_container_ip}:4001" --name="${PATRONI_SCOPE}")
+    patroni_container=$(docker run -P -d --name="${PATRONI_SCOPE}_${container_name}" "${DOCKER_IMAGE}" --etcd="${etcd_container_ip}:4001" --name="${PATRONI_SCOPE}")
     patroni_container_ip=$(docker inspect --format '{{ .NetworkSettings.IPAddress }}' ${patroni_container})
     echo "Started Patroni container ${patroni_container}, ip=${patroni_container_ip}"
 done
