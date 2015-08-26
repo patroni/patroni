@@ -1,3 +1,4 @@
+import fcntl
 import json
 import logging
 import psycopg2
@@ -55,6 +56,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         host, port = config['listen'].split(':')
         HTTPServer.__init__(self, (host, int(port)), RestApiHandler)
         Thread.__init__(self, target=self.serve_forever)
+        self._set_fd_cloexec(self.socket)
         self.patroni = patroni
         self.daemon = True
 
@@ -64,3 +66,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         ret = [r for r in cursor]
         cursor.close()
         return ret
+
+    @staticmethod
+    def _set_fd_cloexec(fd):
+        flags = fcntl.fcntl(fd, fcntl.F_GETFD)
+        fcntl.fcntl(fd, fcntl.F_SETFD, flags | fcntl.FD_CLOEXEC)
