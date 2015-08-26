@@ -100,6 +100,8 @@ class Client(etcd.Client):
         if 'discovery_srv' not in self._config and 'host' not in self._config:
             raise Exception('Neither discovery_srv nor host are defined in etcd section of config')
 
+        self._machines_cache = []
+
         if 'discovery_srv' in self._config:
             self._machines_cache = self._get_machines_cache_from_srv(self._config['discovery_srv'])
 
