@@ -57,6 +57,7 @@ class TestPatroni(unittest.TestCase):
         BaseHTTPServer.HTTPServer.__init__ = nop
         RestApiServer._BaseServer__is_shut_down = Mock_BaseServer__is_shut_down()
         RestApiServer._BaseServer__shutdown_request = True
+        RestApiServer.socket = 0
         with open('postgres0.yml', 'r') as f:
             config = yaml.load(f)
             with patch.object(Client, 'machines') as mock_machines:
