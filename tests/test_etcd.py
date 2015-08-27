@@ -8,7 +8,7 @@ import time
 import unittest
 
 from dns.exception import DNSException
-from helpers.dcs import Cluster, DCSError, Member
+from helpers.dcs import Cluster, DCSError, Leader, Member
 from helpers.etcd import Client, Etcd
 from mock import Mock, patch
 
@@ -107,8 +107,12 @@ def time_sleep(_):
     pass
 
 
+class SleepException(Exception):
+    pass
+
+
 def time_sleep_exception(_):
-    raise Exception()
+    raise SleepException()
 
 
 class MockSRV:
@@ -204,7 +208,7 @@ class TestEtcd(unittest.TestCase):
         time.sleep = time_sleep_exception
         with patch.object(etcd.Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(side_effect=etcd.EtcdException)
-            self.assertRaises(Exception, self.etcd.get_etcd_client, {'discovery_srv': 'test'})
+            self.assertRaises(SleepException, self.etcd.get_etcd_client, {'discovery_srv': 'test'})
 
     def test_get_cluster(self):
         self.assertIsInstance(self.etcd.get_cluster(), Cluster)
@@ -214,7 +218,7 @@ class TestEtcd(unittest.TestCase):
         self.assertIsNone(cluster.leader)
 
     def test_current_leader(self):
-        self.assertIsInstance(self.etcd.current_leader(), Member)
+        self.assertIsInstance(self.etcd.current_leader(), Leader)
         self.etcd._base_path = '/service/noleader'
         self.assertIsNone(self.etcd.current_leader())
 

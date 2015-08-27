@@ -39,7 +39,7 @@ class DCSError(Exception):
 class Member(namedtuple('Member', 'index,name,conn_url,api_url,expiration,ttl')):
     """Immutable object (namedtuple) which represents single member of PostgreSQL cluster.
     Consists of the following fields:
-    :param index: modification index of a given member key in DCS
+    :param index: modification index of a given member key in a Configuration Store
     :param name: name of PostgreSQL cluster member
     :param conn_url: connection string containing host, user and password which could be used to access this member.
     :param api_url: REST API url of patroni instance
@@ -50,17 +50,26 @@ class Member(namedtuple('Member', 'index,name,conn_url,api_url,expiration,ttl'))
         return calculate_ttl(self.expiration) or -1
 
 
+class Leader(namedtuple('Leader', 'index,expiration,ttl,member')):
+    """Immutable object (namedtuple) which represents leader key.
+    Consists of the following fields:
+    :param index: modification index of a leader key in a Configuration Store
+    :param expiration: expiration time of the leader key
+    :param ttl: ttl of the leader key
+    :param member: reference to a `Member` object which represents current leader (see `Cluster.members`)"""
+
+
 class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,members')):
     """Immutable object (namedtuple) which represents PostgreSQL cluster.
     Consists of the following fields:
     :param initialize: boolean, shows whether this cluster has initialization key stored in DC or not.
-    :param leader: `Member` object which represents current leader of the cluster
+    :param leader: `Leader` object which represents current leader of the cluster
     :param last_leader_operation: int or long object containing position of last known leader operation.
         This value is stored in `/optime/leader` key
     :param members: list of Member object, all PostgreSQL cluster members including leader"""
 
     def is_unlocked(self):
-        return not (self.leader and self.leader.name)
+        return not (self.leader and self.leader.member.name)
 
 
 class AbstractDCS:

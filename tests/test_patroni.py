@@ -24,8 +24,12 @@ def nop(*args, **kwargs):
     pass
 
 
+class SleepException(Exception):
+    pass
+
+
 def time_sleep(*args):
-    raise Exception()
+    raise SleepException()
 
 
 class Mock_BaseServer__is_shut_down:
@@ -90,7 +94,7 @@ class TestPatroni(unittest.TestCase):
 
             Etcd.delete_leader = nop
 
-            self.assertRaises(Exception, main)
+            self.assertRaises(SleepException, main)
 
             Patroni.run = run
             Patroni.touch_member = touch_member
@@ -100,10 +104,10 @@ class TestPatroni(unittest.TestCase):
         self.p.touch_member = self.touch_member
         self.p.ha.state_handler.sync_replication_slots = time_sleep
         self.p.ha.dcs.client.read = etcd_read
-        self.assertRaises(Exception, self.p.run)
+        self.assertRaises(SleepException, self.p.run)
         self.p.ha.state_handler.is_leader = lambda: False
         self.p.api.start = nop
-        self.assertRaises(Exception, self.p.run)
+        self.assertRaises(SleepException, self.p.run)
 
     def touch_member(self, ttl=None):
         if not self.touched:

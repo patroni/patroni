@@ -31,7 +31,7 @@ class Ha:
         return self.dcs.update_leader(self.state_handler)
 
     def has_lock(self):
-        lock_owner = self.cluster.leader and self.cluster.leader.name
+        lock_owner = self.cluster.leader and self.cluster.leader.member.name
         logger.info('Lock owner: %s; I am %s', lock_owner, self.state_handler.name)
         return lock_owner == self.state_handler.name
 

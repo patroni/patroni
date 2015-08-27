@@ -128,7 +128,7 @@ class Postgresql:
         os.path.exists(self.trigger_file) and os.unlink(self.trigger_file)
 
     def sync_from_leader(self, leader):
-        r = parseurl(leader.conn_url)
+        r = parseurl(leader.member.conn_url)
 
         pgpass = 'pgpass'
         with open(pgpass, 'w') as f:
@@ -288,7 +288,7 @@ class Postgresql:
         if not os.path.isfile(self.recovery_conf):
             return False
 
-        pattern = leader and leader.conn_url and self.primary_conninfo(leader.conn_url)
+        pattern = leader and leader.member.conn_url and self.primary_conninfo(leader.member.conn_url)
 
         with open(self.recovery_conf, 'r') as f:
             for line in f:
@@ -304,11 +304,11 @@ class Postgresql:
             f.write("""standby_mode = 'on'
 recovery_target_timeline = 'latest'
 """)
-            if leader and leader.conn_url:
+            if leader and leader.member.conn_url:
                 f.write("""
 primary_slot_name = '{}'
 primary_conninfo = '{}'
-""".format(self.name, self.primary_conninfo(leader.conn_url)))
+""".format(self.name, self.primary_conninfo(leader.member.conn_url)))
                 for name, value in self.config.get('recovery_conf', {}).items():
                     f.write("{} = '{}'\n".format(name, value))
 

@@ -3,7 +3,7 @@ import random
 import requests
 import time
 
-from helpers.dcs import AbstractDCS, Cluster, DCSError, Member, parse_connection_string
+from helpers.dcs import AbstractDCS, Cluster, DCSError, Leader, Member, parse_connection_string
 from helpers.utils import sleep
 from kazoo.client import KazooClient, KazooState
 from kazoo.exceptions import NoNodeError, NodeExistsError
@@ -134,21 +134,18 @@ class ZooKeeper(AbstractDCS):
         leader = self.get_node('/leader', self.cluster_watcher)
         self.members = self.load_members()
         if leader:
-            if leader[0] == self._name:
-                client_id = self.client.client_id
-                if client_id is not None and client_id[0] != leader[1].ephemeralOwner:
-                    logger.info('I am leader but not owner of the session. Removing leader node')
-                    self.client.delete(self.client_path('/leader'))
-                    leader = None
+            client_id = self.client.client_id
+            if leader[0] == self._name and client_id is not None and client_id[0] != leader[1].ephemeralOwner:
+                logger.info('I am leader but not owner of the session. Removing leader node')
+                self.client.delete(self.client_path('/leader'))
+                leader = None
 
             if leader:
-                for member in self.members:
-                    if member.name == leader[0]:
-                        leader = member
-                        self.fetch_cluster = False
-                        break
-            if not isinstance(leader, Member):
-                leader = Member(-1, leader, None, None, None, None)
+                member = Member(-1, leader[0], None, None, None, None)
+                member = ([m for m in self.members if m.name == leader[0]] or [member])[0]
+                leader = Leader(leader[1].mzxid, None, None, member)
+                self.fetch_cluster = member.index == -1
+
         self.leader = leader
         if self.fetch_cluster:
             last_leader_operation = self.get_node('/optime/leader')
@@ -220,7 +217,7 @@ class ZooKeeper(AbstractDCS):
         return True
 
     def delete_leader(self):
-        if isinstance(self.leader, Member) and self.leader.name == self._name:
+        if isinstance(self.leader, Leader) and self.leader.member.name == self._name:
             self.client.delete(self.client_path('/leader'))
 
     def sleep(self, timeout):

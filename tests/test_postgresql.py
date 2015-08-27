@@ -4,7 +4,7 @@ import shutil
 import subprocess
 import unittest
 
-from helpers.dcs import Cluster, Member
+from helpers.dcs import Cluster, Leader, Member
 from helpers.postgresql import Postgresql
 
 
@@ -123,7 +123,8 @@ class TestPostgresql(unittest.TestCase):
         psycopg2.connect = psycopg2_connect
         if not os.path.exists(self.p.data_dir):
             os.makedirs(self.p.data_dir)
-        self.leader = Member(0, 'leader', 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres', None, None, 28)
+        self.leadermem = Member(0, 'leader', 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres', None, None, 28)
+        self.leader = Leader(-1, None, 28, self.leadermem)
         self.other = Member(0, 'test1', 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres', None, None, 28)
         self.me = Member(0, 'test0', 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres', None, None, 28)
 
@@ -156,7 +157,7 @@ class TestPostgresql(unittest.TestCase):
         self.p.follow_the_leader(None)
         self.p.demote(self.leader)
         self.p.follow_the_leader(self.leader)
-        self.p.follow_the_leader(self.other)
+        self.p.follow_the_leader(Leader(-1, None, 28, self.other))
 
     def test_create_connection_users(self):
         cfg = self.p.config
@@ -166,7 +167,7 @@ class TestPostgresql(unittest.TestCase):
 
     def test_create_replication_slots(self):
         self.p.start()
-        cluster = Cluster(True, self.leader, 0, [self.me, self.other, self.leader])
+        cluster = Cluster(True, self.leader, 0, [self.me, self.other, self.leadermem])
         self.p.create_replication_slots(cluster)
 
     def test_query(self):
@@ -180,7 +181,7 @@ class TestPostgresql(unittest.TestCase):
         self.assertRaises(psycopg2.OperationalError, self.p.query, 'blabla')
 
     def test_is_healthiest_node(self):
-        cluster = Cluster(True, self.leader, 0, [self.me, self.other, self.leader])
+        cluster = Cluster(True, self.leader, 0, [self.me, self.other, self.leadermem])
         self.assertTrue(self.p.is_healthiest_node(cluster))
         self.p.is_leader = false
         self.assertFalse(self.p.is_healthiest_node(cluster))

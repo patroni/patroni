@@ -8,7 +8,7 @@ import socket
 
 from dns.exception import DNSException
 from dns import resolver
-from helpers.dcs import AbstractDCS, Cluster, DCSError, Member, parse_connection_string
+from helpers.dcs import AbstractDCS, Cluster, DCSError, Leader, Member, parse_connection_string
 from helpers.utils import sleep
 from requests.exceptions import RequestException
 
@@ -170,8 +170,9 @@ class Etcd(AbstractDCS):
             # get leader
             leader = nodes.get('leader', None)
             if leader:
-                leader = Member(-1, leader.value, None, None, None, None)
-                leader = ([m for m in members if m.name == leader.name] or [leader])[0]
+                member = Member(-1, leader.value, None, None, None, None)
+                member = ([m for m in members if m.name == leader.value] or [member])[0]
+                leader = Leader(leader.modifiedIndex, leader.expiration, leader.ttl, member)
 
             return Cluster(initialize, leader, last_leader_operation, members)
         except etcd.EtcdKeyNotFound:

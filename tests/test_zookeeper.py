@@ -2,6 +2,7 @@ import helpers.zookeeper
 import requests
 import unittest
 
+from helpers.dcs import Leader
 from helpers.zookeeper import ExhibitorEnsembleProvider, ZooKeeper, ZooKeeperError
 from kazoo.client import KazooState
 from kazoo.exceptions import NoNodeError, NodeExistsError
@@ -28,6 +29,10 @@ class MockEventHandler:
 
     def event_object(self):
         return MockEvent()
+
+
+class SleepException(Exception):
+    pass
 
 
 class MockKazooClient:
@@ -94,7 +99,7 @@ class MockKazooClient:
 
 
 def exhibitor_sleep(_):
-    raise Exception
+    raise SleepException
 
 
 class TestExhibitorEnsembleProvider(unittest.TestCase):
@@ -108,7 +113,7 @@ class TestExhibitorEnsembleProvider(unittest.TestCase):
         helpers.zookeeper.sleep = exhibitor_sleep
 
     def test_init(self):
-        self.assertRaises(Exception, ExhibitorEnsembleProvider, ['localhost'], 8181)
+        self.assertRaises(SleepException, ExhibitorEnsembleProvider, ['localhost'], 8181)
 
 
 class TestZooKeeper(unittest.TestCase):
@@ -136,7 +141,8 @@ class TestZooKeeper(unittest.TestCase):
     def test_get_cluster(self):
         self.assertRaises(ZooKeeperError, self.zk.get_cluster)
         self.zk.exhibitor.poll = lambda: True
-        self.zk.get_cluster()
+        cluster = self.zk.get_cluster()
+        self.assertIsInstance(cluster.leader, Leader)
         self.zk.touch_member('foo')
         self.zk.delete_leader()
 
