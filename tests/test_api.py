@@ -1,10 +1,9 @@
 import psycopg2
-import sys
 import unittest
 
 from helpers.api import RestApiHandler, RestApiServer
-from test_postgresql import psycopg2_connect
 from six import BytesIO as IO
+from test_postgresql import psycopg2_connect
 
 
 def throws(*args, **kwargs):

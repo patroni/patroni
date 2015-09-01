@@ -1,4 +1,7 @@
+from __future__ import absolute_import
+import etcd
 import logging
+import os
 import random
 import requests
 import socket
@@ -16,49 +19,37 @@ class EtcdError(DCSError):
     pass
 
 
-class EtcdConnectionFailed(EtcdError):
-    pass
-
-
-class Client:
-
-    API_VERSION = 'v2'
+class Client(etcd.Client):
 
     def __init__(self, config):
+        super(Client, self).__init__(read_timeout=5)
         self._config = config
-        self.timeout = 5
-        self._base_uri = None
-        self._members_cache = []
-        self.load_members()
+        self._load_machines_cache()
+        self._allow_reconnect = True
 
-    def client_url(self, path):
-        return self._base_uri + path
-
-    def _next_server(self):
-        self._base_uri = None
+    @property
+    def machines(self):
+        """Original `machines` method(property) of `etcd.Client` class raise exception
+        when it failed to get list of etcd cluster members. This method is being called
+        only when request failed on one of the etcd members during `api_execute` call.
+        For us it's more important to execute original request rather then get new
+        topology of etcd cluster. So we will catch this exception and return valid list
+        of machines with setting flag `self._update_machines_cache` to `!True`.
+        Later, during next `api_execute` call we will forcefully update machines_cache"""
         try:
-            self._base_uri = self._members_cache.pop()
-        except IndexError:
-            logger.error('Members cache is empty, can not retry.')
-            raise EtcdConnectionFailed('No more members in the cluster')
-        else:
-            logger.info('Selected new etcd server %s', self._base_uri)
+            ret = super(Client, self).machines
+            random.shuffle(ret)
+            return ret
+        except etcd.EtcdException:
+            if self._update_machines_cache:  # We are updating machines_cache
+                raise  # This exception is fatal, we should re-raise it.
+            self._update_machines_cache = True
+            return [self._base_uri]
 
-    def _get(self, path):
-        response = None
-        while response is None:
-            uri = self.client_url(path)
-            try:
-                logger.info('GET %s', uri)
-                response = requests.get(uri, timeout=self.timeout)
-            except RequestException:
-                self._next_server()
-
-        logger.debug([response.status_code, response.content])
-        try:
-            return response.json(), response.status_code
-        except (TypeError, ValueError):
-            raise EtcdError('Bad response from %s: %s' % (uri, response.content))
+    def api_execute(self, path, method, **kwargs):
+        # Update machines_cache if previous attempt of update has failed
+        self._update_machines_cache and self._load_machines_cache()
+        return super(Client, self).api_execute(path, method, **kwargs)
 
     @staticmethod
     def get_srv_record(host):
@@ -68,120 +59,74 @@ class Client:
             logger.exception('Can not resolve SRV for %s', host)
         return []
 
-    @staticmethod
-    def get_peers_urls_from_dns(host):
-        return ['http://{}:{}'.format(h, p) for h, p in Client.get_srv_record(host)]
+    def _get_machines_cache_from_srv(self, discovery_srv):
+        """Fetch list of etcd-cluster member by resolving _etcd-server._tcp. SRV record.
+        This record should contain list of host and peer ports which could be used to run
+        'GET http://{host}:{port}/members' request (peer protocol)"""
 
-    @staticmethod
-    def get_client_urls_from_dns(addr):
-        host, port = addr.split(':')
         ret = []
+        for host, port in self.get_srv_record(discovery_srv):
+            url = '{}://{}:{}/members'.format(self._protocol, host, port)
+            try:
+                response = requests.get(url)
+                if response.ok:
+                    for member in response.json():
+                        ret.extend(member['clientURLs'])
+                    break
+            except RequestException:
+                logger.exception('GET %s', url)
+        return list(set(ret))
+
+    def _get_machines_cache_from_dns(self, addr):
+        """One host might be resolved into multiple ip addresses. We will make list out of it"""
+
+        ret = []
+        host, port = addr.split(':')
         try:
             for r in set(socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)):
-                ret.append('http://{}:{}/{}'.format(r[4][0], r[4][1], Client.API_VERSION))
+                ret.append('{}://{}:{}'.format(self._protocol, r[4][0], r[4][1]))
         except socket.error:
             logger.exception('Can not resolve %s', host)
-        return list(set(ret)) if ret else ['http://{}:{}/{}'.format(host, port, Client.API_VERSION)]
+        return list(set(ret)) if ret else ['{}://{}:{}'.format(self._protocol, host, port)]
 
-    def load_members(self):
-        load_from_srv = False
-        if not self._base_uri:
-            if 'discovery_srv' not in self._config and 'host' not in self._config:
-                raise Exception('Neither discovery_srv nor host are defined in etcd section of config')
+    def _load_machines_cache(self):
+        """This method should fill up `_machines_cache` from scratch.
+        It could happen only in two cases:
+        1. During class initialization
+        2. When all etcd members failed"""
 
-            if 'discovery_srv' in self._config:
-                load_from_srv = True
-                self._members_cache = self.get_peers_urls_from_dns(self._config['discovery_srv'])
+        self._update_machines_cache = True
 
-            if not self._members_cache and 'host' in self._config:
-                load_from_srv = False
-                self._members_cache = self.get_client_urls_from_dns(self._config['host'])
+        if 'discovery_srv' not in self._config and 'host' not in self._config:
+            raise Exception('Neither discovery_srv nor host are defined in etcd section of config')
 
-            self._next_server()
+        self._machines_cache = []
 
-        response, status_code = self._get('/members')
-        if status_code != 200:
-            self._base_uri = None
-            raise EtcdError('Got response with code=%s from %s' % (status_code, self._base_uri))
+        if 'discovery_srv' in self._config:
+            self._machines_cache = self._get_machines_cache_from_srv(self._config['discovery_srv'])
 
-        members_cache = []
+        if not self._machines_cache and 'host' in self._config:
+            self._machines_cache = self._get_machines_cache_from_dns(self._config['host'])
+
+        # Can not bootstrap list of etcd-cluster members, giving up
+        if not self._machines_cache:
+            raise etcd.EtcdException
+
+        # After filling up initial list of machines_cache we should ask etcd-cluster about actual list
+        self._base_uri = self._machines_cache.pop(0)
+        self._machines_cache = self.machines
+        self._base_uri in self._machines_cache and self._machines_cache.remove(self._base_uri)
+
+        self._update_machines_cache = False
+
+
+def catch_etcd_errors(func):
+    def wrapper(*args, **kwargs):
         try:
-            for member in response if load_from_srv else response['members']:
-                members_cache.extend([m + '/' + self.API_VERSION for m in member['clientURLs']])
-        except:
-            self._base_uri = None
-            raise EtcdError('Got invalid response from %s: %s' % (self._base_uri, response))
-
-        self._members_cache = list(set(members_cache))
-        random.shuffle(self._members_cache)
-        if load_from_srv:
-            self._next_server()
-        else:
-            try:
-                self._members_cache.remove(self._base_uri)
-            except ValueError:
-                pass
-
-    def get(self, path):
-        if not self._base_uri:
-            self.load_members()
-        old_base_uri = self._base_uri
-        try:
-            return self._get(path)
-        finally:
-            if self._base_uri != old_base_uri:
-                try:
-                    self.load_members()
-                except EtcdError:
-                    logger.exception('load_members')
-
-    def put(self, path, **data):
-        if not self._base_uri:
-            self.load_members()
-        old_base_uri = self._base_uri
-        response = None
-        while response is None:
-            uri = self.client_url(path)
-            try:
-                logger.info('PUT %s', uri)
-                response = requests.put(uri, timeout=self.timeout, data=data)
-            except RequestException:
-                logger.exception('PUT %s data=%s', uri, data)
-                self._next_server()
-
-        if self._base_uri != old_base_uri:
-            try:
-                self.load_members()
-            except EtcdError:
-                logger.exception('load_members')
-        if response.status_code in [200, 201, 202, 204]:
-            return True
-        logger.error('Unexpected response: %s %s', response.status_code, response.content)
-        return False
-
-    def delete(self, path):
-        if not self._base_uri:
-            self.load_members()
-        old_base_uri = self._base_uri
-        response = None
-        while response is None:
-            uri = self.client_url(path)
-            try:
-                logger.info('DELETE %s', uri)
-                response = requests.delete(uri, timeout=self.timeout)
-            except RequestException:
-                logger.exception('DELETE %s', uri)
-                self._next_server()
-
-        if self._base_uri != old_base_uri:
-            try:
-                self.load_members()
-            except EtcdError:
-                logger.exception('load_members')
-        if response.status_code in [200, 202, 204]:
-            return True
-        logger.error('Unexpected response: %s %s', response.status_code, response.content)
-        return False
+            return not func(*args, **kwargs) is None
+        except etcd.EtcdException:
+            return False
+    return wrapper
 
 
 class Etcd(AbstractDCS):
@@ -197,118 +142,73 @@ class Etcd(AbstractDCS):
         while not client:
             try:
                 client = Client(config)
-            except EtcdError:
+            except etcd.EtcdException:
                 logger.info('waiting on etcd')
                 sleep(5)
         return client
 
-    def client_path(self, path):
-        return '/keys' + super(Etcd, self).client_path(path)
-
-    def get_client_path(self, path):
-        return self.client.get(self.client_path(path))
-
-    def put_client_path(self, path, **data):
-        return self.client.put(self.client_path(path), **data)
-
-    def delete_client_path(self, path):
-        try:
-            return self.client.delete(self.client_path(path))
-        except EtcdConnectionFailed:
-            return False
-
-    @staticmethod
-    def find_node(node, key):
-        """
-        >>> Etcd.find_node({}, None)
-        >>> Etcd.find_node({'dir': True, 'nodes': [], 'key': '/test/'}, 'test')
-        """
-        if not node.get('dir', False):
-            return None
-        key = node['key'] + key
-        for n in node['nodes']:
-            if n['key'] == key:
-                return n
-        return None
-
     @staticmethod
     def member(node):
-        conn_url, api_url = parse_connection_string(node['value'])
-        expiration = node.get('expiration', None)
-        ttl = node.get('ttl', None)
-        return Member(node['modifiedIndex'], node['key'].split('/')[-1], conn_url, api_url, expiration, ttl)
+        conn_url, api_url = parse_connection_string(node.value)
+        return Member(node.modifiedIndex, os.path.basename(node.key), conn_url, api_url, node.expiration, node.ttl)
 
     def get_cluster(self):
         try:
-            response, status_code = self.get_client_path('?recursive=true')
-            if status_code == 200:
-                node = self.find_node(response['node'], '/initialize')
-                initialize = True if node else False
-                # get list of members
-                node = self.find_node(response['node'], '/members') or {'nodes': []}
-                members = [self.member(n) for n in node['nodes']]
+            result = self.client.read(self.client_path(''), recursive=True)
+            nodes = {os.path.relpath(node.key, result.key): node for node in result.leaves}
 
-                # get last leader operation
-                last_leader_operation = 0
-                node = self.find_node(response['node'], '/optime')
-                if node:
-                    node = self.find_node(node, '/leader')
-                    if node:
-                        last_leader_operation = int(node['value'])
+            # get initialize flag
+            initialize = bool(nodes.get('initialize', False))
 
-                # get leader
-                leader = None
-                node = self.find_node(response['node'], '/leader')
-                if node:
-                    for m in members:
-                        if m.name == node['value']:
-                            leader = m
-                            break
-                    if not leader:
-                        leader = Member(-1, node['value'], None, None, None, None)
+            # get last leader operation
+            last_leader_operation = nodes.get('optime/leader', None)
+            last_leader_operation = 0 if last_leader_operation is None else int(last_leader_operation.value)
 
-                return Cluster(initialize, leader, last_leader_operation, members)
-            elif status_code == 404:
-                return Cluster(False, None, None, [])
+            # get list of members
+            members = [self.member(n) for k, n in nodes.items() if k.startswith('members/') and len(k.split('/')) == 2]
+
+            # get leader
+            leader = nodes.get('leader', None)
+            if leader:
+                leader = Member(-1, leader.value, None, None, None, None)
+                leader = ([m for m in members if m.name == leader.name] or [leader])[0]
+
+            return Cluster(initialize, leader, last_leader_operation, members)
+        except etcd.EtcdKeyNotFound:
+            return Cluster(False, None, None, [])
         except:
             logger.exception('get_cluster')
 
         raise EtcdError('Etcd is not responding properly')
 
+    @catch_etcd_errors
     def touch_member(self, connection_string, ttl=None):
-        try:
-            return self.put_client_path('/members/' + self._name, value=connection_string, ttl=ttl or self.member_ttl)
-        except EtcdError:
-            return False
+        return self.client.set(self.client_path('/members/' + self._name), connection_string, ttl or self.member_ttl)
 
+    @catch_etcd_errors
     def take_leader(self):
-        try:
-            return self.put_client_path('/leader', value=self._name, ttl=self.ttl)
-        except EtcdError:
-            return False
+        return self.client.set(self.client_path('/leader'), self._name, self.ttl)
 
+    @catch_etcd_errors
     def attempt_to_acquire_leader(self):
-        try:
-            ret = self.put_client_path('/leader', value=self._name, ttl=self.ttl, prevExist=False)
-            ret or logger.info('Could not take out TTL lock')
-            return ret
-        except EtcdError:
-            return False
+        ret = self.client.write(self.client_path('/leader'), self._name, ttl=self.ttl, prevExist=False)
+        ret or logger.info('Could not take out TTL lock')
+        return ret
 
+    @catch_etcd_errors
+    def write_leader_optime(self, state_handler):
+        return self.client.set(self.client_path('/optime/leader'), state_handler.last_operation())
+
+    @catch_etcd_errors
     def update_leader(self, state_handler):
-        if self.put_client_path('/leader', value=state_handler.name, ttl=self.ttl, prevValue=state_handler.name):
-            try:
-                self.put_client_path('/optime/leader', value=state_handler.last_operation())
-            except EtcdError:
-                pass
-            return True
-        return False
+        ret = self.client.test_and_set(self.client_path('/leader'), self._name, self._name, self.ttl)
+        ret and self.write_leader_optime(state_handler)
+        return ret
 
+    @catch_etcd_errors
     def race(self, path):
-        try:
-            return self.put_client_path(path, value=self._name, prevExist=False)
-        except EtcdError:
-            return False
+        return self.client.write(self.client_path(path), self._name, prevExist=False)
 
+    @catch_etcd_errors
     def delete_leader(self):
-        return self.delete_client_path('/leader?prevValue=' + self._name)
+        return self.client.delete(self.client_path('/leader'), prevValue=self._name)

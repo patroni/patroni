@@ -1,6 +1,6 @@
 import helpers.zookeeper
-import unittest
 import requests
+import unittest
 
 from helpers.zookeeper import ExhibitorEnsembleProvider, ZooKeeper, ZooKeeperError
 from kazoo.client import KazooState

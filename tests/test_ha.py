@@ -1,10 +1,10 @@
 import unittest
-import requests
 
-from helpers.dcs import DCSError
-from helpers.etcd import Cluster, Etcd
+from helpers.dcs import Cluster, DCSError
+from helpers.etcd import Client, Etcd
 from helpers.ha import Ha
-from test_etcd import requests_get, requests_put, requests_delete
+from mock import Mock, patch
+from test_etcd import etcd_read, etcd_write
 
 
 def true(*args, **kwargs):
@@ -71,15 +71,16 @@ class TestHa(unittest.TestCase):
         super(TestHa, self).__init__(method_name)
 
     def set_up(self):
-        requests.get = requests_get
-        requests.put = requests_put
-        requests.delete = requests_delete
         self.p = MockPostgresql()
-        self.e = Etcd('foo', {'ttl': 30, 'host': 'remotehost:2379', 'scope': 'test'})
-        self.ha = Ha(self.p, self.e)
-        self.ha.load_cluster_from_dcs()
-        self.ha.cluster = get_unlocked_cluster()
-        self.ha.load_cluster_from_dcs = nop
+        with patch.object(Client, 'machines') as mock_machines:
+            mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
+            self.e = Etcd('foo', {'ttl': 30, 'host': 'remotehost:2379', 'scope': 'test'})
+            self.e.client.read = etcd_read
+            self.e.client.write = etcd_write
+            self.ha = Ha(self.p, self.e)
+            self.ha.load_cluster_from_dcs()
+            self.ha.cluster = get_unlocked_cluster()
+            self.ha.load_cluster_from_dcs = nop
 
     def test_load_cluster_from_dcs(self):
         ha = Ha(self.p, self.e)
