@@ -1,7 +1,7 @@
 import abc
 
 from collections import namedtuple
-from helpers.utils import calculate_ttl, sleep
+from patroni.helpers.utils import calculate_ttl, sleep
 from six.moves.urllib_parse import urlparse, urlunparse, parse_qsl
 
 

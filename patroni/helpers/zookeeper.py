@@ -3,8 +3,8 @@ import random
 import requests
 import time
 
-from helpers.dcs import AbstractDCS, Cluster, DCSError, Member, parse_connection_string
-from helpers.utils import sleep
+from patroni.helpers.dcs import AbstractDCS, Cluster, DCSError, Member, parse_connection_string
+from patroni.helpers.utils import sleep
 from kazoo.client import KazooClient, KazooState
 from kazoo.exceptions import NoNodeError, NodeExistsError
 from requests.exceptions import RequestException

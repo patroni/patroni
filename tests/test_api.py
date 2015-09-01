@@ -1,7 +1,7 @@
 import psycopg2
 import unittest
 
-from helpers.api import RestApiHandler, RestApiServer
+from patroni.helpers.api import RestApiHandler, RestApiServer
 from six import BytesIO as IO
 from test_postgresql import psycopg2_connect
 

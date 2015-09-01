@@ -4,8 +4,8 @@ import shutil
 import subprocess
 import unittest
 
-from helpers.dcs import Cluster, Member
-from helpers.postgresql import Postgresql
+from patroni.helpers.dcs import Cluster, Member
+from patroni.helpers.postgresql import Postgresql
 
 
 def nop(*args, **kwargs):

@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import six
 
-from helpers.utils import sleep
+from patroni.helpers.utils import sleep
 from six.moves.urllib_parse import urlparse
 
 if six.PY3:

@@ -1,5 +1,5 @@
 import datetime
-import helpers.zookeeper
+import patroni.helpers.zookeeper
 import psycopg2
 import subprocess
 import sys
@@ -7,12 +7,12 @@ import time
 import unittest
 import yaml
 
-from helpers.api import RestApiServer
-from helpers.dcs import Cluster, Member
-from helpers.etcd import Etcd
-from helpers.zookeeper import ZooKeeper
+from patroni.helpers.api import RestApiServer
+from patroni.helpers.dcs import Cluster, Member
+from patroni.helpers.etcd import Etcd
+from patroni.helpers.zookeeper import ZooKeeper
 from mock import Mock, patch
-from patroni import Patroni, main
+from patroni.patroni import Patroni, main
 from six.moves import BaseHTTPServer
 from test_etcd import Client, etcd_read, etcd_write
 from test_ha import true, false
@@ -70,7 +70,7 @@ class TestPatroni(unittest.TestCase):
         Postgresql.write_recovery_conf = self.write_recovery_conf
 
     def test_get_dcs(self):
-        helpers.zookeeper.KazooClient = MockKazooClient
+        patroni.helpers.zookeeper.KazooClient = MockKazooClient
         self.assertIsInstance(self.p.get_dcs('', {'zookeeper': {'scope': '', 'hosts': ''}}), ZooKeeper)
         self.assertRaises(Exception, self.p.get_dcs, '', {})
 

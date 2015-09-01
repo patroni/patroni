@@ -5,5 +5,5 @@ psycopg2
 PyYAML
 requests
 six
-kazoo>=2.2.1
-python-etcd>=0.4.1
+kazoo
+python-etcd
