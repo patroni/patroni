@@ -58,6 +58,10 @@ class Leader(namedtuple('Leader', 'index,expiration,ttl,member')):
     :param ttl: ttl of the leader key
     :param member: reference to a `Member` object which represents current leader (see `Cluster.members`)"""
 
+    @property
+    def name(self):
+        return self.member.name
+
 
 class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,members')):
     """Immutable object (namedtuple) which represents PostgreSQL cluster.
@@ -69,7 +73,7 @@ class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,mem
     :param members: list of Member object, all PostgreSQL cluster members including leader"""
 
     def is_unlocked(self):
-        return not (self.leader and self.leader.member.name)
+        return not (self.leader and self.leader.name)
 
 
 class AbstractDCS:
@@ -83,7 +87,8 @@ class AbstractDCS:
             i.e.: `zookeeper` for zookeeper, `etcd` for etcd, etc...
         """
         self._name = name
-        self._base_path = '/service/' + config['scope']
+        self._scope = config['scope']
+        self._base_path = '/service/' + self._scope
 
     def client_path(self, path):
         return self._base_path + path

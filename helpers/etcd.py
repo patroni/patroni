@@ -185,7 +185,8 @@ class Etcd(AbstractDCS):
             self.cluster = Cluster(initialize, leader, last_leader_operation, members)
             return self.cluster
         except etcd.EtcdKeyNotFound:
-            return Cluster(False, None, None, [])
+            self.cluster = Cluster(False, None, None, [])
+            return self.cluster
         except:
             logger.exception('get_cluster')
 
@@ -226,14 +227,14 @@ class Etcd(AbstractDCS):
 
     def watch(self, timeout):
         # watch on leader key changes if it is defined and current node is not lock owner
-        if self.cluster and self.cluster.leader and self.cluster.leader.member.name != self._name:
+        if self.cluster and self.cluster.leader and self.cluster.leader.name != self._name:
             end_time = time.time() + timeout
             index = self.cluster.leader.index
 
             while index and timeout >= 1:  # when timeout is too small urllib3 doesn't have enough time to connect
                 try:
                     res = self.client.watch(self.client_path('/leader'), index=index + 1, timeout=timeout)
-                    if res.action not in ['set', 'compareAndSwap'] or res.value != self.cluster.leader.member.name:
+                    if res.action not in ['set', 'compareAndSwap'] or res.value != self.cluster.leader.name:
                         return
                     index = res.modifiedIndex
                 except urllib3.exceptions.TimeoutError:

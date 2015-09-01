@@ -217,7 +217,7 @@ class ZooKeeper(AbstractDCS):
         return True
 
     def delete_leader(self):
-        if isinstance(self.leader, Leader) and self.leader.member.name == self._name:
+        if isinstance(self.leader, Leader) and self.leader.name == self._name:
             self.client.delete(self.client_path('/leader'))
 
     def watch(self, timeout):
