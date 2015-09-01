@@ -164,5 +164,5 @@ class TestZooKeeper(unittest.TestCase):
         self.zk.last_leader_operation = -1
         self.assertTrue(self.zk.update_leader(MockPostgresql()))
 
-    def test_sleep(self):
-        self.zk.sleep(0)
+    def test_watch(self):
+        self.zk.watch(0)

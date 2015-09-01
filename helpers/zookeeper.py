@@ -220,7 +220,7 @@ class ZooKeeper(AbstractDCS):
         if isinstance(self.leader, Leader) and self.leader.member.name == self._name:
             self.client.delete(self.client_path('/leader'))
 
-    def sleep(self, timeout):
+    def watch(self, timeout):
         self.cluster_event.wait(timeout)
         if self.cluster_event.isSet():
             self.fetch_cluster = True

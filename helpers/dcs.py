@@ -153,5 +153,5 @@ class AbstractDCS:
         """Voluntarily remove leader key from DCS
         This method should remove leader key if current instance is the leader"""
 
-    def sleep(self, timeout):
+    def watch(self, timeout):
         sleep(timeout)

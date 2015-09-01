@@ -253,11 +253,11 @@ class TestEtcd(unittest.TestCase):
         self.etcd.client.delete = etcd_delete
         self.assertFalse(self.etcd.delete_leader())
 
-    def test_sleep(self):
+    def test_watch(self):
         self.etcd.client.watch = etcd_watch
-        self.etcd.sleep(100)
+        self.etcd.watch(100)
         self.etcd.get_cluster()
-        self.etcd.sleep(1)
-        self.etcd.sleep(5)
-        self.etcd.sleep(10)
-        self.etcd.sleep(100)
+        self.etcd.watch(1)
+        self.etcd.watch(5)
+        self.etcd.watch(10)
+        self.etcd.watch(100)

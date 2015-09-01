@@ -224,7 +224,7 @@ class Etcd(AbstractDCS):
     def delete_leader(self):
         return self.client.delete(self.client_path('/leader'), prevValue=self._name)
 
-    def sleep(self, timeout):
+    def watch(self, timeout):
         # watch on leader key changes if it is defined and current node is not lock owner
         if self.cluster and self.cluster.leader and self.cluster.leader.member.name != self._name:
             end_time = time.time() + timeout
@@ -244,4 +244,4 @@ class Etcd(AbstractDCS):
 
                 timeout = end_time - time.time()
 
-        timeout > 0 and super(Etcd, self).sleep(timeout)
+        timeout > 0 and super(Etcd, self).watch(timeout)
