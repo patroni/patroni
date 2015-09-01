@@ -1,6 +1,6 @@
 #!/bin/bash
 
-DOCKER_IMAGE="os-registry.stups.zalan.do/acid/patroni:1.0"
+DOCKER_IMAGE="os-registry.stups.zalan.do/acid/patroni:1.0-SNAPSHOT"
 MEMBERS=3
 
 
