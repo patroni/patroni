@@ -62,6 +62,10 @@ class Leader(namedtuple('Leader', 'index,expiration,ttl,member')):
     def name(self):
         return self.member.name
 
+    @property
+    def conn_url(self):
+        return self.member.conn_url
+
 
 class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,members')):
     """Immutable object (namedtuple) which represents PostgreSQL cluster.
