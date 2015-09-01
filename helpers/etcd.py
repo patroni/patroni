@@ -5,6 +5,8 @@ import os
 import random
 import requests
 import socket
+import time
+import urllib3
 
 from dns.exception import DNSException
 from dns import resolver
@@ -58,6 +60,11 @@ class Client(etcd.Client):
         except DNSException:
             logger.exception('Can not resolve SRV for %s', host)
         return []
+
+    # try to workarond bug in python-etcd: https://github.com/jplana/python-etcd/issues/81
+    def _result_from_response(self, response):
+        response.data.decode('utf-8')
+        return super(Client, self)._result_from_response(response)
 
     def _get_machines_cache_from_srv(self, discovery_srv):
         """Fetch list of etcd-cluster member by resolving _etcd-server._tcp. SRV record.
@@ -136,6 +143,7 @@ class Etcd(AbstractDCS):
         self.ttl = config['ttl']
         self.member_ttl = config.get('member_ttl', 3600)
         self.client = self.get_etcd_client(config)
+        self.cluster = None
 
     def get_etcd_client(self, config):
         client = None
@@ -174,12 +182,14 @@ class Etcd(AbstractDCS):
                 member = ([m for m in members if m.name == leader.value] or [member])[0]
                 leader = Leader(leader.modifiedIndex, leader.expiration, leader.ttl, member)
 
-            return Cluster(initialize, leader, last_leader_operation, members)
+            self.cluster = Cluster(initialize, leader, last_leader_operation, members)
+            return self.cluster
         except etcd.EtcdKeyNotFound:
             return Cluster(False, None, None, [])
         except:
             logger.exception('get_cluster')
 
+        self.cluster = None
         raise EtcdError('Etcd is not responding properly')
 
     @catch_etcd_errors
@@ -213,3 +223,25 @@ class Etcd(AbstractDCS):
     @catch_etcd_errors
     def delete_leader(self):
         return self.client.delete(self.client_path('/leader'), prevValue=self._name)
+
+    def sleep(self, timeout):
+        # watch on leader key changes if it is defined and current node is not lock owner
+        if self.cluster and self.cluster.leader and self.cluster.leader.member.name != self._name:
+            end_time = time.time() + timeout
+            index = self.cluster.leader.index
+
+            while index and timeout >= 1:  # when timeout is too small urllib3 doesn't have enough time to connect
+                try:
+                    res = self.client.watch(self.client_path('/leader'), index=index + 1, timeout=timeout)
+                    if res.action not in ['set', 'compareAndSwap'] or res.value != self.cluster.leader.member.name:
+                        return
+                    index = res.modifiedIndex
+                except urllib3.exceptions.TimeoutError:
+                    self.client.http.clear()
+                    return
+                except etcd.EtcdException:
+                    index = None
+
+                timeout = end_time - time.time()
+
+        timeout > 0 and super(Etcd, self).sleep(timeout)

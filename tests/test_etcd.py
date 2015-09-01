@@ -3,6 +3,7 @@ import dns.resolver
 import etcd
 import json
 import requests
+import urllib3
 import socket
 import time
 import unittest
@@ -59,6 +60,20 @@ def requests_get(url, **kwargs):
         response.status_code = 404
         response.ok = False
     return response
+
+
+def etcd_watch(key, index=None, timeout=None, recursive=None):
+    print ('watch', key, index, timeout)
+    if timeout == 1:
+        raise urllib3.exceptions.TimeoutError
+    elif timeout == 5:
+        return etcd.EtcdResult('delete', {})
+    elif timeout == 10:
+        raise etcd.EtcdException
+    elif index == 20729:
+        return etcd.EtcdResult('set', {'value': 'postgresql1', 'modifiedIndex': index + 1})
+    elif index == 20731:
+        return etcd.EtcdResult('set', {'value': 'postgresql2', 'modifiedIndex': index + 1})
 
 
 def etcd_write(key, value, **kwargs):
@@ -237,3 +252,12 @@ class TestEtcd(unittest.TestCase):
     def test_delete_leader(self):
         self.etcd.client.delete = etcd_delete
         self.assertFalse(self.etcd.delete_leader())
+
+    def test_sleep(self):
+        self.etcd.client.watch = etcd_watch
+        self.etcd.sleep(100)
+        self.etcd.get_cluster()
+        self.etcd.sleep(1)
+        self.etcd.sleep(5)
+        self.etcd.sleep(10)
+        self.etcd.sleep(100)

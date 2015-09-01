@@ -14,7 +14,7 @@ from helpers.zookeeper import ZooKeeper
 from mock import Mock, patch
 from patroni import Patroni, main
 from six.moves import BaseHTTPServer
-from test_etcd import Client, etcd_read, etcd_write
+from test_etcd import Client, etcd_read, etcd_write, etcd_watch
 from test_ha import true, false
 from test_postgresql import Postgresql, subprocess_call, psycopg2_connect
 from test_zookeeper import MockKazooClient
@@ -104,6 +104,7 @@ class TestPatroni(unittest.TestCase):
         self.p.touch_member = self.touch_member
         self.p.ha.state_handler.sync_replication_slots = time_sleep
         self.p.ha.dcs.client.read = etcd_read
+        self.p.ha.dcs.sleep = time_sleep
         self.assertRaises(SleepException, self.p.run)
         self.p.ha.state_handler.is_leader = lambda: False
         self.p.api.start = nop
