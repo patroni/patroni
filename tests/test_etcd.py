@@ -63,7 +63,6 @@ def requests_get(url, **kwargs):
 
 
 def etcd_watch(key, index=None, timeout=None, recursive=None):
-    print ('watch', key, index, timeout)
     if timeout == 1:
         raise urllib3.exceptions.TimeoutError
     elif timeout == 5:
