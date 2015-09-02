@@ -46,7 +46,7 @@ postgresql:
     env_dir: /home/postgres/etc/wal-e.d/env
     threshold_megabytes: 10240
     threshold_backup_size_percentage: 30
-  restore: "true"
+  restore: scripts/restore.py
   #recovery_conf:
     #restore_command: cp ../wal_archive/%f %p
   parameters:

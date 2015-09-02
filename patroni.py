@@ -9,7 +9,7 @@ from helpers.api import RestApiServer
 from helpers.etcd import Etcd
 from helpers.ha import Ha
 from helpers.postgresql import Postgresql
-from helpers.utils import setup_signal_handlers, sleep
+from helpers.utils import setup_signal_handlers, sleep, reap_children
 from helpers.zookeeper import ZooKeeper
 
 logger = logging.getLogger(__name__)
@@ -95,6 +95,7 @@ class Patroni:
             except:
                 logger.exception('Exception when changing replication slots')
             self.schedule_next_run()
+            reap_children()
 
 
 def main():
