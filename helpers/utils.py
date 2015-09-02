@@ -101,7 +101,6 @@ def reap_children():
         try:
             while True:
                 ret = os.waitpid(-1, os.WNOHANG)
-                print ret
                 if ret == (0, 0):
                     break
         except OSError:
