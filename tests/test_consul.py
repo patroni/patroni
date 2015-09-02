@@ -1,3 +1,4 @@
+import consul
 import time
 import unittest
 
@@ -17,7 +18,9 @@ def http_get(*args, **kwargs):
     return MockResponse(None, None, None)
 
 
-def kv_get(key, **kwargs):
+def kv_get(self, key, **kwargs):
+    if key == 'service/test/members/postgresql1':
+        return 1, {'Session': 'fd4f44fe-2cac-bba5-a60b-304b51ff39b7'}
     if key == 'service/test/':
         return None, None
     if key == 'service/good/':
@@ -37,19 +40,23 @@ def kv_get(key, **kwargs):
     raise ConsulException
 
 
-def kv_put(key, value, **kwargs):
+def kv_put(self, key, value, **kwargs):
     if key == 'service/good/leader':
         return False
     raise ConsulException
 
 
-def session_renew(session):
+def kv_delete(self, key, *args, **kwargs):
+    pass
+
+
+def session_renew(self, session):
     if session == 'fd4f44fe-2cac-bba5-a60b-304b51ff39b7':
         return None
     raise NotFound
 
 
-def session_create(*args, **kwargs):
+def session_create(self, *args, **kwargs):
     raise ConsulException
 
 
@@ -60,13 +67,12 @@ class TestConsul(unittest.TestCase):
         super(TestConsul, self).__init__(method_name)
 
     def set_up(self):
-        self.c = Consul('postgresql1', {'ttl': 30, 'scope': 'test'})
-        self.c.client.kv.get = kv_get
-        self.c.client.kv.put = kv_put
-        self.c.client.kv.delete = nop
-        self.c.client.session.create = session_create
-        self.c.client.session.renew = session_renew
-        self.c._session = 'fd4f44fe-2cac-bba5-a60b-304b51ff39b7'
+        consul.Consul.KV.get = kv_get
+        consul.Consul.KV.put = kv_put
+        consul.Consul.KV.delete = kv_delete
+        consul.Consul.Session.create = session_create
+        consul.Consul.Session.renew = session_renew
+        self.c = Consul('postgresql1', {'ttl': 30, 'scope': 'test', 'host': 'localhost:1'})
         self.c._base_path = '/service/good'
         self.c.get_cluster(1)
 
@@ -114,5 +120,5 @@ class TestConsul(unittest.TestCase):
         self.c._name = ''
         self.c.get_cluster = nop
         self.c.watch(1)
-        self.c.get_cluster = kv_get
+        self.c.get_cluster = session_create
         self.assertRaises(SleepException, self.c.watch, 1)
