@@ -76,7 +76,7 @@ class Patroni:
         if nap_time <= 0:
             self.next_run = current_time
         else:
-            self.ha.dcs.sleep(nap_time)
+            self.ha.dcs.watch(nap_time)
 
     def run(self):
         self.api.start()
