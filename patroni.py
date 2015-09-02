@@ -6,6 +6,7 @@ import time
 import yaml
 
 from helpers.api import RestApiServer
+from helpers.consul import Consul
 from helpers.etcd import Etcd
 from helpers.ha import Ha
 from helpers.postgresql import Postgresql
@@ -32,6 +33,8 @@ class Patroni:
             return Etcd(name, config['etcd'])
         if 'zookeeper' in config:
             return ZooKeeper(name, config['zookeeper'])
+        if 'consul' in config:
+            return Consul(name, config['consul'])
         raise Exception('Can not find sutable configuration of distributed configuration store')
 
     def touch_member(self, ttl=None):

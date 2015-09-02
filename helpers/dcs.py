@@ -97,6 +97,18 @@ class AbstractDCS:
     def client_path(self, path):
         return self._base_path + path
 
+    @property
+    def member_path(self):
+        return self.client_path('/members/' + self._name)
+
+    @property
+    def leader_path(self):
+        return self.client_path('/leader')
+
+    @property
+    def leader_optime_path(self):
+        return self.client_path('/optime/leader')
+
     @abc.abstractmethod
     def get_cluster(self):
         """:returns: `Cluster` object which represent current state and topology of the cluster
