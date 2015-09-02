@@ -183,7 +183,7 @@ class Postgresql:
             return False
         return True
 
-    def start(self):
+    def start(self, block_callbacks=False):
         if self.is_running():
             self.load_replication_slots()
             logger.error('Cannot start PostgreSQL because one is already running.')
@@ -196,18 +196,28 @@ class Postgresql:
         ret = subprocess.call(self._pg_ctl + ['start', '-o', self.server_options()]) == 0
         ret and self.load_replication_slots()
         self.save_configuration_files()
-        if ret and ACTION_ON_START in self.callback:
+        # block_callbacks is used during restart to avoid
+        # running start/stop callbacks in addition to restart ones
+        if not block_callbacks and ret and ACTION_ON_START in self.callback:
             self.call_nowait(ACTION_ON_START)
         return ret
 
-    def stop(self):
+    def stop(self, block_callbacks=False):
         try:
             is_leader = self.is_leader(check_only=True)
         except:
             is_leader = None
             pass
-        ret = subprocess.call(self._pg_ctl + ['stop', '-m', 'fast'])
-        if ret == 0 and ACTION_ON_STOP in self.callback:
+        try:
+            self.query("CHECKPOINT")
+        except psycopg2.OperationalError:
+            # likely PostgreSQL is already stopped.
+            ret = 0
+        else:
+            ret = subprocess.call(self._pg_ctl + ['stop', '-m', 'fast'])
+        # block_callbacks is used during restart to avoid
+        # running start/stop callbacks in addition to restart ones
+        if not block_callbacks and ret == 0 and ACTION_ON_STOP in self.callback:
             self.call_nowait(ACTION_ON_STOP, is_leader=is_leader)
         return ret == 0
 
@@ -223,7 +233,9 @@ class Postgresql:
         except:
             is_leader = None
             pass
-        ret = subprocess.call(self._pg_ctl + ['restart', '-m', 'fast'])
+        ret = self.stop(block_callbacks=True)
+        if ret == 0:
+            ret = self.start(block_callbacks=True)
         if ret == 0 and ACTION_ON_RESTART in self.callback:
             self.call_nowait(ACTION_ON_RESTART, is_leader=is_leader)
         return ret == 0
