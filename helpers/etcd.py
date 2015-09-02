@@ -183,15 +183,13 @@ class Etcd(AbstractDCS):
                 leader = Leader(leader.modifiedIndex, leader.expiration, leader.ttl, member)
 
             self.cluster = Cluster(initialize, leader, last_leader_operation, members)
-            return self.cluster
         except etcd.EtcdKeyNotFound:
             self.cluster = Cluster(False, None, None, [])
-            return self.cluster
         except:
+            self.cluster = None
             logger.exception('get_cluster')
-
-        self.cluster = None
-        raise EtcdError('Etcd is not responding properly')
+            raise EtcdError('Etcd is not responding properly')
+        return self.cluster
 
     @catch_etcd_errors
     def touch_member(self, connection_string, ttl=None):
