@@ -2,7 +2,7 @@ import os
 import time
 import unittest
 
-from helpers.utils import sigchld_handler, sigterm_handler, sleep
+from helpers.utils import reap_children, sigchld_handler, sigterm_handler, sleep
 
 
 def nop(*args, **kwargs):
@@ -34,10 +34,11 @@ class TestUtils(unittest.TestCase):
     def test_sigterm_handler(self):
         self.assertRaises(SystemExit, sigterm_handler, None, None)
 
-    def test_sigchld_handler(self):
-        sigchld_handler(None, None)
+    def test_reap_children(self):
+        reap_children()
         os.waitpid = os_waitpid
         sigchld_handler(None, None)
+        reap_children()
 
     def test_sleep(self):
         time.sleep = time_sleep
