@@ -354,7 +354,7 @@ primary_conninfo = '{}'
                 self.query('CREATE ROLE "{0}" WITH LOGIN SUPERUSER PASSWORD %s'.format(
                     self.superuser['username']), self.superuser['password'])
             else:
-                self.query('ALTER ROLE postgres WITH PASSWORD %s', self.superuser['password'])
+                self.query('ALTER ROLE "{0}" WITH PASSWORD %s'.format(os.environ['USER']), self.superuser['password'])
         if self.admin:
             self.query('CREATE ROLE "{0}" WITH LOGIN CREATEDB CREATEROLE PASSWORD %s'.format(
                 self.admin['username']), self.admin['password'])
