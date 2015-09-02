@@ -88,7 +88,7 @@ class Consul(AbstractDCS):
         """:returns: `!True` if it had to create new session"""
         if self._session:
             try:
-                return self.client.session.renew(self._session) is None
+                return not self.client.session.renew(self._session) is None
             except NotFound:
                 self._session = None
         if not self._session:
@@ -157,7 +157,7 @@ class Consul(AbstractDCS):
         create_member = self.referesh_session()
         member_exists = self.cluster and any(m.name == self._name for m in self.cluster.members)
         if create_member and member_exists:
-            self.client.kv.delete(self.member_path)  # TODO: release= ???
+            self.client.kv.delete(self.member_path)
         if create_member or not member_exists:
             try:
                 self.client.kv.put(self.member_path, connection_string, acquire=self._session)
@@ -195,8 +195,8 @@ class Consul(AbstractDCS):
             end_time = time.time() + timeout
             while timeout >= 1:
                 try:
-                    self.get_cluster(timeout)
-                    if not self.cluster or not self.cluster.leader:
+                    cluster = self.get_cluster(timeout)
+                    if not cluster or not cluster.leader:
                         return
                 except (ConsulException, RequestException):
                     logging.exception('watch')
