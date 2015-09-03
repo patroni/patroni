@@ -11,7 +11,7 @@ import urllib3
 from dns.exception import DNSException
 from dns import resolver
 from helpers.dcs import AbstractDCS, Cluster, DCSError, Leader, Member, parse_connection_string
-from helpers.utils import sleep
+from helpers.utils import Retry, RetryFailedError, sleep
 from requests.exceptions import RequestException
 
 logger = logging.getLogger(__name__)
@@ -63,7 +63,12 @@ class Client(etcd.Client):
 
     # try to workarond bug in python-etcd: https://github.com/jplana/python-etcd/issues/81
     def _result_from_response(self, response):
-        response.data.decode('utf-8')
+        try:
+            response.data.decode('utf-8')
+        except urllib3.exceptions.TimeoutError:
+            raise
+        except Exception as e:
+            raise etcd.EtcdException('Unable to decode server response: %s' % e)
         return super(Client, self)._result_from_response(response)
 
     def _get_machines_cache_from_srv(self, discovery_srv):
@@ -131,7 +136,7 @@ def catch_etcd_errors(func):
     def wrapper(*args, **kwargs):
         try:
             return not func(*args, **kwargs) is None
-        except etcd.EtcdException:
+        except (RetryFailedError, etcd.EtcdException):
             return False
     return wrapper
 
@@ -142,8 +147,16 @@ class Etcd(AbstractDCS):
         super(Etcd, self).__init__(name, config)
         self.ttl = config['ttl']
         self.member_ttl = config.get('member_ttl', 3600)
+        self._retry = Retry(deadline=10, max_delay=1, max_tries=-1,
+                            retry_exceptions=(etcd.EtcdConnectionFailed,
+                                              etcd.EtcdLeaderElectionInProgress,
+                                              etcd.EtcdWatcherCleared,
+                                              etcd.EtcdEventIndexCleared))
         self.client = self.get_etcd_client(config)
         self.cluster = None
+
+    def retry(self, *args, **kwargs):
+        return self._retry.copy()(*args, **kwargs)
 
     def get_etcd_client(self, config):
         client = None
@@ -162,7 +175,7 @@ class Etcd(AbstractDCS):
 
     def get_cluster(self):
         try:
-            result = self.client.read(self.client_path(''), recursive=True)
+            result = self.retry(self.client.read, self.client_path(''), recursive=True)
             nodes = {os.path.relpath(node.key, result.key): node for node in result.leaves}
 
             # get initialize flag
@@ -193,17 +206,22 @@ class Etcd(AbstractDCS):
 
     @catch_etcd_errors
     def touch_member(self, connection_string, ttl=None):
-        return self.client.set(self.client_path('/members/' + self._name), connection_string, ttl or self.member_ttl)
+        return self.retry(self.client.set, self.client_path('/members/' + self._name),
+                          connection_string, ttl or self.member_ttl)
 
     @catch_etcd_errors
     def take_leader(self):
         return self.client.set(self.client_path('/leader'), self._name, self.ttl)
 
-    @catch_etcd_errors
     def attempt_to_acquire_leader(self):
-        ret = self.client.write(self.client_path('/leader'), self._name, ttl=self.ttl, prevExist=False)
-        ret or logger.info('Could not take out TTL lock')
-        return ret
+        try:
+            return not self.retry(self.client.write, self.client_path('/leader'),
+                                  self._name, ttl=self.ttl, prevExist=False) is None
+        except etcd.EtcdAlreadyExist:
+            logger.info('Could not take out TTL lock')
+        except (RetryFailedError, etcd.EtcdException):
+            pass
+        return False
 
     @catch_etcd_errors
     def write_leader_optime(self, state_handler):
@@ -211,13 +229,13 @@ class Etcd(AbstractDCS):
 
     @catch_etcd_errors
     def update_leader(self, state_handler):
-        ret = self.client.test_and_set(self.client_path('/leader'), self._name, self._name, self.ttl)
+        ret = self.retry(self.client.test_and_set, self.client_path('/leader'), self._name, self._name, self.ttl)
         ret and self.write_leader_optime(state_handler)
         return ret
 
     @catch_etcd_errors
     def race(self, path):
-        return self.client.write(self.client_path(path), self._name, prevExist=False)
+        return self.retry(self.client.write, self.client_path(path), self._name, prevExist=False)
 
     @catch_etcd_errors
     def delete_leader(self):
