@@ -1,5 +1,8 @@
-|Build Status| |Coverage Status| # Patroni: A Template for PostgreSQL HA
-with ZooKeeper or etcd
+|Build Status| |Coverage Status|
+
+===
+Patroni: A Template for PostgreSQL HA with ZooKeeper or etcd
+===
 
 Patroni was previously known as Governor.
 
