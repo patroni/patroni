@@ -202,7 +202,7 @@ class TestClient(unittest.TestCase):
         self.assertRaises(urllib3.exceptions.TimeoutError, self.client._result_from_response, response)
         response.content = 'Exception'
         self.assertRaises(etcd.EtcdException, self.client._result_from_response, response)
-        response.content = '{}'
+        response.content = b'{}'
         self.assertRaises(etcd.EtcdException, self.client._result_from_response, response)
 
     def test__get_machines_cache_from_srv(self):

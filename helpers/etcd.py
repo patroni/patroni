@@ -211,7 +211,7 @@ class Etcd(AbstractDCS):
 
     @catch_etcd_errors
     def take_leader(self):
-        return self.client.set(self.client_path('/leader'), self._name, self.ttl)
+        return self.retry(self.client.set, self.client_path('/leader'), self._name, self.ttl)
 
     def attempt_to_acquire_leader(self):
         try:
