@@ -1,6 +1,7 @@
 import abc
 
 from collections import namedtuple
+from helpers import DCSError
 from helpers.utils import calculate_ttl, sleep
 from six.moves.urllib_parse import urlparse, urlunparse, parse_qsl
 
@@ -20,20 +21,6 @@ def parse_connection_string(value):
     conn_url = urlunparse((scheme, netloc, path, params, '', fragment))
     api_url = ([v for n, v in parse_qsl(query) if n == 'application_name'] or [None])[0]
     return conn_url, api_url
-
-
-class DCSError(Exception):
-    """Parent class for all kind of exceptions related to selected distributed configuration store"""
-
-    def __init__(self, value):
-        self.value = value
-
-    def __str__(self):
-        """
-        >>> str(DCSError('foo'))
-        "'foo'"
-        """
-        return repr(self.value)
 
 
 class Member(namedtuple('Member', 'index,name,conn_url,api_url,expiration,ttl')):
