@@ -1,4 +1,5 @@
 import datetime
+import helpers.consul
 import helpers.zookeeper
 import psycopg2
 import subprocess
@@ -8,6 +9,7 @@ import unittest
 import yaml
 
 from helpers.api import RestApiServer
+from helpers.consul import Consul
 from helpers.dcs import Cluster, Member
 from helpers.etcd import Etcd
 from helpers.zookeeper import ZooKeeper
@@ -75,7 +77,9 @@ class TestPatroni(unittest.TestCase):
 
     def test_get_dcs(self):
         helpers.zookeeper.KazooClient = MockKazooClient
+        Consul.create_or_restore_session = nop
         self.assertIsInstance(self.p.get_dcs('', {'zookeeper': {'scope': '', 'hosts': ''}}), ZooKeeper)
+        self.assertIsInstance(self.p.get_dcs('', {'consul': {'scope': '', 'hosts': '127.0.0.1:1'}}), Consul)
         self.assertRaises(Exception, self.p.get_dcs, '', {})
 
     def test_patroni_main(self):
@@ -146,4 +150,6 @@ class TestPatroni(unittest.TestCase):
 
     def test_schedule_next_run(self):
         self.p.next_run = time.time() - self.p.nap_time - 1
+        self.p.schedule_next_run()
+        self.p.postgresql.is_promoted = True
         self.p.schedule_next_run()
