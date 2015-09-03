@@ -133,5 +133,5 @@ then
         sleep 60
     done
 else
-    exec /patroni/patroni.py /patroni/postgres.yml
+    exec patroni /patroni/postgres.yml
 fi

@@ -5,12 +5,12 @@ import sys
 import time
 import yaml
 
-from patroni.helpers.api import RestApiServer
-from patroni.helpers.etcd import Etcd
-from patroni.helpers.ha import Ha
-from patroni.helpers.postgresql import Postgresql
-from patroni.helpers.utils import setup_signal_handlers, sleep
-from patroni.helpers.zookeeper import ZooKeeper
+from .helpers.api import RestApiServer
+from .helpers.etcd import Etcd
+from .helpers.ha import Ha
+from .helpers.postgresql import Postgresql
+from .helpers.utils import setup_signal_handlers, sleep
+from .helpers.zookeeper import ZooKeeper
 
 logger = logging.getLogger(__name__)
 

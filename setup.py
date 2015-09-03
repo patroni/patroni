@@ -18,6 +18,7 @@ if sys.version_info < (2, 7, 0):
 
 __location__ = os.path.join(os.getcwd(), os.path.dirname(inspect.getfile(inspect.currentframe())))
 
+
 def read_version(package):
     data = {}
     with open(os.path.join(package, '__init__.py'), 'r') as fd:
@@ -56,6 +57,8 @@ CLASSIFIERS = [
     'Programming Language :: Python :: Implementation :: CPython',
 ]
 
+CONSOLE_SCRIPTS = ['patroni = patroni.patroni:main']
+
 
 class PyTest(TestCommand):
 
@@ -91,7 +94,6 @@ class PyTest(TestCommand):
             params['plugins'] = ['cov']
         if self.junitxml:
             params['args'] += self.junitxml
-        #params['args'] += ['--doctest-modules', MAIN_PACKAGE, '--doctest-modules', HELPERS, '--doctest-modules', SCRIPTS, '-s']
         params['args'] += ['--doctest-modules', MAIN_PACKAGE, '-s', '-vv']
         errno = pytest.main(**params)
         sys.exit(errno)
@@ -144,6 +146,7 @@ def setup_package():
         cmdclass=cmdclass,
         tests_require=['pytest-cov', 'pytest'],
         command_options=command_options,
+        entry_points={'console_scripts': CONSOLE_SCRIPTS},
     )
 
 
