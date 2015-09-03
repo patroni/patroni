@@ -51,12 +51,12 @@ def kv_delete(self, key, *args, **kwargs):
 
 
 def session_renew(self, session):
-    if session == 'fd4f44fe-2cac-bba5-a60b-304b51ff39b7':
-        return None
     raise NotFound
 
 
 def session_create(self, *args, **kwargs):
+    if kwargs.get('name', None) == 'test-postgresql1':
+        return 'fd4f44fe-2cac-bba5-a60b-304b51ff39b7'
     raise ConsulException
 
 
@@ -82,12 +82,15 @@ class TestConsul(unittest.TestCase):
 
     def test_referesh_session(self):
         self.c._session = '1'
+        self.c._name = ''
         self.assertRaises(ConsulError, self.c.referesh_session)
 
     def test_create_session(self):
         time.sleep = time_sleep_exception
         self.c._session = None
+        self.c._name = ''
         self.assertRaises(SleepException, self.c.create_session, True)
+        self.c.create_session()
 
     def test_get_cluster(self):
         self.c._base_path = '/service/test'
