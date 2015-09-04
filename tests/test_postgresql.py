@@ -111,7 +111,6 @@ class TestPostgresql(unittest.TestCase):
                              'pg_hba': ['hostssl all all 0.0.0.0/0 md5', 'host all all 0.0.0.0/0 md5'],
                              'superuser': {'password': ''},
                              'admin': {'username': 'admin', 'password': 'admin'},
-                             'use_slots' : True,
                              'replication': {'username': 'replicator',
                                              'password': 'rep-pass',
                                              'network': '127.0.0.1/32'},
@@ -120,7 +119,7 @@ class TestPostgresql(unittest.TestCase):
                                            'on_restart': 'true', 'on_role_change': 'true',
                                            'on_reload': 'true'
                                            },
-                             'restore': '/usr/bin/true'})
+                             'restore': 'true'})
         psycopg2.connect = psycopg2_connect
         if not os.path.exists(self.p.data_dir):
             os.makedirs(self.p.data_dir)

@@ -50,7 +50,7 @@ class Postgresql:
         self.superuser = config['superuser']
         self.admin = config['admin']
         self.callback = config.get('callbacks', {})
-        self.use_slots = config.get('use_slots',True)
+        self.use_slots = config.get('use_slots', True)
         self.recovery_conf = os.path.join(self.data_dir, 'recovery.conf')
         self.configuration_to_save = (os.path.join(self.data_dir, 'pg_hba.conf'),
                                       os.path.join(self.data_dir, 'postgresql.conf'))
@@ -256,9 +256,9 @@ class Postgresql:
                 member_conn = psycopg2.connect(**r)
                 member_conn.autocommit = True
                 member_cursor = member_conn.cursor()
-                member_cursor.execute("""SELECT pg_is_in_recovery(),
-                                      %s - pg_xlog_location_diff(pg_last_xlog_replay_location(),'0/00000')""",
-                                      (self.xlog_position(), ))
+                member_cursor.execute(
+                    "SELECT pg_is_in_recovery(), %s - pg_xlog_location_diff(pg_last_xlog_replay_location(),'0/0')",
+                    (self.xlog_position(), ))
                 row = member_cursor.fetchone()
                 member_cursor.close()
                 member_conn.close()
@@ -362,8 +362,8 @@ recovery_target_timeline = 'latest'
 
     def xlog_position(self):
         return self.query("""SELECT CASE WHEN pg_is_in_recovery()
-                             THEN pg_xlog_location_diff(pg_last_xlog_replay_location(),'0/0000000')
-                             ELSE pg_xlog_location_diff(pg_current_xlog_location(),'0/00000') END""").fetchone()[0]
+                               THEN pg_xlog_location_diff(pg_last_xlog_replay_location(),'0/0')
+                               ELSE pg_xlog_location_diff(pg_current_xlog_location(),'0/0') END""").fetchone()[0]
 
     def load_replication_slots(self):
         if self.use_slots:
@@ -375,14 +375,14 @@ recovery_target_timeline = 'latest'
             # drop unused slots
             for slot in set(self.members) - set(members):
                 self.query("""SELECT pg_drop_replication_slot(%s)
-                            WHERE EXISTS(SELECT 1 FROM pg_replication_slots
-                            WHERE slot_name = %s)""", slot, slot)
+                               WHERE EXISTS(SELECT 1 FROM pg_replication_slots
+                               WHERE slot_name = %s)""", slot, slot)
 
             # create new slots
             for slot in set(members) - set(self.members):
                 self.query("""SELECT pg_create_physical_replication_slot(%s)
-                            WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots
-                            WHERE slot_name = %s)""", slot, slot)
+                               WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots
+                               WHERE slot_name = %s)""", slot, slot)
 
         self.members = members
 
