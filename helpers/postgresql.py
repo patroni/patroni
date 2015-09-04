@@ -65,6 +65,7 @@ class Postgresql:
         connect_address = config.get('connect_address', None) or self.local_address
         self.connection_string = 'postgres://{username}:{password}@{connect_address}/postgres'.format(
             connect_address=connect_address, **self.replication)
+        self.connect_address = connect_address.split(':')
 
         self._connection = None
         self._cursor_holder = None
