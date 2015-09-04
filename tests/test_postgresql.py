@@ -21,13 +21,14 @@ def false(*args, **kwargs):
 
 
 class MockCursor:
+    _count = 0
 
     def __init__(self):
         self.closed = False
-        self.current = 0
         self.results = []
 
     def execute(self, sql, *params):
+        MockCursor._count += 1
         if sql.startswith('blabla'):
             raise psycopg2.OperationalError()
         elif sql.startswith('InterfaceError'):
@@ -36,15 +37,15 @@ class MockCursor:
             self.results = [('blabla',), ('foobar',)]
         elif sql.startswith('SELECT pg_current_xlog_location()'):
             self.results = [(0,)]
-        elif sql.startswith('SELECT pg_is_in_recovery(), %s'):
-            if params[0][0] == 1:
+        elif sql.startswith('SELECT pg_is_in_recovery(), COALESCE'):
+            if MockCursor._count == 1:
                 raise psycopg2.OperationalError()
-            elif params[0][0] == 2:
-                self.results = [(True, -1)]
+            elif MockCursor._count == 2:
+                self.results = [(True, '0/1')]
             else:
-                self.results = [(False, 0)]
+                self.results = [(False, '0/1')]
         elif sql.startswith('SELECT CASE WHEN pg_is_in_recovery()'):
-            self.results = [(0,)]
+            self.results = [('0/0', )]
         elif sql.startswith('SELECT pg_is_in_recovery()'):
             self.results = [(False, )]
         elif sql.startswith('SELECT to_char(pg_postmaster_start_time'):
@@ -184,12 +185,14 @@ class TestPostgresql(unittest.TestCase):
         cluster = Cluster(True, self.leader, 0, [self.me, self.other, self.leader])
         self.assertTrue(self.p.is_healthiest_node(cluster))
         self.p.is_leader = false
+        MockCursor._count = 0
         self.assertFalse(self.p.is_healthiest_node(cluster))
+        MockCursor._count = 0
         self.p.xlog_position = lambda: 1
         self.assertTrue(self.p.is_healthiest_node(cluster))
         self.p.xlog_position = lambda: 2
         self.assertFalse(self.p.is_healthiest_node(cluster))
-        self.p.config['maximum_lag_on_failover'] = -2
+        self.p.config['maximum_lag_on_failover'] = -3
         self.assertFalse(self.p.is_healthiest_node(cluster))
 
     def test_is_leader(self):
