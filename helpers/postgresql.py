@@ -43,6 +43,7 @@ class Postgresql:
     def __init__(self, config):
         self.config = config
         self.name = config['name']
+        
         self.scope = config['scope']
         self.listen_addresses, self.port = config['listen'].split(':')
         self.data_dir = config['data_dir']
@@ -50,6 +51,7 @@ class Postgresql:
         self.superuser = config['superuser']
         self.admin = config['admin']
         self.callback = config.get('callbacks', {})
+        self.use_slots = config['use_slots']
         self.recovery_conf = os.path.join(self.data_dir, 'recovery.conf')
         self.configuration_to_save = (os.path.join(self.data_dir, 'pg_hba.conf'),
                                       os.path.join(self.data_dir, 'postgresql.conf'))
@@ -365,22 +367,24 @@ primary_conninfo = '{}'
                                          ELSE pg_current_xlog_location() - '0/00000'::pg_lsn END""").fetchone()[0]
 
     def load_replication_slots(self):
-        cursor = self.query("SELECT slot_name FROM pg_replication_slots WHERE slot_type='physical'")
-        self.members = [r[0] for r in cursor]
+        if self.use_slots:
+            cursor = self.query("SELECT slot_name FROM pg_replication_slots WHERE slot_type='physical'")
+            self.members = [r[0] for r in cursor]
 
     def sync_replication_slots(self, members):
-        # drop unused slots
-        for slot in set(self.members) - set(members):
-            self.query("""SELECT pg_drop_replication_slot(%s)
-                           WHERE EXISTS(SELECT 1 FROM pg_replication_slots
-                           WHERE slot_name = %s)""", slot, slot)
+        if self.use_slots:
+            # drop unused slots
+            for slot in set(self.members) - set(members):
+                self.query("""SELECT pg_drop_replication_slot(%s)
+                            WHERE EXISTS(SELECT 1 FROM pg_replication_slots
+                            WHERE slot_name = %s)""", slot, slot)
 
-        # create new slots
-        for slot in set(members) - set(self.members):
-            self.query("""SELECT pg_create_physical_replication_slot(%s)
-                           WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots
-                           WHERE slot_name = %s)""", slot, slot)
-        self.members = members
+            # create new slots
+            for slot in set(members) - set(self.members):
+                self.query("""SELECT pg_create_physical_replication_slot(%s)
+                            WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots
+                            WHERE slot_name = %s)""", slot, slot)
+            self.members = members
 
     def create_replication_slots(self, cluster):
         self.sync_replication_slots([m.name for m in cluster.members if m.name != self.name])
