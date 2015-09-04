@@ -131,7 +131,7 @@ class Postgresql:
     def sync_from_leader(self, leader):
         r = parseurl(leader.conn_url)
 
-        pgpass = 'pgpass'
+        pgpass = self.config.get('pgpass_file', 'pgpass')
         with open(pgpass, 'w') as f:
             os.fchmod(f.fileno(), 0o600)
             f.write('{host}:{port}:*:{user}:{password}\n'.format(**r))

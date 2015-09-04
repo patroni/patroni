@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 class Patroni:
 
     def __init__(self, config):
+        assert config["etcd"]["ttl"] > 2 * config["loop_wait"]
+
         self.nap_time = config['loop_wait']
         self.postgresql = Postgresql(config['postgresql'])
         self.ha = Ha(self.postgresql, self.get_dcs(self.postgresql.name, config))
