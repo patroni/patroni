@@ -123,7 +123,16 @@ class Postgresql:
 
     def initialize(self):
         ret = subprocess.call(self._pg_ctl + ['initdb', '-o', '--encoding=UTF8']) == 0
-        ret and self.write_pg_hba()
+
+        # start Postgresql without opts to create users (leader without synchronous standby isn't writable)
+        ret = ret and subprocess.call(self._pg_ctl + ['start']) == 0
+        if ret:
+            self.create_replication_user()
+            self.create_connection_users()
+            ret = subprocess.call(self._pg_ctl + ['stop', '-m', 'fast']) == 0
+
+            # write pg_hba.conf
+            self.write_pg_hba()
         return ret
 
     def delete_trigger_file(self):

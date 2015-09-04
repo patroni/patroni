@@ -59,8 +59,6 @@ class Patroni:
                 self.postgresql.initialize()
                 self.ha.dcs.take_leader()
                 self.postgresql.start()
-                self.postgresql.create_replication_user()
-                self.postgresql.create_connection_users()
             else:
                 while True:
                     leader = self.ha.dcs.current_leader()
