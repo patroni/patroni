@@ -258,7 +258,7 @@ class Postgresql:
                 member_conn.autocommit = True
                 member_cursor = member_conn.cursor()
                 member_cursor.execute(
-                    "SELECT pg_is_in_recovery(), %s - (pg_last_xlog_replay_location() - '0/0000000'::pg_lsn)",
+                    "SELECT pg_is_in_recovery(), %s - pg_xlog_location_diff(pg_last_xlog_replay_location(),'0/0000000')",
                     (self.xlog_position(), ))
                 row = member_cursor.fetchone()
                 member_cursor.close()
@@ -307,10 +307,9 @@ class Postgresql:
 recovery_target_timeline = 'latest'
 """)
             if leader and leader.conn_url:
-                f.write("""
-primary_slot_name = '{}'
-primary_conninfo = '{}'
-""".format(self.name, self.primary_conninfo(leader.conn_url)))
+                f.write("""primary_conninfo = '{}'\n""".format(self.primary_conninfo(leader.conn_url)))
+                if self.use_slots:
+                    f.write("""primary_slot_name = '{}'\n""".format(self.name))
                 for name, value in self.config.get('recovery_conf', {}).items():
                     f.write("{} = '{}'\n".format(name, value))
 
@@ -363,8 +362,8 @@ primary_conninfo = '{}'
 
     def xlog_position(self):
         return self.query("""SELECT CASE WHEN pg_is_in_recovery()
-                                         THEN pg_last_xlog_replay_location() - '0/0000000'::pg_lsn
-                                         ELSE pg_current_xlog_location() - '0/00000'::pg_lsn END""").fetchone()[0]
+                                         THEN pg_xlog_location_diff(pg_last_xlog_replay_location(),'0/0000000')
+                                         ELSE pg_xlog_location_diff(pg_current_xlog_location(),'0/00000') END""").fetchone()[0]
 
     def load_replication_slots(self):
         if self.use_slots:
