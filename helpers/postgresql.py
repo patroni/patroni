@@ -50,7 +50,7 @@ class Postgresql:
         self.superuser = config['superuser']
         self.admin = config['admin']
         self.callback = config.get('callbacks', {})
-        self.use_slots = config['use_slots']
+        self.use_slots = config.get('use_slots',True)
         self.recovery_conf = os.path.join(self.data_dir, 'recovery.conf')
         self.configuration_to_save = (os.path.join(self.data_dir, 'pg_hba.conf'),
                                       os.path.join(self.data_dir, 'postgresql.conf'))
