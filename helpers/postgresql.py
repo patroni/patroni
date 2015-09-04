@@ -382,8 +382,8 @@ recovery_target_timeline = 'latest'
                 self.query("""SELECT pg_create_physical_replication_slot(%s)
                             WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots
                             WHERE slot_name = %s)""", slot, slot)
-                
-         self.members = members
+
+        self.members = members
 
     def create_replication_slots(self, cluster):
         self.sync_replication_slots([m.name for m in cluster.members if m.name != self.name])
