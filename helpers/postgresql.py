@@ -82,7 +82,7 @@ class Postgresql:
             r = parseurl('postgres://{}/postgres'.format(self.local_address))
             self._connection = psycopg2.connect(**r)
             self._connection.autocommit = True
-        Postgresql._SERVER_VERSION = self._connection.server_version
+            Postgresql._SERVER_VERSION = self._connection.server_version
         return self._connection
 
     def _cursor(self):
@@ -358,8 +358,8 @@ recovery_target_timeline = 'latest'
 
     def xlog_position(self):
         lsn = self.query("""SELECT CASE WHEN pg_is_in_recovery()
-                               THEN pg_last_xlog_replay_location()
-                               ELSE pg_current_xlog_location() END""").fetchone()[0]
+                                        THEN pg_last_xlog_replay_location()
+                                        ELSE pg_current_xlog_location() END""").fetchone()[0]
         return self.lsn_to_bytes(lsn)
 
     def load_replication_slots(self):
