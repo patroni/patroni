@@ -94,8 +94,8 @@ class Patroni:
                     self.ha.state_handler.drop_replication_slots()
             except:
                 logger.exception('Exception when changing replication slots')
-            self.schedule_next_run()
             reap_children()
+            self.schedule_next_run()
 
 
 def main():

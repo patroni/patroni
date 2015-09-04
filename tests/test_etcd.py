@@ -26,6 +26,10 @@ class MockResponse:
 
     @property
     def data(self):
+        if self.content == 'TimeoutError':
+            raise urllib3.exceptions.TimeoutError
+        if self.content == 'Exception':
+            raise Exception
         return self.content
 
     @property
@@ -76,6 +80,8 @@ def etcd_watch(key, index=None, timeout=None, recursive=None):
 
 
 def etcd_write(key, value, **kwargs):
+    if key == '/service/exists/leader':
+        raise etcd.EtcdAlreadyExist
     if key == '/service/test/leader':
         if kwargs.get('prevValue', None) == 'foo' or not kwargs.get('prevExist', True):
             return True
@@ -190,6 +196,15 @@ class TestClient(unittest.TestCase):
         self.assertEquals(self.client.get_srv_record('blabla'), [])
         self.assertEquals(self.client.get_srv_record('exception'), [])
 
+    def test__result_from_response(self):
+        response = MockResponse()
+        response.content = 'TimeoutError'
+        self.assertRaises(urllib3.exceptions.TimeoutError, self.client._result_from_response, response)
+        response.content = 'Exception'
+        self.assertRaises(etcd.EtcdException, self.client._result_from_response, response)
+        response.content = b'{}'
+        self.assertRaises(etcd.EtcdException, self.client._result_from_response, response)
+
     def test__get_machines_cache_from_srv(self):
         self.client.get_srv_record = lambda e: [('localhost', 2380)]
         self.client._get_machines_cache_from_srv('blabla')
@@ -241,6 +256,12 @@ class TestEtcd(unittest.TestCase):
 
     def test_take_leader(self):
         self.assertFalse(self.etcd.take_leader())
+
+    def testattempt_to_acquire_leader(self):
+        self.etcd._base_path = '/service/exists'
+        self.assertFalse(self.etcd.attempt_to_acquire_leader())
+        self.etcd._base_path = '/service/failed'
+        self.assertFalse(self.etcd.attempt_to_acquire_leader())
 
     def test_update_leader(self):
         self.assertTrue(self.etcd.update_leader(MockPostgresql()))
