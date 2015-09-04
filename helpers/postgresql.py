@@ -43,7 +43,6 @@ class Postgresql:
     def __init__(self, config):
         self.config = config
         self.name = config['name']
-        
         self.scope = config['scope']
         self.listen_addresses, self.port = config['listen'].split(':')
         self.data_dir = config['data_dir']
@@ -257,8 +256,8 @@ class Postgresql:
                 member_conn = psycopg2.connect(**r)
                 member_conn.autocommit = True
                 member_cursor = member_conn.cursor()
-                member_cursor.execute(
-                    "SELECT pg_is_in_recovery(), %s - pg_xlog_location_diff(pg_last_xlog_replay_location(),'0/0000000')",
+                member_cursor.execute("""SELECT pg_is_in_recovery(), 
+                    %s - pg_xlog_location_diff(pg_last_xlog_replay_location(),'0/0000000')""",
                     (self.xlog_position(), ))
                 row = member_cursor.fetchone()
                 member_cursor.close()
@@ -362,8 +361,8 @@ recovery_target_timeline = 'latest'
 
     def xlog_position(self):
         return self.query("""SELECT CASE WHEN pg_is_in_recovery()
-                                         THEN pg_xlog_location_diff(pg_last_xlog_replay_location(),'0/0000000')
-                                         ELSE pg_xlog_location_diff(pg_current_xlog_location(),'0/00000') END""").fetchone()[0]
+                             THEN pg_xlog_location_diff(pg_last_xlog_replay_location(),'0/0000000')
+                             ELSE pg_xlog_location_diff(pg_current_xlog_location(),'0/00000') END""").fetchone()[0]
 
     def load_replication_slots(self):
         if self.use_slots:
