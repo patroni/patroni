@@ -2,7 +2,7 @@ import os
 import time
 import unittest
 
-from helpers.utils import reap_children, sigchld_handler, sigterm_handler, sleep
+from patroni.utils import reap_children, sigchld_handler, sigterm_handler, sleep
 
 
 def nop(*args, **kwargs):

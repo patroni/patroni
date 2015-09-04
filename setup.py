@@ -19,13 +19,20 @@ if sys.version_info < (2, 7, 0):
 __location__ = os.path.join(os.getcwd(), os.path.dirname(inspect.getfile(inspect.currentframe())))
 
 
+def read_version(package):
+    data = {}
+    with open(os.path.join(package, 'version.py'), 'r') as fd:
+        exec(fd.read(), data)
+    return data['__version__']
+
+
 NAME = 'patroni'
-MAIN_PACKAGE = 'patroni.py'
-HELPERS = 'helpers'
+MAIN_PACKAGE = NAME
 SCRIPTS = 'scripts'
+VERSION = read_version(MAIN_PACKAGE)
 VERSION = '0.1'
 DESCRIPTION = 'A Template for PostgreSQL HA with etcd'
-LICENSE = 'The MIT License'
+LICENSE = 'MIT License'
 
 COVERAGE_XML = True
 COVERAGE_HTML = False
@@ -62,8 +69,7 @@ class PyTest(TestCommand):
     def finalize_options(self):
         TestCommand.finalize_options(self)
         if self.cov_xml or self.cov_html:
-            self.cov = ['--cov', MAIN_PACKAGE, '--cov', HELPERS, '--cov', SCRIPTS, '--cov-report',
-                        'term-missing']
+            self.cov = ['--cov', MAIN_PACKAGE, '--cov', MAIN_PACKAGE, '--cov-report', 'term-missing']
             if self.cov_xml:
                 self.cov.extend(['--cov-report', 'xml'])
             if self.cov_html:
@@ -82,7 +88,7 @@ class PyTest(TestCommand):
             params['plugins'] = ['cov']
         if self.junitxml:
             params['args'] += self.junitxml
-        params['args'] += ['--doctest-modules', HELPERS, '--doctest-modules', SCRIPTS, '-s']
+        params['args'] += ['--doctest-modules', MAIN_PACKAGE, '-s', '-vv']
         errno = pytest.main(**params)
         sys.exit(errno)
 

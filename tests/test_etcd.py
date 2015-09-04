@@ -8,9 +8,9 @@ import time
 import unittest
 
 from dns.exception import DNSException
-from helpers.dcs import Cluster, DCSError, Member
-from helpers.etcd import Client, Etcd
 from mock import Mock, patch
+from patroni.dcs import Cluster, DCSError, Member
+from patroni.etcd import Client, Etcd
 
 
 class MockResponse:
