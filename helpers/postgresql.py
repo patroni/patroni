@@ -4,13 +4,9 @@ import psycopg2
 import shlex
 import shutil
 import subprocess
-import six
 
 from helpers.utils import sleep
 from six.moves.urllib_parse import urlparse
-
-if six.PY3:
-    long = int
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +35,7 @@ def parseurl(url):
 
 
 class Postgresql:
+    _SERVER_VERSION = 90400
 
     def __init__(self, config):
         self.config = config
@@ -85,6 +82,7 @@ class Postgresql:
             r = parseurl('postgres://{}/postgres'.format(self.local_address))
             self._connection = psycopg2.connect(**r)
             self._connection.autocommit = True
+        self._SERVER_VERSION = self._connection.server_version
         return self._connection
 
     def _cursor(self):
@@ -394,3 +392,30 @@ recovery_target_timeline = 'latest'
 
     def last_operation(self):
         return str(self.xlog_position())
+
+    @staticmethod
+    def lsn_to_bytes(value):
+        """
+        >>> Postgresql.lsn_to_bytes('1/66000060')
+        6006243424
+        >>> Postgresql.lsn_to_bytes('j/66000060')
+        0
+        """
+        try:
+            multiplier = 0xFF000000 if Postgresql._SERVER_VERSION < 90300 else 0x100000000
+            e = value.split('/')
+            if len(e) == 2 and len(e[0]) > 0 and len(e[1]) > 0:
+                return int(e[0], 16) * multiplier + int(e[1], 16)
+        except ValueError:
+            return 0
+
+    @staticmethod
+    def bytes_to_lsn(value):
+        """
+        >>> Postgresql.bytes_to_lsn(6006243424)
+        '1/66000060'
+        """
+        divider = 0xFF000000 if Postgresql._SERVER_VERSION < 90300 else 0x100000000
+        segment = value / divider
+        offset = value % divider
+        return '%X/%X' % (segment, offset)

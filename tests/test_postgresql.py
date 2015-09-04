@@ -79,6 +79,7 @@ class MockConnect:
     def __init__(self):
         self.autocommit = False
         self.closed = 0
+        self.server_version = 90400
 
     def cursor(self):
         return MockCursor()
