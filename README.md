@@ -67,6 +67,7 @@ For an example file, see `postgres0.yml`.  Below is an explanation of settings:
   * *connect_address*: ip address + port through which Postgres is accessible from other nodes and applications.
   * *data_dir*: file path to initialize and store Postgres data files
   * *maximum_lag_on_failover*: the maximum bytes a follower may lag before it is not eligible become leader
+  * *use_slots*: whether or not to use replication_slots.  Must be False for PostgreSQL 9.3.
   * *pg_hba*: list of lines which should be added to pg_hba.conf
     * *- host all all 0.0.0.0/0 md5*
   * *replication*
@@ -84,8 +85,8 @@ For an example file, see `postgres0.yml`.  Below is an explanation of settings:
   * *admin*:
     * *username*: admin username, user will be created during initialization. It would have CREATEDB and CREATEROLE privileges
     * *password*: admin password, user will be created during initialization.
-  * *recovery_conf*: configuration settings written to recovery.conf when configuring follower
-  * *parameters*: list of configuration settings for Postgres
+  * *recovery_conf*: additional configuration settings written to recovery.conf when configuring follower
+  * *parameters*: list of configuration settings for Postgres.  Many of these are required for replication to work.
 
 ## Replication choices
 
