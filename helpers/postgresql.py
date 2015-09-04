@@ -257,7 +257,7 @@ class Postgresql:
                 member_conn.autocommit = True
                 member_cursor = member_conn.cursor()
                 member_cursor.execute("""SELECT pg_is_in_recovery(),
-                                      %s - pg_xlog_location_diff(pg_last_xlog_replay_location(),'0/0000000')""",
+                                      %s - pg_xlog_location_diff(pg_last_xlog_replay_location(),'0/00000')""",
                                       (self.xlog_position(), ))
                 row = member_cursor.fetchone()
                 member_cursor.close()
