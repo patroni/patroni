@@ -95,7 +95,7 @@ class Patroni:
                     # SkyDNS2 support: publish leader
                     if self.skydns2:
                         self.ha.dcs.client.set(self.skydns2['publish_leader'],
-                            '{{"host": "{0}", "port": {1}}}'.format(*self.postgres.connect_address), ttl=self.skydns2['ttl'])
+                            '{{"host": "{0}", "port": {1}}}'.format(*self.postgresql.connect_address), ttl=self.skydns2['ttl'])
                 else:
                     self.ha.state_handler.drop_replication_slots()
             except:
