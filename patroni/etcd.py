@@ -10,8 +10,8 @@ import urllib3
 
 from dns.exception import DNSException
 from dns import resolver
-from helpers.dcs import AbstractDCS, Cluster, DCSError, Leader, Member, parse_connection_string
-from helpers.utils import Retry, RetryFailedError, sleep
+from patroni.dcs import AbstractDCS, Cluster, DCSError, Leader, Member, parse_connection_string
+from patroni.utils import Retry, RetryFailedError, sleep
 from requests.exceptions import RequestException
 
 logger = logging.getLogger(__name__)

@@ -6,7 +6,7 @@ import signal
 import sys
 import time
 
-from helpers import DCSError
+from patroni.exceptions import DCSError
 
 interrupted_sleep = False
 reap_children = False
@@ -87,10 +87,12 @@ def reap_children():
 
 
 class RetryFailedError(DCSError):
+
     """Raised when retrying an operation ultimately failed, after retrying the maximum number of attempts."""
 
 
 class Retry:
+
     """Helper for retrying a method in the face of retry-able exceptions"""
 
     def __init__(self, max_tries=1, delay=0.1, backoff=2, max_jitter=0.8, max_delay=3600,

@@ -1,8 +1,8 @@
 import abc
 
 from collections import namedtuple
-from helpers import DCSError
-from helpers.utils import calculate_ttl, sleep
+from patroni.exceptions import DCSError
+from patroni.utils import calculate_ttl, sleep
 from six.moves.urllib_parse import urlparse, urlunparse, parse_qsl
 
 
@@ -24,6 +24,7 @@ def parse_connection_string(value):
 
 
 class Member(namedtuple('Member', 'index,name,conn_url,api_url,expiration,ttl')):
+
     """Immutable object (namedtuple) which represents single member of PostgreSQL cluster.
     Consists of the following fields:
     :param index: modification index of a given member key in a Configuration Store
@@ -38,6 +39,7 @@ class Member(namedtuple('Member', 'index,name,conn_url,api_url,expiration,ttl'))
 
 
 class Leader(namedtuple('Leader', 'index,expiration,ttl,member')):
+
     """Immutable object (namedtuple) which represents leader key.
     Consists of the following fields:
     :param index: modification index of a leader key in a Configuration Store
@@ -55,6 +57,7 @@ class Leader(namedtuple('Leader', 'index,expiration,ttl,member')):
 
 
 class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,members')):
+
     """Immutable object (namedtuple) which represents PostgreSQL cluster.
     Consists of the following fields:
     :param initialize: boolean, shows whether this cluster has initialization key stored in DC or not.

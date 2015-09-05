@@ -2,7 +2,7 @@ import unittest
 import requests
 import boto.ec2
 from collections import namedtuple
-from scripts.aws import AWSConnection
+from patroni.scripts.aws import AWSConnection
 from requests.exceptions import RequestException
 
 

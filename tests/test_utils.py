@@ -2,8 +2,8 @@ import os
 import time
 import unittest
 
-from helpers import DCSError
-from helpers.utils import Retry, RetryFailedError, reap_children, sigchld_handler, sigterm_handler, sleep
+from patroni.exceptions import DCSError
+from patroni.utils import Retry, RetryFailedError, reap_children, sigchld_handler, sigterm_handler, sleep
 
 
 def nop(*args, **kwargs):
@@ -92,7 +92,7 @@ class TestRetrySleeper(unittest.TestCase):
             pass
 
         retry = self._makeOne(deadline=0.0001, sleep_func=sleep_func)
-        self.assertRaises(RetryFailedError, retry, self._fail(times=10))
+        self.assertRaises(RetryFailedError, retry, self._fail(times=100))
 
     def test_copy(self):
         _sleep = lambda t: None

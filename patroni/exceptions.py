@@ -3,6 +3,7 @@ class PatroniException(Exception):
 
 
 class DCSError(PatroniException):
+
     """Parent class for all kind of exceptions related to selected distributed configuration store"""
 
     def __init__(self, value):
