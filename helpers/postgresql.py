@@ -35,7 +35,6 @@ def parseurl(url):
 
 
 class Postgresql:
-    _SERVER_VERSION = 90400
 
     def __init__(self, config):
         self.config = config
@@ -82,7 +81,6 @@ class Postgresql:
             r = parseurl('postgres://{}/postgres'.format(self.local_address))
             self._connection = psycopg2.connect(**r)
             self._connection.autocommit = True
-            Postgresql._SERVER_VERSION = self._connection.server_version
         return self._connection
 
     def _cursor(self):
@@ -254,7 +252,9 @@ class Postgresql:
                 member_conn = psycopg2.connect(**r)
                 member_conn.autocommit = True
                 member_cursor = member_conn.cursor()
-                member_cursor.execute("SELECT pg_is_in_recovery(), COALESCE(pg_last_xlog_replay_location(), '0/0')")
+                member_cursor.execute(
+                    "SELECT pg_is_in_recovery(), %s - pg_xlog_location_diff(pg_last_xlog_replay_location(), '0/0')",
+                    (self.xlog_position(),))
                 row = member_cursor.fetchone()
                 member_cursor.close()
                 member_conn.close()
@@ -262,7 +262,7 @@ class Postgresql:
                 if not row[0]:
                     logger.warning('Master (%s) is still alive', member.name)
                     return False
-                if self.xlog_position() < self.lsn_to_bytes(row[1], member_conn.server_version):
+                if row[1] < 0:
                     return False
             except psycopg2.Error:
                 continue
@@ -357,10 +357,10 @@ recovery_target_timeline = 'latest'
                 self.admin['username']), self.admin['password'])
 
     def xlog_position(self):
-        lsn = self.query("""SELECT CASE WHEN pg_is_in_recovery()
-                                        THEN pg_last_xlog_replay_location()
-                                        ELSE pg_current_xlog_location() END""").fetchone()[0]
-        return self.lsn_to_bytes(lsn)
+        return self.query("""SELECT pg_xlog_location_diff(CASE WHEN pg_is_in_recovery()
+                                                               THEN pg_last_xlog_replay_location()
+                                                               ELSE pg_current_xlog_location()
+                                                          END, '0/0')""").fetchone()[0]
 
     def load_replication_slots(self):
         if self.use_slots:
@@ -391,34 +391,3 @@ recovery_target_timeline = 'latest'
 
     def last_operation(self):
         return str(self.xlog_position())
-
-    @staticmethod
-    def lsn_to_bytes(value, version=None):
-        """
-        >>> Postgresql.lsn_to_bytes('1/66000060')
-        6006243424
-        >>> Postgresql.lsn_to_bytes('j/66000060')
-        0
-        """
-        if version is None:
-            version = Postgresql._SERVER_VERSION
-        try:
-            multiplier = 0xFF000000 if version < 90300 else 0x100000000
-            e = value.split('/')
-            if len(e) == 2 and len(e[0]) > 0 and len(e[1]) > 0:
-                return int(e[0], 16) * multiplier + int(e[1], 16)
-        except ValueError:
-            return 0
-
-    @staticmethod
-    def bytes_to_lsn(value, version=None):
-        """
-        >>> Postgresql.bytes_to_lsn(6006243424)
-        '1/66000060'
-        """
-        if version is None:
-            version = Postgresql._SERVER_VERSION
-        divider = 0xFF000000 if version < 90300 else 0x100000000
-        segment = value / divider
-        offset = value % divider
-        return '%X/%X' % (segment, offset)
