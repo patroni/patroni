@@ -45,32 +45,6 @@ def calculate_ttl(expiration):
     return int((expiration - now).total_seconds())
 
 
-def lsn_to_bytes(value):
-    """
-    >>> lsn_to_bytes('1/66000060')
-    6006243424
-    >>> lsn_to_bytes('j/66000060')
-    0
-    """
-    try:
-        e = value.split('/')
-        if len(e) == 2 and len(e[0]) > 0 and len(e[1]) > 0:
-            return (int(e[0], 16) << 32) | int(e[1], 16)
-    except ValueError:
-        pass
-    return 0
-
-
-def bytes_to_lsn(value):
-    """
-    >>> bytes_to_lsn(6006243424)
-    '1/66000060'
-    """
-    id = value >> 32
-    off = value & 0xffffffff
-    return '%x/%x' % (id, off)
-
-
 def sigterm_handler(signo, stack_frame):
     sys.exit()
 
