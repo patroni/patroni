@@ -3,14 +3,15 @@ import dns.resolver
 import etcd
 import json
 import requests
+import urllib3
 import socket
 import time
 import unittest
 
 from dns.exception import DNSException
-from patroni.helpers.dcs import Cluster, DCSError, Member
-from patroni.helpers.etcd import Client, Etcd
 from mock import Mock, patch
+from patroni.dcs import Cluster, DCSError, Leader, Member
+from patroni.etcd import Client, Etcd
 
 
 class MockResponse:
@@ -25,6 +26,10 @@ class MockResponse:
 
     @property
     def data(self):
+        if self.content == 'TimeoutError':
+            raise urllib3.exceptions.TimeoutError
+        if self.content == 'Exception':
+            raise Exception
         return self.content
 
     @property
@@ -61,7 +66,22 @@ def requests_get(url, **kwargs):
     return response
 
 
+def etcd_watch(key, index=None, timeout=None, recursive=None):
+    if timeout == 1:
+        raise urllib3.exceptions.TimeoutError
+    elif timeout == 5:
+        return etcd.EtcdResult('delete', {})
+    elif timeout == 10:
+        raise etcd.EtcdException
+    elif index == 20729:
+        return etcd.EtcdResult('set', {'value': 'postgresql1', 'modifiedIndex': index + 1})
+    elif index == 20731:
+        return etcd.EtcdResult('set', {'value': 'postgresql2', 'modifiedIndex': index + 1})
+
+
 def etcd_write(key, value, **kwargs):
+    if key == '/service/exists/leader':
+        raise etcd.EtcdAlreadyExist
     if key == '/service/test/leader':
         if kwargs.get('prevValue', None) == 'foo' or not kwargs.get('prevExist', True):
             return True
@@ -107,8 +127,12 @@ def time_sleep(_):
     pass
 
 
+class SleepException(Exception):
+    pass
+
+
 def time_sleep_exception(_):
-    raise Exception()
+    raise SleepException()
 
 
 class MockSRV:
@@ -172,6 +196,15 @@ class TestClient(unittest.TestCase):
         self.assertEquals(self.client.get_srv_record('blabla'), [])
         self.assertEquals(self.client.get_srv_record('exception'), [])
 
+    def test__result_from_response(self):
+        response = MockResponse()
+        response.content = 'TimeoutError'
+        self.assertRaises(urllib3.exceptions.TimeoutError, self.client._result_from_response, response)
+        response.content = 'Exception'
+        self.assertRaises(etcd.EtcdException, self.client._result_from_response, response)
+        response.content = b'{}'
+        self.assertRaises(etcd.EtcdException, self.client._result_from_response, response)
+
     def test__get_machines_cache_from_srv(self):
         self.client.get_srv_record = lambda e: [('localhost', 2380)]
         self.client._get_machines_cache_from_srv('blabla')
@@ -204,7 +237,7 @@ class TestEtcd(unittest.TestCase):
         time.sleep = time_sleep_exception
         with patch.object(etcd.Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(side_effect=etcd.EtcdException)
-            self.assertRaises(Exception, self.etcd.get_etcd_client, {'discovery_srv': 'test'})
+            self.assertRaises(SleepException, self.etcd.get_etcd_client, {'discovery_srv': 'test'})
 
     def test_get_cluster(self):
         self.assertIsInstance(self.etcd.get_cluster(), Cluster)
@@ -214,7 +247,7 @@ class TestEtcd(unittest.TestCase):
         self.assertIsNone(cluster.leader)
 
     def test_current_leader(self):
-        self.assertIsInstance(self.etcd.current_leader(), Member)
+        self.assertIsInstance(self.etcd.current_leader(), Leader)
         self.etcd._base_path = '/service/noleader'
         self.assertIsNone(self.etcd.current_leader())
 
@@ -223,6 +256,12 @@ class TestEtcd(unittest.TestCase):
 
     def test_take_leader(self):
         self.assertFalse(self.etcd.take_leader())
+
+    def testattempt_to_acquire_leader(self):
+        self.etcd._base_path = '/service/exists'
+        self.assertFalse(self.etcd.attempt_to_acquire_leader())
+        self.etcd._base_path = '/service/failed'
+        self.assertFalse(self.etcd.attempt_to_acquire_leader())
 
     def test_update_leader(self):
         self.assertTrue(self.etcd.update_leader(MockPostgresql()))
@@ -233,3 +272,12 @@ class TestEtcd(unittest.TestCase):
     def test_delete_leader(self):
         self.etcd.client.delete = etcd_delete
         self.assertFalse(self.etcd.delete_leader())
+
+    def test_watch(self):
+        self.etcd.client.watch = etcd_watch
+        self.etcd.watch(100)
+        self.etcd.get_cluster()
+        self.etcd.watch(1)
+        self.etcd.watch(5)
+        self.etcd.watch(10)
+        self.etcd.watch(100)

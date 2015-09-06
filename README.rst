@@ -77,7 +77,7 @@ settings:
    etcd
 -  *session\_timeout*: the TTL to acquire the leader lock. Think of it
    as the length of time before automatic failover process is initiated.
--  *reconnects\_timeout*: how long we should try to reconnect to
+-  *reconnect\_timeout*: how long we should try to reconnect to
    ZooKeeper after connection loss. After this timeout we assume that we
    don't have lock anymore and will restart in read-only mode.
 -  *hosts*: list of ZooKeeper cluster members in format: [
@@ -101,6 +101,7 @@ settings:
    accessible from other nodes and applications.
 -  *data\_dir*: file path to initialize and store Postgres data files
 -  *maximum\_lag\_on\_failover*: the maximum bytes a follower may lag
+-  *use\_slots*: whether or not to use replication_slots.  Must be False for PostgreSQL 9.3, and you should comment out max_replication_slots.
    before it is not eligible become leader
 -  *pg\_hba*: list of lines which should be added to pg\_hba.conf
 
@@ -138,9 +139,8 @@ settings:
    -  *password*: admin password, user will be created during
       initialization.
 
--  *recovery\_conf*: configuration settings written to recovery.conf
-   when configuring follower
--  *parameters*: list of configuration settings for Postgres
+-  *recovery\_conf*: additional configuration settings written to recovery.conf when configuring follower
+-  *parameters*: list of configuration settings for Postgres.  Many of these are required for replication to work.
 
 Replication choices
 -------------------

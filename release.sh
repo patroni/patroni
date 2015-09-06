@@ -12,7 +12,7 @@ git --version
 
 version=$1
 
-sed -i "s/__version__ = .*/__version__ = '${version}'/" __init__.py
+sed -i "s/__version__ = .*/__version__ = '${version}'/" version.py
 python3 setup.py clean
 python3 setup.py test
 python3 setup.py flake8

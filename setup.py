@@ -21,13 +21,12 @@ __location__ = os.path.join(os.getcwd(), os.path.dirname(inspect.getfile(inspect
 
 def read_version(package):
     data = {}
-    with open(os.path.join(package, '__init__.py'), 'r') as fd:
+    with open(os.path.join(package, 'version.py'), 'r') as fd:
         exec(fd.read(), data)
     return data['__version__']
 
 NAME = 'patroni'
-MAIN_PACKAGE = 'patroni'
-HELPERS = 'helpers'
+MAIN_PACKAGE = NAME
 SCRIPTS = 'scripts'
 VERSION = read_version(MAIN_PACKAGE)
 DESCRIPTION = 'PostgreSQL High-Available orchestrator and CLI'
@@ -57,7 +56,7 @@ CLASSIFIERS = [
     'Programming Language :: Python :: Implementation :: CPython',
 ]
 
-CONSOLE_SCRIPTS = ['patroni = patroni.patroni:main']
+CONSOLE_SCRIPTS = ['patroni = patroni:main']
 
 
 class PyTest(TestCommand):
@@ -74,8 +73,7 @@ class PyTest(TestCommand):
     def finalize_options(self):
         TestCommand.finalize_options(self)
         if self.cov_xml or self.cov_html:
-            self.cov = ['--cov', MAIN_PACKAGE, '--cov', HELPERS, '--cov', SCRIPTS, '--cov-report',
-                        'term-missing']
+            self.cov = ['--cov', MAIN_PACKAGE, '--cov', MAIN_PACKAGE, '--cov-report', 'term-missing']
             if self.cov_xml:
                 self.cov.extend(['--cov-report', 'xml'])
             if self.cov_html:

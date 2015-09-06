@@ -1,6 +1,6 @@
 import logging
 
-from patroni.helpers.dcs import DCSError
+from patroni.dcs import DCSError
 from psycopg2 import InterfaceError, OperationalError
 
 logger = logging.getLogger(__name__)
