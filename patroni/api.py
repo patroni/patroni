@@ -28,10 +28,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
             row = self.server.query("""SELECT to_char(pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),
                                               pg_is_in_recovery(),
                                               CASE WHEN pg_is_in_recovery()
-                                                   THEN null
-                                                   ELSE pg_current_xlog_location() END,
-                                              pg_last_xlog_receive_location(),
-                                              pg_last_xlog_replay_location(),
+                                                   THEN 0
+                                                   ELSE pg_xlog_location_diff(pg_current_xlog_location(), '0/0')::bigint
+                                              END,
+                                              pg_xlog_location_diff(pg_last_xlog_receive_location(), '0/0')::bigint,
+                                              pg_xlog_location_diff(pg_last_xlog_replay_location(), '0/0')::bigint,
                                               pg_is_in_recovery() AND pg_is_xlog_replay_paused()""")[0]
             return {
                 'running': True,
