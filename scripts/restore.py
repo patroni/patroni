@@ -56,10 +56,16 @@ class Restore(object):
 
     def run(self):
         """ creates a new replica using either pg_basebackup or WAL-E """
+
+        logger.warning("Starting database restore ...")
+
         method_fn = self.replica_method()
         ret = method_fn() if method_fn else 1
         if ret != 0 and self.replica_fallback_method() is not None:
             ret = (self.replica_fallback_method())()
+
+        logger.warning("Database restore done: {0}".format(ret))
+
         return ret
 
     def create_replica_with_pg_basebackup(self):

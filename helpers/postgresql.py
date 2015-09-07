@@ -61,6 +61,7 @@ class Postgresql:
         connect_address = config.get('connect_address', None) or self.local_address
         self.connection_string = 'postgres://{username}:{password}@{connect_address}/postgres'.format(
             connect_address=connect_address, **self.replication)
+        self.connect_address = connect_address.split(':')
 
         self._connection = None
         self._cursor_holder = None
@@ -127,7 +128,7 @@ class Postgresql:
     def sync_from_leader(self, leader):
         r = parseurl(leader.conn_url)
 
-        pgpass = 'pgpass'
+        pgpass = self.config.get('pgpass_file', 'pgpass')
         with open(pgpass, 'w') as f:
             os.fchmod(f.fileno(), 0o600)
             f.write('{host}:{port}:*:{user}:{password}\n'.format(**r))

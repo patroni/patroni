@@ -18,11 +18,14 @@ logger = logging.getLogger(__name__)
 class Patroni:
 
     def __init__(self, config):
+        assert config["etcd"]["ttl"] > 2 * config["loop_wait"]
+
         self.nap_time = config['loop_wait']
         self.postgresql = Postgresql(config['postgresql'])
         self.ha = Ha(self.postgresql, self.get_dcs(self.postgresql.name, config))
         host, port = config['restapi']['listen'].split(':')
         self.api = RestApiServer(self, config['restapi'])
+        self.skydns2 = config.get('skydns2')
         self.next_run = time.time()
         self.shutdown_member_ttl = 300
 
@@ -88,6 +91,11 @@ class Patroni:
             try:
                 if self.ha.state_handler.is_leader():
                     self.ha.cluster and self.ha.state_handler.create_replication_slots(self.ha.cluster)
+
+                    # SkyDNS2 support: publish leader
+                    if self.skydns2:
+                        self.ha.dcs.client.set(self.skydns2['publish_leader'],
+                            '{{"host": "{0}", "port": {1}}}'.format(*self.postgresql.connect_address), ttl=self.skydns2['ttl'])
                 else:
                     self.ha.state_handler.drop_replication_slots()
             except:
