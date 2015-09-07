@@ -5,6 +5,9 @@ if [ $# -ne 1 ]; then
     exit 1
 fi
 
+readonly VERSIONFILE="patroni/version.py"
+
+## Bail out on any non-zero exitcode from the called processes
 set -xe
 
 python3 --version
@@ -12,17 +15,17 @@ git --version
 
 version=$1
 
-sed -i "s/__version__ = .*/__version__ = '${version}'/" version.py
+sed -i "s/__version__ = .*/__version__ = '${version}'/"  "${VERSIONFILE}"
 python3 setup.py clean
 python3 setup.py test
 python3 setup.py flake8
 
-git add __init__.py
+git add "${VERSIONFILE}"
 
-git commit -m "Bumped version to $version"
-git push
+#git commit -m "Bumped version to $version"
+#git push
 
 python3 setup.py sdist bdist_wheel upload
 
-git tag ${version}
-git push --tags
+#git tag ${version}
+#git push --tags
