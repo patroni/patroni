@@ -22,10 +22,10 @@ python3 setup.py flake8
 
 git add "${VERSIONFILE}"
 
-#git commit -m "Bumped version to $version"
-#git push
+git commit -m "Bumped version to $version"
+git push
 
 python3 setup.py sdist bdist_wheel upload
 
-#git tag ${version}
-#git push --tags
+git tag ${version}
+git push --tags
