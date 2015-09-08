@@ -43,6 +43,11 @@ class Patroni:
                     return True
         return self.ha.dcs.touch_member(connection_string, ttl)
 
+    def cleanup_on_failed_initialization(self):
+        """ cleanup the DCS if initialization was not successfull """
+        logger.info("removing initialize key after failed attempt to initialize the cluster")
+        self.ha.dcs.cancel_initialization()
+
     def initialize(self):
         # wait for etcd to be available
         while not self.touch_member():
@@ -52,18 +57,18 @@ class Patroni:
         # is data directory empty?
         if self.postgresql.data_directory_empty():
             # racing to initialize
-            if self.ha.dcs.race('/initialize'):
-                self.postgresql.initialize()
+            if self.ha.dcs.initialize():
+                try:
+                    self.postgresql.bootstrap()
+                except:
+                    # bail out and clean the initialize flag.
+                    self.cleanup_on_failed_initialization()
+                    raise
                 self.ha.dcs.take_leader()
-                self.postgresql.start()
-                self.postgresql.create_replication_user()
-                self.postgresql.create_connection_users()
             else:
                 while True:
                     leader = self.ha.dcs.current_leader()
-                    if leader and self.postgresql.sync_from_leader(leader):
-                        self.postgresql.write_recovery_conf(leader)
-                        self.postgresql.start()
+                    if leader and self.postgresql.bootstrap(leader):
                         break
                     sleep(5)
         elif self.postgresql.is_running():

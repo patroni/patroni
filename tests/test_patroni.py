@@ -46,6 +46,7 @@ class TestPatroni(unittest.TestCase):
 
     def set_up(self):
         self.touched = False
+        self.init_cancelled = False
         subprocess.call = subprocess_call
         psycopg2.connect = psycopg2_connect
         self.time_sleep = time.sleep
@@ -121,14 +122,15 @@ class TestPatroni(unittest.TestCase):
         self.p.touch_member()
 
     def test_patroni_initialize(self):
-        self.p.postgresql.should_use_s3_to_create_replica = false
         self.p.ha.dcs.client.write = etcd_write
         self.p.touch_member = self.touch_member
         self.p.postgresql.data_directory_empty = true
-        self.p.ha.dcs.race = true
+        self.p.ha.dcs.initialize = true
+        self.p.postgresql.initialize = true
+        self.p.postgresql.start = true
         self.p.initialize()
 
-        self.p.ha.dcs.race = false
+        self.p.ha.dcs.initialize = false
         time.sleep = time_sleep
         self.p.ha.dcs.client.read = etcd_read
         self.p.initialize()
@@ -142,3 +144,18 @@ class TestPatroni(unittest.TestCase):
     def test_schedule_next_run(self):
         self.p.next_run = time.time() - self.p.nap_time - 1
         self.p.schedule_next_run()
+
+    def cancel_initialization(self):
+        self.init_cancelled = True
+
+    def test_cleanup_on_initialization(self):
+        self.p.ha.dcs.client.write = etcd_write
+        self.p.touch_member = self.touch_member
+        self.p.postgresql.data_directory_empty = true
+        self.p.ha.dcs.initialize = true
+        self.p.postgresql.initialize = true
+        self.p.postgresql.start = false
+
+        self.p.ha.dcs.cancel_initialization = self.cancel_initialization
+        self.assertRaises(Exception, self.p.initialize)
+        self.assertTrue(self.init_cancelled)

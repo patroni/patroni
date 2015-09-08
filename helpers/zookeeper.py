@@ -180,8 +180,8 @@ class ZooKeeper(AbstractDCS):
         ret or logger.info('Could not take out TTL lock')
         return ret
 
-    def race(self, path):
-        return self._create(path, self._name, makepath=True)
+    def initialize(self):
+        return self._create(self.initialize_key, self._name, makepath=True)
 
     def touch_member(self, connection_string, ttl=None):
         for m in self.members:
@@ -222,6 +222,11 @@ class ZooKeeper(AbstractDCS):
     def delete_leader(self):
         if isinstance(self.leader, Member) and self.leader.name == self._name:
             self.client.delete(self.client_path('/leader'))
+
+    def cancel_initialization(self):
+        node = self.get_node(self.initialize_key)
+        if node and node == self._name:
+            self.client.delete(self.client_path(self.initialize_key))
 
     def sleep(self, timeout):
         self.cluster_event.wait(timeout)

@@ -391,3 +391,27 @@ recovery_target_timeline = 'latest'
 
     def last_operation(self):
         return str(self.xlog_position())
+
+    def bootstrap(self, current_leader=None):
+        """
+            Initially bootstrap PostgreSQL, either by creating a data
+            directory with initdb, or by initalizing a replica from an
+            exiting leader. Failure in the first case always leads to
+            exception, since there is no point in continuing if initdb failed.
+            In the second case, however, a False is returned on failure, since
+            it is normal for the replica to retry a failed attempt to initialize
+            from the master.
+        """
+        ret = False
+        if not current_leader:
+            ret = self.initialize() and self.start()
+            if ret:
+                self.create_replication_user()
+                self.create_connection_users()
+            else:
+                raise Exception("Could not bootstrap master PostgreSQL")
+        else:
+            if self.sync_from_leader(current_leader):
+                self.write_recovery_conf(current_leader)
+                ret = self.start()
+        return ret

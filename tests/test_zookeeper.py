@@ -141,7 +141,7 @@ class TestZooKeeper(unittest.TestCase):
         self.zk.delete_leader()
 
     def test_race(self):
-        self.assertFalse(self.zk.race('/initialize'))
+        self.assertFalse(self.zk.initialize())
 
     def test_touch_member(self):
         self.zk.touch_member('new')

@@ -206,9 +206,13 @@ class Etcd(AbstractDCS):
         return ret
 
     @catch_etcd_errors
-    def race(self, path):
-        return self.client.write(self.client_path(path), self._name, prevExist=False)
+    def initialize(self):
+        return self.client.write(self.client_path(self.initialize_key), self._name, prevExist=False)
 
     @catch_etcd_errors
     def delete_leader(self):
         return self.client.delete(self.client_path('/leader'), prevValue=self._name)
+
+    @catch_etcd_errors
+    def cancel_initialization(self):
+        return self.client.delete(self.client_path(self.initialize_key), prevValue=self._name)

@@ -66,6 +66,7 @@ class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,mem
 class AbstractDCS:
 
     __metaclass__ = abc.ABCMeta
+    initialize_key = '/initialize'
 
     def __init__(self, name, config):
         """
@@ -131,7 +132,7 @@ class AbstractDCS:
         overwriting the key if necessary."""
 
     @abc.abstractmethod
-    def race(self, path):
+    def initialize(self):
         """Race for cluster initialization.
         :param path: usually this is just '/initialize'
         :returns: `!True` if key has been created successfully.
@@ -143,6 +144,10 @@ class AbstractDCS:
     def delete_leader(self):
         """Voluntarily remove leader key from DCS
         This method should remove leader key if current instance is the leader"""
+
+    @abc.abstractmethod
+    def cancel_initialization(self):
+        """ Removes the initialize key for a cluster """
 
     def sleep(self, timeout):
         sleep(timeout)

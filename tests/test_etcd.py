@@ -227,8 +227,8 @@ class TestEtcd(unittest.TestCase):
     def test_update_leader(self):
         self.assertTrue(self.etcd.update_leader(MockPostgresql()))
 
-    def test_race(self):
-        self.assertFalse(self.etcd.race(''))
+    def test_initialize(self):
+        self.assertFalse(self.etcd.initialize())
 
     def test_delete_leader(self):
         self.etcd.client.delete = etcd_delete
