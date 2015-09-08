@@ -49,7 +49,7 @@ postgresql:
     env_dir: /home/postgres/etc/wal-e.d/env
     threshold_megabytes: 10240
     threshold_backup_size_percentage: 30
-  restore: scripts/restore.py
+  restore: patroni/scripts/restore.py
   parameters:
     archive_mode: "on"
     wal_level: hot_standby
