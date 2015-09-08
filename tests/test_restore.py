@@ -1,7 +1,7 @@
 import unittest
 from mock import MagicMock, patch
 import os
-from scripts.restore import Restore, WALERestore
+from patroni.scripts.restore import Restore, WALERestore
 
 
 def fake_cursor_fetchone(*args, **kwargs):

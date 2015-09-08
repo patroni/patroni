@@ -5,7 +5,7 @@ import shlex
 import shutil
 import subprocess
 
-from helpers.utils import sleep
+from patroni.utils import sleep
 from six.moves.urllib_parse import urlparse
 
 logger = logging.getLogger(__name__)
