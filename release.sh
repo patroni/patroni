@@ -27,5 +27,5 @@ git push
 
 python3 setup.py sdist bdist_wheel upload
 
-git tag ${version}
+git tag v${version}
 git push --tags
