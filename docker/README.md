@@ -1,6 +1,7 @@
 # Patroni Dockerfile
-You can run Patroni in a docker container using this Dockerfile, or by using the Docker image at
-    https://os-registry.stups.zalan.do/acid/patroni-1.0-SNAPSHOT
+You can run Patroni in a docker container using this Dockerfile, or by using one of the Docker image at
+
+    https://os-registry.stups.zalan.do/v1/repositories/acid/patroni/tags
 
 This Dockerfile is meant in aiding development of Patroni and quick testing of features. It is not a production-worthy
 Dockerfile
