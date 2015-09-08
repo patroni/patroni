@@ -71,6 +71,8 @@ class MockKazooClient:
             if self.leader:
                 return ('foo', ZnodeStat(0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0))
             return ('foo', ZnodeStat(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+        elif path.endswith(patroni.zookeeper.ZooKeeper.initialize_key):
+            return 'foo'
 
     def get_children(self, path, watch=None, include_data=False):
         return ['foo', 'bar', 'buzz']
@@ -92,6 +94,8 @@ class MockKazooClient:
             if self.leader:
                 return
             self.leader = True
+            raise Exception
+        elif path.endswith(patroni.zookeeper.ZooKeeper.initialize_key):
             raise Exception
 
     def set_hosts(self, hosts, randomize_hosts=None):
@@ -146,8 +150,11 @@ class TestZooKeeper(unittest.TestCase):
         self.zk.touch_member('foo')
         self.zk.delete_leader()
 
-    def test_race(self):
+    def test_initialize(self):
         self.assertFalse(self.zk.initialize())
+
+    def test_cancel_initialization(self):
+        self.assertRaises(Exception, self.zk.cancel_initialization)
 
     def test_touch_member(self):
         self.zk.touch_member('new')

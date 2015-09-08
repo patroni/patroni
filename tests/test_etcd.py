@@ -269,6 +269,10 @@ class TestEtcd(unittest.TestCase):
     def test_initialize(self):
         self.assertFalse(self.etcd.initialize())
 
+    def test_cancel_initializion(self):
+        self.etcd.client.delete = etcd_delete
+        self.assertFalse(self.etcd.cancel_initialization())
+
     def test_delete_leader(self):
         self.etcd.client.delete = etcd_delete
         self.assertFalse(self.etcd.delete_leader())

@@ -55,17 +55,18 @@ class Patroni:
 
         # is data directory empty?
         if self.postgresql.data_directory_empty():
-            # racing to initialize
-            if self.ha.dcs.initialize():
-                try:
-                    self.postgresql.bootstrap()
-                except:
-                    # bail out and clean the initialize flag.
-                    self.cleanup_on_failed_initialization()
-                    raise
-                self.ha.dcs.take_leader()
-            else:
-                while True:
+            while True:
+                # racing to initialize
+                if self.ha.dcs.initialize():
+                    try:
+                        self.postgresql.bootstrap()
+                    except:
+                        # bail out and clean the initialize flag.
+                        self.cleanup_on_failed_initialization()
+                        raise
+                    self.ha.dcs.take_leader()
+                    break
+                else:
                     leader = self.ha.dcs.current_leader()
                     if leader and self.postgresql.bootstrap(leader):
                         break
