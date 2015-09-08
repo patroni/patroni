@@ -1,7 +1,8 @@
 import abc
 
 from collections import namedtuple
-from helpers.utils import calculate_ttl, sleep
+from patroni.exceptions import DCSError
+from patroni.utils import calculate_ttl, sleep
 from six.moves.urllib_parse import urlparse, urlunparse, parse_qsl
 
 
@@ -22,24 +23,11 @@ def parse_connection_string(value):
     return conn_url, api_url
 
 
-class DCSError(Exception):
-    """Parent class for all kind of exceptions related to selected distributed configuration store"""
-
-    def __init__(self, value):
-        self.value = value
-
-    def __str__(self):
-        """
-        >>> str(DCSError('foo'))
-        "'foo'"
-        """
-        return repr(self.value)
-
-
 class Member(namedtuple('Member', 'index,name,conn_url,api_url,expiration,ttl')):
+
     """Immutable object (namedtuple) which represents single member of PostgreSQL cluster.
     Consists of the following fields:
-    :param index: modification index of a given member key in DCS
+    :param index: modification index of a given member key in a Configuration Store
     :param name: name of PostgreSQL cluster member
     :param conn_url: connection string containing host, user and password which could be used to access this member.
     :param api_url: REST API url of patroni instance
@@ -50,11 +38,30 @@ class Member(namedtuple('Member', 'index,name,conn_url,api_url,expiration,ttl'))
         return calculate_ttl(self.expiration) or -1
 
 
+class Leader(namedtuple('Leader', 'index,expiration,ttl,member')):
+
+    """Immutable object (namedtuple) which represents leader key.
+    Consists of the following fields:
+    :param index: modification index of a leader key in a Configuration Store
+    :param expiration: expiration time of the leader key
+    :param ttl: ttl of the leader key
+    :param member: reference to a `Member` object which represents current leader (see `Cluster.members`)"""
+
+    @property
+    def name(self):
+        return self.member.name
+
+    @property
+    def conn_url(self):
+        return self.member.conn_url
+
+
 class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,members')):
+
     """Immutable object (namedtuple) which represents PostgreSQL cluster.
     Consists of the following fields:
     :param initialize: boolean, shows whether this cluster has initialization key stored in DC or not.
-    :param leader: `Member` object which represents current leader of the cluster
+    :param leader: `Leader` object which represents current leader of the cluster
     :param last_leader_operation: int or long object containing position of last known leader operation.
         This value is stored in `/optime/leader` key
     :param members: list of Member object, all PostgreSQL cluster members including leader"""
@@ -74,7 +81,8 @@ class AbstractDCS:
             i.e.: `zookeeper` for zookeeper, `etcd` for etcd, etc...
         """
         self._name = name
-        self._base_path = '/service/' + config['scope']
+        self._scope = config['scope']
+        self._base_path = '/service/' + self._scope
 
     def client_path(self, path):
         return self._base_path + path
@@ -144,5 +152,5 @@ class AbstractDCS:
         """Voluntarily remove leader key from DCS
         This method should remove leader key if current instance is the leader"""
 
-    def sleep(self, timeout):
+    def watch(self, timeout):
         sleep(timeout)
