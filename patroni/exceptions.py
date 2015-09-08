@@ -1,8 +1,4 @@
 class PatroniException(Exception):
-    pass
-
-
-class DCSError(PatroniException):
 
     """Parent class for all kind of exceptions related to selected distributed configuration store"""
 
@@ -15,3 +11,7 @@ class DCSError(PatroniException):
         "'foo'"
         """
         return repr(self.value)
+
+
+class DCSError(PatroniException):
+    pass
