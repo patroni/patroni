@@ -4,13 +4,9 @@ import psycopg2
 import shlex
 import shutil
 import subprocess
-import six
 
-from helpers.utils import sleep
+from patroni.utils import sleep
 from six.moves.urllib_parse import urlparse
-
-if six.PY3:
-    long = int
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +46,7 @@ class Postgresql:
         self.superuser = config['superuser']
         self.admin = config['admin']
         self.callback = config.get('callbacks', {})
+        self.use_slots = config.get('use_slots', True)
         self.recovery_conf = os.path.join(self.data_dir, 'recovery.conf')
         self.configuration_to_save = (os.path.join(self.data_dir, 'pg_hba.conf'),
                                       os.path.join(self.data_dir, 'postgresql.conf'))
@@ -256,8 +253,8 @@ class Postgresql:
                 member_conn.autocommit = True
                 member_cursor = member_conn.cursor()
                 member_cursor.execute(
-                    "SELECT pg_is_in_recovery(), %s - (pg_last_xlog_replay_location() - '0/0000000'::pg_lsn)",
-                    (self.xlog_position(), ))
+                    "SELECT pg_is_in_recovery(), %s - pg_xlog_location_diff(pg_last_xlog_replay_location(), '0/0')",
+                    (self.xlog_position(),))
                 row = member_cursor.fetchone()
                 member_cursor.close()
                 member_conn.close()
@@ -305,10 +302,9 @@ class Postgresql:
 recovery_target_timeline = 'latest'
 """)
             if leader and leader.conn_url:
-                f.write("""
-primary_slot_name = '{}'
-primary_conninfo = '{}'
-""".format(self.name, self.primary_conninfo(leader.conn_url)))
+                f.write("""primary_conninfo = '{}'\n""".format(self.primary_conninfo(leader.conn_url)))
+                if self.use_slots:
+                    f.write("""primary_slot_name = '{}'\n""".format(self.name))
                 for name, value in self.config.get('recovery_conf', {}).items():
                     f.write("{} = '{}'\n".format(name, value))
 
@@ -361,26 +357,30 @@ primary_conninfo = '{}'
                 self.admin['username']), self.admin['password'])
 
     def xlog_position(self):
-        return self.query("""SELECT CASE WHEN pg_is_in_recovery()
-                                         THEN pg_last_xlog_replay_location() - '0/0000000'::pg_lsn
-                                         ELSE pg_current_xlog_location() - '0/00000'::pg_lsn END""").fetchone()[0]
+        return self.query("""SELECT pg_xlog_location_diff(CASE WHEN pg_is_in_recovery()
+                                                               THEN pg_last_xlog_replay_location()
+                                                               ELSE pg_current_xlog_location()
+                                                          END, '0/0')""").fetchone()[0]
 
     def load_replication_slots(self):
-        cursor = self.query("SELECT slot_name FROM pg_replication_slots WHERE slot_type='physical'")
-        self.members = [r[0] for r in cursor]
+        if self.use_slots:
+            cursor = self.query("SELECT slot_name FROM pg_replication_slots WHERE slot_type='physical'")
+            self.members = [r[0] for r in cursor]
 
     def sync_replication_slots(self, members):
-        # drop unused slots
-        for slot in set(self.members) - set(members):
-            self.query("""SELECT pg_drop_replication_slot(%s)
-                           WHERE EXISTS(SELECT 1 FROM pg_replication_slots
-                           WHERE slot_name = %s)""", slot, slot)
+        if self.use_slots:
+            # drop unused slots
+            for slot in set(self.members) - set(members):
+                self.query("""SELECT pg_drop_replication_slot(%s)
+                               WHERE EXISTS(SELECT 1 FROM pg_replication_slots
+                               WHERE slot_name = %s)""", slot, slot)
 
-        # create new slots
-        for slot in set(members) - set(self.members):
-            self.query("""SELECT pg_create_physical_replication_slot(%s)
-                           WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots
-                           WHERE slot_name = %s)""", slot, slot)
+            # create new slots
+            for slot in set(members) - set(self.members):
+                self.query("""SELECT pg_create_physical_replication_slot(%s)
+                               WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots
+                               WHERE slot_name = %s)""", slot, slot)
+
         self.members = members
 
     def create_replication_slots(self, cluster):

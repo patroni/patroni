@@ -5,8 +5,8 @@ import time
 import six
 
 from consul import ConsulException, NotFound, base, std
-from helpers.dcs import AbstractDCS, Cluster, DCSError, Leader, Member, parse_connection_string
-from helpers.utils import sleep
+from patroni.dcs import AbstractDCS, Cluster, DCSError, Leader, Member, parse_connection_string
+from patroni.utils import sleep
 from requests.exceptions import RequestException
 
 logger = logging.getLogger(__name__)

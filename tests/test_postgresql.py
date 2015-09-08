@@ -4,8 +4,8 @@ import shutil
 import subprocess
 import unittest
 
-from helpers.dcs import Cluster, Leader, Member
-from helpers.postgresql import Postgresql
+from patroni.dcs import Cluster, Leader, Member
+from patroni.postgresql import Postgresql
 
 
 def nop(*args, **kwargs):
@@ -24,7 +24,6 @@ class MockCursor:
 
     def __init__(self):
         self.closed = False
-        self.current = 0
         self.results = []
 
     def execute(self, sql, *params):
@@ -43,7 +42,7 @@ class MockCursor:
                 self.results = [(True, -1)]
             else:
                 self.results = [(False, 0)]
-        elif sql.startswith('SELECT CASE WHEN pg_is_in_recovery()'):
+        elif sql.startswith('SELECT pg_xlog_location_diff'):
             self.results = [(0,)]
         elif sql.startswith('SELECT pg_is_in_recovery()'):
             self.results = [(False, )]
@@ -119,7 +118,7 @@ class TestPostgresql(unittest.TestCase):
                                            'on_restart': 'true', 'on_role_change': 'true',
                                            'on_reload': 'true'
                                            },
-                             'restore': '/usr/bin/true'})
+                             'restore': 'true'})
         psycopg2.connect = psycopg2_connect
         if not os.path.exists(self.p.data_dir):
             os.makedirs(self.p.data_dir)
@@ -189,7 +188,7 @@ class TestPostgresql(unittest.TestCase):
         self.assertTrue(self.p.is_healthiest_node(cluster))
         self.p.xlog_position = lambda: 2
         self.assertFalse(self.p.is_healthiest_node(cluster))
-        self.p.config['maximum_lag_on_failover'] = -2
+        self.p.config['maximum_lag_on_failover'] = -3
         self.assertFalse(self.p.is_healthiest_node(cluster))
 
     def test_is_leader(self):

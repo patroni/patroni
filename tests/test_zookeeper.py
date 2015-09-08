@@ -1,9 +1,9 @@
-import helpers.zookeeper
+import patroni.zookeeper
 import requests
 import unittest
 
-from helpers.dcs import Leader
-from helpers.zookeeper import ExhibitorEnsembleProvider, ZooKeeper, ZooKeeperError
+from patroni.dcs import Leader
+from patroni.zookeeper import ExhibitorEnsembleProvider, ZooKeeper, ZooKeeperError
 from kazoo.client import KazooState
 from kazoo.exceptions import NoNodeError, NodeExistsError
 from kazoo.protocol.states import ZnodeStat
@@ -110,7 +110,7 @@ class TestExhibitorEnsembleProvider(unittest.TestCase):
 
     def set_up(self):
         requests.get = requests_get
-        helpers.zookeeper.sleep = exhibitor_sleep
+        patroni.zookeeper.sleep = exhibitor_sleep
 
     def test_init(self):
         self.assertRaises(SleepException, ExhibitorEnsembleProvider, ['localhost'], 8181)
@@ -124,7 +124,7 @@ class TestZooKeeper(unittest.TestCase):
 
     def set_up(self):
         requests.get = requests_get
-        helpers.zookeeper.KazooClient = MockKazooClient
+        patroni.zookeeper.KazooClient = MockKazooClient
         self.zk = ZooKeeper('foo', {'exhibitor': {'hosts': ['localhost', 'exhibitor'], 'port': 8181}, 'scope': 'test'})
 
     def test_session_listener(self):
