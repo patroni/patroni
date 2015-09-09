@@ -147,3 +147,5 @@ class TestPatroni(unittest.TestCase):
     def test_schedule_next_run(self):
         self.p.next_run = time.time() - self.p.nap_time - 1
         self.p.schedule_next_run()
+        self.p.postgresql.is_promoted = True
+        self.p.schedule_next_run()
