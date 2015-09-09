@@ -2,6 +2,7 @@ import datetime
 import patroni.zookeeper
 import psycopg2
 import subprocess
+import ssl
 import sys
 import time
 import unittest
@@ -30,6 +31,10 @@ class SleepException(Exception):
 
 def time_sleep(*args):
     raise SleepException()
+
+
+def ssl_wrap_socket(socket, *args, **kwargs):
+    return socket
 
 
 class Mock_BaseServer__is_shut_down:
@@ -62,8 +67,10 @@ class TestPatroni(unittest.TestCase):
         RestApiServer._BaseServer__is_shut_down = Mock_BaseServer__is_shut_down()
         RestApiServer._BaseServer__shutdown_request = True
         RestApiServer.socket = 0
+        ssl.wrap_socket = ssl_wrap_socket
         with open('postgres0.yml', 'r') as f:
             config = yaml.load(f)
+            config['restapi']['certfile'] = 'dump'
             with patch.object(Client, 'machines') as mock_machines:
                 mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
                 self.p = Patroni(config)
@@ -147,3 +154,6 @@ class TestPatroni(unittest.TestCase):
     def test_schedule_next_run(self):
         self.p.next_run = time.time() - self.p.nap_time - 1
         self.p.schedule_next_run()
+
+    def test_api_connection_string(self):
+        self.assertTrue(self.p.api.connection_string.startswith('https://'))
