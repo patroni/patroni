@@ -102,7 +102,7 @@ settings:
         -  *password*: password for postgres user. It would be set during initialization
 
     -  *admin*:
-        -  *username*: admin username, user will be created during initialization. It would have CREATEDB and REATEROLE privileges
+        -  *username*: admin username, user will be created during initialization. It would have CREATEDB and CREATEROLE privileges
         -  *password*: admin password, user will be created during initialization.
 
     -  *recovery\_conf*: additional configuration settings written to recovery.conf when configuring follower
