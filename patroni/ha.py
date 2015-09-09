@@ -45,6 +45,13 @@ class Ha:
 
     @staticmethod
     def fetch_node_status(member):
+        """This function perform http get request on member.api_url and fetches its status
+        :returns: tuple(`member`, reachable, in_recovery, xlog_location)
+
+        reachable - `!False` if the node is not reachable or is not responding with correct JSON
+        in_recovery - `!True` if pg_is_in_recovery() == true
+        xlog_location - value of `replayed_location` or `location` from JSON, dependin on its role."""
+
         try:
             response = requests.get(member.api_url, timeout=2)
             json = response.json()
@@ -57,23 +64,26 @@ class Ha:
         return (member, False, None, 0)
 
     def is_healthiest_node(self):
+        """This method tries to determine whether I am healthy enough to became a new leader candidate or not."""
+
         if self.state_handler.is_leader():
             return True
 
         if not self.state_handler.check_replication_lag(self.cluster.last_leader_operation):
-            return False
+            return False  # Too far behind last reported xlog location on master
 
+        # Prepare list of nodes to run check against
         members = [m for m in self.old_cluster.members if m.name != self.state_handler.name and m.api_url]
 
         if members:
             pool = ThreadPool(len(members))
-            results = pool.map(self.fetch_node_status, members)
+            results = pool.map(self.fetch_node_status, members)  # Run API calls on members in parallel
             pool.close()
             pool.join()
 
             my_xlog_location = self.state_handler.xlog_position()
             for member, reachable, in_recovery, xlog_location in results:
-                if reachable:
+                if reachable:  # If the node is unreachable it's not healhy
                     if not in_recovery:
                         logger.warning('Master (%s) is still alive', member.name)
                         return False
