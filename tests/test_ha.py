@@ -1,10 +1,10 @@
 import unittest
 
 from mock import Mock, patch
-from patroni.dcs import Cluster, DCSError
+from patroni.dcs import Cluster, Leader, Member, DCSError
 from patroni.etcd import Client, Etcd
 from patroni.ha import Ha
-from test_etcd import etcd_read, etcd_write
+from test_etcd import etcd_read, etcd_write, requests_get
 
 
 def true(*args, **kwargs):
@@ -30,7 +30,7 @@ class MockPostgresql:
     def start(self):
         return True
 
-    def is_healthiest_node(self, members):
+    def check_replication_lag(self, last_leader_operation):
         return True
 
     def is_leader(self):
@@ -47,6 +47,9 @@ class MockPostgresql:
 
     def create_replication_slots(self, _):
         return True
+
+    def xlog_position(self):
+        return 0
 
     def last_operation(self):
         return 0
@@ -102,6 +105,7 @@ class TestHa(unittest.TestCase):
         self.assertEquals(self.ha.run_cycle(), 'acquired session lock as a leader')
 
     def test_promoted_by_acquiring_lock(self):
+        self.ha.is_healthiest_node = true
         self.p.is_leader = false
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
 
@@ -110,16 +114,17 @@ class TestHa(unittest.TestCase):
         self.assertEquals(self.ha.run_cycle(), 'demoted self due after trying and failing to obtain lock')
 
     def test_follow_new_leader_after_failing_to_obtain_lock(self):
+        self.ha.is_healthiest_node = true
         self.ha.acquire_lock = false
         self.p.is_leader = false
         self.assertEquals(self.ha.run_cycle(), 'following new leader after trying and failing to obtain lock')
 
     def test_demote_because_not_healthiest(self):
-        self.p.is_healthiest_node = false
+        self.ha.is_healthiest_node = false
         self.assertEquals(self.ha.run_cycle(), 'demoting self because i am not the healthiest node')
 
     def test_follow_new_leader_because_not_healthiest(self):
-        self.p.is_healthiest_node = false
+        self.ha.is_healthiest_node = false
         self.p.is_leader = false
         self.assertEquals(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
 
@@ -146,3 +151,23 @@ class TestHa(unittest.TestCase):
     def test_no_etcd_connection_master_demote(self):
         self.ha.load_cluster_from_dcs = dead_etcd
         self.assertEquals(self.ha.run_cycle(), 'demoted self because DCS is not accessible and i was a leader')
+
+    def test_is_healthiest_node(self):
+        self.assertTrue(self.ha.is_healthiest_node())
+        self.p.is_leader = false
+        self.ha.fetch_node_status = lambda e: (e, True, True, 0)  # accessible, in_recovery
+        self.assertTrue(self.ha.is_healthiest_node())
+        self.ha.fetch_node_status = lambda e: (e, True, False, 0)  # accessible, not in_recovery
+        self.assertFalse(self.ha.is_healthiest_node())
+        self.ha.fetch_node_status = lambda e: (e, True, True, 1)  # accessible, in_recovery, xlog location ahead
+        self.assertFalse(self.ha.is_healthiest_node())
+        self.p.check_replication_lag = false
+        self.assertFalse(self.ha.is_healthiest_node())
+
+    def test_fetch_node_status(self):
+        import requests
+        requests.get = requests_get
+        member = Member(0, 'test', '', 'http://127.0.0.1:8011/patroni', None, None)
+        self.ha.fetch_node_status(member)
+        member = Member(0, 'test', '', 'http://localhost:8011/patroni', None, None)
+        self.ha.fetch_node_status(member)

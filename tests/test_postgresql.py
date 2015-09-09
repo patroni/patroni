@@ -33,18 +33,9 @@ class MockCursor:
             raise psycopg2.InterfaceError()
         elif sql.startswith('SELECT slot_name'):
             self.results = [('blabla',), ('foobar',)]
-        elif sql.startswith('SELECT pg_current_xlog_location()'):
-            self.results = [(0,)]
-        elif sql.startswith('SELECT pg_is_in_recovery(), %s'):
-            if params[0][0] == 1:
-                raise psycopg2.OperationalError()
-            elif params[0][0] == 2:
-                self.results = [(True, -1)]
-            else:
-                self.results = [(False, 0)]
         elif sql.startswith('SELECT pg_xlog_location_diff'):
             self.results = [(0,)]
-        elif sql.startswith('SELECT pg_is_in_recovery()'):
+        elif sql == 'SELECT pg_is_in_recovery()':
             self.results = [(False, )]
         elif sql.startswith('SELECT to_char(pg_postmaster_start_time'):
             self.results = [('', True, '', '', '', False)]
@@ -87,7 +78,6 @@ class MockConnect:
 
 
 def psycopg2_connect(*args, **kwargs):
-
     return MockConnect()
 
 
@@ -179,18 +169,6 @@ class TestPostgresql(unittest.TestCase):
         self.p.disconnect = false
         self.assertRaises(psycopg2.OperationalError, self.p.query, 'blabla')
 
-    def test_is_healthiest_node(self):
-        cluster = Cluster(True, self.leader, 0, [self.me, self.other, self.leadermem])
-        self.assertTrue(self.p.is_healthiest_node(cluster))
-        self.p.is_leader = false
-        self.assertFalse(self.p.is_healthiest_node(cluster))
-        self.p.xlog_position = lambda: 1
-        self.assertTrue(self.p.is_healthiest_node(cluster))
-        self.p.xlog_position = lambda: 2
-        self.assertFalse(self.p.is_healthiest_node(cluster))
-        self.p.config['maximum_lag_on_failover'] = -3
-        self.assertFalse(self.p.is_healthiest_node(cluster))
-
     def test_is_leader(self):
         self.p.is_promoted = True
         self.assertTrue(self.p.is_leader())
@@ -217,3 +195,6 @@ class TestPostgresql(unittest.TestCase):
         self.p.start()
         self.p.query = self.mock_query
         self.assertTrue(self.p.stop())
+
+    def test_check_replication_lag(self):
+        self.assertTrue(self.p.check_replication_lag(0))

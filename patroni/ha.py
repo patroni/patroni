@@ -1,16 +1,18 @@
 import logging
+import requests
 
 from patroni.dcs import DCSError
 from psycopg2 import InterfaceError, OperationalError
+from multiprocessing.pool import ThreadPool
 
 logger = logging.getLogger(__name__)
 
 
 class Ha:
 
-    def __init__(self, state_handler, etcd):
+    def __init__(self, state_handler, dcs):
         self.state_handler = state_handler
-        self.dcs = etcd
+        self.dcs = dcs
         self.cluster = None
         self.old_cluster = None
 
@@ -41,6 +43,44 @@ class Ha:
     def follow_the_leader(self):
         return self.state_handler.follow_the_leader(self.cluster.leader)
 
+    @staticmethod
+    def fetch_node_status(member):
+        try:
+            response = requests.get(member.api_url, timeout=2)
+            json = response.json()
+            logger.info('Got response from %s: %s', member.name, json)
+            in_recovery = json.get('role', 'slave') != 'master'
+            xlog_location = json.get(('replayed_location' if in_recovery else 'location'), 0)
+            return (member, True, in_recovery, xlog_location)
+        except:
+            logging.exception('request failed: GET %s', member.api_url)
+        return (member, False, None, 0)
+
+    def is_healthiest_node(self):
+        if self.state_handler.is_leader():
+            return True
+
+        if not self.state_handler.check_replication_lag(self.cluster.last_leader_operation):
+            return False
+
+        members = [m for m in self.old_cluster.members if m.name != self.state_handler.name and m.api_url]
+
+        if members:
+            pool = ThreadPool(len(members))
+            results = pool.map(self.fetch_node_status, members)
+            pool.close()
+            pool.join()
+
+            my_xlog_location = self.state_handler.xlog_position()
+            for member, reachable, in_recovery, xlog_location in results:
+                if reachable:
+                    if not in_recovery:
+                        logger.warning('Master (%s) is still alive', member.name)
+                        return False
+                    if my_xlog_location < xlog_location:
+                        return False
+        return True
+
     def run_cycle(self):
         try:
             self.load_cluster_from_dcs()
@@ -54,7 +94,7 @@ class Ha:
                 self.load_cluster_from_dcs()
 
             if self.cluster.is_unlocked():
-                if self.state_handler.is_healthiest_node(self.old_cluster):
+                if self.is_healthiest_node():
                     if self.acquire_lock():
                         if self.state_handler.is_leader() or self.state_handler.is_promoted:
                             return 'acquired session lock as a leader'
