@@ -61,6 +61,9 @@ settings:
    health-check information for haproxy.
 -  *connect\_address*: ip address + port through which restapi is
    accessible.
+-  *certfile*: Specifies a file with the certificate in the PEM format.
+   If certfile is not specified or empty API server will work without SSL.
+-  *keyfile*: Specifies a file with the secret key in the PEM format.
 
 -  *etcd*
 -  *scope*: the relative path used on etcd's http api for this

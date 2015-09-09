@@ -4,6 +4,8 @@ scope: &scope batman
 restapi:
   listen: 127.0.0.1:8008
   connect_address: 127.0.0.1:8008
+#  certfile: /etc/ssl/certs/ssl-cert-snakeoil.pem
+#  keyfile: /etc/ssl/private/ssl-cert-snakeoil.key
 etcd:
   scope: *scope
   ttl: *ttl
