@@ -53,6 +53,8 @@ def requests_get(url, **kwargs):
     response = MockResponse()
     if url.startswith('http://local'):
         raise requests.exceptions.RequestException()
+    elif ':8011/patroni' in url:
+        response.content = '{"role": "slave", "xlog": {"replayed_location": 0}}'
     elif url.endswith('/members'):
         if url.startswith('http://error'):
             response.content = '[{}]'

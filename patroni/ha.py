@@ -54,11 +54,11 @@ class Ha:
 
         try:
             response = requests.get(member.api_url, timeout=2)
+            logger.info('Got response from %s %s: %s', member.name, member.api_url, response.content)
             json = response.json()
-            logger.info('Got response from %s: %s', member.name, json)
-            in_recovery = json.get('role', 'slave') != 'master'
-            xlog_location = json.get(('replayed_location' if in_recovery else 'location'), 0)
-            return (member, True, in_recovery, xlog_location)
+            is_master = json['role'] == 'master'
+            xlog_location = json['xlog']['location' if is_master else 'replayed_location']
+            return (member, True, not is_master, xlog_location)
         except:
             logging.exception('request failed: GET %s', member.api_url)
         return (member, False, None, 0)
