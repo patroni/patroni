@@ -80,7 +80,7 @@ class Client(etcd.Client):
         for host, port in self.get_srv_record(discovery_srv):
             url = '{}://{}:{}/members'.format(self._protocol, host, port)
             try:
-                response = requests.get(url)
+                response = requests.get(url, timeout=5)
                 if response.ok:
                     for member in response.json():
                         ret.extend(member['clientURLs'])
