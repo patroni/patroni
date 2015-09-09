@@ -1,7 +1,7 @@
 import unittest
 
 from mock import Mock, patch
-from patroni.dcs import Cluster, Leader, Member, DCSError
+from patroni.dcs import Cluster, Member, DCSError
 from patroni.etcd import Client, Etcd
 from patroni.ha import Ha
 from test_etcd import etcd_read, etcd_write, requests_get
