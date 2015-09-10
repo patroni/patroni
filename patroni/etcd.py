@@ -179,17 +179,17 @@ class Etcd(AbstractDCS):
             nodes = {os.path.relpath(node.key, result.key): node for node in result.leaves}
 
             # get initialize flag
-            initialize = bool(nodes.get('initialize', False))
+            initialize = bool(nodes.get(self._INITIALIZE, False))
 
             # get last leader operation
-            last_leader_operation = nodes.get('optime/leader', None)
+            last_leader_operation = nodes.get(self._LEADER_OPTIME, None)
             last_leader_operation = 0 if last_leader_operation is None else int(last_leader_operation.value)
 
             # get list of members
-            members = [self.member(n) for k, n in nodes.items() if k.startswith('members/') and len(k.split('/')) == 2]
+            members = [self.member(n) for k, n in nodes.items() if k.startswith(self._MEMBERS) and k.count('/') == 1]
 
             # get leader
-            leader = nodes.get('leader', None)
+            leader = nodes.get(self._LEADER, None)
             if leader:
                 member = Member(-1, leader.value, None, None, None, None)
                 member = ([m for m in members if m.name == leader.value] or [member])[0]
@@ -206,17 +206,15 @@ class Etcd(AbstractDCS):
 
     @catch_etcd_errors
     def touch_member(self, connection_string, ttl=None):
-        return self.retry(self.client.set, self.client_path('/members/' + self._name),
-                          connection_string, ttl or self.member_ttl)
+        return self.retry(self.client.set, self.member_path, connection_string, ttl or self.member_ttl)
 
     @catch_etcd_errors
     def take_leader(self):
-        return self.retry(self.client.set, self.client_path('/leader'), self._name, self.ttl)
+        return self.retry(self.client.set, self.leader_path, self._name, self.ttl)
 
     def attempt_to_acquire_leader(self):
         try:
-            return not self.retry(self.client.write, self.client_path('/leader'),
-                                  self._name, ttl=self.ttl, prevExist=False) is None
+            return bool(self.retry(self.client.write, self.leader_path, self._name, ttl=self.ttl, prevExist=False))
         except etcd.EtcdAlreadyExist:
             logger.info('Could not take out TTL lock')
         except (RetryFailedError, etcd.EtcdException):
@@ -225,11 +223,11 @@ class Etcd(AbstractDCS):
 
     @catch_etcd_errors
     def write_leader_optime(self, state_handler):
-        return self.client.set(self.client_path('/optime/leader'), state_handler.last_operation())
+        return self.client.set(self.leader_optime_path, state_handler.last_operation())
 
     @catch_etcd_errors
     def update_leader(self, state_handler):
-        ret = self.retry(self.client.test_and_set, self.client_path('/leader'), self._name, self._name, self.ttl)
+        ret = self.retry(self.client.test_and_set, self.leader_path, self._name, self._name, self.ttl)
         ret and self.write_leader_optime(state_handler)
         return ret
 
@@ -239,7 +237,7 @@ class Etcd(AbstractDCS):
 
     @catch_etcd_errors
     def delete_leader(self):
-        return self.client.delete(self.client_path('/leader'), prevValue=self._name)
+        return self.client.delete(self.leader_path, prevValue=self._name)
 
     def watch(self, timeout):
         # watch on leader key changes if it is defined and current node is not lock owner
@@ -249,7 +247,7 @@ class Etcd(AbstractDCS):
 
             while index and timeout >= 1:  # when timeout is too small urllib3 doesn't have enough time to connect
                 try:
-                    res = self.client.watch(self.client_path('/leader'), index=index + 1, timeout=timeout)
+                    res = self.client.watch(self.leader_path, index=index + 1, timeout=timeout)
                     if res.action not in ['set', 'compareAndSwap'] or res.value != self.cluster.leader.name:
                         return
                     index = res.modifiedIndex
