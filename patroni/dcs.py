@@ -73,7 +73,6 @@ class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,mem
 class AbstractDCS:
 
     __metaclass__ = abc.ABCMeta
-    initialize_key = '/initialize'
 
     _INITIALIZE = 'initialize'
     _LEADER = 'leader'

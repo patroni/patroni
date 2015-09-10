@@ -4,7 +4,7 @@ import requests
 import time
 
 from kazoo.client import KazooClient, KazooState
-from kazoo.exceptions import NoNodeError, NodeExistsError
+from kazoo.exceptions import NoNodeError, NodeExistsError, KazooException
 from patroni.dcs import AbstractDCS, Cluster, DCSError, Leader, Member, parse_connection_string
 from patroni.utils import sleep
 from requests.exceptions import RequestException
@@ -222,8 +222,11 @@ class ZooKeeper(AbstractDCS):
 
     def cancel_initialization(self):
         node = self.get_node(self.initialize_path)
-        if node and node == self._name:
-            self.client.delete(self.initialize_path)
+        if node and node[0] == self._name:
+            try:
+                self.client.retry(self.client.delete, self.initialize_path, version=node[1].mzxid)
+            except KazooException:
+                logger.exception("Unable to delete initialize key")
 
     def watch(self, timeout):
         self.cluster_event.wait(timeout)

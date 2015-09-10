@@ -233,7 +233,7 @@ class Etcd(AbstractDCS):
 
     @catch_etcd_errors
     def initialize(self):
-        return self.client.write(self.client_path(self.initialize_key), self._name, prevExist=False)
+        return self.client.write(self.initialize_path, self._name, prevExist=False)
 
     @catch_etcd_errors
     def delete_leader(self):
@@ -241,7 +241,7 @@ class Etcd(AbstractDCS):
 
     @catch_etcd_errors
     def cancel_initialization(self):
-        return self.client.delete(self.client_path(self.initialize_key), prevValue=self._name)
+        return self.client.delete(self.initialize_path, prevValue=self._name)
 
     def watch(self, timeout):
         # watch on leader key changes if it is defined and current node is not lock owner
