@@ -91,7 +91,7 @@ class TestHa(unittest.TestCase):
         self.e.get_cluster = get_unlocked_cluster
         ha.load_cluster_from_dcs()
 
-    def test_start_as_slave(self):
+    def test_start_as_standby(self):
         self.p.is_healthy = false
         self.assertEquals(self.ha.run_cycle(), 'started as a secondary')
 
