@@ -37,7 +37,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             return {
                 'running': True,
                 'postmaster_start_time': row[0],
-                'role': 'slave' if row[1] else 'master',
+                'role': 'standby' if row[1] else 'master',
                 'xlog': ({
                     'received_location': row[3],
                     'replayed_location': row[4],
