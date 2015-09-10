@@ -11,6 +11,7 @@ from mock import Mock, patch
 from patroni.api import RestApiServer
 from patroni.dcs import Cluster, Member
 from patroni.etcd import Etcd
+from patroni.exceptions import PostgresException
 from patroni import Patroni, main
 from patroni.zookeeper import ZooKeeper
 from six.moves import BaseHTTPServer
@@ -141,7 +142,7 @@ class TestPatroni(unittest.TestCase):
         self.p.initialize()
 
         self.p.ha.dcs.current_leader = nop
-        self.assertRaises(Exception, self.p.initialize)
+        self.assertRaises(SleepException, self.p.initialize)
 
         self.p.postgresql.data_directory_empty = false
         self.p.initialize()
@@ -162,5 +163,5 @@ class TestPatroni(unittest.TestCase):
         self.p.postgresql.start = false
 
         self.p.ha.dcs.cancel_initialization = self.cancel_initialization
-        self.assertRaises(Exception, self.p.initialize)
+        self.assertRaises(PostgresException, self.p.initialize)
         self.assertTrue(self.init_cancelled)

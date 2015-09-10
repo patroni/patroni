@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import time
 
+from patroni.exceptions import PostgresException
 from patroni.utils import sleep
 from six.moves.urllib_parse import urlparse
 
@@ -410,7 +411,7 @@ recovery_target_timeline = 'latest'
                 self.create_replication_user()
                 self.create_connection_users()
             else:
-                raise Exception("Could not bootstrap master PostgreSQL")
+                raise PostgresException("Could not bootstrap master PostgreSQL")
         else:
             if self.sync_from_leader(current_leader):
                 self.write_recovery_conf(current_leader)
@@ -419,6 +420,7 @@ recovery_target_timeline = 'latest'
 
     def move_data_directory(self):
         if os.path.isdir(self.data_dir) and not self.is_running():
-            os.rename(self.data_dir, '{0}_{1}'.format(self.data_dir, str(long(time.time()))))
-            return True
-        return False
+            try:
+                os.rename(self.data_dir, '{0}_{1}'.format(self.data_dir, time.strftime('%Y-%m-%d-%H-%M-%S')))
+            except:
+                logger.exception("Could not rename data directory {0}".format(self.data_dir))
