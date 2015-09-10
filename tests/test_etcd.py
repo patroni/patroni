@@ -54,7 +54,7 @@ def requests_get(url, **kwargs):
     if url.startswith('http://local'):
         raise requests.exceptions.RequestException()
     elif ':8011/patroni' in url:
-        response.content = '{"role": "slave", "xlog": {"replayed_location": 0}}'
+        response.content = '{"role": "standby", "xlog": {"replayed_location": 0}}'
     elif url.endswith('/members'):
         if url.startswith('http://error'):
             response.content = '[{}]'
