@@ -46,6 +46,8 @@ class Patroni:
         """ cleanup the DCS if initialization was not successfull """
         logger.info("removing initialize key after failed attempt to initialize the cluster")
         self.ha.dcs.cancel_initialization()
+        self.postgresql.stop()
+        self.postgresql.move_data_directory()
 
     def initialize(self):
         # wait for etcd to be available

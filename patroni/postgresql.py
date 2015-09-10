@@ -4,6 +4,7 @@ import psycopg2
 import shlex
 import shutil
 import subprocess
+import time
 
 from patroni.utils import sleep
 from six.moves.urllib_parse import urlparse
@@ -159,7 +160,7 @@ class Postgresql:
         return ret
 
     def is_running(self):
-        return subprocess.call(' '.join(self._pg_ctl) + ' status > /dev/null', shell=True) == 0
+        return subprocess.call(' '.join(self._pg_ctl) + ' status > /dev/null 2>&1', shell=True) == 0
 
     def call_nowait(self, cb_name, is_leader=None):
         """ pick a callback command and call it without waiting for it to finish """
@@ -415,3 +416,9 @@ recovery_target_timeline = 'latest'
                 self.write_recovery_conf(current_leader)
                 ret = self.start()
         return ret
+
+    def move_data_directory(self):
+        if os.path.isdir(self.data_dir) and not self.is_running():
+            os.rename(self.data_dir, '{0}_{1}'.format(self.data_dir, str(long(time.time()))))
+            return True
+        return False
