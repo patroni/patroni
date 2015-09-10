@@ -14,6 +14,7 @@ from patroni.etcd import Etcd
 from patroni import Patroni, main
 from patroni.zookeeper import ZooKeeper
 from six.moves import BaseHTTPServer
+from test_api import Mock_BaseServer__is_shut_down
 from test_etcd import Client, etcd_read, etcd_write
 from test_ha import true, false
 from test_postgresql import Postgresql, subprocess_call, psycopg2_connect
@@ -30,15 +31,6 @@ class SleepException(Exception):
 
 def time_sleep(*args):
     raise SleepException()
-
-
-class Mock_BaseServer__is_shut_down:
-
-    def set(self):
-        pass
-
-    def clear(self):
-        pass
 
 
 class TestPatroni(unittest.TestCase):

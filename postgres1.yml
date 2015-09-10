@@ -4,6 +4,7 @@ scope: &scope batman
 restapi:
   listen: 127.0.0.1:8009
   connect_address: 127.0.0.1:8009
+  auth: 'username:password'
 etcd:
   scope: *scope
   ttl: *ttl
