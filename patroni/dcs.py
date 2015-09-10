@@ -167,10 +167,9 @@ class AbstractDCS:
     @abc.abstractmethod
     def initialize(self):
         """Race for cluster initialization.
-        :param path: usually this is just '/initialize'
         :returns: `!True` if key has been created successfully.
 
-        this method should create atomically `path` key and return `!True`
+        this method should create atomically initialize key and return `!True`
         otherwise it should return `!False`"""
 
     @abc.abstractmethod
