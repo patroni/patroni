@@ -32,6 +32,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self.send_header('WWW-Authenticate', 'Basic realm=\"Patroni\"')
         self.send_header('Content-type', 'text/html')
         self.end_headers()
+        self.wfile.write(body.encode('utf-8'))
 
     def check_auth_header(self):
         auth_header = self.headers.get('Authorization')
