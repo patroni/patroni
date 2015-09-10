@@ -107,11 +107,23 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
     def __init__(self, patroni, config):
         self._auth_key = base64.b64encode(config['auth'].encode('utf-8')).decode('utf-8') if 'auth' in config else None
-        self.connection_string = 'http://{}/patroni'.format(config.get('connect_address', None) or config['listen'])
         host, port = config['listen'].split(':')
         HTTPServer.__init__(self, (host, int(port)), RestApiHandler)
         Thread.__init__(self, target=self.serve_forever)
         self._set_fd_cloexec(self.socket)
+
+        protocol = 'http'
+
+        # wrap socket with ssl if 'certfile' is defined in a config.yaml
+        # Sometime it's also needed to pass reference to a 'keyfile'.
+        options = {option: config[option] for option in ['certfile', 'keyfile'] if option in config}
+        if options.get('certfile', None):
+            import ssl
+            self.socket = ssl.wrap_socket(self.socket, server_side=True, **options)
+            protocol = 'https'
+
+        self.connection_string = '{}://{}/patroni'.format(protocol, config.get('connect_address', config['listen']))
+
         self.patroni = patroni
         self.daemon = True
 
