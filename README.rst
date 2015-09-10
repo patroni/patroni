@@ -52,94 +52,61 @@ YAML Configuration
 For an example file, see ``postgres0.yml``. Below is an explanation of
 settings:
 
--  *ttl*: the TTL to acquire the leader lock. Think of it as the length
-   of time before automatic failover process is initiated.
+-  *ttl*: the TTL to acquire the leader lock. Think of it as the length of time before automatic failover process is initiated.
 -  *loop\_wait*: the number of seconds the loop will sleep
 
--  *restapi*
--  *listen*: ip address + port that Patroni will listen to provide
-   health-check information for haproxy.
--  *connect\_address*: ip address + port through which restapi is
-   accessible.
+-  *restapi*:
+    -  *listen*: ip address + port that Patroni will listen to provide health-check information for haproxy.
+    -  *connect\_address*: ip address + port through which restapi is accessible.
+    -  *certfile*: (optional) Specifies a file with the certificate in the PEM format. If certfile is not specified or empty API server will work without SSL.
+    -  *keyfile*: (optional) Specifies a file with the secret key in the PEM format.
 
--  *etcd*
--  *scope*: the relative path used on etcd's http api for this
-   deployment, thus you can run multiple HA deployments from a single
-   etcd
--  *ttl*: the TTL to acquire the leader lock. Think of it as the length
-   of time before automatic failover process is initiated.
--  *host*: the host:port for the etcd endpoint
+-  *etcd*:
+    -  *scope*: the relative path used on etcd's http api for this deployment, thus you can run multiple HA deployments from a single etcd
+    -  *ttl*: the TTL to acquire the leader lock. Think of it as the length of time before automatic failover process is initiated.
+    -  *host*: the host:port for the etcd endpoint
 
--  *zookeeper*
--  *scope*: the relative path used on etcd's http api for this
-   deployment, thus you can run multiple HA deployments from a single
-   etcd
--  *session\_timeout*: the TTL to acquire the leader lock. Think of it
-   as the length of time before automatic failover process is initiated.
--  *reconnect\_timeout*: how long we should try to reconnect to
-   ZooKeeper after connection loss. After this timeout we assume that we
-   don't have lock anymore and will restart in read-only mode.
--  *hosts*: list of ZooKeeper cluster members in format: [
-   'host1:port1', 'host2:port2', 'etc...']
--  *exhibitor*: if you are running ZooKeeper cluster under Exhibitor
-   supervisory the following section could be interesting for you
+-  *zookeeper*:
+    -  *scope*: the relative path used on etcd's http api for this deployment, thus you can run multiple HA deployments from a single etcd
+    -  *session\_timeout*: the TTL to acquire the leader lock. Think of it as the length of time before automatic failover process is initiated.
+    -  *reconnect\_timeout*: how long we should try to reconnect to ZooKeeper after connection loss. After this timeout we assume that we don't have lock anymore and will restart in read-only mode.
+    -  *hosts*: list of ZooKeeper cluster members in format: ['host1:port1', 'host2:port2', 'etc...']
+    -  *exhibitor*: if you are running ZooKeeper cluster under Exhibitor supervisory the following section could be interesting for you
+        -  *poll\_interval*: how often list of ZooKeeper and Exhibitor nodes should be updated from Exhibitor
+        -  *port*: Exhibitor port
+        -  *hosts*: initial list of Exhibitor (ZooKeeper) nodes in format: ['host1', 'host2', 'etc...' ]. This list would be updated automatically when Exhibitor (ZooKeeper) cluster topology changes.
 
-   -  *poll\_interval*: how often list of ZooKeeper and Exhibitor nodes
-      should be updated from Exhibitor
-   -  *port*: Exhibitor port
-   -  *hosts*: initial list of Exhibitor (ZooKeeper) nodes in format: [
-      'host1', 'host2', 'etc...' ]. This list would be updated
-      automatically when Exhibitor (ZooKeeper) cluster topology changes.
+-  *postgresql*:
+    -  *name*: the name of the Postgres host, must be unique for the cluster
+    -  *listen*: ip address + port that Postgres listening. Must be accessible from other nodes in the cluster if using streaming replication.
+    -  *connect\_address*: ip address + port through which Postgres is accessible from other nodes and applications.
+    -  *data\_dir*: file path to initialize and store Postgres data files
+    -  *maximum\_lag\_on\_failover*: the maximum bytes a follower may lag
+    -  *use\_slots*: whether or not to use replication_slots.  Must be False for PostgreSQL 9.3, and you should comment out max_replication_slots. before it is not eligible become leader
+    -  *pg\_hba*: list of lines which should be added to pg\_hba.conf
+        -  *- host all all 0.0.0.0/0 md5*
 
--  *postgresql*
--  *name*: the name of the Postgres host, must be unique for the cluster
--  *listen*: ip address + port that Postgres listening. Must be
-   accessible from other nodes in the cluster if using streaming
-   replication.
--  *connect\_address*: ip address + port through which Postgres is
-   accessible from other nodes and applications.
--  *data\_dir*: file path to initialize and store Postgres data files
--  *maximum\_lag\_on\_failover*: the maximum bytes a follower may lag
--  *use\_slots*: whether or not to use replication_slots.  Must be False for PostgreSQL 9.3, and you should comment out max_replication_slots.
-   before it is not eligible become leader
--  *pg\_hba*: list of lines which should be added to pg\_hba.conf
+    -  *replication*:
+        -  *username*: replication username, user will be created during initialization
+        -  *password*: replication password, user will be created during initialization
+        -  *network*: network setting for replication in pg\_hba.conf
 
-   -  *- host all all 0.0.0.0/0 md5*
+    -  *callbacks* callback scripts to run on certain actions. Patroni will pass current action, role and cluster name. See scripts/aws.py as an example on how to write them.
+        -  *on\_start*: a script to run when the cluster starts
+        -  *on\_stop*: a script to run when the cluster stops
+        -  *on\_restart*: a script to run when the cluster restarts
+        -  *on\_reload*: a script to run when configuration reload is triggered
+        -  *on\_role\_change*: a script to run when the cluster is being promoted or demoted
 
--  *replication*
+    -  *superuser*:
+        -  *password*: password for postgres user. It would be set during initialization
 
-   -  *username*: replication username, user will be created during
-      initialization
-   -  *password*: replication password, user will be created during
-      initialization
-   -  *network*: network setting for replication in pg\_hba.conf
+    -  *admin*:
+        -  *username*: admin username, user will be created during initialization. It would have CREATEDB and CREATEROLE privileges
+        -  *password*: admin password, user will be created during initialization.
 
--  *callbacks* callback scripts to run on certain actions. Patroni will
-   pass current action, role and cluster name. See scripts/aws.py as an
-   example on how to write them.
-
-   -  *on\_start*: a script to run when the cluster starts
-   -  *on\_stop*: a script to run when the cluster stops
-   -  *on\_restart*: a script to run when the cluster restarts
-   -  *on\_reload*: a script to run when configuration reload is
-      triggered
-   -  *on\_role\_change*: a script to run when the cluster is being
-      promoted or demoted
-
--  *superuser*
-
-   -  *password*: password for postgres user. It would be set during
-      initialization
-
--  *admin*:
-
-   -  *username*: admin username, user will be created during
-      initialization. It would have CREATEDB and CREATEROLE privileges
-   -  *password*: admin password, user will be created during
-      initialization.
-
--  *recovery\_conf*: additional configuration settings written to recovery.conf when configuring follower
--  *parameters*: list of configuration settings for Postgres.  Many of these are required for replication to work.
+    -  *recovery\_conf*: additional configuration settings written to recovery.conf when configuring follower
+        -  *parameters*: list of configuration settings for Postgres.  Many of these are required for replication to work.
 
 Replication choices
 -------------------
