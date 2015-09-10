@@ -93,9 +93,9 @@ def etcd_delete(key, **kwargs):
 
 
 def etcd_read(key, **kwargs):
-    if key == '/service/noleader':
+    if key == '/service/noleader/':
         raise DCSError('noleader')
-    elif key == '/service/nocluster':
+    elif key == '/service/nocluster/':
         raise etcd.EtcdKeyNotFound
 
     response = {"action": "get", "node": {"key": "/service/batman5", "dir": True, "nodes": [

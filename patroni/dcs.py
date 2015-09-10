@@ -75,6 +75,12 @@ class AbstractDCS:
     __metaclass__ = abc.ABCMeta
     initialize_key = '/initialize'
 
+    _INITIALIZE = 'initialize'
+    _LEADER = 'leader'
+    _MEMBERS = 'members/'
+    _OPTIME = 'optime'
+    _LEADER_OPTIME = _OPTIME + '/' + _LEADER
+
     def __init__(self, name, config):
         """
         :param name: name of current instance (the same value as `~Postgresql.name`)
@@ -86,7 +92,27 @@ class AbstractDCS:
         self._base_path = '/service/' + self._scope
 
     def client_path(self, path):
-        return self._base_path + path
+        return '/'.join([self._base_path, path.lstrip('/')])
+
+    @property
+    def initialize_path(self):
+        return self.client_path(self._INITIALIZE)
+
+    @property
+    def members_path(self):
+        return self.client_path(self._MEMBERS)
+
+    @property
+    def member_path(self):
+        return self.client_path(self._MEMBERS + self._name)
+
+    @property
+    def leader_path(self):
+        return self.client_path(self._LEADER)
+
+    @property
+    def leader_optime_path(self):
+        return self.client_path(self._LEADER_OPTIME)
 
     @abc.abstractmethod
     def get_cluster(self):
