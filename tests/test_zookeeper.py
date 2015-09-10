@@ -56,9 +56,9 @@ class MockKazooClient:
         func(*args, **kwargs)
 
     def get(self, path, watch=None):
-        if path == '/service/test/no_node':
+        if path == '/no_node':
             raise NoNodeError
-        elif path == '/service/test/other_exception':
+        elif path == '/other_exception':
             raise Exception()
         elif '/members/' in path:
             return (
