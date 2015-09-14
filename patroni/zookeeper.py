@@ -228,13 +228,16 @@ class ZooKeeper(AbstractDCS):
         if isinstance(self.cluster, Cluster) and self.cluster.leader.name == self._name:
             self.client.delete(self.leader_path, version=self.cluster.leader.index)
 
-    def cancel_initialization(self):
+    def _cancel_initialization(self):
         node = self.get_node(self.initialize_path)
         if node and node[0] == self._name:
-            try:
-                self.client.retry(self.client.delete, self.initialize_path, version=node[1].mzxid)
-            except KazooException:
-                logger.exception("Unable to delete initialize key")
+            self.client.delete(self.initialize_path, version=node[1].mzxid)
+
+    def cancel_initialization(self):
+        try:
+            self.client.retry(self._cancel_initialization)
+        except:
+            logger.exception("Unable to delete initialize key")
 
     def watch(self, timeout):
         self.cluster_event.wait(timeout)
