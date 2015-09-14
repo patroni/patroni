@@ -110,10 +110,7 @@ class ZooKeeper(AbstractDCS):
         try:
             return self.client.get(key, watch)
         except NoNodeError:
-            pass
-        except:
-            logger.exception('get_node')
-        return None
+            return None
 
     @staticmethod
     def member(name, value, znode):
@@ -124,10 +121,7 @@ class ZooKeeper(AbstractDCS):
         try:
             return self.client.get_children(key, watch)
         except NoNodeError:
-            pass
-        except:
-            logger.exception('get_children')
-        return []
+            return []
 
     def load_members(self):
         members = []
