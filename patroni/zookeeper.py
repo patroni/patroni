@@ -115,7 +115,7 @@ class ZooKeeper(AbstractDCS):
     @staticmethod
     def member(name, value, znode):
         conn_url, api_url = parse_connection_string(value)
-        return Member(znode.mzxid, name, conn_url, api_url, None, None)
+        return Member(znode.version, name, conn_url, api_url, None, None)
 
     def get_children(self, key, watch=None):
         try:
@@ -153,7 +153,7 @@ class ZooKeeper(AbstractDCS):
             if leader:
                 member = Member(-1, leader[0], None, None, None, None)
                 member = ([m for m in members if m.name == leader[0]] or [member])[0]
-                leader = Leader(leader[1].mzxid, None, None, member)
+                leader = Leader(leader[1].version, None, None, member)
                 self.fetch_cluster = member.index == -1
 
         # get last leader operation
@@ -231,7 +231,7 @@ class ZooKeeper(AbstractDCS):
     def _cancel_initialization(self):
         node = self.get_node(self.initialize_path)
         if node and node[0] == self._name:
-            self.client.delete(self.initialize_path, version=node[1].mzxid)
+            self.client.delete(self.initialize_path, version=node[1].version)
 
     def cancel_initialization(self):
         try:
