@@ -6,6 +6,7 @@ import unittest
 
 from patroni.dcs import Cluster, Leader, Member
 from patroni.postgresql import Postgresql
+from test_ha import true, false
 
 
 def nop(*args, **kwargs):
@@ -217,3 +218,9 @@ class TestPostgresql(unittest.TestCase):
         self.p.start()
         self.p.query = self.mock_query
         self.assertTrue(self.p.stop())
+
+    def test_move_data_directory(self):
+        self.p.is_running = is_running
+        os.rename = nop
+        os.path.isdir = true
+        self.p.move_data_directory()

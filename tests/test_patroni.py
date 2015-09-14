@@ -9,7 +9,7 @@ import yaml
 
 from mock import Mock, patch
 from patroni.api import RestApiServer
-from patroni.dcs import Cluster, Member
+from patroni.dcs import Cluster, Member, Leader
 from patroni.etcd import Etcd
 from patroni.exceptions import PostgresException
 from patroni import Patroni, main
@@ -40,6 +40,30 @@ class Mock_BaseServer__is_shut_down:
 
     def clear(self):
         pass
+
+
+def get_cluster(initialize, leader):
+    return Cluster(initialize, leader, None, None)
+
+
+def get_cluster_not_initialized_without_leader():
+    return get_cluster(None, None)
+
+
+def get_cluster_initialized_without_leader():
+    return get_cluster(True, None)
+
+
+def get_cluster_not_initialized_with_leader():
+    return get_cluster(False, Leader(0, 0, 0,
+                       Member(0, 'leader', 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
+                              None, None, 28)))
+
+
+def get_cluster_initialized_with_leader():
+    return get_cluster(True, Leader(0, 0, 0, 
+                       Member(0, 'leader', 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
+                              None, None, 28)))
 
 
 class TestPatroni(unittest.TestCase):
@@ -129,22 +153,29 @@ class TestPatroni(unittest.TestCase):
 
     def test_patroni_initialize(self):
         self.p.ha.dcs.client.write = etcd_write
+        self.p.ha.dcs.client.read = etcd_read
         self.p.touch_member = self.touch_member
         self.p.postgresql.data_directory_empty = true
         self.p.ha.dcs.initialize = true
         self.p.postgresql.initialize = true
         self.p.postgresql.start = true
+        self.p.ha.dcs.get_cluster = get_cluster_not_initialized_without_leader
         self.p.initialize()
 
         self.p.ha.dcs.initialize = false
+        self.p.ha.dcs.get_cluster = get_cluster_initialized_with_leader
         time.sleep = time_sleep
         self.p.ha.dcs.client.read = etcd_read
         self.p.initialize()
 
-        self.p.ha.dcs.current_leader = nop
+        self.p.ha.dcs.get_cluster = get_cluster_initialized_without_leader
         self.assertRaises(SleepException, self.p.initialize)
 
         self.p.postgresql.data_directory_empty = false
+        self.p.initialize()
+
+        self.p.ha.dcs.get_cluster = get_cluster_not_initialized_with_leader
+        self.p.postgresql.data_directory_empty = true
         self.p.initialize()
 
     def test_schedule_next_run(self):
@@ -156,6 +187,8 @@ class TestPatroni(unittest.TestCase):
 
     def test_cleanup_on_initialization(self):
         self.p.ha.dcs.client.write = etcd_write
+        self.p.ha.dcs.client.read = etcd_read
+        self.p.ha.dcs.get_cluster = get_cluster_not_initialized_without_leader
         self.p.touch_member = self.touch_member
         self.p.postgresql.data_directory_empty = true
         self.p.ha.dcs.initialize = true

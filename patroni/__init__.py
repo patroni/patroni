@@ -6,6 +6,7 @@ import yaml
 
 from patroni.api import RestApiServer
 from patroni.etcd import Etcd
+from patroni.exceptions import DCSError
 from patroni.ha import Ha
 from patroni.postgresql import Postgresql
 from patroni.utils import setup_signal_handlers, sleep, reap_children
@@ -59,21 +60,26 @@ class Patroni:
         # is data directory empty?
         if self.postgresql.data_directory_empty():
             while True:
-                # racing to initialize
-                if self.ha.dcs.initialize():
-                    try:
-                        self.postgresql.bootstrap()
-                    except:
-                        # bail out and clean the initialize flag.
-                        self.cleanup_on_failed_initialization()
-                        raise
-                    self.ha.dcs.take_leader()
-                    break
-                else:
-                    leader = self.ha.dcs.current_leader()
-                    if leader and self.postgresql.bootstrap(leader):
+                try:
+                    cluster = self.ha.dcs.get_cluster()
+                    if not cluster.is_unlocked():  # the leader already exists
+                        if not cluster.initialize:
+                            self.ha.dcs.initialize()
+                        self.postgresql.bootstrap(cluster.leader)
                         break
-                    sleep(5)
+                    # racing to initialize
+                    elif not cluster.initialize and self.ha.dcs.initialize():
+                        try:
+                            self.postgresql.bootstrap()
+                        except:
+                            # bail out and clean the initialize flag.
+                            self.cleanup_on_failed_initialization()
+                            raise
+                        self.ha.dcs.take_leader()
+                        break
+                except DCSError:
+                    logger.info('waiting on DCS')
+                sleep(5)
         elif self.postgresql.is_running():
             self.postgresql.load_replication_slots()
 
