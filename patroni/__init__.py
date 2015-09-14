@@ -46,6 +46,7 @@ class Patroni:
         """ cleanup the DCS if initialization was not successfull """
         logger.info("removing initialize key after failed attempt to initialize the cluster")
         self.ha.dcs.cancel_initialization()
+        self.touch_member(self.shutdown_member_ttl)
         self.postgresql.stop()
         self.postgresql.move_data_directory()
 
@@ -118,8 +119,8 @@ def main():
         config = yaml.load(f)
 
     patroni = Patroni(config)
+    patroni.initialize()
     try:
-        patroni.initialize()
         patroni.run()
     except KeyboardInterrupt:
         pass
