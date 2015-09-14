@@ -6,6 +6,7 @@ import yaml
 
 from patroni.api import RestApiServer
 from patroni.etcd import Etcd
+from patroni.exceptions import DCSError
 from patroni.ha import Ha
 from patroni.postgresql import Postgresql
 from patroni.utils import setup_signal_handlers, sleep, reap_children
@@ -42,6 +43,14 @@ class Patroni:
                     return True
         return self.ha.dcs.touch_member(connection_string, ttl)
 
+    def cleanup_on_failed_initialization(self):
+        """ cleanup the DCS if initialization was not successfull """
+        logger.info("removing initialize key after failed attempt to initialize the cluster")
+        self.ha.dcs.cancel_initialization()
+        self.touch_member(self.shutdown_member_ttl)
+        self.postgresql.stop()
+        self.postgresql.move_data_directory()
+
     def initialize(self):
         # wait for etcd to be available
         while not self.touch_member():
@@ -50,21 +59,27 @@ class Patroni:
 
         # is data directory empty?
         if self.postgresql.data_directory_empty():
-            # racing to initialize
-            if self.ha.dcs.race('/initialize'):
-                self.postgresql.initialize()
-                self.ha.dcs.take_leader()
-                self.postgresql.start()
-                self.postgresql.create_replication_user()
-                self.postgresql.create_connection_users()
-            else:
-                while True:
-                    leader = self.ha.dcs.current_leader()
-                    if leader and self.postgresql.sync_from_leader(leader):
-                        self.postgresql.write_recovery_conf(leader)
-                        self.postgresql.start()
+            while True:
+                try:
+                    cluster = self.ha.dcs.get_cluster()
+                    if not cluster.is_unlocked():  # the leader already exists
+                        if not cluster.initialize:
+                            self.ha.dcs.initialize()
+                        self.postgresql.bootstrap(cluster.leader)
                         break
-                    sleep(5)
+                    # racing to initialize
+                    elif not cluster.initialize and self.ha.dcs.initialize():
+                        try:
+                            self.postgresql.bootstrap()
+                        except:
+                            # bail out and clean the initialize flag.
+                            self.cleanup_on_failed_initialization()
+                            raise
+                        self.ha.dcs.take_leader()
+                        break
+                except DCSError:
+                    logger.info('waiting on DCS')
+                sleep(5)
         elif self.postgresql.is_running():
             self.postgresql.load_replication_slots()
 
@@ -110,8 +125,8 @@ def main():
         config = yaml.load(f)
 
     patroni = Patroni(config)
+    patroni.initialize()
     try:
-        patroni.initialize()
         patroni.run()
     except KeyboardInterrupt:
         pass

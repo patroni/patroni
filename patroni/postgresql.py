@@ -4,7 +4,9 @@ import psycopg2
 import shlex
 import shutil
 import subprocess
+import time
 
+from patroni.exceptions import PostgresException
 from patroni.utils import sleep
 from six.moves.urllib_parse import urlparse
 
@@ -159,7 +161,7 @@ class Postgresql:
         return ret
 
     def is_running(self):
-        return subprocess.call(' '.join(self._pg_ctl) + ' status > /dev/null', shell=True) == 0
+        return subprocess.call(' '.join(self._pg_ctl) + ' status > /dev/null 2>&1', shell=True) == 0
 
     def call_nowait(self, cb_name, is_leader=None):
         """ pick a callback command and call it without waiting for it to finish """
@@ -391,3 +393,34 @@ recovery_target_timeline = 'latest'
 
     def last_operation(self):
         return str(self.xlog_position())
+
+    def bootstrap(self, current_leader=None):
+        """
+            Initially bootstrap PostgreSQL, either by creating a data
+            directory with initdb, or by initalizing a replica from an
+            exiting leader. Failure in the first case always leads to
+            exception, since there is no point in continuing if initdb failed.
+            In the second case, however, a False is returned on failure, since
+            it is normal for the replica to retry a failed attempt to initialize
+            from the master.
+        """
+        ret = False
+        if not current_leader:
+            ret = self.initialize() and self.start()
+            if ret:
+                self.create_replication_user()
+                self.create_connection_users()
+            else:
+                raise PostgresException("Could not bootstrap master PostgreSQL")
+        else:
+            if self.sync_from_leader(current_leader):
+                self.write_recovery_conf(current_leader)
+                ret = self.start()
+        return ret
+
+    def move_data_directory(self):
+        if os.path.isdir(self.data_dir) and not self.is_running():
+            try:
+                os.rename(self.data_dir, '{0}_{1}'.format(self.data_dir, time.strftime('%Y-%m-%d-%H-%M-%S')))
+            except:
+                logger.exception("Could not rename data directory {0}".format(self.data_dir))
