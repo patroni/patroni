@@ -75,6 +75,12 @@ class MockKazooClient:
             return ('foo', ZnodeStat(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
 
     def get_children(self, path, watch=None, include_data=False):
+        if path == '/no_node':
+            raise NoNodeError
+        elif path == '/other_exception':
+            raise Exception()
+        elif path in ['/service/bla/', '/service/test/']:
+            return ['initialize', 'leader', 'members', 'optime']
         return ['foo', 'bar', 'buzz']
 
     def create(self, path, value="", acl=None, ephemeral=False, sequence=False, makepath=False):
@@ -137,6 +143,10 @@ class TestZooKeeper(unittest.TestCase):
     def test_get_node(self):
         self.assertIsNone(self.zk.get_node('/no_node'))
         self.assertIsNone(self.zk.get_node('/other_exception'))
+
+    def test_get_children(self):
+        self.assertListEqual(self.zk.get_children('/no_node'), [])
+        self.assertListEqual(self.zk.get_children('/other_exception'), [])
 
     def test__inner_load_cluster(self):
         self.zk._base_path = self.zk._base_path.replace('test', 'bla')
