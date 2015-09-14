@@ -108,7 +108,8 @@ class ZooKeeper(AbstractDCS):
 
     def get_node(self, key, watch=None):
         try:
-            return self.client.get(key, watch)
+            ret = self.client.get(key, watch)
+            return (ret[0].decode('utf-8'), ret[1])
         except NoNodeError:
             return None
 
@@ -176,7 +177,7 @@ class ZooKeeper(AbstractDCS):
 
     def _create(self, path, value, **kwargs):
         try:
-            self.client.retry(self.client.create, path, value, **kwargs)
+            self.client.retry(self.client.create, path, value.encode('utf-8'), **kwargs)
             return True
         except:
             return False
@@ -193,6 +194,7 @@ class ZooKeeper(AbstractDCS):
         if self.cluster and any(m.name == self._name for m in self.cluster.members):
             return True
         path = self.member_path
+        connection_string = connection_string.encode('utf-8')
         try:
             self.client.retry(self.client.create, path, connection_string, makepath=True, ephemeral=True)
             return True
@@ -209,7 +211,7 @@ class ZooKeeper(AbstractDCS):
         return self.attempt_to_acquire_leader()
 
     def update_leader(self, state_handler):
-        last_operation = state_handler.last_operation()
+        last_operation = state_handler.last_operation().encode('utf-8')
         if last_operation != self.last_leader_operation:
             self.last_leader_operation = last_operation
             path = self.leader_optime_path

@@ -44,7 +44,7 @@ class MockPostgresql:
     name = ''
 
     def last_operation(self):
-        return 0
+        return '0'
 
 
 def requests_get(url, **kwargs):
