@@ -4,7 +4,7 @@ import requests
 import time
 
 from kazoo.client import KazooClient, KazooState
-from kazoo.exceptions import NoNodeError, NodeExistsError, KazooException
+from kazoo.exceptions import NoNodeError, NodeExistsError
 from patroni.dcs import AbstractDCS, Cluster, DCSError, Leader, Member, parse_connection_string
 from patroni.utils import sleep
 from requests.exceptions import RequestException
