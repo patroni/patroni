@@ -108,14 +108,15 @@ class ZooKeeper(AbstractDCS):
 
     def get_node(self, key, watch=None):
         try:
-            return self.client.get(key, watch)
+            ret = self.client.get(key, watch)
+            return (ret[0].decode('utf-8'), ret[1])
         except NoNodeError:
             return None
 
     @staticmethod
     def member(name, value, znode):
         conn_url, api_url = parse_connection_string(value)
-        return Member(znode.mzxid, name, conn_url, api_url, None, None)
+        return Member(znode.version, name, conn_url, api_url, None, None)
 
     def get_children(self, key, watch=None):
         try:
@@ -153,7 +154,7 @@ class ZooKeeper(AbstractDCS):
             if leader:
                 member = Member(-1, leader[0], None, None, None, None)
                 member = ([m for m in members if m.name == leader[0]] or [member])[0]
-                leader = Leader(leader[1].mzxid, None, None, member)
+                leader = Leader(leader[1].version, None, None, member)
                 self.fetch_cluster = member.index == -1
 
         # get last leader operation
@@ -176,7 +177,7 @@ class ZooKeeper(AbstractDCS):
 
     def _create(self, path, value, **kwargs):
         try:
-            self.client.retry(self.client.create, path, value, **kwargs)
+            self.client.retry(self.client.create, path, value.encode('utf-8'), **kwargs)
             return True
         except:
             return False
@@ -193,6 +194,7 @@ class ZooKeeper(AbstractDCS):
         if self.cluster and any(m.name == self._name for m in self.cluster.members):
             return True
         path = self.member_path
+        connection_string = connection_string.encode('utf-8')
         try:
             self.client.retry(self.client.create, path, connection_string, makepath=True, ephemeral=True)
             return True
@@ -209,7 +211,7 @@ class ZooKeeper(AbstractDCS):
         return self.attempt_to_acquire_leader()
 
     def update_leader(self, state_handler):
-        last_operation = state_handler.last_operation()
+        last_operation = state_handler.last_operation().encode('utf-8')
         if last_operation != self.last_leader_operation:
             self.last_leader_operation = last_operation
             path = self.leader_optime_path
@@ -231,7 +233,7 @@ class ZooKeeper(AbstractDCS):
     def _cancel_initialization(self):
         node = self.get_node(self.initialize_path)
         if node and node[0] == self._name:
-            self.client.delete(self.initialize_path, version=node[1].mzxid)
+            self.client.delete(self.initialize_path, version=node[1].version)
 
     def cancel_initialization(self):
         try:
