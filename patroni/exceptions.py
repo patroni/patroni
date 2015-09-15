@@ -13,5 +13,9 @@ class PatroniException(Exception):
         return repr(self.value)
 
 
+class PostgresException(PatroniException):
+    pass
+
+
 class DCSError(PatroniException):
     pass

@@ -165,18 +165,21 @@ class AbstractDCS:
         overwriting the key if necessary."""
 
     @abc.abstractmethod
-    def race(self, path):
+    def initialize(self):
         """Race for cluster initialization.
-        :param path: usually this is just '/initialize'
         :returns: `!True` if key has been created successfully.
 
-        this method should create atomically `path` key and return `!True`
+        this method should create atomically initialize key and return `!True`
         otherwise it should return `!False`"""
 
     @abc.abstractmethod
     def delete_leader(self):
         """Voluntarily remove leader key from DCS
         This method should remove leader key if current instance is the leader"""
+
+    @abc.abstractmethod
+    def cancel_initialization(self):
+        """ Removes the initialize key for a cluster """
 
     def watch(self, timeout):
         sleep(timeout)
