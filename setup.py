@@ -19,13 +19,22 @@ if sys.version_info < (2, 7, 0):
 __location__ = os.path.join(os.getcwd(), os.path.dirname(inspect.getfile(inspect.currentframe())))
 
 
+def read_version(package):
+    data = {}
+    with open(os.path.join(package, 'version.py'), 'r') as fd:
+        exec(fd.read(), data)
+    return data['__version__']
+
 NAME = 'patroni'
-MAIN_PACKAGE = 'patroni.py'
-HELPERS = 'helpers'
+MAIN_PACKAGE = NAME
 SCRIPTS = 'scripts'
-VERSION = '0.1'
-DESCRIPTION = 'A Template for PostgreSQL HA with etcd'
+VERSION = read_version(MAIN_PACKAGE)
+DESCRIPTION = 'PostgreSQL High-Available orchestrator and CLI'
 LICENSE = 'The MIT License'
+URL = 'https://github.com/zalando/patroni'
+AUTHOR = 'Alexander Kukushkin, Alexey Klyukin, Feike Steenbergen'
+AUTHOR_EMAIL = 'alexander.kukushkin@zalando.de, oleksii.kliukin@zalando.de, feike.steenbergen@zalando.de'
+KEYWORDS = 'etcd governor patroni postgresql postgres ha zookeeper streaming replication'
 
 COVERAGE_XML = True
 COVERAGE_HTML = False
@@ -38,7 +47,7 @@ CLASSIFIERS = [
     'Environment :: Console',
     'Intended Audience :: Developers',
     'Intended Audience :: System Administrators',
-    'License :: OSI Approved :: The MIT License',
+    'License :: OSI Approved :: MIT License',
     'Operating System :: POSIX :: Linux',
     'Programming Language :: Python',
     'Programming Language :: Python :: 2.7',
@@ -46,6 +55,8 @@ CLASSIFIERS = [
     'Programming Language :: Python :: 3.4',
     'Programming Language :: Python :: Implementation :: CPython',
 ]
+
+CONSOLE_SCRIPTS = ['patroni = patroni:main']
 
 
 class PyTest(TestCommand):
@@ -62,8 +73,7 @@ class PyTest(TestCommand):
     def finalize_options(self):
         TestCommand.finalize_options(self)
         if self.cov_xml or self.cov_html:
-            self.cov = ['--cov', MAIN_PACKAGE, '--cov', HELPERS, '--cov', SCRIPTS, '--cov-report',
-                        'term-missing']
+            self.cov = ['--cov', MAIN_PACKAGE, '--cov', MAIN_PACKAGE, '--cov-report', 'term-missing']
             if self.cov_xml:
                 self.cov.extend(['--cov-report', 'xml'])
             if self.cov_html:
@@ -82,7 +92,7 @@ class PyTest(TestCommand):
             params['plugins'] = ['cov']
         if self.junitxml:
             params['args'] += self.junitxml
-        params['args'] += ['--doctest-modules', HELPERS, '--doctest-modules', SCRIPTS, '-s']
+        params['args'] += ['--doctest-modules', MAIN_PACKAGE, '-s', '-vv']
         errno = pytest.main(**params)
         sys.exit(errno)
 
@@ -118,10 +128,13 @@ def setup_package():
     setup(
         name=NAME,
         version=version,
+        url=URL,
+        author=AUTHOR,
+        author_email=AUTHOR_EMAIL,
         description=DESCRIPTION,
         license=LICENSE,
-        keywords='etcd governor patroni postgresql postgres ha zookeeper',
-        long_description=read('README.md'),
+        keywords=KEYWORDS,
+        long_description=read('README.rst'),
         classifiers=CLASSIFIERS,
         test_suite='tests',
         packages=setuptools.find_packages(exclude=['tests', 'tests.*']),
@@ -131,6 +144,7 @@ def setup_package():
         cmdclass=cmdclass,
         tests_require=['pytest-cov', 'pytest'],
         command_options=command_options,
+        entry_points={'console_scripts': CONSOLE_SCRIPTS},
     )
 
 

@@ -1,9 +1,9 @@
 import unittest
 
-from helpers.dcs import Cluster, DCSError
-from helpers.etcd import Client, Etcd
-from helpers.ha import Ha
 from mock import Mock, patch
+from patroni.dcs import Cluster, DCSError
+from patroni.etcd import Client, Etcd
+from patroni.ha import Ha
 from test_etcd import etcd_read, etcd_write
 
 

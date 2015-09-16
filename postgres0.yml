@@ -30,6 +30,7 @@ postgresql:
   connect_address: 127.0.0.1:5432
   data_dir: data/postgresql0
   maximum_lag_on_failover: 1048576 # 1 megabyte in bytes
+  use_slots: True
   pg_hba:
   - host all all 0.0.0.0/0 md5
   - hostssl all all 0.0.0.0/0 md5
@@ -46,7 +47,7 @@ postgresql:
     env_dir: /home/postgres/etc/wal-e.d/env
     threshold_megabytes: 10240
     threshold_backup_size_percentage: 30
-  restore: scripts/restore.py
+  restore: patroni/scripts/restore.py
   #recovery_conf:
     #restore_command: cp ../wal_archive/%f %p
   parameters:

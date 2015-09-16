@@ -4,13 +4,11 @@ import psycopg2
 import shlex
 import shutil
 import subprocess
-import six
+import time
 
-from helpers.utils import sleep
+from patroni.exceptions import PostgresException
+from patroni.utils import sleep
 from six.moves.urllib_parse import urlparse
-
-if six.PY3:
-    long = int
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +48,7 @@ class Postgresql:
         self.superuser = config['superuser']
         self.admin = config['admin']
         self.callback = config.get('callbacks', {})
+        self.use_slots = config.get('use_slots', True)
         self.recovery_conf = os.path.join(self.data_dir, 'recovery.conf')
         self.configuration_to_save = (os.path.join(self.data_dir, 'pg_hba.conf'),
                                       os.path.join(self.data_dir, 'postgresql.conf'))
@@ -162,7 +161,7 @@ class Postgresql:
         return ret
 
     def is_running(self):
-        return subprocess.call(' '.join(self._pg_ctl) + ' status > /dev/null', shell=True) == 0
+        return subprocess.call(' '.join(self._pg_ctl) + ' status > /dev/null 2>&1', shell=True) == 0
 
     def call_nowait(self, cb_name, is_leader=None):
         """ pick a callback command and call it without waiting for it to finish """
@@ -268,8 +267,8 @@ class Postgresql:
                 member_conn.autocommit = True
                 member_cursor = member_conn.cursor()
                 member_cursor.execute(
-                    "SELECT pg_is_in_recovery(), %s - (pg_last_xlog_replay_location() - '0/0000000'::pg_lsn)",
-                    (self.xlog_position(), ))
+                    "SELECT pg_is_in_recovery(), %s - pg_xlog_location_diff(pg_last_xlog_replay_location(), '0/0')",
+                    (self.xlog_position(),))
                 row = member_cursor.fetchone()
                 member_cursor.close()
                 member_conn.close()
@@ -317,10 +316,9 @@ class Postgresql:
 recovery_target_timeline = 'latest'
 """)
             if leader and leader.conn_url:
-                f.write("""
-primary_slot_name = '{}'
-primary_conninfo = '{}'
-""".format(self.name, self.primary_conninfo(leader.conn_url)))
+                f.write("""primary_conninfo = '{}'\n""".format(self.primary_conninfo(leader.conn_url)))
+                if self.use_slots:
+                    f.write("""primary_slot_name = '{}'\n""".format(self.name))
                 for name, value in self.config.get('recovery_conf', {}).items():
                     f.write("{} = '{}'\n".format(name, value))
 
@@ -366,32 +364,37 @@ primary_conninfo = '{}'
                 self.query('CREATE ROLE "{0}" WITH LOGIN SUPERUSER PASSWORD %s'.format(
                     self.superuser['username']), self.superuser['password'])
             else:
-                self.query('ALTER ROLE "{0}" WITH PASSWORD %s'.format(os.environ['USER']), self.superuser['password'])
+                rolsuper = self.query("""SELECT rolname FROM pg_authid WHERE rolsuper = 't'""").fetchone()[0]
+                self.query('ALTER ROLE "{0}" WITH PASSWORD %s'.format(rolsuper), self.superuser['password'])
         if self.admin:
             self.query('CREATE ROLE "{0}" WITH LOGIN CREATEDB CREATEROLE PASSWORD %s'.format(
                 self.admin['username']), self.admin['password'])
 
     def xlog_position(self):
-        return self.query("""SELECT CASE WHEN pg_is_in_recovery()
-                                         THEN pg_last_xlog_replay_location() - '0/0000000'::pg_lsn
-                                         ELSE pg_current_xlog_location() - '0/00000'::pg_lsn END""").fetchone()[0]
+        return self.query("""SELECT pg_xlog_location_diff(CASE WHEN pg_is_in_recovery()
+                                                               THEN pg_last_xlog_replay_location()
+                                                               ELSE pg_current_xlog_location()
+                                                          END, '0/0')""").fetchone()[0]
 
     def load_replication_slots(self):
-        cursor = self.query("SELECT slot_name FROM pg_replication_slots WHERE slot_type='physical'")
-        self.members = [r[0] for r in cursor]
+        if self.use_slots:
+            cursor = self.query("SELECT slot_name FROM pg_replication_slots WHERE slot_type='physical'")
+            self.members = [r[0] for r in cursor]
 
     def sync_replication_slots(self, members):
-        # drop unused slots
-        for slot in set(self.members) - set(members):
-            self.query("""SELECT pg_drop_replication_slot(%s)
-                           WHERE EXISTS(SELECT 1 FROM pg_replication_slots
-                           WHERE slot_name = %s)""", slot, slot)
+        if self.use_slots:
+            # drop unused slots
+            for slot in set(self.members) - set(members):
+                self.query("""SELECT pg_drop_replication_slot(%s)
+                               WHERE EXISTS(SELECT 1 FROM pg_replication_slots
+                               WHERE slot_name = %s)""", slot, slot)
 
-        # create new slots
-        for slot in set(members) - set(self.members):
-            self.query("""SELECT pg_create_physical_replication_slot(%s)
-                           WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots
-                           WHERE slot_name = %s)""", slot, slot)
+            # create new slots
+            for slot in set(members) - set(self.members):
+                self.query("""SELECT pg_create_physical_replication_slot(%s)
+                               WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots
+                               WHERE slot_name = %s)""", slot, slot)
+
         self.members = members
 
     def create_replication_slots(self, cluster):
@@ -402,3 +405,34 @@ primary_conninfo = '{}'
 
     def last_operation(self):
         return str(self.xlog_position())
+
+    def bootstrap(self, current_leader=None):
+        """
+            Initially bootstrap PostgreSQL, either by creating a data
+            directory with initdb, or by initalizing a replica from an
+            exiting leader. Failure in the first case always leads to
+            exception, since there is no point in continuing if initdb failed.
+            In the second case, however, a False is returned on failure, since
+            it is normal for the replica to retry a failed attempt to initialize
+            from the master.
+        """
+        ret = False
+        if not current_leader:
+            ret = self.initialize() and self.start()
+            if ret:
+                self.create_replication_user()
+                self.create_connection_users()
+            else:
+                raise PostgresException("Could not bootstrap master PostgreSQL")
+        else:
+            if self.sync_from_leader(current_leader):
+                self.write_recovery_conf(current_leader)
+                ret = self.start()
+        return ret
+
+    def move_data_directory(self):
+        if os.path.isdir(self.data_dir) and not self.is_running():
+            try:
+                os.rename(self.data_dir, '{0}_{1}'.format(self.data_dir, time.strftime('%Y-%m-%d-%H-%M-%S')))
+            except:
+                logger.exception("Could not rename data directory {0}".format(self.data_dir))

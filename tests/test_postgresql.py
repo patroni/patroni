@@ -4,8 +4,9 @@ import shutil
 import subprocess
 import unittest
 
-from helpers.dcs import Cluster, Member
-from helpers.postgresql import Postgresql
+from patroni.dcs import Cluster, Leader, Member
+from patroni.postgresql import Postgresql
+from test_ha import true, false
 
 
 def nop(*args, **kwargs):
@@ -24,7 +25,6 @@ class MockCursor:
 
     def __init__(self):
         self.closed = False
-        self.current = 0
         self.results = []
 
     def execute(self, sql, *params):
@@ -43,7 +43,7 @@ class MockCursor:
                 self.results = [(True, -1)]
             else:
                 self.results = [(False, 0)]
-        elif sql.startswith('SELECT CASE WHEN pg_is_in_recovery()'):
+        elif sql.startswith('SELECT pg_xlog_location_diff'):
             self.results = [(0,)]
         elif sql.startswith('SELECT pg_is_in_recovery()'):
             self.results = [(False, )]
@@ -119,11 +119,12 @@ class TestPostgresql(unittest.TestCase):
                                            'on_restart': 'true', 'on_role_change': 'true',
                                            'on_reload': 'true'
                                            },
-                             'restore': '/usr/bin/true'})
+                             'restore': 'true'})
         psycopg2.connect = psycopg2_connect
         if not os.path.exists(self.p.data_dir):
             os.makedirs(self.p.data_dir)
-        self.leader = Member(0, 'leader', 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres', None, None, 28)
+        self.leadermem = Member(0, 'leader', 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres', None, None, 28)
+        self.leader = Leader(-1, None, 28, self.leadermem)
         self.other = Member(0, 'test1', 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres', None, None, 28)
         self.me = Member(0, 'test0', 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres', None, None, 28)
 
@@ -156,7 +157,7 @@ class TestPostgresql(unittest.TestCase):
         self.p.follow_the_leader(None)
         self.p.demote(self.leader)
         self.p.follow_the_leader(self.leader)
-        self.p.follow_the_leader(self.other)
+        self.p.follow_the_leader(Leader(-1, None, 28, self.other))
 
     def test_create_connection_users(self):
         cfg = self.p.config
@@ -166,7 +167,7 @@ class TestPostgresql(unittest.TestCase):
 
     def test_create_replication_slots(self):
         self.p.start()
-        cluster = Cluster(True, self.leader, 0, [self.me, self.other, self.leader])
+        cluster = Cluster(True, self.leader, 0, [self.me, self.other, self.leadermem])
         self.p.create_replication_slots(cluster)
 
     def test_query(self):
@@ -180,7 +181,7 @@ class TestPostgresql(unittest.TestCase):
         self.assertRaises(psycopg2.OperationalError, self.p.query, 'blabla')
 
     def test_is_healthiest_node(self):
-        cluster = Cluster(True, self.leader, 0, [self.me, self.other, self.leader])
+        cluster = Cluster(True, self.leader, 0, [self.me, self.other, self.leadermem])
         self.assertTrue(self.p.is_healthiest_node(cluster))
         self.p.is_leader = false
         self.assertFalse(self.p.is_healthiest_node(cluster))
@@ -188,7 +189,7 @@ class TestPostgresql(unittest.TestCase):
         self.assertTrue(self.p.is_healthiest_node(cluster))
         self.p.xlog_position = lambda: 2
         self.assertFalse(self.p.is_healthiest_node(cluster))
-        self.p.config['maximum_lag_on_failover'] = -2
+        self.p.config['maximum_lag_on_failover'] = -3
         self.assertFalse(self.p.is_healthiest_node(cluster))
 
     def test_is_leader(self):
@@ -217,3 +218,9 @@ class TestPostgresql(unittest.TestCase):
         self.p.start()
         self.p.query = self.mock_query
         self.assertTrue(self.p.stop())
+
+    def test_move_data_directory(self):
+        self.p.is_running = is_running
+        os.rename = nop
+        os.path.isdir = true
+        self.p.move_data_directory()
