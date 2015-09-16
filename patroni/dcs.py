@@ -185,8 +185,8 @@ class AbstractDCS:
         """If the current node is a master it should just sleep.
         Any other node should watch for changes of leader key with a given timeout
 
-        :returns: `!True` if you would like reschedule next run of ha cycle
-        """
+        :param timeout: timeout in seconds
+        :returns: `!True` if you would like to reschedule the next run of ha cycle"""
 
         sleep(timeout)
         return False
