@@ -6,6 +6,7 @@ import unittest
 
 from patroni.dcs import Cluster, Leader, Member
 from patroni.postgresql import Postgresql
+from test_ha import true, false
 
 
 def nop(*args, **kwargs):
@@ -198,3 +199,9 @@ class TestPostgresql(unittest.TestCase):
 
     def test_check_replication_lag(self):
         self.assertTrue(self.p.check_replication_lag(0))
+
+    def test_move_data_directory(self):
+        self.p.is_running = is_running
+        os.rename = nop
+        os.path.isdir = true
+        self.p.move_data_directory()

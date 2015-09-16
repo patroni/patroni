@@ -232,19 +232,22 @@ class Etcd(AbstractDCS):
         return ret
 
     @catch_etcd_errors
-    def race(self, path):
-        return self.retry(self.client.write, self.client_path(path), self._name, prevExist=False)
+    def initialize(self):
+        return self.client.write(self.initialize_path, self._name, prevExist=False)
 
     @catch_etcd_errors
     def delete_leader(self):
         return self.client.delete(self.leader_path, prevValue=self._name)
+
+    @catch_etcd_errors
+    def cancel_initialization(self):
+        return self.client.delete(self.initialize_path, prevValue=self._name)
 
     def watch(self, timeout):
         # watch on leader key changes if it is defined and current node is not lock owner
         if self.cluster and self.cluster.leader and self.cluster.leader.name != self._name:
             end_time = time.time() + timeout
             index = self.cluster.leader.index
-
             while index and timeout >= 1:  # when timeout is too small urllib3 doesn't have enough time to connect
                 try:
                     res = self.client.watch(self.leader_path, index=index + 1, timeout=timeout)
