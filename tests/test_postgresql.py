@@ -17,10 +17,6 @@ def subprocess_call(cmd, shell=False, env=None):
     return 0
 
 
-def false(*args, **kwargs):
-    return False
-
-
 class MockCursor:
 
     def __init__(self):

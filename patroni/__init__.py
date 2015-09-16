@@ -84,15 +84,13 @@ class Patroni:
             self.postgresql.load_replication_slots()
 
     def schedule_next_run(self):
-        if self.postgresql.is_promoted:
-            self.next_run = time.time()
         self.next_run += self.nap_time
         current_time = time.time()
         nap_time = self.next_run - current_time
         if nap_time <= 0:
             self.next_run = current_time
-        else:
-            self.ha.dcs.watch(nap_time)
+        elif self.ha.dcs.watch(nap_time):
+            self.next_run = time.time()
 
     def run(self):
         self.api.start()
