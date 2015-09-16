@@ -55,6 +55,7 @@ class Postgresql:
         self.postmaster_pid = os.path.join(self.data_dir, 'postmaster.pid')
         self.trigger_file = config.get('recovery_conf', {}).get('trigger_file', None) or 'promote'
         self.trigger_file = os.path.abspath(os.path.join(self.data_dir, self.trigger_file))
+        self._role = 'replica'
         self.is_promoted = False
 
         self._pg_ctl = ['pg_ctl', '-w', '-D', self.data_dir]
@@ -163,31 +164,26 @@ class Postgresql:
     def is_running(self):
         return subprocess.call(' '.join(self._pg_ctl) + ' status > /dev/null 2>&1', shell=True) == 0
 
-    def call_nowait(self, cb_name, is_leader=None):
+    def call_nowait(self, cb_name):
         """ pick a callback command and call it without waiting for it to finish """
         if not self.callback or cb_name not in self.callback:
             return False
         cmd = self.callback[cb_name]
-        if is_leader is None:
-            try:
-                is_leader = self.is_leader(check_only=True)
-            except psycopg2.OperationalError as e:
-                logger.warning("unable to perform {0} action, cannot obtain the cluster role: {1}".format(cb_name, e))
-                return False
         try:
-            role = "master" if is_leader else "replica"
-            subprocess.Popen(shlex.split(cmd) + [cb_name, role, self.scope])
+            subprocess.Popen(shlex.split(cmd) + [cb_name, self._role, self.scope])
         except:
-            logger.exception('callback %s %s %s %s failed', cmd, cb_name, role, self.scope)
+            logger.exception('callback %s %s %s %s failed', cmd, cb_name, self._role, self.scope)
             return False
         return True
 
-    def start(self, block_callbacks=False):
+    def start(self, role='replica', block_callbacks=False):
         if self.is_running():
+            self._role = 'master' if self.is_leader(check_only=True) else 'replica'
             self.load_replication_slots()
             logger.error('Cannot start PostgreSQL because one is already running.')
             return False
 
+        self._role = role
         if os.path.exists(self.postmaster_pid):
             os.remove(self.postmaster_pid)
             logger.info('Removed %s', self.postmaster_pid)
@@ -197,47 +193,32 @@ class Postgresql:
         self.save_configuration_files()
         # block_callbacks is used during restart to avoid
         # running start/stop callbacks in addition to restart ones
-        if not block_callbacks and ret and ACTION_ON_START in self.callback:
-            self.call_nowait(ACTION_ON_START)
+        ret and not block_callbacks and ret and self.call_nowait(ACTION_ON_START)
         return ret
 
     def stop(self, block_callbacks=False):
-        try:
-            is_leader = self.is_leader(check_only=True)
-        except:
-            is_leader = None
-            pass
-        try:
-            self.query("CHECKPOINT")
-        except psycopg2.OperationalError:
-            # likely PostgreSQL is already stopped.
-            ret = 0
-        else:
-            ret = subprocess.call(self._pg_ctl + ['stop', '-m', 'fast'])
+        if block_callbacks:
+            try:
+                self.query('SET statement_timeout TO 0')
+                self.query('CHECKPOINT')
+            except:
+                logging.exception('Exception diring CHECKPOINT')
+
+        ret = subprocess.call(self._pg_ctl + ['stop', '-m', 'fast']) == 0
         # block_callbacks is used during restart to avoid
         # running start/stop callbacks in addition to restart ones
-        if not block_callbacks and ret == 0 and ACTION_ON_STOP in self.callback:
-            self.call_nowait(ACTION_ON_STOP, is_leader=is_leader)
-        return ret == 0
+        ret and not block_callbacks and self.call_nowait(ACTION_ON_STOP)
+        return ret
 
     def reload(self):
-        ret = subprocess.call(self._pg_ctl + ['reload'])
-        if ret == 0 and ACTION_ON_RELOAD in self.callback:
-            self.call_nowait(ACTION_ON_RELOAD)
-        return ret == 0
+        ret = subprocess.call(self._pg_ctl + ['reload']) == 0
+        ret and self.call_nowait(ACTION_ON_RELOAD)
+        return ret
 
     def restart(self):
-        try:
-            is_leader = self.is_leader(check_only=True)
-        except:
-            is_leader = None
-            pass
-        ret = self.stop(block_callbacks=True)
-        if ret == 0:
-            ret = self.start(block_callbacks=True)
-        if ret == 0 and ACTION_ON_RESTART in self.callback:
-            self.call_nowait(ACTION_ON_RESTART, is_leader=is_leader)
-        return ret == 0
+        ret = self.stop(block_callbacks=True) and self.start(block_callbacks=True)
+        ret and self.call_nowait(ACTION_ON_RESTART)
+        return ret
 
     def server_options(self):
         options = "--listen_addresses='{}' --port={}".format(self.listen_addresses, self.port)
@@ -325,9 +306,9 @@ recovery_target_timeline = 'latest'
     def follow_the_leader(self, leader):
         if not self.check_recovery_conf(leader):
             self.write_recovery_conf(leader)
+            run_callback = self._role == 'master'
             self.restart()
-            if ACTION_ON_ROLE_CHANGE in self.callback:
-                self.call_nowait(ACTION_ON_ROLE_CHANGE)
+            run_callback and self.call_nowait(ACTION_ON_ROLE_CHANGE)
 
     def save_configuration_files(self):
         """
@@ -347,7 +328,8 @@ recovery_target_timeline = 'latest'
 
     def promote(self):
         self.is_promoted = subprocess.call(self._pg_ctl + ['promote']) == 0
-        if self.is_promoted and ACTION_ON_ROLE_CHANGE in self.callback:
+        if self.is_promoted:
+            self._role = 'master'
             self.call_nowait(ACTION_ON_ROLE_CHANGE)
         return self.is_promoted
 
@@ -418,7 +400,7 @@ recovery_target_timeline = 'latest'
         """
         ret = False
         if not current_leader:
-            ret = self.initialize() and self.start()
+            ret = self.initialize() and self.start(role='master')
             if ret:
                 self.create_replication_user()
                 self.create_connection_users()

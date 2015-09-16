@@ -61,7 +61,7 @@ def get_cluster_not_initialized_with_leader():
 
 
 def get_cluster_initialized_with_leader():
-    return get_cluster(True, Leader(0, 0, 0, 
+    return get_cluster(True, Leader(0, 0, 0,
                        Member(0, 'leader', 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
                               None, None, 28)))
 
@@ -132,7 +132,7 @@ class TestPatroni(unittest.TestCase):
         self.p.ha.dcs.client.read = etcd_read
         self.p.ha.dcs.watch = time_sleep
         self.assertRaises(SleepException, self.p.run)
-        self.p.ha.state_handler.is_leader = lambda: False
+        self.p.ha.state_handler.is_leader = false
         self.p.api.start = nop
         self.assertRaises(SleepException, self.p.run)
 

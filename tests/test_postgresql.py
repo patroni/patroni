@@ -17,10 +17,6 @@ def subprocess_call(cmd, shell=False, env=None):
     return 0
 
 
-def false(*args, **kwargs):
-    return False
-
-
 class MockCursor:
 
     def __init__(self):
@@ -28,7 +24,7 @@ class MockCursor:
         self.results = []
 
     def execute(self, sql, *params):
-        if sql.startswith('blabla'):
+        if sql.startswith('blabla') or sql == 'CHECKPOINT':
             raise psycopg2.OperationalError()
         elif sql.startswith('InterfaceError'):
             raise psycopg2.InterfaceError()
@@ -88,12 +84,11 @@ class MockConnect:
 
 
 def psycopg2_connect(*args, **kwargs):
-
     return MockConnect()
 
 
-def is_running():
-    return False
+def raise_exception(*args, **kwargs):
+    raise Exception
 
 
 class TestPostgresql(unittest.TestCase):
@@ -143,7 +138,7 @@ class TestPostgresql(unittest.TestCase):
 
     def test_start_stop(self):
         self.assertFalse(self.p.start())
-        self.p.is_running = is_running
+        self.p.is_running = false
         with open(os.path.join(self.p.data_dir, 'postmaster.pid'), 'w'):
             pass
         self.assertTrue(self.p.start())
@@ -158,6 +153,10 @@ class TestPostgresql(unittest.TestCase):
         self.p.demote(self.leader)
         self.p.follow_the_leader(self.leader)
         self.p.follow_the_leader(Leader(-1, None, 28, self.other))
+
+    def test_create_replica(self):
+        self.p.delete_trigger_file = raise_exception
+        self.assertEquals(self.p.create_replica({'host': '', 'port': '', 'user': ''}, ''), 1)
 
     def test_create_connection_users(self):
         cfg = self.p.config
@@ -202,7 +201,7 @@ class TestPostgresql(unittest.TestCase):
 
     def test_is_healthy(self):
         self.assertTrue(self.p.is_healthy())
-        self.p.is_running = is_running
+        self.p.is_running = false
         self.assertFalse(self.p.is_healthy())
 
     def test_promote(self):
@@ -210,6 +209,12 @@ class TestPostgresql(unittest.TestCase):
 
     def test_last_operation(self):
         self.assertEquals(self.p.last_operation(), '0')
+
+    def test_call_nowait(self):
+        popen = subprocess.Popen
+        subprocess.Popen = raise_exception
+        self.assertFalse(self.p.call_nowait('on_start'))
+        subprocess.Popen = popen
 
     def test_non_existing_callback(self):
         self.assertFalse(self.p.call_nowait('foobar'))
@@ -220,7 +225,9 @@ class TestPostgresql(unittest.TestCase):
         self.assertTrue(self.p.stop())
 
     def test_move_data_directory(self):
-        self.p.is_running = is_running
+        self.p.is_running = false
         os.rename = nop
         os.path.isdir = true
+        self.p.move_data_directory()
+        os.rename = raise_exception
         self.p.move_data_directory()
