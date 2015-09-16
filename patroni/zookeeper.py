@@ -170,6 +170,7 @@ class ZooKeeper(AbstractDCS):
             try:
                 self.client.retry(self._inner_load_cluster)
             except:
+                self.cluster = None
                 logger.exception('get_cluster')
                 self.session_listener(KazooState.LOST)
                 raise ZooKeeperError('ZooKeeper in not responding properly')
