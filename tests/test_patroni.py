@@ -15,6 +15,7 @@ from patroni.exceptions import DCSError, PostgresException
 from patroni import Patroni, main
 from patroni.zookeeper import ZooKeeper
 from six.moves import BaseHTTPServer
+from test_api import Mock_BaseServer__is_shut_down
 from test_etcd import Client, etcd_read, etcd_write
 from test_ha import true, false
 from test_postgresql import Postgresql, subprocess_call, psycopg2_connect
