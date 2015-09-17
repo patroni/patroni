@@ -164,10 +164,10 @@ class TestPostgresql(unittest.TestCase):
         p = Postgresql(cfg)
         p.create_connection_users()
 
-    def test_create_replication_slots(self):
+    def test_sync_replication_slots(self):
         self.p.start()
         cluster = Cluster(True, self.leader, 0, [self.me, self.other, self.leadermem])
-        self.p.create_replication_slots(cluster)
+        self.p.sync_replication_slots(cluster)
 
     def test_query(self):
         self.p.query('select 1')
@@ -191,11 +191,6 @@ class TestPostgresql(unittest.TestCase):
         self.p.config['maximum_lag_on_failover'] = -3
         self.assertFalse(self.p.is_healthiest_node(cluster))
 
-    def test_is_leader(self):
-        self.p.is_promoted = True
-        self.assertTrue(self.p.is_leader())
-        self.assertFalse(self.p.is_promoted)
-
     def test_reload(self):
         self.assertTrue(self.p.reload())
 
@@ -205,6 +200,7 @@ class TestPostgresql(unittest.TestCase):
         self.assertFalse(self.p.is_healthy())
 
     def test_promote(self):
+        self.assertTrue(self.p.promote())
         self.assertTrue(self.p.promote())
 
     def test_last_operation(self):
