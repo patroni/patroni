@@ -19,7 +19,7 @@ class MockPostgresql:
 
     def __init__(self):
         self.name = 'postgresql0'
-        self.is_promoted = False
+        self.role = 'replica'
 
     def is_healthy(self):
         return True

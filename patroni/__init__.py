@@ -81,18 +81,16 @@ class Patroni:
                     logger.info('waiting on DCS')
                 sleep(5)
         elif self.postgresql.is_running():
-            self.postgresql.load_replication_slots()
+            self.postgresql.schedule_load_slots = True
 
     def schedule_next_run(self):
-        if self.postgresql.is_promoted:
-            self.next_run = time.time()
         self.next_run += self.nap_time
         current_time = time.time()
         nap_time = self.next_run - current_time
         if nap_time <= 0:
             self.next_run = current_time
-        else:
-            self.ha.dcs.watch(nap_time)
+        elif self.ha.dcs.watch(nap_time):
+            self.next_run = time.time()
 
     def run(self):
         self.api.start()
@@ -102,10 +100,7 @@ class Patroni:
             self.touch_member()
             logger.info(self.ha.run_cycle())
             try:
-                if self.ha.state_handler.is_leader():
-                    self.ha.cluster and self.ha.state_handler.create_replication_slots(self.ha.cluster)
-                else:
-                    self.ha.state_handler.drop_replication_slots()
+                self.ha.cluster and self.ha.state_handler.sync_replication_slots(self.ha.cluster)
             except:
                 logger.exception('Exception when changing replication slots')
             reap_children()

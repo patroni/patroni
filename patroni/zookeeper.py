@@ -246,3 +246,5 @@ class ZooKeeper(AbstractDCS):
         self.cluster_event.wait(timeout)
         if self.cluster_event.isSet():
             self.fetch_cluster = True
+            return not self.cluster or not self.cluster.leader or self.cluster.leader.name != self._name
+        return False

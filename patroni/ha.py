@@ -1,4 +1,5 @@
 import logging
+import psycopg2
 import requests
 
 from patroni.dcs import DCSError
@@ -106,7 +107,7 @@ class Ha:
             if self.cluster.is_unlocked():
                 if self.is_healthiest_node():
                     if self.acquire_lock():
-                        if self.state_handler.is_leader() or self.state_handler.is_promoted:
+                        if self.state_handler.is_leader() or self.state_handler.role == 'master':
                             return 'acquired session lock as a leader'
                         else:
                             self.state_handler.promote()
@@ -129,7 +130,7 @@ class Ha:
                         return 'following a different leader because i am not the healthiest node'
             else:
                 if self.has_lock() and self.update_lock():
-                    if self.state_handler.is_leader() or self.state_handler.is_promoted:
+                    if self.state_handler.is_leader() or self.state_handler.role == 'master':
                         return 'no action.  i am the leader with the lock'
                     else:
                         self.state_handler.promote()
@@ -147,5 +148,5 @@ class Ha:
             if self.state_handler.is_leader():
                 self.state_handler.demote(None)
                 return 'demoted self because DCS is not accessible and i was a leader'
-        except (InterfaceError, OperationalError):
-            logger.error('Error communicating with Postgresql.  Will try again')
+        except psycopg2.Error:
+            logger.exception('Error communicating with Postgresql.  Will try again')
