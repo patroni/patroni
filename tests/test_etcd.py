@@ -9,9 +9,9 @@ import time
 import unittest
 
 from dns.exception import DNSException
-from helpers.dcs import Cluster, DCSError, Leader, Member
-from helpers.etcd import Client, Etcd
 from mock import Mock, patch
+from patroni.dcs import Cluster, DCSError, Leader, Member
+from patroni.etcd import Client, Etcd
 
 
 class MockResponse:
@@ -26,6 +26,10 @@ class MockResponse:
 
     @property
     def data(self):
+        if self.content == 'TimeoutError':
+            raise urllib3.exceptions.TimeoutError
+        if self.content == 'Exception':
+            raise Exception
         return self.content
 
     @property
@@ -40,7 +44,7 @@ class MockPostgresql:
     name = ''
 
     def last_operation(self):
-        return 0
+        return '0'
 
 
 def requests_get(url, **kwargs):
@@ -76,6 +80,8 @@ def etcd_watch(key, index=None, timeout=None, recursive=None):
 
 
 def etcd_write(key, value, **kwargs):
+    if key == '/service/exists/leader':
+        raise etcd.EtcdAlreadyExist
     if key == '/service/test/leader':
         if kwargs.get('prevValue', None) == 'foo' or not kwargs.get('prevExist', True):
             return True
@@ -87,9 +93,9 @@ def etcd_delete(key, **kwargs):
 
 
 def etcd_read(key, **kwargs):
-    if key == '/service/noleader':
+    if key == '/service/noleader/':
         raise DCSError('noleader')
-    elif key == '/service/nocluster':
+    elif key == '/service/nocluster/':
         raise etcd.EtcdKeyNotFound
 
     response = {"action": "get", "node": {"key": "/service/batman5", "dir": True, "nodes": [
@@ -190,6 +196,15 @@ class TestClient(unittest.TestCase):
         self.assertEquals(self.client.get_srv_record('blabla'), [])
         self.assertEquals(self.client.get_srv_record('exception'), [])
 
+    def test__result_from_response(self):
+        response = MockResponse()
+        response.content = 'TimeoutError'
+        self.assertRaises(urllib3.exceptions.TimeoutError, self.client._result_from_response, response)
+        response.content = 'Exception'
+        self.assertRaises(etcd.EtcdException, self.client._result_from_response, response)
+        response.content = b'{}'
+        self.assertRaises(etcd.EtcdException, self.client._result_from_response, response)
+
     def test__get_machines_cache_from_srv(self):
         self.client.get_srv_record = lambda e: [('localhost', 2380)]
         self.client._get_machines_cache_from_srv('blabla')
@@ -242,11 +257,21 @@ class TestEtcd(unittest.TestCase):
     def test_take_leader(self):
         self.assertFalse(self.etcd.take_leader())
 
+    def testattempt_to_acquire_leader(self):
+        self.etcd._base_path = '/service/exists'
+        self.assertFalse(self.etcd.attempt_to_acquire_leader())
+        self.etcd._base_path = '/service/failed'
+        self.assertFalse(self.etcd.attempt_to_acquire_leader())
+
     def test_update_leader(self):
         self.assertTrue(self.etcd.update_leader(MockPostgresql()))
 
-    def test_race(self):
-        self.assertFalse(self.etcd.race(''))
+    def test_initialize(self):
+        self.assertFalse(self.etcd.initialize())
+
+    def test_cancel_initializion(self):
+        self.etcd.client.delete = etcd_delete
+        self.assertFalse(self.etcd.cancel_initialization())
 
     def test_delete_leader(self):
         self.etcd.client.delete = etcd_delete

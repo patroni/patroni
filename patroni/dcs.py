@@ -1,7 +1,8 @@
 import abc
 
 from collections import namedtuple
-from helpers.utils import calculate_ttl, sleep
+from patroni.exceptions import DCSError
+from patroni.utils import calculate_ttl, sleep
 from six.moves.urllib_parse import urlparse, urlunparse, parse_qsl
 
 
@@ -22,21 +23,8 @@ def parse_connection_string(value):
     return conn_url, api_url
 
 
-class DCSError(Exception):
-    """Parent class for all kind of exceptions related to selected distributed configuration store"""
-
-    def __init__(self, value):
-        self.value = value
-
-    def __str__(self):
-        """
-        >>> str(DCSError('foo'))
-        "'foo'"
-        """
-        return repr(self.value)
-
-
 class Member(namedtuple('Member', 'index,name,conn_url,api_url,expiration,ttl')):
+
     """Immutable object (namedtuple) which represents single member of PostgreSQL cluster.
     Consists of the following fields:
     :param index: modification index of a given member key in a Configuration Store
@@ -51,6 +39,7 @@ class Member(namedtuple('Member', 'index,name,conn_url,api_url,expiration,ttl'))
 
 
 class Leader(namedtuple('Leader', 'index,expiration,ttl,member')):
+
     """Immutable object (namedtuple) which represents leader key.
     Consists of the following fields:
     :param index: modification index of a leader key in a Configuration Store
@@ -68,6 +57,7 @@ class Leader(namedtuple('Leader', 'index,expiration,ttl,member')):
 
 
 class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,members')):
+
     """Immutable object (namedtuple) which represents PostgreSQL cluster.
     Consists of the following fields:
     :param initialize: boolean, shows whether this cluster has initialization key stored in DC or not.
@@ -84,6 +74,12 @@ class AbstractDCS:
 
     __metaclass__ = abc.ABCMeta
 
+    _INITIALIZE = 'initialize'
+    _LEADER = 'leader'
+    _MEMBERS = 'members/'
+    _OPTIME = 'optime'
+    _LEADER_OPTIME = _OPTIME + '/' + _LEADER
+
     def __init__(self, name, config):
         """
         :param name: name of current instance (the same value as `~Postgresql.name`)
@@ -95,7 +91,27 @@ class AbstractDCS:
         self._base_path = '/service/' + self._scope
 
     def client_path(self, path):
-        return self._base_path + path
+        return '/'.join([self._base_path, path.lstrip('/')])
+
+    @property
+    def initialize_path(self):
+        return self.client_path(self._INITIALIZE)
+
+    @property
+    def members_path(self):
+        return self.client_path(self._MEMBERS)
+
+    @property
+    def member_path(self):
+        return self.client_path(self._MEMBERS + self._name)
+
+    @property
+    def leader_path(self):
+        return self.client_path(self._LEADER)
+
+    @property
+    def leader_optime_path(self):
+        return self.client_path(self._LEADER_OPTIME)
 
     @property
     def member_path(self):
@@ -161,12 +177,11 @@ class AbstractDCS:
         overwriting the key if necessary."""
 
     @abc.abstractmethod
-    def race(self, path):
+    def initialize(self):
         """Race for cluster initialization.
-        :param path: usually this is just '/initialize'
         :returns: `!True` if key has been created successfully.
 
-        this method should create atomically `path` key and return `!True`
+        this method should create atomically initialize key and return `!True`
         otherwise it should return `!False`"""
 
     @abc.abstractmethod
@@ -174,5 +189,16 @@ class AbstractDCS:
         """Voluntarily remove leader key from DCS
         This method should remove leader key if current instance is the leader"""
 
+    @abc.abstractmethod
+    def cancel_initialization(self):
+        """ Removes the initialize key for a cluster """
+
     def watch(self, timeout):
+        """If the current node is a master it should just sleep.
+        Any other node should watch for changes of leader key with a given timeout
+
+        :param timeout: timeout in seconds
+        :returns: `!True` if you would like to reschedule the next run of ha cycle"""
+
         sleep(timeout)
+        return False

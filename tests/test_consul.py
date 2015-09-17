@@ -3,7 +3,7 @@ import time
 import unittest
 
 from collections import namedtuple
-from helpers.consul import Cluster, Consul, ConsulError, ConsulException, NotFound
+from patroni.consul import Cluster, Consul, ConsulError, ConsulException, NotFound
 from test_etcd import MockPostgresql, time_sleep_exception, SleepException
 
 

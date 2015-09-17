@@ -4,13 +4,11 @@ import psycopg2
 import shlex
 import shutil
 import subprocess
-import six
+import time
 
-from helpers.utils import sleep
+from patroni.exceptions import PostgresException
+from patroni.utils import sleep
 from six.moves.urllib_parse import urlparse
-
-if six.PY3:
-    long = int
 
 logger = logging.getLogger(__name__)
 
@@ -50,13 +48,15 @@ class Postgresql:
         self.superuser = config['superuser']
         self.admin = config['admin']
         self.callback = config.get('callbacks', {})
+        self.use_slots = config.get('use_slots', True)
+        self.schedule_load_slots = self.use_slots
         self.recovery_conf = os.path.join(self.data_dir, 'recovery.conf')
         self.configuration_to_save = (os.path.join(self.data_dir, 'pg_hba.conf'),
                                       os.path.join(self.data_dir, 'postgresql.conf'))
         self.postmaster_pid = os.path.join(self.data_dir, 'postmaster.pid')
         self.trigger_file = config.get('recovery_conf', {}).get('trigger_file', None) or 'promote'
         self.trigger_file = os.path.abspath(os.path.join(self.data_dir, self.trigger_file))
-        self.is_promoted = False
+        self._role = 'replica'
 
         self._pg_ctl = ['pg_ctl', '-w', '-D', self.data_dir]
 
@@ -103,9 +103,7 @@ class Postgresql:
                 cursor = self._cursor()
                 cursor.execute(sql, params)
                 return cursor
-            except psycopg2.InterfaceError as e:
-                ex = e
-            except psycopg2.OperationalError as e:
+            except psycopg2.Error as e:
                 if self._connection and self._connection.closed == 0:
                     raise e
                 ex = e
@@ -154,79 +152,71 @@ class Postgresql:
             return 1
         return ret
 
-    def is_leader(self, check_only=False):
-        ret = not self.query('SELECT pg_is_in_recovery()').fetchone()[0]
-        if ret and self.is_promoted and not check_only:
-            self.delete_trigger_file()
-            self.is_promoted = False
-        return ret
+    def is_leader(self):
+        return not self.query('SELECT pg_is_in_recovery()').fetchone()[0]
 
     def is_running(self):
-        return subprocess.call(' '.join(self._pg_ctl) + ' status > /dev/null', shell=True) == 0
+        return subprocess.call(' '.join(self._pg_ctl) + ' status > /dev/null 2>&1', shell=True) == 0
 
-    def call_nowait(self, cb_name, is_leader=None):
+    def call_nowait(self, cb_name):
         """ pick a callback command and call it without waiting for it to finish """
         if not self.callback or cb_name not in self.callback:
             return False
         cmd = self.callback[cb_name]
-        if is_leader is None:
-            try:
-                is_leader = self.is_leader(check_only=True)
-            except psycopg2.OperationalError as e:
-                logger.warning("unable to perform {0} action, cannot obtain the cluster role: {1}".format(cb_name, e))
-                return False
         try:
-            role = "master" if is_leader else "replica"
-            subprocess.Popen(shlex.split(cmd) + [cb_name, role, self.scope])
+            subprocess.Popen(shlex.split(cmd) + [cb_name, self.role, self.scope])
         except:
-            logger.exception('callback %s %s %s %s failed', cmd, cb_name, role, self.scope)
+            logger.exception('callback %s %s %s %s failed', cmd, cb_name, self.role, self.scope)
             return False
         return True
 
-    def start(self):
+    @property
+    def role(self):
+        return self._role
+
+    def start(self, block_callbacks=False):
         if self.is_running():
-            self.load_replication_slots()
+            self._role = 'master' if self.is_leader() else 'replica'
+            self.schedule_load_slots = self.use_slots
             logger.error('Cannot start PostgreSQL because one is already running.')
             return False
 
+        self._role = 'replica' if os.path.exists(self.recovery_conf) else 'master'
         if os.path.exists(self.postmaster_pid):
             os.remove(self.postmaster_pid)
             logger.info('Removed %s', self.postmaster_pid)
 
         ret = subprocess.call(self._pg_ctl + ['start', '-o', self.server_options()]) == 0
-        ret and self.load_replication_slots()
+        self.schedule_load_slots = ret and self.use_slots
         self.save_configuration_files()
-        if ret and ACTION_ON_START in self.callback:
-            self.call_nowait(ACTION_ON_START)
+        # block_callbacks is used during restart to avoid
+        # running start/stop callbacks in addition to restart ones
+        ret and not block_callbacks and ret and self.call_nowait(ACTION_ON_START)
         return ret
 
-    def stop(self):
-        try:
-            is_leader = self.is_leader(check_only=True)
-        except:
-            is_leader = None
-            pass
-        ret = subprocess.call(self._pg_ctl + ['stop', '-m', 'fast'])
-        if ret == 0 and ACTION_ON_STOP in self.callback:
-            self.call_nowait(ACTION_ON_STOP, is_leader=is_leader)
-        return ret == 0
+    def stop(self, block_callbacks=False):
+        if block_callbacks:
+            try:
+                self.query('SET statement_timeout TO 0')
+                self.query('CHECKPOINT')
+            except:
+                logging.exception('Exception diring CHECKPOINT')
+
+        ret = subprocess.call(self._pg_ctl + ['stop', '-m', 'fast']) == 0
+        # block_callbacks is used during restart to avoid
+        # running start/stop callbacks in addition to restart ones
+        ret and not block_callbacks and self.call_nowait(ACTION_ON_STOP)
+        return ret
 
     def reload(self):
-        ret = subprocess.call(self._pg_ctl + ['reload'])
-        if ret == 0 and ACTION_ON_RELOAD in self.callback:
-            self.call_nowait(ACTION_ON_RELOAD)
-        return ret == 0
+        ret = subprocess.call(self._pg_ctl + ['reload']) == 0
+        ret and self.call_nowait(ACTION_ON_RELOAD)
+        return ret
 
     def restart(self):
-        try:
-            is_leader = self.is_leader(check_only=True)
-        except:
-            is_leader = None
-            pass
-        ret = subprocess.call(self._pg_ctl + ['restart', '-m', 'fast'])
-        if ret == 0 and ACTION_ON_RESTART in self.callback:
-            self.call_nowait(ACTION_ON_RESTART, is_leader=is_leader)
-        return ret == 0
+        ret = self.stop(block_callbacks=True) and self.start(block_callbacks=True)
+        ret and self.call_nowait(ACTION_ON_RESTART)
+        return ret
 
     def server_options(self):
         options = "--listen_addresses='{}' --port={}".format(self.listen_addresses, self.port)
@@ -256,8 +246,8 @@ class Postgresql:
                 member_conn.autocommit = True
                 member_cursor = member_conn.cursor()
                 member_cursor.execute(
-                    "SELECT pg_is_in_recovery(), %s - (pg_last_xlog_replay_location() - '0/0000000'::pg_lsn)",
-                    (self.xlog_position(), ))
+                    "SELECT pg_is_in_recovery(), %s - pg_xlog_location_diff(pg_last_xlog_replay_location(), '0/0')",
+                    (self.xlog_position(),))
                 row = member_cursor.fetchone()
                 member_cursor.close()
                 member_conn.close()
@@ -305,19 +295,18 @@ class Postgresql:
 recovery_target_timeline = 'latest'
 """)
             if leader and leader.conn_url:
-                f.write("""
-primary_slot_name = '{}'
-primary_conninfo = '{}'
-""".format(self.name, self.primary_conninfo(leader.conn_url)))
+                f.write("""primary_conninfo = '{}'\n""".format(self.primary_conninfo(leader.conn_url)))
+                if self.use_slots:
+                    f.write("""primary_slot_name = '{}'\n""".format(self.name))
                 for name, value in self.config.get('recovery_conf', {}).items():
                     f.write("{} = '{}'\n".format(name, value))
 
     def follow_the_leader(self, leader):
         if not self.check_recovery_conf(leader):
             self.write_recovery_conf(leader)
+            run_callback = self.role == 'master'
             self.restart()
-            if ACTION_ON_ROLE_CHANGE in self.callback:
-                self.call_nowait(ACTION_ON_ROLE_CHANGE)
+            run_callback and self.call_nowait(ACTION_ON_ROLE_CHANGE)
 
     def save_configuration_files(self):
         """
@@ -336,10 +325,13 @@ primary_conninfo = '{}'
             logger.exception('unable to restore configuration from WAL-E backup')
 
     def promote(self):
-        self.is_promoted = subprocess.call(self._pg_ctl + ['promote']) == 0
-        if self.is_promoted and ACTION_ON_ROLE_CHANGE in self.callback:
+        if self.role == 'master':
+            return True
+        ret = subprocess.call(self._pg_ctl + ['promote']) == 0
+        if ret:
+            self._role = 'master'
             self.call_nowait(ACTION_ON_ROLE_CHANGE)
-        return self.is_promoted
+        return ret
 
     def demote(self, leader):
         self.follow_the_leader(leader)
@@ -361,33 +353,65 @@ primary_conninfo = '{}'
                 self.admin['username']), self.admin['password'])
 
     def xlog_position(self):
-        return self.query("""SELECT CASE WHEN pg_is_in_recovery()
-                                         THEN pg_last_xlog_replay_location() - '0/0000000'::pg_lsn
-                                         ELSE pg_current_xlog_location() - '0/00000'::pg_lsn END""").fetchone()[0]
+        return self.query("""SELECT pg_xlog_location_diff(CASE WHEN pg_is_in_recovery()
+                                                               THEN pg_last_xlog_replay_location()
+                                                               ELSE pg_current_xlog_location()
+                                                          END, '0/0')""").fetchone()[0]
 
     def load_replication_slots(self):
-        cursor = self.query("SELECT slot_name FROM pg_replication_slots WHERE slot_type='physical'")
-        self.members = [r[0] for r in cursor]
+        if self.use_slots and self.schedule_load_slots:
+            cursor = self.query("SELECT slot_name FROM pg_replication_slots WHERE slot_type='physical'")
+            self.members = [r[0] for r in cursor]
+            self.schedule_load_slots = False
 
-    def sync_replication_slots(self, members):
-        # drop unused slots
-        for slot in set(self.members) - set(members):
-            self.query("""SELECT pg_drop_replication_slot(%s)
-                           WHERE EXISTS(SELECT 1 FROM pg_replication_slots
-                           WHERE slot_name = %s)""", slot, slot)
+    def sync_replication_slots(self, cluster):
+        if self.use_slots:
+            self.load_replication_slots()
+            members = [m.name for m in cluster.members if m.name != self.name] if self.role == 'master' else []
+            # drop unused slots
+            for slot in set(self.members) - set(members):
+                self.query("""SELECT pg_drop_replication_slot(%s)
+                               WHERE EXISTS(SELECT 1 FROM pg_replication_slots
+                               WHERE slot_name = %s)""", slot, slot)
 
-        # create new slots
-        for slot in set(members) - set(self.members):
-            self.query("""SELECT pg_create_physical_replication_slot(%s)
-                           WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots
-                           WHERE slot_name = %s)""", slot, slot)
-        self.members = members
+            # create new slots
+            for slot in set(members) - set(self.members):
+                self.query("""SELECT pg_create_physical_replication_slot(%s)
+                               WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots
+                               WHERE slot_name = %s)""", slot, slot)
 
-    def create_replication_slots(self, cluster):
-        self.sync_replication_slots([m.name for m in cluster.members if m.name != self.name])
-
-    def drop_replication_slots(self):
-        self.sync_replication_slots([])
+            self.members = members
 
     def last_operation(self):
         return str(self.xlog_position())
+
+    def bootstrap(self, current_leader=None):
+        """
+            Initially bootstrap PostgreSQL, either by creating a data
+            directory with initdb, or by initalizing a replica from an
+            exiting leader. Failure in the first case always leads to
+            exception, since there is no point in continuing if initdb failed.
+            In the second case, however, a False is returned on failure, since
+            it is normal for the replica to retry a failed attempt to initialize
+            from the master.
+        """
+        ret = False
+        if not current_leader:
+            ret = self.initialize() and self.start()
+            if ret:
+                self.create_replication_user()
+                self.create_connection_users()
+            else:
+                raise PostgresException("Could not bootstrap master PostgreSQL")
+        else:
+            if self.sync_from_leader(current_leader):
+                self.write_recovery_conf(current_leader)
+                ret = self.start()
+        return ret
+
+    def move_data_directory(self):
+        if os.path.isdir(self.data_dir) and not self.is_running():
+            try:
+                os.rename(self.data_dir, '{0}_{1}'.format(self.data_dir, time.strftime('%Y-%m-%d-%H-%M-%S')))
+            except:
+                logger.exception("Could not rename data directory {0}".format(self.data_dir))

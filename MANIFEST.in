@@ -1,0 +1,3 @@
+include requirements*
+include *.rst
+recursive-include patroni *.py

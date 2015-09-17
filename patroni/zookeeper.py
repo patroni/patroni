@@ -3,10 +3,10 @@ import random
 import requests
 import time
 
-from helpers.dcs import AbstractDCS, Cluster, DCSError, Leader, Member, parse_connection_string
-from helpers.utils import sleep
 from kazoo.client import KazooClient, KazooState
 from kazoo.exceptions import NoNodeError, NodeExistsError
+from patroni.dcs import AbstractDCS, Cluster, DCSError, Leader, Member, parse_connection_string
+from patroni.utils import sleep
 from requests.exceptions import RequestException
 
 logger = logging.getLogger(__name__)
@@ -92,9 +92,8 @@ class ZooKeeper(AbstractDCS):
         self.client.add_listener(self.session_listener)
         self.cluster_event = self.client.handler.event_object()
 
+        self.cluster = None
         self.fetch_cluster = True
-        self.members = []
-        self.leader = None
         self.last_leader_operation = 0
 
         self.client.start(None)
@@ -107,50 +106,61 @@ class ZooKeeper(AbstractDCS):
         self.fetch_cluster = True
         self.cluster_event.set()
 
-    def get_node(self, name, watch=None):
+    def get_node(self, key, watch=None):
         try:
-            return self.client.get(self.client_path(name), watch)
+            ret = self.client.get(key, watch)
+            return (ret[0].decode('utf-8'), ret[1])
         except NoNodeError:
-            pass
-        except:
-            logger.exception('get_node')
-        return None
+            return None
 
     @staticmethod
     def member(name, value, znode):
         conn_url, api_url = parse_connection_string(value)
-        return Member(znode.mzxid, name, conn_url, api_url, None, None)
+        return Member(znode.version, name, conn_url, api_url, None, None)
+
+    def get_children(self, key, watch=None):
+        try:
+            return self.client.get_children(key, watch)
+        except NoNodeError:
+            return []
 
     def load_members(self):
         members = []
-        for member in self.client.get_children(self.client_path('/members'), self.cluster_watcher):
-            data = self.get_node('/members/' + member)
+        for member in self.get_children(self.members_path, self.cluster_watcher):
+            data = self.get_node(self.members_path + member)
             if data is not None:
                 members.append(self.member(member, *data))
         return members
 
     def _inner_load_cluster(self):
         self.cluster_event.clear()
-        leader = self.get_node('/leader', self.cluster_watcher)
-        self.members = self.load_members()
+        nodes = set(self.get_children(self.client_path('')))
+
+        # get initialize flag
+        initialize = self._INITIALIZE in nodes
+
+        # get list of members
+        members = self.load_members() if self._MEMBERS[:-1] in nodes else []
+
+        # get leader
+        leader = self.get_node(self.leader_path, self.cluster_watcher) if self._LEADER in nodes else None
         if leader:
             client_id = self.client.client_id
             if leader[0] == self._name and client_id is not None and client_id[0] != leader[1].ephemeralOwner:
                 logger.info('I am leader but not owner of the session. Removing leader node')
-                self.client.delete(self.client_path('/leader'))
+                self.client.delete(self.leader_path)
                 leader = None
 
             if leader:
                 member = Member(-1, leader[0], None, None, None, None)
-                member = ([m for m in self.members if m.name == leader[0]] or [member])[0]
-                leader = Leader(leader[1].mzxid, None, None, member)
+                member = ([m for m in members if m.name == leader[0]] or [member])[0]
+                leader = Leader(leader[1].version, None, None, member)
                 self.fetch_cluster = member.index == -1
 
-        self.leader = leader
-        if self.fetch_cluster:
-            last_leader_operation = self.get_node('/optime/leader')
-            if last_leader_operation:
-                self.last_leader_operation = int(last_leader_operation[0])
+        # get last leader operation
+        self.last_leader_operation = self.get_node(self.leader_optime_path) if self.fetch_cluster else None
+        self.last_leader_operation = 0 if self.last_leader_operation is None else int(self.last_leader_operation[0])
+        self.cluster = Cluster(initialize, leader, self.last_leader_operation, members)
 
     def get_cluster(self):
         if self.exhibitor and self.exhibitor.poll():
@@ -160,31 +170,32 @@ class ZooKeeper(AbstractDCS):
             try:
                 self.client.retry(self._inner_load_cluster)
             except:
+                self.cluster = None
                 logger.exception('get_cluster')
                 self.session_listener(KazooState.LOST)
                 raise ZooKeeperError('ZooKeeper in not responding properly')
-        return Cluster(True, self.leader, self.last_leader_operation, self.members)
+        return self.cluster
 
     def _create(self, path, value, **kwargs):
         try:
-            self.client.retry(self.client.create, self.client_path(path), value, **kwargs)
+            self.client.retry(self.client.create, path, value.encode('utf-8'), **kwargs)
             return True
         except:
             return False
 
     def attempt_to_acquire_leader(self):
-        ret = self._create('/leader', self._name, makepath=True, ephemeral=True)
+        ret = self._create(self.leader_path, self._name, makepath=True, ephemeral=True)
         ret or logger.info('Could not take out TTL lock')
         return ret
 
-    def race(self, path):
-        return self._create(path, self._name, makepath=True)
+    def initialize(self):
+        return self._create(self.initialize_path, self._name, makepath=True)
 
     def touch_member(self, connection_string, ttl=None):
-        for m in self.members:
-            if m.name == self._name:
-                return True
-        path = self.client_path('/members/' + self._name)
+        if self.cluster and any(m.name == self._name for m in self.cluster.members):
+            return True
+        path = self.member_path
+        connection_string = connection_string.encode('utf-8')
         try:
             self.client.retry(self.client.create, path, connection_string, makepath=True, ephemeral=True)
             return True
@@ -201,10 +212,10 @@ class ZooKeeper(AbstractDCS):
         return self.attempt_to_acquire_leader()
 
     def update_leader(self, state_handler):
-        last_operation = state_handler.last_operation()
+        last_operation = state_handler.last_operation().encode('utf-8')
         if last_operation != self.last_leader_operation:
             self.last_leader_operation = last_operation
-            path = self.client_path('/optime/leader')
+            path = self.leader_optime_path
             try:
                 self.client.retry(self.client.set, path, last_operation)
             except NoNodeError:
@@ -217,10 +228,23 @@ class ZooKeeper(AbstractDCS):
         return True
 
     def delete_leader(self):
-        if isinstance(self.leader, Leader) and self.leader.name == self._name:
-            self.client.delete(self.client_path('/leader'))
+        if isinstance(self.cluster, Cluster) and self.cluster.leader.name == self._name:
+            self.client.delete(self.leader_path, version=self.cluster.leader.index)
+
+    def _cancel_initialization(self):
+        node = self.get_node(self.initialize_path)
+        if node and node[0] == self._name:
+            self.client.delete(self.initialize_path, version=node[1].version)
+
+    def cancel_initialization(self):
+        try:
+            self.client.retry(self._cancel_initialization)
+        except:
+            logger.exception("Unable to delete initialize key")
 
     def watch(self, timeout):
         self.cluster_event.wait(timeout)
         if self.cluster_event.isSet():
             self.fetch_cluster = True
+            return not self.cluster or not self.cluster.leader or self.cluster.leader.name != self._name
+        return False

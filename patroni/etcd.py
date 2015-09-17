@@ -10,8 +10,8 @@ import urllib3
 
 from dns.exception import DNSException
 from dns import resolver
-from helpers.dcs import AbstractDCS, Cluster, DCSError, Leader, Member, parse_connection_string
-from helpers.utils import sleep
+from patroni.dcs import AbstractDCS, Cluster, DCSError, Leader, Member, parse_connection_string
+from patroni.utils import Retry, RetryFailedError, sleep
 from requests.exceptions import RequestException
 
 logger = logging.getLogger(__name__)
@@ -63,7 +63,12 @@ class Client(etcd.Client):
 
     # try to workarond bug in python-etcd: https://github.com/jplana/python-etcd/issues/81
     def _result_from_response(self, response):
-        response.data.decode('utf-8')
+        try:
+            response.data.decode('utf-8')
+        except urllib3.exceptions.TimeoutError:
+            raise
+        except Exception as e:
+            raise etcd.EtcdException('Unable to decode server response: %s' % e)
         return super(Client, self)._result_from_response(response)
 
     def _get_machines_cache_from_srv(self, discovery_srv):
@@ -131,7 +136,7 @@ def catch_etcd_errors(func):
     def wrapper(*args, **kwargs):
         try:
             return not func(*args, **kwargs) is None
-        except etcd.EtcdException:
+        except (RetryFailedError, etcd.EtcdException):
             return False
     return wrapper
 
@@ -142,8 +147,16 @@ class Etcd(AbstractDCS):
         super(Etcd, self).__init__(name, config)
         self.ttl = config['ttl']
         self.member_ttl = config.get('member_ttl', 3600)
+        self._retry = Retry(deadline=10, max_delay=1, max_tries=-1,
+                            retry_exceptions=(etcd.EtcdConnectionFailed,
+                                              etcd.EtcdLeaderElectionInProgress,
+                                              etcd.EtcdWatcherCleared,
+                                              etcd.EtcdEventIndexCleared))
         self.client = self.get_etcd_client(config)
         self.cluster = None
+
+    def retry(self, *args, **kwargs):
+        return self._retry.copy()(*args, **kwargs)
 
     def get_etcd_client(self, config):
         client = None
@@ -162,21 +175,21 @@ class Etcd(AbstractDCS):
 
     def get_cluster(self):
         try:
-            result = self.client.read(self.client_path(''), recursive=True)
+            result = self.retry(self.client.read, self.client_path(''), recursive=True)
             nodes = {os.path.relpath(node.key, result.key): node for node in result.leaves}
 
             # get initialize flag
-            initialize = bool(nodes.get('initialize', False))
+            initialize = bool(nodes.get(self._INITIALIZE, False))
 
             # get last leader operation
-            last_leader_operation = nodes.get('optime/leader', None)
+            last_leader_operation = nodes.get(self._LEADER_OPTIME, None)
             last_leader_operation = 0 if last_leader_operation is None else int(last_leader_operation.value)
 
             # get list of members
-            members = [self.member(n) for k, n in nodes.items() if k.startswith('members/') and len(k.split('/')) == 2]
+            members = [self.member(n) for k, n in nodes.items() if k.startswith(self._MEMBERS) and k.count('/') == 1]
 
             # get leader
-            leader = nodes.get('leader', None)
+            leader = nodes.get(self._LEADER, None)
             if leader:
                 member = Member(-1, leader.value, None, None, None, None)
                 member = ([m for m in members if m.name == leader.value] or [member])[0]
@@ -193,35 +206,42 @@ class Etcd(AbstractDCS):
 
     @catch_etcd_errors
     def touch_member(self, connection_string, ttl=None):
-        return self.client.set(self.client_path('/members/' + self._name), connection_string, ttl or self.member_ttl)
+        return self.retry(self.client.set, self.member_path, connection_string, ttl or self.member_ttl)
 
     @catch_etcd_errors
     def take_leader(self):
-        return self.client.set(self.client_path('/leader'), self._name, self.ttl)
+        return self.retry(self.client.set, self.leader_path, self._name, self.ttl)
 
-    @catch_etcd_errors
     def attempt_to_acquire_leader(self):
-        ret = self.client.write(self.client_path('/leader'), self._name, ttl=self.ttl, prevExist=False)
-        ret or logger.info('Could not take out TTL lock')
-        return ret
+        try:
+            return bool(self.retry(self.client.write, self.leader_path, self._name, ttl=self.ttl, prevExist=False))
+        except etcd.EtcdAlreadyExist:
+            logger.info('Could not take out TTL lock')
+        except (RetryFailedError, etcd.EtcdException):
+            pass
+        return False
 
     @catch_etcd_errors
     def write_leader_optime(self, state_handler):
-        return self.client.set(self.client_path('/optime/leader'), state_handler.last_operation())
+        return self.client.set(self.leader_optime_path, state_handler.last_operation())
 
     @catch_etcd_errors
     def update_leader(self, state_handler):
-        ret = self.client.test_and_set(self.client_path('/leader'), self._name, self._name, self.ttl)
+        ret = self.retry(self.client.test_and_set, self.leader_path, self._name, self._name, self.ttl)
         ret and self.write_leader_optime(state_handler)
         return ret
 
     @catch_etcd_errors
-    def race(self, path):
-        return self.client.write(self.client_path(path), self._name, prevExist=False)
+    def initialize(self):
+        return self.client.write(self.initialize_path, self._name, prevExist=False)
 
     @catch_etcd_errors
     def delete_leader(self):
-        return self.client.delete(self.client_path('/leader'), prevValue=self._name)
+        return self.client.delete(self.leader_path, prevValue=self._name)
+
+    @catch_etcd_errors
+    def cancel_initialization(self):
+        return self.client.delete(self.initialize_path, prevValue=self._name)
 
     def watch(self, timeout):
         # watch on leader key changes if it is defined and current node is not lock owner
@@ -231,16 +251,16 @@ class Etcd(AbstractDCS):
 
             while index and timeout >= 1:  # when timeout is too small urllib3 doesn't have enough time to connect
                 try:
-                    res = self.client.watch(self.client_path('/leader'), index=index + 1, timeout=timeout)
-                    if res.action not in ['set', 'compareAndSwap'] or res.value != self.cluster.leader.name:
-                        return
-                    index = res.modifiedIndex
+                    self.client.watch(self.leader_path, index=index + 1, timeout=timeout)
+                    # Synchronous work of all cluster members with etcd is less expensive
+                    # than reestablishing http connection every time from every replica.
+                    return True
                 except urllib3.exceptions.TimeoutError:
                     self.client.http.clear()
-                    return
+                    return False
                 except etcd.EtcdException:
-                    index = None
+                    logging.exception('watch')
 
                 timeout = end_time - time.time()
 
-        timeout > 0 and super(Etcd, self).watch(timeout)
+        return timeout > 0 and super(Etcd, self).watch(timeout)
