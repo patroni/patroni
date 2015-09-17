@@ -152,7 +152,7 @@ class Postgresql:
             return 1
         return ret
 
-    def is_leader(self, check_only=False):
+    def is_leader(self):
         return not self.query('SELECT pg_is_in_recovery()').fetchone()[0]
 
     def is_running(self):
@@ -176,7 +176,7 @@ class Postgresql:
 
     def start(self, block_callbacks=False):
         if self.is_running():
-            self._role = 'master' if self.is_leader(check_only=True) else 'replica'
+            self._role = 'master' if self.is_leader() else 'replica'
             self.schedule_load_slots = self.use_slots
             logger.error('Cannot start PostgreSQL because one is already running.')
             return False
