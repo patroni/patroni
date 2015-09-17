@@ -3,7 +3,6 @@ import psycopg2
 import requests
 
 from patroni.dcs import DCSError
-from psycopg2 import InterfaceError, OperationalError
 from multiprocessing.pool import ThreadPool
 
 logger = logging.getLogger(__name__)
