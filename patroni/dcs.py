@@ -182,4 +182,11 @@ class AbstractDCS:
         """ Removes the initialize key for a cluster """
 
     def watch(self, timeout):
+        """If the current node is a master it should just sleep.
+        Any other node should watch for changes of leader key with a given timeout
+
+        :param timeout: timeout in seconds
+        :returns: `!True` if you would like to reschedule the next run of ha cycle"""
+
         sleep(timeout)
+        return False

@@ -11,7 +11,7 @@ from mock import Mock, patch
 from patroni.api import RestApiServer
 from patroni.dcs import Cluster, Member, Leader
 from patroni.etcd import Etcd
-from patroni.exceptions import PostgresException
+from patroni.exceptions import DCSError, PostgresException
 from patroni import Patroni, main
 from patroni.zookeeper import ZooKeeper
 from six.moves import BaseHTTPServer
@@ -31,6 +31,10 @@ class SleepException(Exception):
 
 def time_sleep(*args):
     raise SleepException()
+
+
+def keyboard_interrupt(*args):
+    raise KeyboardInterrupt
 
 
 class Mock_BaseServer__is_shut_down:
@@ -64,6 +68,10 @@ def get_cluster_initialized_with_leader():
     return get_cluster(True, Leader(0, 0, 0,
                        Member(0, 'leader', 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
                               None, None, 28)))
+
+
+def get_cluster_dcs_error():
+    raise DCSError('')
 
 
 class TestPatroni(unittest.TestCase):
@@ -122,6 +130,9 @@ class TestPatroni(unittest.TestCase):
 
             self.assertRaises(SleepException, main)
 
+            Patroni.run = keyboard_interrupt
+            main()
+
             Patroni.run = run
             Patroni.touch_member = touch_member
 
@@ -178,7 +189,12 @@ class TestPatroni(unittest.TestCase):
         self.p.postgresql.data_directory_empty = true
         self.p.initialize()
 
+        self.p.ha.dcs.get_cluster = get_cluster_dcs_error
+        self.assertRaises(SleepException, self.p.initialize)
+
     def test_schedule_next_run(self):
+        self.p.ha.dcs.watch = lambda e: True
+        self.p.schedule_next_run()
         self.p.next_run = time.time() - self.p.nap_time - 1
         self.p.schedule_next_run()
 

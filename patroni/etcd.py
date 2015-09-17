@@ -248,18 +248,19 @@ class Etcd(AbstractDCS):
         if self.cluster and self.cluster.leader and self.cluster.leader.name != self._name:
             end_time = time.time() + timeout
             index = self.cluster.leader.index
+
             while index and timeout >= 1:  # when timeout is too small urllib3 doesn't have enough time to connect
                 try:
-                    res = self.client.watch(self.leader_path, index=index + 1, timeout=timeout)
-                    if res.action not in ['set', 'compareAndSwap'] or res.value != self.cluster.leader.name:
-                        return
-                    index = res.modifiedIndex
+                    self.client.watch(self.leader_path, index=index + 1, timeout=timeout)
+                    # Synchronous work of all cluster members with etcd is less expensive
+                    # than reestablishing http connection every time from every replica.
+                    return True
                 except urllib3.exceptions.TimeoutError:
                     self.client.http.clear()
-                    return
+                    return False
                 except etcd.EtcdException:
-                    index = None
+                    logging.exception('watch')
 
                 timeout = end_time - time.time()
 
-        timeout > 0 and super(Etcd, self).watch(timeout)
+        return timeout > 0 and super(Etcd, self).watch(timeout)
