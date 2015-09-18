@@ -116,8 +116,8 @@ class TestConsul(unittest.TestCase):
     def test_delete_leader(self):
         self.c.delete_leader()
 
-    def test_race(self):
-        self.c.race('/initialize')
+    def test_initialize(self):
+        self.c.initialize()
 
     def test_watch(self):
         self.c._name = ''

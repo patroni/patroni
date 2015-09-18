@@ -121,17 +121,17 @@ class Consul(AbstractDCS):
 
             nodes = {os.path.relpath(node['Key'], path): node for node in results}
             # get initialize flag
-            initialize = bool(nodes.get('initialize', False))
+            initialize = bool(nodes.get(self._INITIALIZE, False))
 
             # get last leader operation
-            last_leader_operation = nodes.get('optime/leader', None)
+            last_leader_operation = nodes.get(self._LEADER_OPTIME, None)
             last_leader_operation = 0 if last_leader_operation is None else int(last_leader_operation['Value'])
 
             # get list of members
-            members = [self.member(n) for k, n in nodes.items() if k.startswith('members/') and len(k.split('/')) == 2]
+            members = [self.member(n) for k, n in nodes.items() if k.startswith(self._MEMBERS) and k.count('/') == 1]
 
             # get leader
-            leader = nodes.get('leader', None)
+            leader = nodes.get(self._LEADER, None)
             if leader and leader['Value'] == self._name and self._session != leader.get('Session', 'x'):
                 logger.info('I am leader but not owner of the session. Removing leader node')
                 self.client.kv.delete(self.leader_path, cas=leader['ModifyIndex'])
@@ -167,7 +167,7 @@ class Consul(AbstractDCS):
 
     @catch_consul_errors
     def attempt_to_acquire_leader(self):
-        ret = self.client.kv.put(self.client_path('/leader'), self._name, acquire=self._session)
+        ret = self.client.kv.put(self.leader_path, self._name, acquire=self._session)
         ret or logger.info('Could not take out TTL lock')
         return ret
 
@@ -182,8 +182,12 @@ class Consul(AbstractDCS):
         return self.write_leader_optime(state_handler) or True
 
     @catch_consul_errors
-    def race(self, path):
-        return self.client.kv.put(self.client_path(path), self._name, cas=0)
+    def initialize(self):
+        return self.client.kv.put(self.initialize_path, self._name, cas=0)
+
+    @catch_consul_errors
+    def cancel_initialization(self):
+        pass
 
     @catch_consul_errors
     def delete_leader(self):
