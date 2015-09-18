@@ -8,6 +8,7 @@ import time
 
 from patroni.exceptions import DCSError
 
+ignore_sigterm = False
 interrupted_sleep = False
 reap_children = False
 
@@ -46,8 +47,10 @@ def calculate_ttl(expiration):
 
 
 def sigterm_handler(signo, stack_frame):
-    signal.signal(signal.SIGTERM, signal.SIG_IGN)
-    sys.exit()
+    global ignore_sigterm
+    if not ignore_sigterm:
+        ignore_sigterm = True
+        sys.exit()
 
 
 def sigchld_handler(signo, stack_frame):
