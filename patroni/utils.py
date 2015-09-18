@@ -46,6 +46,7 @@ def calculate_ttl(expiration):
 
 
 def sigterm_handler(signo, stack_frame):
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
     sys.exit()
 
 
