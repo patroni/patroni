@@ -40,6 +40,9 @@ def keyboard_interrupt(*args):
 
 class Mock_BaseServer__is_shut_down:
 
+    def wait(self):
+        pass
+
     def set(self):
         pass
 
