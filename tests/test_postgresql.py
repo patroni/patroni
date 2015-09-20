@@ -1,33 +1,28 @@
 import os
 import psycopg2
 import shutil
-import subprocess
 import unittest
 
+from mock import Mock, patch
 from patroni.dcs import Cluster, Leader, Member
+from patroni.exceptions import PostgresConnectionException
 from patroni.postgresql import Postgresql
-from test_ha import true, false
-
-
-def nop(*args, **kwargs):
-    pass
-
-
-def subprocess_call(cmd, shell=False, env=None):
-    return 0
+from patroni.utils import RetryFailedError
+from test_ha import false
 
 
 class MockCursor:
 
-    def __init__(self):
+    def __init__(self, connection):
+        self.connection = connection
         self.closed = False
         self.results = []
 
     def execute(self, sql, *params):
         if sql.startswith('blabla') or sql == 'CHECKPOINT':
             raise psycopg2.OperationalError()
-        elif sql.startswith('InterfaceError'):
-            raise psycopg2.InterfaceError()
+        elif sql.startswith('RetryFailedError'):
+            raise RetryFailedError('retry')
         elif sql.startswith('SELECT slot_name'):
             self.results = [('blabla',), ('foobar',)]
         elif sql.startswith('SELECT pg_current_xlog_location()'):
@@ -69,38 +64,32 @@ class MockCursor:
         for i in self.results:
             yield i
 
+    def __enter__(self):
+        return self
 
-class MockConnect:
+    def __exit__(self, *args):
+        pass
 
-    def __init__(self):
-        self.autocommit = False
-        self.closed = 0
+
+class MockConnect(Mock):
+
+    autocommit = False
+    closed = 0
 
     def cursor(self):
-        return MockCursor()
-
-    def close(self):
-        pass
+        return MockCursor(self)
 
 
 def psycopg2_connect(*args, **kwargs):
     return MockConnect()
 
 
-def raise_exception(*args, **kwargs):
-    raise Exception
-
-
+@patch('subprocess.call', Mock(return_value=0))
+@patch('shutil.copy', Mock())
+@patch('psycopg2.connect', psycopg2_connect)
 class TestPostgresql(unittest.TestCase):
 
-    def __init__(self, method_name='runTest'):
-        self.setUp = self.set_up
-        self.tearDown = self.tear_down
-        super(TestPostgresql, self).__init__(method_name)
-
-    def set_up(self):
-        subprocess.call = subprocess_call
-        shutil.copy = nop
+    def setUp(self):
         self.p = Postgresql({'name': 'test0', 'scope': 'batman', 'data_dir': 'data/test0',
                              'listen': '127.0.0.1, *:5432', 'connect_address': '127.0.0.2:5432',
                              'pg_hba': ['hostssl all all 0.0.0.0/0 md5', 'host all all 0.0.0.0/0 md5'],
@@ -115,7 +104,6 @@ class TestPostgresql(unittest.TestCase):
                                            'on_reload': 'true'
                                            },
                              'restore': 'true'})
-        psycopg2.connect = psycopg2_connect
         if not os.path.exists(self.p.data_dir):
             os.makedirs(self.p.data_dir)
         self.leadermem = Member(0, 'leader', 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres', None, None, 28)
@@ -123,11 +111,8 @@ class TestPostgresql(unittest.TestCase):
         self.other = Member(0, 'test1', 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres', None, None, 28)
         self.me = Member(0, 'test0', 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres', None, None, 28)
 
-    def tear_down(self):
+    def tearDown(self):
         shutil.rmtree('data')
-
-    def mock_query(self, p):
-        raise psycopg2.OperationalError("not supported")
 
     def test_data_directory_empty(self):
         self.assertTrue(self.p.data_directory_empty())
@@ -155,7 +140,7 @@ class TestPostgresql(unittest.TestCase):
         self.p.follow_the_leader(Leader(-1, None, 28, self.other))
 
     def test_create_replica(self):
-        self.p.delete_trigger_file = raise_exception
+        self.p.delete_trigger_file = Mock(side_effect=OSError())
         self.assertEquals(self.p.create_replica({'host': '', 'port': '', 'user': ''}, ''), 1)
 
     def test_create_connection_users(self):
@@ -169,14 +154,13 @@ class TestPostgresql(unittest.TestCase):
         cluster = Cluster(True, self.leader, 0, [self.me, self.other, self.leadermem])
         self.p.sync_replication_slots(cluster)
 
+    @patch.object(MockConnect, 'closed', 2)
+    def test__query(self):
+        self.assertRaises(PostgresConnectionException, self.p._query, 'blabla')
+
     def test_query(self):
         self.p.query('select 1')
-        self.assertRaises(psycopg2.InterfaceError, self.p.query, 'InterfaceError')
-        self.assertRaises(psycopg2.OperationalError, self.p.query, 'blabla')
-        self.p._connection.closed = 2
-        self.assertRaises(psycopg2.OperationalError, self.p.query, 'blabla')
-        self.p._connection.closed = 2
-        self.p.disconnect = false
+        self.assertRaises(PostgresConnectionException, self.p.query, 'RetryFailedError')
         self.assertRaises(psycopg2.OperationalError, self.p.query, 'blabla')
 
     def test_is_healthiest_node(self):
@@ -206,24 +190,22 @@ class TestPostgresql(unittest.TestCase):
     def test_last_operation(self):
         self.assertEquals(self.p.last_operation(), '0')
 
+    @patch('subprocess.Popen', Mock(side_effect=OSError()))
     def test_call_nowait(self):
-        popen = subprocess.Popen
-        subprocess.Popen = raise_exception
         self.assertFalse(self.p.call_nowait('on_start'))
-        subprocess.Popen = popen
 
     def test_non_existing_callback(self):
         self.assertFalse(self.p.call_nowait('foobar'))
 
     def test_is_leader_exception(self):
         self.p.start()
-        self.p.query = self.mock_query
+        self.p.query = Mock(side_effect=psycopg2.OperationalError("not supported"))
         self.assertTrue(self.p.stop())
 
+    @patch('os.rename', Mock())
+    @patch('os.path.isdir', Mock(return_value=True))
     def test_move_data_directory(self):
         self.p.is_running = false
-        os.rename = nop
-        os.path.isdir = true
         self.p.move_data_directory()
-        os.rename = raise_exception
-        self.p.move_data_directory()
+        with patch('os.rename', Mock(side_effect=OSError())):
+            self.p.move_data_directory()

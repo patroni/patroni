@@ -1,35 +1,14 @@
 import psycopg2
 import unittest
-import ssl
 
+from mock import Mock, patch
 from patroni.api import RestApiHandler, RestApiServer
 from six import BytesIO as IO
 from six.moves import BaseHTTPServer
-from test_postgresql import psycopg2_connect
+from test_postgresql import psycopg2_connect, MockCursor
 
 
-def nop(*args, **kwargs):
-    pass
-
-
-def throws(*args, **kwargs):
-    raise psycopg2.OperationalError()
-
-
-def ssl_wrap_socket(socket, *args, **kwargs):
-    return socket
-
-
-class Mock_BaseServer__is_shut_down:
-
-    def set(self):
-        pass
-
-    def clear(self):
-        pass
-
-
-class MockPostgresql:
+class MockPostgresql(Mock):
 
     def connection(self):
         return psycopg2_connect()
@@ -40,8 +19,7 @@ class MockPostgresql:
 
 class MockPatroni:
 
-    def __init__(self):
-        self.postgresql = MockPostgresql()
+    postgresql = MockPostgresql()
 
 
 class MockRequest:
@@ -55,32 +33,35 @@ class MockRequest:
 
 class MockRestApiServer(RestApiServer):
 
-    def __init__(self, Handler, path, *args):
+    def __init__(self, Handler, path):
+        self.socket = 0
+        BaseHTTPServer.HTTPServer.__init__ = Mock()
+        MockRestApiServer._BaseServer__is_shut_down = Mock()
+        MockRestApiServer._BaseServer__shutdown_request = True
         config = {'listen': '127.0.0.1:8008', 'auth': 'test:test', 'certfile': 'dumb'}
         super(MockRestApiServer, self).__init__(MockPatroni(), config)
-        if len(args) > 0:
-            self.query = args[0]
         Handler(MockRequest(path), ('0.0.0.0', 8080), self)
 
 
+@patch('ssl.wrap_socket', Mock(return_value=0))
 class TestRestApiHandler(unittest.TestCase):
-
-    def __init__(self, method_name='runTest'):
-        self.setUp = self.set_up
-        super(TestRestApiHandler, self).__init__(method_name)
-
-    def set_up(self):
-        BaseHTTPServer.HTTPServer.__init__ = nop
-        RestApiServer._BaseServer__is_shut_down = Mock_BaseServer__is_shut_down()
-        RestApiServer._BaseServer__shutdown_request = True
-        RestApiServer.socket = 0
-        ssl.wrap_socket = ssl_wrap_socket
 
     def test_do_GET(self):
         MockRestApiServer(RestApiHandler, b'GET /')
-        MockRestApiServer(RestApiHandler, b'GET /', throws)
+        with patch.object(RestApiServer, 'query', Mock(side_effect=psycopg2.OperationalError())):
+            MockRestApiServer(RestApiHandler, b'GET /')
 
     def test_do_GET_sampleauth(self):
         MockRestApiServer(RestApiHandler, b'GET /sampleauth')
         MockRestApiServer(RestApiHandler, b'GET /sampleauth\nAuthorization:')
         MockRestApiServer(RestApiHandler, b'GET /sampleauth\nAuthorization: Basic dGVzdDp0ZXN0')
+
+    def test_do_GET_patroni(self):
+        MockRestApiServer(RestApiHandler, b'GET /patroni')
+
+    @patch('time.sleep', Mock())
+    def test_RestApiServer_query(self):
+        with patch.object(MockCursor, 'execute', Mock(side_effect=psycopg2.OperationalError)):
+            MockRestApiServer(RestApiHandler, b'GET /patroni')
+        with patch.object(MockPostgresql, 'connection', Mock(side_effect=psycopg2.OperationalError)):
+            MockRestApiServer(RestApiHandler, b'GET /patroni')

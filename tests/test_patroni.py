@@ -1,7 +1,4 @@
 import datetime
-import patroni.zookeeper
-import psycopg2
-import subprocess
 import sys
 import time
 import unittest
@@ -15,39 +12,14 @@ from patroni.exceptions import DCSError, PostgresException
 from patroni import Patroni, main
 from patroni.zookeeper import ZooKeeper
 from six.moves import BaseHTTPServer
-from test_api import Mock_BaseServer__is_shut_down
-from test_etcd import Client, etcd_read, etcd_write
+from test_etcd import Client, SleepException, etcd_read, etcd_write
 from test_ha import true, false
-from test_postgresql import Postgresql, subprocess_call, psycopg2_connect
+from test_postgresql import Postgresql, psycopg2_connect
 from test_zookeeper import MockKazooClient
-
-
-def nop(*args, **kwargs):
-    pass
-
-
-class SleepException(Exception):
-    pass
 
 
 def time_sleep(*args):
     raise SleepException()
-
-
-def keyboard_interrupt(*args):
-    raise KeyboardInterrupt
-
-
-class Mock_BaseServer__is_shut_down:
-
-    def wait(self):
-        pass
-
-    def set(self):
-        pass
-
-    def clear(self):
-        pass
 
 
 def get_cluster(initialize, leader):
@@ -78,26 +50,18 @@ def get_cluster_dcs_error():
     raise DCSError('')
 
 
+@patch('time.sleep', Mock())
+@patch('subprocess.call', Mock(return_value=0))
+@patch('psycopg2.connect', psycopg2_connect)
+@patch.object(Postgresql, 'write_pg_hba', Mock())
+@patch.object(Postgresql, 'write_recovery_conf', Mock())
+@patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
 class TestPatroni(unittest.TestCase):
 
-    def __init__(self, method_name='runTest'):
-        self.setUp = self.set_up
-        self.tearDown = self.tear_down
-        super(TestPatroni, self).__init__(method_name)
-
-    def set_up(self):
+    def setUp(self):
         self.touched = False
         self.init_cancelled = False
-        subprocess.call = subprocess_call
-        psycopg2.connect = psycopg2_connect
-        self.time_sleep = time.sleep
-        time.sleep = nop
-        self.write_pg_hba = Postgresql.write_pg_hba
-        self.write_recovery_conf = Postgresql.write_recovery_conf
-        Postgresql.write_pg_hba = nop
-        Postgresql.write_recovery_conf = nop
-        BaseHTTPServer.HTTPServer.__init__ = nop
-        RestApiServer._BaseServer__is_shut_down = Mock_BaseServer__is_shut_down()
+        RestApiServer._BaseServer__is_shut_down = Mock()
         RestApiServer._BaseServer__shutdown_request = True
         RestApiServer.socket = 0
         with open('postgres0.yml', 'r') as f:
@@ -105,50 +69,38 @@ class TestPatroni(unittest.TestCase):
             with patch.object(Client, 'machines') as mock_machines:
                 mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
                 self.p = Patroni(config)
+                self.p.ha.dcs.client.write = etcd_write
+                self.p.ha.dcs.client.read = etcd_read
 
-    def tear_down(self):
-        time.sleep = self.time_sleep
-        Postgresql.write_pg_hba = self.write_pg_hba
-        Postgresql.write_recovery_conf = self.write_recovery_conf
-
+    @patch('patroni.zookeeper.KazooClient', MockKazooClient())
     def test_get_dcs(self):
-        patroni.zookeeper.KazooClient = MockKazooClient
         self.assertIsInstance(self.p.get_dcs('', {'zookeeper': {'scope': '', 'hosts': ''}}), ZooKeeper)
         self.assertRaises(Exception, self.p.get_dcs, '', {})
 
+    @patch('time.sleep', Mock(side_effect=SleepException()))
+    @patch.object(Patroni, 'initialize', Mock())
+    @patch.object(Etcd, 'delete_leader', Mock())
     def test_patroni_main(self):
         main()
         sys.argv = ['patroni.py', 'postgres0.yml']
-        time.sleep = time_sleep
 
         with patch.object(Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
-            Patroni.initialize = nop
-            touch_member = Patroni.touch_member
-            run = Patroni.run
+            with patch.object(Patroni, 'touch_member', self.touch_member):
+                with patch.object(Patroni, 'run', Mock(side_effect=SleepException())):
+                    self.assertRaises(SleepException, main)
+                with patch.object(Patroni, 'run', Mock(side_effect=KeyboardInterrupt())):
+                    main()
 
-            Patroni.touch_member = self.touch_member
-            Patroni.run = time_sleep
-
-            Etcd.delete_leader = nop
-
-            self.assertRaises(SleepException, main)
-
-            Patroni.run = keyboard_interrupt
-            main()
-
-            Patroni.run = run
-            Patroni.touch_member = touch_member
-
+    @patch('time.sleep', Mock(side_effect=SleepException()))
     def test_patroni_run(self):
-        time.sleep = time_sleep
         self.p.touch_member = self.touch_member
         self.p.ha.state_handler.sync_replication_slots = time_sleep
-        self.p.ha.dcs.client.read = etcd_read
         self.p.ha.dcs.watch = time_sleep
         self.assertRaises(SleepException, self.p.run)
+
         self.p.ha.state_handler.is_leader = false
-        self.p.api.start = nop
+        self.p.api.start = Mock()
         self.assertRaises(SleepException, self.p.run)
 
     def touch_member(self, ttl=None):
@@ -158,7 +110,6 @@ class TestPatroni(unittest.TestCase):
         return True
 
     def test_touch_member(self):
-        self.p.ha.dcs.client.write = etcd_write
         self.p.touch_member()
         now = datetime.datetime.utcnow()
         member = Member(0, self.p.postgresql.name, 'b', 'c', (now + datetime.timedelta(
@@ -167,8 +118,6 @@ class TestPatroni(unittest.TestCase):
         self.p.touch_member()
 
     def test_patroni_initialize(self):
-        self.p.ha.dcs.client.write = etcd_write
-        self.p.ha.dcs.client.read = etcd_read
         self.p.touch_member = self.touch_member
         self.p.postgresql.data_directory_empty = true
         self.p.ha.dcs.initialize = true
@@ -179,25 +128,24 @@ class TestPatroni(unittest.TestCase):
 
         self.p.ha.dcs.initialize = false
         self.p.ha.dcs.get_cluster = get_cluster_initialized_with_leader
-        time.sleep = time_sleep
-        self.p.ha.dcs.client.read = etcd_read
-        self.p.initialize()
+        with patch('time.sleep', time_sleep):
+            self.p.initialize()
 
-        self.p.ha.dcs.get_cluster = get_cluster_initialized_without_leader
-        self.assertRaises(SleepException, self.p.initialize)
+            self.p.ha.dcs.get_cluster = get_cluster_initialized_without_leader
+            self.assertRaises(SleepException, self.p.initialize)
 
-        self.p.postgresql.data_directory_empty = false
-        self.p.initialize()
+            self.p.postgresql.data_directory_empty = false
+            self.p.initialize()
 
-        self.p.ha.dcs.get_cluster = get_cluster_not_initialized_with_leader
-        self.p.postgresql.data_directory_empty = true
-        self.p.initialize()
+            self.p.ha.dcs.get_cluster = get_cluster_not_initialized_with_leader
+            self.p.postgresql.data_directory_empty = true
+            self.p.initialize()
 
-        self.p.ha.dcs.get_cluster = get_cluster_dcs_error
-        self.assertRaises(SleepException, self.p.initialize)
+            self.p.ha.dcs.get_cluster = get_cluster_dcs_error
+            self.assertRaises(SleepException, self.p.initialize)
 
     def test_schedule_next_run(self):
-        self.p.ha.dcs.watch = lambda e: True
+        self.p.ha.dcs.watch = Mock(return_value=True)
         self.p.schedule_next_run()
         self.p.next_run = time.time() - self.p.nap_time - 1
         self.p.schedule_next_run()
@@ -206,8 +154,6 @@ class TestPatroni(unittest.TestCase):
         self.init_cancelled = True
 
     def test_cleanup_on_initialization(self):
-        self.p.ha.dcs.client.write = etcd_write
-        self.p.ha.dcs.client.read = etcd_read
         self.p.ha.dcs.get_cluster = get_cluster_not_initialized_without_leader
         self.p.touch_member = self.touch_member
         self.p.postgresql.data_directory_empty = true
