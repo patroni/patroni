@@ -126,6 +126,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        patroni.api.shutdown()
         patroni.touch_member(patroni.shutdown_member_ttl)  # schedule member removal
         patroni.postgresql.stop()
         patroni.ha.dcs.delete_leader()

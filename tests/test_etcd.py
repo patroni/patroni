@@ -69,11 +69,11 @@ def requests_get(url, **kwargs):
 
 
 def etcd_watch(key, index=None, timeout=None, recursive=None):
-    if timeout == 1:
+    if timeout == 2.0:
         raise urllib3.exceptions.TimeoutError
-    elif timeout == 5:
+    elif timeout == 5.0:
         return etcd.EtcdResult('delete', {})
-    elif timeout == 10:
+    elif timeout == 10.0:
         raise etcd.EtcdException
     elif index == 20729:
         return etcd.EtcdResult('set', {'value': 'postgresql1', 'modifiedIndex': index + 1})
@@ -283,7 +283,7 @@ class TestEtcd(unittest.TestCase):
         self.etcd.client.watch = etcd_watch
         self.etcd.watch(100)
         self.etcd.get_cluster()
-        self.etcd.watch(1)
-        self.etcd.watch(5)
-        self.etcd.watch(10)
+        self.etcd.watch(1.5)
+        self.etcd.watch(4.5)
+        self.etcd.watch(9.5)
         self.etcd.watch(100)
