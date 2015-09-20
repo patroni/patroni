@@ -7,7 +7,7 @@ class PatroniException(Exception):
 
     def __str__(self):
         """
-        >>> str(DCSError('foo'))
+        >>> str(PatroniException('foo'))
         "'foo'"
         """
         return repr(self.value)
@@ -18,4 +18,8 @@ class PostgresException(PatroniException):
 
 
 class DCSError(PatroniException):
+    pass
+
+
+class PostgresConnectionException(PostgresException):
     pass

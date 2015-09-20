@@ -1,57 +1,24 @@
-import patroni.zookeeper
-import requests
 import six
 import unittest
 
+from mock import Mock, patch
 from patroni.dcs import Leader
 from patroni.zookeeper import ExhibitorEnsembleProvider, ZooKeeper, ZooKeeperError
 from kazoo.client import KazooState
 from kazoo.exceptions import NoNodeError, NodeExistsError
 from kazoo.protocol.states import ZnodeStat
-from test_etcd import MockPostgresql, requests_get
+from test_etcd import MockPostgresql, SleepException, requests_get
 
 
-class MockEvent:
+class MockKazooClient(Mock):
 
-    def clear(self):
-        pass
-
-    def set(self):
-        pass
-
-    def wait(self, timeout):
-        pass
-
-    def isSet(self):
-        return True
-
-
-class MockEventHandler:
-
-    def event_object(self):
-        return MockEvent()
-
-
-class SleepException(Exception):
-    pass
-
-
-class MockKazooClient:
-
-    def __init__(self, **kwargs):
-        self.handler = MockEventHandler()
-        self.leader = False
-        self.exists = True
-
-    def start(self, timeout):
-        pass
+    leader = False
+    exists = True
+    handler = Mock()
 
     @property
     def client_id(self):
         return (-1, '')
-
-    def add_listener(self, cb):
-        pass
 
     def retry(self, func, *args, **kwargs):
         func(*args, **kwargs)
@@ -115,23 +82,10 @@ class MockKazooClient:
         elif path.endswith('/initialize'):
             raise NoNodeError
 
-    def set_hosts(self, hosts, randomize_hosts=None):
-        pass
 
-
-def exhibitor_sleep(_):
-    raise SleepException
-
-
+@patch('requests.get', requests_get)
+@patch('patroni.zookeeper.sleep', Mock(side_effect=SleepException()))
 class TestExhibitorEnsembleProvider(unittest.TestCase):
-
-    def __init__(self, method_name='runTest'):
-        self.setUp = self.set_up
-        super(TestExhibitorEnsembleProvider, self).__init__(method_name)
-
-    def set_up(self):
-        requests.get = requests_get
-        patroni.zookeeper.sleep = exhibitor_sleep
 
     def test_init(self):
         self.assertRaises(SleepException, ExhibitorEnsembleProvider, ['localhost'], 8181)
@@ -139,13 +93,9 @@ class TestExhibitorEnsembleProvider(unittest.TestCase):
 
 class TestZooKeeper(unittest.TestCase):
 
-    def __init__(self, method_name='runTest'):
-        self.setUp = self.set_up
-        super(TestZooKeeper, self).__init__(method_name)
-
-    def set_up(self):
-        requests.get = requests_get
-        patroni.zookeeper.KazooClient = MockKazooClient
+    @patch('requests.get', requests_get)
+    @patch('patroni.zookeeper.KazooClient', MockKazooClient)
+    def setUp(self):
         self.zk = ZooKeeper('foo', {'exhibitor': {'hosts': ['localhost', 'exhibitor'], 'port': 8181}, 'scope': 'test'})
 
     def test_session_listener(self):
