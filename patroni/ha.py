@@ -1,7 +1,7 @@
 import logging
 import psycopg2
 
-from patroni.dcs import DCSError
+from patroni.exceptions import DCSError, PostgresConnectionException
 
 logger = logging.getLogger(__name__)
 
@@ -97,5 +97,5 @@ class Ha:
             if self.state_handler.is_leader():
                 self.state_handler.demote(None)
                 return 'demoted self because DCS is not accessible and i was a leader'
-        except psycopg2.Error:
+        except (psycopg2.Error, PostgresConnectionException):
             logger.exception('Error communicating with Postgresql.  Will try again')

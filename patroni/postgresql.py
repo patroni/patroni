@@ -6,8 +6,8 @@ import shutil
 import subprocess
 import time
 
-from patroni.exceptions import PostgresException
-from patroni.utils import sleep
+from patroni.exceptions import PostgresConnectionException, PostgresException
+from patroni.utils import Retry, RetryFailedError
 from six.moves.urllib_parse import urlparse
 
 logger = logging.getLogger(__name__)
@@ -68,6 +68,7 @@ class Postgresql:
         self._connection = None
         self._cursor_holder = None
         self.members = []  # list of already existing replication slots
+        self.retry = Retry(max_tries=-1, deadline=10, max_delay=1, retry_exceptions=PostgresConnectionException)
 
     def get_local_address(self):
         listen_addresses = self.listen_addresses.split(',')
@@ -87,32 +88,26 @@ class Postgresql:
         return self._connection
 
     def _cursor(self):
-        if not self._cursor_holder or self._cursor_holder.closed:
+        if not self._cursor_holder or self._cursor_holder.closed or self._cursor_holder.connection.closed != 0:
             self._cursor_holder = self.connection().cursor()
         return self._cursor_holder
 
-    def disconnect(self):
-        self._connection and self._connection.close()
-        self._connection = self._cursor_holder = None
+    def _query(self, sql, *params):
+        cursor = None
+        try:
+            cursor = self._cursor()
+            cursor.execute(sql, params)
+            return cursor
+        except psycopg2.Error as e:
+            if cursor and cursor.connection.closed == 0:
+                raise e
+            raise PostgresConnectionException('connection problems')
 
     def query(self, sql, *params):
-        max_attempts = 0
-        while True:
-            ex = None
-            try:
-                cursor = self._cursor()
-                cursor.execute(sql, params)
-                return cursor
-            except psycopg2.Error as e:
-                if self._connection and self._connection.closed == 0:
-                    raise e
-                ex = e
-            if ex:
-                self.disconnect()
-                max_attempts += 1
-                if max_attempts >= 3:
-                    raise ex
-                sleep(5)
+        try:
+            return self.retry(self._query, sql, *params)
+        except RetryFailedError as e:
+            raise PostgresConnectionException(str(e))
 
     def data_directory_empty(self):
         return not os.path.exists(self.data_dir) or os.listdir(self.data_dir) == []

@@ -4,7 +4,7 @@ from mock import Mock, patch
 from patroni.dcs import Cluster, DCSError
 from patroni.etcd import Client, Etcd
 from patroni.ha import Ha
-from test_etcd import etcd_read, etcd_write
+from test_etcd import socket_getaddrinfo, etcd_read, etcd_write
 
 
 def true(*args, **kwargs):
@@ -52,35 +52,24 @@ class MockPostgresql:
         return 0
 
 
-def nop(*args, **kwargs):
-    pass
-
-
-def dead_etcd():
-    raise DCSError('Etcd is not responding properly')
-
-
 def get_unlocked_cluster():
     return Cluster(False, None, None, [])
 
 
 class TestHa(unittest.TestCase):
 
-    def __init__(self, method_name='runTest'):
-        self.setUp = self.set_up
-        super(TestHa, self).__init__(method_name)
-
-    def set_up(self):
+    @patch('socket.getaddrinfo', socket_getaddrinfo)
+    def setUp(self):
         self.p = MockPostgresql()
         with patch.object(Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
-            self.e = Etcd('foo', {'ttl': 30, 'host': 'remotehost:2379', 'scope': 'test'})
+            self.e = Etcd('foo', {'ttl': 30, 'host': 'ok:2379', 'scope': 'test'})
             self.e.client.read = etcd_read
             self.e.client.write = etcd_write
             self.ha = Ha(self.p, self.e)
             self.ha.load_cluster_from_dcs()
             self.ha.cluster = get_unlocked_cluster()
-            self.ha.load_cluster_from_dcs = nop
+            self.ha.load_cluster_from_dcs = Mock()
 
     def test_load_cluster_from_dcs(self):
         ha = Ha(self.p, self.e)
@@ -144,5 +133,5 @@ class TestHa(unittest.TestCase):
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am a secondary and i am following a leader')
 
     def test_no_etcd_connection_master_demote(self):
-        self.ha.load_cluster_from_dcs = dead_etcd
+        self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
         self.assertEquals(self.ha.run_cycle(), 'demoted self because DCS is not accessible and i was a leader')
