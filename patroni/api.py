@@ -4,6 +4,8 @@ import json
 import logging
 import psycopg2
 
+from patroni.exceptions import PostgresConnectionException
+from patroni.utils import Retry, RetryFailedError
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from six.moves.socketserver import ThreadingMixIn
 from threading import Thread
@@ -59,6 +61,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b'Hello!')
 
+    def do_GET_patroni(self):
+        response = self.get_postgresql_status(True)
+
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps(response).encode('utf-8'))
+
     def parse_request(self):
         """Override parse_request method to enrich basic functionality of `BaseHTTPRequestHandler` class
 
@@ -77,17 +87,23 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 self.command = mname
         return ret
 
-    def get_postgresql_status(self):
+    def query(self, sql, *params, **kwargs):
+        if not kwargs.get('retry', False):
+            return self.server.query(sql, *params)
+        retry = Retry(delay=2, retry_exceptions=PostgresConnectionException)
+        return retry(self.server.query, sql, *params)
+
+    def get_postgresql_status(self, retry=False):
         try:
-            row = self.server.query("""SELECT to_char(pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),
-                                              pg_is_in_recovery(),
-                                              CASE WHEN pg_is_in_recovery()
-                                                   THEN 0
-                                                   ELSE pg_xlog_location_diff(pg_current_xlog_location(), '0/0')::bigint
-                                              END,
-                                              pg_xlog_location_diff(pg_last_xlog_receive_location(), '0/0')::bigint,
-                                              pg_xlog_location_diff(pg_last_xlog_replay_location(), '0/0')::bigint,
-                                              pg_is_in_recovery() AND pg_is_xlog_replay_paused()""")[0]
+            row = self.query("""SELECT to_char(pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),
+                                       pg_is_in_recovery(),
+                                       CASE WHEN pg_is_in_recovery()
+                                            THEN 0
+                                            ELSE pg_xlog_location_diff(pg_current_xlog_location(), '0/0')::bigint
+                                       END,
+                                       pg_last_xlog_receive_location()::bigint,
+                                       pg_last_xlog_replay_location()::bigint,
+                                       pg_is_in_recovery() AND pg_is_xlog_replay_paused()""", retry=retry)[0]
             return {
                 'running': True,
                 'postmaster_start_time': row[0],
@@ -99,7 +115,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     'location': row[2]
                 })
             }
-        except (psycopg2.OperationalError, psycopg2.InterfaceError):
+        except (psycopg2.Error, RetryFailedError, PostgresConnectionException):
             logger.exception('get_postgresql_status')
             return {'running': self.server.patroni.postgresql.is_running()}
 
@@ -129,11 +145,15 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self.daemon = True
 
     def query(self, sql, *params):
-        cursor = self.patroni.postgresql.connection().cursor()
-        cursor.execute(sql, params)
-        ret = [r for r in cursor]
-        cursor.close()
-        return ret
+        cursor = None
+        try:
+            with self.patroni.postgresql.connection().cursor() as cursor:
+                cursor.execute(sql, params)
+                return [r for r in cursor]
+        except psycopg2.Error as e:
+            if cursor and cursor.connection.closed == 0:
+                raise e
+            raise PostgresConnectionException('connection problems')
 
     @staticmethod
     def _set_fd_cloexec(fd):

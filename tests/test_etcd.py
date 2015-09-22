@@ -1,11 +1,9 @@
 import datetime
-import dns.resolver
 import etcd
 import json
 import requests
 import urllib3
 import socket
-import time
 import unittest
 
 from dns.exception import DNSException
@@ -40,8 +38,7 @@ class MockResponse:
         return ''
 
 
-class MockPostgresql:
-    name = ''
+class MockPostgresql(Mock):
 
     def last_operation(self):
         return '0'
@@ -54,7 +51,7 @@ def requests_get(url, **kwargs):
     if url.startswith('http://local'):
         raise requests.exceptions.RequestException()
     elif ':8011/patroni' in url:
-        response.content = '{"role": "standby", "xlog": {"replayed_location": 0}}'
+        response.content = '{"role": "replica", "xlog": {"replayed_location": 0}}'
     elif url.endswith('/members'):
         if url.startswith('http://error'):
             response.content = '[{}]'
@@ -90,10 +87,6 @@ def etcd_write(key, value, **kwargs):
     raise etcd.EtcdException
 
 
-def etcd_delete(key, **kwargs):
-    raise etcd.EtcdException
-
-
 def etcd_read(key, **kwargs):
     if key == '/service/noleader/':
         raise DCSError('noleader')
@@ -125,16 +118,8 @@ def etcd_read(key, **kwargs):
     return etcd.EtcdResult(**response)
 
 
-def time_sleep(_):
-    pass
-
-
 class SleepException(Exception):
     pass
-
-
-def time_sleep_exception(_):
-    raise SleepException()
 
 
 class MockSRV:
@@ -153,7 +138,7 @@ def dns_query(name, type):
 def socket_getaddrinfo(*args):
     if args[0] == 'ok':
         return [(2, 1, 6, '', ('127.0.0.1', 2379)), (2, 1, 6, '', ('127.0.0.1', 2379))]
-    raise socket.error()
+    raise socket.error
 
 
 def http_request(method, url, **kwargs):
@@ -164,9 +149,6 @@ def http_request(method, url, **kwargs):
 
 class TestMember(unittest.TestCase):
 
-    def __init__(self, method_name='runTest'):
-        super(TestMember, self).__init__(method_name)
-
     def test_real_ttl(self):
         now = datetime.datetime.utcnow()
         member = Member(0, 'a', 'b', 'c', (now + datetime.timedelta(seconds=2)).strftime('%Y-%m-%dT%H:%M:%S.%fZ'), None)
@@ -174,16 +156,14 @@ class TestMember(unittest.TestCase):
         self.assertEquals(Member(0, 'a', 'b', 'c', '', None).real_ttl(), -1)
 
 
+@patch('dns.resolver.query', dns_query)
+@patch('socket.getaddrinfo', socket_getaddrinfo)
+@patch('requests.get', requests_get)
 class TestClient(unittest.TestCase):
 
-    def __init__(self, method_name='runTest'):
-        self.setUp = self.set_up
-        super(TestClient, self).__init__(method_name)
-
-    def set_up(self):
-        socket.getaddrinfo = socket_getaddrinfo
-        requests.get = requests_get
-        dns.resolver.query = dns_query
+    @patch('dns.resolver.query', dns_query)
+    @patch('requests.get', requests_get)
+    def setUp(self):
         with patch.object(etcd.Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://localhost:2379', 'http://localhost:4001'])
             self.client = Client({'discovery_srv': 'test'})
@@ -208,11 +188,11 @@ class TestClient(unittest.TestCase):
         self.assertRaises(etcd.EtcdException, self.client._result_from_response, response)
 
     def test__get_machines_cache_from_srv(self):
-        self.client.get_srv_record = lambda e: [('localhost', 2380)]
+        self.client.get_srv_record = Mock(return_value=[('localhost', 2380)])
         self.client._get_machines_cache_from_srv('blabla')
 
     def test__get_machines_cache_from_dns(self):
-        self.client._get_machines_cache_from_dns('ok:2379')
+        self.client._get_machines_cache_from_dns('error:2379')
 
     def test__load_machines_cache(self):
         self.client._config = {}
@@ -221,25 +201,24 @@ class TestClient(unittest.TestCase):
         self.assertRaises(etcd.EtcdException, self.client._load_machines_cache)
 
 
+@patch('time.sleep', Mock())
+@patch('requests.get', requests_get)
 class TestEtcd(unittest.TestCase):
 
-    def __init__(self, method_name='runTest'):
-        self.setUp = self.set_up
-        super(TestEtcd, self).__init__(method_name)
-
-    def set_up(self):
-        time.sleep = time_sleep
+    def setUp(self):
         with patch.object(Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://localhost:2379', 'http://localhost:4001'])
             self.etcd = Etcd('foo', {'ttl': 30, 'host': 'localhost:2379', 'scope': 'test'})
             self.etcd.client.write = etcd_write
             self.etcd.client.read = etcd_read
+            self.etcd.client.delete = Mock(side_effect=etcd.EtcdException())
 
+    @patch('dns.resolver.query', dns_query)
     def test_get_etcd_client(self):
-        time.sleep = time_sleep_exception
         with patch.object(etcd.Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(side_effect=etcd.EtcdException)
-            self.assertRaises(SleepException, self.etcd.get_etcd_client, {'discovery_srv': 'test'})
+            with patch('time.sleep', Mock(side_effect=SleepException())):
+                self.assertRaises(SleepException, self.etcd.get_etcd_client, {'discovery_srv': 'test'})
 
     def test_get_cluster(self):
         self.assertIsInstance(self.etcd.get_cluster(), Cluster)
@@ -259,7 +238,7 @@ class TestEtcd(unittest.TestCase):
     def test_take_leader(self):
         self.assertFalse(self.etcd.take_leader())
 
-    def testattempt_to_acquire_leader(self):
+    def test_attempt_to_acquire_leader(self):
         self.etcd._base_path = '/service/exists'
         self.assertFalse(self.etcd.attempt_to_acquire_leader())
         self.etcd._base_path = '/service/failed'
@@ -272,11 +251,9 @@ class TestEtcd(unittest.TestCase):
         self.assertFalse(self.etcd.initialize())
 
     def test_cancel_initializion(self):
-        self.etcd.client.delete = etcd_delete
         self.assertFalse(self.etcd.cancel_initialization())
 
     def test_delete_leader(self):
-        self.etcd.client.delete = etcd_delete
         self.assertFalse(self.etcd.delete_leader())
 
     def test_watch(self):
