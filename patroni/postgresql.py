@@ -189,7 +189,7 @@ class Postgresql:
         ret and not block_callbacks and ret and self.call_nowait(ACTION_ON_START)
         return ret
 
-    def stop(self, block_callbacks=False):
+    def stop(self, mode='fast', block_callbacks=False):
         if block_callbacks:
             try:
                 self.query('SET statement_timeout TO 0')
@@ -197,7 +197,7 @@ class Postgresql:
             except:
                 logging.exception('Exception diring CHECKPOINT')
 
-        ret = subprocess.call(self._pg_ctl + ['stop', '-m', 'fast']) == 0
+        ret = subprocess.call(self._pg_ctl + ['stop', '-m', mode]) == 0
         # block_callbacks is used during restart to avoid
         # running start/stop callbacks in addition to restart ones
         ret and not block_callbacks and self.call_nowait(ACTION_ON_STOP)
@@ -407,6 +407,23 @@ recovery_target_timeline = 'latest'
     def move_data_directory(self):
         if os.path.isdir(self.data_dir) and not self.is_running():
             try:
-                os.rename(self.data_dir, '{0}_{1}'.format(self.data_dir, time.strftime('%Y-%m-%d-%H-%M-%S')))
+                new_name = '{0}_{1}'.format(self.data_dir, time.strftime('%Y-%m-%d-%H-%M-%S'))
+                logger.info('renaming data directory to %s', new_name)
+                os.rename(self.data_dir, new_name)
             except:
-                logger.exception("Could not rename data directory {0}".format(self.data_dir))
+                logger.exception("Could not rename data directory %s", self.data_dir)
+
+    def remove_data_directory(self):
+        logger.info('Removing data directory: %s', self.data_dir)
+        try:
+            if os.path.islink(self.data_dir):
+                os.unlink(self.data_dir)
+            elif not os.path.exists(self.data_dir):
+                return
+            elif os.path.isfile(self.data_dir):
+                os.remove(self.data_dir)
+            elif os.path.isdir(self.data_dir):
+                shutil.rmtree(self.data_dir)
+        except:
+            logger.exception('Could not remove data directory %s', self.data_dir)
+            self.move_data_directory()
