@@ -28,12 +28,6 @@ def get_cluster_initialized_without_leader():
     return get_cluster(True, None)
 
 
-def get_cluster_not_initialized_with_leader():
-    return get_cluster(False, Leader(0, 0, 0,
-                       Member(0, 'leader', 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
-                              None, None, 28)))
-
-
 def get_cluster_initialized_with_leader():
     return get_cluster(True, Leader(0, 0, 0,
                        Member(0, 'leader', 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
