@@ -47,6 +47,7 @@ class Postgresql:
         self.replication = config['replication']
         self.superuser = config['superuser']
         self.admin = config['admin']
+        self.pg_rewind = config.get('pg_rewind', {})
         self.callback = config.get('callbacks', {})
         self.use_slots = config.get('use_slots', True)
         self.schedule_load_slots = self.use_slots
@@ -69,6 +70,17 @@ class Postgresql:
         self._cursor_holder = None
         self.members = []  # list of already existing replication slots
         self.retry = Retry(max_tries=-1, deadline=10, max_delay=1, retry_exceptions=PostgresConnectionException)
+        try:
+            self._pg_rewind_present = ('username' in self.pg_rewind and
+                                       ('wal_log_hints' in self.config['parameters'] or
+                                        'data_checksums' in self.config['parameters']) and
+                                       os.system("pg_rewind --version >/dev/null 2>&1") == 0)
+            if self._pg_rewind_present:
+                self.pg_rewind['user'] = self.pg_rewind['username']
+        except:
+            self._pg_rewind_present = False
+        if self.pg_rewind and not self._pg_rewind_present:
+            logger.warning("pg_rewind support is disabled")
 
     def get_local_address(self):
         listen_addresses = self.listen_addresses.split(',')
@@ -265,8 +277,10 @@ class Postgresql:
                 f.write(line + '\n')
 
     @staticmethod
-    def primary_conninfo(leader_url):
+    def primary_conninfo(leader_url, replacement=None):
         r = parseurl(leader_url)
+        if replacement is not None:
+            r.update(replacement)
         return 'user={user} password={password} host={host} port={port} sslmode=prefer sslcompression=1'.format(**r)
 
     def check_recovery_conf(self, leader):
@@ -299,9 +313,28 @@ recovery_target_timeline = 'latest'
     def follow_the_leader(self, leader):
         if not self.check_recovery_conf(leader):
             self.write_recovery_conf(leader)
-            run_callback = self.role == 'master'
-            self.restart()
-            run_callback and self.call_nowait(ACTION_ON_ROLE_CHANGE)
+            change_role = self.role == 'master'
+
+            if leader and change_role and self._pg_rewind_present:
+                self.stop()
+                pc = self.primary_conninfo(leader.conn_url,
+                                           self.pg_rewind) + ' dbname=postgres'
+                logger.info("running pg_rewind from {}".format(pc))
+                pg_rewind = ['pg_rewind', '-D', self.data_dir, '--source-server', pc]
+                try:
+                    ret = (subprocess.call(pg_rewind) == 0)
+                except:
+                    ret = False
+                # pg_rewind removes recovery.conf, we have to reinstate it.
+                if ret:
+                    self.write_recovery_conf(leader)
+                    self.start()
+                else:
+                    self.remove_data_directory()
+                    logger.error("unable to rewind the former leader")
+            else:
+                ret = self.restart()
+            change_role and ret and self.call_nowait(ACTION_ON_ROLE_CHANGE)
 
     def save_configuration_files(self):
         """
