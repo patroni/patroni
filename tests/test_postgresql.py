@@ -9,6 +9,7 @@ from patroni.exceptions import PostgresConnectionException
 from patroni.postgresql import Postgresql
 from patroni.utils import RetryFailedError
 from test_ha import false
+import subprocess
 
 
 class MockCursor:
@@ -132,12 +133,32 @@ class TestPostgresql(unittest.TestCase):
     def test_sync_from_leader(self):
         self.assertTrue(self.p.sync_from_leader(self.leader))
 
-    def test_follow_the_leader(self):
+    @patch('os.system', side_effect=Exception("Test"))
+    def test_init_pg_rewind(self, mock_system):
+        self.p.init_pg_rewind()
+        # prepare parameters for pg_rewind
+        self.p._pg_rewind = {'username': 'foo'}
+        self.p.config['parameters']['data_checksums'] = 1
+        os.system = mock_system
+        self.p.init_pg_rewind()
+
+    @patch('subprocess.call', side_effect=Exception("Test"))
+    def test_pg_rewind(self, mock_call):
+        self.assertTrue(self.p.pg_rewind(self.leader))
+        self.p
+        subprocess.call = mock_call
+        self.assertFalse(self.p.pg_rewind(self.leader))
+
+    @patch('patroni.postgresql.Postgresql.pg_rewind', return_value=False)
+    def test_follow_the_leader(self, mock_pg_rewind):
         self.p.demote(self.leader)
         self.p.follow_the_leader(None)
+        self.p._pg_rewind_present = True
         self.p.demote(self.leader)
         self.p.follow_the_leader(self.leader)
         self.p.follow_the_leader(Leader(-1, None, 28, self.other))
+        self.p.pg_rewind = mock_pg_rewind
+        self.p.follow_the_leader(self.leader)
 
     def test_create_replica(self):
         self.p.delete_trigger_file = Mock(side_effect=OSError())
