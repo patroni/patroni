@@ -73,7 +73,7 @@ class Patroni:
 
 
 def main():
-    logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.DEBUG)
+    logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
     logging.getLogger('requests').setLevel(logging.WARNING)
     setup_signal_handlers()
 
