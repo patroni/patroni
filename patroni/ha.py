@@ -37,11 +37,82 @@ class Ha:
         logger.info('Lock owner: %s; I am %s', lock_owner, self.state_handler.name)
         return lock_owner == self.state_handler.name
 
-    def demote(self):
-        return self.state_handler.demote(self.cluster.leader)
+    def bootstrap(self):
+        if not self.cluster.is_unlocked():  # cluster already has leader
+            logger.info('trying to bootstrap from leader', )
+            if self.state_handler.bootstrap(self.cluster.leader):
+                return 'bootstrapped from leader'
+            else:
+                self.state_handler.stop('immediate')
+                self.state_handler.remove_data_directory()
+                return 'failed to bootstrap from leader'
+        elif not self.cluster.initialize:  # no initialize key
+            if self.dcs.initialize():  # race for initialization
+                try:
+                    self.state_handler.bootstrap()
+                except:  # initdb or start failed
+                    # remove initialization key and give a chance to other members
+                    logger.info("removing initialize key after failed attempt to initialize the cluster")
+                    self.dcs.cancel_initialization()
+                    self.state_handler.stop('immediate')
+                    self.state_handler.move_data_directory()
+                    raise
+                self.dcs.take_leader()
+                return 'initialized a new cluster'
+            else:
+                return 'failed to acquire initialize lock'
+        else:
+            return 'waiting for leader to bootstrap'
 
-    def follow_the_leader(self):
-        return self.state_handler.follow_the_leader(self.cluster.leader)
+    def recover(self):
+        if self.state_handler.is_healthy():
+            return False
+        has_lock = self.has_lock()
+        self.state_handler.write_recovery_conf(None if has_lock else self.cluster.leader)
+        self.state_handler.start()
+        if has_lock:
+            logger.info('started as readonly because i had the session lock')
+            self.load_cluster_from_dcs()
+        return True
+
+    def follow_the_leader(self, demote_reason, follow_reason, refresh=True):
+        refresh and self.load_cluster_from_dcs()
+        ret = demote_reason if self.state_handler.is_leader() else follow_reason
+        self.state_handler.follow_the_leader(self.cluster.leader)
+        return ret
+
+    def enforce_master_role(self, message, promote_message):
+        if self.state_handler.is_leader() or self.state_handler.role == 'master':
+            return message
+        else:
+            self.state_handler.promote()
+            return promote_message
+
+    def process_unhealthy_cluster(self):
+        if self.is_healthiest_node():
+            if self.acquire_lock():
+                return self.enforce_master_role('acquired session lock as a leader',
+                                                'promoted self to leader by acquiring session lock')
+            else:
+                return self.follow_the_leader('demoted self due after trying and failing to obtain lock',
+                                              'following new leader after trying and failing to obtain lock')
+        else:
+            return self.follow_the_leader('demoting self because i am not the healthiest node',
+                                          'following a different leader because i am not the healthiest node')
+
+    def process_healthy_cluster(self):
+        if self.has_lock():
+            if self.update_lock():
+                return self.enforce_master_role('no action.  i am the leader with the lock',
+                                                'promoted self to leader because i had the session lock')
+            else:
+                # Either there is no connection to DCS or someone else acquired the lock
+                logger.error('failed to update leader lock')
+                self.load_cluster_from_dcs()
+        else:
+            logger.info('does not have lock')
+        return self.follow_the_leader('demoting self because i do not have the lock and i was a leader',
+                                      'no action.  i am a secondary and i am following a leader', False)
 
     @staticmethod
     def fetch_node_status(member):
@@ -94,54 +165,27 @@ class Ha:
     def run_cycle(self):
         try:
             self.load_cluster_from_dcs()
-            if not self.state_handler.is_healthy():
-                has_lock = self.has_lock()
-                self.state_handler.write_recovery_conf(None if has_lock else self.cluster.leader)
-                self.state_handler.start()
-                if not has_lock:
-                    return 'started as a secondary'
-                logger.info('started as readonly because i had the session lock')
-                self.load_cluster_from_dcs()
+
+            # cluster has leader key but not initialize key
+            if not self.cluster.is_unlocked() and not self.cluster.initialize:
+                self.dcs.initialize()  # fix it
+
+            # is data directory empty?
+            if self.state_handler.data_directory_empty():
+                return self.bootstrap()  # new node
+            # "bootstrap", but data directory is not empty
+            elif not self.cluster.initialize and self.cluster.is_unlocked():
+                self.dcs.initialize()
+
+            # try to start dead postgres
+            if self.recover() and not self.has_lock():
+                # no lock, do not try to promote immediately
+                return 'started as a secondary'
 
             if self.cluster.is_unlocked():
-                if self.is_healthiest_node():
-                    if self.acquire_lock():
-                        if self.state_handler.is_leader() or self.state_handler.role == 'master':
-                            return 'acquired session lock as a leader'
-                        else:
-                            self.state_handler.promote()
-                            return 'promoted self to leader by acquiring session lock'
-                    else:
-                        self.load_cluster_from_dcs()
-                        if self.state_handler.is_leader():
-                            self.demote()
-                            return 'demoted self due after trying and failing to obtain lock'
-                        else:
-                            self.follow_the_leader()
-                            return 'following new leader after trying and failing to obtain lock'
-                else:
-                    self.load_cluster_from_dcs()
-                    if self.state_handler.is_leader():
-                        self.demote()
-                        return 'demoting self because i am not the healthiest node'
-                    else:
-                        self.follow_the_leader()
-                        return 'following a different leader because i am not the healthiest node'
+                return self.process_unhealthy_cluster()
             else:
-                if self.has_lock() and self.update_lock():
-                    if self.state_handler.is_leader() or self.state_handler.role == 'master':
-                        return 'no action.  i am the leader with the lock'
-                    else:
-                        self.state_handler.promote()
-                        return 'promoted self to leader because i had the session lock'
-                else:
-                    logger.info('does not have lock')
-                    if self.state_handler.is_leader():
-                        self.demote()
-                        return 'demoting self because i do not have the lock and i was a leader'
-                    else:
-                        self.follow_the_leader()
-                        return 'no action.  i am a secondary and i am following a leader'
+                return self.process_healthy_cluster()
         except DCSError:
             logger.error('Error communicating with DCS')
             if self.state_handler.is_leader():
