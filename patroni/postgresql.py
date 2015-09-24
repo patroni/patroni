@@ -328,7 +328,7 @@ recovery_target_timeline = 'latest'
                 # pg_rewind removes recovery.conf, we have to reinstate it.
                 if ret:
                     self.write_recovery_conf(leader)
-                    self.start()
+                    ret = self.start()
                 else:
                     self.remove_data_directory()
                     logger.error("unable to rewind the former leader")
