@@ -120,14 +120,17 @@ class AbstractDCS:
             running as a master and exception raised instance would be demoted."""
 
     @abc.abstractmethod
-    def update_leader(self, state_handler):
-        """Update leader key (or session) ttl and `/optime/leader` key in DCS.
+    def write_leader_optime(self, last_operation):
+        """write current xlog location into `/optime/leader` key in DCS
+        :param last_operation: absolute xlog location in bytes"""
 
-        :param state_handler: reference to `Postgresql` object
+    @abc.abstractmethod
+    def update_leader(self):
+        """Update leader key (or session) ttl
+
         :returns: `!True` if leader key (or session) has been updated successfully.
             If not, `!False` must be returned and current instance would be demoted.
 
-        If you failed to update `/optime/leader` this error is not critical and you can return `!True`
         You have to use CAS (Compare And Swap) operation in order to update leader key,
         for example for etcd `prevValue` parameter must be used."""
 

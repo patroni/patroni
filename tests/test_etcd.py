@@ -242,8 +242,11 @@ class TestEtcd(unittest.TestCase):
         self.etcd._base_path = '/service/failed'
         self.assertFalse(self.etcd.attempt_to_acquire_leader())
 
+    def test_write_leader_optime(self):
+        self.etcd.write_leader_optime('0')
+
     def test_update_leader(self):
-        self.assertTrue(self.etcd.update_leader(MockPostgresql()))
+        self.assertTrue(self.etcd.update_leader())
 
     def test_initialize(self):
         self.assertFalse(self.etcd.initialize())

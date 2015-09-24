@@ -222,14 +222,12 @@ class Etcd(AbstractDCS):
         return False
 
     @catch_etcd_errors
-    def write_leader_optime(self, state_handler):
-        return self.client.set(self.leader_optime_path, state_handler.last_operation())
+    def write_leader_optime(self, last_operation):
+        return self.client.set(self.leader_optime_path, last_operation)
 
     @catch_etcd_errors
-    def update_leader(self, state_handler):
-        ret = self.retry(self.client.test_and_set, self.leader_path, self._name, self._name, self.ttl)
-        ret and self.write_leader_optime(state_handler)
-        return ret
+    def update_leader(self):
+        return self.retry(self.client.test_and_set, self.leader_path, self._name, self._name, self.ttl)
 
     @catch_etcd_errors
     def initialize(self):

@@ -56,7 +56,6 @@ class Postgresql:
         self.postmaster_pid = os.path.join(self.data_dir, 'postmaster.pid')
         self.trigger_file = config.get('recovery_conf', {}).get('trigger_file', None) or 'promote'
         self.trigger_file = os.path.abspath(os.path.join(self.data_dir, self.trigger_file))
-        self._role = 'replica'
 
         self._pg_ctl = ['pg_ctl', '-w', '-D', self.data_dir]
 
@@ -67,8 +66,15 @@ class Postgresql:
 
         self._connection = None
         self._cursor_holder = None
-        self.members = []  # list of already existing replication slots
+        self.replication_slots = []  # list of already existing replication slots
         self.retry = Retry(max_tries=-1, deadline=10, max_delay=1, retry_exceptions=PostgresConnectionException)
+
+        self._state = 'stopped'
+        self._role = 'replica'
+
+        if self.is_running():
+            self._state = 'running'
+            self._role = 'master' if self.is_leader() else 'replica'
 
     def get_local_address(self):
         listen_addresses = self.listen_addresses.split(',')
@@ -101,6 +107,8 @@ class Postgresql:
         except psycopg2.Error as e:
             if cursor and cursor.connection.closed == 0:
                 raise e
+            if self.state == 'restarting':
+                raise RetryFailedError('cluster is being restarted')
             raise PostgresConnectionException('connection problems')
 
     def query(self, sql, *params):
@@ -113,8 +121,12 @@ class Postgresql:
         return not os.path.exists(self.data_dir) or os.listdir(self.data_dir) == []
 
     def initialize(self):
+        self._state = 'initalizing new cluster'
         ret = subprocess.call(self._pg_ctl + ['initdb', '-o', '--encoding=UTF8']) == 0
-        ret and self.write_pg_hba()
+        if ret:
+            self.write_pg_hba()
+        else:
+            self._state = 'initdb failed'
         return ret
 
     def delete_trigger_file(self):
@@ -137,6 +149,7 @@ class Postgresql:
         return "host={host} port={port} user={user}".format(**conn)
 
     def create_replica(self, master_connection, env):
+        self._state = 'building replica from {host}:{port}'.format(**master_connection)
         connstring = self.build_connstring(master_connection)
         cmd = self.config['restore']
         try:
@@ -144,7 +157,9 @@ class Postgresql:
             self.delete_trigger_file()
         except:
             logger.exception('Error when creating replica')
-            return 1
+            ret = 1
+        if ret != 0:
+            self._state = 'failed to build replica from {host}:{port}'.format(**master_connection)
         return ret
 
     def is_leader(self):
@@ -169,38 +184,60 @@ class Postgresql:
     def role(self):
         return self._role
 
+    @property
+    def state(self):
+        return self._state
+
     def start(self, block_callbacks=False):
         if self.is_running():
-            self._role = 'master' if self.is_leader() else 'replica'
-            self.schedule_load_slots = self.use_slots
             logger.error('Cannot start PostgreSQL because one is already running.')
-            return False
+            return True
 
         self._role = 'replica' if os.path.exists(self.recovery_conf) else 'master'
         if os.path.exists(self.postmaster_pid):
             os.remove(self.postmaster_pid)
             logger.info('Removed %s', self.postmaster_pid)
 
+        if not block_callbacks:
+            self._state = 'starting'
+
         ret = subprocess.call(self._pg_ctl + ['start', '-o', self.server_options()]) == 0
+
+        self._state = 'running' if ret else 'start failed'
+
         self.schedule_load_slots = ret and self.use_slots
         self.save_configuration_files()
         # block_callbacks is used during restart to avoid
         # running start/stop callbacks in addition to restart ones
-        ret and not block_callbacks and ret and self.call_nowait(ACTION_ON_START)
+        ret and not block_callbacks and self.call_nowait(ACTION_ON_START)
         return ret
 
+    def checkpoint(self):
+        try:
+            self.query('SET statement_timeout TO 0')
+            self.query('CHECKPOINT')
+        except:
+            logging.exception('Exception diring CHECKPOINT')
+
     def stop(self, mode='fast', block_callbacks=False):
+        if not self.is_running():
+            if not block_callbacks:
+                self._state = 'stopped'
+            return True
+
         if block_callbacks:
-            try:
-                self.query('SET statement_timeout TO 0')
-                self.query('CHECKPOINT')
-            except:
-                logging.exception('Exception diring CHECKPOINT')
+            self.checkpoint()
+        else:
+            self._state = 'stopping'
 
         ret = subprocess.call(self._pg_ctl + ['stop', '-m', mode]) == 0
         # block_callbacks is used during restart to avoid
         # running start/stop callbacks in addition to restart ones
-        ret and not block_callbacks and self.call_nowait(ACTION_ON_STOP)
+        if not ret:
+            self._state = 'stop failed'
+        elif not block_callbacks:
+            self._state = 'stopped'
+            self.call_nowait(ACTION_ON_STOP)
         return ret
 
     def reload(self):
@@ -209,8 +246,12 @@ class Postgresql:
         return ret
 
     def restart(self):
+        self._state = 'restarting'
         ret = self.stop(block_callbacks=True) and self.start(block_callbacks=True)
-        ret and self.call_nowait(ACTION_ON_RESTART)
+        if ret:
+            self.call_nowait(ACTION_ON_RESTART)
+        else:
+            self._state = 'restart failed ({})'.format(self._state)
         return ret
 
     def server_options(self):
@@ -356,26 +397,26 @@ recovery_target_timeline = 'latest'
     def load_replication_slots(self):
         if self.use_slots and self.schedule_load_slots:
             cursor = self.query("SELECT slot_name FROM pg_replication_slots WHERE slot_type='physical'")
-            self.members = [r[0] for r in cursor]
+            self.replication_slots = [r[0] for r in cursor]
             self.schedule_load_slots = False
 
     def sync_replication_slots(self, cluster):
         if self.use_slots:
             self.load_replication_slots()
-            members = [m.name for m in cluster.members if m.name != self.name] if self.role == 'master' else []
+            slots = [m.name for m in cluster.members if m.name != self.name] if self.role == 'master' else []
             # drop unused slots
-            for slot in set(self.members) - set(members):
+            for slot in set(self.replication_slots) - set(slots):
                 self.query("""SELECT pg_drop_replication_slot(%s)
                                WHERE EXISTS(SELECT 1 FROM pg_replication_slots
                                WHERE slot_name = %s)""", slot, slot)
 
             # create new slots
-            for slot in set(members) - set(self.members):
+            for slot in set(slots) - set(self.replication_slots):
                 self.query("""SELECT pg_create_physical_replication_slot(%s)
                                WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots
                                WHERE slot_name = %s)""", slot, slot)
 
-            self.members = members
+            self.replication_slots = slots
 
     def last_operation(self):
         return str(self.xlog_position())

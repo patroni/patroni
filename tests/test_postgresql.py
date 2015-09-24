@@ -85,10 +85,12 @@ def psycopg2_connect(*args, **kwargs):
 
 
 @patch('subprocess.call', Mock(return_value=0))
-@patch('shutil.copy', Mock())
 @patch('psycopg2.connect', psycopg2_connect)
+@patch('shutil.copy', Mock())
 class TestPostgresql(unittest.TestCase):
 
+    @patch('subprocess.call', Mock(return_value=0))
+    @patch('psycopg2.connect', psycopg2_connect)
     def setUp(self):
         self.p = Postgresql({'name': 'test0', 'scope': 'batman', 'data_dir': 'data/test0',
                              'listen': '127.0.0.1, *:5432', 'connect_address': '127.0.0.2:5432',
@@ -121,13 +123,24 @@ class TestPostgresql(unittest.TestCase):
         self.assertTrue(self.p.initialize())
         self.assertTrue(os.path.exists(os.path.join(self.p.data_dir, 'pg_hba.conf')))
 
-    def test_start_stop(self):
-        self.assertFalse(self.p.start())
-        self.p.is_running = false
-        with open(os.path.join(self.p.data_dir, 'postmaster.pid'), 'w'):
-            pass
+    def test_start(self):
         self.assertTrue(self.p.start())
+        self.p.is_running = false
+        open(os.path.join(self.p.data_dir, 'postmaster.pid'), 'w').close()
+        self.assertTrue(self.p.start())
+
+    def test_stop(self):
         self.assertTrue(self.p.stop())
+        with patch('subprocess.call', Mock(return_value=1)):
+            self.assertTrue(self.p.stop())
+            self.p.is_running = Mock(return_value=True)
+            self.assertFalse(self.p.stop())
+
+    def test_restart(self):
+        self.p.start = false
+        self.p.is_running = false
+        self.assertFalse(self.p.restart())
+        self.assertEquals(self.p.state, 'restart failed (restarting)')
 
     def test_sync_from_leader(self):
         self.assertTrue(self.p.sync_from_leader(self.leader))
@@ -157,6 +170,8 @@ class TestPostgresql(unittest.TestCase):
     @patch.object(MockConnect, 'closed', 2)
     def test__query(self):
         self.assertRaises(PostgresConnectionException, self.p._query, 'blabla')
+        self.p._state = 'restarting'
+        self.assertRaises(RetryFailedError, self.p._query, 'blabla')
 
     def test_query(self):
         self.p.query('select 1')
@@ -184,6 +199,7 @@ class TestPostgresql(unittest.TestCase):
         self.assertFalse(self.p.is_healthy())
 
     def test_promote(self):
+        self.p._role = 'replica'
         self.assertTrue(self.p.promote())
         self.assertTrue(self.p.promote())
 
@@ -211,8 +227,8 @@ class TestPostgresql(unittest.TestCase):
             self.p.move_data_directory()
 
     def test_bootstrap(self):
-        self.assertRaises(PostgresException, self.p.bootstrap)
-        self.p.start = Mock(return_value=True)
+        with patch('subprocess.call', Mock(return_value=1)):
+            self.assertRaises(PostgresException, self.p.bootstrap)
         self.p.bootstrap()
 
     def test_remove_data_directory(self):

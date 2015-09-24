@@ -2,6 +2,7 @@ import logging
 import psycopg2
 
 from patroni.exceptions import DCSError, PostgresConnectionException
+from threading import Lock
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +14,10 @@ class Ha:
         self.dcs = etcd
         self.cluster = None
         self.old_cluster = None
+        self.scheduled_action = None
+        self.scheduled_action_lock = Lock()
+        self.restart_in_progress = False
+        self.restart_thread_lock = Lock()
 
     def load_cluster_from_dcs(self):
         cluster = self.dcs.get_cluster()
@@ -28,7 +33,13 @@ class Ha:
         return self.dcs.attempt_to_acquire_leader()
 
     def update_lock(self):
-        return self.dcs.update_leader(self.state_handler)
+        ret = self.dcs.update_leader()
+        if ret:
+            try:
+                self.dcs.write_leader_optime(self.state_handler.last_operation())
+            except:
+                pass
+        return ret
 
     def has_lock(self):
         lock_owner = self.cluster.leader and self.cluster.leader.name
@@ -37,8 +48,9 @@ class Ha:
 
     def bootstrap(self):
         if not self.cluster.is_unlocked():  # cluster already has leader
-            logger.info('trying to bootstrap from leader', )
+            logger.info('trying to bootstrap from leader')
             if self.state_handler.bootstrap(self.cluster.leader):
+                self.reinitialize_scheduled() and self.reset_scheduled_action()
                 return 'bootstrapped from leader'
             else:
                 self.state_handler.stop('immediate')
@@ -63,15 +75,17 @@ class Ha:
             return 'waiting for leader to bootstrap'
 
     def recover(self):
-        if self.state_handler.is_healthy():
-            return False
         has_lock = self.has_lock()
         self.state_handler.write_recovery_conf(None if has_lock else self.cluster.leader)
-        self.state_handler.start()
-        if has_lock:
-            logger.info('started as readonly because i had the session lock')
-            self.load_cluster_from_dcs()
-        return True
+        if not self.state_handler.start():
+            if not has_lock:
+                return 'failed to start postgres'
+            self.dcs.delete_leader()
+            return 'removed leader key after trying and failing to start postgres'
+        if not has_lock:
+            return 'started as a secondary'
+        logger.info('started as readonly because i had the session lock')
+        self.load_cluster_from_dcs()
 
     def follow_the_leader(self, demote_reason, follow_reason, refresh=True):
         refresh and self.load_cluster_from_dcs()
@@ -112,13 +126,77 @@ class Ha:
         return self.follow_the_leader('demoting self because i do not have the lock and i was a leader',
                                       'no action.  i am a secondary and i am following a leader', False)
 
-    def run_cycle(self):
+    def schedule_action(self, action):
+        with self.scheduled_action_lock:
+            if self.scheduled_action is not None:
+                return self.scheduled_action
+            self.scheduled_action = action
+        return None
+
+    def get_scheduled_action(self):
+        with self.scheduled_action_lock:
+            return self.scheduled_action
+
+    def reset_scheduled_action(self):
+        with self.scheduled_action_lock:
+            self.scheduled_action = None
+
+    def schedule_restart(self):
+        return self.schedule_action('restart')
+
+    def restart_scheduled(self):
+        return self.get_scheduled_action() == 'restart'
+
+    def schedule_reinitialize(self):
+        return self.schedule_action('reinitialize')
+
+    def reinitialize_scheduled(self):
+        return self.get_scheduled_action() == 'reinitialize'
+
+    def restart(self):
+        with self.restart_thread_lock:
+            self.restart_in_progress = True
+        try:
+            return self.state_handler.restart()
+        finally:
+            with self.restart_thread_lock:
+                self.restart_in_progress = False
+            self.reset_scheduled_action()
+
+    def process_scheduled_action(self):
+        if self.reinitialize_scheduled():
+            if self.cluster.is_unlocked():
+                logger.error('Cluster has no leader, can not reinitialize')
+                self.reset_scheduled_action()
+            elif self.has_lock():
+                logger.error('I am the leader, can not reinitialize')
+                self.reset_scheduled_action()
+            else:
+                self.state_handler.stop('immediate')
+                self.state_handler.remove_data_directory()
+                self.load_cluster_from_dcs()
+
+    def handle_restart_in_progress(self):
+        if self.has_lock():
+            if self.update_lock():
+                return 'updated leader lock during restart'
+            else:
+                return 'failed to update leader lock during restart'
+        elif self.cluster.is_unlocked():
+            return 'not healthy enough for leader race'
+        else:
+            return 'restart in progress'
+
+    def _run_cycle(self):
         try:
             self.load_cluster_from_dcs()
 
             # cluster has leader key but not initialize key
             if not self.cluster.is_unlocked() and not self.cluster.initialize:
                 self.dcs.initialize()  # fix it
+
+            # currently it can trigger only reinitialize
+            self.process_scheduled_action()
 
             # is data directory empty?
             if self.state_handler.data_directory_empty():
@@ -127,10 +205,14 @@ class Ha:
             elif not self.cluster.initialize and self.cluster.is_unlocked():
                 self.dcs.initialize()
 
+            if self.restart_in_progress:
+                return self.handle_restart_in_progress()
+
             # try to start dead postgres
-            if self.recover() and not self.has_lock():
-                # no lock, do not try to promote immediately
-                return 'started as a secondary'
+            if not self.state_handler.is_healthy():
+                msg = self.recover()
+                if msg is not None:
+                    return msg
 
             if self.cluster.is_unlocked():
                 return self.process_unhealthy_cluster()
@@ -143,3 +225,7 @@ class Ha:
                 return 'demoted self because DCS is not accessible and i was a leader'
         except (psycopg2.Error, PostgresConnectionException):
             logger.exception('Error communicating with Postgresql.  Will try again')
+
+    def run_cycle(self):
+        with self.restart_thread_lock:
+            return self._run_cycle()

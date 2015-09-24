@@ -211,8 +211,8 @@ class ZooKeeper(AbstractDCS):
     def take_leader(self):
         return self.attempt_to_acquire_leader()
 
-    def update_leader(self, state_handler):
-        last_operation = state_handler.last_operation().encode('utf-8')
+    def write_leader_optime(self, last_operation):
+        last_operation = last_operation.encode('utf-8')
         if last_operation != self.last_leader_operation:
             self.last_leader_operation = last_operation
             path = self.leader_optime_path
@@ -225,6 +225,8 @@ class ZooKeeper(AbstractDCS):
                     logger.exception('Failed to create %s', path)
             except:
                 logger.exception('Failed to update %s', path)
+
+    def update_leader(self):
         return True
 
     def delete_leader(self):

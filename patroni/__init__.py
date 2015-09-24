@@ -48,8 +48,6 @@ class Patroni:
             logger.info('waiting on DCS')
             sleep(5)
 
-        self.postgresql.schedule_load_slots = self.postgresql.is_running() and self.postgresql.use_slots
-
     def schedule_next_run(self):
         self.next_run += self.nap_time
         current_time = time.time()
@@ -75,7 +73,7 @@ class Patroni:
 
 
 def main():
-    logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
+    logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.DEBUG)
     logging.getLogger('requests').setLevel(logging.WARNING)
     setup_signal_handlers()
 

@@ -82,9 +82,24 @@ class TestHa(unittest.TestCase):
         self.e.get_cluster = get_cluster_not_initialized_without_leader
         ha.load_cluster_from_dcs()
 
-    def test_start_as_slave(self):
+    def test_update_lock(self):
+        self.p.last_operation = Mock(side_effect=PostgresException(''))
+        self.assertTrue(self.ha.update_lock())
+
+    def test_start_as_replica(self):
         self.p.is_healthy = false
         self.assertEquals(self.ha.run_cycle(), 'started as a secondary')
+
+    def test_recover_replica_failed(self):
+        self.p.is_healthy = false
+        self.p.start = false
+        self.assertEquals(self.ha.run_cycle(), 'failed to start postgres')
+
+    def test_recover_master_failed(self):
+        self.p.is_healthy = false
+        self.p.start = false
+        self.ha.has_lock = true
+        self.assertEquals(self.ha.run_cycle(), 'removed leader key after trying and failing to start postgres')
 
     def test_start_as_readonly(self):
         self.ha.cluster.is_unlocked = false
@@ -174,3 +189,35 @@ class TestHa(unittest.TestCase):
         self.e.initialize = true
         self.p.bootstrap = Mock(side_effect=PostgresException("Could not bootstrap master PostgreSQL"))
         self.assertRaises(PostgresException, self.ha.bootstrap)
+
+    def test_reinitialize(self):
+        self.ha.schedule_reinitialize()
+        self.ha.run_cycle()
+        self.assertIsNone(self.ha.get_scheduled_action())
+
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.ha.schedule_reinitialize()
+        self.ha.run_cycle()
+
+        self.ha.has_lock = true
+        self.ha.schedule_reinitialize()
+        self.ha.run_cycle()
+        self.assertIsNone(self.ha.get_scheduled_action())
+
+    def test_restart(self):
+        self.ha.schedule_restart()
+        self.assertTrue(self.ha.restart_scheduled())
+        self.ha.restart()
+
+    def test_restart_in_progress(self):
+        self.ha.restart_in_progress = True
+        self.assertEquals(self.ha.run_cycle(), 'not healthy enough for leader race')
+
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.assertEquals(self.ha.run_cycle(), 'restart in progress')
+
+        self.ha.has_lock = true
+        self.assertEquals(self.ha.run_cycle(), 'updated leader lock during restart')
+
+        self.ha.update_lock = false
+        self.assertEquals(self.ha.run_cycle(), 'failed to update leader lock during restart')

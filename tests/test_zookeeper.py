@@ -134,11 +134,13 @@ class TestZooKeeper(unittest.TestCase):
         self.zk.take_leader()
 
     def test_update_leader(self):
-        self.zk.last_leader_operation = -1
-        self.assertTrue(self.zk.update_leader(MockPostgresql()))
+        self.assertTrue(self.zk.update_leader())
+
+    def test_write_leader_optime(self):
+        self.zk.last_leader_operation = '0'
+        self.zk.write_leader_optime('1')
         self.zk._base_path = self.zk._base_path.replace('test', 'bla')
-        self.zk.last_leader_operation = -1
-        self.assertTrue(self.zk.update_leader(MockPostgresql()))
+        self.zk.write_leader_optime('2')
 
     def test_watch(self):
         self.zk.watch(0)
