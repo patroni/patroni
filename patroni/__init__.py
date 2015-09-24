@@ -6,7 +6,6 @@ import yaml
 
 from patroni.api import RestApiServer
 from patroni.etcd import Etcd
-from patroni.exceptions import DCSError
 from patroni.ha import Ha
 from patroni.postgresql import Postgresql
 from patroni.utils import setup_signal_handlers, sleep, reap_children
@@ -43,45 +42,13 @@ class Patroni:
                     return True
         return self.ha.dcs.touch_member(connection_string, ttl)
 
-    def cleanup_on_failed_initialization(self):
-        """ cleanup the DCS if initialization was not successfull """
-        logger.info("removing initialize key after failed attempt to initialize the cluster")
-        self.ha.dcs.cancel_initialization()
-        self.touch_member(self.shutdown_member_ttl)
-        self.postgresql.stop()
-        self.postgresql.move_data_directory()
-
     def initialize(self):
         # wait for etcd to be available
         while not self.touch_member():
             logger.info('waiting on DCS')
             sleep(5)
 
-        # is data directory empty?
-        if self.postgresql.data_directory_empty():
-            while True:
-                try:
-                    cluster = self.ha.dcs.get_cluster()
-                    if not cluster.is_unlocked():  # the leader already exists
-                        if not cluster.initialize:
-                            self.ha.dcs.initialize()
-                        self.postgresql.bootstrap(cluster.leader)
-                        break
-                    # racing to initialize
-                    elif not cluster.initialize and self.ha.dcs.initialize():
-                        try:
-                            self.postgresql.bootstrap()
-                        except:
-                            # bail out and clean the initialize flag.
-                            self.cleanup_on_failed_initialization()
-                            raise
-                        self.ha.dcs.take_leader()
-                        break
-                except DCSError:
-                    logger.info('waiting on DCS')
-                sleep(5)
-        elif self.postgresql.is_running():
-            self.postgresql.schedule_load_slots = True
+        self.postgresql.schedule_load_slots = self.postgresql.is_running() and self.postgresql.use_slots
 
     def schedule_next_run(self):
         self.next_run += self.nap_time

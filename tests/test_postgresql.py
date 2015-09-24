@@ -5,7 +5,7 @@ import unittest
 
 from mock import Mock, patch
 from patroni.dcs import Cluster, Leader, Member
-from patroni.exceptions import PostgresConnectionException
+from patroni.exceptions import PostgresException, PostgresConnectionException
 from patroni.postgresql import Postgresql
 from patroni.utils import RetryFailedError
 from test_ha import false
@@ -209,3 +209,20 @@ class TestPostgresql(unittest.TestCase):
         self.p.move_data_directory()
         with patch('os.rename', Mock(side_effect=OSError())):
             self.p.move_data_directory()
+
+    def test_bootstrap(self):
+        self.assertRaises(PostgresException, self.p.bootstrap)
+        self.p.start = Mock(return_value=True)
+        self.p.bootstrap()
+
+    def test_remove_data_directory(self):
+        self.p.data_dir = 'data_dir'
+        self.p.remove_data_directory()
+        os.mkdir(self.p.data_dir)
+        self.p.remove_data_directory()
+        open(self.p.data_dir, 'w').close()
+        self.p.remove_data_directory()
+        os.symlink('unexisting', self.p.data_dir)
+        with patch('os.unlink', Mock(side_effect=Exception)):
+            self.p.remove_data_directory()
+        self.p.remove_data_directory()
