@@ -343,7 +343,7 @@ recovery_target_timeline = 'latest'
                     ret = self.start()
                 else:
                     ret = False
-                    self.move_data_directory()
+                    self.remove_data_directory()
                     logger.error("unable to rewind the former leader")
             else:
                 ret = self.restart()
