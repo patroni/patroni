@@ -1,8 +1,9 @@
 import unittest
 
 from mock import Mock, patch
-from patroni.dcs import Cluster, DCSError
+from patroni.dcs import Cluster, DCSError, Leader, Member
 from patroni.etcd import Client, Etcd
+from patroni.exceptions import PostgresException
 from patroni.ha import Ha
 from test_etcd import socket_getaddrinfo, etcd_read, etcd_write
 
@@ -15,16 +16,30 @@ def false(*args, **kwargs):
     return False
 
 
-class MockPostgresql:
+def get_cluster(initialize, leader):
+    return Cluster(initialize, leader, None, None)
 
-    def __init__(self):
-        self.name = 'postgresql0'
-        self.role = 'replica'
+
+def get_cluster_not_initialized_without_leader():
+    return get_cluster(None, None)
+
+
+def get_cluster_initialized_without_leader():
+    return get_cluster(True, None)
+
+
+def get_cluster_initialized_with_leader():
+    return get_cluster(True, Leader(0, 0, 0,
+                       Member(0, 'leader', 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
+                              None, None, 28)))
+
+
+class MockPostgresql(Mock):
+
+    name = 'postgresql0'
+    role = 'replica'
 
     def is_healthy(self):
-        return True
-
-    def write_recovery_conf(self, _):
         return True
 
     def start(self):
@@ -36,45 +51,35 @@ class MockPostgresql:
     def is_leader(self):
         return True
 
-    def promote(self):
-        return True
-
-    def demote(self, _):
-        return True
-
-    def follow_the_leader(self, _):
-        return True
-
-    def create_replication_slots(self, _):
-        return True
-
     def last_operation(self):
         return 0
 
+    def data_directory_empty(self):
+        return False
 
-def get_unlocked_cluster():
-    return Cluster(False, None, None, [])
+    def bootstrap(self, *args, **kwargs):
+        return True
 
 
 class TestHa(unittest.TestCase):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
-    def setUp(self):
+    @patch.object(Client, 'machines')
+    def setUp(self, mock_machines):
+        mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
         self.p = MockPostgresql()
-        with patch.object(Client, 'machines') as mock_machines:
-            mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
-            self.e = Etcd('foo', {'ttl': 30, 'host': 'ok:2379', 'scope': 'test'})
-            self.e.client.read = etcd_read
-            self.e.client.write = etcd_write
-            self.ha = Ha(self.p, self.e)
-            self.ha.load_cluster_from_dcs()
-            self.ha.cluster = get_unlocked_cluster()
-            self.ha.load_cluster_from_dcs = Mock()
+        self.e = Etcd('foo', {'ttl': 30, 'host': 'ok:2379', 'scope': 'test'})
+        self.e.client.read = etcd_read
+        self.e.client.write = etcd_write
+        self.ha = Ha(self.p, self.e)
+        self.ha.load_cluster_from_dcs()
+        self.ha.cluster = get_cluster_not_initialized_without_leader()
+        self.ha.load_cluster_from_dcs = Mock()
 
     def test_load_cluster_from_dcs(self):
         ha = Ha(self.p, self.e)
         ha.load_cluster_from_dcs()
-        self.e.get_cluster = get_unlocked_cluster
+        self.e.get_cluster = get_cluster_not_initialized_without_leader
         ha.load_cluster_from_dcs()
 
     def test_start_as_slave(self):
@@ -127,6 +132,12 @@ class TestHa(unittest.TestCase):
         self.ha.cluster.is_unlocked = false
         self.assertEquals(self.ha.run_cycle(), 'demoting self because i do not have the lock and i was a leader')
 
+    def test_demote_because_update_lock_failed(self):
+        self.ha.cluster.is_unlocked = false
+        self.ha.has_lock = true
+        self.ha.update_lock = false
+        self.assertEquals(self.ha.run_cycle(), 'demoting self because i do not have the lock and i was a leader')
+
     def test_follow_the_leader(self):
         self.ha.cluster.is_unlocked = false
         self.p.is_leader = false
@@ -135,3 +146,31 @@ class TestHa(unittest.TestCase):
     def test_no_etcd_connection_master_demote(self):
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
         self.assertEquals(self.ha.run_cycle(), 'demoted self because DCS is not accessible and i was a leader')
+
+    def test_bootstrap_from_leader(self):
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.assertEquals(self.ha.bootstrap(), 'bootstrapped from leader')
+
+    def test_bootstrap_from_leader_failed(self):
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.p.bootstrap = false
+        self.assertEquals(self.ha.bootstrap(), 'failed to bootstrap from leader')
+
+    def test_bootstrap_waiting_for_leader(self):
+        self.ha.cluster = get_cluster_initialized_without_leader()
+        self.assertEquals(self.ha.bootstrap(), 'waiting for leader to bootstrap')
+
+    def test_bootstrap_initialize_lock_failed(self):
+        self.ha.cluster = get_cluster_not_initialized_without_leader()
+        self.assertEquals(self.ha.bootstrap(), 'failed to acquire initialize lock')
+
+    def test_bootstrap_initialized_new_cluster(self):
+        self.ha.cluster = get_cluster_not_initialized_without_leader()
+        self.e.initialize = true
+        self.assertEquals(self.ha.bootstrap(), 'initialized a new cluster')
+
+    def test_bootstrap_release_initialize_key_on_failure(self):
+        self.ha.cluster = get_cluster_not_initialized_without_leader()
+        self.e.initialize = true
+        self.p.bootstrap = Mock(side_effect=PostgresException("Could not bootstrap master PostgreSQL"))
+        self.assertRaises(PostgresException, self.ha.bootstrap)
