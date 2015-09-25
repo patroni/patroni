@@ -34,17 +34,20 @@ ordered list of plugins to use:
 Each plugin should provide it's own documentation about what configuration it
 needs.
 """
-import logging
 from pkg_resources import iter_entry_points
 
 EVENTS = (
-        {'name': 'postgresql_name', 'type': 'single', 'required': False},
-        )
+    {'name': 'postgresql_name',
+        'type': 'single',
+        'required': False},
+    )
+
 
 def get_plugins(config, app):
     plugins = load(config)
     plugins = configure(plugins, config, app)
     return get_event_handler(plugins, EVENTS)
+
 
 def load(config):
     """Gets the plugin factories from the config file.
@@ -62,15 +65,16 @@ def load(config):
     for i in iter_entry_points('patroni.plugin'):
         available_plugins.append(i.name)
         if i.name in plugin_names:
+            plugin_factory = i.load(require=False)  # EEK never auto install ANYTHING
             if i.name in plugins:
                 raise Exception('Duplicate plugins for name {}, one was: {}'.format(i.name, plugin_factory))
-            plugin_factory = i.load(require=False) #EEK never auto install ANYTHING
             plugins[i.name] = plugin_factory
     not_seen = set(plugin_names) - set(plugins)
     if not_seen:
         raise Exception('Plugins were configured in the config file, but I could NOT find them: {}\n'
-                'Available plugins: {}'.format(not_seen, available_plugins))
-    return [(i, plugins[i]) for i in plugin_names] # set order to what is specified in config file
+                        'Available plugins: {}'.format(not_seen, available_plugins))
+    return [(i, plugins[i]) for i in plugin_names]  # set order to what is specified in config file
+
 
 def configure(plugins, *args, **kw):
     """Setup all plugins by calling them with the passed arguments"""
@@ -80,21 +84,26 @@ def configure(plugins, *args, **kw):
         c_plugins.append((name, plugin))
     return c_plugins
 
+
 def _handlers_executor(handlers):
     if not handlers:
         return None
+
     def call(self, *args, **kw):
         return [h(*args, **kw) for _, _, h in handlers]
     return call
+
 
 def _handlers_executor_single(handlers):
     if not handlers:
         return None
     assert len(handlers) == 1
     handler = handlers[0][2]
+
     def call(self, *args, **kw):
         return handler(*args, **kw)
     return call
+
 
 def get_event_handler(setup_plugins, events):
     class Handler:
@@ -105,7 +114,7 @@ def get_event_handler(setup_plugins, events):
             event_name = spec.pop('name')
         else:
             spec = dict(type='multiple',
-                    required=False)
+                        required=False)
         handlers = []
         for name, plugin in setup_plugins:
             handler = getattr(plugin, event_name, None)
