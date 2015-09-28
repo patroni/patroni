@@ -77,7 +77,10 @@ class Postgresql:
             self._pg_rewind_present = ('username' in self._pg_rewind and
                                        ('wal_log_hints' in self.config['parameters'] or
                                         'data_checksums' in self.config['parameters']) and
-                                       os.system("pg_rewind --version >/dev/null 2>&1") == 0)
+                                       subprocess.call(['pg_rewind',
+                                                        '--version'],
+                                                       stdout=open(os.devnull, 'w'),
+                                                       stderr=subprocess.STDOUT) == 0)
             if self._pg_rewind_present:
                 self._pg_rewind['user'] = self._pg_rewind['username']
         except:
