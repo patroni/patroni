@@ -1,11 +1,11 @@
 import unittest
 
 from mock import Mock, patch
-from patroni.dcs import Cluster, DCSError, Leader, Member
+from patroni.dcs import Cluster, Failover, Leader, Member
 from patroni.etcd import Client, Etcd
-from patroni.exceptions import PostgresException
+from patroni.exceptions import DCSError, PostgresException
 from patroni.ha import Ha
-from test_etcd import socket_getaddrinfo, etcd_read, etcd_write
+from test_etcd import socket_getaddrinfo, etcd_read, etcd_write, requests_get
 
 
 def true(*args, **kwargs):
@@ -16,22 +16,25 @@ def false(*args, **kwargs):
     return False
 
 
-def get_cluster(initialize, leader):
-    return Cluster(initialize, leader, None, None)
+def get_cluster(initialize, leader, members, failover):
+    return Cluster(initialize, leader, None, members, failover)
 
 
 def get_cluster_not_initialized_without_leader():
-    return get_cluster(None, None)
+    return get_cluster(None, None, [], None)
 
 
-def get_cluster_initialized_without_leader():
-    return get_cluster(True, None)
+def get_cluster_initialized_without_leader(leader=False, failover=None):
+    m = Member(0, 'leader', 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
+               'http://127.0.0.1:8008/patroni', None, 28)
+    l = Leader(0, 0, 0, m) if leader else None
+    o = Member(0, 'other', 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
+               'http://127.0.0.1:8011/patroni', None, 28)
+    return get_cluster(True, l, [m, o], failover)
 
 
-def get_cluster_initialized_with_leader():
-    return get_cluster(True, Leader(0, 0, 0,
-                       Member(0, 'leader', 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
-                              None, None, 28)))
+def get_cluster_initialized_with_leader(failover=None):
+    return get_cluster_initialized_without_leader(leader=True, failover=failover)
 
 
 class MockPostgresql(Mock):
@@ -51,6 +54,9 @@ class MockPostgresql(Mock):
     def is_leader(self):
         return True
 
+    def xlog_position(self):
+        return 0
+
     def last_operation(self):
         return 0
 
@@ -58,6 +64,9 @@ class MockPostgresql(Mock):
         return False
 
     def bootstrap(self, *args, **kwargs):
+        return True
+
+    def check_replication_lag(self, last_leader_operation):
         return True
 
 
@@ -111,6 +120,7 @@ class TestHa(unittest.TestCase):
         self.assertEquals(self.ha.run_cycle(), 'acquired session lock as a leader')
 
     def test_promoted_by_acquiring_lock(self):
+        self.ha.is_healthiest_node = true
         self.p.is_leader = false
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
 
@@ -119,16 +129,17 @@ class TestHa(unittest.TestCase):
         self.assertEquals(self.ha.run_cycle(), 'demoted self due after trying and failing to obtain lock')
 
     def test_follow_new_leader_after_failing_to_obtain_lock(self):
+        self.ha.is_healthiest_node = true
         self.ha.acquire_lock = false
         self.p.is_leader = false
         self.assertEquals(self.ha.run_cycle(), 'following new leader after trying and failing to obtain lock')
 
     def test_demote_because_not_healthiest(self):
-        self.p.is_healthiest_node = false
+        self.ha.is_healthiest_node = false
         self.assertEquals(self.ha.run_cycle(), 'demoting self because i am not the healthiest node')
 
     def test_follow_new_leader_because_not_healthiest(self):
-        self.p.is_healthiest_node = false
+        self.ha.is_healthiest_node = false
         self.p.is_leader = false
         self.assertEquals(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
 
@@ -221,3 +232,52 @@ class TestHa(unittest.TestCase):
 
         self.ha.update_lock = false
         self.assertEquals(self.ha.run_cycle(), 'failed to update leader lock during restart')
+
+    @patch('requests.get', requests_get)
+    def test_manual_failover_from_leader(self):
+        self.ha.has_lock = true
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', ''))
+        self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, '', MockPostgresql.name))
+        self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, '', 'blabla'))
+        self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
+        f = Failover(0, MockPostgresql.name, '')
+        self.ha.cluster = get_cluster_initialized_with_leader(f)
+        self.assertEquals(self.ha.run_cycle(), 'manual failover: demoted self but failed to release leader lock')
+        self.ha.cluster = get_cluster_initialized_with_leader(f)
+        self.e.client.delete = Mock(return_value=True)
+        self.assertEquals(self.ha.run_cycle(), 'manual failover: demoted self and released leader lock')
+
+    @patch('requests.get', requests_get)
+    def test_manual_failover_process_no_leader(self):
+        self.p.is_leader = false
+        self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', MockPostgresql.name))
+        self.assertEquals(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
+        self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', 'leader'))
+        self.assertEquals(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
+        self.ha.fetch_node_status = lambda e: (e, True, True, 0)  # accessible, in_recovery
+        self.assertEquals(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
+        self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, MockPostgresql.name, ''))
+        self.assertEquals(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
+        self.ha.fetch_node_status = lambda e: (e, False, True, 0)  # accessible, in_recovery
+        self.assertEquals(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
+
+    def test__is_healthiest_node(self):
+        self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
+        self.p.is_leader = false
+        self.ha.fetch_node_status = lambda e: (e, True, True, 0)  # accessible, in_recovery
+        self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
+        self.ha.fetch_node_status = lambda e: (e, True, False, 0)  # accessible, not in_recovery
+        self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
+        self.ha.fetch_node_status = lambda e: (e, True, True, 1)  # accessible, in_recovery, xlog location ahead
+        self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
+        self.p.check_replication_lag = false
+        self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
+
+    @patch('requests.get', requests_get)
+    def test_fetch_node_status(self):
+        member = Member(0, 'test', '', 'http://127.0.0.1:8011/patroni', None, None)
+        self.ha.fetch_node_status(member)
+        member = Member(0, 'test', '', 'http://localhost:8011/patroni', None, None)
+        self.ha.fetch_node_status(member)

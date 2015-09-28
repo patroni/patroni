@@ -48,7 +48,6 @@ class TestPatroni(unittest.TestCase):
         self.assertRaises(Exception, self.p.get_dcs, '', {})
 
     @patch('time.sleep', Mock(side_effect=SleepException()))
-    @patch.object(Patroni, 'initialize', Mock())
     @patch.object(Etcd, 'delete_leader', Mock())
     @patch.object(Client, 'machines')
     def test_patroni_main(self, mock_machines):
@@ -84,12 +83,8 @@ class TestPatroni(unittest.TestCase):
         now = datetime.datetime.utcnow()
         member = Member(0, self.p.postgresql.name, 'b', 'c', (now + datetime.timedelta(
             seconds=self.p.shutdown_member_ttl + 10)).strftime('%Y-%m-%dT%H:%M:%S.%fZ'), None)
-        self.p.ha.cluster = Cluster(True, member, 0, [member])
+        self.p.ha.cluster = Cluster(True, member, 0, [member], None)
         self.p.touch_member()
-
-    def test_patroni_initialize(self):
-        self.p.touch_member = self.touch_member
-        self.p.initialize()
 
     def test_schedule_next_run(self):
         self.p.ha.dcs.watch = Mock(return_value=True)

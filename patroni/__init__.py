@@ -8,7 +8,7 @@ from patroni.api import RestApiServer
 from patroni.etcd import Etcd
 from patroni.ha import Ha
 from patroni.postgresql import Postgresql
-from patroni.utils import setup_signal_handlers, sleep, reap_children
+from patroni.utils import setup_signal_handlers, reap_children
 from patroni.zookeeper import ZooKeeper
 
 logger = logging.getLogger(__name__)
@@ -42,12 +42,6 @@ class Patroni:
                     return True
         return self.ha.dcs.touch_member(connection_string, ttl)
 
-    def initialize(self):
-        # wait for etcd to be available
-        while not self.touch_member():
-            logger.info('waiting on DCS')
-            sleep(5)
-
     def schedule_next_run(self):
         self.next_run += self.nap_time
         current_time = time.time()
@@ -62,12 +56,12 @@ class Patroni:
         self.next_run = time.time()
 
         while True:
-            self.touch_member()
             logger.info(self.ha.run_cycle())
             try:
                 self.ha.cluster and self.ha.state_handler.sync_replication_slots(self.ha.cluster)
             except:
                 logger.exception('Exception when changing replication slots')
+            self.touch_member()
             reap_children()
             self.schedule_next_run()
 
@@ -85,7 +79,6 @@ def main():
         config = yaml.load(f)
 
     patroni = Patroni(config)
-    patroni.initialize()
     try:
         patroni.run()
     except KeyboardInterrupt:

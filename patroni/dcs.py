@@ -56,7 +56,15 @@ class Leader(namedtuple('Leader', 'index,expiration,ttl,member')):
         return self.member.conn_url
 
 
-class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,members')):
+class Failover(namedtuple('Failover', 'index,leader,member')):
+
+    @staticmethod
+    def from_node(index, value):
+        t = [a.strip() for a in value.split(':')] + ['']
+        return Failover(index, t[0], t[1]) if t[0] or t[1] else None
+
+
+class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,members,failover')):
 
     """Immutable object (namedtuple) which represents PostgreSQL cluster.
     Consists of the following fields:
@@ -64,7 +72,8 @@ class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,mem
     :param leader: `Leader` object which represents current leader of the cluster
     :param last_leader_operation: int or long object containing position of last known leader operation.
         This value is stored in `/optime/leader` key
-    :param members: list of Member object, all PostgreSQL cluster members including leader"""
+    :param members: list of Member object, all PostgreSQL cluster members including leader
+    :param failover: reference to `Failover` object"""
 
     def is_unlocked(self):
         return not (self.leader and self.leader.name)
@@ -76,6 +85,7 @@ class AbstractDCS:
 
     _INITIALIZE = 'initialize'
     _LEADER = 'leader'
+    _FAILOVER = 'failover'
     _MEMBERS = 'members/'
     _OPTIME = 'optime'
     _LEADER_OPTIME = _OPTIME + '/' + _LEADER
@@ -110,6 +120,10 @@ class AbstractDCS:
         return self.client_path(self._LEADER)
 
     @property
+    def failover_path(self):
+        return self.client_path(self._FAILOVER)
+
+    @property
     def leader_optime_path(self):
         return self.client_path(self._LEADER_OPTIME)
 
@@ -142,6 +156,13 @@ class AbstractDCS:
 
         Key must be created atomically. In case if key already exists it should not be
         overwritten and `!False` must be returned"""
+
+    @abc.abstractmethod
+    def set_failover_value(self, value, index=None):
+        """Create or update `/failover` key"""
+
+    def manual_failover(self, leader, member, index=None):
+        return self.set_failover_value(leader + (':' + member if member else ''), index)
 
     def current_leader(self):
         try:

@@ -10,7 +10,8 @@ import urllib3
 
 from dns.exception import DNSException
 from dns import resolver
-from patroni.dcs import AbstractDCS, Cluster, DCSError, Leader, Member, parse_connection_string
+from patroni.dcs import AbstractDCS, Cluster, Failover, Leader, Member, parse_connection_string
+from patroni.exceptions import DCSError
 from patroni.utils import Retry, RetryFailedError, sleep
 from requests.exceptions import RequestException
 
@@ -80,7 +81,7 @@ class Client(etcd.Client):
         for host, port in self.get_srv_record(discovery_srv):
             url = '{}://{}:{}/members'.format(self._protocol, host, port)
             try:
-                response = requests.get(url)
+                response = requests.get(url, timeout=5)
                 if response.ok:
                     for member in response.json():
                         ret.extend(member['clientURLs'])
@@ -195,9 +196,14 @@ class Etcd(AbstractDCS):
                 member = ([m for m in members if m.name == leader.value] or [member])[0]
                 leader = Leader(leader.modifiedIndex, leader.expiration, leader.ttl, member)
 
-            self.cluster = Cluster(initialize, leader, last_leader_operation, members)
+            # failover key
+            failover = nodes.get(self._FAILOVER, None)
+            if failover:
+                failover = Failover.from_node(failover.modifiedIndex, failover.value)
+
+            self.cluster = Cluster(initialize, leader, last_leader_operation, members, failover)
         except etcd.EtcdKeyNotFound:
-            self.cluster = Cluster(False, None, None, [])
+            self.cluster = Cluster(False, None, None, [], None)
         except:
             self.cluster = None
             logger.exception('get_cluster')
@@ -222,6 +228,10 @@ class Etcd(AbstractDCS):
         return False
 
     @catch_etcd_errors
+    def set_failover_value(self, value, index=None):
+        return self.client.write(self.failover_path, value, prevIndex=index or 0)
+
+    @catch_etcd_errors
     def write_leader_optime(self, last_operation):
         return self.client.set(self.leader_optime_path, last_operation)
 
@@ -231,7 +241,7 @@ class Etcd(AbstractDCS):
 
     @catch_etcd_errors
     def initialize(self):
-        return self.client.write(self.initialize_path, self._name, prevExist=False)
+        return self.retry(self.client.write, self.initialize_path, self._name, prevExist=False)
 
     @catch_etcd_errors
     def delete_leader(self):
@@ -239,7 +249,7 @@ class Etcd(AbstractDCS):
 
     @catch_etcd_errors
     def cancel_initialization(self):
-        return self.client.delete(self.initialize_path, prevValue=self._name)
+        return self.retry(self.client.delete, self.initialize_path, prevValue=self._name)
 
     def watch(self, timeout):
         # watch on leader key changes if it is defined and current node is not lock owner

@@ -50,6 +50,8 @@ def requests_get(url, **kwargs):
     response = MockResponse()
     if url.startswith('http://local'):
         raise requests.exceptions.RequestException()
+    elif ':8011/patroni' in url:
+        response.content = '{"role": "replica", "xlog": {"replayed_location": 0}}'
     elif url.endswith('/members'):
         if url.startswith('http://error'):
             response.content = '[{}]'
@@ -92,6 +94,8 @@ def etcd_read(key, **kwargs):
         raise etcd.EtcdKeyNotFound
 
     response = {"action": "get", "node": {"key": "/service/batman5", "dir": True, "nodes": [
+                {"key": "/service/batman5/failover", "value": "",
+                 "modifiedIndex": 1582, "createdIndex": 1582},
                 {"key": "/service/batman5/initialize", "value": "postgresql0",
                  "modifiedIndex": 1582, "createdIndex": 1582},
                 {"key": "/service/batman5/leader", "value": "postgresql1",

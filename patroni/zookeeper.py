@@ -5,7 +5,8 @@ import time
 
 from kazoo.client import KazooClient, KazooState
 from kazoo.exceptions import NoNodeError, NodeExistsError
-from patroni.dcs import AbstractDCS, Cluster, DCSError, Leader, Member, parse_connection_string
+from patroni.dcs import AbstractDCS, Cluster, Failover, Leader, Member, parse_connection_string
+from patroni.exceptions import DCSError
 from patroni.utils import sleep
 from requests.exceptions import RequestException
 
@@ -134,7 +135,7 @@ class ZooKeeper(AbstractDCS):
 
     def _inner_load_cluster(self):
         self.cluster_event.clear()
-        nodes = set(self.get_children(self.client_path('')))
+        nodes = set(self.get_children(self.client_path(''), self.cluster_watcher))
 
         # get initialize flag
         initialize = self._INITIALIZE in nodes
@@ -143,7 +144,7 @@ class ZooKeeper(AbstractDCS):
         members = self.load_members() if self._MEMBERS[:-1] in nodes else []
 
         # get leader
-        leader = self.get_node(self.leader_path, self.cluster_watcher) if self._LEADER in nodes else None
+        leader = self.get_node(self.leader_path) if self._LEADER in nodes else None
         if leader:
             client_id = self.client.client_id
             if leader[0] == self._name and client_id is not None and client_id[0] != leader[1].ephemeralOwner:
@@ -157,10 +158,15 @@ class ZooKeeper(AbstractDCS):
                 leader = Leader(leader[1].version, None, None, member)
                 self.fetch_cluster = member.index == -1
 
+        # failover key
+        failover = self.get_node(self.failover_path, watch=self.cluster_watcher) if self._FAILOVER in nodes else None
+        if failover:
+            failover = Failover.from_node(failover[1].version, failover[0])
+
         # get last leader operation
         self.last_leader_operation = self.get_node(self.leader_optime_path) if self.fetch_cluster else None
         self.last_leader_operation = 0 if self.last_leader_operation is None else int(self.last_leader_operation[0])
-        self.cluster = Cluster(initialize, leader, self.last_leader_operation, members)
+        self.cluster = Cluster(initialize, leader, self.last_leader_operation, members, failover)
 
     def get_cluster(self):
         if self.exhibitor and self.exhibitor.poll():
@@ -188,11 +194,21 @@ class ZooKeeper(AbstractDCS):
         ret or logger.info('Could not take out TTL lock')
         return ret
 
+    def set_failover_value(self, value, index=None):
+        try:
+            self.client.retry(self.client.set, self.failover_path, value.encode('utf-8'), version=index or -1)
+            return True
+        except NoNodeError:
+            return value == '' or (not index and self._create(self.failover_path, value.encode('utf-8')))
+        except:
+            logging.exception('foo')
+            return False
+
     def initialize(self):
         return self._create(self.initialize_path, self._name, makepath=True)
 
     def touch_member(self, connection_string, ttl=None):
-        if self.cluster and any(m.name == self._name for m in self.cluster.members):
+        if not self.fetch_cluster and self.cluster and any(m.name == self._name for m in self.cluster.members):
             return True
         path = self.member_path
         connection_string = connection_string.encode('utf-8')
@@ -201,6 +217,9 @@ class ZooKeeper(AbstractDCS):
             return True
         except NodeExistsError:
             try:
+                node = self.get_node(path)
+                if node and self.client.client_id is not None and node[1].ephemeralOwner == self.client.client_id[0]:
+                    return True
                 self.client.retry(self.client.delete, path)
                 self.client.retry(self.client.create, path, connection_string, makepath=True, ephemeral=True)
                 return True
@@ -230,8 +249,8 @@ class ZooKeeper(AbstractDCS):
         return True
 
     def delete_leader(self):
-        if isinstance(self.cluster, Cluster) and self.cluster.leader.name == self._name:
-            self.client.delete(self.leader_path, version=self.cluster.leader.index)
+        self.client.restart()
+        return True
 
     def _cancel_initialization(self):
         node = self.get_node(self.initialize_path)
@@ -248,5 +267,5 @@ class ZooKeeper(AbstractDCS):
         self.cluster_event.wait(timeout)
         if self.cluster_event.isSet():
             self.fetch_cluster = True
-            return not self.cluster or not self.cluster.leader or self.cluster.leader.name != self._name
+            return True
         return False

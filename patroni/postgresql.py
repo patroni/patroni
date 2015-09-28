@@ -266,36 +266,8 @@ class Postgresql:
             return False
         return True
 
-    def is_healthiest_node(self, cluster):
-        if self.is_leader():
-            return True
-
-        if cluster.last_leader_operation - self.xlog_position() > self.config.get('maximum_lag_on_failover', 0):
-            return False
-
-        for member in cluster.members:
-            if member.name == self.name:
-                continue
-            try:
-                r = parseurl(member.conn_url)
-                member_conn = psycopg2.connect(**r)
-                member_conn.autocommit = True
-                member_cursor = member_conn.cursor()
-                member_cursor.execute(
-                    "SELECT pg_is_in_recovery(), %s - pg_xlog_location_diff(pg_last_xlog_replay_location(), '0/0')",
-                    (self.xlog_position(),))
-                row = member_cursor.fetchone()
-                member_cursor.close()
-                member_conn.close()
-                logger.error([self.name, member.name, row])
-                if not row[0]:
-                    logger.warning('Master (%s) is still alive', member.name)
-                    return False
-                if row[1] < 0:
-                    return False
-            except psycopg2.Error:
-                continue
-        return True
+    def check_replication_lag(self, last_leader_operation):
+        return last_leader_operation - self.xlog_position() <= self.config.get('maximum_lag_on_failover', 0)
 
     def write_pg_hba(self):
         with open(os.path.join(self.data_dir, 'pg_hba.conf'), 'a') as f:
