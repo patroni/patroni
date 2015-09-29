@@ -214,12 +214,14 @@ class Ha:
             if not failover.member or failover.member != self.state_handler.name:
                 members = [m for m in self.cluster.members if not failover.member or m.name == failover.member]
                 if self.is_failover_possible(members):  # check that there are healthy members
+                    self.state_handler.stop()
+                    if self.dcs.delete_leader():
+                        ret = 'manual failover: demoted self and released leader lock'
+                    else:
+                        ret = 'manual failover: demoted self but failed to release leader lock'
                     self.state_handler.follow_the_leader(None)
                     self.cluster = None
-                    if self.dcs.delete_leader():
-                        return 'manual failover: demoted self and released leader lock'
-                    else:
-                        return 'manual failover: demoted self but failed to release leader lock'
+                    return ret
                 else:
                     logger.warning('manual failover: no healthy members found, failover is not possible')
             else:
@@ -360,7 +362,7 @@ class Ha:
         except DCSError:
             logger.error('Error communicating with DCS')
             if self.state_handler.is_running() and self.state_handler.is_leader():
-                self.state_handler.demote(None)
+                self.state_handler.demote()
                 return 'demoted self because DCS is not accessible and i was a leader'
         except (psycopg2.Error, PostgresConnectionException):
             logger.exception('Error communicating with Postgresql.  Will try again')

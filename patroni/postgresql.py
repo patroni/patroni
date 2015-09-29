@@ -354,8 +354,8 @@ recovery_target_timeline = 'latest'
             self.call_nowait(ACTION_ON_ROLE_CHANGE)
         return ret
 
-    def demote(self, leader):
-        self.follow_the_leader(leader)
+    def demote(self):
+        self.follow_the_leader(None)
 
     def create_replication_user(self):
         self.query('CREATE USER "{}" WITH REPLICATION ENCRYPTED PASSWORD %s'.format(

@@ -137,9 +137,8 @@ class TestPostgresql(unittest.TestCase):
         self.assertTrue(self.p.sync_from_leader(self.leader))
 
     def test_follow_the_leader(self):
-        self.p.demote(self.leader)
-        self.p.follow_the_leader(None)
-        self.p.demote(self.leader)
+        self.p.follow_the_leader(self.leader)
+        self.p.demote()
         self.p.follow_the_leader(self.leader)
         self.p.follow_the_leader(Leader(-1, None, 28, self.other))
 
