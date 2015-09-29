@@ -9,6 +9,7 @@ import time
 from patroni.exceptions import PostgresConnectionException, PostgresException
 from patroni.utils import Retry, RetryFailedError
 from six.moves.urllib_parse import urlparse
+from threading import Lock
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,9 @@ class Postgresql:
         self.retry = Retry(max_tries=-1, deadline=10, max_delay=1, retry_exceptions=PostgresConnectionException)
 
         self._state = 'stopped'
+        self._state_lock = Lock()
         self._role = 'replica'
+        self._role_lock = Lock()
 
         if self.is_running():
             self._state = 'running'
@@ -121,12 +124,12 @@ class Postgresql:
         return not os.path.exists(self.data_dir) or os.listdir(self.data_dir) == []
 
     def initialize(self):
-        self._state = 'initalizing new cluster'
+        self.set_state('initalizing new cluster')
         ret = subprocess.call(self._pg_ctl + ['initdb', '-o', '--encoding=UTF8']) == 0
         if ret:
             self.write_pg_hba()
         else:
-            self._state = 'initdb failed'
+            self.set_state('initdb failed')
         return ret
 
     def delete_trigger_file(self):
@@ -149,7 +152,7 @@ class Postgresql:
         return "host={host} port={port} user={user}".format(**conn)
 
     def create_replica(self, master_connection, env):
-        self._state = 'building replica from {host}:{port}'.format(**master_connection)
+        self.set_state('building replica from {host}:{port}'.format(**master_connection))
         connstring = self.build_connstring(master_connection)
         cmd = self.config['restore']
         try:
@@ -159,7 +162,7 @@ class Postgresql:
             logger.exception('Error when creating replica')
             ret = 1
         if ret != 0:
-            self._state = 'failed to build replica from {host}:{port}'.format(**master_connection)
+            self.set_state('failed to build replica from {host}:{port}'.format(**master_connection))
         return ret
 
     def is_leader(self):
@@ -182,28 +185,38 @@ class Postgresql:
 
     @property
     def role(self):
-        return self._role
+        with self._role_lock:
+            return self._role
+
+    def set_role(self, value):
+        with self._role_lock:
+            self._role = value
 
     @property
     def state(self):
-        return self._state
+        with self._state_lock:
+            return self._state
+
+    def set_state(self, value):
+        with self._state_lock:
+            self._state = value
 
     def start(self, block_callbacks=False):
         if self.is_running():
             logger.error('Cannot start PostgreSQL because one is already running.')
             return True
 
-        self._role = 'replica' if os.path.exists(self.recovery_conf) else 'master'
+        self.set_role('replica' if os.path.exists(self.recovery_conf) else 'master')
         if os.path.exists(self.postmaster_pid):
             os.remove(self.postmaster_pid)
             logger.info('Removed %s', self.postmaster_pid)
 
         if not block_callbacks:
-            self._state = 'starting'
+            self.set_state('starting')
 
         ret = subprocess.call(self._pg_ctl + ['start', '-o', self.server_options()]) == 0
 
-        self._state = 'running' if ret else 'start failed'
+        self.set_state('running' if ret else 'start failed')
 
         self.schedule_load_slots = ret and self.use_slots
         self.save_configuration_files()
@@ -222,21 +235,21 @@ class Postgresql:
     def stop(self, mode='fast', block_callbacks=False):
         if not self.is_running():
             if not block_callbacks:
-                self._state = 'stopped'
+                self.set_state('stopped')
             return True
 
         if block_callbacks:
             self.checkpoint()
         else:
-            self._state = 'stopping'
+            self.set_state('stopping')
 
         ret = subprocess.call(self._pg_ctl + ['stop', '-m', mode]) == 0
         # block_callbacks is used during restart to avoid
         # running start/stop callbacks in addition to restart ones
         if not ret:
-            self._state = 'stop failed'
+            self.set_state('stop failed')
         elif not block_callbacks:
-            self._state = 'stopped'
+            self.set_state('stopped')
             self.call_nowait(ACTION_ON_STOP)
         return ret
 
@@ -246,12 +259,12 @@ class Postgresql:
         return ret
 
     def restart(self):
-        self._state = 'restarting'
+        self.set_state('restarting')
         ret = self.stop(block_callbacks=True) and self.start(block_callbacks=True)
         if ret:
             self.call_nowait(ACTION_ON_RESTART)
         else:
-            self._state = 'restart failed ({})'.format(self._state)
+            self.set_state('restart failed ({})'.format(self.state))
         return ret
 
     def server_options(self):
@@ -337,7 +350,7 @@ recovery_target_timeline = 'latest'
             return True
         ret = subprocess.call(self._pg_ctl + ['promote']) == 0
         if ret:
-            self._role = 'master'
+            self.set_role('master')
             self.call_nowait(ACTION_ON_ROLE_CHANGE)
         return ret
 
