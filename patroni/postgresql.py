@@ -47,6 +47,7 @@ class Postgresql:
         self.replication = config['replication']
         self.superuser = config['superuser']
         self.admin = config['admin']
+        self._pg_rewind = config.get('pg_rewind', {})
         self.callback = config.get('callbacks', {})
         self.use_slots = config.get('use_slots', True)
         self.schedule_load_slots = self.use_slots
@@ -69,6 +70,23 @@ class Postgresql:
         self._cursor_holder = None
         self.members = []  # list of already existing replication slots
         self.retry = Retry(max_tries=-1, deadline=10, max_delay=1, retry_exceptions=PostgresConnectionException)
+        self.init_pg_rewind()
+
+    def init_pg_rewind(self):
+        try:
+            self._pg_rewind_present = ('username' in self._pg_rewind and
+                                       ('wal_log_hints' in self.config['parameters'] or
+                                        'data_checksums' in self.config['parameters']) and
+                                       subprocess.call(['pg_rewind',
+                                                        '--version'],
+                                                       stdout=open(os.devnull, 'w'),
+                                                       stderr=subprocess.STDOUT) == 0)
+            if self._pg_rewind_present:
+                self._pg_rewind['user'] = self._pg_rewind['username']
+        except:
+            self._pg_rewind_present = False
+        if self._pg_rewind and not self._pg_rewind_present:
+            logger.warning("pg_rewind support is disabled")
 
     def get_local_address(self):
         listen_addresses = self.listen_addresses.split(',')
@@ -120,16 +138,19 @@ class Postgresql:
     def delete_trigger_file(self):
         os.path.exists(self.trigger_file) and os.unlink(self.trigger_file)
 
+    def write_pgpass(self, record, append=False):
+        pgpass = 'pgpass'
+        with open(pgpass, 'w' if not append else 'a') as f:
+            os.fchmod(f.fileno(), 0o600)
+            f.write('{host}:{port}:*:{user}:{password}\n'.format(**record))
+        env = os.environ.copy()
+        env['PGPASSFILE'] = pgpass
+        return env
+
     def sync_from_leader(self, leader):
         r = parseurl(leader.conn_url)
 
-        pgpass = 'pgpass'
-        with open(pgpass, 'w') as f:
-            os.fchmod(f.fileno(), 0o600)
-            f.write('{host}:{port}:*:{user}:{password}\n'.format(**r))
-
-        env = os.environ.copy()
-        env['PGPASSFILE'] = pgpass
+        env = self.write_pgpass(r)
         return self.create_replica(r, env) == 0
 
     @staticmethod
@@ -296,12 +317,40 @@ recovery_target_timeline = 'latest'
                 for name, value in self.config.get('recovery_conf', {}).items():
                     f.write("{} = '{}'\n".format(name, value))
 
+    def prepare_pg_rewind_connection(self, leader_url, pg_rewind):
+        r = parseurl(leader_url)
+        r.update(pg_rewind)
+        env = self.write_pgpass(r, append=True)
+        return (env, "user={user} host={host} port={port} dbname=postgres sslmode=prefer sslcompression=1".format(**r))
+
+    def pg_rewind(self, leader):
+        env, pc = self.prepare_pg_rewind_connection(leader.conn_url, self._pg_rewind)
+        logger.info("running pg_rewind from {}".format(pc))
+        pg_rewind = ['pg_rewind', '-D', self.data_dir, '--source-server', pc]
+        try:
+            ret = (subprocess.call(pg_rewind, env=env) == 0)
+        except:
+            ret = False
+        if ret:
+            self.write_recovery_conf(leader)
+        return ret
+
     def follow_the_leader(self, leader):
         if not self.check_recovery_conf(leader):
             self.write_recovery_conf(leader)
-            run_callback = self.role == 'master'
-            self.restart()
-            run_callback and self.call_nowait(ACTION_ON_ROLE_CHANGE)
+            change_role = self.role == 'master'
+
+            if leader and change_role and self._pg_rewind_present:
+                self.stop()
+                if self.pg_rewind(leader):
+                    ret = self.start()
+                else:
+                    ret = False
+                    self.remove_data_directory()
+                    logger.error("unable to rewind the former leader")
+            else:
+                ret = self.restart()
+            change_role and ret and self.call_nowait(ACTION_ON_ROLE_CHANGE)
 
     def save_configuration_files(self):
         """

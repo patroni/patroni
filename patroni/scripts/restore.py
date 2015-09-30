@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 # arguments are:
 #   - cluster scope
 #   - cluster role
