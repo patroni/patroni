@@ -143,14 +143,14 @@ class Postgresql:
         with open(pgpass, 'w' if not append else 'a') as f:
             os.fchmod(f.fileno(), 0o600)
             f.write('{host}:{port}:*:{user}:{password}\n'.format(**record))
-        return pgpass
+        env = os.environ.copy()
+        env['PGPASSFILE'] = pgpass
+        return env
 
     def sync_from_leader(self, leader):
         r = parseurl(leader.conn_url)
 
-        pgpass = self.write_pgpass(r)
-        env = os.environ.copy()
-        env['PGPASSFILE'] = pgpass
+        env = self.write_pgpass(r)
         return self.create_replica(r, env) == 0
 
     @staticmethod
@@ -320,15 +320,15 @@ recovery_target_timeline = 'latest'
     def prepare_pg_rewind_connection(self, leader_url, pg_rewind):
         r = parseurl(leader_url)
         r.update(pg_rewind)
-        self.write_pgpass(r, append=True)
-        return "user={user} host={host} port={port} dbname=postgres sslmode=prefer sslcompression=1".format(**r)
+        env = self.write_pgpass(r, append=True)
+        return (env, "user={user} host={host} port={port} dbname=postgres sslmode=prefer sslcompression=1".format(**r))
 
     def pg_rewind(self, leader):
-        pc = self.prepare_pg_rewind_connection(leader.conn_url, self._pg_rewind)
+        env, pc = self.prepare_pg_rewind_connection(leader.conn_url, self._pg_rewind)
         logger.info("running pg_rewind from {}".format(pc))
         pg_rewind = ['pg_rewind', '-D', self.data_dir, '--source-server', pc]
         try:
-            ret = (subprocess.call(pg_rewind) == 0)
+            ret = (subprocess.call(pg_rewind, env=env) == 0)
         except:
             ret = False
         if ret:
