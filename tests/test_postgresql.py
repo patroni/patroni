@@ -3,7 +3,7 @@ import psycopg2
 import shutil
 import unittest
 
-from mock import Mock, patch
+from mock import Mock, MagicMock, patch
 from patroni.dcs import Cluster, Leader, Member
 from patroni.exceptions import PostgresException, PostgresConnectionException
 from patroni.postgresql import Postgresql
@@ -150,6 +150,7 @@ class TestPostgresql(unittest.TestCase):
         self.assertFalse(self.p.pg_rewind(self.leader))
 
     @patch('patroni.postgresql.Postgresql.pg_rewind', return_value=False)
+    @patch('patroni.postgresql.Postgresql.remove_data_directory', MagicMock(return_value=True))
     def test_follow_the_leader(self, mock_pg_rewind):
         self.p.demote(self.leader)
         self.p.follow_the_leader(None)
