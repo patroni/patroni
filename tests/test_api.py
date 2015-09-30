@@ -33,7 +33,7 @@ class MockHa(Mock):
         return 'reinitialize'
 
     def restart(self):
-        return True
+        return (True, '')
 
     def restart_scheduled(self):
         return False
@@ -85,10 +85,8 @@ class TestRestApiHandler(unittest.TestCase):
     def test_do_POST_restart(self):
         request = b'POST /restart HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0'
         MockRestApiServer(RestApiHandler, request)
-        with patch.object(MockHa, 'schedule_restart', Mock(return_value=None)):
+        with patch.object(MockHa, 'restart', Mock(side_effect=Exception)):
             MockRestApiServer(RestApiHandler, request)
-            with patch.object(MockHa, 'restart', Mock(side_effect=Exception)):
-                MockRestApiServer(RestApiHandler, request)
 
     @patch.object(MockHa, 'dcs')
     def test_do_POST_reinitialize(self, dcs):

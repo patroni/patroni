@@ -227,10 +227,14 @@ class Postgresql:
 
     def checkpoint(self):
         try:
-            self.query('SET statement_timeout TO 0')
-            self.query('CHECKPOINT')
+            r = parseurl('postgres://{}/postgres'.format(self.local_address))
+            r['options'] = '-c statement_timeout=0'
+            with psycopg2.connect(**r) as conn:
+                conn.autocommit = True
+                with conn.cursor() as cur:
+                    cur.execute('CHECKPOINT')
         except:
-            logging.exception('Exception diring CHECKPOINT')
+            logging.exception('Exception during CHECKPOINT')
 
     def stop(self, mode='fast', block_callbacks=False):
         if not self.is_running():

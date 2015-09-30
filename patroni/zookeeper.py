@@ -225,6 +225,8 @@ class ZooKeeper(AbstractDCS):
                 return True
             except:
                 logger.exception('touch_member')
+        except:
+            logger.exception('touch_member')
         return False
 
     def take_leader(self):

@@ -70,6 +70,12 @@ class MockConnect(Mock):
     def cursor(self):
         return MockCursor(self)
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
+
 
 def psycopg2_connect(*args, **kwargs):
     return MockConnect()
@@ -214,6 +220,7 @@ class TestPostgresql(unittest.TestCase):
         with patch('subprocess.call', Mock(return_value=1)):
             self.assertRaises(PostgresException, self.p.bootstrap)
         self.p.bootstrap()
+        self.p.bootstrap(self.leader)
 
     def test_remove_data_directory(self):
         self.p.data_dir = 'data_dir'

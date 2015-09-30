@@ -4,7 +4,7 @@ import requests
 
 from patroni.exceptions import DCSError, PostgresConnectionException
 from multiprocessing.pool import ThreadPool
-from threading import Lock
+from threading import Lock, Thread
 
 logger = logging.getLogger(__name__)
 
@@ -16,10 +16,10 @@ class Ha:
         self.dcs = dcs
         self.cluster = None
         self.old_cluster = None
-        self.scheduled_action = None
-        self.scheduled_action_lock = Lock()
-        self.restart_in_progress = False
-        self.restart_thread_lock = Lock()
+        self._scheduled_action = None
+        self._scheduled_action_lock = Lock()
+        self._long_action_in_progress = False
+        self._long_action_thread_lock = Lock()
 
     def load_cluster_from_dcs(self):
         cluster = self.dcs.get_cluster()
@@ -48,16 +48,37 @@ class Ha:
         logger.info('Lock owner: %s; I am %s', lock_owner, self.state_handler.name)
         return lock_owner == self.state_handler.name
 
+    def _run_async(self, func, args=()):
+        try:
+            return func(*args) if args else func()
+        except:
+            logger.exception('Exception during execution of long running task %s', self.get_scheduled_action())
+        finally:
+            with self._long_action_thread_lock:
+                self._long_action_in_progress = False
+                self._reset_scheduled_action()
+
+    def run_async(self, func, args=()):
+        self._long_action_in_progress = True
+        Thread(target=self._run_async, args=(func, args)).start()
+
+    def copy_backup_from_leader(self):
+        if self.state_handler.bootstrap(self.cluster.leader):
+            logger.info('bootstrapped from leader')
+        else:
+            self.state_handler.stop('immediate')
+            self.state_handler.remove_data_directory()
+            logger.error('failed to bootstrap from leader')
+
     def bootstrap(self):
         if not self.cluster.is_unlocked():  # cluster already has leader
-            logger.info('trying to bootstrap from leader')
-            if self.state_handler.bootstrap(self.cluster.leader):
-                self.reinitialize_scheduled() and self.reset_scheduled_action()
-                return 'bootstrapped from leader'
+            if self._long_action_in_progress:
+                self.copy_backup_from_leader()
             else:
-                self.state_handler.stop('immediate')
-                self.state_handler.remove_data_directory()
-                return 'failed to bootstrap from leader'
+                with self._scheduled_action_lock:
+                    self._scheduled_action = 'bootstrap from leader'
+                self.run_async(self.copy_backup_from_leader)
+            return 'trying to bootstrap from leader'
         elif not self.cluster.initialize:  # no initialize key
             if self.dcs.initialize():  # race for initialization
                 try:
@@ -92,7 +113,10 @@ class Ha:
     def follow_the_leader(self, demote_reason, follow_reason, refresh=True):
         refresh and self.load_cluster_from_dcs()
         ret = demote_reason if self.state_handler.is_leader() else follow_reason
-        self.state_handler.follow_the_leader(self.cluster.leader)
+        if not self.state_handler.check_recovery_conf(self.cluster.leader):
+            with self._scheduled_action_lock:
+                self._scheduled_action = 'changing primary_conninfo and restarting'
+            self.run_async(self.state_handler.follow_the_leader, (self.cluster.leader, ))
         return ret
 
     def enforce_master_role(self, message, promote_message):
@@ -208,20 +232,22 @@ class Ha:
         members = {m.name: m for m in self.old_cluster.members + self.cluster.members}
         return self._is_healthiest_node(members.values())
 
+    def demote(self, delete_leader=True):
+        if delete_leader:
+            self.state_handler.stop()
+            self.dcs.delete_leader()
+        self.state_handler.follow_the_leader(None)
+
     def process_manual_failover_from_leader(self):
         failover = self.cluster.failover
         if not failover.leader or failover.leader == self.state_handler.name:
             if not failover.member or failover.member != self.state_handler.name:
                 members = [m for m in self.cluster.members if not failover.member or m.name == failover.member]
                 if self.is_failover_possible(members):  # check that there are healthy members
-                    self.state_handler.stop()
-                    if self.dcs.delete_leader():
-                        ret = 'manual failover: demoted self and released leader lock'
-                    else:
-                        ret = 'manual failover: demoted self but failed to release leader lock'
-                    self.state_handler.follow_the_leader(None)
-                    self.cluster = None
-                    return ret
+                    with self._scheduled_action_lock:
+                        self._scheduled_action = 'manual failover: demote'
+                    self.run_async(self.demote)
+                    return 'manual failover: demoting myself'
                 else:
                     logger.warning('manual failover: no healthy members found, failover is not possible')
             else:
@@ -268,22 +294,20 @@ class Ha:
                                       'no action.  i am a secondary and i am following a leader', False)
 
     def schedule_action(self, action):
-        with self.scheduled_action_lock:
-            if self.scheduled_action is not None:
-                return self.scheduled_action
-            self.scheduled_action = action
+        with self._long_action_thread_lock:
+            with self._scheduled_action_lock:
+                if self._scheduled_action is not None:
+                    return self._scheduled_action
+                self._scheduled_action = action
         return None
 
     def get_scheduled_action(self):
-        with self.scheduled_action_lock:
-            return self.scheduled_action
+        with self._scheduled_action_lock:
+            return self._scheduled_action
 
-    def reset_scheduled_action(self):
-        with self.scheduled_action_lock:
-            self.scheduled_action = None
-
-    def schedule_restart(self):
-        return self.schedule_action('restart')
+    def _reset_scheduled_action(self):
+        with self._scheduled_action_lock:
+            self._scheduled_action = None
 
     def restart_scheduled(self):
         return self.get_scheduled_action() == 'restart'
@@ -295,38 +319,45 @@ class Ha:
         return self.get_scheduled_action() == 'reinitialize'
 
     def restart(self):
-        with self.restart_thread_lock:
-            self.restart_in_progress = True
-        try:
-            return self.state_handler.restart()
-        finally:
-            with self.restart_thread_lock:
-                self.restart_in_progress = False
-            self.reset_scheduled_action()
+        with self._long_action_thread_lock:
+            with self._scheduled_action_lock:
+                if self._scheduled_action is not None:
+                    return False, self._scheduled_action + ' already in progress'
+                self._scheduled_action = 'restart'
+            self._long_action_in_progress = True
+        if self._run_async(self.state_handler.restart):
+            return True, 'restarted successfully'
+        else:
+            return False, 'restart failed'
+
+    def reinitialize(self):
+        self.state_handler.stop('immediate')
+        self.state_handler.remove_data_directory()
+        self.load_cluster_from_dcs()
+        self.bootstrap()
 
     def process_scheduled_action(self):
         if self.reinitialize_scheduled():
             if self.cluster.is_unlocked():
                 logger.error('Cluster has no leader, can not reinitialize')
-                self.reset_scheduled_action()
+                self._reset_scheduled_action()
             elif self.has_lock():
                 logger.error('I am the leader, can not reinitialize')
-                self.reset_scheduled_action()
+                self._reset_scheduled_action()
             else:
-                self.state_handler.stop('immediate')
-                self.state_handler.remove_data_directory()
-                self.load_cluster_from_dcs()
+                self.run_async(self.reinitialize)
+                return True
 
-    def handle_restart_in_progress(self):
+    def handle_long_action_in_progress(self):
         if self.has_lock():
             if self.update_lock():
-                return 'updated leader lock during restart'
+                return 'updated leader lock during ' + self.get_scheduled_action()
             else:
-                return 'failed to update leader lock during restart'
+                return 'failed to update leader lock during ' + self.get_scheduled_action()
         elif self.cluster.is_unlocked():
             return 'not healthy enough for leader race'
         else:
-            return 'restart in progress'
+            return self.get_scheduled_action() + ' in progress'
 
     def _run_cycle(self):
         try:
@@ -336,8 +367,12 @@ class Ha:
             if not self.cluster.is_unlocked() and not self.cluster.initialize:
                 self.dcs.initialize()  # fix it
 
+            if self._long_action_in_progress:
+                return self.handle_long_action_in_progress()
+
             # currently it can trigger only reinitialize
-            self.process_scheduled_action()
+            if self.process_scheduled_action():
+                return 'reinitialize started'
 
             # is data directory empty?
             if self.state_handler.data_directory_empty():
@@ -346,27 +381,27 @@ class Ha:
             elif not self.cluster.initialize and self.cluster.is_unlocked():
                 self.dcs.initialize()
 
-            if self.restart_in_progress:
-                return self.handle_restart_in_progress()
-
             # try to start dead postgres
             if not self.state_handler.is_healthy():
                 msg = self.recover()
                 if msg is not None:
                     return msg
 
-            if self.cluster.is_unlocked():
-                return self.process_unhealthy_cluster()
-            else:
-                return self.process_healthy_cluster()
+            try:
+                if self.cluster.is_unlocked():
+                    return self.process_unhealthy_cluster()
+                else:
+                    return self.process_healthy_cluster()
+            finally:
+                self.state_handler.sync_replication_slots(self.cluster)
         except DCSError:
             logger.error('Error communicating with DCS')
             if self.state_handler.is_running() and self.state_handler.is_leader():
-                self.state_handler.demote()
+                self.demote(delete_leader=False)
                 return 'demoted self because DCS is not accessible and i was a leader'
         except (psycopg2.Error, PostgresConnectionException):
-            logger.exception('Error communicating with Postgresql.  Will try again')
+            logger.exception('Error communicating with Postgresql. Will try again later')
 
     def run_cycle(self):
-        with self.restart_thread_lock:
+        with self._long_action_thread_lock:
             return self._run_cycle()

@@ -8,6 +8,7 @@ from mock import Mock, patch
 from patroni.api import RestApiServer
 from patroni.dcs import Cluster, Member
 from patroni.etcd import Etcd
+from patroni.ha import Ha
 from patroni import Patroni, main
 from patroni.zookeeper import ZooKeeper
 from six.moves import BaseHTTPServer
@@ -26,6 +27,7 @@ def time_sleep(*args):
 @patch.object(Postgresql, 'write_pg_hba', Mock())
 @patch.object(Postgresql, 'write_recovery_conf', Mock())
 @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
+@patch.object(Ha, 'run_async', Mock())
 class TestPatroni(unittest.TestCase):
 
     @patch.object(Client, 'machines')

@@ -71,19 +71,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     @check_auth
     def do_POST_restart(self):
-        action = self.server.patroni.ha.schedule_restart()
-        if action is not None:
-            status_code = 503
-            data = (action + ' already in progress').encode('utf-8')
-        else:
-            status_code = 503
-            data = b'restart failed'
-            try:
-                if self.server.patroni.ha.restart():
-                    status_code = 200
-                    data = b'restarted successfully'
-            except:
-                logger.exception('Exception during restart')
+        status_code = 503
+        data = b'restart failed'
+        try:
+            status, msg = self.server.patroni.ha.restart()
+            status_code = 200 if status else 503
+            data = msg.encode('utf-8')
+        except:
+            logger.exception('Exception during restart')
 
         self.send_response(status_code)
         self.send_header('Content-Type', 'text/html')
@@ -135,7 +130,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def query(self, sql, *params, **kwargs):
         if not kwargs.get('retry', False):
             return self.server.query(sql, *params)
-        retry = Retry(delay=2, retry_exceptions=PostgresConnectionException)
+        retry = Retry(delay=1, retry_exceptions=PostgresConnectionException)
         return retry(self.server.query, sql, *params)
 
     def get_postgresql_status(self, retry=False):
@@ -164,6 +159,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             state = self.server.patroni.postgresql.state
             if state in ['stopped', 'starting', 'stopping', 'restarting', 'running']:
                 logger.exception('get_postgresql_status')
+                state = 'unknown' if state == 'running' else state
             return {'state': state}
 
 

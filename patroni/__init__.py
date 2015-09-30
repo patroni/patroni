@@ -56,12 +56,8 @@ class Patroni:
         self.next_run = time.time()
 
         while True:
-            logger.info(self.ha.run_cycle())
-            try:
-                self.ha.cluster and self.ha.state_handler.sync_replication_slots(self.ha.cluster)
-            except:
-                logger.exception('Exception when changing replication slots')
             self.touch_member()
+            logger.info(self.ha.run_cycle())
             reap_children()
             self.schedule_next_run()
 
