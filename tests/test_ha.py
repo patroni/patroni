@@ -26,11 +26,11 @@ def get_cluster_not_initialized_without_leader():
 
 
 def get_cluster_initialized_without_leader(leader=False, failover=None):
-    m = Member(0, 'leader', 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
-               'http://127.0.0.1:8008/patroni', None, 28)
-    l = Leader(0, 0, 0, m) if leader else None
-    o = Member(0, 'other', 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
-               'http://127.0.0.1:8011/patroni', None, 28)
+    m = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
+                                 'api_url': 'http://127.0.0.1:8008/patroni'})
+    l = Leader(0, 0, m) if leader else None
+    o = Member(0, 'other', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
+                                'api_url': 'http://127.0.0.1:8011/patroni'})
     return get_cluster(True, l, [m, o], failover)
 
 
@@ -42,6 +42,8 @@ class MockPostgresql(Mock):
 
     name = 'postgresql0'
     role = 'replica'
+    state = 'running'
+    connection_string = 'postgres://foo@bar/postgres'
 
     def is_healthy(self):
         return True
@@ -74,6 +76,14 @@ class MockPostgresql(Mock):
         return False
 
 
+class MockPatroni:
+
+    def __init__(self, p, d):
+        self.postgresql = p
+        self.dcs = d
+        self.api = Mock()
+        self.api.connection_string = 'http://127.0.0.1:8008'
+
 def run_async(func, args=()):
     func(args) if args else func()
 
@@ -88,21 +98,19 @@ class TestHa(unittest.TestCase):
         self.e = Etcd('foo', {'ttl': 30, 'host': 'ok:2379', 'scope': 'test'})
         self.e.client.read = etcd_read
         self.e.client.write = etcd_write
-        self.ha = Ha(self.p, self.e)
-        self.ha.run_async = run_async
-        self.ha.load_cluster_from_dcs()
-        self.ha.cluster = get_cluster_not_initialized_without_leader()
+        self.ha = Ha(MockPatroni(self.p, self.e))
+        self.ha._async_executor.run_async = run_async
+        self.ha.old_cluster = self.e.get_cluster()
+        self.e.cluster = get_cluster_not_initialized_without_leader()
         self.ha.load_cluster_from_dcs = Mock()
-
-    def test_load_cluster_from_dcs(self):
-        ha = Ha(self.p, self.e)
-        ha.load_cluster_from_dcs()
-        self.e.get_cluster = get_cluster_not_initialized_without_leader
-        ha.load_cluster_from_dcs()
 
     def test_update_lock(self):
         self.p.last_operation = Mock(side_effect=PostgresException(''))
         self.assertTrue(self.ha.update_lock())
+
+    def test_touch_member(self):
+        self.p.xlog_position = Mock(side_effect=Exception)
+        self.ha.touch_member()
 
     def test_start_as_replica(self):
         self.p.is_healthy = false
@@ -119,8 +127,8 @@ class TestHa(unittest.TestCase):
         self.ha.has_lock = true
         self.assertEquals(self.ha.run_cycle(), 'removed leader key after trying and failing to start postgres')
 
+    @patch.object(Cluster, 'is_unlocked', Mock(return_value=False))
     def test_start_as_readonly(self):
-        self.ha.cluster.is_unlocked = false
         self.p.is_leader = self.p.is_healthy = false
         self.ha.has_lock = true
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader because i had the session lock')
@@ -153,28 +161,28 @@ class TestHa(unittest.TestCase):
         self.assertEquals(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
 
     def test_promote_because_have_lock(self):
-        self.ha.cluster.is_unlocked = false
+        self.e.cluster.is_unlocked = false
         self.ha.has_lock = true
         self.p.is_leader = false
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader because i had the session lock')
 
     def test_leader_with_lock(self):
-        self.ha.cluster.is_unlocked = false
+        self.e.cluster.is_unlocked = false
         self.ha.has_lock = true
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
 
     def test_demote_because_not_having_lock(self):
-        self.ha.cluster.is_unlocked = false
+        self.e.cluster.is_unlocked = false
         self.assertEquals(self.ha.run_cycle(), 'demoting self because i do not have the lock and i was a leader')
 
     def test_demote_because_update_lock_failed(self):
-        self.ha.cluster.is_unlocked = false
+        self.e.cluster.is_unlocked = false
         self.ha.has_lock = true
         self.ha.update_lock = false
         self.assertEquals(self.ha.run_cycle(), 'demoting self because i do not have the lock and i was a leader')
 
     def test_follow_the_leader(self):
-        self.ha.cluster.is_unlocked = false
+        self.e.cluster.is_unlocked = false
         self.p.is_leader = false
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am a secondary and i am following a leader')
 
@@ -182,36 +190,28 @@ class TestHa(unittest.TestCase):
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
         self.assertEquals(self.ha.run_cycle(), 'demoted self because DCS is not accessible and i was a leader')
 
-    def test__run_async(self):
-        self.ha._run_async(Mock(side_effect=Exception()))        
-
-    @patch.object(Thread, 'start', Mock())
-    def test_run_async(self):
-        ha = Ha(self.p, self.e)
-        ha.run_async(true)
-
     def test_bootstrap_from_leader(self):
-        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.e.cluster = get_cluster_initialized_with_leader()
         self.p.bootstrap = false
         self.assertEquals(self.ha.bootstrap(), 'trying to bootstrap from leader')
-        self.ha._long_action_in_progress = True
+        self.ha._async_executor._busy = True
         self.assertEquals(self.ha.bootstrap(), 'trying to bootstrap from leader')
 
     def test_bootstrap_waiting_for_leader(self):
-        self.ha.cluster = get_cluster_initialized_without_leader()
+        self.e.cluster = get_cluster_initialized_without_leader()
         self.assertEquals(self.ha.bootstrap(), 'waiting for leader to bootstrap')
 
     def test_bootstrap_initialize_lock_failed(self):
-        self.ha.cluster = get_cluster_not_initialized_without_leader()
+        self.e.cluster = get_cluster_not_initialized_without_leader()
         self.assertEquals(self.ha.bootstrap(), 'failed to acquire initialize lock')
 
     def test_bootstrap_initialized_new_cluster(self):
-        self.ha.cluster = get_cluster_not_initialized_without_leader()
+        self.e.cluster = get_cluster_not_initialized_without_leader()
         self.e.initialize = true
         self.assertEquals(self.ha.bootstrap(), 'initialized a new cluster')
 
     def test_bootstrap_release_initialize_key_on_failure(self):
-        self.ha.cluster = get_cluster_not_initialized_without_leader()
+        self.e.cluster = get_cluster_not_initialized_without_leader()
         self.e.initialize = true
         self.p.bootstrap = Mock(side_effect=PostgresException("Could not bootstrap master PostgreSQL"))
         self.assertRaises(PostgresException, self.ha.bootstrap)
@@ -220,13 +220,13 @@ class TestHa(unittest.TestCase):
         self.ha.schedule_reinitialize()
         self.ha.schedule_reinitialize()
         self.ha.run_cycle()
-        self.assertIsNone(self.ha.get_scheduled_action())
+        self.assertIsNone(self.ha._async_executor.scheduled_action)
 
-        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.e.cluster = get_cluster_initialized_with_leader()
         self.ha.has_lock = true
         self.ha.schedule_reinitialize()
         self.ha.run_cycle()
-        self.assertIsNone(self.ha.get_scheduled_action())
+        self.assertIsNone(self.ha._async_executor.scheduled_action)
 
         self.ha.has_lock = false
         self.ha.schedule_reinitialize()
@@ -240,12 +240,11 @@ class TestHa(unittest.TestCase):
         self.assertEquals(self.ha.restart(), (False, 'reinitialize already in progress'))
 
     def test_restart_in_progress(self):
-        self.ha._long_action_in_progress = True
-        self.ha._scheduled_action = 'restart'
+        self.ha._async_executor.schedule('restart', True)
         self.assertTrue(self.ha.restart_scheduled())
         self.assertEquals(self.ha.run_cycle(), 'not healthy enough for leader race')
 
-        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.e.cluster = get_cluster_initialized_with_leader()
         self.assertEquals(self.ha.run_cycle(), 'restart in progress')
 
         self.ha.has_lock = true
@@ -257,26 +256,26 @@ class TestHa(unittest.TestCase):
     @patch('requests.get', requests_get)
     def test_manual_failover_from_leader(self):
         self.ha.has_lock = true
-        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', ''))
+        self.e.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', ''))
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
-        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, '', MockPostgresql.name))
+        self.e.cluster = get_cluster_initialized_with_leader(Failover(0, '', MockPostgresql.name))
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
-        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, '', 'blabla'))
+        self.e.cluster = get_cluster_initialized_with_leader(Failover(0, '', 'blabla'))
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
         f = Failover(0, MockPostgresql.name, '')
-        self.ha.cluster = get_cluster_initialized_with_leader(f)
+        self.e.cluster = get_cluster_initialized_with_leader(f)
         self.assertEquals(self.ha.run_cycle(), 'manual failover: demoting myself')
 
     @patch('requests.get', requests_get)
     def test_manual_failover_process_no_leader(self):
         self.p.is_leader = false
-        self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', MockPostgresql.name))
+        self.e.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', MockPostgresql.name))
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
-        self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', 'leader'))
+        self.e.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', 'leader'))
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
         self.ha.fetch_node_status = lambda e: (e, True, True, 0)  # accessible, in_recovery
         self.assertEquals(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
-        self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, MockPostgresql.name, ''))
+        self.e.cluster = get_cluster_initialized_without_leader(failover=Failover(0, MockPostgresql.name, ''))
         self.assertEquals(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
         self.ha.fetch_node_status = lambda e: (e, False, True, 0)  # accessible, in_recovery
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
@@ -295,7 +294,7 @@ class TestHa(unittest.TestCase):
 
     @patch('requests.get', requests_get)
     def test_fetch_node_status(self):
-        member = Member(0, 'test', '', 'http://127.0.0.1:8011/patroni', None, None)
+        member = Member(0, 'test', 1, {'api_url': 'http://127.0.0.1:8011/patroni'})
         self.ha.fetch_node_status(member)
-        member = Member(0, 'test', '', 'http://localhost:8011/patroni', None, None)
+        member = Member(0, 'test', 1, {'api_url': 'http://localhost:8011/patroni'})
         self.ha.fetch_node_status(member)

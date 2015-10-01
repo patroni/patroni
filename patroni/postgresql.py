@@ -68,7 +68,7 @@ class Postgresql:
         self._connection = None
         self._cursor_holder = None
         self.replication_slots = []  # list of already existing replication slots
-        self.retry = Retry(max_tries=-1, deadline=10, max_delay=1, retry_exceptions=PostgresConnectionException)
+        self.retry = Retry(max_tries=-1, deadline=5, max_delay=1, retry_exceptions=PostgresConnectionException)
 
         self._state = 'stopped'
         self._state_lock = Lock()
@@ -381,7 +381,7 @@ recovery_target_timeline = 'latest'
         return self.query("""SELECT pg_xlog_location_diff(CASE WHEN pg_is_in_recovery()
                                                                THEN pg_last_xlog_replay_location()
                                                                ELSE pg_current_xlog_location()
-                                                          END, '0/0')""").fetchone()[0]
+                                                          END, '0/0')::bigint""").fetchone()[0]
 
     def load_replication_slots(self):
         if self.use_slots and self.schedule_load_slots:

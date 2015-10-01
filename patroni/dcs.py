@@ -1,8 +1,9 @@
 import abc
+import json
 
 from collections import namedtuple
 from patroni.exceptions import DCSError
-from patroni.utils import calculate_ttl, sleep
+from patroni.utils import sleep
 from six.moves.urllib_parse import urlparse, urlunparse, parse_qsl
 
 
@@ -23,28 +24,47 @@ def parse_connection_string(value):
     return conn_url, api_url
 
 
-class Member(namedtuple('Member', 'index,name,conn_url,api_url,expiration,ttl')):
+class Member(namedtuple('Member', 'index,name,session,data')):
 
     """Immutable object (namedtuple) which represents single member of PostgreSQL cluster.
     Consists of the following fields:
     :param index: modification index of a given member key in a Configuration Store
     :param name: name of PostgreSQL cluster member
-    :param conn_url: connection string containing host, user and password which could be used to access this member.
-    :param api_url: REST API url of patroni instance
-    :param expiration: expiration time of given member key
-    :param ttl: ttl of given member key in seconds"""
+    :param session: either session id or just ttl in seconds
+    :param data: arbitrary data i.e. conn_url, api_url, xlog location, state, role, tags, etc...
 
-    def real_ttl(self):
-        return calculate_ttl(self.expiration) or -1
+    There are two mandatory keys in a data:
+    conn_url: connection string containing host, user and password which could be used to access this member.
+    api_url: REST API url of patroni instance"""
+
+    @staticmethod
+    def from_node(index, name, session, data):
+        """
+        >>> Member.from_node(-1, '', '', '{"conn_url": "postgres://foo@bar/postgres"}') is not None
+        True
+        """
+        if data.startswith('postgres'):
+            conn_url, api_url = parse_connection_string(data)
+            data = {'conn_url': conn_url, 'api_url': api_url}
+        else:
+            data = json.loads(data)
+        return Member(index, name, session, data)
+
+    @property
+    def conn_url(self):
+        return self.data.get('conn_url', None)
+
+    @property
+    def api_url(self):
+        return self.data.get('api_url', None)
 
 
-class Leader(namedtuple('Leader', 'index,expiration,ttl,member')):
+class Leader(namedtuple('Leader', 'index,session,member')):
 
     """Immutable object (namedtuple) which represents leader key.
     Consists of the following fields:
     :param index: modification index of a leader key in a Configuration Store
-    :param expiration: expiration time of the leader key
-    :param ttl: ttl of the leader key
+    :param session: either session id or just ttl in seconds
     :param member: reference to a `Member` object which represents current leader (see `Cluster.members`)"""
 
     @property
@@ -99,6 +119,8 @@ class AbstractDCS:
         self._name = name
         self._scope = config['scope']
         self._base_path = '/service/' + self._scope
+
+        self.cluster = None
 
     def client_path(self, path):
         return '/'.join([self._base_path, path.lstrip('/')])

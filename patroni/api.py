@@ -48,7 +48,18 @@ class RestApiHandler(BaseHTTPRequestHandler):
         response = self.get_postgresql_status()
 
         patroni = self.server.patroni
-        if 'role' in response and response['role'] in path:
+        if patroni.dcs.cluster:  # dcs available
+            if patroni.dcs.cluster.leader and patroni.dcs.cluster.leader.name == patroni.postgresql.name:  # is_leader
+                status_code = 200 if 'master' in path else 503
+            elif 'role' not in response:
+                status_code = 503
+            elif response['role'] == 'master':  # running as master but without leader lock!!!!
+                status_code = 503
+            elif response['role'] in path:
+                status_code = 200
+            else:
+                status_code = 503
+        elif 'role' in response and response['role'] in path:
             status_code = 200
         elif patroni.ha.restart_scheduled() and patroni.postgresql.role == 'master' and 'master' in path:
             # exceptional case for master node when the postgres is being restarted via API

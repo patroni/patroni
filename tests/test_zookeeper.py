@@ -69,6 +69,9 @@ class MockKazooClient(Mock):
             raise TypeError("Invalid type for 'value' (must be a byte string)")
         if path == '/service/bla/optime/leader':
             raise Exception
+        if path == '/service/test/members/bar':
+            if value == b'retry':
+                return
         if path == '/service/test/failover':
             if value == b'Exception':
                 raise Exception
@@ -85,7 +88,9 @@ class MockKazooClient(Mock):
                 return
             self.leader = True
             raise Exception
-        elif path.endswith('/initialize'):
+        elif path == '/service/test/members/buzz':
+            raise Exception
+        elif path.endswith('/initialize') or path == '/service/test/members/bar':
             raise NoNodeError
 
 
@@ -137,10 +142,18 @@ class TestZooKeeper(unittest.TestCase):
         self.zk.cancel_initialization()
 
     def test_touch_member(self):
+        self.zk._name = 'buzz'
+        self.zk.get_cluster()
         self.zk.touch_member('new')
+        self.zk._name = 'bar'
+        self.zk.touch_member('new')
+        self.zk._name = 'na'
+        self.zk.client.exists = 1
         self.zk.touch_member('exists')
+        self.zk._name = 'bar'
         self.zk.touch_member('retry')
-        self.zk.client.exists = True
+        self.zk.fetch_cluster = True
+        self.zk.get_cluster()
         self.zk.touch_member('retry')
 
     def test_take_leader(self):

@@ -149,15 +149,6 @@ def http_request(method, url, **kwargs):
     raise socket.error
 
 
-class TestMember(unittest.TestCase):
-
-    def test_real_ttl(self):
-        now = datetime.datetime.utcnow()
-        member = Member(0, 'a', 'b', 'c', (now + datetime.timedelta(seconds=2)).strftime('%Y-%m-%dT%H:%M:%S.%fZ'), None)
-        self.assertLess(member.real_ttl(), 2)
-        self.assertEquals(Member(0, 'a', 'b', 'c', '', None).real_ttl(), -1)
-
-
 @patch('dns.resolver.query', dns_query)
 @patch('socket.getaddrinfo', socket_getaddrinfo)
 @patch('requests.get', requests_get)

@@ -10,7 +10,7 @@ import urllib3
 
 from dns.exception import DNSException
 from dns import resolver
-from patroni.dcs import AbstractDCS, Cluster, Failover, Leader, Member, parse_connection_string
+from patroni.dcs import AbstractDCS, Cluster, Failover, Leader, Member
 from patroni.exceptions import DCSError
 from patroni.utils import Retry, RetryFailedError, sleep
 from requests.exceptions import RequestException
@@ -154,7 +154,6 @@ class Etcd(AbstractDCS):
                                               etcd.EtcdWatcherCleared,
                                               etcd.EtcdEventIndexCleared))
         self.client = self.get_etcd_client(config)
-        self.cluster = None
 
     def retry(self, *args, **kwargs):
         return self._retry.copy()(*args, **kwargs)
@@ -171,8 +170,7 @@ class Etcd(AbstractDCS):
 
     @staticmethod
     def member(node):
-        conn_url, api_url = parse_connection_string(node.value)
-        return Member(node.modifiedIndex, os.path.basename(node.key), conn_url, api_url, node.expiration, node.ttl)
+        return Member.from_node(node.modifiedIndex, os.path.basename(node.key), node.ttl, node.value)
 
     def get_cluster(self):
         try:
@@ -192,9 +190,9 @@ class Etcd(AbstractDCS):
             # get leader
             leader = nodes.get(self._LEADER, None)
             if leader:
-                member = Member(-1, leader.value, None, None, None, None)
+                member = Member(-1, leader.value, None, {})
                 member = ([m for m in members if m.name == leader.value] or [member])[0]
-                leader = Leader(leader.modifiedIndex, leader.expiration, leader.ttl, member)
+                leader = Leader(leader.modifiedIndex, leader.ttl, member)
 
             # failover key
             failover = nodes.get(self._FAILOVER, None)

@@ -5,7 +5,7 @@ import time
 
 from kazoo.client import KazooClient, KazooState
 from kazoo.exceptions import NoNodeError, NodeExistsError
-from patroni.dcs import AbstractDCS, Cluster, Failover, Leader, Member, parse_connection_string
+from patroni.dcs import AbstractDCS, Cluster, Failover, Leader, Member
 from patroni.exceptions import DCSError
 from patroni.utils import sleep
 from requests.exceptions import RequestException
@@ -93,7 +93,7 @@ class ZooKeeper(AbstractDCS):
         self.client.add_listener(self.session_listener)
         self.cluster_event = self.client.handler.event_object()
 
-        self.cluster = None
+        self._my_member_data = None
         self.fetch_cluster = True
         self.last_leader_operation = 0
 
@@ -116,8 +116,7 @@ class ZooKeeper(AbstractDCS):
 
     @staticmethod
     def member(name, value, znode):
-        conn_url, api_url = parse_connection_string(value)
-        return Member(znode.version, name, conn_url, api_url, None, None)
+        return Member.from_node(znode.version, name, znode.ephemeralOwner, value)
 
     def get_children(self, key, watch=None):
         try:
@@ -153,9 +152,9 @@ class ZooKeeper(AbstractDCS):
                 leader = None
 
             if leader:
-                member = Member(-1, leader[0], None, None, None, None)
+                member = Member(-1, leader[0], None, {})
                 member = ([m for m in members if m.name == leader[0]] or [member])[0]
-                leader = Leader(leader[1].version, None, None, member)
+                leader = Leader(leader[1].version, leader[1].ephemeralOwner, member)
                 self.fetch_cluster = member.index == -1
 
         # failover key
@@ -207,21 +206,34 @@ class ZooKeeper(AbstractDCS):
     def initialize(self):
         return self._create(self.initialize_path, self._name, makepath=True)
 
-    def touch_member(self, connection_string, ttl=None):
-        if not self.fetch_cluster and self.cluster and any(m.name == self._name for m in self.cluster.members):
-            return True
+    def touch_member(self, data, ttl=None):
+        me = self.cluster and ([m for m in self.cluster.members if m.name == self._name] or [None])[0]
         path = self.member_path
-        connection_string = connection_string.encode('utf-8')
+        data = data.encode('utf-8')
+        create = not me
+        if me and self.client.client_id is not None and me.session != self.client.client_id[0]:
+            try:
+                self.client.retry(self.client.delete, path)
+            except NoNodeError:
+                pass
+            except:
+                return False
+            create = True
+
+        if not create and data == self._my_member_data:
+            return True
+
         try:
-            self.client.retry(self.client.create, path, connection_string, makepath=True, ephemeral=True)
+            if create:
+                self.client.retry(self.client.create, path, data, makepath=True, ephemeral=True)
+            else:
+                self.client.retry(self.client.set, path, data)
+            self._my_member_data = data
             return True
         except NodeExistsError:
             try:
-                node = self.get_node(path)
-                if node and self.client.client_id is not None and node[1].ephemeralOwner == self.client.client_id[0]:
-                    return True
-                self.client.retry(self.client.delete, path)
-                self.client.retry(self.client.create, path, connection_string, makepath=True, ephemeral=True)
+                self.client.retry(self.client.set, path, data)
+                self._my_member_data = data
                 return True
             except:
                 logger.exception('touch_member')
@@ -252,6 +264,7 @@ class ZooKeeper(AbstractDCS):
 
     def delete_leader(self):
         self.client.restart()
+        self._my_member_data = None
         return True
 
     def _cancel_initialization(self):

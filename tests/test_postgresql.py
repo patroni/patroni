@@ -105,10 +105,10 @@ class TestPostgresql(unittest.TestCase):
                              'restore': 'true'})
         if not os.path.exists(self.p.data_dir):
             os.makedirs(self.p.data_dir)
-        self.leadermem = Member(0, 'leader', 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres', None, None, 28)
-        self.leader = Leader(-1, None, 28, self.leadermem)
-        self.other = Member(0, 'test1', 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres', None, None, 28)
-        self.me = Member(0, 'test0', 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres', None, None, 28)
+        self.leadermem = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres'})
+        self.leader = Leader(-1, 28, self.leadermem)
+        self.other = Member(0, 'test1', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres'})
+        self.me = Member(0, 'test0', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres'})
 
     def tearDown(self):
         shutil.rmtree('data')
@@ -146,7 +146,7 @@ class TestPostgresql(unittest.TestCase):
         self.p.follow_the_leader(self.leader)
         self.p.demote()
         self.p.follow_the_leader(self.leader)
-        self.p.follow_the_leader(Leader(-1, None, 28, self.other))
+        self.p.follow_the_leader(Leader(-1, 28, self.other))
 
     def test_create_replica(self):
         self.p.delete_trigger_file = Mock(side_effect=OSError())
