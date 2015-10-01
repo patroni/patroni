@@ -66,7 +66,6 @@ class TestPatroni(unittest.TestCase):
     @patch('time.sleep', Mock(side_effect=SleepException()))
     def test_run(self):
         self.p.touch_member = self.touch_member
-        self.p.ha.state_handler.sync_replication_slots = time_sleep
         self.p.ha.dcs.watch = time_sleep
         self.assertRaises(SleepException, self.p.run)
 

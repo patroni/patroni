@@ -391,21 +391,24 @@ recovery_target_timeline = 'latest'
 
     def sync_replication_slots(self, cluster):
         if self.use_slots:
-            self.load_replication_slots()
-            slots = [m.name for m in cluster.members if m.name != self.name] if self.role == 'master' else []
-            # drop unused slots
-            for slot in set(self.replication_slots) - set(slots):
-                self.query("""SELECT pg_drop_replication_slot(%s)
-                               WHERE EXISTS(SELECT 1 FROM pg_replication_slots
-                               WHERE slot_name = %s)""", slot, slot)
+            try:
+                self.load_replication_slots()
+                slots = [m.name for m in cluster.members if m.name != self.name] if self.role == 'master' else []
+                # drop unused slots
+                for slot in set(self.replication_slots) - set(slots):
+                    self.query("""SELECT pg_drop_replication_slot(%s)
+                                   WHERE EXISTS(SELECT 1 FROM pg_replication_slots
+                                   WHERE slot_name = %s)""", slot, slot)
 
-            # create new slots
-            for slot in set(slots) - set(self.replication_slots):
-                self.query("""SELECT pg_create_physical_replication_slot(%s)
-                               WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots
-                               WHERE slot_name = %s)""", slot, slot)
+                # create new slots
+                for slot in set(slots) - set(self.replication_slots):
+                    self.query("""SELECT pg_create_physical_replication_slot(%s)
+                                   WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots
+                                   WHERE slot_name = %s)""", slot, slot)
 
-            self.replication_slots = slots
+                self.replication_slots = slots
+            except:
+                logger.exception('Exception when changing replication slots')
 
     def last_operation(self):
         return str(self.xlog_position())

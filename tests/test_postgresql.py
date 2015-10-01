@@ -162,6 +162,9 @@ class TestPostgresql(unittest.TestCase):
         self.p.start()
         cluster = Cluster(True, self.leader, 0, [self.me, self.other, self.leadermem], None)
         self.p.sync_replication_slots(cluster)
+        self.p.query = Mock(side_effect=psycopg2.OperationalError)
+        self.p.schedule_load_slots = True
+        self.p.sync_replication_slots(cluster)
 
     @patch.object(MockConnect, 'closed', 2)
     def test__query(self):
