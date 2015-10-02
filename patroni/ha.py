@@ -1,16 +1,18 @@
 import logging
 import psycopg2
+import requests
 
 from patroni.exceptions import DCSError, PostgresConnectionException
+from multiprocessing.pool import ThreadPool
 
 logger = logging.getLogger(__name__)
 
 
 class Ha:
 
-    def __init__(self, state_handler, etcd):
+    def __init__(self, state_handler, dcs):
         self.state_handler = state_handler
-        self.dcs = etcd
+        self.dcs = dcs
         self.cluster = None
         self.old_cluster = None
 
@@ -87,7 +89,7 @@ class Ha:
             return promote_message
 
     def process_unhealthy_cluster(self):
-        if self.state_handler.is_healthiest_node(self.old_cluster):
+        if self.is_healthiest_node():
             if self.acquire_lock():
                 return self.enforce_master_role('acquired session lock as a leader',
                                                 'promoted self to leader by acquiring session lock')
@@ -111,6 +113,54 @@ class Ha:
             logger.info('does not have lock')
         return self.follow_the_leader('demoting self because i do not have the lock and i was a leader',
                                       'no action.  i am a secondary and i am following a leader', False)
+
+    @staticmethod
+    def fetch_node_status(member):
+        """This function perform http get request on member.api_url and fetches its status
+        :returns: tuple(`member`, reachable, in_recovery, xlog_location)
+
+        reachable - `!False` if the node is not reachable or is not responding with correct JSON
+        in_recovery - `!True` if pg_is_in_recovery() == true
+        xlog_location - value of `replayed_location` or `location` from JSON, dependin on its role."""
+
+        try:
+            response = requests.get(member.api_url, timeout=2)
+            logger.info('Got response from %s %s: %s', member.name, member.api_url, response.content)
+            json = response.json()
+            is_master = json['role'] == 'master'
+            xlog_location = json['xlog']['location' if is_master else 'replayed_location']
+            return (member, True, not is_master, xlog_location)
+        except:
+            logging.exception('request failed: GET %s', member.api_url)
+        return (member, False, None, 0)
+
+    def is_healthiest_node(self):
+        """This method tries to determine whether I am healthy enough to became a new leader candidate or not."""
+
+        if self.state_handler.is_leader():
+            return True
+
+        if not self.state_handler.check_replication_lag(self.cluster.last_leader_operation):
+            return False  # Too far behind last reported xlog location on master
+
+        # Prepare list of nodes to run check against
+        members = [m for m in self.old_cluster.members if m.name != self.state_handler.name and m.api_url]
+
+        if members:
+            pool = ThreadPool(len(members))
+            results = pool.map(self.fetch_node_status, members)  # Run API calls on members in parallel
+            pool.close()
+            pool.join()
+
+            my_xlog_location = self.state_handler.xlog_position()
+            for member, reachable, in_recovery, xlog_location in results:
+                if reachable:  # If the node is unreachable it's not healhy
+                    if not in_recovery:
+                        logger.warning('Master (%s) is still alive', member.name)
+                        return False
+                    if my_xlog_location < xlog_location:
+                        return False
+        return True
 
     def run_cycle(self):
         try:
