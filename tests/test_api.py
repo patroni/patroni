@@ -71,10 +71,20 @@ class MockRestApiServer(RestApiServer):
 class TestRestApiHandler(unittest.TestCase):
 
     def test_do_GET(self):
-        MockRestApiServer(RestApiHandler, b'GET /master')
         MockRestApiServer(RestApiHandler, b'GET /replica')
+        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={})):
+            MockRestApiServer(RestApiHandler, b'GET /replica')
+        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'master'})):
+            MockRestApiServer(RestApiHandler, b'GET /replica')
+        MockRestApiServer(RestApiHandler, b'GET /master')
+        MockPatroni.dcs.cluster.leader.name = MockPostgresql.name
+        MockRestApiServer(RestApiHandler, b'GET /replica')
+        MockPatroni.dcs.cluster = None
+        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'master'})):
+            MockRestApiServer(RestApiHandler, b'GET /master')
         with patch.object(MockHa, 'restart_scheduled', Mock(return_value=True)):
             MockRestApiServer(RestApiHandler, b'GET /master')
+        MockRestApiServer(RestApiHandler, b'GET /master')
 
     def test_do_GET_patroni(self):
         MockRestApiServer(RestApiHandler, b'GET /patroni')
