@@ -75,8 +75,6 @@ class Postgresql:
     def init_pg_rewind(self):
         try:
             self._pg_rewind_present = ('username' in self._pg_rewind and
-                                       ('wal_log_hints' in self.config['parameters'] or
-                                        'data_checksums' in self.config['parameters']) and
                                        subprocess.call(['pg_rewind',
                                                         '--version'],
                                                        stdout=open(os.devnull, 'w'),
@@ -317,14 +315,12 @@ recovery_target_timeline = 'latest'
                 for name, value in self.config.get('recovery_conf', {}).items():
                     f.write("{} = '{}'\n".format(name, value))
 
-    def prepare_pg_rewind_connection(self, leader_url, pg_rewind):
-        r = parseurl(leader_url)
-        r.update(pg_rewind)
-        env = self.write_pgpass(r, append=True)
-        return (env, "user={user} host={host} port={port} dbname=postgres sslmode=prefer sslcompression=1".format(**r))
-
     def pg_rewind(self, leader):
-        env, pc = self.prepare_pg_rewind_connection(leader.conn_url, self._pg_rewind)
+        # prepare pg_rewind connection
+        r = parseurl(leader.conn_url)
+        r.update(self._pg_rewind)
+        env = self.write_pgpass(r, append=True)
+        pc = "user={user} host={host} port={port} dbname=postgres sslmode=prefer sslcompression=1".format(**r)
         logger.info("running pg_rewind from {}".format(pc))
         pg_rewind = ['pg_rewind', '-D', self.data_dir, '--source-server', pc]
         try:
@@ -335,12 +331,21 @@ recovery_target_timeline = 'latest'
             self.write_recovery_conf(leader)
         return ret
 
+    def pg_rewind_verify_cluster(self):
+        """ check that pg_rewind can be used with the cluster """
+        try:
+            return self.query("""SELECT bool_or(setting::boolean)
+                                 FROM pg_settings
+                                 WHERE name IN ( 'data_checksums', 'wal_log_hints')""").fetchone()[0]
+        except:
+            return False
+
     def follow_the_leader(self, leader):
         if not self.check_recovery_conf(leader):
             self.write_recovery_conf(leader)
             change_role = self.role == 'master'
 
-            if leader and change_role and self._pg_rewind_present:
+            if leader and change_role and self._pg_rewind_present and self.pg_rewind_verify_cluster():
                 self.stop()
                 if self.pg_rewind(leader):
                     ret = self.start()
