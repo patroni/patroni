@@ -1,4 +1,3 @@
-import datetime
 import sys
 import time
 import unittest
@@ -7,9 +6,7 @@ import yaml
 from mock import Mock, patch
 from patroni.api import RestApiServer
 from patroni.async_executor import AsyncExecutor
-from patroni.dcs import Cluster, Member
 from patroni.etcd import Etcd
-from patroni.ha import Ha
 from patroni import Patroni, main
 from patroni.zookeeper import ZooKeeper
 from six.moves import BaseHTTPServer

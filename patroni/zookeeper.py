@@ -91,7 +91,6 @@ class ZooKeeper(AbstractDCS):
                                       'max_tries': -1},
                                   connection_retry={'max_delay': 1, 'max_tries': -1})
         self.client.add_listener(self.session_listener)
-        self.cluster_event = self.client.handler.event_object()
 
         self._my_member_data = None
         self.fetch_cluster = True
@@ -105,7 +104,7 @@ class ZooKeeper(AbstractDCS):
 
     def cluster_watcher(self, event):
         self.fetch_cluster = True
-        self.cluster_event.set()
+        self.event.set()
 
     def get_node(self, key, watch=None):
         try:
@@ -133,7 +132,7 @@ class ZooKeeper(AbstractDCS):
         return members
 
     def _inner_load_cluster(self):
-        self.cluster_event.clear()
+        self.event.clear()
         nodes = set(self.get_children(self.client_path(''), self.cluster_watcher))
 
         # get initialize flag
@@ -279,8 +278,5 @@ class ZooKeeper(AbstractDCS):
             logger.exception("Unable to delete initialize key")
 
     def watch(self, timeout):
-        self.cluster_event.wait(timeout)
-        if self.cluster_event.isSet():
-            self.fetch_cluster = True
-            return True
-        return False
+        self.fetch_cluster = super(ZooKeeper, self).watch(timeout)
+        return self.fetch_cluster

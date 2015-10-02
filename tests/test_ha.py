@@ -6,7 +6,6 @@ from patroni.etcd import Client, Etcd
 from patroni.exceptions import DCSError, PostgresException
 from patroni.ha import Ha
 from test_etcd import socket_getaddrinfo, etcd_read, etcd_write, requests_get
-from threading import Thread
 
 
 def true(*args, **kwargs):
@@ -83,6 +82,7 @@ class MockPatroni:
         self.dcs = d
         self.api = Mock()
         self.api.connection_string = 'http://127.0.0.1:8008'
+
 
 def run_async(func, args=()):
     func(args) if args else func()

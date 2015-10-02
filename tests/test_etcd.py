@@ -1,4 +1,3 @@
-import datetime
 import etcd
 import json
 import requests
@@ -8,7 +7,7 @@ import unittest
 
 from dns.exception import DNSException
 from mock import Mock, patch
-from patroni.dcs import Cluster, DCSError, Leader, Member
+from patroni.dcs import Cluster, DCSError, Leader
 from patroni.etcd import Client, Etcd
 
 
@@ -194,7 +193,6 @@ class TestClient(unittest.TestCase):
         self.assertRaises(etcd.EtcdException, self.client._load_machines_cache)
 
 
-@patch('time.sleep', Mock())
 @patch('requests.get', requests_get)
 class TestEtcd(unittest.TestCase):
 
@@ -254,7 +252,7 @@ class TestEtcd(unittest.TestCase):
 
     def test_watch(self):
         self.etcd.client.watch = etcd_watch
-        self.etcd.watch(100)
+        self.etcd.watch(0)
         self.etcd.get_cluster()
         self.etcd.watch(1.5)
         self.etcd.watch(4.5)

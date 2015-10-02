@@ -147,7 +147,6 @@ class Etcd(AbstractDCS):
     def __init__(self, name, config):
         super(Etcd, self).__init__(name, config)
         self.ttl = config['ttl']
-        self.member_ttl = config.get('member_ttl', 3600)
         self._retry = Retry(deadline=10, max_delay=1, max_tries=-1,
                             retry_exceptions=(etcd.EtcdConnectionFailed,
                                               etcd.EtcdLeaderElectionInProgress,
@@ -210,7 +209,7 @@ class Etcd(AbstractDCS):
 
     @catch_etcd_errors
     def touch_member(self, connection_string, ttl=None):
-        return self.retry(self.client.set, self.member_path, connection_string, ttl or self.member_ttl)
+        return self.retry(self.client.set, self.member_path, connection_string, ttl or self.ttl)
 
     @catch_etcd_errors
     def take_leader(self):
@@ -269,4 +268,7 @@ class Etcd(AbstractDCS):
 
                 timeout = end_time - time.time()
 
-        return timeout > 0 and super(Etcd, self).watch(timeout)
+        try:
+            return super(Etcd, self).watch(timeout)
+        finally:
+            self.event.clear()

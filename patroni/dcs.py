@@ -3,8 +3,8 @@ import json
 
 from collections import namedtuple
 from patroni.exceptions import DCSError
-from patroni.utils import sleep
 from six.moves.urllib_parse import urlparse, urlunparse, parse_qsl
+from threading import Event
 
 
 def parse_connection_string(value):
@@ -42,12 +42,17 @@ class Member(namedtuple('Member', 'index,name,session,data')):
         """
         >>> Member.from_node(-1, '', '', '{"conn_url": "postgres://foo@bar/postgres"}') is not None
         True
+        >>> Member.from_node(-1, '', '', '{')
+        Member(index=-1, name='', session='', data={})
         """
         if data.startswith('postgres'):
             conn_url, api_url = parse_connection_string(data)
             data = {'conn_url': conn_url, 'api_url': api_url}
         else:
-            data = json.loads(data)
+            try:
+                data = json.loads(data)
+            except:
+                data = {}
         return Member(index, name, session, data)
 
     @property
@@ -121,6 +126,7 @@ class AbstractDCS:
         self._base_path = '/service/' + self._scope
 
         self.cluster = None
+        self.event = Event()
 
     def client_path(self, path):
         return '/'.join([self._base_path, path.lstrip('/')])
@@ -234,5 +240,5 @@ class AbstractDCS:
         :param timeout: timeout in seconds
         :returns: `!True` if you would like to reschedule the next run of ha cycle"""
 
-        sleep(timeout)
-        return False
+        self.event.wait(timeout)
+        return self.event.isSet()

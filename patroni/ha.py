@@ -150,7 +150,8 @@ class Ha:
         if self.state_handler.is_leader():
             return True
 
-        if check_replication_lag and not self.state_handler.check_replication_lag(self.dcs.cluster.last_leader_operation):
+        if check_replication_lag and \
+                not self.state_handler.check_replication_lag(self.dcs.cluster.last_leader_operation):
             return False  # Too far behind last reported xlog location on master
 
         # Prepare list of nodes to run check against
