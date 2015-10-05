@@ -164,9 +164,9 @@ class ZooKeeper(AbstractDCS):
         # get last leader operation
         self.last_leader_operation = self.get_node(self.leader_optime_path) if self.fetch_cluster else None
         self.last_leader_operation = 0 if self.last_leader_operation is None else int(self.last_leader_operation[0])
-        self.cluster = Cluster(initialize, leader, self.last_leader_operation, members, failover)
+        self._cluster = Cluster(initialize, leader, self.last_leader_operation, members, failover)
 
-    def get_cluster(self):
+    def _load_cluster(self):
         if self.exhibitor and self.exhibitor.poll():
             self.client.set_hosts(self.exhibitor.zookeeper_hosts)
 
@@ -174,11 +174,9 @@ class ZooKeeper(AbstractDCS):
             try:
                 self.client.retry(self._inner_load_cluster)
             except:
-                self.cluster = None
                 logger.exception('get_cluster')
                 self.session_listener(KazooState.LOST)
                 raise ZooKeeperError('ZooKeeper in not responding properly')
-        return self.cluster
 
     def _create(self, path, value, **kwargs):
         try:
@@ -206,7 +204,8 @@ class ZooKeeper(AbstractDCS):
         return self._create(self.initialize_path, self._name, makepath=True)
 
     def touch_member(self, data, ttl=None):
-        me = self.cluster and ([m for m in self.cluster.members if m.name == self._name] or [None])[0]
+        cluster = self.cluster
+        me = cluster and ([m for m in cluster.members if m.name == self._name] or [None])[0]
         path = self.member_path
         data = data.encode('utf-8')
         create = not me

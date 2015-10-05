@@ -171,7 +171,7 @@ class Etcd(AbstractDCS):
     def member(node):
         return Member.from_node(node.modifiedIndex, os.path.basename(node.key), node.ttl, node.value)
 
-    def get_cluster(self):
+    def _load_cluster(self):
         try:
             result = self.retry(self.client.read, self.client_path(''), recursive=True)
             nodes = {os.path.relpath(node.key, result.key): node for node in result.leaves}
@@ -198,14 +198,12 @@ class Etcd(AbstractDCS):
             if failover:
                 failover = Failover.from_node(failover.modifiedIndex, failover.value)
 
-            self.cluster = Cluster(initialize, leader, last_leader_operation, members, failover)
+            self._cluster = Cluster(initialize, leader, last_leader_operation, members, failover)
         except etcd.EtcdKeyNotFound:
-            self.cluster = Cluster(False, None, None, [], None)
+            self._cluster = Cluster(False, None, None, [], None)
         except:
-            self.cluster = None
             logger.exception('get_cluster')
             raise EtcdError('Etcd is not responding properly')
-        return self.cluster
 
     @catch_etcd_errors
     def touch_member(self, connection_string, ttl=None):
@@ -249,10 +247,11 @@ class Etcd(AbstractDCS):
         return self.retry(self.client.delete, self.initialize_path, prevValue=self._name)
 
     def watch(self, timeout):
+        cluster = self.cluster
         # watch on leader key changes if it is defined and current node is not lock owner
-        if self.cluster and self.cluster.leader and self.cluster.leader.name != self._name:
+        if cluster and cluster.leader and cluster.leader.name != self._name:
             end_time = time.time() + timeout
-            index = self.cluster.leader.index
+            index = cluster.leader.index
 
             while index and timeout >= 1:  # when timeout is too small urllib3 doesn't have enough time to connect
                 try:

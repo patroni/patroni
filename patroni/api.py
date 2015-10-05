@@ -48,8 +48,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
         response = self.get_postgresql_status()
 
         patroni = self.server.patroni
-        if patroni.dcs.cluster:  # dcs available
-            if patroni.dcs.cluster.leader and patroni.dcs.cluster.leader.name == patroni.postgresql.name:  # is_leader
+        cluster = patroni.dcs.cluster
+        if cluster:  # dcs available
+            if cluster.leader and cluster.leader.name == patroni.postgresql.name:  # is_leader
                 status_code = 200 if 'master' in path else 503
             elif 'role' not in response:
                 status_code = 503

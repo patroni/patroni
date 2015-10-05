@@ -4,7 +4,7 @@ import json
 from collections import namedtuple
 from patroni.exceptions import DCSError
 from six.moves.urllib_parse import urlparse, urlunparse, parse_qsl
-from threading import Event
+from threading import Event, Lock
 
 
 def parse_connection_string(value):
@@ -125,7 +125,8 @@ class AbstractDCS:
         self._scope = config['scope']
         self._base_path = '/service/' + self._scope
 
-        self.cluster = None
+        self._cluster = None
+        self._cluster_thread_lock = Lock()
         self.event = Event()
 
     def client_path(self, path):
@@ -156,10 +157,32 @@ class AbstractDCS:
         return self.client_path(self._LEADER_OPTIME)
 
     @abc.abstractmethod
+    def _load_cluster(self):
+        """Internally this method should build  `Cluster` object which
+           represents current state and topology of the cluster in DCS.
+           this method supposed to be called only by `get_cluster` method.
+
+           raise `~DCSError` in case of communication or other problems with DCS.
+           If the current node was running as a master and exception raised,
+           instance would be demoted."""
+
     def get_cluster(self):
-        """:returns: `Cluster` object which represent current state and topology of the cluster
-        raise `~DCSError` in case of communication or other problems with DCS. If current instance was
-            running as a master and exception raised instance would be demoted."""
+        with self._cluster_thread_lock:
+            try:
+                self._load_cluster()
+            except:
+                self._cluster = None
+                raise
+            return self._cluster
+
+    @property
+    def cluster(self):
+        with self._cluster_thread_lock:
+            return self._cluster
+
+    def reset_cluster(self):
+        with self._cluster_thread_lock:
+            self._cluster = None
 
     @abc.abstractmethod
     def write_leader_optime(self, last_operation):
