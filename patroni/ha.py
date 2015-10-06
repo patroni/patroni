@@ -107,10 +107,10 @@ class Ha:
     def follow_the_leader(self, demote_reason, follow_reason, refresh=True):
         refresh and self.load_cluster_from_dcs()
         ret = demote_reason if self.state_handler.is_leader() else follow_reason
-        if not self.state_handler.check_recovery_conf(self.cluster.leader):
+        leader = self.cluster.leader
+        leader = None if (leader and leader.name) == self.state_handler.name else leader
+        if not self.state_handler.check_recovery_conf(leader):
             self._async_executor.schedule('changing primary_conninfo and restarting')
-            leader = self.cluster.leader
-            leader = None if (leader and leader.name) == self.state_handler.name else leader
             self._async_executor.run_async(self.state_handler.follow_the_leader, (leader, ))
         return ret
 

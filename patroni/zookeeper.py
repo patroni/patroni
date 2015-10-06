@@ -197,7 +197,7 @@ class ZooKeeper(AbstractDCS):
         except NoNodeError:
             return value == '' or (not index and self._create(self.failover_path, value.encode('utf-8')))
         except:
-            logging.exception('foo')
+            logging.exception('set_failover_value')
             return False
 
     def initialize(self):
