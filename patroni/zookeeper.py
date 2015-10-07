@@ -132,8 +132,11 @@ class ZooKeeper(AbstractDCS):
         return members
 
     def _inner_load_cluster(self):
+        self.fetch_cluster = False
         self.event.clear()
         nodes = set(self.get_children(self.client_path(''), self.cluster_watcher))
+        if not nodes:
+            self.fetch_cluster = True
 
         # get initialize flag
         initialize = self._INITIALIZE in nodes

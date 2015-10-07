@@ -46,7 +46,7 @@ class MockKazooClient(Mock):
     def get_children(self, path, watch=None, include_data=False):
         if not isinstance(path, six.string_types):
             raise TypeError("Invalid type for 'path' (string expected)")
-        if path == '/no_node':
+        if path.startswith('/no_node'):
             raise NoNodeError
         elif path in ['/service/bla/', '/service/test/']:
             return ['initialize', 'leader', 'members', 'optime', 'failover']
@@ -120,6 +120,8 @@ class TestZooKeeper(unittest.TestCase):
 
     def test__inner_load_cluster(self):
         self.zk._base_path = self.zk._base_path.replace('test', 'bla')
+        self.zk._inner_load_cluster()
+        self.zk._base_path = self.zk._base_path = '/no_node'
         self.zk._inner_load_cluster()
 
     def test_get_cluster(self):
