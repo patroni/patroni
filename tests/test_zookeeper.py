@@ -172,5 +172,5 @@ class TestZooKeeper(unittest.TestCase):
 
     def test_watch(self):
         self.zk.watch(0)
-        self.zk.event.isSet = lambda: False
+        self.zk.event.isSet = lambda: True
         self.zk.watch(0)

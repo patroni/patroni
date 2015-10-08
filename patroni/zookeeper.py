@@ -165,8 +165,8 @@ class ZooKeeper(AbstractDCS):
             failover = Failover.from_node(failover[1].version, failover[0])
 
         # get last leader operation
-        self.last_leader_operation = self.get_node(self.leader_optime_path) if self.fetch_cluster else None
-        self.last_leader_operation = 0 if self.last_leader_operation is None else int(self.last_leader_operation[0])
+        optime = self.get_node(self.leader_optime_path) if self._OPTIME in nodes and self.fetch_cluster else None
+        self.last_leader_operation = 0 if optime is None else int(optime[0])
         self._cluster = Cluster(initialize, leader, self.last_leader_operation, members, failover)
 
     def _load_cluster(self):
@@ -280,5 +280,6 @@ class ZooKeeper(AbstractDCS):
             logger.exception("Unable to delete initialize key")
 
     def watch(self, timeout):
-        self.fetch_cluster = super(ZooKeeper, self).watch(timeout)
+        if super(ZooKeeper, self).watch(timeout):
+            self.fetch_cluster = True
         return self.fetch_cluster
