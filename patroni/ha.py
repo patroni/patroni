@@ -96,7 +96,8 @@ class Ha:
         # try to see if we are the former master that crashed. If so - we likely need to run pg_rewind
         # in order to join the former standby being promoted.
         pg_controldata = self.state_handler.controldata()
-        if not has_lock and pg_controldata.get('Database cluster state', '') == 'in production':  # crashed master
+        if not has_lock and pg_controldata and\
+                pg_controldata.get('Database cluster state', '') == 'in production':  # crashed master
             self.state_handler.require_rewind()
 
         # XXX: follow the leader calls stop, which might take quite some time.

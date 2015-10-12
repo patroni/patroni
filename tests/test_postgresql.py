@@ -337,7 +337,7 @@ class TestPostgresql(unittest.TestCase):
 
         subprocess.check_output = check_output_call_error
         data = self.p.controldata()
-        self.assertIsNone(data)
+        self.assertEquals(data, dict())
 
         subprocess.check_output = check_output_generic_exception
         self.assertRaises(Exception, self.p.controldata())
@@ -394,6 +394,7 @@ class TestPostgresql(unittest.TestCase):
         mock_unlink.assert_not_called()
 
         mock_remove.reset_mock()
+
         mock_file.return_value = False
         mock_link.return_value = True
         self.p.cleanup_archive_status()
@@ -402,7 +403,9 @@ class TestPostgresql(unittest.TestCase):
 
         mock_unlink.reset_mock()
         mock_remove.reset_mock()
+
         mock_file.side_effect = Exception("foo")
+        mock_link.side_effect = Exception("foo")
         self.p.cleanup_archive_status()
         mock_unlink.assert_not_called()
         mock_remove.assert_not_called()

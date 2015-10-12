@@ -164,9 +164,9 @@ class Postgresql:
     def delete_trigger_file(self):
         os.path.exists(self.trigger_file) and os.unlink(self.trigger_file)
 
-    def write_pgpass(self, record, append=False):
+    def write_pgpass(self, record):
         pgpass = 'pgpass'
-        with open(pgpass, 'w' if not append else 'a') as f:
+        with open(pgpass, 'w') as f:
             os.fchmod(f.fileno(), 0o600)
             f.write('{host}:{port}:*:{user}:{password}\n'.format(**record))
         env = os.environ.copy()
@@ -363,7 +363,7 @@ recovery_target_timeline = 'latest'
         r = parseurl(leader.conn_url)
         r.update(self.pg_rewind)
         r['user'] = r['username']
-        env = self.write_pgpass(r, append=True)
+        env = self.write_pgpass(r)
         pc = "user={user} host={host} port={port} dbname=postgres sslmode=prefer sslcompression=1".format(**r)
         logger.info("running pg_rewind from {}".format(pc))
         pg_rewind = ['pg_rewind', '-D', self.data_dir, '--source-server', pc]
@@ -377,7 +377,7 @@ recovery_target_timeline = 'latest'
 
     def controldata(self):
         """ return the contents of pg_controldata, or non-True value if pg_controldata call failed """
-        result = None
+        result = {}
         try:
             data = subprocess.check_output(['pg_controldata', self.data_dir])
             if data:
@@ -425,10 +425,10 @@ recovery_target_timeline = 'latest'
             for f in os.listdir(status_dir):
                 path = os.path.join(status_dir, f)
                 try:
-                    if os.path.isfile(path):
-                        os.remove(path)
-                    elif os.path.islink(path):  # should not happen, but just in case
+                    if os.path.islink(path):
                         os.unlink(path)
+                    elif os.path.isfile(path):
+                        os.remove(path)
                 except:
                     logger.exception("Unable to remove {}".format(path))
 
@@ -449,10 +449,10 @@ recovery_target_timeline = 'latest'
                 # and not shutdown in recovery. We have to remove the recovery.conf if present
                 # and start/shutdown in a single user mode to emulate this.
                 # XXX: if recovery.conf is linked, it will be written anew as a normal file.
-                if os.path.isfile(self.recovery_conf):
-                    os.remove(self.recovery_conf)
-                else:
+                if os.path.islink(self.recovery_conf):
                     os.unlink(self.recovery_conf)
+                else:
+                    os.remove(self.recovery_conf)
                 # Archived segments might be useful to pg_rewind,
                 # clean the flags that tell we should remove them.
                 self.cleanup_archive_status()
@@ -494,7 +494,7 @@ recovery_target_timeline = 'latest'
             return True
         ret = subprocess.call(self._pg_ctl + ['promote']) == 0
         if ret:
-            self._role = 'master'
+            self.set_role('master')
             logger.info("cleared rewind flag after becoming the leader")
             self._need_rewind = False
             self.call_nowait(ACTION_ON_ROLE_CHANGE)
