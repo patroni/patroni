@@ -221,6 +221,7 @@ class TestPostgresql(unittest.TestCase):
 
     @patch('patroni.postgresql.Postgresql.rewind', return_value=False)
     @patch('patroni.postgresql.Postgresql.remove_data_directory', MagicMock(return_value=True))
+    @patch('patroni.postgresql.Postgresql.single_user_mode', MagicMock(return_value=1))
     def test_follow_the_leader(self, mock_pg_rewind):
         self.p.demote()
         self.p.follow_the_leader(None)
