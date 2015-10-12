@@ -10,7 +10,7 @@ if version_info.major == 2:
 else:
     import builtins
 
-from mock import Mock, MagicMock, patch
+from mock import Mock, MagicMock, PropertyMock, patch
 from patroni.dcs import Cluster, Leader, Member
 from patroni.exceptions import PostgresException, PostgresConnectionException
 from patroni.postgresql import Postgresql
@@ -216,7 +216,6 @@ class TestPostgresql(unittest.TestCase):
     @patch('subprocess.call', side_effect=Exception("Test"))
     def test_pg_rewind(self, mock_call):
         self.assertTrue(self.p.rewind(self.leader))
-        self.p
         subprocess.call = mock_call
         self.assertFalse(self.p.rewind(self.leader))
 
@@ -230,6 +229,12 @@ class TestPostgresql(unittest.TestCase):
         self.p.follow_the_leader(Leader(-1, 28, self.other))
         self.p.rewind = mock_pg_rewind
         self.p.follow_the_leader(self.leader)
+        self.p.require_rewind()
+        with mock.patch('patroni.postgresql.Postgresql.can_rewind', new_callable=PropertyMock(return_value=True)):
+            self.p.rewind.return_value = True
+            self.p.follow_the_leader(self.leader, recovery=True)
+            self.p.rewind.return_value = False
+            self.p.follow_the_leader(self.leader, recovery=True)
 
     def test_create_replica(self):
         self.p.delete_trigger_file = Mock(side_effect=OSError())

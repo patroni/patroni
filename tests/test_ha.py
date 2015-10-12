@@ -117,6 +117,7 @@ class TestHa(unittest.TestCase):
         self.assertEquals(self.ha.run_cycle(), 'started as a secondary')
 
     def test_recover_replica_failed(self):
+        self.p.controldata = lambda: {'Database cluster state': 'in production'}
         self.p.is_healthy = false
         self.p.follow_the_leader = false
         self.assertEquals(self.ha.run_cycle(), 'failed to start postgres')
