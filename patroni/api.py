@@ -44,22 +44,34 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         """Default method for processing all GET requests which can not be routed to other methods"""
 
+        path = '/master' if self.path == '/' else self.path
         response = self.get_postgresql_status()
 
-        path = '/master' if self.path == '/' else self.path
-        status_code = 200 if response['running'] and 'role' in response and response['role'] in path else 503
+        patroni = self.server.patroni
+        cluster = patroni.dcs.cluster
+        if cluster:  # dcs available
+            if cluster.leader and cluster.leader.name == patroni.postgresql.name:  # is_leader
+                status_code = 200 if 'master' in path else 503
+            elif 'role' not in response:
+                status_code = 503
+            elif response['role'] == 'master':  # running as master but without leader lock!!!!
+                status_code = 503
+            elif response['role'] in path:
+                status_code = 200
+            else:
+                status_code = 503
+        elif 'role' in response and response['role'] in path:
+            status_code = 200
+        elif patroni.ha.restart_scheduled() and patroni.postgresql.role == 'master' and 'master' in path:
+            # exceptional case for master node when the postgres is being restarted via API
+            status_code = 200
+        else:
+            status_code = 503
 
         self.send_response(status_code)
         self.send_header('Content-Type', 'application/json')
         self.end_headers()
         self.wfile.write(json.dumps(response).encode('utf-8'))
-
-    @check_auth
-    def do_GET_sampleauth(self):
-        self.send_response(200)
-        self.send_header('Content-Type', 'text/html')
-        self.end_headers()
-        self.wfile.write(b'Hello!')
 
     def do_GET_patroni(self):
         response = self.get_postgresql_status(True)
@@ -68,6 +80,46 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self.send_header('Content-Type', 'application/json')
         self.end_headers()
         self.wfile.write(json.dumps(response).encode('utf-8'))
+
+    @check_auth
+    def do_POST_restart(self):
+        status_code = 503
+        data = b'restart failed'
+        try:
+            status, msg = self.server.patroni.ha.restart()
+            status_code = 200 if status else 503
+            data = msg.encode('utf-8')
+        except:
+            logger.exception('Exception during restart')
+
+        self.send_response(status_code)
+        self.send_header('Content-Type', 'text/html')
+        self.end_headers()
+        self.wfile.write(data)
+
+    @check_auth
+    def do_POST_reinitialize(self):
+        ha = self.server.patroni.ha
+        cluster = ha.dcs.get_cluster()
+        if cluster.is_unlocked():
+            status_code = 503
+            data = b'Cluster has no leader, can not reinitialize'
+        elif cluster.leader.name == ha.state_handler.name:
+            status_code = 503
+            data = b'I am the leader, can not reinitialize'
+        else:
+            action = ha.schedule_reinitialize()
+            if action is not None:
+                status_code = 503
+                data = (action + ' already in progress').encode('utf-8')
+            else:
+                status_code = 200
+                data = b'reinitialize scheduled'
+
+        self.send_response(status_code)
+        self.send_header('Content-Type', 'text/html')
+        self.end_headers()
+        self.wfile.write(data)
 
     def parse_request(self):
         """Override parse_request method to enrich basic functionality of `BaseHTTPRequestHandler` class
@@ -90,7 +142,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def query(self, sql, *params, **kwargs):
         if not kwargs.get('retry', False):
             return self.server.query(sql, *params)
-        retry = Retry(delay=2, retry_exceptions=PostgresConnectionException)
+        retry = Retry(delay=1, retry_exceptions=PostgresConnectionException)
         return retry(self.server.query, sql, *params)
 
     def get_postgresql_status(self, retry=False):
@@ -98,15 +150,16 @@ class RestApiHandler(BaseHTTPRequestHandler):
             row = self.query("""SELECT to_char(pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),
                                        pg_is_in_recovery(),
                                        CASE WHEN pg_is_in_recovery()
-                                            THEN null
-                                            ELSE pg_current_xlog_location() END,
-                                       pg_last_xlog_receive_location(),
-                                       pg_last_xlog_replay_location(),
+                                            THEN 0
+                                            ELSE pg_xlog_location_diff(pg_current_xlog_location(), '0/0')::bigint
+                                       END,
+                                       pg_xlog_location_diff(pg_last_xlog_receive_location(), '0/0')::bigint,
+                                       pg_xlog_location_diff(pg_last_xlog_replay_location(), '0/0')::bigint,
                                        pg_is_in_recovery() AND pg_is_xlog_replay_paused()""", retry=retry)[0]
             return {
-                'running': True,
+                'state': self.server.patroni.postgresql.state,
                 'postmaster_start_time': row[0],
-                'role': 'slave' if row[1] else 'master',
+                'role': 'replica' if row[1] else 'master',
                 'xlog': ({
                     'received_location': row[3],
                     'replayed_location': row[4],
@@ -115,8 +168,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 })
             }
         except (psycopg2.Error, RetryFailedError, PostgresConnectionException):
-            logger.exception('get_postgresql_status')
-            return {'running': self.server.patroni.postgresql.is_running()}
+            state = self.server.patroni.postgresql.state
+            if state in ['stopped', 'starting', 'stopping', 'restarting', 'running']:
+                logger.exception('get_postgresql_status')
+                state = 'unknown' if state == 'running' else state
+            return {'state': state}
 
 
 class RestApiServer(ThreadingMixIn, HTTPServer, Thread):

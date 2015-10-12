@@ -33,18 +33,9 @@ class MockCursor:
             raise RetryFailedError('retry')
         elif sql.startswith('SELECT slot_name'):
             self.results = [('blabla',), ('foobar',)]
-        elif sql.startswith('SELECT pg_current_xlog_location()'):
-            self.results = [(0,)]
-        elif sql.startswith('SELECT pg_is_in_recovery(), %s'):
-            if params[0][0] == 1:
-                raise psycopg2.OperationalError()
-            elif params[0][0] == 2:
-                self.results = [(True, -1)]
-            else:
-                self.results = [(False, 0)]
         elif sql.startswith('SELECT pg_xlog_location_diff'):
             self.results = [(0,)]
-        elif sql.startswith('SELECT pg_is_in_recovery()'):
+        elif sql == 'SELECT pg_is_in_recovery()':
             self.results = [(False, )]
         elif sql.startswith('SELECT to_char(pg_postmaster_start_time'):
             self.results = [('', True, '', '', '', False)]
@@ -86,6 +77,12 @@ class MockConnect(Mock):
 
     def cursor(self):
         return MockCursor(self)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
 
 
 def pg_controldata_string(*args, **kwargs):
@@ -155,10 +152,12 @@ def psycopg2_connect(*args, **kwargs):
 
 
 @patch('subprocess.call', Mock(return_value=0))
-@patch('shutil.copy', Mock())
 @patch('psycopg2.connect', psycopg2_connect)
+@patch('shutil.copy', Mock())
 class TestPostgresql(unittest.TestCase):
 
+    @patch('subprocess.call', Mock(return_value=0))
+    @patch('psycopg2.connect', psycopg2_connect)
     def setUp(self):
         self.p = Postgresql({'name': 'test0', 'scope': 'batman', 'data_dir': 'data/test0',
                              'listen': '127.0.0.1, *:5432', 'connect_address': '127.0.0.2:5432',
@@ -177,10 +176,10 @@ class TestPostgresql(unittest.TestCase):
                              'restore': 'true'})
         if not os.path.exists(self.p.data_dir):
             os.makedirs(self.p.data_dir)
-        self.leadermem = Member(0, 'leader', 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres', None, None, 28)
-        self.leader = Leader(-1, None, 28, self.leadermem)
-        self.other = Member(0, 'test1', 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres', None, None, 28)
-        self.me = Member(0, 'test0', 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres', None, None, 28)
+        self.leadermem = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres'})
+        self.leader = Leader(-1, 28, self.leadermem)
+        self.other = Member(0, 'test1', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres'})
+        self.me = Member(0, 'test0', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres'})
 
     def tearDown(self):
         shutil.rmtree('data')
@@ -192,13 +191,24 @@ class TestPostgresql(unittest.TestCase):
         self.assertTrue(self.p.initialize())
         self.assertTrue(os.path.exists(os.path.join(self.p.data_dir, 'pg_hba.conf')))
 
-    def test_start_stop(self):
-        self.assertFalse(self.p.start())
-        self.p.is_running = false
-        with open(os.path.join(self.p.data_dir, 'postmaster.pid'), 'w'):
-            pass
+    def test_start(self):
         self.assertTrue(self.p.start())
+        self.p.is_running = false
+        open(os.path.join(self.p.data_dir, 'postmaster.pid'), 'w').close()
+        self.assertTrue(self.p.start())
+
+    def test_stop(self):
         self.assertTrue(self.p.stop())
+        with patch('subprocess.call', Mock(return_value=1)):
+            self.assertTrue(self.p.stop())
+            self.p.is_running = Mock(return_value=True)
+            self.assertFalse(self.p.stop())
+
+    def test_restart(self):
+        self.p.start = false
+        self.p.is_running = false
+        self.assertFalse(self.p.restart())
+        self.assertEquals(self.p.state, 'restart failed (restarting)')
 
     def test_sync_from_leader(self):
         self.assertTrue(self.p.sync_from_leader(self.leader))
@@ -213,11 +223,11 @@ class TestPostgresql(unittest.TestCase):
     @patch('patroni.postgresql.Postgresql.rewind', return_value=False)
     @patch('patroni.postgresql.Postgresql.remove_data_directory', MagicMock(return_value=True))
     def test_follow_the_leader(self, mock_pg_rewind):
-        self.p.demote(self.leader)
+        self.p.demote()
         self.p.follow_the_leader(None)
-        self.p.demote(self.leader)
+        self.p.demote()
         self.p.follow_the_leader(self.leader)
-        self.p.follow_the_leader(Leader(-1, None, 28, self.other))
+        self.p.follow_the_leader(Leader(-1, 28, self.other))
         self.p.rewind = mock_pg_rewind
         self.p.follow_the_leader(self.leader)
 
@@ -233,29 +243,25 @@ class TestPostgresql(unittest.TestCase):
 
     def test_sync_replication_slots(self):
         self.p.start()
-        cluster = Cluster(True, self.leader, 0, [self.me, self.other, self.leadermem])
+        cluster = Cluster(True, self.leader, 0, [self.me, self.other, self.leadermem], None)
+        self.p.sync_replication_slots(cluster)
+        self.p.query = Mock(side_effect=psycopg2.OperationalError)
+        self.p.schedule_load_slots = True
         self.p.sync_replication_slots(cluster)
 
     @patch.object(MockConnect, 'closed', 2)
     def test__query(self):
         self.assertRaises(PostgresConnectionException, self.p._query, 'blabla')
+        self.p._state = 'restarting'
+        self.assertRaises(RetryFailedError, self.p._query, 'blabla')
 
     def test_query(self):
         self.p.query('select 1')
         self.assertRaises(PostgresConnectionException, self.p.query, 'RetryFailedError')
         self.assertRaises(psycopg2.OperationalError, self.p.query, 'blabla')
 
-    def test_is_healthiest_node(self):
-        cluster = Cluster(True, self.leader, 0, [self.me, self.other, self.leadermem])
-        self.assertTrue(self.p.is_healthiest_node(cluster))
-        self.p.is_leader = false
-        self.assertFalse(self.p.is_healthiest_node(cluster))
-        self.p.xlog_position = lambda: 1
-        self.assertTrue(self.p.is_healthiest_node(cluster))
-        self.p.xlog_position = lambda: 2
-        self.assertFalse(self.p.is_healthiest_node(cluster))
-        self.p.config['maximum_lag_on_failover'] = -3
-        self.assertFalse(self.p.is_healthiest_node(cluster))
+    def test_is_leader(self):
+        self.assertTrue(self.p.is_leader())
 
     def test_reload(self):
         self.assertTrue(self.p.reload())
@@ -266,6 +272,7 @@ class TestPostgresql(unittest.TestCase):
         self.assertFalse(self.p.is_healthy())
 
     def test_promote(self):
+        self.p._role = 'replica'
         self.assertTrue(self.p.promote())
         self.assertTrue(self.p.promote())
 
@@ -284,6 +291,9 @@ class TestPostgresql(unittest.TestCase):
         self.p.query = Mock(side_effect=psycopg2.OperationalError("not supported"))
         self.assertTrue(self.p.stop())
 
+    def test_check_replication_lag(self):
+        self.assertTrue(self.p.check_replication_lag(0))
+
     @patch('os.rename', Mock())
     @patch('os.path.isdir', Mock(return_value=True))
     def test_move_data_directory(self):
@@ -293,9 +303,10 @@ class TestPostgresql(unittest.TestCase):
             self.p.move_data_directory()
 
     def test_bootstrap(self):
-        self.assertRaises(PostgresException, self.p.bootstrap)
-        self.p.start = Mock(return_value=True)
+        with patch('subprocess.call', Mock(return_value=1)):
+            self.assertRaises(PostgresException, self.p.bootstrap)
         self.p.bootstrap()
+        self.p.bootstrap(self.leader)
 
     def test_remove_data_directory(self):
         self.p.data_dir = 'data_dir'
