@@ -66,8 +66,15 @@ class Ha:
         if self.state_handler.is_healthy():
             return False
         has_lock = self.has_lock()
-        self.state_handler.write_recovery_conf(None if has_lock else self.cluster.leader)
-        self.state_handler.start()
+
+        # try to see if we are the former master that crashed. If so - we likely need to run pg_rewind
+        # in order to join the former standby being promoted.
+        pg_controldata = self.state_handler.controldata()
+        if not has_lock and pg_controldata.get('Database cluster state', '') == 'in production':  # crashed master
+            self.state_handler.require_rewind()
+
+        # XXX: should we call ha.follow_the_leader here instead?
+        ret = self.state_handler.follow_the_leader(None if has_lock else self.cluster.leader, recovery=True)
         if has_lock:
             logger.info('started as readonly because i had the session lock')
             self.load_cluster_from_dcs()

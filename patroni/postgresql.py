@@ -47,7 +47,7 @@ class Postgresql:
         self.replication = config['replication']
         self.superuser = config['superuser']
         self.admin = config['admin']
-        self._pg_rewind = config.get('pg_rewind', {})
+        self.pg_rewind = config.get('pg_rewind', {})
         self.callback = config.get('callbacks', {})
         self.use_slots = config.get('use_slots', True)
         self.schedule_load_slots = self.use_slots
@@ -68,23 +68,36 @@ class Postgresql:
 
         self._connection = None
         self._cursor_holder = None
+        self._need_rewind = False
         self.members = []  # list of already existing replication slots
         self.retry = Retry(max_tries=-1, deadline=10, max_delay=1, retry_exceptions=PostgresConnectionException)
-        self.init_pg_rewind()
 
-    def init_pg_rewind(self):
+    @property
+    def can_rewind(self):
+        """ check if pg_rewind executable is there and that pg_controldata indicates
+            we have either wal_log_hints or checksums turned on
+        """
+        # low-hanging fruit: check if pg_rewind configuration is there
+        if not self.pg_rewind or\
+           not (self.pg_rewind.get('username', '') and self.pg_rewind.get('password', '')):
+            return False
+
+        cmd = ['pg_rewind', '--help']
         try:
-            self._pg_rewind_present = ('username' in self._pg_rewind and
-                                       subprocess.call(['pg_rewind',
-                                                        '--version'],
-                                                       stdout=open(os.devnull, 'w'),
-                                                       stderr=subprocess.STDOUT) == 0)
-            if self._pg_rewind_present:
-                self._pg_rewind['user'] = self._pg_rewind['username']
-        except:
-            self._pg_rewind_present = False
-        if self._pg_rewind and not self._pg_rewind_present:
-            logger.warning("pg_rewind support is disabled")
+            ret = subprocess.call(cmd, stdout=open(os.devnull, 'w'), stderr=subprocess.STDOUT)
+            if ret != 0:  # pg_rewind is not there, close up the shop and go home
+                return False
+        except OSError:
+            return False
+        # check if the cluster's configuration permits pg_rewind
+        data = self.controldata()
+        if data:
+            return data.get('wal_log_hints setting', 'off') == 'on' or\
+                data.get('Data page checksum version', '0') != '0'
+        return False
+
+    def require_rewind(self):
+        self._need_rewind = True
 
     def get_local_address(self):
         listen_addresses = self.listen_addresses.split(',')
@@ -209,6 +222,8 @@ class Postgresql:
         return ret
 
     def stop(self, mode='fast', block_callbacks=False):
+        if not self.is_running():
+            return True
         if block_callbacks:
             try:
                 self.query('SET statement_timeout TO 0')
@@ -315,10 +330,11 @@ recovery_target_timeline = 'latest'
                 for name, value in self.config.get('recovery_conf', {}).items():
                     f.write("{} = '{}'\n".format(name, value))
 
-    def pg_rewind(self, leader):
+    def rewind(self, leader):
         # prepare pg_rewind connection
         r = parseurl(leader.conn_url)
-        r.update(self._pg_rewind)
+        r.update(self.pg_rewind)
+        r['user'] = r['username']
         env = self.write_pgpass(r, append=True)
         pc = "user={user} host={host} port={port} dbname=postgres sslmode=prefer sslcompression=1".format(**r)
         logger.info("running pg_rewind from {}".format(pc))
@@ -331,30 +347,99 @@ recovery_target_timeline = 'latest'
             self.write_recovery_conf(leader)
         return ret
 
-    def pg_rewind_verify_cluster(self):
-        """ check that pg_rewind can be used with the cluster """
+    def controldata(self):
+        """ return the contents of pg_controldata, or non-True value if pg_controldata call failed """
+        result = None
         try:
-            return self.query("""SELECT bool_or(setting::boolean)
-                                 FROM pg_settings
-                                 WHERE name IN ( 'data_checksums', 'wal_log_hints')""").fetchone()[0]
-        except:
-            return False
+            data = subprocess.check_output(['pg_controldata', self.data_dir])
+            if data:
+                data = data.splitlines()
+                result = {l.split(':')[0]: l.split(':')[1].strip() for l in data if l}
+        except subprocess.CalledProcessError:
+            logger.exception("Error when calling pg_controldata")
+        finally:
+            return result
 
-    def follow_the_leader(self, leader):
-        if not self.check_recovery_conf(leader):
+    def read_postmaster_opts(self):
+        """ returns the list of option names/values from postgres.opts, Empty dict if read failed or no file """
+        result = {}
+        try:
+            with open(os.path.join(self.data_dir, "postmaster.opts")) as f:
+                data = f.read()
+                opts = [opt.strip('"\n') for opt in data.split(' "')]
+                for opt in opts:
+                    if '=' in opt and opt.startswith('--'):
+                        name, val = opt.split('=', 1)
+                        name = name.strip('-')
+                        result[name] = val
+        except IOError:
+            logger.exception('Error when reading postmaster.opts')
+        finally:
+            return result
+
+    def single_user_mode(self, command=None, options={}):
+        """ run a given command in a single-user mode. If the command is empty - then just start and stop """
+        cmd = ['postgres', '--single', '-D', self.data_dir]
+        for opt in sorted(options):
+            cmd.extend(['-c', '{0}={1}'.format(opt, options[opt])])
+        # need a database name to connect
+        cmd.append('postgres')
+        p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=open(os.devnull, 'w'), stderr=subprocess.STDOUT)
+        if p:
+            command and p.communicate('{}\n'.format(command))
+            p.stdin.close()
+            return p.wait()
+        return 1
+
+    def cleanup_archive_status(self):
+        status_dir = os.path.join(self.data_dir, 'pg_xlog', 'archive_status')
+        if os.path.isdir(status_dir):
+            for f in os.listdir(status_dir):
+                path = os.path.join(status_dir, f)
+                try:
+                    if os.path.isfile(path):
+                        os.remove(path)
+                    elif os.path.islink(path):  # should not happen, but just in case
+                        os.unlink(path)
+                except:
+                    logger.exception("Unable to remove {}".format(path))
+
+    def follow_the_leader(self, leader, recovery=False):
+        if not self.check_recovery_conf(leader) or recovery:
+            change_role = (self.role == 'master')
+
+            self._need_rewind = (self._need_rewind or change_role) and self.can_rewind
+            if self._need_rewind:
+                logger.info("set the rewind flag after demote")
             self.write_recovery_conf(leader)
-            change_role = self.role == 'master'
-
-            if leader and change_role and self._pg_rewind_present and self.pg_rewind_verify_cluster():
-                self.stop()
-                if self.pg_rewind(leader):
+            if not leader or not self._need_rewind:  # do not rewind until the leader becomes available
+                ret = self.restart()
+            else:  # we have a leader and need to rewind
+                if self.is_running():
+                    self.stop()
+                # at present, pg_rewind only runs when the cluster is shut down cleanly
+                # and not shutdown in recovery. We have to remove the recovery.conf if present
+                # and start/shutdown in a single user mode to emulate this.
+                # XXX: if recovery.conf is linked, it will be written anew as a normal file.
+                if os.path.isfile(self.recovery_conf):
+                    os.remove(self.recovery_conf)
+                else:
+                    os.unlink(self.recovery_conf)
+                # Archived segments might be useful to pg_rewind,
+                # clean the flags that tell we should remove them.
+                self.cleanup_archive_status()
+                # Start in a single user mode and stop to produce a clean shutdown
+                opts = self.read_postmaster_opts()
+                opts['archive_mode'] = 'on'
+                opts['archive_command'] = 'false'
+                self.single_user_mode(options=opts)
+                if self.rewind(leader):
                     ret = self.start()
                 else:
-                    ret = False
+                    logger.error("unable to rewind the former master")
                     self.remove_data_directory()
-                    logger.error("unable to rewind the former leader")
-            else:
-                ret = self.restart()
+                    ret = True
+                self._need_rewind = False
             change_role and ret and self.call_nowait(ACTION_ON_ROLE_CHANGE)
 
     def save_configuration_files(self):
@@ -379,6 +464,8 @@ recovery_target_timeline = 'latest'
         ret = subprocess.call(self._pg_ctl + ['promote']) == 0
         if ret:
             self._role = 'master'
+            logger.info("cleared rewind flag after becoming the leader")
+            self._need_rewind = False
             self.call_nowait(ACTION_ON_ROLE_CHANGE)
         return ret
 
