@@ -340,10 +340,7 @@ class Postgresql:
         with open(self.recovery_conf, 'r') as f:
             for line in f:
                 if line.startswith('primary_conninfo'):
-                    if not pattern:
-                        return False
-                    return pattern in line
-
+                    return pattern and (pattern in line)
         return not pattern
 
     def write_recovery_conf(self, leader):

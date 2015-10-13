@@ -10,7 +10,7 @@ if version_info.major == 2:
 else:
     import builtins
 
-from mock import Mock, MagicMock, PropertyMock, patch
+from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.dcs import Cluster, Leader, Member
 from patroni.exceptions import PostgresException, PostgresConnectionException
 from patroni.postgresql import Postgresql
@@ -231,6 +231,11 @@ class TestPostgresql(unittest.TestCase):
         self.p.rewind = mock_pg_rewind
         self.p.follow_the_leader(self.leader)
         self.p.require_rewind()
+        with mock.patch('os.path.islink', MagicMock(return_value=True)):
+            with mock.patch('os.unlink', MagicMock(return_value=True)):
+                with mock.patch('patroni.postgresql.Postgresql.can_rewind', new_callable=PropertyMock(return_value=True)):
+                    self.p.follow_the_leader(self.leader, recovery=True)
+        self.p.require_rewind()
         with mock.patch('patroni.postgresql.Postgresql.can_rewind', new_callable=PropertyMock(return_value=True)):
             self.p.rewind.return_value = True
             self.p.follow_the_leader(self.leader, recovery=True)
@@ -358,7 +363,7 @@ class TestPostgresql(unittest.TestCase):
         self.assertRaises(Exception, self.p.controldata())
 
     def test_read_postmaster_opts(self):
-        m = mock.mock_open(read_data=postmaster_opts_string())
+        m = mock_open(read_data=postmaster_opts_string())
         with patch.object(builtins, 'open', m):
             data = self.p.read_postmaster_opts()
             self.assertEquals(data['wal_level'], 'hot_standby')
