@@ -1,14 +1,22 @@
+import mock  # for the mock.call method, importing it without a namespace breaks python3
 import os
 import psycopg2
 import shutil
 import unittest
 
-from mock import Mock, patch
+from sys import version_info
+if version_info.major == 2:
+    import __builtin__ as builtins
+else:
+    import builtins
+
+from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.dcs import Cluster, Leader, Member
 from patroni.exceptions import PostgresException, PostgresConnectionException
 from patroni.postgresql import Postgresql
 from patroni.utils import RetryFailedError
 from test_ha import false
+import subprocess
 
 
 class MockCursor:
@@ -77,6 +85,68 @@ class MockConnect(Mock):
         pass
 
 
+def pg_controldata_string(*args, **kwargs):
+    return """
+pg_control version number:            942
+Catalog version number:               201509161
+Database system identifier:           6200971513092291716
+Database cluster state:               shut down in recovery
+pg_control last modified:             Fri Oct  2 10:57:06 2015
+Latest checkpoint location:           0/30000C8
+Prior checkpoint location:            0/2000060
+Latest checkpoint's REDO location:    0/3000090
+Latest checkpoint's REDO WAL file:    000000020000000000000003
+Latest checkpoint's TimeLineID:       2
+Latest checkpoint's PrevTimeLineID:   2
+Latest checkpoint's full_page_writes: on
+Latest checkpoint's NextXID:          0/943
+Latest checkpoint's NextOID:          24576
+Latest checkpoint's NextMultiXactId:  1
+Latest checkpoint's NextMultiOffset:  0
+Latest checkpoint's oldestXID:        931
+Latest checkpoint's oldestXID's DB:   1
+Latest checkpoint's oldestActiveXID:  943
+Latest checkpoint's oldestMultiXid:   1
+Latest checkpoint's oldestMulti's DB: 1
+Latest checkpoint's oldestCommitTs:   0
+Latest checkpoint's newestCommitTs:   0
+Time of latest checkpoint:            Fri Oct  2 10:56:54 2015
+Fake LSN counter for unlogged rels:   0/1
+Minimum recovery ending location:     0/30241F8
+Min recovery ending loc's timeline:   2
+Backup start location:                0/0
+Backup end location:                  0/0
+End-of-backup record required:        no
+wal_level setting:                    hot_standby
+wal_log_hints setting:                on
+max_connections setting:              100
+max_worker_processes setting:         8
+max_prepared_xacts setting:           0
+max_locks_per_xact setting:           64
+track_commit_timestamp setting:       off
+Maximum data alignment:               8
+Database block size:                  8192
+Blocks per segment of large relation: 131072
+WAL block size:                       8192
+Bytes per WAL segment:                16777216
+Maximum length of identifiers:        64
+Maximum columns in an index:          32
+Maximum size of a TOAST chunk:        1996
+Size of a large-object chunk:         2048
+Date/time type storage:               64-bit integers
+Float4 argument passing:              by value
+Float8 argument passing:              by value
+Data page checksum version:           0
+"""
+
+
+def postmaster_opts_string(*args, **kwargs):
+    return '/usr/local/pgsql/bin/postgres "-D" "data/postgresql0" "--listen_addresses=127.0.0.1" "--port=5432"'\
+        ' "--hot_standby=on" "--wal_keep_segments=8" "--wal_level=hot_standby" "--archive_command=mkdir -p ../wal_archive \n'\
+        '&& cp %p ../wal_archive/%f" "--wal_log_hints=on" "--max_wal_senders=5" "--archive_timeout=1800s" "--archive_mode=on"'\
+        ' "--max_replication_slots=5"\n'
+
+
 def psycopg2_connect(*args, **kwargs):
     return MockConnect()
 
@@ -94,6 +164,7 @@ class TestPostgresql(unittest.TestCase):
                              'pg_hba': ['hostssl all all 0.0.0.0/0 md5', 'host all all 0.0.0.0/0 md5'],
                              'superuser': {'password': ''},
                              'admin': {'username': 'admin', 'password': 'admin'},
+                             'pg_rewind': {'username': 'admin', 'password': 'admin'},
                              'replication': {'username': 'replicator',
                                              'password': 'rep-pass',
                                              'network': '127.0.0.1/32'},
@@ -142,11 +213,48 @@ class TestPostgresql(unittest.TestCase):
     def test_sync_from_leader(self):
         self.assertTrue(self.p.sync_from_leader(self.leader))
 
-    def test_follow_the_leader(self):
-        self.p.follow_the_leader(self.leader)
+    @patch('subprocess.call', side_effect=Exception("Test"))
+    def test_pg_rewind(self, mock_call):
+        self.assertTrue(self.p.rewind(self.leader))
+        subprocess.call = mock_call
+        self.assertFalse(self.p.rewind(self.leader))
+
+    @patch('patroni.postgresql.Postgresql.rewind', return_value=False)
+    @patch('patroni.postgresql.Postgresql.remove_data_directory', MagicMock(return_value=True))
+    @patch('patroni.postgresql.Postgresql.single_user_mode', MagicMock(return_value=1))
+    def test_follow_the_leader(self, mock_pg_rewind):
+        self.p.demote()
+        self.p.follow_the_leader(None)
         self.p.demote()
         self.p.follow_the_leader(self.leader)
         self.p.follow_the_leader(Leader(-1, 28, self.other))
+        self.p.rewind = mock_pg_rewind
+        self.p.follow_the_leader(self.leader)
+        self.p.require_rewind()
+        with mock.patch('os.path.islink', MagicMock(return_value=True)):
+            with mock.patch('os.unlink', MagicMock(return_value=True)):
+                with mock.patch('patroni.postgresql.Postgresql.can_rewind', new_callable=PropertyMock(return_value=True)):
+                    self.p.follow_the_leader(self.leader, recovery=True)
+        self.p.require_rewind()
+        with mock.patch('patroni.postgresql.Postgresql.can_rewind', new_callable=PropertyMock(return_value=True)):
+            self.p.rewind.return_value = True
+            self.p.follow_the_leader(self.leader, recovery=True)
+            self.p.rewind.return_value = False
+            self.p.follow_the_leader(self.leader, recovery=True)
+
+    def test_can_rewind(self):
+        tmp = self.p.pg_rewind
+        self.p.pg_rewind = None
+        self.assertFalse(self.p.can_rewind)
+        self.p.pg_rewind = tmp
+        with mock.patch('subprocess.call', MagicMock(return_value=1)):
+            self.assertFalse(self.p.can_rewind)
+        with mock.patch('subprocess.call', side_effect=OSError("foo")):
+            self.assertFalse(self.p.can_rewind)
+        tmp = self.p.controldata()
+        self.p.controldata = lambda: {'wal_log_hints setting': 'on'}
+        self.assertTrue(self.p.can_rewind)
+        self.p.controldata = tmp
 
     def test_create_replica(self):
         self.p.delete_trigger_file = Mock(side_effect=OSError())
@@ -236,3 +344,88 @@ class TestPostgresql(unittest.TestCase):
         with patch('os.unlink', Mock(side_effect=Exception)):
             self.p.remove_data_directory()
         self.p.remove_data_directory()
+
+    @patch('subprocess.check_output', MagicMock(return_value=0, side_effect=pg_controldata_string))
+    @patch('subprocess.check_output', side_effect=subprocess.CalledProcessError)
+    @patch('subprocess.check_output', side_effect=Exception('Failed'))
+    def test_controldata(self, check_output_call_error, check_output_generic_exception):
+        data = self.p.controldata()
+        self.assertEquals(len(data), 50)
+        self.assertEquals(data['Database cluster state'], 'shut down in recovery')
+        self.assertEquals(data['wal_log_hints setting'], 'on')
+        self.assertEquals(int(data['Database block size']), 8192)
+
+        subprocess.check_output = check_output_call_error
+        data = self.p.controldata()
+        self.assertEquals(data, dict())
+
+        subprocess.check_output = check_output_generic_exception
+        self.assertRaises(Exception, self.p.controldata())
+
+    def test_read_postmaster_opts(self):
+        m = mock_open(read_data=postmaster_opts_string())
+        with patch.object(builtins, 'open', m):
+            data = self.p.read_postmaster_opts()
+            self.assertEquals(data['wal_level'], 'hot_standby')
+            self.assertEquals(int(data['max_replication_slots']), 5)
+            self.assertEqual(data.get('D'), None)
+
+            m.side_effect = IOError("foo")
+            data = self.p.read_postmaster_opts()
+            self.assertEqual(data, dict())
+
+            m.side_effect = Exception("foo")
+            self.assertRaises(Exception, self.p.read_postmaster_opts())
+
+    @patch('subprocess.Popen')
+    @patch.object(builtins, 'open', MagicMock(return_value=42))
+    def test_single_user_mode(self, subprocess_popen_mock):
+        subprocess_popen_mock.return_value.wait.return_value = 0
+        self.assertEquals(self.p.single_user_mode(options=dict(archive_mode='on', archive_command='false')), 0)
+        subprocess_popen_mock.assert_called_once_with(['postgres', '--single', '-D', self.p.data_dir,
+                                                      '-c', 'archive_command=false', '-c', 'archive_mode=on',
+                                                       'postgres'], stdin=subprocess.PIPE,
+                                                      stdout=42,
+                                                      stderr=subprocess.STDOUT)
+        subprocess_popen_mock.reset_mock()
+        self.assertEquals(self.p.single_user_mode(command="CHECKPOINT"), 0)
+        subprocess_popen_mock.assert_called_once_with(['postgres', '--single', '-D', self.p.data_dir,
+                                                      'postgres'], stdin=subprocess.PIPE,
+                                                      stdout=42,
+                                                      stderr=subprocess.STDOUT)
+        subprocess_popen_mock.return_value = None
+        self.assertEquals(self.p.single_user_mode(), 1)
+
+    def fake_listdir(path):
+        if path.endswith(os.path.join('pg_xlog', 'archive_status')):
+            return ["a", "b", "c"]
+        return []
+
+    @patch('os.listdir', MagicMock(side_effect=fake_listdir))
+    @patch('os.path.isdir', MagicMock(return_value=True))
+    @patch('os.unlink', return_value=True)
+    @patch('os.remove', return_value=True)
+    @patch('os.path.islink', return_value=False)
+    @patch('os.path.isfile', return_value=True)
+    def test_cleanup_archive_status(self, mock_file, mock_link, mock_remove, mock_unlink):
+        ap = os.path.join(self.p.data_dir, 'pg_xlog', 'archive_status/')
+        self.p.cleanup_archive_status()
+        mock_remove.assert_has_calls([mock.call(ap+'a'), mock.call(ap+'b'), mock.call(ap+'c')])
+        mock_unlink.assert_not_called()
+
+        mock_remove.reset_mock()
+
+        mock_file.return_value = False
+        mock_link.return_value = True
+        self.p.cleanup_archive_status()
+        mock_unlink.assert_has_calls([mock.call(ap+'a'), mock.call(ap+'b'), mock.call(ap+'c')])
+        mock_remove.assert_not_called()
+
+        mock_unlink.reset_mock()
+        mock_remove.reset_mock()
+
+        mock_file.side_effect = Exception("foo")
+        mock_link.side_effect = Exception("foo")
+        self.p.cleanup_archive_status()
+        mock_unlink.assert_not_called()
+        mock_remove.assert_not_called()

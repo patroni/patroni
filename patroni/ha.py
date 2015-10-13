@@ -92,8 +92,19 @@ class Ha:
 
     def recover(self):
         has_lock = self.has_lock()
-        self.state_handler.write_recovery_conf(None if has_lock else self.cluster.leader)
-        if not self.state_handler.start():
+
+        # try to see if we are the former master that crashed. If so - we likely need to run pg_rewind
+        # in order to join the former standby being promoted.
+        pg_controldata = self.state_handler.controldata()
+        if not has_lock and pg_controldata and\
+                pg_controldata.get('Database cluster state', '') == 'in production':  # crashed master
+            self.state_handler.require_rewind()
+
+        # XXX: follow the leader calls stop, which might take quite some time.
+        # perhaps we should run sync asynchronously
+        # (we still need the exit code from follow_the_leader)
+        ret = self.state_handler.follow_the_leader(None if has_lock else self.cluster.leader, recovery=True)
+        if not ret:
             if not has_lock:
                 return 'failed to start postgres'
             self.dcs.delete_leader()

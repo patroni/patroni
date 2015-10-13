@@ -34,6 +34,9 @@ postgresql:
   data_dir: data/postgresql0
   maximum_lag_on_failover: 1048576 # 1 megabyte in bytes
   use_slots: True
+  pg_rewind:
+    username: postgres
+    password: zalando
   pg_hba:
   - host all all 0.0.0.0/0 md5
   - hostssl all all 0.0.0.0/0 md5
@@ -42,6 +45,7 @@ postgresql:
     password: rep-pass
     network:  127.0.0.1/32
   superuser:
+    username: postgres
     password: zalando
   admin:
     username: admin
@@ -62,3 +66,4 @@ postgresql:
     archive_timeout: 1800s
     max_replication_slots: 5
     hot_standby: "on"
+    wal_log_hints: "on"
