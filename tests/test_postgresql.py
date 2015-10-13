@@ -237,6 +237,20 @@ class TestPostgresql(unittest.TestCase):
             self.p.rewind.return_value = False
             self.p.follow_the_leader(self.leader, recovery=True)
 
+    def test_can_rewind(self):
+        tmp = self.p.pg_rewind
+        self.p.pg_rewind = None
+        self.assertFalse(self.p.can_rewind)
+        self.p.pg_rewind = tmp
+        with mock.patch('subprocess.call', MagicMock(return_value=1)):
+            self.assertFalse(self.p.can_rewind)
+        with mock.patch('subprocess.call', side_effect=OSError("foo")):
+            self.assertFalse(self.p.can_rewind)
+        tmp = self.p.controldata()
+        self.p.controldata = lambda: {'wal_log_hints setting': 'on'}
+        self.assertTrue(self.p.can_rewind)
+        self.p.controldata = tmp
+
     def test_create_replica(self):
         self.p.delete_trigger_file = Mock(side_effect=OSError())
         self.assertEquals(self.p.create_replica({'host': '', 'port': '', 'user': ''}, ''), 1)
