@@ -352,9 +352,8 @@ class Ha:
 
     def _run_cycle(self):
         try:
+            self.touch_member()  # also creates /service/cluster key if necessary, preventing exception on the next line
             self.load_cluster_from_dcs()
-
-            self.touch_member()
 
             # cluster has leader key but not initialize key
             if not self.cluster.is_unlocked() and not self.cluster.initialize:
