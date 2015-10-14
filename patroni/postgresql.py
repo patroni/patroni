@@ -379,7 +379,7 @@ recovery_target_timeline = 'latest'
             data = subprocess.check_output(['pg_controldata', self.data_dir])
             if data:
                 data = data.splitlines()
-                result = {l.split(':')[0]: l.split(':')[1].strip() for l in data if l}
+                result = {l.split(':')[0].replace('Current ', '', 1): l.split(':')[1].strip() for l in data if l}
         except subprocess.CalledProcessError:
             logger.exception("Error when calling pg_controldata")
         finally:

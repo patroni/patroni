@@ -118,12 +118,12 @@ Backup start location:                0/0
 Backup end location:                  0/0
 End-of-backup record required:        no
 wal_level setting:                    hot_standby
-wal_log_hints setting:                on
-max_connections setting:              100
-max_worker_processes setting:         8
-max_prepared_xacts setting:           0
-max_locks_per_xact setting:           64
-track_commit_timestamp setting:       off
+Current wal_log_hints setting:                on
+Current max_connections setting:              100
+Current max_worker_processes setting:         8
+Current max_prepared_xacts setting:           0
+Current max_locks_per_xact setting:           64
+Current track_commit_timestamp setting:       off
 Maximum data alignment:               8
 Database block size:                  8192
 Blocks per segment of large relation: 131072
