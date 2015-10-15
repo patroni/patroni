@@ -198,7 +198,7 @@ class ZooKeeper(AbstractDCS):
             self.client.retry(self.client.set, self.failover_path, value.encode('utf-8'), version=index or -1)
             return True
         except NoNodeError:
-            return value == '' or (not index and self._create(self.failover_path, value.encode('utf-8')))
+            return value == '' or (not index and self._create(self.failover_path, value))
         except:
             logging.exception('set_failover_value')
             return False
