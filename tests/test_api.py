@@ -3,6 +3,7 @@ import unittest
 
 from mock import Mock, patch
 from patroni.api import RestApiHandler, RestApiServer
+from patroni.dcs import Member
 from six import BytesIO as IO
 from six.moves import BaseHTTPServer
 from test_postgresql import psycopg2_connect, MockCursor
@@ -37,6 +38,9 @@ class MockHa(Mock):
 
     def restart_scheduled(self):
         return False
+
+    def fetch_nodes_statuses(self, members):
+        return [[None, True, None, None]]
 
 
 class MockPatroni:
@@ -117,3 +121,25 @@ class TestRestApiHandler(unittest.TestCase):
             MockRestApiServer(RestApiHandler, b'GET /patroni')
         with patch.object(MockPostgresql, 'connection', Mock(side_effect=psycopg2.OperationalError)):
             MockRestApiServer(RestApiHandler, b'GET /patroni')
+
+    @patch('time.sleep', Mock())
+    @patch.object(MockHa, 'dcs')
+    def test_do_POST_failover(self, dcs):
+        cluster = dcs.get_cluster.return_value
+        request = b'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\n' +\
+                  b'Content-Length: 25\n\n{"leader": "postgresql1"}'
+        MockRestApiServer(RestApiHandler, request)
+        cluster.leader.name = 'postgresql1'
+        MockRestApiServer(RestApiHandler, request)
+        cluster.members = [Member(0, 'postgresql0', 30, {'api_url': 'http'})]
+        MockRestApiServer(RestApiHandler, request)
+        with patch.object(MockPatroni, 'dcs') as d:
+            d.get_cluster = Mock(side_effect=Exception())
+            MockRestApiServer(RestApiHandler, request)
+            d.manual_failover.return_value = False
+            MockRestApiServer(RestApiHandler, request)
+        with patch.object(MockHa, 'fetch_nodes_statuses', Mock(return_value=[])):
+            MockRestApiServer(RestApiHandler, request)
+        request = b'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\n' +\
+                  b'Content-Length: 50\n\n{"leader": "postgresql1", "member": "postgresql2"}'
+        MockRestApiServer(RestApiHandler, request)
