@@ -127,8 +127,14 @@ class Postgresql:
 
     def _cursor(self):
         if not self._cursor_holder or self._cursor_holder.closed or self._cursor_holder.connection.closed != 0:
+            logger.info("established a new patroni connection to the postgres cluster")
             self._cursor_holder = self.connection().cursor()
         return self._cursor_holder
+
+    def close_connection(self):
+        if self._cursor_holder and self._cursor_holder.connection and self._cursor_holder.connection.closed == 0:
+            self._cursor_holder.connection.close()
+            logger.info("closed patroni connection to the postgresql cluster")
 
     def _query(self, sql, *params):
         cursor = None
@@ -269,6 +275,12 @@ class Postgresql:
             logging.exception('Exception during CHECKPOINT')
 
     def stop(self, mode='fast', block_callbacks=False):
+        # make sure we close all connections established against
+        # the former node, otherwise, we might get a stalled one
+        # after kill -9, which would report incorrect data to
+        # patroni.
+
+        self.close_connection()
         if not self.is_running():
             if not block_callbacks:
                 self.set_state('stopped')
