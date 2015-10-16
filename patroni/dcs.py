@@ -240,8 +240,11 @@ class AbstractDCS:
         overwriting the key if necessary."""
 
     @abc.abstractmethod
-    def initialize(self):
+    def initialize(self, create_new=True, sysid=None):
         """Race for cluster initialization.
+
+        :param create_new: False if the key should already exist (in the case we are setting the system_id)
+        :param sysid: PostgreSQL cluster system identifier, if specified, is written to the key
         :returns: `!True` if key has been created successfully.
 
         this method should create atomically initialize key and return `!True`

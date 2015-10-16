@@ -73,9 +73,10 @@ class Ha:
             self._async_executor.run_async(self.copy_backup_from_leader, args=(self.cluster.leader, ))
             return 'trying to bootstrap from leader'
         elif not self.cluster.initialize:  # no initialize key
-            if self.dcs.initialize():  # race for initialization
+            if self.dcs.initialize(create_new=True):  # race for initialization
                 try:
                     self.state_handler.bootstrap()
+                    self.dcs.initialize(create_new=False, sysid=self.state_handler.sysid)
                 except:  # initdb or start failed
                     # remove initialization key and give a chance to other members
                     logger.info("removing initialize key after failed attempt to initialize the cluster")
@@ -350,6 +351,11 @@ class Ha:
         else:
             return self._async_executor.scheduled_action + ' in progress'
 
+    def sysid_valid(self, sysid):
+        # sysid does tv_sec << 32, where tv_sec is the number of seconds sine 1970,
+        # so even 1 << 32 would have 10 digits.
+        return str(sysid) and len(str(sysid)) >= 10 and str(sysid).isdigit()
+
     def _run_cycle(self):
         try:
             self.load_cluster_from_dcs()
@@ -357,8 +363,8 @@ class Ha:
             self.touch_member()
 
             # cluster has leader key but not initialize key
-            if not self.cluster.is_unlocked() and not self.cluster.initialize:
-                self.dcs.initialize()  # fix it
+            if not self.cluster.is_unlocked() and not self.sysid_valid(self.cluster.initialize) and self.has_lock():
+                self.dcs.initialize(create_new=(self.cluster.initialize is None), sysid=self.state_handler.sysid)
 
             if self._async_executor.busy:
                 return self.handle_long_action_in_progress()
@@ -372,8 +378,12 @@ class Ha:
             if self.state_handler.data_directory_empty():
                 return self.bootstrap()  # new node
             # "bootstrap", but data directory is not empty
-            elif not self.cluster.initialize and self.cluster.is_unlocked():
-                self.dcs.initialize()
+            elif not self.sysid_valid(self.cluster.initialize) and self.cluster.is_unlocked():
+                self.dcs.initialize(create_new=(self.cluster.initialize is None), sysid=self.state_handler.sysid)
+            else:
+                # check if we are allowed to join
+                if self.sysid_valid(self.cluster.initialize) and self.cluster.initialize != self.state_handler.sysid:
+                    return "system ID mismatch, node {0} belongs to a different cluster".format(self.state_handler.name)
 
             # try to start dead postgres
             if not self.state_handler.is_healthy():

@@ -69,6 +69,7 @@ class Postgresql:
         self._connection = None
         self._cursor_holder = None
         self._need_rewind = False
+        self._sysid = None
         self.replication_slots = []  # list of already existing replication slots
         self.retry = Retry(max_tries=-1, deadline=5, max_delay=1, retry_exceptions=PostgresConnectionException)
 
@@ -104,6 +105,13 @@ class Postgresql:
             return data.get('wal_log_hints setting', 'off') == 'on' or\
                 data.get('Data page checksum version', '0') != '0'
         return False
+
+    @property
+    def sysid(self):
+        if not self._sysid:
+            data = self.controldata()
+            self._sysid = data and data.get('Database system identifier', None)
+        return self._sysid
 
     def require_rewind(self):
         self._need_rewind = True
