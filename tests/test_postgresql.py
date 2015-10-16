@@ -232,8 +232,8 @@ class TestPostgresql(unittest.TestCase):
         self.p.follow_the_leader(self.leader)
         self.p.require_rewind()
         with mock.patch('os.path.islink', MagicMock(return_value=True)):
-            with mock.patch('os.unlink', MagicMock(return_value=True)):
-                with mock.patch('patroni.postgresql.Postgresql.can_rewind', new_callable=PropertyMock(return_value=True)):
+            with mock.patch('patroni.postgresql.Postgresql.can_rewind', new_callable=PropertyMock(return_value=True)):
+                with mock.patch('os.unlink', MagicMock(return_value=True)):
                     self.p.follow_the_leader(self.leader, recovery=True)
         self.p.require_rewind()
         with mock.patch('patroni.postgresql.Postgresql.can_rewind', new_callable=PropertyMock(return_value=True)):

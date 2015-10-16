@@ -1,3 +1,4 @@
+import etcd
 import unittest
 
 from mock import Mock, patch
@@ -98,6 +99,7 @@ class TestHa(unittest.TestCase):
         self.e = Etcd('foo', {'ttl': 30, 'host': 'ok:2379', 'scope': 'test'})
         self.e.client.read = etcd_read
         self.e.client.write = etcd_write
+        self.e.client.delete = Mock(side_effect=etcd.EtcdException())
         self.ha = Ha(MockPatroni(self.p, self.e))
         self.ha._async_executor.run_async = run_async
         self.ha.old_cluster = self.e.get_cluster()
