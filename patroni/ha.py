@@ -2,6 +2,7 @@ import json
 import logging
 import psycopg2
 import requests
+import sys
 
 from patroni.async_executor import AsyncExecutor
 from patroni.exceptions import DCSError, PostgresConnectionException
@@ -383,7 +384,8 @@ class Ha:
             else:
                 # check if we are allowed to join
                 if self.sysid_valid(self.cluster.initialize) and self.cluster.initialize != self.state_handler.sysid:
-                    return "system ID mismatch, node {0} belongs to a different cluster".format(self.state_handler.name)
+                    logger.fatal("system ID mismatch, node {0} belongs to a different cluster".format(self.state_handler.name))
+                    sys.exit(1)
 
             # try to start dead postgres
             if not self.state_handler.is_healthy():
