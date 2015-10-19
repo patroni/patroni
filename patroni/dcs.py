@@ -240,7 +240,7 @@ class AbstractDCS:
         overwriting the key if necessary."""
 
     @abc.abstractmethod
-    def initialize(self, create_new=True, sysid=None):
+    def initialize(self, create_new=True, sysid=""):
         """Race for cluster initialization.
 
         :param create_new: False if the key should already exist (in the case we are setting the system_id)
