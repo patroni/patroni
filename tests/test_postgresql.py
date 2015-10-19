@@ -86,7 +86,7 @@ class MockConnect(Mock):
 
 
 def pg_controldata_string(*args, **kwargs):
-    return """
+    return b"""
 pg_control version number:            942
 Catalog version number:               201509161
 Database system identifier:           6200971513092291716

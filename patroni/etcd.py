@@ -236,8 +236,8 @@ class Etcd(AbstractDCS):
         return self.retry(self.client.test_and_set, self.leader_path, self._name, self._name, self.ttl)
 
     @catch_etcd_errors
-    def initialize(self, create_new=True, sysid=None):
-        return self.retry(self.client.write, self.initialize_path, sysid or "", prevExist=(not create_new))
+    def initialize(self, create_new=True, sysid=""):
+        return self.retry(self.client.write, self.initialize_path, sysid, prevExist=(not create_new))
 
     @catch_etcd_errors
     def delete_leader(self):

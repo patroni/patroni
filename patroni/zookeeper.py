@@ -139,7 +139,7 @@ class ZooKeeper(AbstractDCS):
             self.fetch_cluster = True
 
         # get initialize flag
-        initialize = self.get_node(self._INITIALIZE)[0] if self._INITIALIZE in nodes else None
+        initialize = self.get_node(self.initialize_path)[0] if self._INITIALIZE in nodes else None
 
         # get list of members
         members = self.load_members() if self._MEMBERS[:-1] in nodes else []
@@ -203,9 +203,9 @@ class ZooKeeper(AbstractDCS):
             logging.exception('set_failover_value')
             return False
 
-    def initialize(self, create_new=True, sysid=None):
-        return self._create(self.initialize_path, sysid if sysid else "", makepath=True) if create_new \
-            else self.client.retry(self.client.set, self.initialize_path,  sysid.encode("utf-8") if sysid else "")
+    def initialize(self, create_new=True, sysid=""):
+        return self._create(self.initialize_path, sysid, makepath=True) if create_new \
+            else self.client.retry(self.client.set, self.initialize_path,  sysid.encode("utf-8"))
 
     def touch_member(self, data, ttl=None):
         cluster = self.cluster
