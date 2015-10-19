@@ -134,6 +134,10 @@ class TestRestApiHandler(unittest.TestCase):
         cluster.members = [Member(0, 'postgresql0', 30, {'api_url': 'http'})]
         MockRestApiServer(RestApiHandler, request)
         with patch.object(MockPatroni, 'dcs') as d:
+            cluster = d.get_cluster.return_value
+            cluster.leader.name = 'postgresql1'
+            cluster.failover = None
+            MockRestApiServer(RestApiHandler, request)
             d.get_cluster = Mock(side_effect=Exception())
             MockRestApiServer(RestApiHandler, request)
             d.manual_failover.return_value = False

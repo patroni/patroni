@@ -129,9 +129,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 cluster = self.server.patroni.dcs.get_cluster()
                 if cluster.leader and cluster.leader.name != leader:
                     return 200, ('Successfully failed over to ' + cluster.leader.name).encode('utf-8')
+                if not cluster.failover:
+                    return 503, b'Failover failed'
             except:
                 pass
-        return 503, b'Failover failed'
+        return 503, b'Failover status unknown'
 
     def is_failover_possible(self, cluster, leader, member):
         if leader and not cluster.leader or cluster.leader.name != leader:
