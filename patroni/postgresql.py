@@ -135,8 +135,14 @@ class Postgresql:
 
     def _cursor(self):
         if not self._cursor_holder or self._cursor_holder.closed or self._cursor_holder.connection.closed != 0:
+            logger.info("established a new patroni connection to the postgres cluster")
             self._cursor_holder = self.connection().cursor()
         return self._cursor_holder
+
+    def close_connection(self):
+        if self._cursor_holder and self._cursor_holder.connection and self._cursor_holder.connection.closed == 0:
+            self._cursor_holder.connection.close()
+            logger.info("closed patroni connection to the postgresql cluster")
 
     def _query(self, sql, *params):
         cursor = None
@@ -277,6 +283,12 @@ class Postgresql:
             logging.exception('Exception during CHECKPOINT')
 
     def stop(self, mode='fast', block_callbacks=False):
+        # make sure we close all connections established against
+        # the former node, otherwise, we might get a stalled one
+        # after kill -9, which would report incorrect data to
+        # patroni.
+
+        self.close_connection()
         if not self.is_running():
             if not block_callbacks:
                 self.set_state('stopped')
@@ -324,7 +336,8 @@ class Postgresql:
         return True
 
     def check_replication_lag(self, last_leader_operation):
-        return last_leader_operation - self.xlog_position() <= self.config.get('maximum_lag_on_failover', 0)
+        return (last_leader_operation if last_leader_operation else 0) - self.xlog_position() <=\
+            self.config.get('maximum_lag_on_failover', 0)
 
     def write_pg_hba(self):
         with open(os.path.join(self.data_dir, 'pg_hba.conf'), 'a') as f:
@@ -387,7 +400,7 @@ recovery_target_timeline = 'latest'
             data = subprocess.check_output(['pg_controldata', self.data_dir])
             if data:
                 data = data.splitlines()
-                result = {l.split(':')[0]: l.split(':')[1].strip() for l in data if l}
+                result = {l.split(':')[0].replace('Current ', '', 1): l.split(':')[1].strip() for l in data if l}
         except subprocess.CalledProcessError:
             logger.exception("Error when calling pg_controldata")
         finally:
