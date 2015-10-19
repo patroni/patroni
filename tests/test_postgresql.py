@@ -429,3 +429,7 @@ class TestPostgresql(unittest.TestCase):
         self.p.cleanup_archive_status()
         mock_unlink.assert_not_called()
         mock_remove.assert_not_called()
+
+    @patch('subprocess.check_output', MagicMock(return_value=0, side_effect=pg_controldata_string))
+    def test_sysid(self):
+        self.assertEqual(self.p.sysid, "6200971513092291716")
