@@ -135,6 +135,8 @@ class TestRestApiHandler(unittest.TestCase):
         MockRestApiServer(RestApiHandler, request)
         with patch.object(MockPatroni, 'dcs') as d:
             cluster = d.get_cluster.return_value
+            cluster.leader.name = 'postgresql0'
+            MockRestApiServer(RestApiHandler, request)
             cluster.leader.name = 'postgresql1'
             cluster.failover = None
             MockRestApiServer(RestApiHandler, request)
