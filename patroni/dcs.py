@@ -123,7 +123,7 @@ class AbstractDCS:
         """
         self._name = name
         self._namespace = '/{}'.format(config.get('namespace', '/service/').strip('/'))
-        self._base_path = '/'.join([self._namespace, config['scope']])
+        self._base_path = '/'.join([self._namespace, str(config['scope']]))
 
         self._cluster = None
         self._cluster_thread_lock = Lock()
