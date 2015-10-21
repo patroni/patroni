@@ -91,7 +91,7 @@ class MockConnect(Mock):
 
 
 def pg_controldata_string(*args, **kwargs):
-    return """
+    return b"""
 pg_control version number:            942
 Catalog version number:               201509161
 Database system identifier:           6200971513092291716
@@ -434,6 +434,10 @@ class TestPostgresql(unittest.TestCase):
         self.p.cleanup_archive_status()
         mock_unlink.assert_not_called()
         mock_remove.assert_not_called()
+
+    @patch('subprocess.check_output', MagicMock(return_value=0, side_effect=pg_controldata_string))
+    def test_sysid(self):
+        self.assertEqual(self.p.sysid, "6200971513092291716")
 
     @patch('os.path.isfile', MagicMock(return_value=True))
     @patch('shutil.copy', side_effect=Exception)

@@ -177,7 +177,8 @@ class Etcd(AbstractDCS):
             nodes = {os.path.relpath(node.key, result.key): node for node in result.leaves}
 
             # get initialize flag
-            initialize = bool(nodes.get(self._INITIALIZE, False))
+            initialize = nodes.get(self._INITIALIZE, None)
+            initialize = initialize and initialize.value
 
             # get last leader operation
             last_leader_operation = nodes.get(self._LEADER_OPTIME, None)
@@ -235,8 +236,8 @@ class Etcd(AbstractDCS):
         return self.retry(self.client.test_and_set, self.leader_path, self._name, self._name, self.ttl)
 
     @catch_etcd_errors
-    def initialize(self):
-        return self.retry(self.client.write, self.initialize_path, self._name, prevExist=False)
+    def initialize(self, create_new=True, sysid=""):
+        return self.retry(self.client.write, self.initialize_path, sysid, prevExist=(not create_new))
 
     @catch_etcd_errors
     def delete_leader(self):
