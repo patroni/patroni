@@ -346,7 +346,7 @@ class TestPostgresql(unittest.TestCase):
         self.p.remove_data_directory()
 
     @patch('subprocess.check_output', MagicMock(return_value=0, side_effect=pg_controldata_string))
-    @patch('subprocess.check_output', side_effect=subprocess.CalledProcessError)
+    @patch('subprocess.check_output', side_effect=subprocess.CalledProcessError(1, ''))
     @patch('subprocess.check_output', side_effect=Exception('Failed'))
     def test_controldata(self, check_output_call_error, check_output_generic_exception):
         data = self.p.controldata()
