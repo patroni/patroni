@@ -4,12 +4,7 @@ import psycopg2
 import shutil
 import unittest
 
-from sys import version_info
-if version_info.major == 2:
-    import __builtin__ as builtins
-else:
-    import builtins
-
+from six.moves import builtins
 from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.dcs import Cluster, Leader, Member
 from patroni.exceptions import PostgresException, PostgresConnectionException
@@ -146,10 +141,10 @@ Data page checksum version:           0
 
 
 def postmaster_opts_string(*args, **kwargs):
-    return '/usr/local/pgsql/bin/postgres "-D" "data/postgresql0" "--listen_addresses=127.0.0.1" "--port=5432"'\
-        ' "--hot_standby=on" "--wal_keep_segments=8" "--wal_level=hot_standby" "--archive_command=mkdir -p ../wal_archive \n'\
-        '&& cp %p ../wal_archive/%f" "--wal_log_hints=on" "--max_wal_senders=5" "--archive_timeout=1800s" "--archive_mode=on"'\
-        ' "--max_replication_slots=5"\n'
+    return '/usr/local/pgsql/bin/postgres "-D" "data/postgresql0" "--listen_addresses=127.0.0.1" \
+"--port=5432" "--hot_standby=on" "--wal_keep_segments=8" "--wal_level=hot_standby" \
+"--archive_command=mkdir -p ../wal_archive && cp %p ../wal_archive/%f" "--wal_log_hints=on" \
+"--max_wal_senders=5" "--archive_timeout=1800s" "--archive_mode=on" "--max_replication_slots=5"\n'
 
 
 def psycopg2_connect(*args, **kwargs):

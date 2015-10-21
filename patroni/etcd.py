@@ -52,7 +52,11 @@ class Client(etcd.Client):
     def api_execute(self, path, method, **kwargs):
         # Update machines_cache if previous attempt of update has failed
         self._update_machines_cache and self._load_machines_cache()
-        return super(Client, self).api_execute(path, method, **kwargs)
+        try:
+            return super(Client, self).api_execute(path, method, **kwargs)
+        except etcd.EtcdConnectionFailed:
+            self._update_machines_cache = True
+            raise
 
     @staticmethod
     def get_srv_record(host):
