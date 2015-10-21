@@ -143,7 +143,6 @@ def socket_getaddrinfo(*args):
 
 
 def http_request(method, url, **kwargs):
-    print('http_request', method, url, kwargs)
     if url == 'http://localhost:2379/':
         return MockResponse()
     raise socket.error
