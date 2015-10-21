@@ -210,10 +210,16 @@ class TestPostgresql(unittest.TestCase):
         self.assertFalse(self.p.restart())
         self.assertEquals(self.p.state, 'restart failed (restarting)')
 
+    @patch.object(builtins, 'open', MagicMock())
+    def test_write_pgpass(self):
+        self.p.write_pgpass({'host': 'localhost', 'port': '5432', 'user': 'foo', 'password': 'bar'})
+
+    @patch('patroni.postgresql.Postgresql.write_pgpass', MagicMock(return_value=dict()))
     def test_sync_from_leader(self):
         self.assertTrue(self.p.sync_from_leader(self.leader))
 
     @patch('subprocess.call', side_effect=Exception("Test"))
+    @patch('patroni.postgresql.Postgresql.write_pgpass', MagicMock(return_value=dict()))
     def test_pg_rewind(self, mock_call):
         self.assertTrue(self.p.rewind(self.leader))
         subprocess.call = mock_call
@@ -222,6 +228,7 @@ class TestPostgresql(unittest.TestCase):
     @patch('patroni.postgresql.Postgresql.rewind', return_value=False)
     @patch('patroni.postgresql.Postgresql.remove_data_directory', MagicMock(return_value=True))
     @patch('patroni.postgresql.Postgresql.single_user_mode', MagicMock(return_value=1))
+    @patch('patroni.postgresql.Postgresql.write_pgpass', MagicMock(return_value=dict()))
     def test_follow_the_leader(self, mock_pg_rewind):
         self.p.demote()
         self.p.follow_the_leader(None)
@@ -327,6 +334,7 @@ class TestPostgresql(unittest.TestCase):
         with patch('os.rename', Mock(side_effect=OSError())):
             self.p.move_data_directory()
 
+    @patch('patroni.postgresql.Postgresql.write_pgpass', MagicMock(return_value=dict()))
     def test_bootstrap(self):
         with patch('subprocess.call', Mock(return_value=1)):
             self.assertRaises(PostgresException, self.p.bootstrap)
