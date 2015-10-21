@@ -80,7 +80,7 @@ def etcd_watch(key, index=None, timeout=None, recursive=None):
 def etcd_write(key, value, **kwargs):
     if key == '/service/exists/leader':
         raise etcd.EtcdAlreadyExist
-    if key == '/service/test/leader':
+    if key == '/service/test/leader' or key == '/patroni/test/leader':
         if kwargs.get('prevValue', None) == 'foo' or not kwargs.get('prevExist', True):
             return True
     raise etcd.EtcdException
@@ -204,10 +204,13 @@ class TestEtcd(unittest.TestCase):
     def setUp(self):
         with patch.object(Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://localhost:2379', 'http://localhost:4001'])
-            self.etcd = Etcd('foo', {'ttl': 30, 'host': 'localhost:2379', 'scope': 'test'})
+            self.etcd = Etcd('foo', {'namespace': '/patroni/', 'ttl': 30, 'host': 'localhost:2379', 'scope': 'test'})
             self.etcd.client.write = etcd_write
             self.etcd.client.read = etcd_read
             self.etcd.client.delete = Mock(side_effect=etcd.EtcdException())
+
+    def test_base_path(self):
+        self.assertEquals(self.etcd._base_path, '/patroni/test')
 
     @patch('dns.resolver.query', dns_query)
     def test_get_etcd_client(self):
