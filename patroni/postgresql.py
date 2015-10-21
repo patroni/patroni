@@ -485,19 +485,23 @@ recovery_target_timeline = 'latest'
 
     def save_configuration_files(self):
         """
-            copy postgresql.conf to postgresql.conf.backup to preserve it in the WAL-e backup.
-            see http://comments.gmane.org/gmane.comp.db.postgresql.wal-e/239
+            copy postgresql.conf to postgresql.conf.backup to be able to retrive configuration files
+            - originally stored as symlinks, those are normally skipped by pg_basebackup
+            - in case of WAL-E basebackup (see http://comments.gmane.org/gmane.comp.db.postgresql.wal-e/239)
         """
-        for f in self.configuration_to_save:
-            shutil.copy(f, f + '.backup')
+        try:
+            for f in self.configuration_to_save:
+                os.path.isfile(f) and shutil.copy(f, f + '.backup')
+        except:
+            logger.exception('unable to create backup copies of configuration files')
 
     def restore_configuration_files(self):
         """ restore a previously saved postgresql.conf """
         try:
             for f in self.configuration_to_save:
-                shutil.copy(f + '.backup', f)
+                not os.path.isfile(f) and os.path.isfile(f+'.backup') and shutil.copy(f + '.backup', f)
         except:
-            logger.exception('unable to restore configuration from WAL-E backup')
+            logger.exception('unable to restore configuration files from backup')
 
     def promote(self):
         if self.role == 'master':
@@ -585,6 +589,7 @@ recovery_target_timeline = 'latest'
                 raise PostgresException("Could not bootstrap master PostgreSQL")
         else:
             if self.sync_from_leader(current_leader):
+                self.restore_configuration_files()
                 self.write_recovery_conf(current_leader)
                 ret = self.start()
         return ret
