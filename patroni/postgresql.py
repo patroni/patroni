@@ -48,7 +48,7 @@ class Postgresql:
         self.replication = config['replication']
         self.superuser = config['superuser']
         self.admin = config['admin']
-        self.pgpass = config.get('pgpass', None)
+        self.pgpass = config.get('pgpass', None) or os.path.join(os.path.expanduser('~'), 'pgpass')
         self.pg_rewind = config.get('pg_rewind', {})
         self.callback = config.get('callbacks', {})
         self.use_slots = config.get('use_slots', True)
@@ -172,8 +172,6 @@ class Postgresql:
         os.path.exists(self.trigger_file) and os.unlink(self.trigger_file)
 
     def write_pgpass(self, record):
-        self.pgpass = self.pgpass or os.path.join(os.path.expanduser('~'), 'pgpass')
-
         with open(self.pgpass, 'w') as f:
             os.fchmod(f.fileno(), 0o600)
             f.write('{host}:{port}:*:{user}:{password}\n'.format(**record))
