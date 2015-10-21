@@ -67,7 +67,9 @@ class TestRetrySleeper(unittest.TestCase):
         self.assertRaises(RetryFailedError, retry, self._fail(times=100))
 
     def test_copy(self):
-        _sleep = lambda t: None
+        def _sleep(t):
+            None
+
         retry = self._makeOne(sleep_func=_sleep)
         rcopy = retry.copy()
         self.assertTrue(rcopy.sleep_func is _sleep)
