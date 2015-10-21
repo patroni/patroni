@@ -19,6 +19,11 @@ from test_ha import false
 import subprocess
 
 
+def is_file_raise_on_backup(*args, **kwargs):
+    if args[0].endswith('.backup'):
+        raise Exception("foo")
+
+
 class MockCursor:
 
     def __init__(self, connection):
@@ -433,3 +438,15 @@ class TestPostgresql(unittest.TestCase):
     @patch('subprocess.check_output', MagicMock(return_value=0, side_effect=pg_controldata_string))
     def test_sysid(self):
         self.assertEqual(self.p.sysid, "6200971513092291716")
+
+    @patch('os.path.isfile', MagicMock(return_value=True))
+    @patch('shutil.copy', side_effect=Exception)
+    def test_save_configuration_files(self, mock_copy):
+        shutil.copy = mock_copy
+        self.p.save_configuration_files()
+
+    @patch('os.path.isfile', MagicMock(side_effect=is_file_raise_on_backup))
+    @patch('shutil.copy', side_effect=Exception)
+    def test_restore_configuration_files(self, mock_copy):
+        shutil.copy = mock_copy
+        self.p.restore_configuration_files()
