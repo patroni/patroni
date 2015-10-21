@@ -3,6 +3,7 @@ import fcntl
 import json
 import logging
 import psycopg2
+import time
 
 from patroni.exceptions import PostgresConnectionException
 from patroni.utils import Retry, RetryFailedError
@@ -115,6 +116,56 @@ class RestApiHandler(BaseHTTPRequestHandler):
             else:
                 status_code = 200
                 data = b'reinitialize scheduled'
+
+        self.send_response(status_code)
+        self.send_header('Content-Type', 'text/html')
+        self.end_headers()
+        self.wfile.write(data)
+
+    def poll_failover_result(self, leader, member):
+        for a in range(0, 15):
+            time.sleep(1)
+            try:
+                cluster = self.server.patroni.dcs.get_cluster()
+                if cluster.leader and cluster.leader.name != leader:
+                    return 200, ('Successfully failed over to ' + cluster.leader.name).encode('utf-8')
+                if not cluster.failover:
+                    return 503, b'Failover failed'
+            except:
+                pass
+        return 503, b'Failover status unknown'
+
+    def is_failover_possible(self, cluster, leader, member):
+        if leader and not cluster.leader or cluster.leader.name != leader:
+            return b'leader name does not match'
+        if member:
+            members = [m for m in cluster.members if m.name == member]
+            if not members:
+                return b'member does not exists'
+        else:
+            members = [m for m in cluster.members if m.name != cluster.leader.name and m.api_url]
+            if not members:
+                return b'failover is not possible: cluster does not have members except leader'
+        for member, reachable, in_recovery, xlog_location in self.server.patroni.ha.fetch_nodes_statuses(members):
+            if reachable:
+                return None
+        return b'failover is not possible: no good candidates have been found'
+
+    @check_auth
+    def do_POST_failover(self):
+        content_length = int(self.headers.get('content-length', 0))
+        request = json.loads(self.rfile.read(content_length).decode('utf-8'))
+        leader = request.get('leader', None)
+        member = request.get('member', None)
+        cluster = self.server.patroni.ha.dcs.get_cluster()
+        status_code = 503
+        data = self.is_failover_possible(cluster, leader, member)
+        if not data:
+            if not self.server.patroni.dcs.manual_failover(leader, member):
+                data = b'failed to write failover key into DCS'
+            else:
+                self.server.patroni.dcs.event.set()
+                status_code, data = self.poll_failover_result(cluster.leader and cluster.leader.name, member)
 
         self.send_response(status_code)
         self.send_header('Content-Type', 'text/html')

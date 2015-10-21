@@ -70,6 +70,7 @@ class Postgresql:
         self._connection = None
         self._cursor_holder = None
         self._need_rewind = False
+        self._sysid = None
         self.replication_slots = []  # list of already existing replication slots
         self.retry = Retry(max_tries=-1, deadline=5, max_delay=1, retry_exceptions=PostgresConnectionException)
 
@@ -101,10 +102,14 @@ class Postgresql:
             return False
         # check if the cluster's configuration permits pg_rewind
         data = self.controldata()
-        if data:
-            return data.get('wal_log_hints setting', 'off') == 'on' or\
-                data.get('Data page checksum version', '0') != '0'
-        return False
+        return data.get('wal_log_hints setting', 'off') == 'on' or data.get('Data page checksum version', '0') != '0'
+
+    @property
+    def sysid(self):
+        if not self._sysid:
+            data = self.controldata()
+            self._sysid = data.get('Database system identifier', "")
+        return self._sysid
 
     def require_rewind(self):
         self._need_rewind = True
@@ -392,7 +397,7 @@ recovery_target_timeline = 'latest'
         try:
             data = subprocess.check_output(['pg_controldata', self.data_dir])
             if data:
-                data = data.splitlines()
+                data = data.decode().splitlines()
                 result = {l.split(':')[0].replace('Current ', '', 1): l.split(':')[1].strip() for l in data if l}
         except subprocess.CalledProcessError:
             logger.exception("Error when calling pg_controldata")
@@ -486,19 +491,23 @@ recovery_target_timeline = 'latest'
 
     def save_configuration_files(self):
         """
-            copy postgresql.conf to postgresql.conf.backup to preserve it in the WAL-e backup.
-            see http://comments.gmane.org/gmane.comp.db.postgresql.wal-e/239
+            copy postgresql.conf to postgresql.conf.backup to be able to retrive configuration files
+            - originally stored as symlinks, those are normally skipped by pg_basebackup
+            - in case of WAL-E basebackup (see http://comments.gmane.org/gmane.comp.db.postgresql.wal-e/239)
         """
-        for f in self.configuration_to_save:
-            shutil.copy(f, f + '.backup')
+        try:
+            for f in self.configuration_to_save:
+                os.path.isfile(f) and shutil.copy(f, f + '.backup')
+        except:
+            logger.exception('unable to create backup copies of configuration files')
 
     def restore_configuration_files(self):
         """ restore a previously saved postgresql.conf """
         try:
             for f in self.configuration_to_save:
-                shutil.copy(f + '.backup', f)
+                not os.path.isfile(f) and os.path.isfile(f+'.backup') and shutil.copy(f + '.backup', f)
         except:
-            logger.exception('unable to restore configuration from WAL-E backup')
+            logger.exception('unable to restore configuration files from backup')
 
     def promote(self):
         if self.role == 'master':
@@ -586,6 +595,7 @@ recovery_target_timeline = 'latest'
                 raise PostgresException("Could not bootstrap master PostgreSQL")
         else:
             if self.sync_from_leader(current_leader):
+                self.restore_configuration_files()
                 self.write_recovery_conf(current_leader)
                 ret = self.start()
         return ret

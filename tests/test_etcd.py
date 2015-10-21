@@ -106,13 +106,13 @@ def etcd_read(key, **kwargs):
                  "modifiedIndex": 20437, "createdIndex": 20437},
                 {"key": "/service/batman5/members", "dir": True, "nodes": [
                     {"key": "/service/batman5/members/postgresql1",
-                     "value": "postgres://replicator:rep-pass@127.0.0.1:5434/postgres"
-                        + "?application_name=http://127.0.0.1:8009/patroni",
+                     "value": "postgres://replicator:rep-pass@127.0.0.1:5434/postgres" +
+                        "?application_name=http://127.0.0.1:8009/patroni",
                      "expiration": "2015-05-15T09:10:59.949384522Z", "ttl": 21,
                      "modifiedIndex": 20727, "createdIndex": 20727},
                     {"key": "/service/batman5/members/postgresql0",
-                     "value": "postgres://replicator:rep-pass@127.0.0.1:5433/postgres"
-                        + "?application_name=http://127.0.0.1:8008/patroni",
+                     "value": "postgres://replicator:rep-pass@127.0.0.1:5433/postgres" +
+                        "?application_name=http://127.0.0.1:8008/patroni",
                      "expiration": "2015-05-15T09:11:09.611860899Z", "ttl": 30,
                      "modifiedIndex": 20730, "createdIndex": 20730}],
                  "modifiedIndex": 1581, "createdIndex": 1581}], "modifiedIndex": 1581, "createdIndex": 1581}}
@@ -165,6 +165,11 @@ class TestClient(unittest.TestCase):
         self.client._base_uri = 'http://localhost:4001'
         self.client._machines_cache = ['http://localhost:2379']
         self.client.api_execute('/', 'GET')
+        self.client._update_machines_cache = False
+        self.client._base_uri = 'http://localhost:4001'
+        self.client._machines_cache = []
+        self.assertRaises(etcd.EtcdConnectionFailed, self.client.api_execute, '/', 'GET')
+        self.assertTrue(self.client._update_machines_cache)
 
     def test_get_srv_record(self):
         self.assertEquals(self.client.get_srv_record('blabla'), [])
