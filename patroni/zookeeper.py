@@ -139,7 +139,7 @@ class ZooKeeper(AbstractDCS):
             self.fetch_cluster = True
 
         # get initialize flag
-        initialize = self.get_node(self.initialize_path)[0] if self._INITIALIZE in nodes else None
+        initialize = (self.get_node(self.initialize_path) or [None])[0] if self._INITIALIZE in nodes else None
 
         # get list of members
         members = self.load_members() if self._MEMBERS[:-1] in nodes else []
