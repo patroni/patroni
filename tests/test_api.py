@@ -44,6 +44,7 @@ class MockPatroni:
     postgresql = MockPostgresql()
     ha = MockHa()
     dcs = Mock()
+    tags = {}
 
 
 class MockRequest:

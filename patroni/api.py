@@ -46,6 +46,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         path = '/master' if self.path == '/' else self.path
         response = self.get_postgresql_status()
+        response.update(self.get_tags())
 
         patroni = self.server.patroni
         cluster = patroni.dcs.cluster
@@ -75,6 +76,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     def do_GET_patroni(self):
         response = self.get_postgresql_status(True)
+        response.update(self.get_tags())
 
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
@@ -173,6 +175,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 logger.exception('get_postgresql_status')
                 state = 'unknown' if state == 'running' else state
             return {'state': state}
+
+    def get_tags(self):
+        return {'tags': self.server.patroni.tags}
 
 
 class RestApiServer(ThreadingMixIn, HTTPServer, Thread):

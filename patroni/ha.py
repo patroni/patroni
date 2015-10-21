@@ -50,7 +50,8 @@ class Ha:
             'conn_url': self.state_handler.connection_string,
             'api_url': self.patroni.api.connection_string,
             'state': self.state_handler.state,
-            'role': self.state_handler.role
+            'role': self.state_handler.role,
+            'tags': self.patroni.tags
         }
         if data['state'] in ['running', 'restarting', 'starting']:
             try:

@@ -82,6 +82,7 @@ class MockPatroni:
         self.postgresql = p
         self.dcs = d
         self.api = Mock()
+        self.tags = {}
         self.api.connection_string = 'http://127.0.0.1:8008'
 
 

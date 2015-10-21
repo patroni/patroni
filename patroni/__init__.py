@@ -18,6 +18,7 @@ class Patroni:
 
     def __init__(self, config):
         self.nap_time = config['loop_wait']
+        self.tags = config.get('tags', dict())
         self.postgresql = Postgresql(config['postgresql'])
         self.dcs = self.get_dcs(self.postgresql.name, config)
         host, port = config['restapi']['listen'].split(':')
