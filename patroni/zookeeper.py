@@ -271,7 +271,7 @@ class ZooKeeper(AbstractDCS):
 
     def _cancel_initialization(self):
         node = self.get_node(self.initialize_path)
-        if node and node[0] == self._name:
+        if node:
             self.client.delete(self.initialize_path, version=node[1].version)
 
     def cancel_initialization(self):
