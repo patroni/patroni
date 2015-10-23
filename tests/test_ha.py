@@ -275,21 +275,21 @@ class TestHa(unittest.TestCase):
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
         self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', 'leader'))
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
-        self.ha.fetch_node_status = lambda e: (e, True, True, 0)  # accessible, in_recovery
+        self.ha.fetch_node_status = lambda e: (e, True, True, 0, {})  # accessible, in_recovery
         self.assertEquals(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
         self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, MockPostgresql.name, ''))
         self.assertEquals(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
-        self.ha.fetch_node_status = lambda e: (e, False, True, 0)  # accessible, in_recovery
+        self.ha.fetch_node_status = lambda e: (e, False, True, 0, {})  # accessible, in_recovery
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
 
     def test__is_healthiest_node(self):
         self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         self.p.is_leader = false
-        self.ha.fetch_node_status = lambda e: (e, True, True, 0)  # accessible, in_recovery
+        self.ha.fetch_node_status = lambda e: (e, True, True, 0, {})  # accessible, in_recovery
         self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
-        self.ha.fetch_node_status = lambda e: (e, True, False, 0)  # accessible, not in_recovery
+        self.ha.fetch_node_status = lambda e: (e, True, False, 0, {})  # accessible, not in_recovery
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
-        self.ha.fetch_node_status = lambda e: (e, True, True, 1)  # accessible, in_recovery, xlog location ahead
+        self.ha.fetch_node_status = lambda e: (e, True, True, 1, {})  # accessible, in_recovery, xlog location ahead
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         self.p.check_replication_lag = false
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
