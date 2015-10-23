@@ -249,7 +249,7 @@ class Etcd(AbstractDCS):
 
     @catch_etcd_errors
     def cancel_initialization(self):
-        return self.retry(self.client.delete, self.initialize_path, prevValue=self._name)
+        return self.retry(self.client.delete, self.initialize_path)
 
     def watch(self, timeout):
         cluster = self.cluster
