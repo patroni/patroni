@@ -3,12 +3,17 @@ import unittest
 
 from mock import Mock, patch
 from patroni.api import RestApiHandler, RestApiServer
+from patroni.dcs import Member
 from six import BytesIO as IO
 from six.moves import BaseHTTPServer
 from test_postgresql import psycopg2_connect, MockCursor
 
 
 class MockPostgresql(Mock):
+
+    name = 'test'
+    state = 'running'
+    role = 'master'
 
     def connection(self):
         return psycopg2_connect()
@@ -17,9 +22,32 @@ class MockPostgresql(Mock):
         return True
 
 
+class MockHa(Mock):
+
+    dcs = Mock()
+    state_handler = MockPostgresql()
+
+    def schedule_restart(self):
+        return 'restart'
+
+    def schedule_reinitialize(self):
+        return 'reinitialize'
+
+    def restart(self):
+        return (True, '')
+
+    def restart_scheduled(self):
+        return False
+
+    def fetch_nodes_statuses(self, members):
+        return [[None, True, None, None]]
+
+
 class MockPatroni:
 
     postgresql = MockPostgresql()
+    ha = MockHa()
+    dcs = Mock()
 
 
 class MockRequest:
@@ -47,17 +75,45 @@ class MockRestApiServer(RestApiServer):
 class TestRestApiHandler(unittest.TestCase):
 
     def test_do_GET(self):
-        MockRestApiServer(RestApiHandler, b'GET /')
-        with patch.object(RestApiServer, 'query', Mock(side_effect=psycopg2.OperationalError())):
-            MockRestApiServer(RestApiHandler, b'GET /')
-
-    def test_do_GET_sampleauth(self):
-        MockRestApiServer(RestApiHandler, b'GET /sampleauth')
-        MockRestApiServer(RestApiHandler, b'GET /sampleauth\nAuthorization:')
-        MockRestApiServer(RestApiHandler, b'GET /sampleauth\nAuthorization: Basic dGVzdDp0ZXN0')
+        MockRestApiServer(RestApiHandler, b'GET /replica')
+        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={})):
+            MockRestApiServer(RestApiHandler, b'GET /replica')
+        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'master'})):
+            MockRestApiServer(RestApiHandler, b'GET /replica')
+        MockRestApiServer(RestApiHandler, b'GET /master')
+        MockPatroni.dcs.cluster.leader.name = MockPostgresql.name
+        MockRestApiServer(RestApiHandler, b'GET /replica')
+        MockPatroni.dcs.cluster = None
+        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'master'})):
+            MockRestApiServer(RestApiHandler, b'GET /master')
+        with patch.object(MockHa, 'restart_scheduled', Mock(return_value=True)):
+            MockRestApiServer(RestApiHandler, b'GET /master')
+        MockRestApiServer(RestApiHandler, b'GET /master')
 
     def test_do_GET_patroni(self):
         MockRestApiServer(RestApiHandler, b'GET /patroni')
+
+    def test_basicauth(self):
+        MockRestApiServer(RestApiHandler, b'POST /restart HTTP/1.0')
+        MockRestApiServer(RestApiHandler, b'POST /restart HTTP/1.0\nAuthorization:')
+
+    def test_do_POST_restart(self):
+        request = b'POST /restart HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0'
+        MockRestApiServer(RestApiHandler, request)
+        with patch.object(MockHa, 'restart', Mock(side_effect=Exception)):
+            MockRestApiServer(RestApiHandler, request)
+
+    @patch.object(MockHa, 'dcs')
+    def test_do_POST_reinitialize(self, dcs):
+        cluster = dcs.get_cluster.return_value
+        request = b'POST /reinitialize HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0'
+        MockRestApiServer(RestApiHandler, request)
+        cluster.is_unlocked.return_value = False
+        MockRestApiServer(RestApiHandler, request)
+        with patch.object(MockHa, 'schedule_reinitialize', Mock(return_value=None)):
+            MockRestApiServer(RestApiHandler, request)
+        cluster.leader.name = 'test'
+        MockRestApiServer(RestApiHandler, request)
 
     @patch('time.sleep', Mock())
     def test_RestApiServer_query(self):
@@ -65,3 +121,31 @@ class TestRestApiHandler(unittest.TestCase):
             MockRestApiServer(RestApiHandler, b'GET /patroni')
         with patch.object(MockPostgresql, 'connection', Mock(side_effect=psycopg2.OperationalError)):
             MockRestApiServer(RestApiHandler, b'GET /patroni')
+
+    @patch('time.sleep', Mock())
+    @patch.object(MockHa, 'dcs')
+    def test_do_POST_failover(self, dcs):
+        cluster = dcs.get_cluster.return_value
+        request = b'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\n' +\
+                  b'Content-Length: 25\n\n{"leader": "postgresql1"}'
+        MockRestApiServer(RestApiHandler, request)
+        cluster.leader.name = 'postgresql1'
+        MockRestApiServer(RestApiHandler, request)
+        cluster.members = [Member(0, 'postgresql0', 30, {'api_url': 'http'})]
+        MockRestApiServer(RestApiHandler, request)
+        with patch.object(MockPatroni, 'dcs') as d:
+            cluster = d.get_cluster.return_value
+            cluster.leader.name = 'postgresql0'
+            MockRestApiServer(RestApiHandler, request)
+            cluster.leader.name = 'postgresql1'
+            cluster.failover = None
+            MockRestApiServer(RestApiHandler, request)
+            d.get_cluster = Mock(side_effect=Exception())
+            MockRestApiServer(RestApiHandler, request)
+            d.manual_failover.return_value = False
+            MockRestApiServer(RestApiHandler, request)
+        with patch.object(MockHa, 'fetch_nodes_statuses', Mock(return_value=[])):
+            MockRestApiServer(RestApiHandler, request)
+        request = b'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\n' +\
+                  b'Content-Length: 50\n\n{"leader": "postgresql1", "member": "postgresql2"}'
+        MockRestApiServer(RestApiHandler, request)

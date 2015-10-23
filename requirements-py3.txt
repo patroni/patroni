@@ -1,7 +1,7 @@
 boto
 mock
 dnspython3
-psycopg2
+psycopg2>=2.6.1
 PyYAML
 requests
 six

@@ -1,4 +1,3 @@
-import datetime
 import etcd
 import json
 import requests
@@ -8,7 +7,7 @@ import unittest
 
 from dns.exception import DNSException
 from mock import Mock, patch
-from patroni.dcs import Cluster, DCSError, Leader, Member
+from patroni.dcs import Cluster, DCSError, Leader
 from patroni.etcd import Client, Etcd
 
 
@@ -50,6 +49,8 @@ def requests_get(url, **kwargs):
     response = MockResponse()
     if url.startswith('http://local'):
         raise requests.exceptions.RequestException()
+    elif ':8011/patroni' in url:
+        response.content = '{"role": "replica", "xlog": {"replayed_location": 0}}'
     elif url.endswith('/members'):
         if url.startswith('http://error'):
             response.content = '[{}]'
@@ -92,6 +93,8 @@ def etcd_read(key, **kwargs):
         raise etcd.EtcdKeyNotFound
 
     response = {"action": "get", "node": {"key": "/service/batman5", "dir": True, "nodes": [
+                {"key": "/service/batman5/failover", "value": "",
+                 "modifiedIndex": 1582, "createdIndex": 1582},
                 {"key": "/service/batman5/initialize", "value": "postgresql0",
                  "modifiedIndex": 1582, "createdIndex": 1582},
                 {"key": "/service/batman5/leader", "value": "postgresql1",
@@ -103,13 +106,13 @@ def etcd_read(key, **kwargs):
                  "modifiedIndex": 20437, "createdIndex": 20437},
                 {"key": "/service/batman5/members", "dir": True, "nodes": [
                     {"key": "/service/batman5/members/postgresql1",
-                     "value": "postgres://replicator:rep-pass@127.0.0.1:5434/postgres"
-                        + "?application_name=http://127.0.0.1:8009/patroni",
+                     "value": "postgres://replicator:rep-pass@127.0.0.1:5434/postgres" +
+                        "?application_name=http://127.0.0.1:8009/patroni",
                      "expiration": "2015-05-15T09:10:59.949384522Z", "ttl": 21,
                      "modifiedIndex": 20727, "createdIndex": 20727},
                     {"key": "/service/batman5/members/postgresql0",
-                     "value": "postgres://replicator:rep-pass@127.0.0.1:5433/postgres"
-                        + "?application_name=http://127.0.0.1:8008/patroni",
+                     "value": "postgres://replicator:rep-pass@127.0.0.1:5433/postgres" +
+                        "?application_name=http://127.0.0.1:8008/patroni",
                      "expiration": "2015-05-15T09:11:09.611860899Z", "ttl": 30,
                      "modifiedIndex": 20730, "createdIndex": 20730}],
                  "modifiedIndex": 1581, "createdIndex": 1581}], "modifiedIndex": 1581, "createdIndex": 1581}}
@@ -145,15 +148,6 @@ def http_request(method, url, **kwargs):
     raise socket.error
 
 
-class TestMember(unittest.TestCase):
-
-    def test_real_ttl(self):
-        now = datetime.datetime.utcnow()
-        member = Member(0, 'a', 'b', 'c', (now + datetime.timedelta(seconds=2)).strftime('%Y-%m-%dT%H:%M:%S.%fZ'), None)
-        self.assertLess(member.real_ttl(), 2)
-        self.assertEquals(Member(0, 'a', 'b', 'c', '', None).real_ttl(), -1)
-
-
 @patch('dns.resolver.query', dns_query)
 @patch('socket.getaddrinfo', socket_getaddrinfo)
 @patch('requests.get', requests_get)
@@ -171,6 +165,11 @@ class TestClient(unittest.TestCase):
         self.client._base_uri = 'http://localhost:4001'
         self.client._machines_cache = ['http://localhost:2379']
         self.client.api_execute('/', 'GET')
+        self.client._update_machines_cache = False
+        self.client._base_uri = 'http://localhost:4001'
+        self.client._machines_cache = []
+        self.assertRaises(etcd.EtcdConnectionFailed, self.client.api_execute, '/', 'GET')
+        self.assertTrue(self.client._update_machines_cache)
 
     def test_get_srv_record(self):
         self.assertEquals(self.client.get_srv_record('blabla'), [])
@@ -199,7 +198,6 @@ class TestClient(unittest.TestCase):
         self.assertRaises(etcd.EtcdException, self.client._load_machines_cache)
 
 
-@patch('time.sleep', Mock())
 @patch('requests.get', requests_get)
 class TestEtcd(unittest.TestCase):
 
@@ -242,8 +240,11 @@ class TestEtcd(unittest.TestCase):
         self.etcd._base_path = '/service/failed'
         self.assertFalse(self.etcd.attempt_to_acquire_leader())
 
+    def test_write_leader_optime(self):
+        self.etcd.write_leader_optime('0')
+
     def test_update_leader(self):
-        self.assertTrue(self.etcd.update_leader(MockPostgresql()))
+        self.assertTrue(self.etcd.update_leader())
 
     def test_initialize(self):
         self.assertFalse(self.etcd.initialize())
@@ -256,7 +257,7 @@ class TestEtcd(unittest.TestCase):
 
     def test_watch(self):
         self.etcd.client.watch = etcd_watch
-        self.etcd.watch(100)
+        self.etcd.watch(0)
         self.etcd.get_cluster()
         self.etcd.watch(1.5)
         self.etcd.watch(4.5)

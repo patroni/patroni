@@ -7,7 +7,7 @@ from patroni.zookeeper import ExhibitorEnsembleProvider, ZooKeeper, ZooKeeperErr
 from kazoo.client import KazooState
 from kazoo.exceptions import NoNodeError, NodeExistsError
 from kazoo.protocol.states import ZnodeStat
-from test_etcd import MockPostgresql, SleepException, requests_get
+from test_etcd import SleepException, requests_get
 
 
 class MockKazooClient(Mock):
@@ -31,7 +31,7 @@ class MockKazooClient(Mock):
         elif '/members/' in path:
             return (
                 b'postgres://repuser:rep-pass@localhost:5434/postgres?application_name=http://127.0.0.1:8009/patroni',
-                ZnodeStat(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+                ZnodeStat(0, 0, 0, 0, 0, 0, 0, 0 if self.exists else -1, 0, 0, 0)
             )
         elif path.endswith('/optime/leader'):
             return (b'1', ZnodeStat(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
@@ -41,14 +41,15 @@ class MockKazooClient(Mock):
             return (b'foo', ZnodeStat(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
         elif path.endswith('/initialize'):
             return (b'foo', ZnodeStat(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+        return (b'', ZnodeStat(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
 
     def get_children(self, path, watch=None, include_data=False):
         if not isinstance(path, six.string_types):
             raise TypeError("Invalid type for 'path' (string expected)")
-        if path == '/no_node':
+        if path.startswith('/no_node'):
             raise NoNodeError
         elif path in ['/service/bla/', '/service/test/']:
-            return ['initialize', 'leader', 'members', 'optime']
+            return ['initialize', 'leader', 'members', 'optime', 'failover']
         return ['foo', 'bar', 'buzz']
 
     def create(self, path, value=b"", acl=None, ephemeral=False, sequence=False, makepath=False):
@@ -68,6 +69,14 @@ class MockKazooClient(Mock):
             raise TypeError("Invalid type for 'value' (must be a byte string)")
         if path == '/service/bla/optime/leader':
             raise Exception
+        if path == '/service/test/members/bar':
+            if value == b'retry':
+                return
+        if path == '/service/test/failover':
+            if value == b'Exception':
+                raise Exception
+            elif value == b'ok':
+                return
         raise NoNodeError
 
     def delete(self, path, version=-1, recursive=False):
@@ -79,7 +88,9 @@ class MockKazooClient(Mock):
                 return
             self.leader = True
             raise Exception
-        elif path.endswith('/initialize'):
+        elif path == '/service/test/members/buzz':
+            raise Exception
+        elif path.endswith('/initialize') or path == '/service/test/members/bar':
             raise NoNodeError
 
 
@@ -110,6 +121,8 @@ class TestZooKeeper(unittest.TestCase):
     def test__inner_load_cluster(self):
         self.zk._base_path = self.zk._base_path.replace('test', 'bla')
         self.zk._inner_load_cluster()
+        self.zk._base_path = self.zk._base_path = '/no_node'
+        self.zk._inner_load_cluster()
 
     def test_get_cluster(self):
         self.assertRaises(ZooKeeperError, self.zk.get_cluster)
@@ -119,6 +132,11 @@ class TestZooKeeper(unittest.TestCase):
         self.zk.touch_member('foo')
         self.zk.delete_leader()
 
+    def test_set_failover_value(self):
+        self.zk.set_failover_value('')
+        self.zk.set_failover_value('ok')
+        self.zk.set_failover_value('Exception')
+
     def test_initialize(self):
         self.assertFalse(self.zk.initialize())
 
@@ -126,21 +144,33 @@ class TestZooKeeper(unittest.TestCase):
         self.zk.cancel_initialization()
 
     def test_touch_member(self):
+        self.zk._name = 'buzz'
+        self.zk.get_cluster()
         self.zk.touch_member('new')
+        self.zk._name = 'bar'
+        self.zk.touch_member('new')
+        self.zk._name = 'na'
+        self.zk.client.exists = 1
         self.zk.touch_member('exists')
+        self.zk._name = 'bar'
+        self.zk.touch_member('retry')
+        self.zk.fetch_cluster = True
+        self.zk.get_cluster()
         self.zk.touch_member('retry')
 
     def test_take_leader(self):
         self.zk.take_leader()
 
     def test_update_leader(self):
-        self.zk.last_leader_operation = -1
-        self.assertTrue(self.zk.update_leader(MockPostgresql()))
+        self.assertTrue(self.zk.update_leader())
+
+    def test_write_leader_optime(self):
+        self.zk.last_leader_operation = '0'
+        self.zk.write_leader_optime('1')
         self.zk._base_path = self.zk._base_path.replace('test', 'bla')
-        self.zk.last_leader_operation = -1
-        self.assertTrue(self.zk.update_leader(MockPostgresql()))
+        self.zk.write_leader_optime('2')
 
     def test_watch(self):
         self.zk.watch(0)
-        self.zk.cluster_event.isSet = lambda: False
+        self.zk.event.isSet = lambda: True
         self.zk.watch(0)
