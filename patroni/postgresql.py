@@ -194,9 +194,9 @@ class Postgresql:
     @staticmethod
     def build_connstring(conn):
         mconn = ""
-        for param, val in conn.iteritems():
+        for param, val in conn.items():
             mconn = mconn + "{0}={1} ".format(param, val)
-            
+
         return mconn
 
     def create_replica(self, master_connection, env):
@@ -204,8 +204,6 @@ class Postgresql:
         # defined by the user.  this is a list, so we need to
         # loop through all methods the user supplies
         connstring = self.build_connstring(master_connection)
-        env = os.environ.copy()
-        env['PGPASSFILE'] = 'pgpass'
         # get list of replica methods from config
         replica_list = self.config.get('create_replica_method', 'basebackup')
         replica_methods = [rm.strip() for rm in replica_list.split(',')]
@@ -227,18 +225,18 @@ class Postgresql:
                         cmd = self.config[replica_method]["command"]
                     else:
                         cmd = replica_method
-                        
+
                     # get the rest of the replica config
                     method_config = self.config[replica_method].copy()
                     # remove the command and turn it into a shlex set
                     del method_config["command"]
                     # add the default parameters
-                    method_config.update({"scope": self.scope, 
-                                          "role" : "replica",
-                                          "datadir" : self.data_dir,
-                                          "connstring" : self.connstring})
-                    params = ["--{0}={1}".format(arg, val) for arg, val in method_config.iteritems()]
-                    
+                    method_config.update({"scope": self.scope,
+                                          "role": "replica",
+                                          "datadir": self.data_dir,
+                                          "connstring": self.connstring})
+                    params = ["--{0}={1}".format(arg, val) for arg, val in method_config.items()]
+
                 try:
                     # call script with the full set of parameters
                     ret = subprocess.call(shlex.split(cmd) + shlex.split(method_config), env=env)
@@ -248,7 +246,7 @@ class Postgresql:
                 except Exception as e:
                     logger.exception('Error creating replica using method {0}: {1}'.format(replica_method, e.str))
                     ret = 1
-                    
+
         # out of methods, return 1
         return 1
 
@@ -548,7 +546,7 @@ recovery_target_timeline = 'latest'
         """ restore a previously saved postgresql.conf """
         try:
             for f in self.configuration_to_save:
-                not os.path.isfile(f) and os.path.isfile(f+'.backup') and shutil.copy(f + '.backup', f)
+                not os.path.isfile(f) and os.path.isfile(f + '.backup') and shutil.copy(f + '.backup', f)
         except:
             logger.exception('unable to restore configuration files from backup')
 
@@ -666,29 +664,28 @@ recovery_target_timeline = 'latest'
         except:
             logger.exception('Could not remove data directory %s', self.data_dir)
             self.move_data_directory()
-            
+
     def basebackup(self, master_connection, env):
-        # creates a replica data dir using pg_basebackup.  
+        # creates a replica data dir using pg_basebackup.
         # this is the default, built-in create_replica_method
         # tries twice, then returns failure (as 1)
         # uses "stream" as the xlog-method to avoid sync issues
-        bbfailures = 0;
-        maxfailures = 2;
+        bbfailures = 0
+        maxfailures = 2
         ret = 1
         while bbfailures < maxfailures:
             try:
-                ret = subprocess.call(['pg_basebackup', '-R', '--pgdata=%s' % self.data_dir,
-                            '--xlog-method=stream', "--dbname=%s" % master_connection],
-                            env=env)
+                ret = subprocess.call(['pg_basebackup', '-R', '--pgdata=' + self.data_dir,
+                                       '--xlog-method=stream', "--dbname=" + master_connection], env=env)
                 if ret == 0:
                     break
-                
+
             except Exception as e:
                 logger.error('Error when fetching backup with pg_basebackup: {0}'.format(e))
-                
+
             bbfailures += 1
             if bbfailures < maxfailures:
                 logger.error('Trying again in 5 seconds')
             time.sleep(5)
-                
+
         return ret
