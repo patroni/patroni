@@ -34,6 +34,7 @@ postgresql:
   data_dir: data/postgresql0
   maximum_lag_on_failover: 1048576 # 1 megabyte in bytes
   use_slots: True
+  pgpass: /tmp/pgpass0
   pg_rewind:
     username: postgres
     password: zalando

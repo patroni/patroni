@@ -126,8 +126,8 @@ class AbstractDCS:
             i.e.: `zookeeper` for zookeeper, `etcd` for etcd, etc...
         """
         self._name = name
-        self._scope = config['scope']
-        self._base_path = '/service/' + self._scope
+        self._namespace = '/{}'.format(config.get('namespace', '/service/').strip('/'))
+        self._base_path = '/'.join([self._namespace, config['scope']])
 
         self._cluster = None
         self._cluster_thread_lock = Lock()
@@ -244,8 +244,11 @@ class AbstractDCS:
         overwriting the key if necessary."""
 
     @abc.abstractmethod
-    def initialize(self):
+    def initialize(self, create_new=True, sysid=""):
         """Race for cluster initialization.
+
+        :param create_new: False if the key should already exist (in the case we are setting the system_id)
+        :param sysid: PostgreSQL cluster system identifier, if specified, is written to the key
         :returns: `!True` if key has been created successfully.
 
         this method should create atomically initialize key and return `!True`

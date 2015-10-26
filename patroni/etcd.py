@@ -52,7 +52,11 @@ class Client(etcd.Client):
     def api_execute(self, path, method, **kwargs):
         # Update machines_cache if previous attempt of update has failed
         self._update_machines_cache and self._load_machines_cache()
-        return super(Client, self).api_execute(path, method, **kwargs)
+        try:
+            return super(Client, self).api_execute(path, method, **kwargs)
+        except etcd.EtcdConnectionFailed:
+            self._update_machines_cache = True
+            raise
 
     @staticmethod
     def get_srv_record(host):
@@ -177,7 +181,8 @@ class Etcd(AbstractDCS):
             nodes = {os.path.relpath(node.key, result.key): node for node in result.leaves}
 
             # get initialize flag
-            initialize = bool(nodes.get(self._INITIALIZE, False))
+            initialize = nodes.get(self._INITIALIZE, None)
+            initialize = initialize and initialize.value
 
             # get last leader operation
             last_leader_operation = nodes.get(self._LEADER_OPTIME, None)
@@ -235,8 +240,8 @@ class Etcd(AbstractDCS):
         return self.retry(self.client.test_and_set, self.leader_path, self._name, self._name, self.ttl)
 
     @catch_etcd_errors
-    def initialize(self):
-        return self.retry(self.client.write, self.initialize_path, self._name, prevExist=False)
+    def initialize(self, create_new=True, sysid=""):
+        return self.retry(self.client.write, self.initialize_path, sysid, prevExist=(not create_new))
 
     @catch_etcd_errors
     def delete_leader(self):
@@ -244,7 +249,7 @@ class Etcd(AbstractDCS):
 
     @catch_etcd_errors
     def cancel_initialization(self):
-        return self.retry(self.client.delete, self.initialize_path, prevValue=self._name)
+        return self.retry(self.client.delete, self.initialize_path)
 
     def watch(self, timeout):
         cluster = self.cluster

@@ -139,7 +139,7 @@ class ZooKeeper(AbstractDCS):
             self.fetch_cluster = True
 
         # get initialize flag
-        initialize = self._INITIALIZE in nodes
+        initialize = (self.get_node(self.initialize_path) or [None])[0] if self._INITIALIZE in nodes else None
 
         # get list of members
         members = self.load_members() if self._MEMBERS[:-1] in nodes else []
@@ -198,13 +198,14 @@ class ZooKeeper(AbstractDCS):
             self.client.retry(self.client.set, self.failover_path, value.encode('utf-8'), version=index or -1)
             return True
         except NoNodeError:
-            return value == '' or (not index and self._create(self.failover_path, value.encode('utf-8')))
+            return value == '' or (not index and self._create(self.failover_path, value))
         except:
             logging.exception('set_failover_value')
             return False
 
-    def initialize(self):
-        return self._create(self.initialize_path, self._name, makepath=True)
+    def initialize(self, create_new=True, sysid=""):
+        return self._create(self.initialize_path, sysid, makepath=True) if create_new \
+            else self.client.retry(self.client.set, self.initialize_path,  sysid.encode("utf-8"))
 
     def touch_member(self, data, ttl=None):
         cluster = self.cluster
@@ -270,7 +271,7 @@ class ZooKeeper(AbstractDCS):
 
     def _cancel_initialization(self):
         node = self.get_node(self.initialize_path)
-        if node and node[0] == self._name:
+        if node:
             self.client.delete(self.initialize_path, version=node[1].version)
 
     def cancel_initialization(self):

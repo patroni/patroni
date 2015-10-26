@@ -4,12 +4,7 @@ import psycopg2
 import shutil
 import unittest
 
-from sys import version_info
-if version_info.major == 2:
-    import __builtin__ as builtins
-else:
-    import builtins
-
+from six.moves import builtins
 from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.dcs import Cluster, Leader, Member
 from patroni.exceptions import PostgresException, PostgresConnectionException
@@ -17,6 +12,11 @@ from patroni.postgresql import Postgresql
 from patroni.utils import RetryFailedError
 from test_ha import false
 import subprocess
+
+
+def is_file_raise_on_backup(*args, **kwargs):
+    if args[0].endswith('.backup'):
+        raise Exception("foo")
 
 
 class MockCursor:
@@ -86,7 +86,7 @@ class MockConnect(Mock):
 
 
 def pg_controldata_string(*args, **kwargs):
-    return """
+    return b"""
 pg_control version number:            942
 Catalog version number:               201509161
 Database system identifier:           6200971513092291716
@@ -141,10 +141,10 @@ Data page checksum version:           0
 
 
 def postmaster_opts_string(*args, **kwargs):
-    return '/usr/local/pgsql/bin/postgres "-D" "data/postgresql0" "--listen_addresses=127.0.0.1" "--port=5432"'\
-        ' "--hot_standby=on" "--wal_keep_segments=8" "--wal_level=hot_standby" "--archive_command=mkdir -p ../wal_archive \n'\
-        '&& cp %p ../wal_archive/%f" "--wal_log_hints=on" "--max_wal_senders=5" "--archive_timeout=1800s" "--archive_mode=on"'\
-        ' "--max_replication_slots=5"\n'
+    return '/usr/local/pgsql/bin/postgres "-D" "data/postgresql0" "--listen_addresses=127.0.0.1" \
+"--port=5432" "--hot_standby=on" "--wal_keep_segments=8" "--wal_level=hot_standby" \
+"--archive_command=mkdir -p ../wal_archive && cp %p ../wal_archive/%f" "--wal_log_hints=on" \
+"--max_wal_senders=5" "--archive_timeout=1800s" "--archive_mode=on" "--max_replication_slots=5"\n'
 
 
 def psycopg2_connect(*args, **kwargs):
@@ -210,10 +210,16 @@ class TestPostgresql(unittest.TestCase):
         self.assertFalse(self.p.restart())
         self.assertEquals(self.p.state, 'restart failed (restarting)')
 
+    @patch.object(builtins, 'open', MagicMock())
+    def test_write_pgpass(self):
+        self.p.write_pgpass({'host': 'localhost', 'port': '5432', 'user': 'foo', 'password': 'bar'})
+
+    @patch('patroni.postgresql.Postgresql.write_pgpass', MagicMock(return_value=dict()))
     def test_sync_from_leader(self):
         self.assertTrue(self.p.sync_from_leader(self.leader))
 
     @patch('subprocess.call', side_effect=Exception("Test"))
+    @patch('patroni.postgresql.Postgresql.write_pgpass', MagicMock(return_value=dict()))
     def test_pg_rewind(self, mock_call):
         self.assertTrue(self.p.rewind(self.leader))
         subprocess.call = mock_call
@@ -222,6 +228,7 @@ class TestPostgresql(unittest.TestCase):
     @patch('patroni.postgresql.Postgresql.rewind', return_value=False)
     @patch('patroni.postgresql.Postgresql.remove_data_directory', MagicMock(return_value=True))
     @patch('patroni.postgresql.Postgresql.single_user_mode', MagicMock(return_value=1))
+    @patch('patroni.postgresql.Postgresql.write_pgpass', MagicMock(return_value=dict()))
     def test_follow_the_leader(self, mock_pg_rewind):
         self.p.demote()
         self.p.follow_the_leader(None)
@@ -327,6 +334,7 @@ class TestPostgresql(unittest.TestCase):
         with patch('os.rename', Mock(side_effect=OSError())):
             self.p.move_data_directory()
 
+    @patch('patroni.postgresql.Postgresql.write_pgpass', MagicMock(return_value=dict()))
     def test_bootstrap(self):
         with patch('subprocess.call', Mock(return_value=1)):
             self.assertRaises(PostgresException, self.p.bootstrap)
@@ -429,3 +437,19 @@ class TestPostgresql(unittest.TestCase):
         self.p.cleanup_archive_status()
         mock_unlink.assert_not_called()
         mock_remove.assert_not_called()
+
+    @patch('subprocess.check_output', MagicMock(return_value=0, side_effect=pg_controldata_string))
+    def test_sysid(self):
+        self.assertEqual(self.p.sysid, "6200971513092291716")
+
+    @patch('os.path.isfile', MagicMock(return_value=True))
+    @patch('shutil.copy', side_effect=Exception)
+    def test_save_configuration_files(self, mock_copy):
+        shutil.copy = mock_copy
+        self.p.save_configuration_files()
+
+    @patch('os.path.isfile', MagicMock(side_effect=is_file_raise_on_backup))
+    @patch('shutil.copy', side_effect=Exception)
+    def test_restore_configuration_files(self, mock_copy):
+        shutil.copy = mock_copy
+        self.p.restore_configuration_files()

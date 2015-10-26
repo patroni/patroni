@@ -1,7 +1,7 @@
 import etcd
 import unittest
 
-from mock import Mock, patch
+from mock import Mock, MagicMock, patch
 from patroni.dcs import Cluster, Failover, Leader, Member
 from patroni.etcd import Client, Etcd
 from patroni.exceptions import DCSError, PostgresException
@@ -131,6 +131,12 @@ class TestHa(unittest.TestCase):
         self.p.is_healthy = false
         self.ha.has_lock = true
         self.assertEquals(self.ha.run_cycle(), 'removed leader key after trying and failing to start postgres')
+
+    @patch('sys.exit', return_value=1)
+    @patch('patroni.ha.Ha.sysid_valid', MagicMock(return_value=True))
+    def test_sysid_no_match(self, exit_mock):
+        self.ha.run_cycle()
+        exit_mock.assert_called_once_with(1)
 
     @patch.object(Cluster, 'is_unlocked', Mock(return_value=False))
     def test_start_as_readonly(self):
