@@ -26,6 +26,10 @@ class Patroni:
         self.ha = Ha(self)
         self.next_run = time.time()
 
+    @property
+    def nofailover(self):
+        return self.tags.get('nofailover')
+
     @staticmethod
     def get_dcs(name, config):
         if 'etcd' in config:

@@ -169,15 +169,14 @@ class Ha:
         if self.state_handler.is_leader():
             return True
 
-        if self.patroni.tags.get('nofailover') is True:
+        if self.patroni.nofailover is True:
             return False
 
         if check_replication_lag and not self.state_handler.check_replication_lag(self.cluster.last_leader_operation):
             return False  # Too far behind last reported xlog location on master
 
         # Prepare list of nodes to run check against
-        members = [m for m in members if m.name != self.state_handler.name
-                   and not m.data.get('tags', {}).get('nofailover', None) and m.api_url]
+        members = [m for m in members if m.name != self.state_handler.name and not m.nofailover and m.api_url]
 
         if members:
             my_xlog_location = self.state_handler.xlog_position()
@@ -192,7 +191,7 @@ class Ha:
 
     def is_failover_possible(self, members):
         ret = False
-        members = [m for m in members if m.name != self.state_handler.name and m.api_url]
+        members = [m for m in members if m.name != self.state_handler.name and not m.nofailover and m.api_url]
         if members:
             for member, reachable, in_recovery, xlog_location, tags in self.fetch_nodes_statuses(members):
                 if reachable and not tags.get('nofailover'):

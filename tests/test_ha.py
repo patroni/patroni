@@ -83,6 +83,7 @@ class MockPatroni:
         self.dcs = d
         self.api = Mock()
         self.tags = {}
+        self.nofailover = None
         self.api.connection_string = 'http://127.0.0.1:8008'
 
 
