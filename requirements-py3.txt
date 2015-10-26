@@ -8,3 +8,4 @@ six
 kazoo>=2.2.1
 python-etcd>=0.4.1
 click>=4.1
+prettytable>=0.7
