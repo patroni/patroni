@@ -189,7 +189,9 @@ class Postgresql:
         r = parseurl(leader.conn_url)
 
         env = self.write_pgpass(r)
-        return self.create_replica(r, env) == 0
+        ret = self.create_replica(r, env) == 0
+        ret and self.delete_trigger_file()
+        return ret
 
     @staticmethod
     def build_connstring(conn):
