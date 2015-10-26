@@ -298,7 +298,7 @@ class Ha:
                 return self.follow_the_leader('demoted self due after trying and failing to obtain lock',
                                               'following new leader after trying and failing to obtain lock')
         else:
-            if self.patroni.tags.get('nofailover'):
+            if self.patroni.nofailover:
                 return self.follow_the_leader('demoting self because I am not allowed to become master',
                                               'following a different leader because I am not allowed to promote')
             return self.follow_the_leader('demoting self because i am not the healthiest node',
