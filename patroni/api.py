@@ -148,8 +148,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
             members = [m for m in cluster.members if m.name != cluster.leader.name and m.api_url]
             if not members:
                 return b'failover is not possible: cluster does not have members except leader'
-        for member, reachable, in_recovery, xlog_location in self.server.patroni.ha.fetch_nodes_statuses(members):
-            if reachable:
+        for member, reachable, in_recovery, xlog_location, tags in self.server.patroni.ha.fetch_nodes_statuses(members):
+            if reachable and not tags.get('nofailover'):
                 return None
         return b'failover is not possible: no good candidates have been found'
 
