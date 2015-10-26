@@ -74,7 +74,7 @@ class Ha:
             self._async_executor.schedule('bootstrap from leader')
             self._async_executor.run_async(self.copy_backup_from_leader, args=(self.cluster.leader, ))
             return 'trying to bootstrap from leader'
-        elif not self.cluster.initialize:  # no initialize key
+        elif not self.cluster.initialize and not self.patroni.nofailover:  # no initialize key
             if self.dcs.initialize(create_new=True):  # race for initialization
                 try:
                     self.state_handler.bootstrap()
