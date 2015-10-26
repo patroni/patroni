@@ -232,7 +232,7 @@ class Ha:
         if failover.leader:
             if self.state_handler.name == failover.leader:  # I was the leader
                 # exclude me and desired member which is unhealthy (failover.member can be None)
-                members = [m for m in self.cluster.members if m.name != failover.member]
+                members = [m for m in self.cluster.members if m.name not in (failover.member, failover.leader)]
                 if self.is_failover_possible(members):  # check that there are healthy members
                     return False
                 else:  # I was the leader and it looks like currently I am the only healthy member
@@ -245,6 +245,13 @@ class Ha:
         return self._is_healthiest_node(members, check_replication_lag=False)
 
     def is_healthiest_node(self):
+
+        if self.state_handler.is_leader():  # leader is always the healthiest
+            return True
+
+        if self.patroni.nofailover:  # nofailover tag makes node always unhealthy
+            return False
+
         if self.cluster.failover:
             return self.manual_failover_process_no_leader()
 
