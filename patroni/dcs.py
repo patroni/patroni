@@ -65,7 +65,7 @@ class Member(namedtuple('Member', 'index,name,session,data')):
 
     @property
     def nofailover(self):
-        return self.data.get('tags', {}).get('nofailover')
+        return self.data.get('tags', {}).get('nofailover', False)
 
 
 class Leader(namedtuple('Leader', 'index,session,member')):

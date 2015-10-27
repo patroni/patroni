@@ -183,7 +183,7 @@ class Ha:
         if members:
             my_xlog_location = self.state_handler.xlog_position()
             for member, reachable, in_recovery, xlog_location, tags in self.fetch_nodes_statuses(members):
-                if reachable and not tags.get('nofailover'):  # If the node is unreachable it's not healhy
+                if reachable and not tags.get('nofailover', False):  # If the node is unreachable it's not healhy
                     if not in_recovery:
                         logger.warning('Master (%s) is still alive', member.name)
                         return False
@@ -196,11 +196,11 @@ class Ha:
         members = [m for m in members if m.name != self.state_handler.name and not m.nofailover and m.api_url]
         if members:
             for member, reachable, in_recovery, xlog_location, tags in self.fetch_nodes_statuses(members):
-                if reachable and not tags.get('nofailover'):
+                if reachable and not tags.get('nofailover', False):
                     ret = True  # TODO: check xlog_location
                 elif not reachable:
                     logger.info('Member %s is not reachable', member.name)
-                elif tags.get('nofailover'):
+                elif tags.get('nofailover', False):
                     logger.info('Member %s is not allowed to promote', member.name)
         else:
             logger.warning('manual failover: members list is empty')
@@ -216,13 +216,13 @@ class Ha:
             members = [m for m in self.cluster.members if m.name == failover.member]
             if members:
                 member, reachable, in_recovery, xlog_location, tags = self.fetch_node_status(members[0])
-                if reachable and not tags.get('nofailover'):  # node is healthy
+                if reachable and not tags.get('nofailover', False):  # node is healthy
                     logger.info('manual failover: to %s, i am %s', member.name, self.state_handler.name)
                     return False
                 # we wanted to failover to specific member but it is not healthy
                 if not reachable:
                     logger.warning('manual failover: member %s is unhealthy', member.name)
-                elif tags.get('nofailover'):
+                elif tags.get('nofailover', False):
                     logger.warning('manual failover: member %s is not allowed to promote', member.name)
 
             # at this point we should consider all members as a candidates for failover

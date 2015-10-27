@@ -149,7 +149,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             if not members:
                 return b'failover is not possible: cluster does not have members except leader'
         for member, reachable, in_recovery, xlog_location, tags in self.server.patroni.ha.fetch_nodes_statuses(members):
-            if reachable and not tags.get('nofailover'):
+            if reachable and not tags.get('nofailover', False):
                 return None
         return b'failover is not possible: no good candidates have been found'
 

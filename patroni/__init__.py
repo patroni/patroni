@@ -28,7 +28,7 @@ class Patroni:
 
     @property
     def nofailover(self):
-        return self.tags.get('nofailover')
+        return self.tags.get('nofailover', False)
 
     @staticmethod
     def get_dcs(name, config):
