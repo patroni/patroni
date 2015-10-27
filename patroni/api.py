@@ -253,13 +253,15 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
     def query(self, sql, *params):
         cursor = None
         try:
-            with self.patroni.postgresql.connection().cursor() as cursor:
-                cursor.execute(sql, params)
-                return [r for r in cursor]
+            cursor = self.patroni.postgresql.connection().cursor()
+            cursor.execute(sql, params)
+            return [r for r in cursor]
         except psycopg2.Error as e:
             if cursor and cursor.connection.closed == 0:
                 raise e
             raise PostgresConnectionException('connection problems')
+        finally:
+            cursor.close()
 
     @staticmethod
     def _set_fd_cloexec(fd):
