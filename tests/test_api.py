@@ -40,7 +40,7 @@ class MockHa(Mock):
         return False
 
     def fetch_nodes_statuses(self, members):
-        return [[None, True, None, None]]
+        return [[None, True, None, None, {}]]
 
 
 class MockPatroni:
