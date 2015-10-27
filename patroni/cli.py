@@ -82,6 +82,7 @@ option_format = click.option('--format', '-f', help='Output format (pretty, json
 option_dcs = click.option('--dcs', '-d', help='Use this DCS', envvar='DCS')
 option_watchrefresh = click.option('-w', '--watch', type=float, help='Auto update the screen every X seconds')
 option_watch = click.option('-W', is_flag=True, help='Auto update the screen every 2 seconds')
+option_force = click.option('--force', is_flag=True, help='Do not ask for confirmation at any point')
 
 
 @click.group()
@@ -185,6 +186,56 @@ def wait_for_master(dcs, timeout=30):
             return cluster
 
     raise Exception('Timeout occured')
+
+
+def empty_post_to_members(cluster_name, member_names, config_file, dcs, force, endpoint):
+    config = load_config(config_file, dcs)
+    dcs = get_dcs(config, cluster_name)
+    cluster = dcs.get_cluster()
+
+    candidates = dict()
+    for m in cluster.members:
+        candidates[m.name] = m
+
+    if len(member_names) == 0:
+        member_names = [
+            click.prompt('Which member do you want to '+endpoint + ' '+str(candidates.keys()), type=str, default='')]
+
+    for mn in member_names:
+        if mn not in candidates.keys():
+            raise Exception('{} is not a member of cluster {}'.format(mn, cluster_name))
+
+    if not force:
+        confirm = click.confirm('Are you sure you want to {} members {}?'.format(endpoint, str(candidates.keys())))
+        if not confirm:
+            raise Exception('Aborted {}'.format(endpoint))
+
+    for mn in member_names:
+        r = post_patroni(candidates[mn], endpoint, '')
+        if r.status_code != 200:
+            click.echo('{} failed for member {}, status code={}, ({})'.format(endpoint, mn, r.status_code, r.text))
+        else:
+            click.echo('Succesful {} on member {}'.format(endpoint, mn))
+
+
+@cli.command('restart', help='Restart cluster member')
+@click.argument('cluster_name')
+@click.argument('member_names', nargs=-1)
+@option_config_file
+@option_force
+@option_dcs
+def restart(cluster_name, member_names, config_file, dcs, force):
+    empty_post_to_members(cluster_name, member_names, config_file, dcs, force, 'restart')
+
+
+@cli.command('reinit', help='Reinitialize cluster member')
+@click.argument('cluster_name')
+@click.argument('member_names', nargs=-1)
+@option_config_file
+@option_force
+@option_dcs
+def reinit(cluster_name, member_names, config_file, dcs, force):
+    empty_post_to_members(cluster_name, member_names, config_file, dcs, force, 'reinitialize')
 
 
 @cli.command('failover', help='Failover to a replica')
