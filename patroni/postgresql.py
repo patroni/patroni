@@ -216,7 +216,7 @@ class Postgresql:
                 ret = self.basebackup(leader, env)
                 if ret == 0:
                     # if basebackup succeeds, exit with success
-                    return 0
+                    break
             else:
                 # user-defined method; check for configuration
                 # not required, actually
@@ -247,17 +247,18 @@ class Postgresql:
 
                 try:
                     # call script with the full set of parameters
-                    ret = subprocess.call(shlex.split(cmd) + shlex.split(method_config), env=env)
+                    ret = subprocess.call(shlex.split(cmd) + params, env=env)
                     # if we succeeded, stop
                     if ret == 0:
-                        return ret
+                        break
                 except Exception as e:
                     logger.exception('Error creating replica using method {0}: {1}'.format(replica_method, e.str))
                     ret = 1
 
         # write the recovery.conf
         if ret == 0:
-            self.write_recovery_conf(leader)
+            ret = self.write_recovery_conf(leader)
+            return 0
 
         # out of methods, return 1
         return 1

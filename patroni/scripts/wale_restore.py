@@ -6,6 +6,8 @@
 # note that pg_basebackup still expects to use restore from 
 # WAL-E for transaction logs
 
+# theoretically should work with SWIFT, but not tested on it
+
 # arguments are:
 #   - cluster scope
 #   - cluster role
@@ -18,9 +20,10 @@
 # this script depends on an envdir defining the S3 bucket (or SWIFT dir),and login
 # credentials per WALE Documentation.
 
-# DO NOT USE with additional restore_commands; this script writes the restore command
+# currently also requires that you configure the restore_command to use wal_e, example:
+  #recovery_conf:
+    #restore_command: envdir /etc/wal-e.d/env wal-e wal-fetch "%f" "%p"
 
-#   latest backup size
 import logging
 import os
 import psycopg2
@@ -35,7 +38,7 @@ if sys.hexversion >= 0x03000000:
 logger = logging.getLogger(__name__)
 
 
-class Restore(object):
+class WALERestore(object):
 
     def __init__(self, scope, role, datadir, connstring, env_dir, threshold_mb, threshold_pct, use_iam):
         self.scope = scope
@@ -49,58 +52,22 @@ class Restore(object):
             self.wal_e.iam_string = ' --aws-instance-profile '
         else:
             self.wal_e.iam_string = ''
-
-    def setup(self):
-        pass
-
-    def replica_method(self):
-        return self.create_replica_with_pg_basebackup
-
-    def replica_fallback_method(self):
-        return None
-
-    def run(self):
-        """ creates a new replica using either pg_basebackup or WAL-E """
-        method_fn = self.replica_method()
-        ret = method_fn() if method_fn else 1
-        if ret != 0 and self.replica_fallback_method() is not None:
-            ret = (self.replica_fallback_method())()
-        return ret
-
-    def create_replica_with_pg_basebackup(self):
-        try:
-            ret = subprocess.call(['pg_basebackup', '-R', '-D', '-x',
-                                   self.data_dir, '--host=' + self.master_connection['host'],
-                                   '--port=' + str(self.master_connection['port']),
-                                   '-U', self.master_connection['user']])
-        except Exception as e:
-            logger.error('Error when fetching backup with pg_basebackup: {0}'.format(e))
-            return 1
-        return ret
-
-
-class WALERestore(Restore):
-
-    def __init__(scope, role, datadir, connstring, env_dir, threshold_mb, threshold_pct, use_iam):
-        super(WALERestore, self).__init__(scope, role, datadir, connstring, env_dir, threshold_mb, threshold_pct, use_iam)
-        # check the environment variables
-        self.init_error = False
-
-    def setup(self):
-        # check that we actually have an envdir
         if not os.path.exists(self.wal_e.dir):
             self.init_error = True
         else:
+            self.init_error = False
             self.wal_e.cmd = 'envdir {0} wal-e {1} '.\
                 format(self.wal_e.dir, self.wal_e.iam_string)
+
+    def run(self):
+        """ creates a new replica using WAL-E """
+        ret = self.replica_method()
+        return ret
 
     def replica_method(self):
         if self.should_use_s3_to_create_replica():
             return self.create_replica_with_s3
         return None
-
-    def replica_fallback_method(self):
-        return self.create_replica_with_pg_basebackup
 
     def should_use_s3_to_create_replica(self):
         """ determine whether it makes sense to use S3 and not pg_basebackup """
@@ -171,16 +138,6 @@ class WALERestore(Restore):
         # or exceeds the pre-determined size - pg_basebackup is chosen instead.
         return (diff_in_bytes < long(threshold_megabytes) * 1048576) and\
                (diff_in_bytes < long(backup_size) * float(threshold_backup_size_percentage) / 100)
-
-    def write_recovery_conf_wale(self):
-        restore_cmd = '{0} wal_fetch "%f" "%p"'.format(self.wal_e.cmd)
-        with open(os.path.join(self.data_dir, 'recovery.conf'), 'w') as f:
-            f.write("""standby_mode = 'on'
-recovery_target_timeline = 'latest'
-""")
-            f.write("""primary_conninfo = '{}'\n""".format(self.master_connection))
-            f.write("""restore_command = '{}'\n""".format(restore_cmd))
-        return 0
                     
     def create_replica_with_s3(self):
         if self.init_error:
@@ -191,12 +148,7 @@ recovery_target_timeline = 'latest'
         except Exception as e:
             logger.error('Error when fetching backup with WAL-E: {0}'.format(e))
             return 1
-        
-        # if success, we need to write a recovery.conf for wal-e
-        # this doesn't work because we need data from main
-        #if ret == 0:
-            #ret = self.write_recovery_conf_wale()
-        
+             
         return ret
 
 
@@ -219,7 +171,6 @@ if __name__ == '__main__':
         restore = WALERestore(scope=args.scope,datadir=args.datadir,connstring=args.constring,
                               env_dir=args.env_dir,threshold_mb=args.threshold_megabytes,
                               threshold_pct=args.threshold_backup_size_percentage)
-        restore.setup()
         ret = restore.run()
         if ret == 0:
             break
