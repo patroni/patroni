@@ -189,7 +189,7 @@ class Postgresql:
         r = parseurl(leader.conn_url)
 
         env = self.write_pgpass(r)
-        ret = self.create_replica(r, env) == 0
+        ret = self.create_replica(leader, env) == 0
         ret and self.delete_trigger_file()
         return ret
 
@@ -201,11 +201,11 @@ class Postgresql:
 
         return mconn
 
-    def create_replica(self, master_connection, env):
+    def create_replica(self, leader, env):
         # create the replica according to the replica_method
         # defined by the user.  this is a list, so we need to
         # loop through all methods the user supplies
-        connstring = self.build_connstring(master_connection)
+        connstring = leader.conn_url
         # get list of replica methods from config
         replica_list = self.config.get('create_replica_method', 'basebackup')
         replica_methods = [rm.strip() for rm in replica_list.split(',')]
@@ -213,7 +213,7 @@ class Postgresql:
         for replica_method in replica_methods:
             # if the method is basebackup, then use the built-in
             if replica_method == "basebackup":
-                ret = self.basebackup(connstring, env)
+                ret = self.basebackup(leader, env)
                 if ret == 0:
                     # if basebackup succeeds, exit with success
                     return 0
@@ -236,8 +236,14 @@ class Postgresql:
                     method_config.update({"scope": self.scope,
                                           "role": "replica",
                                           "datadir": self.data_dir,
-                                          "connstring": self.connstring})
+                                          "connstring": connstring})
                     params = ["--{0}={1}".format(arg, val) for arg, val in method_config.items()]
+                else:
+                    cmd = replica_method
+                    method_config = {"scope": self.scope,
+                                    "role": "replica",
+                                    "datadir": self.data_dir,
+                                    "connstring": connstring}
 
                 try:
                     # call script with the full set of parameters
@@ -248,6 +254,10 @@ class Postgresql:
                 except Exception as e:
                     logger.exception('Error creating replica using method {0}: {1}'.format(replica_method, e.str))
                     ret = 1
+
+        # write the recovery.conf
+        if ret == 0:
+            self.write_recovery_conf(leader)
 
         # out of methods, return 1
         return 1
@@ -667,17 +677,18 @@ recovery_target_timeline = 'latest'
             logger.exception('Could not remove data directory %s', self.data_dir)
             self.move_data_directory()
 
-    def basebackup(self, master_connection, env):
+    def basebackup(self, leader, env):
         # creates a replica data dir using pg_basebackup.
         # this is the default, built-in create_replica_method
         # tries twice, then returns failure (as 1)
         # uses "stream" as the xlog-method to avoid sync issues
+        master_connection = leader.conn_url
         bbfailures = 0
         maxfailures = 2
         ret = 1
         while bbfailures < maxfailures:
             try:
-                ret = subprocess.call(['pg_basebackup', '-R', '--pgdata=' + self.data_dir,
+                ret = subprocess.call(['pg_basebackup', '--pgdata=' + self.data_dir,
                                        '--xlog-method=stream', "--dbname=" + master_connection], env=env)
                 if ret == 0:
                     break

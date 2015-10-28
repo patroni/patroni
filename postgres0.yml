@@ -34,10 +34,6 @@ postgresql:
   data_dir: data/postgresql0
   maximum_lag_on_failover: 1048576 # 1 megabyte in bytes
   use_slots: True
-  pgpass: /tmp/pgpass0
-  pg_rewind:
-    username: postgres
-    password: zalando
   pg_hba:
   - host all all 0.0.0.0/0 md5
   - hostssl all all 0.0.0.0/0 md5
@@ -46,16 +42,20 @@ postgresql:
     password: rep-pass
     network:  127.0.0.1/32
   superuser:
-    username: postgres
     password: zalando
   admin:
     username: admin
     password: admin
-  wal_e:
-    env_dir: /home/postgres/etc/wal-e.d/env
-    threshold_megabytes: 10240
-    threshold_backup_size_percentage: 30
   create_replica_method: basebackup
+# commented-out example for wal-e provisioning
+  #create_replica_method: wal_e, basebackup
+  #wal_e:
+    #command: /patroni/scripts/wale_restore.py
+    #env_dir: /home/postgres/etc/wal-e.d/env
+    #threshold_megabytes: 10240
+    #threshold_backup_size_percentage: 30
+    #retries: 2
+    #use_iam: 1
   #recovery_conf:
     #restore_command: cp ../wal_archive/%f %p
   parameters:
@@ -67,4 +67,3 @@ postgresql:
     archive_timeout: 1800s
     max_replication_slots: 5
     hot_standby: "on"
-    wal_log_hints: "on"
