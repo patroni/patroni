@@ -67,9 +67,9 @@ class Postgresql:
         self._pg_ctl = ['pg_ctl', '-w', '-D', self.data_dir]
 
         self.local_address = self.get_local_address()
-        connect_address = config.get('connect_address', None) or self.local_address
+        self.connect_address = config.get('connect_address', None) or self.local_address
         self.connection_string = 'postgres://{username}:{password}@{connect_address}/postgres'.format(
-            connect_address=connect_address, **self.replication)
+            connect_address=self.connect_address, **self.replication)
 
         self._connection = None
         self._cursor_holder = None
