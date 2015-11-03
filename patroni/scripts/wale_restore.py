@@ -3,7 +3,7 @@
 # sample script to clone new replicas using WAL-E restore
 # falls back to pg_basebackup if WAL-E restore fails, or if
 # WAL-E backup is too far behind
-# note that pg_basebackup still expects to use restore from 
+# note that pg_basebackup still expects to use restore from
 # WAL-E for transaction logs
 
 # theoretically should work with SWIFT, but not tested on it
@@ -21,8 +21,8 @@
 # credentials per WALE Documentation.
 
 # currently also requires that you configure the restore_command to use wal_e, example:
-  #recovery_conf:
-    #restore_command: envdir /etc/wal-e.d/env wal-e wal-fetch "%f" "%p"
+#       recovery_conf:
+#               restore_command: envdir /etc/wal-e.d/env wal-e wal-fetch "%f" "%p"
 
 import logging
 import os
@@ -137,8 +137,8 @@ class WALERestore(object):
         # if the size of the accumulated WAL segments is more than a certan percentage of the backup size
         # or exceeds the pre-determined size - pg_basebackup is chosen instead.
         return (diff_in_bytes < long(threshold_megabytes) * 1048576) and\
-               (diff_in_bytes < long(backup_size) * float(threshold_backup_size_percentage) / 100)
-                    
+            (diff_in_bytes < long(backup_size) * float(threshold_backup_size_percentage) / 100)
+
     def create_replica_with_s3(self):
         if self.init_error:
             return 1
@@ -148,7 +148,7 @@ class WALERestore(object):
         except Exception as e:
             logger.error('Error when fetching backup with WAL-E: {0}'.format(e))
             return 1
-             
+
         return ret
 
 
@@ -167,12 +167,12 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # retry cloning in a loop
-    for retry in range(0,args.retries + 1):
-        restore = WALERestore(scope=args.scope,datadir=args.datadir,connstring=args.constring,
-                              env_dir=args.env_dir,threshold_mb=args.threshold_megabytes,
+    for retry in range(0, args.retries + 1):
+        restore = WALERestore(scope=args.scope, datadir=args.datadir, connstring=args.constring,
+                              env_dir=args.env_dir, threshold_mb=args.threshold_megabytes,
                               threshold_pct=args.threshold_backup_size_percentage)
         ret = restore.run()
         if ret == 0:
             break
-    
+
     sys.exit(ret)

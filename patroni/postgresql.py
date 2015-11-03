@@ -241,9 +241,9 @@ class Postgresql:
                 else:
                     cmd = replica_method
                     method_config = {"scope": self.scope,
-                                    "role": "replica",
-                                    "datadir": self.data_dir,
-                                    "connstring": connstring}
+                                     "role": "replica",
+                                     "datadir": self.data_dir,
+                                     "connstring": connstring}
 
                 try:
                     # call script with the full set of parameters

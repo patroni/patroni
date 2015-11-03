@@ -51,6 +51,7 @@ postgresql:
   admin:
     username: admin
     password: admin
+  create_replica_method: basebackup
 # commented-out example for wal-e provisioning
   #create_replica_method: wal_e, basebackup
   #wal_e:

@@ -267,9 +267,9 @@ class TestPostgresql(unittest.TestCase):
     def test_create_replica(self):
         self.p.delete_trigger_file = Mock(side_effect=OSError())
         with patch('subprocess.call', Mock(side_effect=[1, 0])):
-            self.assertEquals(self.p.create_replica({'host': '', 'port': '', 'user': ''}, ''), 0)
+            self.assertEquals(self.p.create_replica(self.leader, ''), 0)
         with patch('subprocess.call', Mock(side_effect=[Exception(), 0])):
-            self.assertEquals(self.p.create_replica({'host': '', 'port': '', 'user': ''}, ''), 0)
+            self.assertEquals(self.p.create_replica(self.leader, ''), 0)
 
     def test_create_connection_users(self):
         cfg = self.p.config
