@@ -20,7 +20,6 @@ class Patroni:
         self.nap_time = config['loop_wait']
         self.postgresql = Postgresql(config['postgresql'])
         self.dcs = self.get_dcs(self.postgresql.name, config)
-        host, port = config['restapi']['listen'].split(':')
         self.api = RestApiServer(self, config['restapi'])
         self.ha = Ha(self)
         self.next_run = time.time()
