@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 '''
 Patroni Command Line Client
 '''
@@ -182,7 +181,7 @@ def wait_for_master(dcs, timeout=30):
         dcs.watch(timeout)
         cluster = dcs.get_cluster()
 
-        if cluster.leader and cluster.leader.member.data['role'] == 'master':
+        if cluster.leader:
             return cluster
 
     raise Exception('Timeout occured')
@@ -269,7 +268,12 @@ def failover(config_file, cluster_name, master, candidate, force, dcs):
         raise Exception('Member {} is not the leader of cluster {}'.format(master, cluster_name))
 
     candidate_names = [str(m.name) for m in cluster.members if m.name != master]
+    ## We sort the names for consistent output to the client
     candidate_names.sort()
+
+    if len(candidate_names) == 0:
+        raise Exception('No candidates found to failover to')
+
 
     if candidate is None and not force:
         candidate = click.prompt('Candidate '+str(candidate_names), type=str, default='')
@@ -306,10 +310,10 @@ def failover(config_file, cluster_name, master, candidate, force, dcs):
         click.echo(timestamp()+' Could not failover using Patroni api, falling back to DCS')
         dcs.set_failover_value(failover_value)
         click.echo(timestamp()+' Initialized failover from master {}'.format(master))
+        # The failover process should within a minute update the failover key, we will keep watching it until it changes
+        # or we timeout
+        cluster = wait_for_master(dcs, timeout=60)
 
-    # The failover process should within a minute update the failover key, we will keep watching it until it changes
-    # or we timeout
-    cluster = wait_for_master(dcs, timeout=60)
     click.echo(timestamp()+' Failover completed in {:0.1f} seconds, new leader is {}'.format(
         time.time() - t_started, str(cluster.leader.member.name)))
     output_members(cluster, name=cluster_name)
@@ -330,13 +334,10 @@ def output_members(cluster, name=None, format='pretty'):
         leader = ''
         if m.name == leader_name:
             leader = '*'
-            role = m.data['role']
-        else:
-            role = 'replica'
 
-        rows.append([name, m.name, role, leader])
+        rows.append([name, m.name, leader])
 
-    print_output(['Cluster', 'Member', 'Role', 'Leader'], rows, {'Cluster': 'l', 'Member': 'l', 'Role': 'l'}, format)
+    print_output(['Cluster', 'Member', 'Leader'], rows, {'Cluster': 'l', 'Member': 'l'}, format)
 
 
 @cli.command('list', help='List the Patroni members for a given Patroni')
