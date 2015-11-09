@@ -132,6 +132,7 @@ class Ha:
             return message
         else:
             self.state_handler.promote()
+            self.touch_member()
             return promote_message
 
     @staticmethod
@@ -244,6 +245,7 @@ class Ha:
         if delete_leader:
             self.state_handler.stop()
             self.dcs.delete_leader()
+            self.touch_member()
             self.dcs.reset_cluster()
         self.state_handler.follow_the_leader(None)
 
