@@ -30,7 +30,7 @@ class Patroni:
             return Etcd(name, config['etcd'])
         if 'zookeeper' in config:
             return ZooKeeper(name, config['zookeeper'])
-        raise Exception('Can not find sutable configuration of distributed configuration store')
+        raise Exception('Can not find suitable configuration of distributed configuration store')
 
     def schedule_next_run(self):
         self.next_run += self.nap_time
