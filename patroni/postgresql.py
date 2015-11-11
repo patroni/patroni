@@ -4,10 +4,12 @@ import psycopg2
 import shlex
 import shutil
 import subprocess
+import tempfile
 import time
 
 from patroni.exceptions import PostgresConnectionException, PostgresException
 from patroni.utils import Retry, RetryFailedError
+from six import string_types
 from six.moves.urllib_parse import urlparse
 from threading import Lock
 
@@ -48,6 +50,7 @@ class Postgresql:
         self.replication = config['replication']
         self.superuser = config['superuser']
         self.admin = config['admin']
+        self.initdb_options = config.get('initdb', [])
         self.pgpass = config.get('pgpass', None) or os.path.join(os.path.expanduser('~'), 'pgpass')
         self.pg_rewind = config.get('pg_rewind', {})
         self.callback = config.get('callbacks', {})
@@ -164,9 +167,42 @@ class Postgresql:
     def data_directory_empty(self):
         return not os.path.exists(self.data_dir) or os.listdir(self.data_dir) == []
 
+    @staticmethod
+    def initdb_allowed_option(name):
+        allowed_options = set(['auth', 'auth-host', 'auth-local', 'encoding', 'data-checksums',
+                               'locale', 'lc-collate', 'lc-ctype', 'lc-messages', 'lc-monetary',
+                               'lc-numeric', 'lc-time', 'text-search-config', 'xlogdir', 'debug', 'noclean'])
+        if name not in allowed_options:
+            raise Exception('{} option for initdb is unknown or not allowed'.format(name))
+        return True
+
+    def get_initdb_options(self):
+        options = []
+        for o in self.initdb_options:
+            if isinstance(o, string_types) and self.initdb_allowed_option(o):
+                options.append('--{}'.format(o))
+            elif isinstance(o, dict):
+                keys = list(o.keys())
+                if len(keys) != 1 or not isinstance(keys[0], string_types) or not self.initdb_allowed_option(keys[0]):
+                    raise Exception('Invalid option: {}'.format(o))
+                options.append('--{}={}'.format(keys[0], o[keys[0]]))
+            else:
+                raise Exception('Unknown type of initdb option: {}'.format(o))
+        return options
+
     def initialize(self):
         self.set_state('initalizing new cluster')
-        ret = subprocess.call(self._pg_ctl + ['initdb', '-o', '--encoding=UTF8']) == 0
+        options = self.get_initdb_options()
+        pwfile = None
+        if self.superuser and 'username' not in self.superuser and 'password' in self.superuser:
+            (fd, pwfile) = tempfile.mkstemp()
+            os.write(fd, self.superuser['password'].encode())
+            os.close(fd)
+            options.append('--pwfile={}'.format(pwfile))
+
+        ret = subprocess.call(self._pg_ctl + ['initdb'] + ['-o', ' '.join(options)] if options else []) == 0
+        if pwfile:
+            os.remove(pwfile)
         if ret:
             self.write_pg_hba()
         else:
@@ -523,21 +559,26 @@ recovery_target_timeline = 'latest'
     def demote(self):
         self.follow_the_leader(None)
 
+    def create_or_update_role(self, name, password, options):
+        self.query("""DO $$
+BEGIN
+    PERFORM * FROM pg_authid WHERE rolname = %s;
+    IF FOUND THEN
+        ALTER ROLE "{0}" WITH LOGIN {1} PASSWORD %s;
+    ELSE
+        CREATE ROLE "{0}" WITH LOGIN {1} PASSWORD %s;
+    END IF;
+END;
+$$""".format(name, options), name, password, password)
+
     def create_replication_user(self):
-        self.query('CREATE USER "{}" WITH REPLICATION ENCRYPTED PASSWORD %s'.format(
-            self.replication['username']), self.replication['password'])
+        self.create_or_update_role(self.replication['username'], self.replication['password'], 'REPLICATION')
 
     def create_connection_users(self):
-        if self.superuser:
-            if 'username' in self.superuser:
-                self.query('CREATE ROLE "{0}" WITH LOGIN SUPERUSER PASSWORD %s'.format(
-                    self.superuser['username']), self.superuser['password'])
-            else:
-                rolsuper = self.query("""SELECT rolname FROM pg_authid WHERE rolsuper = 't'""").fetchone()[0]
-                self.query('ALTER ROLE "{0}" WITH PASSWORD %s'.format(rolsuper), self.superuser['password'])
+        if 'username' in self.superuser:
+            self.create_or_update_role(self.superuser['username'], self.superuser['password'], 'SUPERUSER')
         if self.admin:
-            self.query('CREATE ROLE "{0}" WITH LOGIN CREATEDB CREATEROLE PASSWORD %s'.format(
-                self.admin['username']), self.admin['password'])
+            self.create_or_update_role(self.admin['username'], self.admin['password'], 'CREATEDB CREATEROLE')
 
     def xlog_position(self):
         return self.query("""SELECT pg_xlog_location_diff(CASE WHEN pg_is_in_recovery()

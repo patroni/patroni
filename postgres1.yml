@@ -35,6 +35,23 @@ postgresql:
   maximum_lag_on_failover: 1048576 # 1 megabyte in bytes
   use_slots: True
   pgpass: /tmp/pgpass1
+  initdb:  ## We allow the following options to be passed on to initdb
+  # - auth: authmethod
+  # - auth-host: authmethod
+  # - auth-local: authmethod
+  - encoding: UTF8
+  # - data-checksums  # When pg_rewind is needed on 9.3, this needs to be enabled
+  # - locale: locale
+  # - lc-collate: locale
+  # - lc-ctype: locale
+  # - lc-messages: locale
+  # - lc-monetary: locale
+  # - lc-numeric: locale
+  # - lc-time: locale
+  # - text-search-config: CFG
+  # - xlogdir: directory
+  # - debug
+  # - noclean
   pg_rewind:
     username: postgres
     password: zalando
