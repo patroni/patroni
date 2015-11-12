@@ -559,6 +559,7 @@ recovery_target_timeline = 'latest'
     def create_or_update_role(self, name, password, options):
         self.query("""DO $$
 BEGIN
+    SET local synchronous_commit = 'local';
     PERFORM * FROM pg_authid WHERE rolname = %s;
     IF FOUND THEN
         ALTER ROLE "{0}" WITH LOGIN {1} PASSWORD %s;
