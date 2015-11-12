@@ -3,6 +3,7 @@ import fcntl
 import json
 import logging
 import psycopg2
+import socket
 import time
 
 from patroni.exceptions import PostgresConnectionException
@@ -37,12 +38,24 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body.encode('utf-8'))
 
+    def finish(self, *args, **kwargs):
+        try:
+            if not self.wfile.closed:
+                self.wfile.flush()
+                self.wfile.close()
+        except:
+            pass
+        self.rfile.close()
+
     def check_auth_header(self):
         auth_header = self.headers.get('Authorization')
         status = self.server.check_auth_header(auth_header)
         return not status or self.send_auth_request(status)
 
-    def do_GET(self):
+    def do_OPTIONS(self):
+        self.do_GET(options=True)
+
+    def do_GET(self, options=False):
         """Default method for processing all GET requests which can not be routed to other methods"""
 
         path = '/master' if self.path == '/' else self.path
@@ -70,9 +83,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
             status_code = 503
 
         self.send_response(status_code)
-        self.send_header('Content-Type', 'application/json')
-        self.end_headers()
-        self.wfile.write(json.dumps(response).encode('utf-8'))
+        if not options:
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(response).encode('utf-8'))
 
     def do_GET_patroni(self):
         response = self.get_postgresql_status(True)
@@ -189,6 +203,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
             if hasattr(self, 'do_' + mname):
                 self.command = mname
         return ret
+
+    def handle_one_request(self):
+        try:
+            BaseHTTPRequestHandler.handle_one_request(self)
+        except socket.error:
+            pass
 
     def query(self, sql, *params, **kwargs):
         if not kwargs.get('retry', False):
