@@ -43,7 +43,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             if not self.wfile.closed:
                 self.wfile.flush()
                 self.wfile.close()
-        except:
+        except socket.error:
             pass
         self.rfile.close()
 
