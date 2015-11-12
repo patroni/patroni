@@ -169,11 +169,8 @@ class Postgresql:
 
     @staticmethod
     def initdb_allowed_option(name):
-        allowed_options = set(['auth', 'auth-host', 'auth-local', 'encoding', 'data-checksums',
-                               'locale', 'lc-collate', 'lc-ctype', 'lc-messages', 'lc-monetary',
-                               'lc-numeric', 'lc-time', 'text-search-config', 'xlogdir', 'debug', 'noclean'])
-        if name not in allowed_options:
-            raise Exception('{} option for initdb is unknown or not allowed'.format(name))
+        if name in ['pgdata', 'nosync', 'pwfile', 'sync-only']:
+            raise Exception('{} option for initdb is not allowed'.format(name))
         return True
 
     def get_initdb_options(self):

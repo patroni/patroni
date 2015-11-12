@@ -190,7 +190,7 @@ class TestPostgresql(unittest.TestCase):
     def test_get_initdb_options(self):
         self.p.initdb_options = [{'encoding': 'UTF8'}, 'data-checksums']
         self.assertEquals(self.p.get_initdb_options(), ['--encoding=UTF8', '--data-checksums'])
-        self.p.initdb_options = [{'foo': 'bar'}]
+        self.p.initdb_options = [{'pgdata': 'bar'}]
         self.assertRaises(Exception, self.p.get_initdb_options)
         self.p.initdb_options = [{'foo': 'bar', 1: 2}]
         self.assertRaises(Exception, self.p.get_initdb_options)
