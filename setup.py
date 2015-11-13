@@ -56,7 +56,7 @@ CLASSIFIERS = [
     'Programming Language :: Python :: Implementation :: CPython',
 ]
 
-CONSOLE_SCRIPTS = ['patroni = patroni:main']
+CONSOLE_SCRIPTS = ['patroni = patroni:main', 'patronictl = patroni.ctl:ctl']
 
 
 class PyTest(TestCommand):
