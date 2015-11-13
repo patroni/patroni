@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-from patroni.cli import cli
+from patroni.ctl import ctl
 
 if __name__ == '__main__':
-    cli()
+    ctl()

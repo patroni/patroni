@@ -5,10 +5,10 @@ import os
 import pytest
 
 from click.testing import CliRunner
-from patroni.cli import cli, members, store_config, load_config, output_members
+from patroni.ctl import ctl, members, store_config, load_config, output_members
 from test_ha import get_cluster_initialized_with_leader
 
-CONFIG_FILE_PATH = './test-cli.yaml'
+CONFIG_FILE_PATH = './test-ctl.yaml'
 
 
 def test_output_members():
@@ -34,12 +34,12 @@ def test_rw_config():
     load_config(CONFIG_FILE_PATH, None)
 
 
-def test_cli():
+def test_ctl():
     runner = CliRunner()
 
-    runner.invoke(cli, ['list'])
+    runner.invoke(ctl, ['list'])
 
-    result = runner.invoke(cli, ['--help'])
+    result = runner.invoke(ctl, ['--help'])
     assert 'Usage:' in result.output
 
 

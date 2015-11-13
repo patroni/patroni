@@ -1,5 +1,5 @@
 '''
-Patroni Command Line Client
+Patroni Control
 '''
 
 import click
@@ -16,8 +16,8 @@ import logging
 from .etcd import Etcd
 
 CONFIG_DIR_PATH = click.get_app_dir('patroni')
-CONFIG_FILE_PATH = os.path.join(CONFIG_DIR_PATH, 'patronicli.yaml')
-LOGLEVEL = 'DEBUG'
+CONFIG_FILE_PATH = os.path.join(CONFIG_DIR_PATH, 'patronictl.yaml')
+LOGLEVEL = 'INFO'
 
 
 def parse_dcs(dcs):
@@ -86,7 +86,7 @@ option_force = click.option('--force', is_flag=True, help='Do not ask for confir
 
 @click.group()
 @click.pass_context
-def cli(ctx):
+def ctl(ctx):
     logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=LOGLEVEL)
 
 
@@ -97,6 +97,13 @@ def get_dcs(config, scope):
         return Etcd(name=scope, config={'scope': scope, 'host': '{}:{}'.format(hostname, port)})
 
     raise Exception('Can not find suitable configuration of distributed configuration store')
+
+
+def get_patroni(member, endpoint):
+    url = urlparse(member.api_url)
+    logging.debug(url)
+    r = requests.get('{}://{}/{}'.format(url.scheme, url.netloc, endpoint))
+    return r
 
 
 def post_patroni(member, endpoint, content, headers={'Content-Type': 'application/json'}):
@@ -137,7 +144,7 @@ def watching(w, watch):
             yield 0
 
 
-@cli.command('remove', help='Remove cluster from DCS')
+@ctl.command('remove', help='Remove cluster from DCS')
 @click.argument('cluster_name')
 @option_config_file
 @option_format
@@ -168,12 +175,12 @@ def remove(config_file, cluster_name, format, dcs):
             raise Exception("You did not specify the current master of the cluster")
 
     if isinstance(dcs, Etcd):
-        dcs.client.delete(dcs._base_path, recursive=True)
+        dcs.ctlent.delete(dcs._base_path, recursive=True)
     else:
         raise Exception("We have not implemented this for DCS of type {}", type(dcs))
 
 
-def wait_for_master(dcs, timeout=30):
+def wait_for_leader(dcs, timeout=30):
     t_stop = time.time() + timeout
     timeout /= 2
 
@@ -217,7 +224,7 @@ def empty_post_to_members(cluster_name, member_names, config_file, dcs, force, e
             click.echo('Succesful {} on member {}'.format(endpoint, mn))
 
 
-@cli.command('restart', help='Restart cluster member')
+@ctl.command('restart', help='Restart cluster member')
 @click.argument('cluster_name')
 @click.argument('member_names', nargs=-1)
 @option_config_file
@@ -227,7 +234,7 @@ def restart(cluster_name, member_names, config_file, dcs, force):
     empty_post_to_members(cluster_name, member_names, config_file, dcs, force, 'restart')
 
 
-@cli.command('reinit', help='Reinitialize cluster member')
+@ctl.command('reinit', help='Reinitialize cluster member')
 @click.argument('cluster_name')
 @click.argument('member_names', nargs=-1)
 @option_config_file
@@ -237,7 +244,7 @@ def reinit(cluster_name, member_names, config_file, dcs, force):
     empty_post_to_members(cluster_name, member_names, config_file, dcs, force, 'reinitialize')
 
 
-@cli.command('failover', help='Failover to a replica')
+@ctl.command('failover', help='Failover to a replica')
 @click.argument('cluster_name')
 @click.option('--master', help='The name of the current master', default=None)
 @click.option('--candidate', help='The name of the candidate', default=None)
@@ -249,7 +256,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs):
         We want to trigger a failover for the specified cluster name.
 
         We verify that the cluster name, master name and candidate name are correct.
-        If so, we trigger a failover and keep the client up to date.
+        If so, we trigger a failover and keep the ctlent up to date.
     """
     config = load_config(config_file, dcs)
     dcs = get_dcs(config, cluster_name)
@@ -268,12 +275,11 @@ def failover(config_file, cluster_name, master, candidate, force, dcs):
         raise Exception('Member {} is not the leader of cluster {}'.format(master, cluster_name))
 
     candidate_names = [str(m.name) for m in cluster.members if m.name != master]
-    ## We sort the names for consistent output to the client
+    # We sort the names for consistent output to the ctlent
     candidate_names.sort()
 
     if len(candidate_names) == 0:
         raise Exception('No candidates found to failover to')
-
 
     if candidate is None and not force:
         candidate = click.prompt('Candidate '+str(candidate_names), type=str, default='')
@@ -312,7 +318,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs):
         click.echo(timestamp()+' Initialized failover from master {}'.format(master))
         # The failover process should within a minute update the failover key, we will keep watching it until it changes
         # or we timeout
-        cluster = wait_for_master(dcs, timeout=60)
+        cluster = wait_for_leader(dcs, timeout=60)
 
     click.echo(timestamp()+' Failover completed in {:0.1f} seconds, new leader is {}'.format(
         time.time() - t_started, str(cluster.leader.member.name)))
@@ -340,7 +346,7 @@ def output_members(cluster, name=None, format='pretty'):
     print_output(['Cluster', 'Member', 'Leader'], rows, {'Cluster': 'l', 'Member': 'l'}, format)
 
 
-@cli.command('list', help='List the Patroni members for a given Patroni')
+@ctl.command('list', help='List the Patroni members for a given Patroni')
 @click.argument('cluster_names', nargs=-1)
 @option_config_file
 @option_format
@@ -364,7 +370,7 @@ def timestamp():
     return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
 
 
-@cli.command('configure', help='Create configuration file')
+@ctl.command('configure', help='Create configuration file')
 @click.option('--config-file', '-c', help='Configuration file', prompt='Configuration file', default=CONFIG_FILE_PATH)
 @click.option('--dcs', '-d', help='The DCS connect url', prompt='DCS connect url', default='etcd://localhost:4001')
 @click.option('--namespace', '-n', help='The namespace', prompt='Namespace', default='/service/')
