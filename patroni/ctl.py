@@ -14,6 +14,7 @@ from six.moves.urllib_parse import urlparse
 import logging
 
 from .etcd import Etcd
+from .exceptions import PatroniCtlException
 
 CONFIG_DIR_PATH = click.get_app_dir('patroni')
 CONFIG_FILE_PATH = os.path.join(CONFIG_DIR_PATH, 'patronictl.yaml')
@@ -91,26 +92,25 @@ def ctl(ctx):
 
 
 def get_dcs(config, scope):
+    """
+    >>> get_dcs({'scheme':'redis', 'hostname':'a', 'port':'1'}, 'testing')
+    Traceback (most recent call last):
+    ...
+    patroni.exceptions.PatroniCtlException: Can not find suitable configuration of distributed configuration store
+    """
     scheme, hostname, port = map(config.get('dcs', {}).get, ('scheme', 'hostname', 'port'))
 
     if scheme == 'etcd':
         return Etcd(name=scope, config={'scope': scope, 'host': '{}:{}'.format(hostname, port)})
 
-    raise Exception('Can not find suitable configuration of distributed configuration store')
-
-
-def get_patroni(member, endpoint):
-    url = urlparse(member.api_url)
-    logging.debug(url)
-    r = requests.get('{}://{}/{}'.format(url.scheme, url.netloc, endpoint))
-    return r
+    raise PatroniCtlException('Can not find suitable configuration of distributed configuration store')
 
 
 def post_patroni(member, endpoint, content, headers={'Content-Type': 'application/json'}):
     url = urlparse(member.api_url)
     logging.debug(url)
-    r = requests.post('{}://{}/{}'.format(url.scheme, url.netloc, endpoint), headers=headers, data=json.dumps(content))
-    return r
+    return requests.post('{}://{}/{}'.format(
+        url.scheme, url.netloc, endpoint), headers=headers, data=json.dumps(content))
 
 
 def print_output(columns, rows=[], alignment=None, format='pretty'):
@@ -131,17 +131,28 @@ def print_output(columns, rows=[], alignment=None, format='pretty'):
         print(json.dumps(elements))
 
 
-def watching(w, watch):
+def watching(w, watch, max_count=None):
+    """
+    >>> len(list(watching(True, 1, 0)))
+    1
+    >>> len(list(watching(True, 1, 1)))
+    2
+    """
     if w and not watch:
         watch = 2
     if watch:
         click.clear()
     yield 0
-    if watch:
-        while True:
-            time.sleep(watch)
-            click.clear()
-            yield 0
+
+    if max_count is not None and max_count < 1:
+        return
+
+    counter = 1
+    while watch and counter <= (max_count or counter):
+        time.sleep(watch)
+        counter += 1
+        click.clear()
+        yield 0
 
 
 @ctl.command('remove', help='Remove cluster from DCS')
@@ -150,34 +161,29 @@ def watching(w, watch):
 @option_format
 @option_dcs
 def remove(config_file, cluster_name, format, dcs):
-    config = load_config(config_file, dcs)
-    dcs = get_dcs(config, cluster_name)
-    cluster = dcs.get_cluster()
+    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
     output_members(cluster, format=format)
 
-    if cluster.name is None:
-        raise Exception("This does not seem to be a valid Patroni cluster")
-
     confirm = click.prompt('Please confirm the cluster name to remove', type=str)
     if confirm != cluster_name:
-        raise Exception("Cluster names specified do not match")
+        raise PatroniCtlException("Cluster names specified do not match")
 
     message = 'Yes I am aware'
     confirm = click.prompt('You are about to remove all information in DCS for {}, please type: "{}"'.format(
         cluster_name, message), type=str)
     if message != confirm:
-        raise Exception('You did not exactly type "{}"'.format(message))
+        raise PatroniCtlException('You did not exactly type "{}"'.format(message))
 
     if cluster.leader:
         confirm = click.prompt('This cluster currently is healthy. Please specify the master name to continue')
         if confirm != cluster.leader.name:
-            raise Exception("You did not specify the current master of the cluster")
+            raise PatroniCtlException("You did not specify the current master of the cluster")
 
     if isinstance(dcs, Etcd):
-        dcs.ctlent.delete(dcs._base_path, recursive=True)
+        dcs.client.delete(dcs._base_path, recursive=True)
     else:
-        raise Exception("We have not implemented this for DCS of type {}", type(dcs))
+        raise PatroniCtlException("We have not implemented this for DCS of type {}", type(dcs))
 
 
 def wait_for_leader(dcs, timeout=30):
@@ -191,30 +197,27 @@ def wait_for_leader(dcs, timeout=30):
         if cluster.leader:
             return cluster
 
-    raise Exception('Timeout occured')
+    raise PatroniCtlException('Timeout occured')
 
 
-def empty_post_to_members(cluster_name, member_names, config_file, dcs, force, endpoint):
-    config = load_config(config_file, dcs)
-    dcs = get_dcs(config, cluster_name)
-    cluster = dcs.get_cluster()
-
+def empty_post_to_members(cluster, member_names, force, endpoint):
     candidates = dict()
     for m in cluster.members:
         candidates[m.name] = m
 
     if len(member_names) == 0:
         member_names = [
-            click.prompt('Which member do you want to '+endpoint + ' '+str(candidates.keys()), type=str, default='')]
+            click.prompt('Which member do you want to {} [{}]?'.format(
+                endpoint, ', '.join(candidates.keys())), type=str, default='')]
 
     for mn in member_names:
         if mn not in candidates.keys():
-            raise Exception('{} is not a member of cluster {}'.format(mn, cluster_name))
+            raise PatroniCtlException('{} is not a member of cluster'.format(mn))
 
     if not force:
-        confirm = click.confirm('Are you sure you want to {} members {}?'.format(endpoint, str(candidates.keys())))
+        confirm = click.confirm('Are you sure you want to {} members {}?'.format(endpoint, ', '.join(member_names)))
         if not confirm:
-            raise Exception('Aborted {}'.format(endpoint))
+            raise PatroniCtlException('Aborted {}'.format(endpoint))
 
     for mn in member_names:
         r = post_patroni(candidates[mn], endpoint, '')
@@ -224,6 +227,14 @@ def empty_post_to_members(cluster_name, member_names, config_file, dcs, force, e
             click.echo('Succesful {} on member {}'.format(endpoint, mn))
 
 
+def ctl_load_config(cluster_name, config_file, dcs):
+    config = load_config(config_file, dcs)
+    dcs = get_dcs(config, cluster_name)
+    cluster = dcs.get_cluster()
+
+    return (config, dcs, cluster)
+
+
 @ctl.command('restart', help='Restart cluster member')
 @click.argument('cluster_name')
 @click.argument('member_names', nargs=-1)
@@ -231,7 +242,8 @@ def empty_post_to_members(cluster_name, member_names, config_file, dcs, force, e
 @option_force
 @option_dcs
 def restart(cluster_name, member_names, config_file, dcs, force):
-    empty_post_to_members(cluster_name, member_names, config_file, dcs, force, 'restart')
+    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+    empty_post_to_members(cluster, member_names, force, 'restart')
 
 
 @ctl.command('reinit', help='Reinitialize cluster member')
@@ -241,7 +253,8 @@ def restart(cluster_name, member_names, config_file, dcs, force):
 @option_force
 @option_dcs
 def reinit(cluster_name, member_names, config_file, dcs, force):
-    empty_post_to_members(cluster_name, member_names, config_file, dcs, force, 'reinitialize')
+    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+    empty_post_to_members(cluster, member_names, force, 'reinitialize')
 
 
 @ctl.command('failover', help='Failover to a replica')
@@ -256,14 +269,12 @@ def failover(config_file, cluster_name, master, candidate, force, dcs):
         We want to trigger a failover for the specified cluster name.
 
         We verify that the cluster name, master name and candidate name are correct.
-        If so, we trigger a failover and keep the ctlent up to date.
+        If so, we trigger a failover and keep the client up to date.
     """
-    config = load_config(config_file, dcs)
-    dcs = get_dcs(config, cluster_name)
-    cluster = dcs.get_cluster()
+    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
     if cluster.leader is None:
-        raise Exception('This cluster has no master')
+        raise PatroniCtlException('This cluster has no master')
 
     if master is None:
         if force:
@@ -272,20 +283,20 @@ def failover(config_file, cluster_name, master, candidate, force, dcs):
             master = click.prompt('Master', type=str, default=cluster.leader.member.name)
 
     if cluster.leader.member.name != master:
-        raise Exception('Member {} is not the leader of cluster {}'.format(master, cluster_name))
+        raise PatroniCtlException('Member {} is not the leader of cluster {}'.format(master, cluster_name))
 
     candidate_names = [str(m.name) for m in cluster.members if m.name != master]
-    # We sort the names for consistent output to the ctlent
+    # We sort the names for consistent output to the client
     candidate_names.sort()
 
     if len(candidate_names) == 0:
-        raise Exception('No candidates found to failover to')
+        raise PatroniCtlException('No candidates found to failover to')
 
     if candidate is None and not force:
         candidate = click.prompt('Candidate '+str(candidate_names), type=str, default='')
 
     if candidate and candidate not in candidate_names:
-        raise Exception('Member {} does not exist in cluster {}'.format(candidate, cluster_name))
+        raise PatroniCtlException('Member {} does not exist in cluster {}'.format(candidate, cluster_name))
 
     # By now we have established that the leader exists and the candidate exists
     click.echo('Current cluster topology')
@@ -295,11 +306,12 @@ def failover(config_file, cluster_name, master, candidate, force, dcs):
         a = click.confirm('Are you sure you want to failover cluster {}, demoting current master {}?'.format(
             cluster_name, master))
         if not a:
-            raise Exception('Aborting failover')
+            raise PatroniCtlException('Aborting failover')
 
     failover_value = '{}:{}'.format(master, (candidate or ''))
 
     t_started = time.time()
+    r = None
     try:
         r = post_patroni(cluster.leader.member, 'failover', {'leader': master, 'candidate': (candidate or '')})
         if r.status_code == 200:
@@ -319,6 +331,9 @@ def failover(config_file, cluster_name, master, candidate, force, dcs):
         # The failover process should within a minute update the failover key, we will keep watching it until it changes
         # or we timeout
         cluster = wait_for_leader(dcs, timeout=60)
+        if cluster.leader.member.name == master:
+            click.echo('Failover failed, master did not change after {:0.1f} seconds'.format(time.time() - t_started))
+            return
 
     click.echo(timestamp()+' Failover completed in {:0.1f} seconds, new leader is {}'.format(
         time.time() - t_started, str(cluster.leader.member.name)))
