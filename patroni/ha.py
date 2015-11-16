@@ -273,8 +273,9 @@ class Ha:
         if self.is_healthiest_node():
             if self.acquire_lock():
                 if self.cluster.failover:
-                    logger.info('Cleanning up failover key after acquiring leader lock...')
+                    logger.info('Cleaning up failover key after acquiring leader lock...')
                     self.dcs.manual_failover('', '')
+                self.dcs.get_cluster()
                 return self.enforce_master_role('acquired session lock as a leader',
                                                 'promoted self to leader by acquiring session lock')
             else:
