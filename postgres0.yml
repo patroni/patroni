@@ -68,13 +68,18 @@ postgresql:
   admin:
     username: admin
     password: admin
-  wal_e:
-    env_dir: /home/postgres/etc/wal-e.d/env
-    threshold_megabytes: 10240
-    threshold_backup_size_percentage: 30
-  restore: patroni/scripts/restore.py
+  create_replica_method: basebackup
+# commented-out example for wal-e provisioning
+  #create_replica_method: wal_e, basebackup
+  #wal_e:
+    #command: /patroni/scripts/wale_restore.py
+    #env_dir: /etc/wal-e.d/env
+    #threshold_megabytes: 10240
+    #threshold_backup_size_percentage: 30
+    #retries: 2
+    #use_iam: 1
   #recovery_conf:
-    #restore_command: cp ../wal_archive/%f %p
+    #restore_command: envdir /etc/wal-e.d/env wal-e wal-fetch "%f" "%p"
   parameters:
     archive_mode: "on"
     wal_level: hot_standby
