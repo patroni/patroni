@@ -63,6 +63,10 @@ class Member(namedtuple('Member', 'index,name,session,data')):
     def api_url(self):
         return self.data.get('api_url', None)
 
+    @property
+    def nofailover(self):
+        return self.data.get('tags', {}).get('nofailover', False)
+
 
 class Leader(namedtuple('Leader', 'index,session,member')):
 

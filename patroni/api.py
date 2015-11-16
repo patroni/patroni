@@ -60,6 +60,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         path = '/master' if self.path == '/' else self.path
         response = self.get_postgresql_status()
+        response.update(self.get_tags())
 
         patroni = self.server.patroni
         cluster = patroni.dcs.cluster
@@ -90,6 +91,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     def do_GET_patroni(self):
         response = self.get_postgresql_status(True)
+        response.update(self.get_tags())
 
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
@@ -160,8 +162,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
             members = [m for m in cluster.members if m.name != cluster.leader.name and m.api_url]
             if not members:
                 return b'failover is not possible: cluster does not have members except leader'
-        for member, reachable, in_recovery, xlog_location in self.server.patroni.ha.fetch_nodes_statuses(members):
-            if reachable:
+        for member, reachable, in_recovery, xlog_location, tags in self.server.patroni.ha.fetch_nodes_statuses(members):
+            if reachable and not tags.get('nofailover', False):
                 return None
         return b'failover is not possible: no good candidates have been found'
 
@@ -244,6 +246,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 logger.exception('get_postgresql_status')
                 state = 'unknown' if state == 'running' else state
             return {'state': state}
+
+    def get_tags(self):
+        return {'tags': self.server.patroni.tags}
 
 
 class RestApiServer(ThreadingMixIn, HTTPServer, Thread):

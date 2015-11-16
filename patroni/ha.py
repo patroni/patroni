@@ -51,7 +51,8 @@ class Ha:
             'conn_url': self.state_handler.connection_string,
             'api_url': self.patroni.api.connection_string,
             'state': self.state_handler.state,
-            'role': self.state_handler.role
+            'role': self.state_handler.role,
+            'tags': self.patroni.tags
         }
         if data['state'] in ['running', 'restarting', 'starting']:
             try:
@@ -73,7 +74,7 @@ class Ha:
             self._async_executor.schedule('bootstrap from leader')
             self._async_executor.run_async(self.copy_backup_from_leader, args=(self.cluster.leader, ))
             return 'trying to bootstrap from leader'
-        elif not self.cluster.initialize:  # no initialize key
+        elif not self.cluster.initialize and not self.patroni.nofailover:  # no initialize key
             if self.dcs.initialize(create_new=True):  # race for initialization
                 try:
                     self.state_handler.bootstrap()
@@ -142,7 +143,9 @@ class Ha:
 
         reachable - `!False` if the node is not reachable or is not responding with correct JSON
         in_recovery - `!True` if pg_is_in_recovery() == true
-        xlog_location - value of `replayed_location` or `location` from JSON, dependin on its role."""
+        xlog_location - value of `replayed_location` or `location` from JSON, dependin on its role.
+        tags - dictionary with values of different tags (i.e. nofailover)
+        """
 
         try:
             response = requests.get(member.api_url, timeout=2, verify=False)
@@ -150,10 +153,11 @@ class Ha:
             json = response.json()
             is_master = json['role'] == 'master'
             xlog_location = json['xlog']['location' if is_master else 'replayed_location']
-            return (member, True, not is_master, xlog_location)
+            tags = json.get('tags', dict())
+            return (member, True, not is_master, xlog_location, tags)
         except:
             logging.exception('request failed: GET %s', member.api_url)
-        return (member, False, None, 0)
+        return (member, False, None, 0, {})
 
     def fetch_nodes_statuses(self, members):
         pool = ThreadPool(len(members))
@@ -168,16 +172,19 @@ class Ha:
         if self.state_handler.is_leader():
             return True
 
+        if self.patroni.nofailover is True:
+            return False
+
         if check_replication_lag and not self.state_handler.check_replication_lag(self.cluster.last_leader_operation):
             return False  # Too far behind last reported xlog location on master
 
         # Prepare list of nodes to run check against
-        members = [m for m in members if m.name != self.state_handler.name and m.api_url]
+        members = [m for m in members if m.name != self.state_handler.name and not m.nofailover and m.api_url]
 
         if members:
             my_xlog_location = self.state_handler.xlog_position()
-            for member, reachable, in_recovery, xlog_location in self.fetch_nodes_statuses(members):
-                if reachable:  # If the node is unreachable it's not healhy
+            for member, reachable, in_recovery, xlog_location, tags in self.fetch_nodes_statuses(members):
+                if reachable and not tags.get('nofailover', False):  # If the node is unreachable it's not healhy
                     if not in_recovery:
                         logger.warning('Master (%s) is still alive', member.name)
                         return False
@@ -187,13 +194,15 @@ class Ha:
 
     def is_failover_possible(self, members):
         ret = False
-        members = [m for m in members if m.name != self.state_handler.name and m.api_url]
+        members = [m for m in members if m.name != self.state_handler.name and not m.nofailover and m.api_url]
         if members:
-            for member, reachable, in_recovery, xlog_location in self.fetch_nodes_statuses(members):
-                if reachable:
+            for member, reachable, in_recovery, xlog_location, tags in self.fetch_nodes_statuses(members):
+                if reachable and not tags.get('nofailover', False):
                     ret = True  # TODO: check xlog_location
-                else:
+                elif not reachable:
                     logger.info('Member %s is not reachable', member.name)
+                elif tags.get('nofailover', False):
+                    logger.info('Member %s is not allowed to promote', member.name)
         else:
             logger.warning('manual failover: members list is empty')
         return ret
@@ -207,12 +216,15 @@ class Ha:
             # find specific node and check that it is healthy
             members = [m for m in self.cluster.members if m.name == failover.member]
             if members:
-                member, reachable, in_recovery, xlog_location = self.fetch_node_status(members[0])
-                if reachable:  # node is healthy
+                member, reachable, in_recovery, xlog_location, tags = self.fetch_node_status(members[0])
+                if reachable and not tags.get('nofailover', False):  # node is healthy
                     logger.info('manual failover: to %s, i am %s', member.name, self.state_handler.name)
                     return False
                 # we wanted to failover to specific member but it is not healthy
-                logger.warning('manual failover: member %s is unhealthy', member.name)
+                if not reachable:
+                    logger.warning('manual failover: member %s is unhealthy', member.name)
+                elif tags.get('nofailover', False):
+                    logger.warning('manual failover: member %s is not allowed to promote', member.name)
 
             # at this point we should consider all members as a candidates for failover
             # i.e. we assume that failover.member is None
@@ -221,7 +233,7 @@ class Ha:
         if failover.leader:
             if self.state_handler.name == failover.leader:  # I was the leader
                 # exclude me and desired member which is unhealthy (failover.member can be None)
-                members = [m for m in self.cluster.members if m.name != failover.member]
+                members = [m for m in self.cluster.members if m.name not in (failover.member, failover.leader)]
                 if self.is_failover_possible(members):  # check that there are healthy members
                     return False
                 else:  # I was the leader and it looks like currently I am the only healthy member
@@ -234,6 +246,13 @@ class Ha:
         return self._is_healthiest_node(members, check_replication_lag=False)
 
     def is_healthiest_node(self):
+
+        if self.state_handler.is_leader():  # leader is always the healthiest
+            return True
+
+        if self.patroni.nofailover:  # nofailover tag makes node always unhealthy
+            return False
+
         if self.cluster.failover:
             return self.manual_failover_process_no_leader()
 
@@ -282,6 +301,9 @@ class Ha:
                 return self.follow_the_leader('demoted self due after trying and failing to obtain lock',
                                               'following new leader after trying and failing to obtain lock')
         else:
+            if self.patroni.nofailover:
+                return self.follow_the_leader('demoting self because I am not allowed to become master',
+                                              'following a different leader because I am not allowed to promote')
             return self.follow_the_leader('demoting self because i am not the healthiest node',
                                           'following a different leader because i am not the healthiest node')
 

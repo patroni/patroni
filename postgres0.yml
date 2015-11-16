@@ -85,3 +85,8 @@ postgresql:
     max_replication_slots: 5
     hot_standby: "on"
     wal_log_hints: "on"
+tags:
+    nofailover: False
+    noloadbalance: False
+    clonefrom: False
+    replicatefrom: 127.0.0.1
