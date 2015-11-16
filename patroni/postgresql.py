@@ -42,6 +42,7 @@ class Postgresql:
     def __init__(self, config):
         self.config = config
         self.name = config['name']
+        self.server_parameters = config.get('parameters', {})
         self.scope = config['scope']
         self.listen_addresses, self.port = config['listen'].split(':')
         self.data_dir = config['data_dir']
@@ -323,7 +324,7 @@ class Postgresql:
 
     def server_options(self):
         options = "--listen_addresses='{}' --port={}".format(self.listen_addresses, self.port)
-        for setting, value in self.config['parameters'].items():
+        for setting, value in self.server_parameters.items():
             options += " --{}='{}'".format(setting, value)
         return options
 
@@ -341,7 +342,7 @@ class Postgresql:
         with open(os.path.join(self.data_dir, 'pg_hba.conf'), 'a') as f:
             f.write('\nhost replication {username} {network} md5\n'.format(**self.replication))
             for line in self.config.get('pg_hba', []):
-                if line.split()[0].strip() == 'hostssl' and self.config['parameters'].get('ssl', 'off').lower() != 'on':
+                if line.split()[0].strip() == 'hostssl' and self.server_parameters.get('ssl', 'off').lower() != 'on':
                     continue
                 f.write(line + '\n')
 
