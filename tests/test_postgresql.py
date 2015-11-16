@@ -162,7 +162,7 @@ class TestPostgresql(unittest.TestCase):
         self.p = Postgresql({'name': 'test0', 'scope': 'batman', 'data_dir': 'data/test0',
                              'listen': '127.0.0.1, *:5432', 'connect_address': '127.0.0.2:5432',
                              'pg_hba': ['hostssl all all 0.0.0.0/0 md5', 'host all all 0.0.0.0/0 md5'],
-                             'superuser': {'password': ''},
+                             'superuser': {'password': 'test'},
                              'admin': {'username': 'admin', 'password': 'admin'},
                              'pg_rewind': {'username': 'admin', 'password': 'admin'},
                              'replication': {'username': 'replicator',
@@ -186,6 +186,16 @@ class TestPostgresql(unittest.TestCase):
 
     def test_data_directory_empty(self):
         self.assertTrue(self.p.data_directory_empty())
+
+    def test_get_initdb_options(self):
+        self.p.initdb_options = [{'encoding': 'UTF8'}, 'data-checksums']
+        self.assertEquals(self.p.get_initdb_options(), ['--encoding=UTF8', '--data-checksums'])
+        self.p.initdb_options = [{'pgdata': 'bar'}]
+        self.assertRaises(Exception, self.p.get_initdb_options)
+        self.p.initdb_options = [{'foo': 'bar', 1: 2}]
+        self.assertRaises(Exception, self.p.get_initdb_options)
+        self.p.initdb_options = [1]
+        self.assertRaises(Exception, self.p.get_initdb_options)
 
     def test_initialize(self):
         self.assertTrue(self.p.initialize())

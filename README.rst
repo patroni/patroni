@@ -82,6 +82,12 @@ For an example file, see ``postgres0.yml``. Regarding settings:
     -  *data\_dir*: file path to initialize and store Postgres data files.
     -  *maximum\_lag\_on\_failover*: the maximum bytes a follower may lag.
     -  *use\_slots*: whether or not to use replication_slots. Must be False for PostgreSQL 9.3. You should comment out max_replication_slots before it becomes ineligible for leader status.
+
+    -  *initdb*:  List options to be passed on to initdb
+        -  *encoding*: default encoding for new databases
+        -  *locale*: default locale for new databases
+        -  *data-checksums*  # When pg_rewind is needed on 9.3, this needs to be enabled
+
     -  *pg\_hba*: list of lines which should be added to pg\_hba.conf.
         -  *- host all all 0.0.0.0/0 md5*.
 
