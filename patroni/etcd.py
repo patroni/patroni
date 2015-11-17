@@ -141,7 +141,7 @@ def catch_etcd_errors(func):
     def wrapper(*args, **kwargs):
         try:
             return not func(*args, **kwargs) is None
-        except (RetryFailedError, etcd.EtcdException):
+        except (RetryFailedError, etcd.EtcdException, AttributeError):
             return False
     return wrapper
 
