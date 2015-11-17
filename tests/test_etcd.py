@@ -8,7 +8,7 @@ import unittest
 from dns.exception import DNSException
 from mock import Mock, patch
 from patroni.dcs import Cluster, DCSError, Leader
-from patroni.etcd import Client, Etcd
+from patroni.etcd import Client, Etcd, EtcdError
 
 
 class MockResponse:
@@ -266,3 +266,7 @@ class TestEtcd(unittest.TestCase):
         self.etcd.watch(4.5)
         self.etcd.watch(9.5)
         self.etcd.watch(100)
+
+    @patch('patroni.etcd.Etcd.retry', Mock(side_effect=AttributeError("foo")))
+    def test_other_exceptions(self):
+        self.assertRaises(EtcdError, self.etcd.cancel_initialization)
