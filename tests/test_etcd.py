@@ -17,6 +17,7 @@ class MockResponse:
         self.status_code = 200
         self.content = '{}'
         self.ok = True
+        self.text = ''
 
     def json(self):
         return json.loads(self.content)
