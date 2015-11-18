@@ -143,6 +143,10 @@ def catch_etcd_errors(func):
             return not func(*args, **kwargs) is None
         except (RetryFailedError, etcd.EtcdException):
             return False
+        except:
+            logger.exception("")
+            raise EtcdError("unexpected error")
+
     return wrapper
 
 
