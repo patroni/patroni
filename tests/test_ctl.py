@@ -23,6 +23,28 @@ from test_postgresql import MockConnect, psycopg2_connect
 
 CONFIG_FILE_PATH = './test-ctl.yaml'
 
+def test_rw_config():
+    runner = CliRunner()
+    config = {'a':'b'}
+    with runner.isolated_filesystem():
+        store_config(config, CONFIG_FILE_PATH + '/dummy')
+        os.remove(CONFIG_FILE_PATH + '/dummy')
+        os.rmdir(CONFIG_FILE_PATH)
+
+        with pytest.raises(Exception):
+            result = load_config(CONFIG_FILE_PATH, None)
+            assert 'Could not load configuration file' in result.output
+
+        os.mkdir(CONFIG_FILE_PATH)
+        with pytest.raises(Exception):
+            store_config(config, CONFIG_FILE_PATH)
+
+        os.rmdir(CONFIG_FILE_PATH)
+
+    store_config(config, CONFIG_FILE_PATH)
+    load_config(CONFIG_FILE_PATH, None)
+    load_config(CONFIG_FILE_PATH, '0.0.0.0')
+
 @patch('patroni.ctl.load_config', Mock(return_value={'dcs': {'scheme': 'etcd', 'hostname': 'localhost', 'port': 4001}}))
 class TestCtl(unittest.TestCase):
 
@@ -60,24 +82,6 @@ class TestCtl(unittest.TestCase):
         output_members(cluster, name='abc', format='pretty')
         output_members(cluster, name='abc', format='json')
         output_members(cluster, name='abc', format='tsv')
-
-    def test_rw_config(self):
-        runner = CliRunner()
-        config = 'a:b'
-        with runner.isolated_filesystem():
-            store_config(config, CONFIG_FILE_PATH + '/dummy')
-            os.remove(CONFIG_FILE_PATH + '/dummy')
-            with pytest.raises(Exception):
-                result = load_config(CONFIG_FILE_PATH, None)
-                assert 'Could not load configuration file' in result.output
-
-            with pytest.raises(Exception):
-                store_config(config, CONFIG_FILE_PATH)
-
-            os.rmdir(CONFIG_FILE_PATH)
-
-        store_config(config, 'abc/CONFIG_FILE_PATH')
-        load_config(CONFIG_FILE_PATH, None)
 
     @patch('patroni.etcd.Etcd.get_cluster', Mock(return_value=get_cluster_initialized_with_leader()))
     @patch('patroni.etcd.Etcd.get_etcd_client', Mock(return_value=None))
@@ -348,7 +352,8 @@ leader''')
     def test_members(self):
         runner = CliRunner()
 
-        runner.invoke(members, ['alpha'])
+        result = runner.invoke(members, ['alpha'])
+        assert result.exit_code == 0
 
     def test_configure(self):
         runner = CliRunner()
