@@ -349,6 +349,10 @@ leader''')
         r = list(get_all_members(get_cluster_initialized_without_leader(), role='replica'))
         assert len(r) == 2
 
+    @patch('patroni.etcd.Etcd.get_cluster', Mock(return_value=get_cluster_initialized_with_leader()))
+    @patch('patroni.etcd.Etcd.get_etcd_client', Mock(return_value=None))
+    @patch('requests.get', requests_get)
+    @patch('requests.post', requests_get)
     def test_members(self):
         runner = CliRunner()
 
