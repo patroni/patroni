@@ -24,6 +24,7 @@
 #       recovery_conf:
 #               restore_command: envdir /etc/wal-e.d/env wal-e wal-fetch "%f" "%p"
 
+from collections import namedtuple
 import logging
 import os
 import psycopg2
@@ -40,11 +41,11 @@ logger = logging.getLogger(__name__)
 
 class WALERestore(object):
 
-    def __init__(self, scope, role, datadir, connstring, env_dir, threshold_mb, threshold_pct, use_iam):
+    def __init__(self, scope, datadir, connstring, env_dir, threshold_mb, threshold_pct, use_iam):
         self.scope = scope
-        self.role = role
         self.master_connection = connstring
         self.data_dir = datadir
+        self.wal_e = namedtuple('wale', 'dir,threshold_mb,threshold_pct,iam_string,cmd')
         self.wal_e.dir = env_dir
         self.wal_e.threshold_mb = threshold_mb
         self.wal_e.threshold_pct = threshold_pct
@@ -168,9 +169,9 @@ if __name__ == '__main__':
 
     # retry cloning in a loop
     for retry in range(0, args.retries + 1):
-        restore = WALERestore(scope=args.scope, datadir=args.datadir, connstring=args.constring,
-                              env_dir=args.env_dir, threshold_mb=args.threshold_megabytes,
-                              threshold_pct=args.threshold_backup_size_percentage)
+        restore = WALERestore(scope=args.scope, datadir=args.datadir, connstring=args.connstring,
+                              env_dir=args.envdir, threshold_mb=args.threshold_megabytes,
+                              threshold_pct=args.threshold_backup_size_percentage, use_iam=args.use_iam)
         ret = restore.run()
         if ret == 0:
             break
