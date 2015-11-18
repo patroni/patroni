@@ -111,7 +111,7 @@ def post_patroni(member, endpoint, content, headers={'Content-Type': 'applicatio
     url = urlparse(member.api_url)
     logging.debug(url)
     return requests.post('{}://{}/{}'.format(url.scheme, url.netloc, endpoint), headers=headers,
-                         data=json.dumps(content))
+                         data=json.dumps(content), timeout=5)
 
 
 def print_output(columns, rows=[], alignment=None, format='pretty', header=True, delimiter='\t'):
@@ -573,7 +573,7 @@ def output_members(cluster, name=None, format='pretty'):
         'State',
         'Lag in MB',
     ]
-    alignment = {'Cluster': 'l', 'Member': 'l'}
+    alignment = {'Cluster': 'l', 'Member': 'l', 'Host': 'l'}
 
     print_output(columns, rows, alignment, format)
 
