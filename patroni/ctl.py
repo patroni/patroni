@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 '''
 Patroni Control
 '''
@@ -96,10 +93,8 @@ option_force = click.option('--force', is_flag=True, help='Do not ask for confir
 @click.pass_context
 def ctl(ctx):
     global LOGLEVEL
-    if 'DEBUG' in os.environ:
-        LOGLEVEL = os.environ.get('DEBUG')
-        if LOGLEVEL == '':
-            LOGLEVEL = 'DEBUG'
+    LOGLEVEL = os.environ.get('LOGLEVEL', LOGLEVEL)
+
     logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=LOGLEVEL)
 
 
@@ -151,6 +146,8 @@ def watching(w, watch, max_count=None, clear=True):
     1
     >>> len(list(watching(True, 1, 1)))
     2
+    >>> len(list(watching(True, None, 0)))
+    1
     """
 
     if w and not watch:
@@ -184,7 +181,8 @@ def build_connect_parameters(conn_url, connect_parameters={}):
 
 def get_all_members(cluster, role='master'):
     if role == 'master':
-        yield (None if cluster.leader is None else cluster.leader.member)
+        if cluster.leader is not None:
+            yield cluster.leader
         return
 
     leader_name = (cluster.leader.member.name if cluster.leader else None)
@@ -328,8 +326,6 @@ def query_member(cluster, cursor, member, role, command):
         message = message.replace('\n', ' ')
         return [[timestamp(0), 'ERROR, SQLSTATE: {}'.format(message)]], None
 
-    return None, None
-
 
 @ctl.command('remove', help='Remove cluster from DCS')
 @click.argument('cluster_name')
@@ -338,6 +334,9 @@ def query_member(cluster, cursor, member, role, command):
 @option_dcs
 def remove(config_file, cluster_name, format, dcs):
     config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+
+    if not isinstance(dcs, Etcd):
+        raise PatroniCtlException('We have not implemented this for DCS of type {}'.format(type(dcs)))
 
     output_members(cluster, format=format)
 
@@ -357,10 +356,7 @@ def remove(config_file, cluster_name, format, dcs):
         if confirm != cluster.leader.name:
             raise PatroniCtlException('You did not specify the current master of the cluster')
 
-    if isinstance(dcs, Etcd):
-        dcs.client.delete(dcs._base_path, recursive=True)
-    else:
-        raise PatroniCtlException('We have not implemented this for DCS of type {}', type(dcs))
+    dcs.client.delete(dcs._base_path, recursive=True)
 
 
 def wait_for_leader(dcs, timeout=30):
@@ -488,6 +484,9 @@ def failover(config_file, cluster_name, master, candidate, force, dcs):
     if candidate is None and not force:
         candidate = click.prompt('Candidate ' + str(candidate_names), type=str, default='')
 
+    if candidate == master:
+        raise PatroniCtlException('Failover target and source are the same.')
+
     if candidate and candidate not in candidate_names:
         raise PatroniCtlException('Member {} does not exist in cluster {}'.format(candidate, cluster_name))
 
@@ -555,7 +554,7 @@ def output_members(cluster, name=None, format='pretty'):
         xlog_location = m.data.get('xlog_location')
         lag = ''
         if xlog_location is not None:
-            lag = round((cluster.last_leader_operation - m.data.get('xlog_location', 0)) / 1024 / 1024)
+            lag = round(((cluster.last_leader_operation or 0) - m.data.get('xlog_location', 0)) / 1024 / 1024)
 
         rows.append([
             name,
