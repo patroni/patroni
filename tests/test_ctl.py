@@ -23,7 +23,7 @@ from test_postgresql import MockConnect, psycopg2_connect
 
 CONFIG_FILE_PATH = './test-ctl.yaml'
 
-
+@patch('patroni.ctl.load_config', Mock(return_value={'dcs': {'scheme': 'etcd', 'hostname': 'localhost', 'port': 4001}}))
 class TestCtl(unittest.TestCase):
 
     @patch.object(Client, 'machines')
