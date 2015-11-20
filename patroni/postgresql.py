@@ -244,6 +244,7 @@ class Postgresql:
         replica_list = self.config.get('create_replica_method', 'basebackup')
         replica_methods = [rm.strip() for rm in replica_list.split(',')]
         # go through them in priority order
+        ret = 1
         for replica_method in replica_methods:
             # if the method is basebackup, then use the built-in
             if replica_method == "basebackup":
@@ -252,20 +253,17 @@ class Postgresql:
                     # if basebackup succeeds, exit with success
                     break
             else:
+                cmd = replica_method
                 # user-defined method; check for configuration
                 # not required, actually
                 if replica_method in self.config:
+                    method_config = self.config[replica_method].copy()
                     # look to see if the user has supplied a full command path
                     # if not, use the method name as the command
-                    if "command" in self.config[replica_method]:
-                        cmd = self.config[replica_method]["command"]
-                    else:
-                        cmd = replica_method
-
-                    # get the rest of the replica config
-                    method_config = self.config[replica_method].copy()
-                    # remove the command and turn it into a shlex set
-                    del method_config["command"]
+                    if "command" in method_config:
+                        cmd = method_config["command"]
+                        # remove the command and turn it into a shlex set
+                        del method_config["command"]
                     # add the default parameters
                     method_config.update({"scope": self.scope,
                                           "role": "replica",
@@ -273,12 +271,10 @@ class Postgresql:
                                           "connstring": connstring})
                     params = ["--{0}={1}".format(arg, val) for arg, val in method_config.items()]
                 else:
-                    cmd = replica_method
                     method_config = {"scope": self.scope,
                                      "role": "replica",
                                      "datadir": self.data_dir,
                                      "connstring": connstring}
-
                 try:
                     # call script with the full set of parameters
                     ret = subprocess.call(shlex.split(cmd) + params, env=env)
@@ -289,13 +285,7 @@ class Postgresql:
                     logger.exception('Error creating replica using method {0}: {1}'.format(replica_method, e.str))
                     ret = 1
 
-        # write the recovery.conf
-        if ret == 0:
-            ret = self.write_recovery_conf(leader)
-            return 0
-
-        # out of methods, return 1
-        return 1
+        return ret
 
     def is_leader(self):
         return not self.query('SELECT pg_is_in_recovery()').fetchone()[0]
