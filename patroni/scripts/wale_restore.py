@@ -36,6 +36,7 @@ import argparse
 if sys.hexversion >= 0x03000000:
     long = int
 
+logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -67,7 +68,7 @@ class WALERestore(object):
 
     def replica_method(self):
         if self.should_use_s3_to_create_replica():
-            return self.create_replica_with_s3
+            return self.create_replica_with_s3()
         return None
 
     def should_use_s3_to_create_replica(self):
@@ -145,7 +146,7 @@ class WALERestore(object):
             return 1
         # if we're set up, restore the replica using fetch latest
         try:
-            ret = subprocess.call(self.wal_e.cmd + ' backup-fetch {} LATEST'.format(self.data_dir))
+            ret = subprocess.call(self.wal_e.cmd.split() + ['backup-fetch', '{}'.format(self.data_dir), 'LATEST'])
         except Exception as e:
             logger.error('Error when fetching backup with WAL-E: {0}'.format(e))
             return 1
