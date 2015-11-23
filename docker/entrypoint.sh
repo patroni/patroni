@@ -116,7 +116,7 @@ postgresql:
   parameters:
     archive_mode: "on"
     wal_level: hot_standby
-    archive_command: mkdir -p ../wal_archive && cp %p ../wal_archive/%f
+    archive_command: 'true'
     max_wal_senders: 20
     listen_addresses: 0.0.0.0
     wal_keep_segments: 8

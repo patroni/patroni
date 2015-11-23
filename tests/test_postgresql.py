@@ -56,6 +56,9 @@ class MockCursor:
     def fetchone(self):
         return self.results[0]
 
+    def fetchall(self):
+        return self.results
+
     def close(self):
         pass
 
