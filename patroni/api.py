@@ -242,10 +242,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
             }
         except (psycopg2.Error, RetryFailedError, PostgresConnectionException):
             state = self.server.patroni.postgresql.state
-            if state in ['stopped', 'starting', 'stopping', 'restarting', 'running']:
-                if state == 'running':
-                    logger.exception('get_postgresql_status')
-                state = 'unknown' if state == 'running' else state
+            if state == 'running':
+                logger.exception('get_postgresql_status')
+                state = 'unknown'
             return {'state': state}
 
     def get_tags(self):
