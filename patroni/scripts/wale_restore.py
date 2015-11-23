@@ -63,13 +63,9 @@ class WALERestore(object):
 
     def run(self):
         """ creates a new replica using WAL-E """
-        ret = self.replica_method()
-        return ret
-
-    def replica_method(self):
         if self.should_use_s3_to_create_replica():
             return self.create_replica_with_s3()
-        return None
+        return 2
 
     def should_use_s3_to_create_replica(self):
         """ determine whether it makes sense to use S3 and not pg_basebackup """
