@@ -264,10 +264,7 @@ class Postgresql:
                     method_config = self.config[replica_method].copy()
                     # look to see if the user has supplied a full command path
                     # if not, use the method name as the command
-                    if "command" in method_config:
-                        cmd = method_config["command"]
-                        # remove the command and turn it into a shlex set
-                        del method_config["command"]
+                    cmd = method_config.pop('command', cmd)
                     # add the default parameters
                     method_config.update({"scope": self.scope,
                                           "role": "replica",
