@@ -230,14 +230,10 @@ class Postgresql:
     @staticmethod
     def build_connstring(conn):
         """
-        >>> Postgresql.build_connstring({'host': '127.0.0.1', 'port': '5432'}) == 'host=127.0.0.1 port=5432 '
+        >>> Postgresql.build_connstring({'host': '127.0.0.1', 'port': '5432'}) == 'host=127.0.0.1 port=5432'
         True
         """
-        mconn = ""
-        for param, val in sorted(conn.items()):
-            mconn = mconn + "{0}={1} ".format(param, val)
-
-        return mconn
+        return ' '.join('{}={}'.format(param, val) for param, val in sorted(conn.items()))
 
     def create_replica(self, leader, env):
         # create the replica according to the replica_method
