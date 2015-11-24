@@ -50,27 +50,18 @@ class WALERestore(object):
         self.wal_e.dir = env_dir
         self.wal_e.threshold_mb = threshold_mb
         self.wal_e.threshold_pct = threshold_pct
-        if use_iam == 1:
-            self.wal_e.iam_string = ' --aws-instance-profile '
-        else:
-            self.wal_e.iam_string = ''
-        if not os.path.exists(self.wal_e.dir):
-            self.init_error = True
-        else:
-            self.init_error = False
-            self.wal_e.cmd = 'envdir {0} wal-e {1} '.\
-                format(self.wal_e.dir, self.wal_e.iam_string)
+        self.wal_e.iam_string = ' --aws-instance-profile ' if use_iam == 1 else ''
+        self.wal_e.cmd = 'envdir {0} wal-e {1} '.format(self.wal_e.dir, self.wal_e.iam_string)
+        self.init_error = (not os.path.exists(self.wal_e.dir))
 
     def run(self):
         """ creates a new replica using WAL-E """
-        if self.should_use_s3_to_create_replica():
+        if not self.init_error and self.should_use_s3_to_create_replica():
             return self.create_replica_with_s3()
         return 2
 
     def should_use_s3_to_create_replica(self):
         """ determine whether it makes sense to use S3 and not pg_basebackup """
-        if self.init_error:
-            return False
 
         threshold_megabytes = self.wal_e.threshold_mb
         threshold_backup_size_percentage = self.wal_e.threshold_pct
@@ -138,8 +129,6 @@ class WALERestore(object):
             (diff_in_bytes < long(backup_size) * float(threshold_backup_size_percentage) / 100)
 
     def create_replica_with_s3(self):
-        if self.init_error:
-            return 1
         # if we're set up, restore the replica using fetch latest
         try:
             ret = subprocess.call(self.wal_e.cmd.split() + ['backup-fetch', '{}'.format(self.data_dir), 'LATEST'])
@@ -151,7 +140,6 @@ class WALERestore(object):
 
 
 if __name__ == '__main__':
-
     parser = argparse.ArgumentParser(description='Script to image replicas using WAL-E')
     parser.add_argument('--scope', required=True)
     parser.add_argument('--role', required=False)

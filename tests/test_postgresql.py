@@ -284,6 +284,16 @@ class TestPostgresql(unittest.TestCase):
         with patch('subprocess.call', Mock(side_effect=[Exception(), 0])):
             self.assertEquals(self.p.create_replica(self.leader, ''), 0)
 
+        self.p.config['create_replica_method'] = 'wale, basebackup'
+        self.p.config['wale'] = {'command': 'foo'}
+        with patch('subprocess.call', Mock(return_value=0)):
+            self.assertEquals(self.p.create_replica(self.leader, ''), 0)
+            del self.p.config['wale']
+            self.assertEquals(self.p.create_replica(self.leader, ''), 0)
+
+        with patch('subprocess.call', Mock(side_effect=Exception("foo"))):
+            self.assertEquals(self.p.create_replica(self.leader, ''), 1)
+
     def test_create_connection_users(self):
         cfg = self.p.config
         cfg['superuser']['username'] = 'test'

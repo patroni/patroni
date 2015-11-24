@@ -229,8 +229,12 @@ class Postgresql:
 
     @staticmethod
     def build_connstring(conn):
+        """
+        >>> Postgresql.build_connstring({'host': '127.0.0.1', 'port': '5432'}) == 'host=127.0.0.1 port=5432 '
+        True
+        """
         mconn = ""
-        for param, val in conn.items():
+        for param, val in sorted(conn.items()):
             mconn = mconn + "{0}={1} ".format(param, val)
 
         return mconn
@@ -282,7 +286,7 @@ class Postgresql:
                     if ret == 0:
                         break
                 except Exception as e:
-                    logger.exception('Error creating replica using method {0}: {1}'.format(replica_method, e.str))
+                    logger.exception('Error creating replica using method {0}: {1}'.format(replica_method, str(e)))
                     ret = 1
 
         return ret
