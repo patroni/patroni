@@ -22,7 +22,7 @@
 
 # currently also requires that you configure the restore_command to use wal_e, example:
 #       recovery_conf:
-#               restore_command: envdir /etc/wal-e.d/env wal-e wal-fetch "%f" "%p"
+#               restore_command: envdir /etc/wal-e.d/env wal-e wal-fetch "%f" "%p" -p 1
 
 from collections import namedtuple
 import logging
