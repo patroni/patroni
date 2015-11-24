@@ -707,7 +707,6 @@ $$""".format(name, options), name, password, password)
         # tries twice, then returns failure (as 1)
         # uses "stream" as the xlog-method to avoid sync issues
         master_connection = leader.conn_url
-        bbfailures = 0
         maxfailures = 2
         ret = 1
         for bbfailures in range(0, maxfailures):
