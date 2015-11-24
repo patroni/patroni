@@ -714,7 +714,7 @@ $$""".format(name, options), name, password, password)
         bbfailures = 0
         maxfailures = 2
         ret = 1
-        while bbfailures < maxfailures:
+        for bbfailures in range(0, maxfailures):
             try:
                 ret = subprocess.call(['pg_basebackup', '--pgdata=' + self.data_dir,
                                        '--xlog-method=stream', "--dbname=" + master_connection], env=env)
@@ -724,9 +724,8 @@ $$""".format(name, options), name, password, password)
             except Exception as e:
                 logger.error('Error when fetching backup with pg_basebackup: {0}'.format(e))
 
-            bbfailures += 1
-            if bbfailures < maxfailures:
+            if bbfailures < maxfailures - 1:
                 logger.error('Trying again in 5 seconds')
-            time.sleep(5)
+                time.sleep(5)
 
         return ret
