@@ -113,11 +113,11 @@ For an example file, see ``postgres0.yml``. Regarding settings:
     -  *recovery\_conf*: additional configuration settings written to recovery.conf when configuring follower.
         -  *parameters*: list of configuration settings for Postgres.  Many of these are required for replication to work.
 
-    -  *create_replica_methods*: an ordered list of the create methods for turning a patroni node into a new replica.
+    -  *create\_replica\_methods*: an ordered list of the create methods for turning a patroni node into a new replica.
        "basebackup" is the default method; other methods are assumed to refer to scripts, each of which is configured
        as its own config item.
 
-    -  *{replica_method}* for each create_replica_method other than basebackup, you would add a configuration section
+    -  *replica\_method* for each create_replica_method other than basebackup, you would add a configuration section
        of the same name.  At a minimum, this should include "command" with a full path to the actual script to be
        executed.  Other configuration parameters will be passed along to the script in the form "parameter=value".
 
