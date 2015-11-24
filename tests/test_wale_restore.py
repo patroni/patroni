@@ -89,39 +89,3 @@ class TestWALERestore(unittest.TestCase):
         with patch.object(self.wale_restore, 'should_use_s3_to_create_replica', MagicMock(return_value=True)):
             with patch.object(self.wale_restore, 'create_replica_with_s3', MagicMock(return_value=0)):
                 self.assertEqual(self.wale_restore.run(), 0)
-
-        # with patch.object(self.wale_restore, 'init_error', PropertyMock(return_value=True)):
-        #     self.assertFalse(self.wale_restore.create_replica_with_s3())
-
-    # @patch('subprocess.call', MagicMock(return_value=0))
-    # def test_run(self):
-    #     ret = self.wale_restore.run()
-    #     self.assertEqual(ret, 0)
-
-
-    # The 3 tests above only differ with the mock function instead of a subprocess call
-    # in the first one, subprocess call should return success only for wal-e command,
-    # checking the primary use-case of restoring from WAL-E backup.
-    # In the second one, we test fallbacks by failing at WAL-E, but succeeding at
-    # pg_basebackup.
-    # Finally, the last use case is when all subprocess.call fails. resulting in a
-    # failure to restore from replica
-    # @patch('subprocess.call',
-    #        MagicMock(side_effect=lambda *args, **kwargs: 0 if 'wal-e' in args[0] else 1))
-    # def test_run(self):
-    #     self.wale_restore.setup()
-    #     ret = self.wale_restore.run()
-    #     self.assertEqual(ret, 0)
-
-    # @patch('subprocess.call',
-    #        MagicMock(side_effect=lambda *args, **kwargs: 0 if 'pg_basebackup' in args[0] else 1))
-    # def test_run_fallback(self):
-    #     self.wale_restore.setup()
-    #     ret = self.wale_restore.run()
-    #     self.assertEqual(ret, 0)
-
-    # @patch('subprocess.call', MagicMock(return_value=1))
-    # def test_run_all_fail(self):
-    #     self.wale_restore.setup()
-    #     ret = self.wale_restore.run()
-    #     self.assertEqual(ret, 1)
