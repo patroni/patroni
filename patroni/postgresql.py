@@ -258,6 +258,7 @@ class Postgresql:
                     break
             else:
                 cmd = replica_method
+                method_config = {}
                 # user-defined method; check for configuration
                 # not required, actually
                 if replica_method in self.config:
@@ -266,17 +267,12 @@ class Postgresql:
                     # if not, use the method name as the command
                     cmd = method_config.pop('command', cmd)
                     # add the default parameters
+                try:
                     method_config.update({"scope": self.scope,
                                           "role": "replica",
                                           "datadir": self.data_dir,
                                           "connstring": connstring})
                     params = ["--{0}={1}".format(arg, val) for arg, val in method_config.items()]
-                else:
-                    method_config = {"scope": self.scope,
-                                     "role": "replica",
-                                     "datadir": self.data_dir,
-                                     "connstring": connstring}
-                try:
                     # call script with the full set of parameters
                     ret = subprocess.call(shlex.split(cmd) + params, env=env)
                     # if we succeeded, stop
