@@ -139,7 +139,7 @@ class WALERestore(object):
         return ret
 
 
-if __name__ == '__main__':
+def main():
     parser = argparse.ArgumentParser(description='Script to image replicas using WAL-E')
     parser.add_argument('--scope', required=True)
     parser.add_argument('--role', required=False)
@@ -162,3 +162,6 @@ if __name__ == '__main__':
             break
 
     sys.exit(ret)
+
+if __name__ == '__main__':
+    main()
