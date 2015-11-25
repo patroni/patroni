@@ -93,7 +93,7 @@ etcd:
   ttl: *ttl
   host: ${ETCD_CLUSTER}
 postgresql:
-  name: postgresql_${DOCKER_IP//./_} ## Replication slots do not allow dots in their name
+  name: ${HOSTNAME}
   scope: *scope
   listen: 0.0.0.0:5432
   connect_address: ${DOCKER_IP}:5432
@@ -119,7 +119,8 @@ postgresql:
     archive_command: 'true'
     max_wal_senders: 20
     listen_addresses: 0.0.0.0
-    wal_keep_segments: 8
+    checkpoint_segments: 64
+    wal_keep_segments: 64
     archive_timeout: 1800s
     max_replication_slots: 20
     hot_standby: "on"
