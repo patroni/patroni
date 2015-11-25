@@ -240,9 +240,9 @@ class Postgresql:
         # defined by the user.  this is a list, so we need to
         # loop through all methods the user supplies
         connstring = leader.conn_url
-        # get list of replica methods from config
-        replica_list = self.config.get('create_replica_method', 'basebackup')
-        replica_methods = [rm.strip() for rm in replica_list.split(',')]
+        # get list of replica methods from config.
+        # If there is no configuration key, or no value is specified, use basebackup
+        replica_methods = self.config.get('create_replica_method') or ['basebackup']
         # go through them in priority order
         ret = 1
         for replica_method in replica_methods:

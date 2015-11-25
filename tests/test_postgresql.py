@@ -284,7 +284,7 @@ class TestPostgresql(unittest.TestCase):
         with patch('subprocess.call', Mock(side_effect=[Exception(), 0])):
             self.assertEquals(self.p.create_replica(self.leader, ''), 0)
 
-        self.p.config['create_replica_method'] = 'wale, basebackup'
+        self.p.config['create_replica_method'] = ['wale', 'basebackup']
         self.p.config['wale'] = {'command': 'foo'}
         with patch('subprocess.call', Mock(return_value=0)):
             self.assertEquals(self.p.create_replica(self.leader, ''), 0)

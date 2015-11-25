@@ -69,7 +69,10 @@ postgresql:
     username: admin
     password: admin
 # commented-out example for wal-e provisioning
-  #create_replica_method: wal_e, basebackup
+  create_replica_method:
+    - basebackup
+#   - wal_e
+# commented-out example for wal-e provisioning
   #wal_e:
     #command: /patroni/scripts/wale_restore.py
     #env_dir: /home/postgres/etc/wal-e.d/env
