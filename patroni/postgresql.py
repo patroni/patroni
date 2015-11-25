@@ -223,24 +223,63 @@ class Postgresql:
         r = parseurl(leader.conn_url)
 
         env = self.write_pgpass(r)
-        return self.create_replica(r, env) == 0
+        ret = self.create_replica(leader, env) == 0
+        ret and self.delete_trigger_file()
+        return ret
 
     @staticmethod
     def build_connstring(conn):
-        return "host={host} port={port} user={user}".format(**conn)
+        """
+        >>> Postgresql.build_connstring({'host': '127.0.0.1', 'port': '5432'}) == 'host=127.0.0.1 port=5432'
+        True
+        """
+        return ' '.join('{}={}'.format(param, val) for param, val in sorted(conn.items()))
 
-    def create_replica(self, master_connection, env):
-        self.set_state('building replica from {host}:{port}'.format(**master_connection))
-        connstring = self.build_connstring(master_connection)
-        cmd = self.config['restore']
-        try:
-            ret = subprocess.call(shlex.split(cmd) + [self.scope, "replica", self.data_dir, connstring], env=env)
-            self.delete_trigger_file()
-        except:
-            logger.exception('Error when creating replica')
-            ret = 1
-        if ret != 0:
-            self.set_state('failed to build replica from {host}:{port}'.format(**master_connection))
+    def create_replica(self, leader, env):
+        # create the replica according to the replica_method
+        # defined by the user.  this is a list, so we need to
+        # loop through all methods the user supplies
+        connstring = leader.conn_url
+        # get list of replica methods from config.
+        # If there is no configuration key, or no value is specified, use basebackup
+        replica_methods = self.config.get('create_replica_method') or ['basebackup']
+        # go through them in priority order
+        ret = 1
+        for replica_method in replica_methods:
+            # if the method is basebackup, then use the built-in
+            if replica_method == "basebackup":
+                ret = self.basebackup(leader, env)
+                if ret == 0:
+                    logger.info("replica has been created using basebackup")
+                    # if basebackup succeeds, exit with success
+                    break
+            else:
+                cmd = replica_method
+                method_config = {}
+                # user-defined method; check for configuration
+                # not required, actually
+                if replica_method in self.config:
+                    method_config = self.config[replica_method].copy()
+                    # look to see if the user has supplied a full command path
+                    # if not, use the method name as the command
+                    cmd = method_config.pop('command', cmd)
+                    # add the default parameters
+                try:
+                    method_config.update({"scope": self.scope,
+                                          "role": "replica",
+                                          "datadir": self.data_dir,
+                                          "connstring": connstring})
+                    params = ["--{0}={1}".format(arg, val) for arg, val in method_config.items()]
+                    # call script with the full set of parameters
+                    ret = subprocess.call(shlex.split(cmd) + params, env=env)
+                    # if we succeeded, stop
+                    if ret == 0:
+                        logger.info("replica has been created using {0}".format(replica_method))
+                        break
+                except Exception as e:
+                    logger.exception('Error creating replica using method {0}: {1}'.format(replica_method, str(e)))
+                    ret = 1
+
         return ret
 
     def is_leader(self):
@@ -539,7 +578,7 @@ recovery_target_timeline = 'latest'
         """ restore a previously saved postgresql.conf """
         try:
             for f in self.configuration_to_save:
-                not os.path.isfile(f) and os.path.isfile(f+'.backup') and shutil.copy(f + '.backup', f)
+                not os.path.isfile(f) and os.path.isfile(f + '.backup') and shutil.copy(f + '.backup', f)
         except:
             logger.exception('unable to restore configuration files from backup')
 
@@ -663,3 +702,27 @@ $$""".format(name, options), name, password, password)
         except:
             logger.exception('Could not remove data directory %s', self.data_dir)
             self.move_data_directory()
+
+    def basebackup(self, leader, env):
+        # creates a replica data dir using pg_basebackup.
+        # this is the default, built-in create_replica_method
+        # tries twice, then returns failure (as 1)
+        # uses "stream" as the xlog-method to avoid sync issues
+        master_connection = leader.conn_url
+        maxfailures = 2
+        ret = 1
+        for bbfailures in range(0, maxfailures):
+            try:
+                ret = subprocess.call(['pg_basebackup', '--pgdata=' + self.data_dir,
+                                       '--xlog-method=stream', "--dbname=" + master_connection], env=env)
+                if ret == 0:
+                    break
+
+            except Exception as e:
+                logger.error('Error when fetching backup with pg_basebackup: {0}'.format(e))
+
+            if bbfailures < maxfailures - 1:
+                logger.error('Trying again in 5 seconds')
+                time.sleep(5)
+
+        return ret

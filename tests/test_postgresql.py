@@ -276,9 +276,23 @@ class TestPostgresql(unittest.TestCase):
         self.assertTrue(self.p.can_rewind)
         self.p.controldata = tmp
 
+    @patch('time.sleep', Mock())
     def test_create_replica(self):
         self.p.delete_trigger_file = Mock(side_effect=OSError())
-        self.assertEquals(self.p.create_replica({'host': '', 'port': '', 'user': ''}, ''), 1)
+        with patch('subprocess.call', Mock(side_effect=[1, 0])):
+            self.assertEquals(self.p.create_replica(self.leader, ''), 0)
+        with patch('subprocess.call', Mock(side_effect=[Exception(), 0])):
+            self.assertEquals(self.p.create_replica(self.leader, ''), 0)
+
+        self.p.config['create_replica_method'] = ['wale', 'basebackup']
+        self.p.config['wale'] = {'command': 'foo'}
+        with patch('subprocess.call', Mock(return_value=0)):
+            self.assertEquals(self.p.create_replica(self.leader, ''), 0)
+            del self.p.config['wale']
+            self.assertEquals(self.p.create_replica(self.leader, ''), 0)
+
+        with patch('subprocess.call', Mock(side_effect=Exception("foo"))):
+            self.assertEquals(self.p.create_replica(self.leader, ''), 1)
 
     def test_create_connection_users(self):
         cfg = self.p.config
