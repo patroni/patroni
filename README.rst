@@ -110,8 +110,16 @@ For an example file, see ``postgres0.yml``. Regarding settings:
         -  *username*: admin username; user is created during initialization. It will have CREATEDB and CREATEROLE privileges.
         -  *password*: admin password; user is created during initialization.
 
-    -  *recovery\_conf*: additional configuration settings written to recovery.conf when configuring the follower.
-        -  *parameters*: list of configuration settings for Postgres. Many of these are required for replication to work.
+    -  *recovery\_conf*: additional configuration settings written to recovery.conf when configuring follower.
+        -  *parameters*: list of configuration settings for Postgres.  Many of these are required for replication to work.
+
+    -  *create\_replica\_methods*: an ordered list of the create methods for turning a patroni node into a new replica.
+       "basebackup" is the default method; other methods are assumed to refer to scripts, each of which is configured
+       as its own config item.
+
+    -  *replica\_method* for each create_replica_method other than basebackup, you would add a configuration section
+       of the same name.  At a minimum, this should include "command" with a full path to the actual script to be
+       executed.  Other configuration parameters will be passed along to the script in the form "parameter=value".
 
 Replication Choices
 -------------------
