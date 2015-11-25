@@ -250,6 +250,7 @@ class Postgresql:
             if replica_method == "basebackup":
                 ret = self.basebackup(leader, env)
                 if ret == 0:
+                    logger.info("replica has been created using basebackup")
                     # if basebackup succeeds, exit with success
                     break
             else:
@@ -273,6 +274,7 @@ class Postgresql:
                     ret = subprocess.call(shlex.split(cmd) + params, env=env)
                     # if we succeeded, stop
                     if ret == 0:
+                        logger.info("replica has been created using {0}".format(replica_method))
                         break
                 except Exception as e:
                     logger.exception('Error creating replica using method {0}: {1}'.format(replica_method, str(e)))
