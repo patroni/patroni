@@ -111,7 +111,7 @@ def post_patroni(member, endpoint, content, headers={'Content-Type': 'applicatio
     url = urlparse(member.api_url)
     logging.debug(url)
     return requests.post('{}://{}/{}'.format(url.scheme, url.netloc, endpoint), headers=headers,
-                         data=json.dumps(content), timeout=5)
+                         data=json.dumps(content), timeout=30)
 
 
 def print_output(columns, rows=[], alignment=None, format='pretty', header=True, delimiter='\t'):
@@ -506,7 +506,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs):
     t_started = time.time()
     r = None
     try:
-        r = post_patroni(cluster.leader.member, 'failover', {'leader': master, 'candidate': candidate or ''})
+        r = post_patroni(cluster.leader.member, 'failover', {'leader': master, 'member': candidate or ''})
         if r.status_code == 200:
             logging.debug(r)
             logging.debug(r.text)
@@ -540,6 +540,8 @@ def output_members(cluster, name=None, format='pretty'):
     if cluster.leader:
         leader_name = cluster.leader.member.name
 
+    xlog_location_cluster = cluster.last_leader_operation or 0
+
     # Mainly for consistent pretty printing and watching we sort the output
     cluster.members.sort(key=lambda x: x.name)
     for m in cluster.members:
@@ -552,9 +554,10 @@ def output_members(cluster, name=None, format='pretty'):
         host = build_connect_parameters(m.conn_url)['host']
 
         xlog_location = m.data.get('xlog_location')
-        lag = ''
-        if xlog_location is not None:
-            lag = round(((cluster.last_leader_operation or 0) - m.data.get('xlog_location', 0)) / 1024 / 1024)
+        if xlog_location is None or (xlog_location_cluster < xlog_location):
+            lag = ''
+        else:
+            lag = round((xlog_location_cluster - xlog_location)/1024/1024)
 
         rows.append([
             name,
@@ -562,7 +565,7 @@ def output_members(cluster, name=None, format='pretty'):
             host,
             leader,
             m.data.get('state', ''),
-            lag,
+            lag
         ])
 
     columns = [
@@ -573,7 +576,7 @@ def output_members(cluster, name=None, format='pretty'):
         'State',
         'Lag in MB',
     ]
-    alignment = {'Cluster': 'l', 'Member': 'l', 'Host': 'l'}
+    alignment = {'Cluster': 'l', 'Member': 'l', 'Host': 'l', 'Lag in MB': 'r'}
 
     print_output(columns, rows, alignment, format)
 
