@@ -82,10 +82,12 @@ postgresql:
     #use_iam: 1
   #recovery_conf:
     #restore_command: envdir /etc/wal-e.d/env wal-e wal-fetch "%f" "%p" -p 1
+  recovery_conf:
+    restore_command: cp ../wal_archive/%f %p
   parameters:
     archive_mode: "on"
     wal_level: hot_standby
-    archive_command: mkdir -p ../wal_archive && cp %p ../wal_archive/%f
+    archive_command: mkdir -p ../wal_archive && test ! -f ../wal_archive/%f && cp %p ../wal_archive/%f
     max_wal_senders: 5
     wal_keep_segments: 8
     archive_timeout: 1800s

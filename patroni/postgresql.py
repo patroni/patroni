@@ -454,7 +454,8 @@ recovery_target_timeline = 'latest'
         r['user'] = r['username']
         env = self.write_pgpass(r)
         pc = "user={user} host={host} port={port} dbname=postgres sslmode=prefer sslcompression=1".format(**r)
-        # first run a checkpoint on a promoted master in order to make it store the new timeline (5540277D.8020309@iki.fi)
+        # first run a checkpoint on a promoted master in order
+        # to make it store the new timeline (5540277D.8020309@iki.fi)
         self.checkpoint(pc)
         logger.info("running pg_rewind from {}".format(pc))
         pg_rewind = ['pg_rewind', '-D', self.data_dir, '--source-server', pc]
