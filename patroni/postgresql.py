@@ -342,13 +342,13 @@ class Postgresql:
         ret and not block_callbacks and self.call_nowait(ACTION_ON_START)
         return ret
 
-    def checkpoint(self):
+    def checkpoint(self, connstring=None):
         try:
-            r = parseurl('postgres://{}/postgres'.format(self.local_address))
-            r['options'] = '-c statement_timeout=0'
-            with psycopg2.connect(**r) as conn:
+            connstring = connstring or 'postgres://{}/postgres'.format(self.local_address)
+            with psycopg2.connect(connstring) as conn:
                 conn.autocommit = True
                 with conn.cursor() as cur:
+                    cur.execute("SET statement_timeout = 0")
                     cur.execute('CHECKPOINT')
         except:
             logging.exception('Exception during CHECKPOINT')
@@ -454,6 +454,8 @@ recovery_target_timeline = 'latest'
         r['user'] = r['username']
         env = self.write_pgpass(r)
         pc = "user={user} host={host} port={port} dbname=postgres sslmode=prefer sslcompression=1".format(**r)
+        # first run a checkpoint on a promoted master in order to make it store the new timeline (5540277D.8020309@iki.fi)
+        self.checkpoint(pc)
         logger.info("running pg_rewind from {}".format(pc))
         pg_rewind = ['pg_rewind', '-D', self.data_dir, '--source-server', pc]
         try:
