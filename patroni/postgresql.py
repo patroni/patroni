@@ -198,7 +198,7 @@ class Postgresql:
             os.close(fd)
             options.append('--pwfile={}'.format(pwfile))
 
-        ret = subprocess.call(self._pg_ctl + ['initdb'] + ['-o', ' '.join(options)] if options else []) == 0
+        ret = subprocess.call(self._pg_ctl + ['initdb'] + (['-o', ' '.join(options)] if options else [])) == 0
         if pwfile:
             os.remove(pwfile)
         if ret:
