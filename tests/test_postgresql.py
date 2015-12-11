@@ -243,9 +243,7 @@ class TestPostgresql(unittest.TestCase):
     @patch('patroni.postgresql.Postgresql.single_user_mode', MagicMock(return_value=1))
     @patch('patroni.postgresql.Postgresql.write_pgpass', MagicMock(return_value=dict()))
     def test_follow_the_leader(self, mock_pg_rewind):
-        self.p.demote()
         self.p.follow_the_leader(None)
-        self.p.demote()
         self.p.follow_the_leader(self.leader)
         self.p.follow_the_leader(Leader(-1, 28, self.other))
         self.p.rewind = mock_pg_rewind

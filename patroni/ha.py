@@ -19,6 +19,7 @@ class Ha:
         self.dcs = patroni.dcs
         self.cluster = None
         self.old_cluster = None
+        self.recovering = False
         self._async_executor = AsyncExecutor()
 
     def load_cluster_from_dcs(self):
@@ -94,33 +95,21 @@ class Ha:
             return 'waiting for leader to bootstrap'
 
     def recover(self):
-        has_lock = self.has_lock()
-
         # try to see if we are the former master that crashed. If so - we likely need to run pg_rewind
         # in order to join the former standby being promoted.
         pg_controldata = self.state_handler.controldata()
-        if not has_lock and pg_controldata and\
+        if (self.state_handler.role == 'master') and pg_controldata and\
                 pg_controldata.get('Database cluster state', '') == 'in production':  # crashed master
             self.state_handler.require_rewind()
+        self.recovering = True
+        return self.follow_the_leader("started as readonly because i had the session lock",
+                                      "started as a secondary",
+                                      refresh=True, recovery=True)
 
-        # XXX: follow the leader calls stop, which might take quite some time.
-        # perhaps we should run sync asynchronously
-        # (we still need the exit code from follow_the_leader)
-        ret = self.state_handler.follow_the_leader(None if has_lock else self.cluster.leader, recovery=True)
-        if not ret:
-            if not has_lock:
-                return 'failed to start postgres'
-            self.dcs.delete_leader()
-            self.dcs.reset_cluster()
-            return 'removed leader key after trying and failing to start postgres'
-        if not has_lock:
-            return 'started as a secondary'
-        logger.info('started as readonly because i had the session lock')
-        self.load_cluster_from_dcs()
-
-    def follow_the_leader(self, demote_reason, follow_reason, refresh=True):
+    def follow_the_leader(self, demote_reason, follow_reason, refresh=True, recovery=False):
         refresh and self.load_cluster_from_dcs()
-        ret = demote_reason if self.state_handler.is_leader() else follow_reason
+        ret = demote_reason if (not recovery and self.state_handler.is_leader()
+                                or recovery and self.state_handler.role == 'master') else follow_reason
         leader = self.cluster.leader
         leader = None if (leader and leader.name) == self.state_handler.name else leader
         if not self.state_handler.check_recovery_conf(leader):
@@ -382,6 +371,15 @@ class Ha:
         # so even 1 << 32 would have 10 digits.
         return str(sysid) and len(str(sysid)) >= 10 and str(sysid).isdigit()
 
+    def post_recover(self):
+        if not self.state_handler.is_running():
+            if self.has_lock():
+                self.dcs.delete_leader()
+                self.dcs.reset_cluster()
+                return 'removed leader key after trying and failing to start postgres'
+            return 'failed to start postgres'
+        return None
+
     def _run_cycle(self):
         try:
             self.load_cluster_from_dcs()
@@ -394,6 +392,13 @@ class Ha:
 
             if self._async_executor.busy:
                 return self.handle_long_action_in_progress()
+
+            # we've go here, so async action has finished. Check if we tried to recover and failed
+            if self.recovering:
+                self.recovering = False
+                msg = self.post_recover()
+                if msg is not None:
+                    return msg
 
             # currently it can trigger only reinitialize
             msg = self.process_scheduled_action()

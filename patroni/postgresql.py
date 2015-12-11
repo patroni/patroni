@@ -596,9 +596,6 @@ recovery_target_timeline = 'latest'
             self.call_nowait(ACTION_ON_ROLE_CHANGE)
         return ret
 
-    def demote(self):
-        self.follow_the_leader(None)
-
     def create_or_update_role(self, name, password, options):
         self.query("""DO $$
 BEGIN
