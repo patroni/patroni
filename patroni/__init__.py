@@ -29,6 +29,10 @@ class Patroni:
     def nofailover(self):
         return self.tags.get('nofailover', False)
 
+    @property
+    def replicatefrom(self):
+        return self.tags.get('replicatefrom')
+
     @staticmethod
     def get_dcs(name, config):
         if 'etcd' in config:
