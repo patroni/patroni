@@ -169,10 +169,11 @@ HA solutions, to determine which solution is best for you.
 
 You can also use BDR (bi-directional replication) if you have a compatible
 PostgreSQL version with the BDR plugin installed (see http://bdr-project.org/docs/next/installation.html).
-It will require adding a BDR session to your configuration, as well as
+It will require adding a BDR shared_library to your configuration, as well as
 setting the following options for postgresql (see http://bdr-project.org/docs/next/settings-prerequisite.html):
 
 .. code:: YAML
+
         max_worker_processes: 10
         max_replication_slots: 10
         max_wal_senders: 10
