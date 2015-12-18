@@ -92,6 +92,9 @@ etcd:
   scope: *scope
   ttl: *ttl
   host: ${ETCD_CLUSTER}
+bdr:
+   enable: 'on'
+   database: 'bdrtest'
 postgresql:
   name: ${HOSTNAME}
   scope: *scope
@@ -124,16 +127,19 @@ postgresql:
     archive_timeout: 1800s
     max_replication_slots: 20
     hot_standby: "on"
+    max_worker_processes: 10
+    max_replication_slots: 10
+    max_wal_senders: 10
+    shared_preload_libraries: 'bdr'
+    track_commit_timestamp: true
+    wal_level: 'logical'
 __EOF__
 
 cat /patroni/postgres.yml
 
 if [ ! -z $CHEAT ]
 then
-    while :
-    do
-        sleep 60
-    done
+    exec bash
 else
     exec python /patroni.py /patroni/postgres.yml
 fi

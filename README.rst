@@ -75,6 +75,10 @@ For an example file, see ``postgres0.yml``. Regarding settings:
         -  *port*: Exhibitor port.
         -  *hosts*: initial list of Exhibitor (ZooKeeper) nodes in format: ['host1', 'host2', 'etc...' ]. This list updates automatically whenever the Exhibitor (ZooKeeper) cluster topology changes.
 
+-  *bdr*:
+    - *enable*: on if you want to enable BDR
+    - *database*: database name to support BDR (only a single database is supported)
+
 -  *postgresql*:
     -  *name*: the name of the Postgres host. Must be unique for the cluster.
     -  *listen*: IP address + port that Postgres listens to; must be accessible from other nodes in the cluster, if you're using streaming replication.
@@ -162,6 +166,30 @@ to ensure write availability if one host fails.
 Choosing your replication schema is dependent on your business
 considerations. Investigate both async and sync replication, as well as other
 HA solutions, to determine which solution is best for you.
+
+You can also use BDR (bi-directional replication) if you have a compatible
+PostgreSQL version with the BDR plugin installed (see http://bdr-project.org/docs/next/installation.html).
+It will require adding a BDR session to your configuration, as well as
+setting the following options for postgresql (see http://bdr-project.org/docs/next/settings-prerequisite.html):
+
+.. code:: YAML
+        max_worker_processes: 10
+        max_replication_slots: 10
+        max_wal_senders: 10
+        shared_preload_libraries: 'bdr'
+        track_commit_timestamp: 'on'
+        wal_level: 'logical'
+
+At the moment Patroni BDR is not compatible with a streaming replication,
+if BDR is enabled normal replica node won't be able to join. This is not
+a principal limitation of BDR, and we might resolve this in the future
+(although 'promotion' will only work between nodes running a physical
+replication, i.e. a replica won't be able to attach to a different
+multimaster node).
+
+Another limitation is that only one database is supported at the moment.
+BDR requires the replication user to be also a superuser, so you might
+want to excersie extra caution when choosing the password for this user.
 
 Applications Should Not Use Superusers
 --------------------------------------

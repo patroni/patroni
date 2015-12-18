@@ -20,6 +20,11 @@ class Ha:
         self.cluster = None
         self.old_cluster = None
         self._async_executor = AsyncExecutor()
+        self.bdr = patroni.bdr
+        self.use_bdr = self.bdr and\
+            self.bdr.get('enable') and\
+            (self.bdr.get('database') is not None)
+        self.bdr_may_need_reinitialize = False
 
     def load_cluster_from_dcs(self):
         cluster = self.dcs.get_cluster()
@@ -46,7 +51,7 @@ class Ha:
         logger.info('Lock owner: %s; I am %s', lock_owner, self.state_handler.name)
         return lock_owner == self.state_handler.name
 
-    def touch_member(self):
+    def touch_member(self, ttl=None):
         data = {
             'conn_url': self.state_handler.connection_string,
             'api_url': self.patroni.api.connection_string,
@@ -59,7 +64,7 @@ class Ha:
                 data['xlog_location'] = self.state_handler.xlog_position()
             except:
                 pass
-        self.dcs.touch_member(json.dumps(data, separators=(',', ':')))
+        self.dcs.touch_member(json.dumps(data, separators=(',', ':')), ttl=ttl)
 
     def copy_backup_from_leader(self, leader):
         if self.state_handler.bootstrap(leader):
@@ -69,15 +74,29 @@ class Ha:
             self.state_handler.remove_data_directory()
             logger.error('failed to bootstrap from leader')
 
-    def bootstrap(self):
+    def initialize_bdr(self, leader):
+        if self.state_handler.initialize_bdr_database(leader):
+            logger.info("bootstrapped from leader")
+        else:
+            self.state_handler.stop('immediate')
+            self.state_handler.remove_data_directory()
+            logger.error('failed to bootstrap from leader')
+
+    def bootstrap(self, bdr=False):
         if not self.cluster.is_unlocked():  # cluster already has leader
             self._async_executor.schedule('bootstrap from leader')
-            self._async_executor.run_async(self.copy_backup_from_leader, args=(self.cluster.leader, ))
+            if not bdr:
+                self._async_executor.run_async(self.copy_backup_from_leader, args=(self.cluster.leader, ))
+            else:
+                self._async_executor.run_async(self.initialize_bdr, args=(self.cluster.leader, ))
             return 'trying to bootstrap from leader'
         elif not self.cluster.initialize and not self.patroni.nofailover:  # no initialize key
             if self.dcs.initialize(create_new=True):  # race for initialization
                 try:
-                    self.state_handler.bootstrap()
+                    if not bdr:
+                        self.state_handler.bootstrap()
+                    else:
+                        self.state_handler.initialize_bdr_database()
                     self.dcs.initialize(create_new=False, sysid=self.state_handler.sysid)
                 except:  # initdb or start failed
                     # remove initialization key and give a chance to other members
@@ -92,6 +111,9 @@ class Ha:
                 return 'failed to acquire initialize lock'
         else:
             return 'waiting for leader to bootstrap'
+
+    def bootstrap_bdr(self):
+        return self.bootstrap(bdr=True)
 
     def recover(self):
         has_lock = self.has_lock()
@@ -117,6 +139,22 @@ class Ha:
             return 'started as a secondary'
         logger.info('started as readonly because i had the session lock')
         self.load_cluster_from_dcs()
+
+    def recover_bdr(self):
+        if not self.bdr_may_need_reinitialize:
+            self.state_handler.start_bdr()
+            return "started as a member of BDR group"
+        has_lock = self.has_lock()
+        if self.cluster.is_unlocked():  # no leader yet, and we need to reinitialize from the leader
+            return "waiting for another member of the BDR group"
+        if has_lock:
+            self.dcs.delete_leader()
+            return "released the lock to another member of the BDR group"
+        if self.state_handler.initialize_bdr_database(self.cluster.leader, empty=False):
+            # we reinitialized this node, make sure the cluster is aware of it.
+            self.touch_member()
+            self.bdr_may_need_reinitialize = False
+            return "reinitialized and started as a member of the BDR group"
 
     def follow_the_leader(self, demote_reason, follow_reason, refresh=True):
         refresh and self.load_cluster_from_dcs()
@@ -268,14 +306,18 @@ class Ha:
             self.dcs.reset_cluster()
         self.state_handler.follow_the_leader(None)
 
-    def process_manual_failover_from_leader(self):
+    def process_manual_failover_from_leader(self, bdr=False):
         failover = self.cluster.failover
         if not failover.leader or failover.leader == self.state_handler.name:
             if not failover.member or failover.member != self.state_handler.name:
                 members = [m for m in self.cluster.members if not failover.member or m.name == failover.member]
                 if self.is_failover_possible(members):  # check that there are healthy members
-                    self._async_executor.schedule('manual failover: demote')
-                    self._async_executor.run_async(self.demote)
+                    if not bdr:
+                        self._async_executor.schedule('manual failover: demote')
+                        self._async_executor.run_async(self.demote)
+                    else:
+                        self.dcs.delete_leader()
+                        self.dcs.reset_cluster()
                     return 'manual failover: demoting myself'
                 else:
                     logger.warning('manual failover: no healthy members found, failover is not possible')
@@ -287,6 +329,9 @@ class Ha:
 
         logger.info('Trying to clean up failover key')
         self.dcs.manual_failover('', '', self.cluster.failover.index)
+
+    def process_manual_failover_from_leader_bdr(self):
+        self.process_manual_failover_from_leader(bdr=True)
 
     def process_unhealthy_cluster(self):
         if self.is_healthiest_node():
@@ -325,6 +370,31 @@ class Ha:
             logger.info('does not have lock')
         return self.follow_the_leader('demoting self because i do not have the lock and i was a leader',
                                       'no action.  i am a secondary and i am following a leader', False)
+
+    def process_unhealthy_cluster_bdr(self):
+        if self.acquire_lock():
+            if self.cluster.failover:
+                logger.info('Cleaning up failover key after acquiring leader lock...')
+                self.dcs.manual_failover('', '')
+            self.dcs.get_cluster()
+            return "acquired the session lock as a leader"
+        else:
+            return "lost the race to acquire the session lock"
+
+    def process_healthy_cluster_bdr(self):
+        if self.has_lock():
+            if self.cluster.failover:
+                msg = self.process_manual_failover_from_leader_bdr()
+                if msg is not None:
+                    return msg
+            if self.update_lock():
+                return "no action. I am the leader with the lock"
+            else:
+                logger.error("failed to update leader lock")
+                self.load_cluster_from_dcs()
+        else:
+            logger.info("does not have lock")
+        return "no action. I do not have the lock"
 
     def schedule(self, action):
         with self._async_executor:
@@ -386,7 +456,14 @@ class Ha:
         try:
             self.load_cluster_from_dcs()
 
-            self.touch_member()
+            # if member key is missing - we may need to destory
+            # and re-create the BDR database unless we are the first node in the cluster
+            if self.use_bdr and len([m for m in self.cluster.members if m.name == self.state_handler.name]) == 0:
+                self.bdr_may_need_reinitialize = True
+
+            # Create a member key with a very short expiration time if we may need to reinitialize this member
+            # in order to avoid lossing the "may need to reinitialize status" in case Patroni is restarted
+            self.touch_member(ttl=None if not self.bdr_may_need_reinitialize else self.bdr.get('min_ttl', 5))
 
             # cluster has leader key but not initialize key
             if not self.cluster.is_unlocked() and not self.sysid_valid(self.cluster.initialize) and self.has_lock():
@@ -402,33 +479,46 @@ class Ha:
 
             # is data directory empty?
             if self.state_handler.data_directory_empty():
-                return self.bootstrap()  # new node
+                if self.use_bdr:
+                    # member key was missing, but it's a new database - no need to reinitialize
+                    self.bdr_may_need_reinitialize = False
+                    self.touch_member()
+                return self.bootstrap(self.use_bdr)  # new node
             # "bootstrap", but data directory is not empty
-            elif not self.sysid_valid(self.cluster.initialize) and self.cluster.is_unlocked():
+            elif not self.sysid_valid(self.cluster.initialize) and self.cluster.is_unlocked() and \
+                    not self.bdr_may_need_reinitialize:
                 self.dcs.initialize(create_new=(self.cluster.initialize is None), sysid=self.state_handler.sysid)
             else:
                 # check if we are allowed to join
-                if self.sysid_valid(self.cluster.initialize) and self.cluster.initialize != self.state_handler.sysid:
+                if not self.use_bdr and \
+                   self.sysid_valid(self.cluster.initialize) and self.cluster.initialize != self.state_handler.sysid:
                     logger.fatal("system ID mismatch, node {0} belongs to a different cluster".
                                  format(self.state_handler.name))
                     sys.exit(1)
 
             # try to start dead postgres
-            if not self.state_handler.is_healthy():
-                msg = self.recover()
-                if msg is not None:
-                    return msg
+            if self.use_bdr:
+                if self.bdr_may_need_reinitialize or not self.state_handler.is_healthy():
+                    msg = self.recover_bdr()
+                    if msg is not None:
+                        return msg
+            else:
+                if not self.state_handler.is_healthy():
+                    msg = self.recover()
+                    if msg is not None:
+                        return msg
 
             try:
                 if self.cluster.is_unlocked():
-                    return self.process_unhealthy_cluster()
+                    return self.process_unhealthy_cluster() if not self.use_bdr else self.process_unhealthy_cluster_bdr()
                 else:
-                    return self.process_healthy_cluster()
+                    return self.process_healthy_cluster() if not self.use_bdr else self.process_healthy_cluster_bdr()
             finally:
-                self.state_handler.sync_replication_slots(self.cluster)
+                if not self.use_bdr:
+                    self.state_handler.sync_replication_slots(self.cluster)
         except DCSError:
             logger.error('Error communicating with DCS')
-            if self.state_handler.is_running() and self.state_handler.is_leader():
+            if self.state_handler.is_running() and self.state_handler.is_leader() and not self.use_bdr:
                 self.demote(delete_leader=False)
                 return 'demoted self because DCS is not accessible and i was a leader'
         except (psycopg2.Error, PostgresConnectionException):

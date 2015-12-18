@@ -281,7 +281,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
     def query(self, sql, *params):
         cursor = None
         try:
-            with self.patroni.postgresql.connection().cursor() as cursor:
+            with self.patroni.postgresql.connection('postgres').cursor() as cursor:
                 cursor.execute(sql, params)
                 return [r for r in cursor]
         except psycopg2.Error as e:

@@ -4,7 +4,7 @@ scope: &scope batman
 restapi:
   listen: 127.0.0.1:8009
   connect_address: 127.0.0.1:8009
-  auth: 'username:password'
+  #auth: 'username:password'
 #  certfile: /etc/ssl/certs/ssl-cert-snakeoil.pem
 #  keyfile: /etc/ssl/private/ssl-cert-snakeoil.key
 etcd:
@@ -26,6 +26,9 @@ etcd:
 #      - host1
 #      - host2
 #      - host3
+bdr:
+    enable: "on"
+    database: "bdrtest"
 postgresql:
   name: postgresql1
   scope: *scope
@@ -86,12 +89,15 @@ postgresql:
     restore_command: cp ../wal_archive/%f %p
   parameters:
     archive_mode: "on"
-    wal_level: hot_standby
+    wal_level: logical
     archive_command: mkdir -p ../wal_archive && test ! -f ../wal_archive/%f && cp %p ../wal_archive/%f
-    max_wal_senders: 5
+    max_wal_senders: 10
+    max_worker_processes: 10
+    track_commit_timestamp: 'on'
+    shared_preload_libraries: 'bdr'
     wal_keep_segments: 8
     archive_timeout: 1800s
-    max_replication_slots: 5
+    max_replication_slots: 10
     hot_standby: "on"
     wal_log_hints: "on"
 tags:

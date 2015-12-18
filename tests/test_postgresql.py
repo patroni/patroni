@@ -310,9 +310,9 @@ class TestPostgresql(unittest.TestCase):
 
     @patch.object(MockConnect, 'closed', 2)
     def test__query(self):
-        self.assertRaises(PostgresConnectionException, self.p._query, 'blabla')
+        self.assertRaises(PostgresConnectionException, self.p._query, 'blabla', 'postgres')
         self.p._state = 'restarting'
-        self.assertRaises(RetryFailedError, self.p._query, 'blabla')
+        self.assertRaises(RetryFailedError, self.p._query, 'blabla', 'postgres')
 
     def test_query(self):
         self.p.query('select 1')

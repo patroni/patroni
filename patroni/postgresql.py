@@ -1,6 +1,7 @@
 import logging
 import os
 import psycopg2
+import re
 import shlex
 import shutil
 import subprocess
@@ -41,8 +42,9 @@ def parseurl(url):
 
 class Postgresql:
 
-    def __init__(self, config):
+    def __init__(self, config, config_bdr={}):
         self.config = config
+        self.bdr = config_bdr
         self.name = config['name']
         self.server_parameters = config.get('parameters', {})
         self.scope = config['scope']
@@ -72,6 +74,7 @@ class Postgresql:
             connect_address=connect_address, **self.replication)
 
         self._connection = None
+        self._connection_db = None
         self._cursor_holder = None
         self._need_rewind = False
         self._sysid = None
@@ -128,28 +131,32 @@ class Postgresql:
                 break
         return local_address + ':' + self.port
 
-    def connection(self):
+    def connection(self, dbname):
         if not self._connection or self._connection.closed != 0:
-            r = parseurl('postgres://{}/postgres'.format(self.local_address))
+            r = parseurl('postgres://{0}/{1}'.format(self.local_address, dbname))
             self._connection = psycopg2.connect(**r)
+            self._connection_db = dbname
             self._connection.autocommit = True
         return self._connection
 
-    def _cursor(self):
+    def _cursor(self, dbname='postgres'):
+        if self._connection_db != dbname:
+            self.close_connection()
         if not self._cursor_holder or self._cursor_holder.closed or self._cursor_holder.connection.closed != 0:
-            logger.info("established a new patroni connection to the postgres cluster")
-            self._cursor_holder = self.connection().cursor()
+            logger.info("established a new patroni connection to the {0} cluster".format(dbname))
+            self._cursor_holder = self.connection(dbname).cursor()
         return self._cursor_holder
 
     def close_connection(self):
         if self._cursor_holder and self._cursor_holder.connection and self._cursor_holder.connection.closed == 0:
             self._cursor_holder.connection.close()
-            logger.info("closed patroni connection to the postgresql cluster")
+            logger.info("closed patroni connection to the {0} cluster".format(self._connection_db))
+            self._connection_db = None
 
-    def _query(self, sql, *params):
+    def _query(self, sql, dbname, *params):
         cursor = None
         try:
-            cursor = self._cursor()
+            cursor = self._cursor(dbname)
             cursor.execute(sql, params)
             return cursor
         except psycopg2.Error as e:
@@ -159,9 +166,10 @@ class Postgresql:
                 raise RetryFailedError('cluster is being restarted')
             raise PostgresConnectionException('connection problems')
 
-    def query(self, sql, *params):
+    def query(self, sql, *params, **kwargs):
+        dbname = kwargs.get('dbname', 'postgres')
         try:
-            return self.retry(self._query, sql, *params)
+            return self.retry(self._query, sql, dbname, *params)
         except RetryFailedError as e:
             raise PostgresConnectionException(str(e))
 
@@ -206,6 +214,81 @@ class Postgresql:
         else:
             self.set_state('initdb failed')
         return ret
+
+    def initialize_bdr_database(self, leader=None, empty=True):
+        """ initialize BDR database. If empty = False, reinitialize an existing one.
+            If leader is None, create a new group, otherwise, join an exising one.
+            non-empty database with an empty leader is not supported
+        """
+        if not empty and not leader:
+            ret = False
+        else:
+            try:
+                ret = (self.initialize() and self.start_bdr()) if empty else\
+                    (self.drop_bdr_database() and self.start_bdr())
+            except:
+                logger.exception("exception")
+                ret = False
+        if ret:
+            # convert all connection URLs to name=value strings
+            leader_dsn = self.primary_conninfo(leader.conn_url, include_db=self.bdr['database']) if leader else None
+            self_dsn = self.primary_conninfo(self.connection_string, include_db=self.bdr['database'])
+            try:
+                self.create_replication_user(superuser=True)
+                ret = self.create_bdr_database() and (self.join_bdr_group(self_dsn, leader_dsn) if leader
+                                                      else self.create_bdr_group(self_dsn))
+            except:
+                logger.exception("exception")
+                ret = False
+        if not ret and not leader:
+            raise Exception("Could not bootstrap initial PostgreSQL BDR node")
+        return ret
+
+    def start_bdr(self):
+        logger.info("starting new BDR instance {0}".format(self.name))
+        return self.start(bdr=True)
+
+    def drop_bdr_database(self):
+        logger.info("Dropping BDR database for instance {0}".format(self.name))
+        # stop the database if it's running in order to turn off bdr
+        if self.is_running():
+            self.stop()
+        ret = self.start(bdr=False)
+        if ret:
+            self.query("DROP DATABASE IF EXISTS {0}".format(self.bdr['database']))
+        return ret and self.restart(bdr=True)
+
+    def create_bdr_database(self):
+        logger.info("Creating BDR database and extensions for instance {0}".format(self.name))
+        self.query("CREATE DATABASE {0}".format(self.bdr['database']))
+        self.query("CREATE EXTENSION IF NOT EXISTS btree_gist", dbname=self.bdr['database'])
+        self.query("CREATE EXTENSION IF NOT EXISTS bdr", dbname=self.bdr['database'])
+        return True
+
+    def join_bdr_group(self, self_dsn, join_dsn):
+        logger.info("Joining BDR group {0}, host {1}, dsn {2}".format(join_dsn, self.name, self_dsn))
+        self.query("SELECT bdr.bdr_group_join(local_node_name:=%s, join_using_dsn:=%s, node_external_dsn:=%s)",
+                   self.name, join_dsn, self_dsn, dbname=self.bdr['database'])
+        return True
+
+    def create_bdr_group(self, self_dsn):
+        logger.info("Creating new BDR group {0}, host {1}".format(self_dsn, self.name))
+        self.query("SELECT bdr.bdr_group_create(local_node_name:=%s, node_external_dsn:=%s)",
+                   self.name, self_dsn, dbname=self.bdr['database'])
+        return True
+
+    def remove_bdr_nodes(self, nodes):
+        logger.info("BDR node {0}, removing nodes {1}".format(self.name, nodes))
+        self.query("SELECT bdr.part_by_node_names(%s)", nodes, dbname=self.bdr['database'])
+
+    def remove_bdr_disconnected_members(self, cluster):
+        # get all members
+        result = self.query("SELECT node_name FROM bdr.bdr_nodes WHERE node_status = 'r'")
+        if result:
+            nodes_db = set([node[0] for node in result.fetchall()])
+            nodes_etcd = set([member.name for member in self.members])
+            nodes_remove = nodes_db.difference(nodes_etcd)
+            self.remove_bdr_nodes(list(nodes_remove))
 
     def delete_trigger_file(self):
         os.path.exists(self.trigger_file) and os.unlink(self.trigger_file)
@@ -318,12 +401,15 @@ class Postgresql:
         with self._state_lock:
             self._state = value
 
-    def start(self, block_callbacks=False):
+    def start(self, block_callbacks=False, bdr=False):
         if self.is_running():
             logger.error('Cannot start PostgreSQL because one is already running.')
             return True
 
-        self.set_role('replica' if os.path.exists(self.recovery_conf) else 'master')
+        if not bdr:
+            self.set_role('replica' if os.path.exists(self.recovery_conf) else 'master')
+        else:
+            self.set_role('master')
         if os.path.exists(self.postmaster_pid):
             os.remove(self.postmaster_pid)
             logger.info('Removed %s', self.postmaster_pid)
@@ -331,12 +417,13 @@ class Postgresql:
         if not block_callbacks:
             self.set_state('starting')
 
-        ret = subprocess.call(self._pg_ctl + ['start', '-o', self.server_options()]) == 0
+        ret = subprocess.call(self._pg_ctl + ['start', '-o', self.server_options(bdr)]) == 0
 
         self.set_state('running' if ret else 'start failed')
 
-        self.schedule_load_slots = ret and self.use_slots
-        self.save_configuration_files()
+        if not bdr:
+            self.schedule_load_slots = ret and self.use_slots
+            self.save_configuration_files()
         # block_callbacks is used during restart to avoid
         # running start/stop callbacks in addition to restart ones
         ret and not block_callbacks and self.call_nowait(ACTION_ON_START)
@@ -385,19 +472,28 @@ class Postgresql:
         ret and self.call_nowait(ACTION_ON_RELOAD)
         return ret
 
-    def restart(self):
+    def restart(self, bdr=False):
         self.set_state('restarting')
-        ret = self.stop(block_callbacks=True) and self.start(block_callbacks=True)
+        ret = self.stop(block_callbacks=True) and self.start(block_callbacks=True, bdr=bdr)
         if ret:
             self.call_nowait(ACTION_ON_RESTART)
         else:
             self.set_state('restart failed ({})'.format(self.state))
         return ret
 
-    def server_options(self):
+    def server_options(self, bdr=False):
+        bdr_set = False
         options = "--listen_addresses='{}' --port={}".format(self.listen_addresses, self.port)
         for setting, value in self.server_parameters.items():
+            if setting == 'shared_preload_libraries':
+                if not bdr and 'bdr' in value:
+                    value = ','.join([x for x in value.split(',') if x != 'bdr'])
+                elif bdr and 'bdr' not in value:
+                    bdr_set = True
+                    value = ','.join([x for x in value.split(',')]+['bdr'])
             options += " --{}='{}'".format(setting, value)
+        if bdr and not bdr_set:
+            options += " --shared_preload_libraries='bdr'"
         return options
 
     def is_healthy(self):
@@ -419,9 +515,10 @@ class Postgresql:
                 f.write(line + '\n')
 
     @staticmethod
-    def primary_conninfo(leader_url):
+    def primary_conninfo(leader_url, include_db=None):
         r = parseurl(leader_url)
-        return 'user={user} password={password} host={host} port={port} sslmode=prefer sslcompression=1'.format(**r)
+        ret = 'user={user} password={password} host={host} port={port} sslmode=prefer sslcompression=1'.format(**r)
+        return ret if not include_db else ret + ' dbname={0}'.format(include_db)
 
     def check_recovery_conf(self, leader):
         if not os.path.isfile(self.recovery_conf):
@@ -612,8 +709,9 @@ BEGIN
 END;
 $$""".format(name, options), name, password, password)
 
-    def create_replication_user(self):
-        self.create_or_update_role(self.replication['username'], self.replication['password'], 'REPLICATION')
+    def create_replication_user(self, superuser=False):
+        options = 'REPLICATION SUPERUSER' if superuser else 'REPLICATION'
+        self.create_or_update_role(self.replication['username'], self.replication['password'], '{0}'.format(options))
 
     def create_connection_users(self):
         if 'username' in self.superuser:

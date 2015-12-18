@@ -6,15 +6,22 @@ MAINTAINER Feike Steenbergen <feike.steenbergen@zalando.de>
 # We need curl
 RUN apt-get update -y && apt-get install curl -y
 
-# Add PGDG repositories
+# Add PGDG and BDR repositories
 RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list
+RUN echo "deb http://packages.2ndquadrant.com/bdr/apt/ $(lsb_release -cs)-2ndquadrant main" >> /etc/apt/sources.list.d/pgdg.list
 RUN curl https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -
+# import the BDR key
+RUN curl -s -o - http://packages.2ndquadrant.com/bdr/apt/AA7A6805.asc | sudo apt-key add -
+
 RUN apt-get update -y
 RUN apt-get upgrade -y
 
 ENV PGVERSION 9.4
-RUN apt-get install python python-yaml python-requests python-boto postgresql-${PGVERSION} python-dnspython python-kazoo python-pip -y
-RUN apt-get install python-dev postgresql-server-dev-${PGVERSION} -y
+ENV PGTYPE postgresql-bdr
+ENV PGCOMPATIBLETYPE postgresql
+
+RUN apt-get install python python-yaml python-requests python-boto ${PGTYPE}-${PGVERSION} ${PGTYPE}-${PGVERSION}-bdr-plugin python-dnspython python-kazoo python-pip -y
+RUN apt-get install python-dev ${PGTYPE}-server-dev-${PGVERSION} -y
 RUN pip install python-etcd psycopg2
 
 ENV PATH /usr/lib/postgresql/${PGVERSION}/bin:$PATH
