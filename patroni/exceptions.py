@@ -1,3 +1,5 @@
+from click import ClickException
+
 class PatroniException(Exception):
 
     """Parent class for all kind of exceptions related to selected distributed configuration store"""
@@ -13,7 +15,7 @@ class PatroniException(Exception):
         return repr(self.value)
 
 
-class PatroniCtlException(Exception):
+class PatroniCtlException(ClickException):
     pass
 
 
