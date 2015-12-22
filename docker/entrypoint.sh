@@ -79,6 +79,11 @@ then
     ETCD_CLUSTER="127.0.0.1:4001"
 fi
 
+mkdir -p ~postgres/.config/patroni
+cat > ~postgres/.config/patroni/patronictl.yaml <<__EOF__
+{dcs_api: 'etcd://${ETCD_CLUSTER}', namespace: /service/}
+__EOF__
+
 cat > /patroni/postgres.yml <<__EOF__
 
 ttl: &ttl 30
