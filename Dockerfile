@@ -13,8 +13,8 @@ RUN apt-get update -y
 RUN apt-get upgrade -y
 
 ENV PGVERSION 9.4
-RUN apt-get install python python-yaml python-requests python-boto postgresql-${PGVERSION} python-dnspython python-kazoo python-pip -y
-RUN apt-get install python-dev postgresql-server-dev-${PGVERSION} python-prettytable -y
+RUN apt-get install postgresql-server-dev-${PGVERSION} -y
+RUN apt-get install python-pip python-dev -y
 ADD requirements-py2.txt /tmp/
 RUN pip install -r /tmp/requirements-py2.txt
 

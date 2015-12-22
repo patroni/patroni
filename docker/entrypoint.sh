@@ -84,7 +84,7 @@ cat > ~postgres/.config/patroni/patronictl.yaml <<__EOF__
 {dcs_api: 'etcd://${ETCD_CLUSTER}', namespace: /service/}
 __EOF__
 
-cat > /patroni/postgres.yml <<__EOF__
+cat > /patroni/postgres.yaml <<__EOF__
 
 ttl: &ttl 30
 loop_wait: &loop_wait 10
@@ -131,7 +131,7 @@ postgresql:
     hot_standby: "on"
 __EOF__
 
-cat /patroni/postgres.yml
+cat /patroni/postgres.yaml
 
 if [ ! -z $CHEAT ]
 then
@@ -140,5 +140,5 @@ then
         sleep 60
     done
 else
-    exec python /patroni.py /patroni/postgres.yml
+    exec python /patroni.py /patroni/postgres.yaml
 fi
