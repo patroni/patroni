@@ -1,5 +1,6 @@
 from click import ClickException
 
+
 class PatroniException(Exception):
 
     """Parent class for all kind of exceptions related to selected distributed configuration store"""

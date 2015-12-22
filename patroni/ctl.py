@@ -306,14 +306,15 @@ def query(
     cursor = None
     for _ in watching(w, watch, clear=False):
 
-        output, cursor = query_member(cluster=cluster, cursor=cursor, member=member, role=role, command=command, connect_parameters=connect_parameters)
+        output, cursor = query_member(cluster=cluster, cursor=cursor, member=member, role=role, command=command,
+                                      connect_parameters=connect_parameters)
         print_output(None, output, format=format, delimiter=delimiter)
 
         if cursor is None:
             cluster = dcs.get_cluster()
 
 
-def query_member(cluster, cursor, member, role, command, connect_parameters):
+def query_member(cluster, cursor, member, role, command, connect_parameters=dict()):
     try:
         if cursor is None:
             cursor = get_cursor(cluster, role=role, member=member, connect_parameters=connect_parameters)
