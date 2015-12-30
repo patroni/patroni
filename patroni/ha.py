@@ -102,19 +102,25 @@ class Ha:
                 pg_controldata.get('Database cluster state', '') == 'in production':  # crashed master
             self.state_handler.require_rewind()
         self.recovering = True
-        return self.follow_the_leader("started as readonly because i had the session lock",
-                                      "started as a secondary",
-                                      refresh=True, recovery=True)
+        return self.follow("started as readonly because i had the session lock",
+                           "started as a secondary",
+                           refresh=True, recovery=True)
 
-    def follow_the_leader(self, demote_reason, follow_reason, refresh=True, recovery=False):
+    def follow(self, demote_reason, follow_reason, refresh=True, recovery=False):
         refresh and self.load_cluster_from_dcs()
         ret = demote_reason if (not recovery and self.state_handler.is_leader()
                                 or recovery and self.state_handler.role == 'master') else follow_reason
-        leader = self.cluster.leader
-        leader = None if (leader and leader.name) == self.state_handler.name else leader
-        if not self.state_handler.check_recovery_conf(leader) or recovery:
+        # determine the node to follow. If replicatefrom tag is set,
+        # try to follow the node mentioned there, otherwise, follow the leader.
+        if self.patroni.replicatefrom:
+            node_to_follow = [m for m in self.cluster.members if m.name == self.patroni.replicatefrom]
+            node_to_follow = node_to_follow[0] if node_to_follow else self.cluster.leader
+        else:
+            node_to_follow = self.cluster.leader
+        node_to_follow = None if (node_to_follow and node_to_follow.name) == self.state_handler.name else node_to_follow
+        if not self.state_handler.check_recovery_conf(node_to_follow) or recovery:
             self._async_executor.schedule('changing primary_conninfo and restarting')
-            self._async_executor.run_async(self.state_handler.follow_the_leader, (leader, recovery))
+            self._async_executor.run_async(self.state_handler.follow, (node_to_follow, recovery))
         return ret
 
     def enforce_master_role(self, message, promote_message):
@@ -287,14 +293,14 @@ class Ha:
                 return self.enforce_master_role('acquired session lock as a leader',
                                                 'promoted self to leader by acquiring session lock')
             else:
-                return self.follow_the_leader('demoted self due after trying and failing to obtain lock',
-                                              'following new leader after trying and failing to obtain lock')
+                return self.follow('demoted self due after trying and failing to obtain lock',
+                                   'following new leader after trying and failing to obtain lock')
         else:
             if self.patroni.nofailover:
-                return self.follow_the_leader('demoting self because I am not allowed to become master',
-                                              'following a different leader because I am not allowed to promote')
-            return self.follow_the_leader('demoting self because i am not the healthiest node',
-                                          'following a different leader because i am not the healthiest node')
+                return self.follow('demoting self because I am not allowed to become master',
+                                   'following a different leader because I am not allowed to promote')
+            return self.follow('demoting self because i am not the healthiest node',
+                               'following a different leader because i am not the healthiest node')
 
     def process_healthy_cluster(self):
         if self.has_lock():
@@ -312,8 +318,8 @@ class Ha:
                 self.load_cluster_from_dcs()
         else:
             logger.info('does not have lock')
-        return self.follow_the_leader('demoting self because i do not have the lock and i was a leader',
-                                      'no action.  i am a secondary and i am following a leader', False)
+        return self.follow('demoting self because i do not have the lock and i was a leader',
+                           'no action.  i am a secondary and i am following a leader', False)
 
     def schedule(self, action):
         with self._async_executor:
@@ -430,7 +436,11 @@ class Ha:
                 else:
                     return self.process_healthy_cluster()
             finally:
-                self.state_handler.sync_replication_slots(self.cluster)
+                # we might not have a valid PostgreSQL connection here if another thread
+                # stops PostgreSQL, therefore, we only reload replication slots if no
+                # asyncrhonous processes are running (should be always the case for the master)
+                if not self._async_executor.busy:
+                    self.state_handler.sync_replication_slots(self.cluster)
         except DCSError:
             logger.error('Error communicating with DCS')
             if self.state_handler.is_running() and self.state_handler.is_leader():

@@ -88,6 +88,7 @@ class MockPatroni:
         self.api = Mock()
         self.tags = {}
         self.nofailover = None
+        self.replicatefrom = None
         self.api.connection_string = 'http://127.0.0.1:8008'
 
 
@@ -128,12 +129,12 @@ class TestHa(unittest.TestCase):
         self.p.controldata = lambda: {'Database cluster state': 'in production'}
         self.p.is_healthy = false
         self.p.is_running = false
-        self.p.follow_the_leader = false
+        self.p.follow = false
         self.assertEquals(self.ha.run_cycle(), 'started as a secondary')
         self.assertEquals(self.ha.run_cycle(), 'failed to start postgres')
 
     def test_recover_master_failed(self):
-        self.p.follow_the_leader = false
+        self.p.follow = false
         self.p.is_healthy = false
         self.p.is_running = false
         self.ha.has_lock = true
@@ -202,9 +203,11 @@ class TestHa(unittest.TestCase):
         self.ha.update_lock = false
         self.assertEquals(self.ha.run_cycle(), 'demoting self because i do not have the lock and i was a leader')
 
-    def test_follow_the_leader(self):
+    def test_follow(self):
         self.ha.cluster.is_unlocked = false
         self.p.is_leader = false
+        self.assertEquals(self.ha.run_cycle(), 'no action.  i am a secondary and i am following a leader')
+        self.ha.patroni.replicatefrom = "foo"
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am a secondary and i am following a leader')
 
     def test_no_etcd_connection_master_demote(self):

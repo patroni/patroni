@@ -524,7 +524,7 @@ recovery_target_timeline = 'latest'
                 except:
                     logger.exception("Unable to remove {}".format(path))
 
-    def follow_the_leader(self, leader, recovery=False):
+    def follow(self, leader, recovery=False):
         if not self.check_recovery_conf(leader) or recovery:
             change_role = (self.role == 'master')
 
@@ -634,7 +634,11 @@ $$""".format(name, options), name, password, password)
         if self.use_slots:
             try:
                 self.load_replication_slots()
-                slots = [m.name for m in cluster.members if m.name != self.name] if self.role == 'master' else []
+                if self.role == 'master':
+                    slots = [m.name for m in cluster.members if m.name != self.name]
+                else:
+                    # only manage slots for replicas that want to replicate from this one
+                    slots = [m.name for m in cluster.members if m.replicatefrom == self.name]
                 # drop unused slots
                 for slot in set(self.replication_slots) - set(slots):
                     self.query("""SELECT pg_drop_replication_slot(%s)
