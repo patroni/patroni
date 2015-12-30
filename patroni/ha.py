@@ -112,9 +112,9 @@ class Ha:
                                 or recovery and self.state_handler.role == 'master') else follow_reason
         leader = self.cluster.leader
         leader = None if (leader and leader.name) == self.state_handler.name else leader
-        if not self.state_handler.check_recovery_conf(leader):
+        if not self.state_handler.check_recovery_conf(leader) or recovery:
             self._async_executor.schedule('changing primary_conninfo and restarting')
-            self._async_executor.run_async(self.state_handler.follow_the_leader, (leader, ))
+            self._async_executor.run_async(self.state_handler.follow_the_leader, (leader, recovery))
         return ret
 
     def enforce_master_role(self, message, promote_message):
