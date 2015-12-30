@@ -1,11 +1,11 @@
 language: python
 python:
   - "2.7"
-  - "3.3"
   - "3.4"
+  - "3.5"
 install:
   - if [[ $TRAVIS_PYTHON_VERSION == 2* ]]; then pip install -r requirements-py2.txt --use-mirrors; fi
-  - if [[ $TRAVIS_PYTHON_VERSION == 3* ]]; then pip install -r requirements-py3.txt --use-mirrors; fi
+  - if [[ $TRAVIS_PYTHON_VERSION == 3* ]]; then pip install -r requirements-py3.txt; fi
   - pip install coveralls
 script:
   - python setup.py test

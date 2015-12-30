@@ -18,7 +18,7 @@ from patroni.etcd import Etcd, Client
 from test_ha import get_cluster_initialized_without_leader, get_cluster_initialized_with_leader, \
     get_cluster_initialized_with_only_leader, MockPostgresql, MockPatroni, run_async, \
     get_cluster_not_initialized_without_leader
-from test_etcd import etcd_read, etcd_write, requests_get, MockResponse
+from test_etcd import etcd_read, etcd_write, requests_get, socket_getaddrinfo, MockResponse
 from test_postgresql import MockConnect, psycopg2_connect
 
 CONFIG_FILE_PATH = './test-ctl.yaml'
@@ -48,6 +48,7 @@ def test_rw_config():
 @patch('patroni.ctl.load_config', Mock(return_value={'dcs': {'scheme': 'etcd', 'hostname': 'localhost', 'port': 4001}}))
 class TestCtl(unittest.TestCase):
 
+    @patch('socket.getaddrinfo', socket_getaddrinfo)
     @patch.object(Client, 'machines')
     def setUp(self, mock_machines):
         mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
