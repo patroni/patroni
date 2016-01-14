@@ -525,8 +525,6 @@ def failover(config_file, cluster_name, master, candidate, force, dcs):
         if not a:
             raise PatroniCtlException('Aborting failover')
 
-    failover_value = '{}:{}'.format(master, candidate or '')
-
     t_started = time.time()
     r = None
     try:
@@ -543,7 +541,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs):
         logging.exception(r)
         logging.warning('Failing over to DCS')
         click.echo(timestamp() + ' Could not failover using Patroni api, falling back to DCS')
-        dcs.set_failover_value(failover_value)
+        dcs.manual_failover(leader=master, member=candidate)
         click.echo(timestamp() + ' Initialized failover from master {}'.format(master))
         # The failover process should within a minute update the failover key, we will keep watching it until it changes
         # or we timeout
