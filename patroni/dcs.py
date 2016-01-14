@@ -89,13 +89,15 @@ class Leader(namedtuple('Leader', 'index,session,member')):
         return self.member.conn_url
 
 
-class Failover(namedtuple('Failover', 'index,leader,member')):
+class Failover(namedtuple('Failover', 'index,leader,member,planned_at')):
 
     """
     >>> Failover.from_node(1, '{"leader": "cluster_leader"}')
-    Failover(index=1, leader='cluster_leader', member=None)
+    Failover(index=1, leader='cluster_leader', member=None, planned_at=None)
     >>> Failover.from_node(1, '{"leader": "cluster_leader", "member": "cluster:member"}')
-    Failover(index=1, leader='cluster_leader', member='cluster:member')
+    Failover(index=1, leader='cluster_leader', member='cluster:member', planned_at=None)
+    >>> Failover.from_node(1, '{"leader": "cluster_leader", "member": "cluster:member", "planned_at": "2016-01-14T10:09:57.140394+00:00"}')
+    Failover(index=1, leader='cluster_leader', member='cluster:member', planned_at='2016-01-14T10:09:57.140394+00:00')
     >>> Failover.from_node(1, None) is None
     True
     """
@@ -103,7 +105,7 @@ class Failover(namedtuple('Failover', 'index,leader,member')):
     def from_node(index, value):
         if value:
             data = json.loads(value)
-            return Failover(index, data.get('leader'), data.get('member'))
+            return Failover(index, data.get('leader'), data.get('member'), data.get('planned_at'))
 
         return None
 
