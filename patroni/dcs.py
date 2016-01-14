@@ -91,10 +91,21 @@ class Leader(namedtuple('Leader', 'index,session,member')):
 
 class Failover(namedtuple('Failover', 'index,leader,member')):
 
+    """
+    >>> Failover.from_node(1, '{"leader": "cluster_leader"}')
+    Failover(index=1, leader='cluster_leader', member=None)
+    >>> Failover.from_node(1, '{"leader": "cluster_leader", "member": "cluster:member"}')
+    Failover(index=1, leader='cluster_leader', member='cluster:member')
+    >>> Failover.from_node(1, None) is None
+    True
+    """
     @staticmethod
     def from_node(index, value):
-        t = [a.strip() for a in value.split(':')] + ['']
-        return Failover(index, t[0], t[1]) if t[0] or t[1] else None
+        if value:
+            data = json.loads(value)
+            return Failover(index, data.get('leader'), data.get('member'))
+
+        return None
 
 
 class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,members,failover')):
@@ -224,7 +235,13 @@ class AbstractDCS:
         """Create or update `/failover` key"""
 
     def manual_failover(self, leader, member, index=None):
-        return self.set_failover_value(leader + (':' + member if member else ''), index)
+        if not leader and not member:
+            return self.set_failover_value(None, index)
+
+        value = {'leader':leader}
+        if member:
+            value['member'] = member
+        return self.set_failover_value(json.dumps(value), index)
 
     def current_leader(self):
         try:
