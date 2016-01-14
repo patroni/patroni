@@ -14,10 +14,12 @@ import datetime
 from prettytable import PrettyTable
 from six.moves.urllib_parse import urlparse
 import logging
+import dateutil.parser
 
 from .etcd import Etcd
 from .exceptions import PatroniCtlException
 from .postgresql import parseurl
+from .dcs import localize_datetime
 
 CONFIG_DIR_PATH = click.get_app_dir('patroni')
 CONFIG_FILE_PATH = os.path.join(CONFIG_DIR_PATH, 'patronictl.yaml')
@@ -473,10 +475,11 @@ def reinit(cluster_name, member_names, config_file, dcs, force):
 @click.argument('cluster_name')
 @click.option('--master', help='The name of the current master', default=None)
 @click.option('--candidate', help='The name of the candidate', default=None)
+@click.option('--planned', help='Timestamp of a planned failover in ISO 8601 format', default=None)
 @click.option('--force', is_flag=True)
 @option_config_file
 @option_dcs
-def failover(config_file, cluster_name, master, candidate, force, dcs):
+def failover(config_file, cluster_name, master, candidate, force, dcs, planned):
     """
         We want to trigger a failover for the specified cluster name.
 
@@ -514,6 +517,18 @@ def failover(config_file, cluster_name, master, candidate, force, dcs):
     if candidate and candidate not in candidate_names:
         raise PatroniCtlException('Member {} does not exist in cluster {}'.format(candidate, cluster_name))
 
+    planned_at = None
+    if planned:
+        try:
+            planned_at = dateutil.parser.parse( planned )
+            planned_at = localize_datetime(planned_at)
+            planned_at = planned_at.isoformat()
+        except ValueError:
+            raise PatroniCtlException('Unable to parse planned timestamp ({}). It should be in ISO 8601 format.'.format(planned))
+
+    failover_value = {'leader':master, 'member':candidate, 'planned_at':planned_at}
+    logging.debug(failover_value)
+
     # By now we have established that the leader exists and the candidate exists
     click.echo('Current cluster topology')
     output_members(dcs.get_cluster(), name=cluster_name)
@@ -528,12 +543,12 @@ def failover(config_file, cluster_name, master, candidate, force, dcs):
     t_started = time.time()
     r = None
     try:
-        r = post_patroni(cluster.leader.member, 'failover', {'leader': master, 'member': candidate or ''})
+        r = post_patroni(cluster.leader.member, 'failover', failover_value)
         if r.status_code == 200:
             logging.debug(r)
-            logging.debug(r.text)
             cluster = dcs.get_cluster()
-            click.echo(timestamp() + ' Failing over to new leader: {}'.format(cluster.leader.member.name))
+            logging.debug(cluster)
+            click.echo('{} {}'.format(timestamp(), r.text))
         else:
             click.echo('Failover failed, details: {}, {}'.format(r.status_code, r.text))
             return
@@ -550,8 +565,6 @@ def failover(config_file, cluster_name, master, candidate, force, dcs):
             click.echo('Failover failed, master did not change after {:0.1f} seconds'.format(time.time() - t_started))
             return
 
-    click.echo(timestamp() + ' Failover completed in {:0.1f} seconds, new leader is {}'.format(time.time() - t_started,
-               str(cluster.leader.member.name)))
     output_members(cluster, name=cluster_name)
 
 

@@ -3,6 +3,9 @@ import logging
 import psycopg2
 import requests
 import sys
+import datetime
+import time
+import pytz
 
 from patroni.async_executor import AsyncExecutor
 from patroni.exceptions import DCSError, PostgresConnectionException
@@ -268,6 +271,21 @@ class Ha:
 
     def process_manual_failover_from_leader(self):
         failover = self.cluster.failover
+
+        if failover.planned_at:
+            now = datetime.datetime.utcnow().replace(tzinfo=pytz.utc)
+            delta = (failover.planned_at - now).total_seconds()
+
+            if delta > 10:
+                logging.debug('Awaiting failover, {}, {}, {}'.format(now.isoformat(), failover.planned_at.isoformat(), delta))
+                return
+            elif delta < -15:
+                logger.info('Found a stale failover value, cleaning up: {}'.format(failover.planned_at))
+                self.dcs.manual_failover('', '', self.cluster.failover.index)
+                return
+            time.sleep(max(delta,0))
+            logger.info('Manual scheduled failover at {}'.format(failover.planned_at.isoformat()))
+
         if not failover.leader or failover.leader == self.state_handler.name:
             if not failover.member or failover.member != self.state_handler.name:
                 members = [m for m in self.cluster.members if not failover.member or m.name == failover.member]
