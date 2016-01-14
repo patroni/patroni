@@ -5,12 +5,15 @@ import logging
 import psycopg2
 import socket
 import time
+import dateutil.parser
+import datetime
 
 from patroni.exceptions import PostgresConnectionException
 from patroni.utils import Retry, RetryFailedError
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from six.moves.socketserver import ThreadingMixIn
 from threading import Thread
+from .dcs import localize_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -175,13 +178,28 @@ class RestApiHandler(BaseHTTPRequestHandler):
         member = request.get('member', None)
         cluster = self.server.patroni.ha.dcs.get_cluster()
         status_code = 503
-        data = self.is_failover_possible(cluster, leader, member)
-        if not data:
-            if not self.server.patroni.dcs.manual_failover(leader, member):
-                data = b'failed to write failover key into DCS'
-            else:
-                self.server.patroni.dcs.event.set()
-                status_code, data = self.poll_failover_result(cluster.leader and cluster.leader.name, member)
+
+        data = b''
+        if request.get('planned_at'):
+            try:
+                planned_at = dateutil.parser.parse( request['planned_at'] )
+                planned_at = localize_datetime(planned_at)
+                if planned_at < localize_datetime(datetime.datetime.utcnow()):
+                    data = b'Cannot schedule failover in the past'
+                elif self.server.patroni.dcs.manual_failover(leader, member, planned_at):
+                    data = b'Failover scheduled'
+                    status_code = 200
+            except ValueError:
+                logger.exception('Invalid planned failover time: {}'.format(request['planned_at']))
+                data = b'Unable to parse planned timestamp. Should be in ISO 8601 format'
+        else:
+            data = self.is_failover_possible(cluster, leader, member)
+            if not data:
+                if not self.server.patroni.dcs.manual_failover(leader, member):
+                    data = b'failed to write failover key into DCS'
+                else:
+                    self.server.patroni.dcs.event.set()
+                    status_code, data = self.poll_failover_result(cluster.leader and cluster.leader.name, member)
 
         self.send_response(status_code)
         self.send_header('Content-Type', 'text/html')

@@ -1,5 +1,9 @@
 import abc
 import json
+import pytz
+import tzlocal
+import datetime
+import dateutil.parser
 
 from collections import namedtuple
 from patroni.exceptions import DCSError
@@ -22,6 +26,25 @@ def parse_connection_string(value):
     conn_url = urlunparse((scheme, netloc, path, params, '', fragment))
     api_url = ([v for n, v in parse_qsl(query) if n == 'application_name'] or [None])[0]
     return conn_url, api_url
+
+
+def localize_datetime(value):
+    """
+    >>> localize_datetime(None) is None
+    True
+    >>> localize_datetime(datetime.datetime(2000, 1, 1, 10, 12, 23)).tzinfo is None
+    False
+    """
+
+    if value is None:
+        return None
+
+    ## If no timezone is specified, we assume the local timezone and make the value
+    ## timezone aware
+    if value.tzinfo is None:
+        value = pytz.timezone(tzlocal.get_localzone().zone).localize(value)
+
+    return value
 
 
 class Member(namedtuple('Member', 'index,name,session,data')):
@@ -93,7 +116,7 @@ class Failover(namedtuple('Failover', 'index,leader,member,planned_at')):
     >>> Failover.from_node(1, '{"leader": "cluster_leader", "member": "cluster:member"}')
     Failover(index=1, leader='cluster_leader', member='cluster:member', planned_at=None)
     >>> Failover.from_node(1, '{"leader": "cluster_leader", "member": "cluster:member", "planned_at": "2016-01-14T10:09:57.140394+00:00"}')
-    Failover(index=1, leader='cluster_leader', member='cluster:member', planned_at='2016-01-14T10:09:57.140394+00:00')
+    Failover(index=1, leader='cluster_leader', member='cluster:member', planned_at=datetime.datetime(2016, 1, 14, 10, 9, 57, 140394, tzinfo=tzutc()))
     >>> Failover.from_node(1, None) is None
     True
     """
@@ -101,6 +124,10 @@ class Failover(namedtuple('Failover', 'index,leader,member,planned_at')):
     def from_node(index, value):
         if value:
             data = json.loads(value)
+
+            if data.get('planned_at'):
+                data['planned_at'] =  dateutil.parser.parse( data['planned_at'] )
+
             return Failover(index, data.get('leader'), data.get('member'), data.get('planned_at'))
 
         return None
@@ -229,13 +256,17 @@ class AbstractDCS:
     def set_failover_value(self, value, index=None):
         """Create or update `/failover` key"""
 
-    def manual_failover(self, leader, member, index=None):
+    def manual_failover(self, leader, member, planned_at=None, index=None):
         if not leader and not member:
             return self.set_failover_value(None, index)
 
         value = {'leader':leader}
         if member:
             value['member'] = member
+
+        planned_at = localize_datetime(planned_at)
+        value['planned_at'] = planned_at.isoformat() if planned_at else None
+
         return self.set_failover_value(json.dumps(value), index)
 
     def current_leader(self):

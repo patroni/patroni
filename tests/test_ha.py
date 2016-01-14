@@ -1,5 +1,6 @@
 import etcd
 import unittest
+import datetime
 
 from mock import Mock, MagicMock, patch
 from patroni.dcs import Cluster, Failover, Leader, Member
@@ -283,6 +284,9 @@ class TestHa(unittest.TestCase):
         # manual failover from the previous leader to us won't happen if we hold the nofailover flag
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, None))
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
+        
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, datetime.datetime.now()))
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, datetime.datetime.now()))
 
     @patch('requests.get', requests_get)
     def test_manual_failover_process_no_leader(self):
