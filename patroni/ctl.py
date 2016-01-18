@@ -521,7 +521,6 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, planned):
         if not a:
             raise PatroniCtlException('Aborting failover')
 
-    t_started = time.time()
     r = None
     try:
         r = post_patroni(cluster.leader.member, 'failover', failover_value)

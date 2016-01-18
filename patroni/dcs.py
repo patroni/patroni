@@ -261,7 +261,7 @@ class AbstractDCS:
         if not leader and not member:
             return self.set_failover_value(None, index)
 
-        return self.set_failover_value(json.dumps(build_failover_value), index)
+        return self.set_failover_value(json.dumps(AbstractDCS.build_failover_value), index)
 
     @staticmethod
     def build_failover_value(leader, member, planned_at):
@@ -279,7 +279,6 @@ class AbstractDCS:
         value['planned_at'] = planned_at.isoformat() if planned_at else None
 
         return value
-
 
     def current_leader(self):
         try:
