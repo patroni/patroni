@@ -1,6 +1,7 @@
 import etcd
 import unittest
 import datetime
+import pytz
 
 from mock import Mock, MagicMock, patch
 from patroni.dcs import Cluster, Failover, Leader, Member
@@ -285,6 +286,7 @@ class TestHa(unittest.TestCase):
         self.ha.update_lock = false
         self.assertEquals(self.ha.run_cycle(), 'failed to update leader lock during restart')
 
+
     @patch('requests.get', requests_get)
     def test_manual_failover_from_leader(self):
         self.ha.has_lock = true
@@ -302,9 +304,28 @@ class TestHa(unittest.TestCase):
         # manual failover from the previous leader to us won't happen if we hold the nofailover flag
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, None))
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
+       
+        ## Failover planned time must include timezone
+        planned = datetime.datetime.now() 
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, planned))
+
+        self.assertRaises(TypeError, self.ha.run_cycle)
+
+        planned = datetime.datetime.utcnow().replace(tzinfo=pytz.UTC)
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, planned))
+        self.assertEquals('no action.  i am the leader with the lock', self.ha.run_cycle())
+
+        planned = planned + datetime.timedelta(seconds=30)
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, planned))
+        self.assertEquals('no action.  i am the leader with the lock', self.ha.run_cycle())
+
+        planned = planned + datetime.timedelta(seconds=-600)
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, planned))
+        self.assertEquals('no action.  i am the leader with the lock', self.ha.run_cycle())
         
-        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, datetime.datetime.now()))
-        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, datetime.datetime.now()))
+        planned = None
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, planned))
+        self.assertEquals('no action.  i am the leader with the lock', self.ha.run_cycle())
 
     @patch('requests.get', requests_get)
     def test_manual_failover_process_no_leader(self):
