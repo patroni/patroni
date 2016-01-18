@@ -279,13 +279,14 @@ class Ha:
             delta = (failover.planned_at - now).total_seconds()
 
             if delta > 10:
-                logging.debug('Awaiting failover, {}, {}, {}'.format(now.isoformat(), failover.planned_at.isoformat(), delta))
+                logging.debug('Awaiting failover, {}, {}, {}'.format(now.isoformat(), failover.planned_at.isoformat(),
+                              delta))
                 return
             elif delta < -15:
                 logger.info('Found a stale failover value, cleaning up: {}'.format(failover.planned_at))
                 self.dcs.manual_failover('', '', self.cluster.failover.index)
                 return
-            time.sleep(max(delta,0))
+            time.sleep(max(delta, 0))
             logger.info('Manual scheduled failover at {}'.format(failover.planned_at.isoformat()))
 
         if not failover.leader or failover.leader == self.state_handler.name:

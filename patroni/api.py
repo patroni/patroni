@@ -182,14 +182,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
         data = b''
         if request.get('planned_at'):
             try:
-                planned_at = dateutil.parser.parse( request['planned_at'] )
+                planned_at = dateutil.parser.parse(request['planned_at'])
                 planned_at = localize_datetime(planned_at)
                 if planned_at < localize_datetime(datetime.datetime.utcnow()):
                     data = b'Cannot schedule failover in the past'
                 elif self.server.patroni.dcs.manual_failover(leader, member, planned_at):
                     data = b'Failover scheduled'
                     status_code = 200
-            except ValueError:
+            except:
                 logger.exception('Invalid planned failover time: {}'.format(request['planned_at']))
                 data = b'Unable to parse planned timestamp. Should be in ISO 8601 format'
         else:

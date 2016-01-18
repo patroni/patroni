@@ -493,16 +493,21 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, planned):
     if candidate and candidate not in candidate_names:
         raise PatroniCtlException('Member {} does not exist in cluster {}'.format(candidate, cluster_name))
 
-    planned_at = None
-    if planned:
+    if planned is None and not force:
+        planned = click.prompt('When should the failover take place (e.g. 2015-10-01T14:30) ', type=str, default='now')
+
+    if (planned or 'now') == 'now':
+        planned_at = None
+    else:
         try:
-            planned_at = dateutil.parser.parse( planned )
+            planned_at = dateutil.parser.parse(planned)
             planned_at = localize_datetime(planned_at)
             planned_at = planned_at.isoformat()
         except ValueError:
-            raise PatroniCtlException('Unable to parse planned timestamp ({}). It should be in ISO 8601 format.'.format(planned))
+            message = 'Unable to parse planned timestamp ({}). It should be in ISO 8601 format.'
+            raise PatroniCtlException(message.format(planned))
 
-    failover_value = {'leader':master, 'member':candidate, 'planned_at':planned_at}
+    failover_value = {'leader': master, 'member': candidate, 'planned_at': planned_at}
     logging.debug(failover_value)
 
     # By now we have established that the leader exists and the candidate exists
@@ -532,14 +537,8 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, planned):
         logging.exception(r)
         logging.warning('Failing over to DCS')
         click.echo(timestamp() + ' Could not failover using Patroni api, falling back to DCS')
-        dcs.manual_failover(leader=master, member=candidate)
-        click.echo(timestamp() + ' Initialized failover from master {}'.format(master))
-        # The failover process should within a minute update the failover key, we will keep watching it until it changes
-        # or we timeout
-        cluster = wait_for_leader(dcs, timeout=60)
-        if cluster.leader.member.name == master:
-            click.echo('Failover failed, master did not change after {:0.1f} seconds'.format(time.time() - t_started))
-            return
+        click.echo(timestamp() + ' Initializing failover from master {}'.format(master))
+        dcs.manual_failover(leader=master, member=candidate, planned_at=failover_value)
 
     output_members(cluster, name=cluster_name)
 
@@ -564,11 +563,10 @@ def output_members(cluster, name=None, format='pretty'):
 
         host = build_connect_parameters(m.conn_url)['host']
 
-        xlog_location = m.data.get('xlog_location')
-        if xlog_location is None or (xlog_location_cluster < xlog_location):
+        xlog_location = m.data.get('xlog_location') or 0
+        lag = round((xlog_location_cluster - xlog_location)/1024/1024)
+        if (xlog_location_cluster < xlog_location):
             lag = ''
-        else:
-            lag = round((xlog_location_cluster - xlog_location)/1024/1024)
 
         rows.append([
             name,
