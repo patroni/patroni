@@ -19,7 +19,7 @@ import dateutil.parser
 from .etcd import Etcd
 from .exceptions import PatroniCtlException
 from .postgresql import parseurl
-from .dcs import localize_datetime
+from .utils import localize_datetime
 
 CONFIG_DIR_PATH = click.get_app_dir('patroni')
 CONFIG_FILE_PATH = os.path.join(CONFIG_DIR_PATH, 'patronictl.yaml')

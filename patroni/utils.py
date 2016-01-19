@@ -5,6 +5,9 @@ import re
 import signal
 import sys
 import time
+import tzlocal
+import pytz
+import dateutil.parser
 
 from patroni.exceptions import PatroniException
 
@@ -12,30 +15,49 @@ ignore_sigterm = False
 interrupted_sleep = False
 reap_children = False
 
-_DATE_TIME_RE = re.compile(r'''^
-(?P<year>\d{4})\-(?P<month>\d{2})\-(?P<day>\d{2})  # date
-T
-(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2})\.(?P<microsecond>\d{6})  # time
-\d*Z$''', re.X)
-
 
 def parse_datetime(time_str):
     """
     >>> parse_datetime('2015-06-10T12:56:30.552539016Z')
-    datetime.datetime(2015, 6, 10, 12, 56, 30, 552539)
-    >>> parse_datetime('2015-06-10 12:56:30.552539016Z')
+    datetime.datetime(2015, 6, 10, 12, 56, 30, 552539, tzinfo=tzutc())
+    >>> parse_datetime('2015-06-10 12:56Z')
+    datetime.datetime(2015, 6, 10, 12, 56, tzinfo=tzutc())
+    >>> parse_datetime('2015-06-10 12:56+06')
+    datetime.datetime(2015, 6, 10, 12, 56, tzinfo=tzoffset(None, 21600))
+    >>> parse_datetime('fail-06-10 12:56+06')
+    >>> parse_datetime('2009-02-39 12:56+06')
     """
-    m = _DATE_TIME_RE.match(time_str)
-    if not m:
+
+    try:
+        return dateutil.parser.parse(time_str)
+    except (ValueError, TypeError):
         return None
-    p = dict((n, int(m.group(n))) for n in 'year month day hour minute second microsecond'.split(' '))
-    return datetime.datetime(**p)
+
+def localize_datetime(timestamp):
+    """ The goal is to add the local timezone to the datetime object if no timezone is specified yet
+    >>> localize_datetime(None) is None
+    True
+    >>> localize_datetime(datetime.datetime(2000, 1, 1, 10, 12, 23)).tzinfo is None
+    False
+    """
+    if timestamp is None:
+        return None
+
+    if timestamp.tzinfo is None:
+        timestamp = pytz.timezone(tzlocal.get_localzone().zone).localize(timestamp)
+
+    return timestamp
+
+
+def utcnow_timezone_aware():
+    return datetime.datetime.utcnow().replace(tzinfo=pytz.utc)
 
 
 def calculate_ttl(expiration):
     """
     >>> calculate_ttl(None)
-    >>> calculate_ttl('2015-06-10 12:56:30.552539016Z')
+    >>> calculate_ttl('2015-06-10 12:56:30.552539016Z') < 0
+    True
     >>> calculate_ttl('2015-06-10T12:56:30.552539016Z') < 0
     True
     """
@@ -44,7 +66,7 @@ def calculate_ttl(expiration):
     expiration = parse_datetime(expiration)
     if not expiration:
         return None
-    now = datetime.datetime.utcnow()
+    now = utcnow_timezone_aware()
     return int((expiration - now).total_seconds())
 
 

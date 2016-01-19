@@ -8,6 +8,7 @@ from collections import namedtuple
 from patroni.exceptions import DCSError
 from six.moves.urllib_parse import urlparse, urlunparse, parse_qsl
 from threading import Event, Lock
+from .utils import parse_datetime, localize_datetime
 
 
 def parse_connection_string(value):
@@ -25,26 +26,6 @@ def parse_connection_string(value):
     conn_url = urlunparse((scheme, netloc, path, params, '', fragment))
     api_url = ([v for n, v in parse_qsl(query) if n == 'application_name'] or [None])[0]
     return conn_url, api_url
-
-
-def localize_datetime(value):
-    """
-    >>> import datetime
-    >>> localize_datetime(None) is None
-    True
-    >>> localize_datetime(datetime.datetime(2000, 1, 1, 10, 12, 23)).tzinfo is None
-    False
-    """
-
-    if value is None:
-        return None
-
-    # If no timezone is specified, we assume the local timezone and make the value
-    # timezone aware
-    if value.tzinfo is None:
-        value = pytz.timezone(tzlocal.get_localzone().zone).localize(value)
-
-    return value
 
 
 class Member(namedtuple('Member', 'index,name,session,data')):
@@ -127,7 +108,7 @@ class Failover(namedtuple('Failover', 'index,leader,member,planned_at')):
             data = json.loads(value)
 
             if data.get('planned_at'):
-                data['planned_at'] = dateutil.parser.parse(data['planned_at'])
+                data['planned_at'] = parse_datetime(data['planned_at'])
 
             return Failover(index, data.get('leader'), data.get('member'), data.get('planned_at'))
 
