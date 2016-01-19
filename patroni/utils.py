@@ -62,6 +62,7 @@ def calculate_ttl(expiration):
     True
     >>> calculate_ttl('2015-06-10T12:56:30.552539016Z') < 0
     True
+    >>> calculate_ttl('fail-06-10T12:56:30.552539016Z')
     """
     if not expiration:
         return None
