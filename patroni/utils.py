@@ -17,10 +17,12 @@ reap_children = False
 
 def parse_datetime(time_str):
     """
-    >>> parse_datetime('2015-06-10T12:56:30.552539016Z')
-    datetime.datetime(2015, 6, 10, 12, 56, 30, 552539, tzinfo=tzutc())
-    >>> parse_datetime('2015-06-10 12:56Z')
-    datetime.datetime(2015, 6, 10, 12, 56, tzinfo=tzutc())
+    >>> parse_datetime('2015-06-10T12:56:30.552539016Z').tzinfo is not None
+    True
+    >>> parse_datetime('2015-06-10 12:56Z').tzinfo is not None
+    True
+    >>> parse_datetime('2015-06-10 12:56').tzinfo is None
+    True
     >>> parse_datetime('2015-06-10 12:56+06')
     datetime.datetime(2015, 6, 10, 12, 56, tzinfo=tzoffset(None, 21600))
     >>> parse_datetime('fail-06-10 12:56+06')
