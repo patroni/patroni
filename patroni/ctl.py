@@ -498,13 +498,12 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, planned):
     if (planned or 'now') == 'now':
         planned_at = None
     else:
-        try:
-            planned_at = parse_datetime(planned)
-            planned_at = localize_datetime(planned_at)
-            planned_at = planned_at.isoformat()
-        except ValueError:
+        planned_at = parse_datetime(planned)
+        if planned_at is None:
             message = 'Unable to parse planned timestamp ({}). It should be in ISO 8601 format.'
             raise PatroniCtlException(message.format(planned))
+        planned_at = localize_datetime(planned_at)
+        planned_at = planned_at.isoformat()
 
     failover_value = {'leader': master, 'member': candidate, 'planned_at': planned_at}
     logging.debug(failover_value)
