@@ -14,12 +14,11 @@ import datetime
 from prettytable import PrettyTable
 from six.moves.urllib_parse import urlparse
 import logging
-import dateutil.parser
 
 from .etcd import Etcd
 from .exceptions import PatroniCtlException
 from .postgresql import parseurl
-from .utils import localize_datetime
+from .utils import localize_datetime, parse_datetime
 
 CONFIG_DIR_PATH = click.get_app_dir('patroni')
 CONFIG_FILE_PATH = os.path.join(CONFIG_DIR_PATH, 'patronictl.yaml')
@@ -500,7 +499,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, planned):
         planned_at = None
     else:
         try:
-            planned_at = dateutil.parser.parse(planned)
+            planned_at = parse_datetime(planned)
             planned_at = localize_datetime(planned_at)
             planned_at = planned_at.isoformat()
         except ValueError:
