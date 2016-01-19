@@ -5,11 +5,9 @@ import logging
 import psycopg2
 import socket
 import time
-import dateutil.parser
-import datetime
 
 from patroni.exceptions import PostgresConnectionException
-from patroni.utils import Retry, RetryFailedError, localize_datetime
+from patroni.utils import Retry, RetryFailedError, localize_datetime, utcnow_timezone_aware, parse_datetime
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from six.moves.socketserver import ThreadingMixIn
 from threading import Thread
@@ -181,9 +179,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
         data = b''
         if request.get('planned_at'):
             try:
-                planned_at = dateutil.parser.parse(request['planned_at'])
+                planned_at = parse_datetime(request['planned_at'])
                 planned_at = localize_datetime(planned_at)
-                if planned_at < localize_datetime(datetime.datetime.utcnow()):
+                if planned_at < utcnow_timezone_aware():
                     data = b'Cannot schedule failover in the past'
                 elif self.server.patroni.dcs.manual_failover(leader, member, planned_at):
                     data = b'Failover scheduled'
