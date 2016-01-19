@@ -279,7 +279,8 @@ class Ha:
             delta = (failover.planned_at - now).total_seconds()
 
             if delta > 10:
-                logging.debug('Awaiting failover, {}, {}, {}'.format(now.isoformat(), failover.planned_at.isoformat(),
+                logging.debug('Awaiting failover, {0}, {1}, {2}'.format(now.isoformat(),
+                              failover.planned_at.isoformat(),
                               delta))
                 return
             elif delta < -15:

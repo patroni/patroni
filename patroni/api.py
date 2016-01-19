@@ -189,7 +189,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 elif self.server.patroni.dcs.manual_failover(leader, member, planned_at):
                     data = b'Failover scheduled'
                     status_code = 200
-            except:
+            except (ValueError, TypeError):
                 logger.exception('Invalid planned failover time: {}'.format(request['planned_at']))
                 data = b'Unable to parse planned timestamp. Should be in ISO 8601 format'
         else:
