@@ -242,25 +242,23 @@ class TestPostgresql(unittest.TestCase):
     @patch('patroni.postgresql.Postgresql.remove_data_directory', MagicMock(return_value=True))
     @patch('patroni.postgresql.Postgresql.single_user_mode', MagicMock(return_value=1))
     @patch('patroni.postgresql.Postgresql.write_pgpass', MagicMock(return_value=dict()))
-    def test_follow_the_leader(self, mock_pg_rewind):
-        self.p.demote()
-        self.p.follow_the_leader(None)
-        self.p.demote()
-        self.p.follow_the_leader(self.leader)
-        self.p.follow_the_leader(Leader(-1, 28, self.other))
+    def test_follow(self, mock_pg_rewind):
+        self.p.follow(None)
+        self.p.follow(self.leader)
+        self.p.follow(Leader(-1, 28, self.other))
         self.p.rewind = mock_pg_rewind
-        self.p.follow_the_leader(self.leader)
+        self.p.follow(self.leader)
         self.p.require_rewind()
         with mock.patch('os.path.islink', MagicMock(return_value=True)):
             with mock.patch('patroni.postgresql.Postgresql.can_rewind', new_callable=PropertyMock(return_value=True)):
                 with mock.patch('os.unlink', MagicMock(return_value=True)):
-                    self.p.follow_the_leader(self.leader, recovery=True)
+                    self.p.follow(self.leader, recovery=True)
         self.p.require_rewind()
         with mock.patch('patroni.postgresql.Postgresql.can_rewind', new_callable=PropertyMock(return_value=True)):
             self.p.rewind.return_value = True
-            self.p.follow_the_leader(self.leader, recovery=True)
+            self.p.follow(self.leader, recovery=True)
             self.p.rewind.return_value = False
-            self.p.follow_the_leader(self.leader, recovery=True)
+            self.p.follow(self.leader, recovery=True)
 
     def test_can_rewind(self):
         tmp = self.p.pg_rewind
