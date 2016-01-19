@@ -5,10 +5,10 @@ import requests
 import sys
 import datetime
 import time
-import pytz
 
 from patroni.async_executor import AsyncExecutor
 from patroni.exceptions import DCSError, PostgresConnectionException
+from .utils import utcnow_timezone_aware
 from multiprocessing.pool import ThreadPool
 
 logger = logging.getLogger(__name__)
@@ -273,7 +273,7 @@ class Ha:
         failover = self.cluster.failover
 
         if failover.planned_at:
-            now = datetime.datetime.utcnow().replace(tzinfo=pytz.utc)
+            now = utcnow_timezone_aware()
             delta = (failover.planned_at - now).total_seconds()
 
             if delta > 10:

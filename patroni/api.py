@@ -9,11 +9,10 @@ import dateutil.parser
 import datetime
 
 from patroni.exceptions import PostgresConnectionException
-from patroni.utils import Retry, RetryFailedError
+from patroni.utils import Retry, RetryFailedError, localize_datetime
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from six.moves.socketserver import ThreadingMixIn
 from threading import Thread
-from .dcs import localize_datetime
 
 logger = logging.getLogger(__name__)
 
