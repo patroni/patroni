@@ -304,9 +304,9 @@ class TestHa(unittest.TestCase):
         # manual failover from the previous leader to us won't happen if we hold the nofailover flag
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, None))
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
-       
+
         ## Failover planned time must include timezone
-        planned = datetime.datetime.now() 
+        planned = datetime.datetime.now()
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, planned))
 
         self.assertRaises(TypeError, self.ha.run_cycle)
@@ -322,7 +322,7 @@ class TestHa(unittest.TestCase):
         planned = planned + datetime.timedelta(seconds=-600)
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, planned))
         self.assertEquals('no action.  i am the leader with the lock', self.ha.run_cycle())
-        
+
         planned = None
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, planned))
         self.assertEquals('no action.  i am the leader with the lock', self.ha.run_cycle())

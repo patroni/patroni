@@ -119,8 +119,8 @@ class Failover(namedtuple('Failover', 'index,leader,member,planned_at')):
     True
     >>> 'Failover' in str(Failover.from_node(1, '{"leader": "cluster_leader", "member": "cluster:member"}'))
     True
-    >>> n = '{"leader": "cluster_leader", "member": "cluster:member", "planned_at": "2016-01-14T10:09:57.1394+00:00"}'
-    >>> 'tzinfo=tzutc' in str(Failover.from_node(1, n))
+    >>> n = '{"leader": "cluster_leader", "member": "cluster:member", "planned_at": "2016-01-14T10:09:57.1394Z"}'
+    >>> 'tzinfo=' in str(Failover.from_node(1, n))
     True
     >>> Failover.from_node(1, None) is None
     True
@@ -265,10 +265,11 @@ class AbstractDCS:
         """Create or update `/failover` key"""
 
     def manual_failover(self, leader, member, planned_at=None, index=None):
-        if not leader and not member:
-            return self.set_failover_value(None, index)
+        failover_value = None
+        if leader or member:
+            failover_value = AbstractDCS.build_failover_value(leader, member, planned_at)
 
-        return self.set_failover_value(json.dumps(AbstractDCS.build_failover_value), index)
+        return self.set_failover_value(json.dumps(failover_value), index)
 
     @staticmethod
     def build_failover_value(leader, member, planned_at):
