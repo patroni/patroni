@@ -3,7 +3,6 @@ import logging
 import psycopg2
 import requests
 import sys
-import datetime
 import time
 
 from patroni.async_executor import AsyncExecutor

@@ -1,7 +1,6 @@
 import datetime
 import os
 import random
-import re
 import signal
 import sys
 import time
@@ -32,6 +31,7 @@ def parse_datetime(time_str):
         return dateutil.parser.parse(time_str)
     except (ValueError, TypeError):
         return None
+
 
 def localize_datetime(timestamp):
     """ The goal is to add the local timezone to the datetime object if no timezone is specified yet

@@ -1,8 +1,5 @@
 import abc
 import json
-import pytz
-import tzlocal
-import dateutil.parser
 
 from collections import namedtuple
 from patroni.exceptions import DCSError
