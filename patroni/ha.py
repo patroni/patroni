@@ -274,18 +274,24 @@ class Ha:
         failover = self.cluster.failover
 
         if failover.planned_at:
+            # If the failover is in the far future, we shouldn't do anything and just return.
+            # If the failover is in the past, we consider the value to be stale and we remove
+            # the value.
+            # If the value is close to now, we initiate the failover
             now = utcnow_timezone_aware()
             delta = (failover.planned_at - now).total_seconds()
 
             if delta > 10:
-                logging.debug('Awaiting failover, {0}, {1}, {2}'.format(now.isoformat(),
-                              failover.planned_at.isoformat(),
-                              delta))
+                logging.info('Awaiting failover, {0}, {1}, {2}'.format(now.isoformat(),
+                                                                       failover.planned_at.isoformat(),
+                                                                       delta))
                 return
             elif delta < -15:
-                logger.info('Found a stale failover value, cleaning up: {}'.format(failover.planned_at))
+                logger.warning('Found a stale failover value, cleaning up: {}'.format(failover.planned_at))
                 self.dcs.manual_failover('', '', self.cluster.failover.index)
                 return
+
+            # The value is very close to now
             time.sleep(max(delta, 0))
             logger.info('Manual scheduled failover at {}'.format(failover.planned_at.isoformat()))
 

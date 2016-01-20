@@ -52,7 +52,7 @@ def localize_datetime(timestamp):
 
 
 def utcnow_timezone_aware():
-    return datetime.datetime.utcnow().replace(tzinfo=pytz.utc)
+    return datetime.datetime.now(pytz.utc)
 
 
 def calculate_ttl(expiration):
