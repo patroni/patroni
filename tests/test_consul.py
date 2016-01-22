@@ -3,19 +3,9 @@ import time
 import unittest
 
 from collections import namedtuple
+from mock import Mock, patch
 from patroni.consul import Cluster, Consul, ConsulError, ConsulException, NotFound
-from test_etcd import MockPostgresql, time_sleep_exception, SleepException
-
-
-def nop(*args, **kwargs):
-    pass
-
-
-MockResponse = namedtuple('Response', 'status_code,headers,text')
-
-
-def http_get(*args, **kwargs):
-    return MockResponse(None, None, None)
+from test_etcd import SleepException
 
 
 def kv_get(self, key, **kwargs):
@@ -25,7 +15,9 @@ def kv_get(self, key, **kwargs):
         return None, None
     if key == 'service/good/':
         return ('6429',
-                [{'CreateIndex': 1334, 'Flags': 0, 'Key': key + 'initialize', 'LockIndex': 0,
+                [{'CreateIndex': 1334, 'Flags': 0, 'Key': key + 'failover', 'LockIndex': 0,
+                  'ModifyIndex': 1334, 'Value': ''},
+                  {'CreateIndex': 1334, 'Flags': 0, 'Key': key + 'initialize', 'LockIndex': 0,
                   'ModifyIndex': 1334, 'Value': 'postgresql0'},
                  {'CreateIndex': 2621, 'Flags': 0, 'Key': key + 'leader', 'LockIndex': 1,
                   'ModifyIndex': 2621, 'Session': 'fd4f44fe-2cac-bba5-a60b-304b51ff39b7', 'Value': 'postgresql1'},
@@ -62,11 +54,7 @@ def session_create(self, *args, **kwargs):
 
 class TestConsul(unittest.TestCase):
 
-    def __init__(self, method_name='runTest'):
-        self.setUp = self.set_up
-        super(TestConsul, self).__init__(method_name)
-
-    def set_up(self):
+    def setUp(self):
         consul.Consul.KV.get = kv_get
         consul.Consul.KV.put = kv_put
         consul.Consul.KV.delete = kv_delete
@@ -74,19 +62,19 @@ class TestConsul(unittest.TestCase):
         consul.Consul.Session.renew = session_renew
         self.c = Consul('postgresql1', {'ttl': 30, 'scope': 'test', 'host': 'localhost:1'})
         self.c._base_path = '/service/good'
-        self.c.get_cluster(1)
+        self.c._load_cluster(1)
 
     def test_client_get(self):
-        self.c.client.http.session.get = http_get
-        self.c.client.http.get(nop, '', {'wait': '1s', 'index': 1})
+        self.c.client.http.session.get = Mock()
+        self.c.client.http.get(Mock(), '', {'wait': '1s', 'index': 1})
 
     def test_referesh_session(self):
         self.c._session = '1'
         self.c._name = ''
         self.assertRaises(ConsulError, self.c.referesh_session)
 
+    @patch('time.sleep', Mock(side_effect=SleepException()))
     def test_create_session(self):
-        time.sleep = time_sleep_exception
         self.c._session = None
         self.c._name = ''
         self.assertRaises(SleepException, self.c.create_session, True)
@@ -98,20 +86,26 @@ class TestConsul(unittest.TestCase):
         self.assertIsInstance(self.c.get_cluster(), Cluster)
         self.c._base_path = '/service/fail'
         self.assertRaises(ConsulError, self.c.get_cluster)
-        self.assertRaises(ConsulException, self.c.get_cluster, 1)
+        self.assertRaises(ConsulException, self.c._load_cluster, 1)
         self.c._base_path = '/service/good'
         self.c._session = 'fd4f44fe-2cac-bba5-a60b-304b51ff39b8'
         self.assertIsInstance(self.c.get_cluster(), Cluster)
 
     def test_touch_member(self):
-        self.c.referesh_session = lambda: True
+        self.c.referesh_session = Mock(return_value=True)
         self.c.touch_member('balbla')
 
     def test_take_leader(self):
         self.c.take_leader()
 
+    def test_set_failover_value(self):
+        self.c.set_failover_value('')
+
+    def test_write_leader_optime(self):
+        self.c.write_leader_optime('')
+
     def test_update_leader(self):
-        self.c.update_leader(MockPostgresql())
+        self.c.update_leader()
 
     def test_delete_leader(self):
         self.c.delete_leader()
@@ -119,9 +113,12 @@ class TestConsul(unittest.TestCase):
     def test_initialize(self):
         self.c.initialize()
 
+    def test_cancel_initialization(self):
+        self.c.cancel_initialization()
+
     def test_watch(self):
         self.c._name = ''
-        self.c.get_cluster = nop
+        self.c._load_cluster = Mock(return_value=None)
         self.c.watch(1)
-        self.c.get_cluster = session_create
-        self.assertRaises(SleepException, self.c.watch, 1)
+        self.c._load_cluster = session_create
+        self.c.watch(1)

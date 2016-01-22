@@ -3,25 +3,25 @@
 function usage()
 {
     cat <<__EOF__
-Usage: $0 
+Usage: $0
 
 Options:
 
     --etcd      ETCD    Provide an external etcd to connect to
-    --name      NAME    Give the cluster a specific name 
+    --name      NAME    Give the cluster a specific name
     --etcd-only         Do not run Patroni, run a standalone etcd
 
 Examples:
 
     $0 --etcd=127.17.0.84:4001
     $0 --etcd-only
-    $0 
+    $0
     $0 --name=true_scotsman
 __EOF__
 }
 
 DOCKER_IP=$(hostname --ip-address)
-PATRONI_SCOPE=batman
+PATRONI_SCOPE=${PATRONI_SCOPE:-batman}
 
 optspec=":vh-:"
 while getopts "$optspec" optchar; do
@@ -32,7 +32,7 @@ while getopts "$optspec" optchar; do
                     exec etcd --data-dir /tmp/etcd.data \
                         -advertise-client-urls=http://${DOCKER_IP}:4001 \
                         -listen-client-urls=http://0.0.0.0:4001 \
-                        -listen-peer-urls=http://0.0.0.0:2380 
+                        -listen-peer-urls=http://0.0.0.0:2380
                     exit 0
                     ;;
                 cheat)
@@ -83,16 +83,17 @@ cat > /patroni/postgres.yml <<__EOF__
 
 ttl: &ttl 30
 loop_wait: &loop_wait 10
-scope: &scope ${PATRONI_SCOPE}
+scope: &scope '${PATRONI_SCOPE}'
+namespace: 'patroni'
 restapi:
-  listen: 127.0.0.1:8008
-  connect_address: 127.0.0.1:8008
+  listen: 0.0.0.0:8008
+  connect_address: ${DOCKER_IP}:8008
 etcd:
   scope: *scope
   ttl: *ttl
   host: ${ETCD_CLUSTER}
 postgresql:
-  name: postgresql_${DOCKER_IP//./_} ## Replication slots do not allow dots in their name
+  name: ${HOSTNAME}
   scope: *scope
   listen: 0.0.0.0:5432
   connect_address: ${DOCKER_IP}:5432
@@ -115,10 +116,11 @@ postgresql:
   parameters:
     archive_mode: "on"
     wal_level: hot_standby
-    archive_command: mkdir -p ../wal_archive && cp %p ../wal_archive/%f
+    archive_command: 'true'
     max_wal_senders: 20
     listen_addresses: 0.0.0.0
-    wal_keep_segments: 8
+    checkpoint_segments: 64
+    wal_keep_segments: 64
     archive_timeout: 1800s
     max_replication_slots: 20
     hot_standby: "on"

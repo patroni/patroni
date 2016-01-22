@@ -1,10 +1,12 @@
 boto
 mock
 dnspython3
-psycopg2
+psycopg2>=2.6.1
 PyYAML
 requests
 six
 kazoo>=2.2.1
-python-etcd>=0.4.1
+python-etcd==0.4.2
 python-consul>=0.4.5
+click>=4.1
+prettytable>=0.7

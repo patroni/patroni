@@ -32,7 +32,7 @@ VERSION = read_version(MAIN_PACKAGE)
 DESCRIPTION = 'PostgreSQL High-Available orchestrator and CLI'
 LICENSE = 'The MIT License'
 URL = 'https://github.com/zalando/patroni'
-AUTHOR = 'Alexander Kukushkin, Alexey Klyukin, Feike Steenbergen'
+AUTHOR = 'Alexander Kukushkin, Oleksii Kliukin, Feike Steenbergen'
 AUTHOR_EMAIL = 'alexander.kukushkin@zalando.de, oleksii.kliukin@zalando.de, feike.steenbergen@zalando.de'
 KEYWORDS = 'etcd governor patroni postgresql postgres ha zookeeper streaming replication'
 
@@ -56,7 +56,10 @@ CLASSIFIERS = [
     'Programming Language :: Python :: Implementation :: CPython',
 ]
 
-CONSOLE_SCRIPTS = ['patroni = patroni:main']
+CONSOLE_SCRIPTS = ['patroni = patroni:main',
+                   'patronictl = patroni.ctl:ctl',
+                   "patroni_wale_restore = patroni.scripts.wale_restore:main",
+                   "patroni_aws = patroni.scripts.aws:main"]
 
 
 class PyTest(TestCommand):
@@ -89,7 +92,6 @@ class PyTest(TestCommand):
         params = {'args': self.test_args}
         if self.cov:
             params['args'] += self.cov
-            params['plugins'] = ['cov']
         if self.junitxml:
             params['args'] += self.junitxml
         params['args'] += ['--doctest-modules', MAIN_PACKAGE, '-s', '-vv']

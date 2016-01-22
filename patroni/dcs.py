@@ -1,9 +1,10 @@
 import abc
+import json
 
 from collections import namedtuple
 from patroni.exceptions import DCSError
-from patroni.utils import calculate_ttl, sleep
 from six.moves.urllib_parse import urlparse, urlunparse, parse_qsl
+from threading import Event, Lock
 
 
 def parse_connection_string(value):
@@ -23,28 +24,56 @@ def parse_connection_string(value):
     return conn_url, api_url
 
 
-class Member(namedtuple('Member', 'index,name,conn_url,api_url,expiration,ttl')):
+class Member(namedtuple('Member', 'index,name,session,data')):
 
     """Immutable object (namedtuple) which represents single member of PostgreSQL cluster.
     Consists of the following fields:
     :param index: modification index of a given member key in a Configuration Store
     :param name: name of PostgreSQL cluster member
-    :param conn_url: connection string containing host, user and password which could be used to access this member.
-    :param api_url: REST API url of patroni instance
-    :param expiration: expiration time of given member key
-    :param ttl: ttl of given member key in seconds"""
+    :param session: either session id or just ttl in seconds
+    :param data: arbitrary data i.e. conn_url, api_url, xlog location, state, role, tags, etc...
 
-    def real_ttl(self):
-        return calculate_ttl(self.expiration) or -1
+    There are two mandatory keys in a data:
+    conn_url: connection string containing host, user and password which could be used to access this member.
+    api_url: REST API url of patroni instance"""
+
+    @staticmethod
+    def from_node(index, name, session, data):
+        """
+        >>> Member.from_node(-1, '', '', '{"conn_url": "postgres://foo@bar/postgres"}') is not None
+        True
+        >>> Member.from_node(-1, '', '', '{')
+        Member(index=-1, name='', session='', data={})
+        """
+        if data.startswith('postgres'):
+            conn_url, api_url = parse_connection_string(data)
+            data = {'conn_url': conn_url, 'api_url': api_url}
+        else:
+            try:
+                data = json.loads(data)
+            except:
+                data = {}
+        return Member(index, name, session, data)
+
+    @property
+    def conn_url(self):
+        return self.data.get('conn_url', None)
+
+    @property
+    def api_url(self):
+        return self.data.get('api_url', None)
+
+    @property
+    def nofailover(self):
+        return self.data.get('tags', {}).get('nofailover', False)
 
 
-class Leader(namedtuple('Leader', 'index,expiration,ttl,member')):
+class Leader(namedtuple('Leader', 'index,session,member')):
 
     """Immutable object (namedtuple) which represents leader key.
     Consists of the following fields:
     :param index: modification index of a leader key in a Configuration Store
-    :param expiration: expiration time of the leader key
-    :param ttl: ttl of the leader key
+    :param session: either session id or just ttl in seconds
     :param member: reference to a `Member` object which represents current leader (see `Cluster.members`)"""
 
     @property
@@ -56,7 +85,15 @@ class Leader(namedtuple('Leader', 'index,expiration,ttl,member')):
         return self.member.conn_url
 
 
-class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,members')):
+class Failover(namedtuple('Failover', 'index,leader,member')):
+
+    @staticmethod
+    def from_node(index, value):
+        t = [a.strip() for a in value.split(':')] + ['']
+        return Failover(index, t[0], t[1]) if t[0] or t[1] else None
+
+
+class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,members,failover')):
 
     """Immutable object (namedtuple) which represents PostgreSQL cluster.
     Consists of the following fields:
@@ -64,7 +101,8 @@ class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,mem
     :param leader: `Leader` object which represents current leader of the cluster
     :param last_leader_operation: int or long object containing position of last known leader operation.
         This value is stored in `/optime/leader` key
-    :param members: list of Member object, all PostgreSQL cluster members including leader"""
+    :param members: list of Member object, all PostgreSQL cluster members including leader
+    :param failover: reference to `Failover` object"""
 
     def is_unlocked(self):
         return not (self.leader and self.leader.name)
@@ -76,6 +114,7 @@ class AbstractDCS:
 
     _INITIALIZE = 'initialize'
     _LEADER = 'leader'
+    _FAILOVER = 'failover'
     _MEMBERS = 'members/'
     _OPTIME = 'optime'
     _LEADER_OPTIME = _OPTIME + '/' + _LEADER
@@ -87,8 +126,12 @@ class AbstractDCS:
             i.e.: `zookeeper` for zookeeper, `etcd` for etcd, etc...
         """
         self._name = name
-        self._scope = config['scope']
-        self._base_path = '/service/' + self._scope
+        self._namespace = '/{}'.format(config.get('namespace', '/service/').strip('/'))
+        self._base_path = '/'.join([self._namespace, config['scope']])
+
+        self._cluster = None
+        self._cluster_thread_lock = Lock()
+        self.event = Event()
 
     def client_path(self, path):
         return '/'.join([self._base_path, path.lstrip('/')])
@@ -110,24 +153,53 @@ class AbstractDCS:
         return self.client_path(self._LEADER)
 
     @property
+    def failover_path(self):
+        return self.client_path(self._FAILOVER)
+
+    @property
     def leader_optime_path(self):
         return self.client_path(self._LEADER_OPTIME)
 
     @abc.abstractmethod
+    def _load_cluster(self):
+        """Internally this method should build  `Cluster` object which
+           represents current state and topology of the cluster in DCS.
+           this method supposed to be called only by `get_cluster` method.
+
+           raise `~DCSError` in case of communication or other problems with DCS.
+           If the current node was running as a master and exception raised,
+           instance would be demoted."""
+
     def get_cluster(self):
-        """:returns: `Cluster` object which represent current state and topology of the cluster
-        raise `~DCSError` in case of communication or other problems with DCS. If current instance was
-            running as a master and exception raised instance would be demoted."""
+        with self._cluster_thread_lock:
+            try:
+                self._load_cluster()
+            except:
+                self._cluster = None
+                raise
+            return self._cluster
+
+    @property
+    def cluster(self):
+        with self._cluster_thread_lock:
+            return self._cluster
+
+    def reset_cluster(self):
+        with self._cluster_thread_lock:
+            self._cluster = None
 
     @abc.abstractmethod
-    def update_leader(self, state_handler):
-        """Update leader key (or session) ttl and `/optime/leader` key in DCS.
+    def write_leader_optime(self, last_operation):
+        """write current xlog location into `/optime/leader` key in DCS
+        :param last_operation: absolute xlog location in bytes"""
 
-        :param state_handler: reference to `Postgresql` object
+    @abc.abstractmethod
+    def update_leader(self):
+        """Update leader key (or session) ttl
+
         :returns: `!True` if leader key (or session) has been updated successfully.
             If not, `!False` must be returned and current instance would be demoted.
 
-        If you failed to update `/optime/leader` this error is not critical and you can return `!True`
         You have to use CAS (Compare And Swap) operation in order to update leader key,
         for example for etcd `prevValue` parameter must be used."""
 
@@ -139,6 +211,13 @@ class AbstractDCS:
 
         Key must be created atomically. In case if key already exists it should not be
         overwritten and `!False` must be returned"""
+
+    @abc.abstractmethod
+    def set_failover_value(self, value, index=None):
+        """Create or update `/failover` key"""
+
+    def manual_failover(self, leader, member, index=None):
+        return self.set_failover_value(leader + (':' + member if member else ''), index)
 
     def current_leader(self):
         try:
@@ -165,8 +244,11 @@ class AbstractDCS:
         overwriting the key if necessary."""
 
     @abc.abstractmethod
-    def initialize(self):
+    def initialize(self, create_new=True, sysid=""):
         """Race for cluster initialization.
+
+        :param create_new: False if the key should already exist (in the case we are setting the system_id)
+        :param sysid: PostgreSQL cluster system identifier, if specified, is written to the key
         :returns: `!True` if key has been created successfully.
 
         this method should create atomically initialize key and return `!True`
@@ -188,5 +270,5 @@ class AbstractDCS:
         :param timeout: timeout in seconds
         :returns: `!True` if you would like to reschedule the next run of ha cycle"""
 
-        sleep(timeout)
-        return False
+        self.event.wait(timeout)
+        return self.event.isSet()

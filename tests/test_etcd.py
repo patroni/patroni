@@ -1,17 +1,14 @@
-import datetime
-import dns.resolver
 import etcd
 import json
 import requests
 import urllib3
 import socket
-import time
 import unittest
 
 from dns.exception import DNSException
 from mock import Mock, patch
-from patroni.dcs import Cluster, DCSError, Leader, Member
-from patroni.etcd import Client, Etcd
+from patroni.dcs import Cluster, DCSError, Leader
+from patroni.etcd import Client, Etcd, EtcdError
 
 
 class MockResponse:
@@ -20,6 +17,7 @@ class MockResponse:
         self.status_code = 200
         self.content = '{}'
         self.ok = True
+        self.text = ''
 
     def json(self):
         return json.loads(self.content)
@@ -40,8 +38,7 @@ class MockResponse:
         return ''
 
 
-class MockPostgresql:
-    name = ''
+class MockPostgresql(Mock):
 
     def last_operation(self):
         return '0'
@@ -53,6 +50,8 @@ def requests_get(url, **kwargs):
     response = MockResponse()
     if url.startswith('http://local'):
         raise requests.exceptions.RequestException()
+    elif ':8011/patroni' in url:
+        response.content = '{"role": "replica", "xlog": {"replayed_location": 0}, "tags": {}}'
     elif url.endswith('/members'):
         if url.startswith('http://error'):
             response.content = '[{}]'
@@ -67,11 +66,11 @@ def requests_get(url, **kwargs):
 
 
 def etcd_watch(key, index=None, timeout=None, recursive=None):
-    if timeout == 1:
+    if timeout == 2.0:
         raise urllib3.exceptions.TimeoutError
-    elif timeout == 5:
+    elif timeout == 5.0:
         return etcd.EtcdResult('delete', {})
-    elif timeout == 10:
+    elif timeout == 10.0:
         raise etcd.EtcdException
     elif index == 20729:
         return etcd.EtcdResult('set', {'value': 'postgresql1', 'modifiedIndex': index + 1})
@@ -82,13 +81,9 @@ def etcd_watch(key, index=None, timeout=None, recursive=None):
 def etcd_write(key, value, **kwargs):
     if key == '/service/exists/leader':
         raise etcd.EtcdAlreadyExist
-    if key == '/service/test/leader':
+    if key == '/service/test/leader' or key == '/patroni/test/leader':
         if kwargs.get('prevValue', None) == 'foo' or not kwargs.get('prevExist', True):
             return True
-    raise etcd.EtcdException
-
-
-def etcd_delete(key, **kwargs):
     raise etcd.EtcdException
 
 
@@ -99,6 +94,8 @@ def etcd_read(key, **kwargs):
         raise etcd.EtcdKeyNotFound
 
     response = {"action": "get", "node": {"key": "/service/batman5", "dir": True, "nodes": [
+                {"key": "/service/batman5/failover", "value": "",
+                 "modifiedIndex": 1582, "createdIndex": 1582},
                 {"key": "/service/batman5/initialize", "value": "postgresql0",
                  "modifiedIndex": 1582, "createdIndex": 1582},
                 {"key": "/service/batman5/leader", "value": "postgresql1",
@@ -110,29 +107,21 @@ def etcd_read(key, **kwargs):
                  "modifiedIndex": 20437, "createdIndex": 20437},
                 {"key": "/service/batman5/members", "dir": True, "nodes": [
                     {"key": "/service/batman5/members/postgresql1",
-                     "value": "postgres://replicator:rep-pass@127.0.0.1:5434/postgres"
-                        + "?application_name=http://127.0.0.1:8009/patroni",
+                     "value": "postgres://replicator:rep-pass@127.0.0.1:5434/postgres" +
+                        "?application_name=http://127.0.0.1:8009/patroni",
                      "expiration": "2015-05-15T09:10:59.949384522Z", "ttl": 21,
                      "modifiedIndex": 20727, "createdIndex": 20727},
                     {"key": "/service/batman5/members/postgresql0",
-                     "value": "postgres://replicator:rep-pass@127.0.0.1:5433/postgres"
-                        + "?application_name=http://127.0.0.1:8008/patroni",
+                     "value": "postgres://replicator:rep-pass@127.0.0.1:5433/postgres" +
+                        "?application_name=http://127.0.0.1:8008/patroni",
                      "expiration": "2015-05-15T09:11:09.611860899Z", "ttl": 30,
                      "modifiedIndex": 20730, "createdIndex": 20730}],
                  "modifiedIndex": 1581, "createdIndex": 1581}], "modifiedIndex": 1581, "createdIndex": 1581}}
     return etcd.EtcdResult(**response)
 
 
-def time_sleep(_):
-    pass
-
-
 class SleepException(Exception):
     pass
-
-
-def time_sleep_exception(_):
-    raise SleepException()
 
 
 class MockSRV:
@@ -151,7 +140,7 @@ def dns_query(name, type):
 def socket_getaddrinfo(*args):
     if args[0] == 'ok':
         return [(2, 1, 6, '', ('127.0.0.1', 2379)), (2, 1, 6, '', ('127.0.0.1', 2379))]
-    raise socket.error()
+    raise socket.error
 
 
 def http_request(method, url, **kwargs):
@@ -160,28 +149,14 @@ def http_request(method, url, **kwargs):
     raise socket.error
 
 
-class TestMember(unittest.TestCase):
-
-    def __init__(self, method_name='runTest'):
-        super(TestMember, self).__init__(method_name)
-
-    def test_real_ttl(self):
-        now = datetime.datetime.utcnow()
-        member = Member(0, 'a', 'b', 'c', (now + datetime.timedelta(seconds=2)).strftime('%Y-%m-%dT%H:%M:%S.%fZ'), None)
-        self.assertLess(member.real_ttl(), 2)
-        self.assertEquals(Member(0, 'a', 'b', 'c', '', None).real_ttl(), -1)
-
-
+@patch('dns.resolver.query', dns_query)
+@patch('socket.getaddrinfo', socket_getaddrinfo)
+@patch('requests.get', requests_get)
 class TestClient(unittest.TestCase):
 
-    def __init__(self, method_name='runTest'):
-        self.setUp = self.set_up
-        super(TestClient, self).__init__(method_name)
-
-    def set_up(self):
-        socket.getaddrinfo = socket_getaddrinfo
-        requests.get = requests_get
-        dns.resolver.query = dns_query
+    @patch('dns.resolver.query', dns_query)
+    @patch('requests.get', requests_get)
+    def setUp(self):
         with patch.object(etcd.Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://localhost:2379', 'http://localhost:4001'])
             self.client = Client({'discovery_srv': 'test'})
@@ -191,6 +166,11 @@ class TestClient(unittest.TestCase):
         self.client._base_uri = 'http://localhost:4001'
         self.client._machines_cache = ['http://localhost:2379']
         self.client.api_execute('/', 'GET')
+        self.client._update_machines_cache = False
+        self.client._base_uri = 'http://localhost:4001'
+        self.client._machines_cache = []
+        self.assertRaises(etcd.EtcdConnectionFailed, self.client.api_execute, '/', 'GET')
+        self.assertTrue(self.client._update_machines_cache)
 
     def test_get_srv_record(self):
         self.assertEquals(self.client.get_srv_record('blabla'), [])
@@ -206,11 +186,11 @@ class TestClient(unittest.TestCase):
         self.assertRaises(etcd.EtcdException, self.client._result_from_response, response)
 
     def test__get_machines_cache_from_srv(self):
-        self.client.get_srv_record = lambda e: [('localhost', 2380)]
+        self.client.get_srv_record = Mock(return_value=[('localhost', 2380)])
         self.client._get_machines_cache_from_srv('blabla')
 
     def test__get_machines_cache_from_dns(self):
-        self.client._get_machines_cache_from_dns('ok:2379')
+        self.client._get_machines_cache_from_dns('error:2379')
 
     def test__load_machines_cache(self):
         self.client._config = {}
@@ -219,25 +199,26 @@ class TestClient(unittest.TestCase):
         self.assertRaises(etcd.EtcdException, self.client._load_machines_cache)
 
 
+@patch('requests.get', requests_get)
 class TestEtcd(unittest.TestCase):
 
-    def __init__(self, method_name='runTest'):
-        self.setUp = self.set_up
-        super(TestEtcd, self).__init__(method_name)
-
-    def set_up(self):
-        time.sleep = time_sleep
+    def setUp(self):
         with patch.object(Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://localhost:2379', 'http://localhost:4001'])
-            self.etcd = Etcd('foo', {'ttl': 30, 'host': 'localhost:2379', 'scope': 'test'})
+            self.etcd = Etcd('foo', {'namespace': '/patroni/', 'ttl': 30, 'host': 'localhost:2379', 'scope': 'test'})
             self.etcd.client.write = etcd_write
             self.etcd.client.read = etcd_read
+            self.etcd.client.delete = Mock(side_effect=etcd.EtcdException())
 
+    def test_base_path(self):
+        self.assertEquals(self.etcd._base_path, '/patroni/test')
+
+    @patch('dns.resolver.query', dns_query)
     def test_get_etcd_client(self):
-        time.sleep = time_sleep_exception
         with patch.object(etcd.Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(side_effect=etcd.EtcdException)
-            self.assertRaises(SleepException, self.etcd.get_etcd_client, {'discovery_srv': 'test'})
+            with patch('time.sleep', Mock(side_effect=SleepException())):
+                self.assertRaises(SleepException, self.etcd.get_etcd_client, {'discovery_srv': 'test'})
 
     def test_get_cluster(self):
         self.assertIsInstance(self.etcd.get_cluster(), Cluster)
@@ -257,31 +238,36 @@ class TestEtcd(unittest.TestCase):
     def test_take_leader(self):
         self.assertFalse(self.etcd.take_leader())
 
-    def testattempt_to_acquire_leader(self):
+    def test_attempt_to_acquire_leader(self):
         self.etcd._base_path = '/service/exists'
         self.assertFalse(self.etcd.attempt_to_acquire_leader())
         self.etcd._base_path = '/service/failed'
         self.assertFalse(self.etcd.attempt_to_acquire_leader())
 
+    def test_write_leader_optime(self):
+        self.etcd.write_leader_optime('0')
+
     def test_update_leader(self):
-        self.assertTrue(self.etcd.update_leader(MockPostgresql()))
+        self.assertTrue(self.etcd.update_leader())
 
     def test_initialize(self):
         self.assertFalse(self.etcd.initialize())
 
     def test_cancel_initializion(self):
-        self.etcd.client.delete = etcd_delete
         self.assertFalse(self.etcd.cancel_initialization())
 
     def test_delete_leader(self):
-        self.etcd.client.delete = etcd_delete
         self.assertFalse(self.etcd.delete_leader())
 
     def test_watch(self):
         self.etcd.client.watch = etcd_watch
-        self.etcd.watch(100)
+        self.etcd.watch(0)
         self.etcd.get_cluster()
-        self.etcd.watch(1)
-        self.etcd.watch(5)
-        self.etcd.watch(10)
+        self.etcd.watch(1.5)
+        self.etcd.watch(4.5)
+        self.etcd.watch(9.5)
         self.etcd.watch(100)
+
+    @patch('patroni.etcd.Etcd.retry', Mock(side_effect=AttributeError("foo")))
+    def test_other_exceptions(self):
+        self.assertRaises(EtcdError, self.etcd.cancel_initialization)

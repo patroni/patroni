@@ -10,7 +10,8 @@ import urllib3
 
 from dns.exception import DNSException
 from dns import resolver
-from patroni.dcs import AbstractDCS, Cluster, DCSError, Leader, Member, parse_connection_string
+from patroni.dcs import AbstractDCS, Cluster, Failover, Leader, Member
+from patroni.exceptions import DCSError
 from patroni.utils import Retry, RetryFailedError, sleep
 from requests.exceptions import RequestException
 
@@ -51,7 +52,11 @@ class Client(etcd.Client):
     def api_execute(self, path, method, **kwargs):
         # Update machines_cache if previous attempt of update has failed
         self._update_machines_cache and self._load_machines_cache()
-        return super(Client, self).api_execute(path, method, **kwargs)
+        try:
+            return super(Client, self).api_execute(path, method, **kwargs)
+        except etcd.EtcdConnectionFailed:
+            self._update_machines_cache = True
+            raise
 
     @staticmethod
     def get_srv_record(host):
@@ -80,7 +85,7 @@ class Client(etcd.Client):
         for host, port in self.get_srv_record(discovery_srv):
             url = '{}://{}:{}/members'.format(self._protocol, host, port)
             try:
-                response = requests.get(url)
+                response = requests.get(url, timeout=5)
                 if response.ok:
                     for member in response.json():
                         ret.extend(member['clientURLs'])
@@ -138,6 +143,10 @@ def catch_etcd_errors(func):
             return not func(*args, **kwargs) is None
         except (RetryFailedError, etcd.EtcdException):
             return False
+        except:
+            logger.exception("")
+            raise EtcdError("unexpected error")
+
     return wrapper
 
 
@@ -145,15 +154,13 @@ class Etcd(AbstractDCS):
 
     def __init__(self, name, config):
         super(Etcd, self).__init__(name, config)
-        self.ttl = config['ttl']
-        self.member_ttl = config.get('member_ttl', 3600)
+        self.ttl = config.get('ttl', 30)
         self._retry = Retry(deadline=10, max_delay=1, max_tries=-1,
                             retry_exceptions=(etcd.EtcdConnectionFailed,
                                               etcd.EtcdLeaderElectionInProgress,
                                               etcd.EtcdWatcherCleared,
                                               etcd.EtcdEventIndexCleared))
         self.client = self.get_etcd_client(config)
-        self.cluster = None
 
     def retry(self, *args, **kwargs):
         return self._retry.copy()(*args, **kwargs)
@@ -170,16 +177,16 @@ class Etcd(AbstractDCS):
 
     @staticmethod
     def member(node):
-        conn_url, api_url = parse_connection_string(node.value)
-        return Member(node.modifiedIndex, os.path.basename(node.key), conn_url, api_url, node.expiration, node.ttl)
+        return Member.from_node(node.modifiedIndex, os.path.basename(node.key), node.ttl, node.value)
 
-    def get_cluster(self):
+    def _load_cluster(self):
         try:
             result = self.retry(self.client.read, self.client_path(''), recursive=True)
             nodes = {os.path.relpath(node.key, result.key): node for node in result.leaves}
 
             # get initialize flag
-            initialize = bool(nodes.get(self._INITIALIZE, False))
+            initialize = nodes.get(self._INITIALIZE, None)
+            initialize = initialize and initialize.value
 
             # get last leader operation
             last_leader_operation = nodes.get(self._LEADER_OPTIME, None)
@@ -191,22 +198,25 @@ class Etcd(AbstractDCS):
             # get leader
             leader = nodes.get(self._LEADER, None)
             if leader:
-                member = Member(-1, leader.value, None, None, None, None)
+                member = Member(-1, leader.value, None, {})
                 member = ([m for m in members if m.name == leader.value] or [member])[0]
-                leader = Leader(leader.modifiedIndex, leader.expiration, leader.ttl, member)
+                leader = Leader(leader.modifiedIndex, leader.ttl, member)
 
-            self.cluster = Cluster(initialize, leader, last_leader_operation, members)
+            # failover key
+            failover = nodes.get(self._FAILOVER, None)
+            if failover:
+                failover = Failover.from_node(failover.modifiedIndex, failover.value)
+
+            self._cluster = Cluster(initialize, leader, last_leader_operation, members, failover)
         except etcd.EtcdKeyNotFound:
-            self.cluster = Cluster(False, None, None, [])
+            self._cluster = Cluster(False, None, None, [], None)
         except:
-            self.cluster = None
             logger.exception('get_cluster')
             raise EtcdError('Etcd is not responding properly')
-        return self.cluster
 
     @catch_etcd_errors
     def touch_member(self, connection_string, ttl=None):
-        return self.retry(self.client.set, self.member_path, connection_string, ttl or self.member_ttl)
+        return self.retry(self.client.set, self.member_path, connection_string, ttl or self.ttl)
 
     @catch_etcd_errors
     def take_leader(self):
@@ -222,18 +232,20 @@ class Etcd(AbstractDCS):
         return False
 
     @catch_etcd_errors
-    def write_leader_optime(self, state_handler):
-        return self.client.set(self.leader_optime_path, state_handler.last_operation())
+    def set_failover_value(self, value, index=None):
+        return self.client.write(self.failover_path, value, prevIndex=index or 0)
 
     @catch_etcd_errors
-    def update_leader(self, state_handler):
-        ret = self.retry(self.client.test_and_set, self.leader_path, self._name, self._name, self.ttl)
-        ret and self.write_leader_optime(state_handler)
-        return ret
+    def write_leader_optime(self, last_operation):
+        return self.client.set(self.leader_optime_path, last_operation)
 
     @catch_etcd_errors
-    def initialize(self):
-        return self.client.write(self.initialize_path, self._name, prevExist=False)
+    def update_leader(self):
+        return self.retry(self.client.test_and_set, self.leader_path, self._name, self._name, self.ttl)
+
+    @catch_etcd_errors
+    def initialize(self, create_new=True, sysid=""):
+        return self.retry(self.client.write, self.initialize_path, sysid, prevExist=(not create_new))
 
     @catch_etcd_errors
     def delete_leader(self):
@@ -241,17 +253,18 @@ class Etcd(AbstractDCS):
 
     @catch_etcd_errors
     def cancel_initialization(self):
-        return self.client.delete(self.initialize_path, prevValue=self._name)
+        return self.retry(self.client.delete, self.initialize_path)
 
     def watch(self, timeout):
+        cluster = self.cluster
         # watch on leader key changes if it is defined and current node is not lock owner
-        if self.cluster and self.cluster.leader and self.cluster.leader.name != self._name:
+        if cluster and cluster.leader and cluster.leader.name != self._name:
             end_time = time.time() + timeout
-            index = self.cluster.leader.index
+            index = cluster.leader.index
 
             while index and timeout >= 1:  # when timeout is too small urllib3 doesn't have enough time to connect
                 try:
-                    self.client.watch(self.leader_path, index=index + 1, timeout=timeout)
+                    self.client.watch(self.leader_path, index=index + 1, timeout=timeout + 0.5)
                     # Synchronous work of all cluster members with etcd is less expensive
                     # than reestablishing http connection every time from every replica.
                     return True
@@ -263,4 +276,7 @@ class Etcd(AbstractDCS):
 
                 timeout = end_time - time.time()
 
-        return timeout > 0 and super(Etcd, self).watch(timeout)
+        try:
+            return super(Etcd, self).watch(timeout)
+        finally:
+            self.event.clear()

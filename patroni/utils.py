@@ -6,8 +6,9 @@ import signal
 import sys
 import time
 
-from patroni.exceptions import DCSError
+from patroni.exceptions import PatroniException
 
+ignore_sigterm = False
 interrupted_sleep = False
 reap_children = False
 
@@ -35,6 +36,8 @@ def calculate_ttl(expiration):
     """
     >>> calculate_ttl(None)
     >>> calculate_ttl('2015-06-10 12:56:30.552539016Z')
+    >>> calculate_ttl('2015-06-10T12:56:30.552539016Z') < 0
+    True
     """
     if not expiration:
         return None
@@ -46,7 +49,10 @@ def calculate_ttl(expiration):
 
 
 def sigterm_handler(signo, stack_frame):
-    sys.exit()
+    global ignore_sigterm
+    if not ignore_sigterm:
+        ignore_sigterm = True
+        sys.exit()
 
 
 def sigchld_handler(signo, stack_frame):
@@ -86,7 +92,7 @@ def reap_children():
             reap_children = False
 
 
-class RetryFailedError(DCSError):
+class RetryFailedError(PatroniException):
 
     """Raised when retrying an operation ultimately failed, after retrying the maximum number of attempts."""
 
@@ -96,7 +102,7 @@ class Retry:
     """Helper for retrying a method in the face of retry-able exceptions"""
 
     def __init__(self, max_tries=1, delay=0.1, backoff=2, max_jitter=0.8, max_delay=3600,
-                 sleep_func=time.sleep, deadline=None, retry_exceptions=DCSError):
+                 sleep_func=sleep, deadline=None, retry_exceptions=PatroniException):
         """Create a :class:`Retry` instance for retrying function calls
 
         :param max_tries: How many times to retry the command. -1 means infinite tries.
@@ -150,13 +156,10 @@ class Retry:
                 if self._attempts == self.max_tries:
                     raise RetryFailedError("Too many retry attempts")
                 self._attempts += 1
-                sleeptime = self._cur_delay + (
-                    random.randint(0, self.max_jitter) / 100.0)
+                sleeptime = self._cur_delay + (random.randint(0, self.max_jitter) / 100.0)
 
-                if self._cur_stoptime is not None and \
-                   time.time() + sleeptime >= self._cur_stoptime:
+                if self._cur_stoptime is not None and time.time() + sleeptime >= self._cur_stoptime:
                     raise RetryFailedError("Exceeded retry deadline")
                 else:
                     self.sleep_func(sleeptime)
-                self._cur_delay = min(self._cur_delay * self.backoff,
-                                      self.max_delay)
+                self._cur_delay = min(self._cur_delay * self.backoff, self.max_delay)
