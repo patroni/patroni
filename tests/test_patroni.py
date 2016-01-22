@@ -1,6 +1,3 @@
-import datetime
-import psycopg2
-import subprocess
 import sys
 import time
 import unittest
@@ -10,7 +7,6 @@ from mock import Mock, patch
 from patroni.api import RestApiServer
 from patroni.async_executor import AsyncExecutor
 from patroni.consul import Consul
-from patroni.dcs import Cluster, Member, Leader
 from patroni.etcd import Etcd
 from patroni import Patroni, main
 from patroni.zookeeper import ZooKeeper

@@ -27,7 +27,7 @@ def get_cluster_not_initialized_without_leader():
 
 def get_cluster_initialized_without_leader(leader=False, failover=None):
     m = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
-                                 'api_url': 'http://127.0.0.1:8008/patroni', 'xlog_location':4})
+                                 'api_url': 'http://127.0.0.1:8008/patroni', 'xlog_location': 4})
     l = Leader(0, 0, m) if leader else None
     o = Member(0, 'other', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
                                 'api_url': 'http://127.0.0.1:8011/patroni'})
@@ -36,6 +36,7 @@ def get_cluster_initialized_without_leader(leader=False, failover=None):
 
 def get_cluster_initialized_with_leader(failover=None):
     return get_cluster_initialized_without_leader(leader=True, failover=failover)
+
 
 def get_cluster_initialized_with_only_leader(failover=None):
     l = get_cluster_initialized_without_leader(leader=True, failover=failover).leader
