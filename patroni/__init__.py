@@ -5,12 +5,9 @@ import time
 import yaml
 
 from patroni.api import RestApiServer
-from patroni.consul import Consul
-from patroni.etcd import Etcd
 from patroni.ha import Ha
 from patroni.postgresql import Postgresql
 from patroni.utils import setup_signal_handlers, reap_children
-from patroni.zookeeper import ZooKeeper
 
 logger = logging.getLogger(__name__)
 
@@ -33,10 +30,13 @@ class Patroni:
     @staticmethod
     def get_dcs(name, config):
         if 'etcd' in config:
+            from patroni.etcd import Etcd
             return Etcd(name, config['etcd'])
         if 'zookeeper' in config:
+            from patroni.zookeeper import ZooKeeper
             return ZooKeeper(name, config['zookeeper'])
         if 'consul' in config:
+            from patroni.consul import Consul
             return Consul(name, config['consul'])
         raise Exception('Can not find suitable configuration of distributed configuration store')
 

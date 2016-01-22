@@ -8,9 +8,9 @@ import yaml
 
 from mock import Mock, patch
 from patroni.api import RestApiServer
+from patroni.async_executor import AsyncExecutor
 from patroni.consul import Consul
 from patroni.dcs import Cluster, Member, Leader
-from patroni.async_executor import AsyncExecutor
 from patroni.etcd import Etcd
 from patroni import Patroni, main
 from patroni.zookeeper import ZooKeeper
@@ -18,10 +18,6 @@ from six.moves import BaseHTTPServer
 from test_etcd import Client, SleepException, etcd_read, etcd_write
 from test_postgresql import Postgresql, psycopg2_connect
 from test_zookeeper import MockKazooClient
-
-
-def time_sleep(*args):
-    raise SleepException()
 
 
 @patch('time.sleep', Mock())
@@ -69,7 +65,7 @@ class TestPatroni(unittest.TestCase):
 
     @patch('time.sleep', Mock(side_effect=SleepException()))
     def test_run(self):
-        self.p.ha.dcs.watch = time_sleep
+        self.p.ha.dcs.watch = Mock(side_effect=SleepException())
         self.assertRaises(SleepException, self.p.run)
 
         self.p.ha.state_handler.is_leader = Mock(return_value=False)
