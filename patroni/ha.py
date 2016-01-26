@@ -111,8 +111,8 @@ class Ha:
 
     def follow(self, demote_reason, follow_reason, refresh=True, recovery=False):
         refresh and self.load_cluster_from_dcs()
-        ret = demote_reason if (not recovery and self.state_handler.is_leader()
-                                or recovery and self.state_handler.role == 'master') else follow_reason
+        ret = demote_reason if (not recovery and self.state_handler.is_leader() or
+                                recovery and self.state_handler.role == 'master') else follow_reason
         # determine the node to follow. If replicatefrom tag is set,
         # try to follow the node mentioned there, otherwise, follow the leader.
         if self.patroni.replicatefrom:
