@@ -259,6 +259,8 @@ class TestPostgresql(unittest.TestCase):
             self.p.follow(self.leader, recovery=True)
             self.p.rewind.return_value = False
             self.p.follow(self.leader, recovery=True)
+        with mock.patch('patroni.postgresql.Postgresql.check_recovery_conf', MagicMock(return_value=True)):
+            self.assertTrue(self.p.follow(None))
 
     def test_can_rewind(self):
         tmp = self.p.pg_rewind
@@ -305,6 +307,9 @@ class TestPostgresql(unittest.TestCase):
         self.p.query = Mock(side_effect=psycopg2.OperationalError)
         self.p.schedule_load_slots = True
         self.p.sync_replication_slots(cluster)
+        self.p.schedule_load_slots = False
+        with mock.patch('patroni.postgresql.Postgresql.role', new_callable=PropertyMock(return_value='replica')):
+            self.p.sync_replication_slots(cluster)
 
     @patch.object(MockConnect, 'closed', 2)
     def test__query(self):
@@ -364,7 +369,8 @@ class TestPostgresql(unittest.TestCase):
         with patch('subprocess.call', Mock(return_value=1)):
             self.assertRaises(PostgresException, self.p.bootstrap)
         self.p.bootstrap()
-        self.p.bootstrap(self.leader)
+        with patch('patroni.postgresql.Postgresql.sync_from_leader', MagicMock(return_value=True)):
+            self.p.bootstrap(self.leader)
 
     def test_remove_data_directory(self):
         self.p.data_dir = 'data_dir'
@@ -478,3 +484,18 @@ class TestPostgresql(unittest.TestCase):
     def test_restore_configuration_files(self, mock_copy):
         shutil.copy = mock_copy
         self.p.restore_configuration_files()
+
+    def test_can_create_replica_without_leader(self):
+        self.p.config['create_replica_method'] = []
+        self.assertFalse(self.p.can_create_replica_without_leader())
+        self.p.config['create_replica_method'] = ['wale', 'basebackup']
+        self.p.config['wale'] = {'command': 'foo', 'no_master': 1}
+        self.assertTrue(self.p.can_create_replica_without_leader())
+
+    def test_replica_method_can_work_without_leader(self):
+        self.assertFalse(self.p.replica_method_can_work_without_leader('basebackup'))
+        self.assertFalse(self.p.replica_method_can_work_without_leader('foobar'))
+        self.p.config['foo'] = {'command': 'bar', 'no_master': 1}
+        self.assertTrue(self.p.replica_method_can_work_without_leader('foo'))
+        self.p.config['foo'] = {'command': 'bar'}
+        self.assertFalse(self.p.replica_method_can_work_without_leader('foo'))

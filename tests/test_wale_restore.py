@@ -58,7 +58,7 @@ class TestWALERestore(unittest.TestCase):
 
     def setUp(self):
         self.wale_restore = WALERestore("batman", "/data",
-                                        "host=batman port=5432 user=batman", "/etc", 100, 100, 1)
+                                        "host=batman port=5432 user=batman", "/etc", 100, 100, 1, 0)
 
     def tearDown(self):
         pass
@@ -76,6 +76,8 @@ class TestWALERestore(unittest.TestCase):
             self.assertFalse(self.wale_restore.should_use_s3_to_create_replica())
 
         self.wale_restore.should_use_s3_to_create_replica()
+        self.wale_restore.no_master = 1
+        self.assertTrue(self.wale_restore.should_use_s3_to_create_replica())
 
     def test_create_replica_with_s3(self):
         with patch('subprocess.call', MagicMock(return_value=0)):

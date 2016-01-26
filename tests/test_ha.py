@@ -103,6 +103,7 @@ class TestHa(unittest.TestCase):
     def setUp(self, mock_machines):
         mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
         self.p = MockPostgresql()
+        self.p.can_create_replica_without_leader = MagicMock(return_value=False)
         self.e = Etcd('foo', {'ttl': 30, 'host': 'ok:2379', 'scope': 'test'})
         self.e.client.read = etcd_read
         self.e.client.write = etcd_write
@@ -139,6 +140,7 @@ class TestHa(unittest.TestCase):
         self.p.is_running = false
         self.ha.has_lock = true
         self.p.role = 'master'
+        self.p.controldata = lambda: {'Database cluster state': 'in production'}
         self.assertEquals(self.ha.run_cycle(), 'started as readonly because i had the session lock')
         self.assertEquals(self.ha.run_cycle(), 'removed leader key after trying and failing to start postgres')
 
@@ -222,6 +224,11 @@ class TestHa(unittest.TestCase):
     def test_bootstrap_waiting_for_leader(self):
         self.ha.cluster = get_cluster_initialized_without_leader()
         self.assertEquals(self.ha.bootstrap(), 'waiting for leader to bootstrap')
+
+    def test_bootstrap_without_leader(self):
+        self.ha.cluster = get_cluster_initialized_without_leader()
+        self.p.can_create_replica_without_leader = MagicMock(return_value=True)
+        self.assertEquals(self.ha.bootstrap(), "trying to bootstrap without leader")
 
     def test_bootstrap_initialize_lock_failed(self):
         self.ha.cluster = get_cluster_not_initialized_without_leader()
@@ -342,3 +349,12 @@ class TestHa(unittest.TestCase):
         self.ha.fetch_node_status(member)
         member = Member(0, 'test', 1, {'api_url': 'http://localhost:8011/patroni'})
         self.ha.fetch_node_status(member)
+
+    def test_post_recover(self):
+        self.p.is_running = false
+        self.ha.has_lock = true
+        self.assertEqual(self.ha.post_recover(), 'removed leader key after trying and failing to start postgres')
+        self.ha.has_lock = false
+        self.assertEqual(self.ha.post_recover(), 'failed to start postgres')
+        self.p.is_running = true
+        self.assertIsNone(self.ha.post_recover())

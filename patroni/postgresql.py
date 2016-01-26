@@ -220,9 +220,9 @@ class Postgresql:
         return env
 
     def sync_from_leader(self, leader):
-        r = parseurl(leader.conn_url)
-
-        env = self.write_pgpass(r)
+        if leader:
+            r = parseurl(leader.conn_url)
+        env = self.write_pgpass(r) if leader else os.environ.copy()
         ret = self.create_replica(leader, env) == 0
         ret and self.delete_trigger_file()
         return ret
@@ -235,14 +235,30 @@ class Postgresql:
         """
         return ' '.join('{}={}'.format(param, val) for param, val in sorted(conn.items()))
 
+    def replica_method_can_work_without_leader(self, method):
+        return method != 'basebackup' and self.config and self.config.get(method, {}).get('no_master')
+
+    def can_create_replica_without_leader(self):
+        """ go through the replication methods to see if there are ones
+            that does not require a running leader to create the replica.
+        """
+        replica_methods = self.config.get('create_replica_method', [])
+        for replica_method in replica_methods:
+            if self.replica_method_can_work_without_leader(replica_method):
+                return True
+        return False
+
     def create_replica(self, leader, env):
         # create the replica according to the replica_method
         # defined by the user.  this is a list, so we need to
         # loop through all methods the user supplies
-        connstring = leader.conn_url
+        connstring = leader.conn_url if leader else ""
         # get list of replica methods from config.
         # If there is no configuration key, or no value is specified, use basebackup
         replica_methods = self.config.get('create_replica_method') or ['basebackup']
+        # if we don't have any leader, leave only replica methods that work without it
+        replica_methods = [r for r in replica_methods if self.replica_method_can_work_without_leader(r)] if not leader \
+            else replica_methods
         # go through them in priority order
         ret = 1
         for replica_method in replica_methods:
@@ -435,7 +451,7 @@ class Postgresql:
                     return pattern and (pattern in line)
         return not pattern
 
-    def write_recovery_conf(self, leader):
+    def write_recovery_conf(self, leader, bootstrap=False):
         with open(self.recovery_conf, 'w') as f:
             f.write("""standby_mode = 'on'
 recovery_target_timeline = 'latest'
@@ -444,6 +460,7 @@ recovery_target_timeline = 'latest'
                 f.write("""primary_conninfo = '{}'\n""".format(self.primary_conninfo(leader.conn_url)))
                 if self.use_slots:
                     f.write("""primary_slot_name = '{}'\n""".format(self.name))
+            if (leader and leader.conn_url) or bootstrap:
                 for name, value in self.config.get('recovery_conf', {}).items():
                     f.write("{} = '{}'\n".format(name, value))
 
@@ -658,18 +675,28 @@ $$""".format(name, options), name, password, password)
     def last_operation(self):
         return str(self.xlog_position())
 
-    def bootstrap(self, current_leader=None):
+    def bootstrap(self, initialize=False, current_leader=None):
         """
-            Initially bootstrap PostgreSQL, either by creating a data
-            directory with initdb, or by initalizing a replica from an
-            exiting leader. Failure in the first case always leads to
-            exception, since there is no point in continuing if initdb failed.
-            In the second case, however, a False is returned on failure, since
-            it is normal for the replica to retry a failed attempt to initialize
-            from the master.
+            Populate PostgreSQL data directory by doing one of the following:
+             - create with initdb if there is no master.
+             - initialize the replica from an existing master
+             - initialize the replica using the replica creation method that
+               works without the master (i.e. restore from on-disk base backup)
+
+            The choice between the last 2 is triggered by the initialize flag.
+            We should never try to initdb an already initialized cluster, nor
+            try to bootstrap the cluster that lacks the initialize key from from
+            the master-less replica creation method (in the latter case, there is
+            no clear inidicator of the moment we should abandon our attempts and
+            swich to initdb).
+
+            Failure during initdb always leads to an exception, since there is
+            no point in continuing if initdb fails. For the rest of the cases,
+            the function returns False in order to inidicate a failed attempt
+            that should be retried in the future.
         """
         ret = False
-        if not current_leader:
+        if not (initialize or current_leader):
             ret = self.initialize() and self.start()
             if ret:
                 self.create_replication_user()
@@ -679,7 +706,7 @@ $$""".format(name, options), name, password, password)
         else:
             if self.sync_from_leader(current_leader):
                 self.restore_configuration_files()
-                self.write_recovery_conf(current_leader)
+                self.write_recovery_conf(current_leader, True)
                 ret = self.start()
         return ret
 

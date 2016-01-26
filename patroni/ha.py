@@ -63,12 +63,12 @@ class Ha:
         self.dcs.touch_member(json.dumps(data, separators=(',', ':')))
 
     def copy_backup_from_leader(self, leader):
-        if self.state_handler.bootstrap(leader):
-            logger.info('bootstrapped from leader')
+        if self.state_handler.bootstrap(True, leader):
+            logger.info('bootstrapped from leader' if leader else 'bootstrapped without leader')
         else:
             self.state_handler.stop('immediate')
             self.state_handler.remove_data_directory()
-            logger.error('failed to bootstrap from leader')
+            logger.error('failed to bootstrap from leader' if leader else 'failed to bootstrap (without leader)')
 
     def bootstrap(self):
         if not self.cluster.is_unlocked():  # cluster already has leader
@@ -92,6 +92,9 @@ class Ha:
             else:
                 return 'failed to acquire initialize lock'
         else:
+            if self.state_handler.can_create_replica_without_leader():
+                self._async_executor.run_async(self.copy_backup_from_leader, args=(None, ))
+                return "trying to bootstrap without leader"
             return 'waiting for leader to bootstrap'
 
     def recover(self):
