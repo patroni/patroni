@@ -92,7 +92,6 @@ class TestWALERestore(unittest.TestCase):
             with patch.object(self.wale_restore, 'create_replica_with_s3', MagicMock(return_value=0)):
                 self.assertEqual(self.wale_restore.run(), 0)
 
-    @staticmethod
     def test_main(self):
         with patch('sys.exit', MagicMock(return_value=0)):
-            main()
+            self.assertEqual(main(), None)
