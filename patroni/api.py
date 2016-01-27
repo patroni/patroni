@@ -183,6 +183,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 planned_at = localize_datetime(planned_at)
                 if planned_at < utcnow_timezone_aware():
                     data = b'Cannot schedule failover in the past'
+                    status_code = 422
                 elif self.server.patroni.dcs.manual_failover(leader, member, planned_at):
                     data = b'Failover scheduled'
                     status_code = 200
