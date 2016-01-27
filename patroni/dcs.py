@@ -120,6 +120,7 @@ class Failover(namedtuple('Failover', 'index,leader,member,planned_at')):
 
         return Failover(index, data.get('leader'), data.get('member'), data.get('planned_at'))
 
+
 class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,members,failover')):
 
     """Immutable object (namedtuple) which represents PostgreSQL cluster.
