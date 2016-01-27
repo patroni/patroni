@@ -97,6 +97,8 @@ class Failover(namedtuple('Failover', 'index,leader,member,planned_at')):
     True
     >>> 'Failover' in str(Failover.from_node(1, '{"leader": "cluster_leader", "member": "cluster:member"}'))
     True
+    >>> Failover.from_node(1, 'null') is None
+    True
     >>> n = '{"leader": "cluster_leader", "member": "cluster:member", "planned_at": "2016-01-14T10:09:57.1394Z"}'
     >>> 'tzinfo=' in str(Failover.from_node(1, n))
     True
@@ -105,16 +107,22 @@ class Failover(namedtuple('Failover', 'index,leader,member,planned_at')):
     """
     @staticmethod
     def from_node(index, value):
-        if value:
+        if value is None:
+            return None
+
+        try:
             data = json.loads(value)
+        except ValueError:
+            t = [a.strip() for a in value.split(':')] + ['']
+            return Failover(index, t[0], t[1], None) if t[0] or t[1] else None
 
-            if data.get('planned_at'):
-                data['planned_at'] = parse_datetime(data['planned_at'])
+        if data is None:
+            return None
 
-            return Failover(index, data.get('leader'), data.get('member'), data.get('planned_at'))
+        if data.get('planned_at'):
+            data['planned_at'] = parse_datetime(data['planned_at'])
 
-        return None
-
+        return Failover(index, data.get('leader'), data.get('member'), data.get('planned_at'))
 
 class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,members,failover')):
 
