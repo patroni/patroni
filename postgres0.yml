@@ -4,7 +4,7 @@ scope: &scope batman
 restapi:
   listen: 127.0.0.1:8008
   connect_address: 127.0.0.1:8008
-  auth: 'username:password'
+#  auth: 'username:password'
 #  certfile: /etc/ssl/certs/ssl-cert-snakeoil.pem
 #  keyfile: /etc/ssl/private/ssl-cert-snakeoil.key
 etcd:
@@ -72,7 +72,6 @@ postgresql:
     - basebackup
 #   - wal_e
 # commented-out example for wal-e provisioning
-  #create_replica_method: wal_e, basebackup
   #wal_e:
     #command: /patroni/scripts/wale_restore.py
     #env_dir: /etc/wal-e.d/env
