@@ -48,6 +48,8 @@ class MockPostgresql(Mock):
     role = 'replica'
     state = 'running'
     connection_string = 'postgres://foo@bar/postgres'
+    server_version = '999999'
+    scope = 'dummy'
 
     def is_healthy(self):
         return True
