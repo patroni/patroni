@@ -10,6 +10,7 @@ from patroni.ha import Ha
 from patroni.postgresql import Postgresql
 from patroni.utils import setup_signal_handlers, reap_children
 from patroni.zookeeper import ZooKeeper
+from .version import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,7 @@ class Patroni:
         self.tags = config.get('tags', dict())
         self.postgresql = Postgresql(config['postgresql'])
         self.dcs = self.get_dcs(self.postgresql.name, config)
+        self.version = __version__
         self.api = RestApiServer(self, config['restapi'])
         self.ha = Ha(self)
         self.next_run = time.time()
