@@ -168,7 +168,9 @@ def watching(w, watch, max_count=None, clear=True):
         yield 0
 
 
-def build_connect_parameters(conn_url, connect_parameters={}):
+def build_connect_parameters(conn_url, connect_parameters=None):
+    if connect_parameters is None:
+        connect_parameters = {}
     params = connect_parameters.copy()
     parsed = parseurl(conn_url)
     params['host'] = parsed['host']
@@ -200,7 +202,9 @@ def get_any_member(cluster, role='master', member=None):
     return None
 
 
-def get_cursor(cluster, role='master', member=None, connect_parameters={}):
+def get_cursor(cluster, role='master', member=None, connect_parameters=None):
+    if connect_parameters is None:
+        connect_parameters = {}
     member = get_any_member(cluster=cluster, role=role, member=member)
     if member is None:
         return None
@@ -314,7 +318,9 @@ def query(
             cluster = dcs.get_cluster()
 
 
-def query_member(cluster, cursor, member, role, command, connect_parameters=dict()):
+def query_member(cluster, cursor, member, role, command, connect_parameters=None):
+    if connect_parameters is None:
+        connect_parameters = {}
     try:
         if cursor is None:
             cursor = get_cursor(cluster, role=role, member=member, connect_parameters=connect_parameters)
