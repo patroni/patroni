@@ -167,7 +167,7 @@ class TestHa(unittest.TestCase):
 
     def test_demote_after_failing_to_obtain_lock(self):
         self.ha.acquire_lock = false
-        self.assertEquals(self.ha.run_cycle(), 'demoted self due after trying and failing to obtain lock')
+        self.assertEquals(self.ha.run_cycle(), 'demoted self after trying and failing to obtain lock')
 
     def test_follow_new_leader_after_failing_to_obtain_lock(self):
         self.ha.is_healthiest_node = true
