@@ -131,6 +131,7 @@ class Postgresql:
     def connection(self):
         if not self._connection or self._connection.closed != 0:
             r = parseurl('postgres://{}/postgres'.format(self.local_address))
+            r['user'] = self.superuser['user']
             self._connection = psycopg2.connect(**r)
             self._connection.autocommit = True
             self.server_version = self._connection.server_version
@@ -138,7 +139,7 @@ class Postgresql:
 
     def _cursor(self):
         if not self._cursor_holder or self._cursor_holder.closed or self._cursor_holder.connection.closed != 0:
-            logger.info("established a new patroni connection to the postgres cluster")
+            logger.info("establishing a new patroni connection to the postgres cluster")
             self._cursor_holder = self.connection().cursor()
         return self._cursor_holder
 
