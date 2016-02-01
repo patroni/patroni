@@ -25,7 +25,7 @@ class Ha:
     def load_cluster_from_dcs(self):
         cluster = self.dcs.get_cluster()
 
-        # We want to keep the state of cluster when it was healhy
+        # We want to keep the state of cluster when it was healthy
         if not cluster.is_unlocked() or not self.old_cluster:
             self.old_cluster = cluster
         self.cluster = cluster
@@ -296,7 +296,7 @@ class Ha:
                 return self.enforce_master_role('acquired session lock as a leader',
                                                 'promoted self to leader by acquiring session lock')
             else:
-                return self.follow('demoted self due after trying and failing to obtain lock',
+                return self.follow('demoted self after trying and failing to obtain lock',
                                    'following new leader after trying and failing to obtain lock')
         else:
             if self.patroni.nofailover:
@@ -402,7 +402,7 @@ class Ha:
             if self._async_executor.busy:
                 return self.handle_long_action_in_progress()
 
-            # we've go here, so async action has finished. Check if we tried to recover and failed
+            # we've got here, so any async action has finished. Check if we tried to recover and failed
             if self.recovering:
                 self.recovering = False
                 msg = self.post_recover()
@@ -441,7 +441,7 @@ class Ha:
             finally:
                 # we might not have a valid PostgreSQL connection here if another thread
                 # stops PostgreSQL, therefore, we only reload replication slots if no
-                # asyncrhonous processes are running (should be always the case for the master)
+                # asynchronous processes are running (should be always the case for the master)
                 if not self._async_executor.busy:
                     self.state_handler.sync_replication_slots(self.cluster)
         except DCSError:
@@ -450,7 +450,7 @@ class Ha:
                 self.demote(delete_leader=False)
                 return 'demoted self because DCS is not accessible and i was a leader'
         except (psycopg2.Error, PostgresConnectionException):
-            logger.exception('Error communicating with Postgresql. Will try again later')
+            logger.exception('Error communicating with PostgreSQL. Will try again later')
 
     def run_cycle(self):
         with self._async_executor:
