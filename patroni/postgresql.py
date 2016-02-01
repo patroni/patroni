@@ -133,6 +133,7 @@ class Postgresql:
             r = parseurl('postgres://{}/postgres'.format(self.local_address))
             self._connection = psycopg2.connect(**r)
             self._connection.autocommit = True
+            self.server_version = self._connection.server_version
         return self._connection
 
     def _cursor(self):
