@@ -39,11 +39,7 @@ while getopts "$optspec" optchar; do
                     ;;
             esac;;
         *)
-            if [ "$OPTERR" != 1 ] || [ "${optspec:0:1}" = ":" ]; then
-                echo "Non-option argument: '-${OPTARG}'" >&2
-                usage
-                exit 1
-            fi
+            echo "WARNING: Ignoring unknown argument: '-${OPTARG}'"
             ;;
     esac
 done
