@@ -281,9 +281,8 @@ class Ha:
             delta = (failover.planned_at - now).total_seconds()
 
             if delta > 10:
-                logging.info('Awaiting failover, {0}, {1}, {2}'.format(now.isoformat(),
-                                                                       failover.planned_at.isoformat(),
-                                                                       delta))
+                logging.info('Awaiting failover at {0} (in {1:.0f} seconds)'.format(failover.planned_at.isoformat(),
+                                                                                    delta))
                 return
             elif delta < -15:
                 logger.warning('Found a stale failover value, cleaning up: {}'.format(failover.planned_at))
