@@ -113,8 +113,10 @@ class Failover(namedtuple('Failover', 'index,leader,member,planned_at')):
         try:
             data = json.loads(value)
         except ValueError:
-            t = [a.strip() for a in value.split(':')] + ['']
-            return Failover(index, t[0], t[1], None) if t[0] or t[1] else None
+            t = [a.strip() for a in value.split(':')]
+            leader = t[0]
+            candidate = t[1] if len(t) > 1 else None
+            return Failover(index, leader, candidate, None) if leader or candidate else None
 
         if data is None:
             return None
