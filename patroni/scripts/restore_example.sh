@@ -1,5 +1,12 @@
 #!/bin/bash
 
+function usage()
+{
+    cat <<__EOT__
+Usage: $0 --scope=SCOPE --datadir=DATADIR --backup_directory=BACKUPDIR
+__EOT__
+}
+
 optspec=":-:"
 while getopts "$optspec" optchar; do
     case "${optchar}" in
@@ -41,12 +48,6 @@ while getopts "$optspec" optchar; do
     esac
 done
 
-function usage()
-{
-    cat <<__EOT__
-Usage: $0 --scope=SCOPE --datadir=DATADIR --backup_directory=BACKUPDIR
-__EOT__
-}
 
 function die()
 {
