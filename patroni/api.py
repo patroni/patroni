@@ -5,9 +5,12 @@ import logging
 import psycopg2
 import socket
 import time
+import dateutil
+import datetime
+import pytz
 
 from patroni.exceptions import PostgresConnectionException
-from patroni.utils import Retry, RetryFailedError, localize_datetime, utcnow_timezone_aware, parse_datetime
+from patroni.utils import Retry, RetryFailedError
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from six.moves.socketserver import ThreadingMixIn
 from threading import Thread
@@ -179,9 +182,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
         data = b''
         if request.get('planned_at'):
             try:
-                planned_at = parse_datetime(request['planned_at'])
-                planned_at = localize_datetime(planned_at)
-                if planned_at < utcnow_timezone_aware():
+                planned_at = dateutil.parser.parse(request['planned_at'])
+                if planned_at.tzinfo is None:
+                    data = b'Timezone information is mandatory for planned_at'
+                    status_code = 400
+                elif planned_at < datetime.datetime.now(pytz.utc):
                     data = b'Cannot schedule failover in the past'
                     status_code = 422
                 elif self.server.patroni.dcs.manual_failover(leader, member, planned_at):
@@ -189,7 +194,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     status_code = 200
             except (ValueError, TypeError):
                 logger.exception('Invalid planned failover time: {}'.format(request['planned_at']))
-                data = b'Unable to parse planned timestamp. Should be in ISO 8601 format'
+                data = b'Unable to parse planned timestamp. It should be in an unambiguous format, e.g. ISO 8601'
         else:
             data = self.is_failover_possible(cluster, leader, member)
             if not data:

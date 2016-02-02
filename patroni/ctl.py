@@ -14,11 +14,12 @@ import datetime
 from prettytable import PrettyTable
 from six.moves.urllib_parse import urlparse
 import logging
+import dateutil
+import tzlocal
 
 from .etcd import Etcd
 from .exceptions import PatroniCtlException
 from .postgresql import parseurl
-from .utils import localize_datetime, parse_datetime
 
 CONFIG_DIR_PATH = click.get_app_dir('patroni')
 CONFIG_FILE_PATH = os.path.join(CONFIG_DIR_PATH, 'patronictl.yaml')
@@ -450,7 +451,7 @@ def reinit(cluster_name, member_names, config_file, dcs, force):
 @click.argument('cluster_name')
 @click.option('--master', help='The name of the current master', default=None)
 @click.option('--candidate', help='The name of the candidate', default=None)
-@click.option('--planned', help='Timestamp of a planned failover in ISO 8601 format', default=None)
+@click.option('--planned', help='Timestamp of a planned failover in unambiguous format (e.g. ISO 8601)', default=None)
 @click.option('--force', is_flag=True)
 @option_config_file
 @option_dcs
@@ -498,11 +499,13 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, planned):
     if (planned or 'now') == 'now':
         planned_at = None
     else:
-        planned_at = parse_datetime(planned)
-        if planned_at is None:
-            message = 'Unable to parse planned timestamp ({}). It should be in ISO 8601 format.'
+        try:
+            planned_at = dateutil.parser.parse(planned)
+            if planned_at.tzinfo is None:
+                planned_at = tzlocal.get_localzone().localize(planned_at)
+        except (ValueError, TypeError):
+            message = 'Unable to parse planned timestamp ({}). It should be in an unambiguous format (e.g. ISO 8601)'
             raise PatroniCtlException(message.format(planned))
-        planned_at = localize_datetime(planned_at)
         planned_at = planned_at.isoformat()
 
     failover_value = {'leader': master, 'member': candidate, 'planned_at': planned_at}
