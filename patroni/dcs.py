@@ -100,22 +100,23 @@ class Failover(namedtuple('Failover', 'index,leader,member,planned_at')):
     True
     >>> Failover.from_node(1, None) is None
     True
+    >>> Failover.from_node(1, '{}') is None
+    True
     """
     @staticmethod
     def from_node(index, value):
-        if value is None:
+        if not value:
             return None
 
         try:
             data = json.loads(value)
+            if not data:
+                return None
         except ValueError:
             t = [a.strip() for a in value.split(':')]
             leader = t[0]
             candidate = t[1] if len(t) > 1 else None
             return Failover(index, leader, candidate, None) if leader or candidate else None
-
-        if data is None:
-            return None
 
         if data.get('planned_at'):
             data['planned_at'] = dateutil.parser.parse(data['planned_at'])
