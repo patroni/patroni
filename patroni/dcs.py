@@ -106,6 +106,8 @@ class Failover(namedtuple('Failover', 'index,leader,member,planned_at')):
     True
     >>> Failover.from_node(1, '{}') is None
     True
+    >>> 'abc' in Failover.from_node(1, 'abc:def')
+    True
     """
     @staticmethod
     def from_node(index, value):
