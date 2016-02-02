@@ -4,10 +4,11 @@ import psycopg2
 import requests
 import sys
 import time
+import datetime
+import pytz
 
 from patroni.async_executor import AsyncExecutor
 from patroni.exceptions import DCSError, PostgresConnectionException
-from .utils import utcnow_timezone_aware
 from multiprocessing.pool import ThreadPool
 
 logger = logging.getLogger(__name__)
@@ -276,7 +277,7 @@ class Ha:
             # If the failover is in the past, we consider the value to be stale and we remove
             # the value.
             # If the value is close to now, we initiate the failover
-            now = utcnow_timezone_aware()
+            now = datetime.datetime.now(pytz.utc)
             delta = (failover.planned_at - now).total_seconds()
 
             if delta > 10:

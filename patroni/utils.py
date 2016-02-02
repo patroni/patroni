@@ -4,7 +4,6 @@ import random
 import signal
 import sys
 import time
-import tzlocal
 import pytz
 import dateutil.parser
 
@@ -13,46 +12,6 @@ from patroni.exceptions import PatroniException
 ignore_sigterm = False
 interrupted_sleep = False
 reap_children = False
-
-
-def parse_datetime(time_str):
-    """
-    >>> parse_datetime('2015-06-10T12:56:30.552539016Z').tzinfo is not None
-    True
-    >>> parse_datetime('2015-06-10 12:56Z').tzinfo is not None
-    True
-    >>> parse_datetime('2015-06-10 12:56').tzinfo is None
-    True
-    >>> parse_datetime('2015-06-10 12:56+06')
-    datetime.datetime(2015, 6, 10, 12, 56, tzinfo=tzoffset(None, 21600))
-    >>> parse_datetime('fail-06-10 12:56+06')
-    >>> parse_datetime('2009-02-39 12:56+06')
-    """
-
-    try:
-        return dateutil.parser.parse(time_str)
-    except (ValueError, TypeError):
-        return None
-
-
-def localize_datetime(timestamp):
-    """ The goal is to add the local timezone to the datetime object if no timezone is specified yet
-    >>> localize_datetime(None) is None
-    True
-    >>> localize_datetime(datetime.datetime(2000, 1, 1, 10, 12, 23)).tzinfo is None
-    False
-    """
-    if timestamp is None:
-        return None
-
-    if timestamp.tzinfo is None:
-        timestamp = pytz.timezone(tzlocal.get_localzone().zone).localize(timestamp)
-
-    return timestamp
-
-
-def utcnow_timezone_aware():
-    return datetime.datetime.now(pytz.utc)
 
 
 def calculate_ttl(expiration):
@@ -66,10 +25,11 @@ def calculate_ttl(expiration):
     """
     if not expiration:
         return None
-    expiration = parse_datetime(expiration)
-    if not expiration:
+    try:
+        expiration = dateutil.parser.parse(expiration)
+    except (ValueError, TypeError):
         return None
-    now = utcnow_timezone_aware()
+    now = datetime.datetime.now(pytz.utc)
     return int((expiration - now).total_seconds())
 
 

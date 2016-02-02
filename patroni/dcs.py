@@ -1,11 +1,11 @@
 import abc
 import json
+import dateutil
 
 from collections import namedtuple
 from patroni.exceptions import DCSError
 from six.moves.urllib_parse import urlparse, urlunparse, parse_qsl
 from threading import Event, Lock
-from .utils import parse_datetime, localize_datetime
 
 
 def parse_connection_string(value):
@@ -120,7 +120,7 @@ class Failover(namedtuple('Failover', 'index,leader,member,planned_at')):
             return None
 
         if data.get('planned_at'):
-            data['planned_at'] = parse_datetime(data['planned_at'])
+            data['planned_at'] = dateutil.parser.parse(data['planned_at'])
 
         return Failover(index, data.get('leader'), data.get('member'), data.get('planned_at'))
 
@@ -252,28 +252,17 @@ class AbstractDCS:
         """Create or update `/failover` key"""
 
     def manual_failover(self, leader, member, planned_at=None, index=None):
-        failover_value = None
-        if leader or member:
-            failover_value = AbstractDCS.build_failover_value(leader, member, planned_at)
+        failover_value = dict()
+        if leader:
+            failover_value['leader'] = leader
+
+        if member:
+            failover_value['member'] = member
+
+        if planned_at:
+            failover_value['planned_at'] = planned_at.isoformat()
 
         return self.set_failover_value(json.dumps(failover_value), index)
-
-    @staticmethod
-    def build_failover_value(leader, member, planned_at):
-        """
-        >>> import datetime
-        >>> planned = datetime.datetime(2100, 1, 1, 10, 10)
-        >>> '2100-01-01T10' in str(AbstractDCS.build_failover_value('a','b',planned))
-        True
-        """
-        value = {'leader': leader}
-        if member:
-            value['member'] = member
-
-        planned_at = localize_datetime(planned_at)
-        value['planned_at'] = planned_at.isoformat() if planned_at else None
-
-        return value
 
     def current_leader(self):
         try:
