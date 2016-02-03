@@ -20,6 +20,7 @@ RUN pip install python-etcd psycopg2
 ENV PATH /usr/lib/postgresql/${PGVERSION}/bin:$PATH
 
 ADD patroni.py /patroni.py
+ADD patronictl.py /patronictl.py
 ADD patroni/ /patroni
 
 ENV ETCDVERSION 2.0.13
