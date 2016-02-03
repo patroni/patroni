@@ -13,19 +13,15 @@ RUN apt-get update -y
 RUN apt-get upgrade -y
 
 ENV PGVERSION 9.4
-RUN apt-get install postgresql-server-dev-${PGVERSION} -y
-RUN apt-get install python-pip python-dev -y
-ADD requirements-py2.txt /tmp/
-RUN pip install -r /tmp/requirements-py2.txt
+RUN apt-get install python python-yaml python-requests python-boto postgresql-${PGVERSION} python-dnspython python-kazoo python-pip -y
+RUN apt-get install python-dev postgresql-server-dev-${PGVERSION} -y
+RUN pip install python-etcd psycopg2
 
 ENV PATH /usr/lib/postgresql/${PGVERSION}/bin:$PATH
 
 ADD patroni.py /patroni.py
 ADD patronictl.py /patronictl.py
 ADD patroni/ /patroni
-
-RUN ln -s /patroni.py /usr/local/bin/patroni
-RUN ln -s /patronictl.py /usr/local/bin/patronictl
 
 ENV ETCDVERSION 2.0.13
 RUN curl -L https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v${ETCDVERSION}-linux-amd64.tar.gz | tar xz -C /bin --strip=1 --wildcards --no-anchored etcd etcdctl
