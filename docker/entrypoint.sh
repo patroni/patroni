@@ -119,7 +119,8 @@ postgresql:
     archive_command: 'true'
     max_wal_senders: 20
     listen_addresses: 0.0.0.0
-    checkpoint_segments: 64
+    max_wal_size: 1GB
+    min_wal_size: 128MB
     wal_keep_segments: 64
     archive_timeout: 1800s
     max_replication_slots: 20
