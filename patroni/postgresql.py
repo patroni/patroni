@@ -660,9 +660,9 @@ $$""".format(name, options), name, password, password)
                              (m.replicatefrom is None or m.replicatefrom == self.name or
                               not cluster.has_member(m.replicatefrom))]
                 else:
-                    # only manage slots for replicas that want to replicate from this one
-                    slots = [m.name for m in cluster.members if m.replicatefrom == self.name]
-                logger.info("setting replication slots for members {0}".format(slots))
+                    # only manage slots for replicas that replicate from this one, except for the leader among them
+                    slots = [m.name for m in cluster.members if m.replicatefrom == self.name and
+                             m.name != cluster.leader.name]
                 # drop unused slots
                 for slot in set(self.replication_slots) - set(slots):
                     self.query("""SELECT pg_drop_replication_slot(%s)
