@@ -111,6 +111,9 @@ class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,mem
     def is_unlocked(self):
         return not (self.leader and self.leader.name)
 
+    def has_member(self, member_name):
+        return len([m for m in self.members if m.name == member_name]) > 0
+
 
 class AbstractDCS:
 

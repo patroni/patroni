@@ -651,11 +651,18 @@ $$""".format(name, options), name, password, password)
         if self.use_slots:
             try:
                 self.load_replication_slots()
+                # if the replicatefrom tag is set on the member - we should not create the replication slot for it on
+                # the current master, because that member would replicate from elsewhere. We still create the slot if
+                # the replicatefrom destination member is currently not a member of the cluster (fallback to the
+                # master), or if replicatefrom destination member happens to be the current master
                 if self.role == 'master':
-                    slots = [m.name for m in cluster.members if m.name != self.name]
+                    slots = [m.name for m in cluster.members if m.name != self.name and
+                             (not cluster.has_member(m.replicatefrom)
+                              if m.replicatefrom and m.replicatefrom != self.name else True)]
                 else:
                     # only manage slots for replicas that want to replicate from this one
                     slots = [m.name for m in cluster.members if m.replicatefrom == self.name]
+                logger.info("setting replication slots for members {0}".format(slots))
                 # drop unused slots
                 for slot in set(self.replication_slots) - set(slots):
                     self.query("""SELECT pg_drop_replication_slot(%s)
@@ -675,7 +682,7 @@ $$""".format(name, options), name, password, password)
     def last_operation(self):
         return str(self.xlog_position())
 
-    def bootstrap(self, initialize=False, current_leader=None):
+    def bootstrap(self, cluster_initialized=False, current_leader=None):
         """
             Populate PostgreSQL data directory by doing one of the following:
              - create with initdb if there is no master.
@@ -696,7 +703,7 @@ $$""".format(name, options), name, password, password)
             that should be retried in the future.
         """
         ret = False
-        if not (initialize or current_leader):
+        if not (cluster_initialized or current_leader):
             ret = self.initialize() and self.start()
             if ret:
                 self.create_replication_user()
