@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 class WALERestore(object):
 
-    def __init__(self, scope, datadir, connstring, env_dir, threshold_mb, threshold_pct, use_iam):
+    def __init__(self, scope, datadir, connstring, env_dir, threshold_mb, threshold_pct, use_iam, no_master):
         self.scope = scope
         self.master_connection = connstring
         self.data_dir = datadir
@@ -51,6 +51,7 @@ class WALERestore(object):
         self.wal_e.threshold_mb = threshold_mb
         self.wal_e.threshold_pct = threshold_pct
         self.wal_e.iam_string = ' --aws-instance-profile ' if use_iam == 1 else ''
+        self.no_master = no_master
         self.wal_e.cmd = 'envdir {0} wal-e {1} '.format(self.wal_e.dir, self.wal_e.iam_string)
         self.init_error = (not os.path.exists(self.wal_e.dir))
 
@@ -109,19 +110,23 @@ class WALERestore(object):
         conn = None
         cursor = None
         diff_in_bytes = long(backup_size)
-        try:
-            # get the difference in bytes between the current WAL location and the backup start offset
-            conn = psycopg2.connect(self.master_connection)
-            conn.autocommit = True
-            cursor = conn.cursor()
-            cursor.execute("SELECT pg_xlog_location_diff(pg_current_xlog_location(), %s)", (backup_start_lsn,))
-            diff_in_bytes = long(cursor.fetchone()[0])
-        except psycopg2.Error as e:
-            logger.error('could not determine difference with the master location: {}'.format(e))
-            return False
-        finally:
-            cursor and cursor.close()
-            conn and conn.close()
+        if not self.no_master:
+            try:
+                # get the difference in bytes between the current WAL location and the backup start offset
+                conn = psycopg2.connect(self.master_connection)
+                conn.autocommit = True
+                cursor = conn.cursor()
+                cursor.execute("SELECT pg_xlog_location_diff(pg_current_xlog_location(), %s)", (backup_start_lsn,))
+                diff_in_bytes = long(cursor.fetchone()[0])
+            except psycopg2.Error as e:
+                logger.error('could not determine difference with the master location: {}'.format(e))
+                return False
+            finally:
+                cursor and cursor.close()
+                conn and conn.close()
+        else:
+            # always try to use WAL-E if base backup is available
+            diff_in_bytes = 0
 
         # if the size of the accumulated WAL segments is more than a certan percentage of the backup size
         # or exceeds the pre-determined size - pg_basebackup is chosen instead.
@@ -150,13 +155,15 @@ def main():
     parser.add_argument('--threshold_megabytes', type=int, default=10240)
     parser.add_argument('--threshold_backup_size_percentage', type=int, default=30)
     parser.add_argument('--use_iam', type=int, default=0)
+    parser.add_argument('--no_master', type=int, default=0)
     args = parser.parse_args()
 
     # retry cloning in a loop
     for retry in range(0, args.retries + 1):
         restore = WALERestore(scope=args.scope, datadir=args.datadir, connstring=args.connstring,
                               env_dir=args.envdir, threshold_mb=args.threshold_megabytes,
-                              threshold_pct=args.threshold_backup_size_percentage, use_iam=args.use_iam)
+                              threshold_pct=args.threshold_backup_size_percentage, use_iam=args.use_iam,
+                              no_master=args.no_master)
         ret = restore.run()
         if ret == 0:
             break
