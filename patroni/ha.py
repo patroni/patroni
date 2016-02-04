@@ -63,7 +63,7 @@ class Ha:
         self.dcs.touch_member(json.dumps(data, separators=(',', ':')))
 
     def copy_backup_from_leader(self, leader):
-        if self.state_handler.bootstrap(initialize=True, current_leader=leader):
+        if self.state_handler.bootstrap(cluster_initialized=True, current_leader=leader):
             logger.info('bootstrapped from leader' if leader else 'bootstrapped without leader')
         else:
             self.state_handler.stop('immediate')
