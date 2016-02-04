@@ -62,7 +62,7 @@ class Ha:
                 pass
         self.dcs.touch_member(json.dumps(data, separators=(',', ':')))
 
-    def copy_backup_from_leader(self, leader):
+    def clone(self, leader):
         if self.state_handler.bootstrap(cluster_initialized=True, current_leader=leader):
             logger.info('bootstrapped from leader' if leader else 'bootstrapped without leader')
         else:
@@ -73,7 +73,7 @@ class Ha:
     def bootstrap(self):
         if not self.cluster.is_unlocked():  # cluster already has leader
             self._async_executor.schedule('bootstrap from leader')
-            self._async_executor.run_async(self.copy_backup_from_leader, args=(self.cluster.leader, ))
+            self._async_executor.run_async(self.clone, args=(self.cluster.leader, ))
             return 'trying to bootstrap from leader'
         elif not self.cluster.initialize and not self.patroni.nofailover:  # no initialize key
             if self.dcs.initialize(create_new=True):  # race for initialization
@@ -93,7 +93,7 @@ class Ha:
                 return 'failed to acquire initialize lock'
         else:
             if self.state_handler.can_create_replica_without_leader():
-                self._async_executor.run_async(self.copy_backup_from_leader, args=(None, ))
+                self._async_executor.run_async(self.clone, args=(None, ))
                 return "trying to bootstrap without leader"
             return 'waiting for leader to bootstrap'
 
@@ -120,7 +120,7 @@ class Ha:
             node_to_follow = node_to_follow[0] if node_to_follow else self.cluster.leader
         else:
             node_to_follow = self.cluster.leader
-        node_to_follow = None if (node_to_follow and node_to_follow.name) == self.state_handler.name else node_to_follow
+        node_to_follow = None if node_to_follow and node_to_follow.name == self.state_handler.name else node_to_follow
         if not self.state_handler.check_recovery_conf(node_to_follow) or recovery:
             self._async_executor.schedule('changing primary_conninfo and restarting')
             self._async_executor.run_async(self.state_handler.follow, (node_to_follow, recovery))
@@ -350,7 +350,7 @@ class Ha:
     def reinitialize(self, cluster):
         self.state_handler.stop('immediate')
         self.state_handler.remove_data_directory()
-        self.copy_backup_from_leader(cluster.leader)
+        self.clone(cluster.leader)
 
     def process_scheduled_action(self):
         if self.reinitialize_scheduled():

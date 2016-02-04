@@ -219,7 +219,7 @@ class Postgresql:
         env['PGPASSFILE'] = self.pgpass
         return env
 
-    def sync_from_leader(self, leader):
+    def sync_replica(self, leader):
         if leader:
             r = parseurl(leader.conn_url)
         env = self.write_pgpass(r) if leader else os.environ.copy()
@@ -657,8 +657,8 @@ $$""".format(name, options), name, password, password)
                 # master), or if replicatefrom destination member happens to be the current master
                 if self.role == 'master':
                     slots = [m.name for m in cluster.members if m.name != self.name and
-                             (not cluster.has_member(m.replicatefrom)
-                              if m.replicatefrom and m.replicatefrom != self.name else True)]
+                             (m.replicatefrom is None or m.replicatefrom == self.name or
+                              not cluster.has_member(m.replicatefrom))]
                 else:
                     # only manage slots for replicas that want to replicate from this one
                     slots = [m.name for m in cluster.members if m.replicatefrom == self.name]
@@ -711,7 +711,7 @@ $$""".format(name, options), name, password, password)
             else:
                 raise PostgresException("Could not bootstrap master PostgreSQL")
         else:
-            if self.sync_from_leader(current_leader):
+            if self.sync_replica(current_leader):
                 self.restore_configuration_files()
                 self.write_recovery_conf(current_leader, True)
                 ret = self.start()

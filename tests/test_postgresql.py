@@ -229,8 +229,8 @@ class TestPostgresql(unittest.TestCase):
         self.p.write_pgpass({'host': 'localhost', 'port': '5432', 'user': 'foo', 'password': 'bar'})
 
     @patch('patroni.postgresql.Postgresql.write_pgpass', MagicMock(return_value=dict()))
-    def test_sync_from_leader(self):
-        self.assertTrue(self.p.sync_from_leader(self.leader))
+    def test_sync_replica(self):
+        self.assertTrue(self.p.sync_replica(self.leader))
 
     @patch('subprocess.call', side_effect=Exception("Test"))
     @patch('patroni.postgresql.Postgresql.write_pgpass', MagicMock(return_value=dict()))
@@ -370,7 +370,7 @@ class TestPostgresql(unittest.TestCase):
         with patch('subprocess.call', Mock(return_value=1)):
             self.assertRaises(PostgresException, self.p.bootstrap)
         self.p.bootstrap()
-        with patch('patroni.postgresql.Postgresql.sync_from_leader', MagicMock(return_value=True)):
+        with patch('patroni.postgresql.Postgresql.sync_replica', MagicMock(return_value=True)):
             self.p.bootstrap(self.leader)
 
     def test_remove_data_directory(self):
