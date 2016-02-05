@@ -79,3 +79,8 @@ class TestPatroni(unittest.TestCase):
         self.assertTrue(self.p.nofailover)
         self.p.tags['nofailover'] = None
         self.assertFalse(self.p.nofailover)
+
+    def test_replicatefrom(self):
+        self.assertIsNone(self.p.replicatefrom)
+        self.p.tags['replicatefrom'] = 'foo'
+        self.assertEqual(self.p.replicatefrom, 'foo')
