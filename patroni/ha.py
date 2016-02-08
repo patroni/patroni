@@ -50,6 +50,7 @@ class Ha:
     def touch_member(self):
         data = {
             'conn_url': self.state_handler.connection_string,
+            'conn_address': self.state_handler.connect_address,
             'api_url': self.patroni.api.connection_string,
             'state': self.state_handler.state,
             'role': self.state_handler.role,
