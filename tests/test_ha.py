@@ -287,26 +287,26 @@ class TestHa(unittest.TestCase):
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, None))
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
 
-        ## Failover planned time must include timezone
-        planned = datetime.datetime.now()
-        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, planned))
+        ## Failover scheduled time must include timezone
+        scheduled = datetime.datetime.now()
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, scheduled))
 
         self.assertRaises(TypeError, self.ha.run_cycle)
 
-        planned = datetime.datetime.utcnow().replace(tzinfo=pytz.UTC)
-        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, planned))
+        scheduled = datetime.datetime.utcnow().replace(tzinfo=pytz.UTC)
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, scheduled))
         self.assertEquals('no action.  i am the leader with the lock', self.ha.run_cycle())
 
-        planned = planned + datetime.timedelta(seconds=30)
-        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, planned))
+        scheduled = scheduled + datetime.timedelta(seconds=30)
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, scheduled))
         self.assertEquals('no action.  i am the leader with the lock', self.ha.run_cycle())
 
-        planned = planned + datetime.timedelta(seconds=-600)
-        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, planned))
+        scheduled = scheduled + datetime.timedelta(seconds=-600)
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, scheduled))
         self.assertEquals('no action.  i am the leader with the lock', self.ha.run_cycle())
 
-        planned = None
-        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, planned))
+        scheduled = None
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, scheduled))
         self.assertEquals('no action.  i am the leader with the lock', self.ha.run_cycle())
 
     @patch('requests.get', requests_get)

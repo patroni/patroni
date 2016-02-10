@@ -180,21 +180,21 @@ class RestApiHandler(BaseHTTPRequestHandler):
         status_code = 503
 
         data = b''
-        if request.get('planned_at'):
+        if request.get('scheduled_at'):
             try:
-                planned_at = dateutil.parser.parse(request['planned_at'])
-                if planned_at.tzinfo is None:
-                    data = b'Timezone information is mandatory for planned_at'
+                scheduled_at = dateutil.parser.parse(request['scheduled_at'])
+                if scheduled_at.tzinfo is None:
+                    data = b'Timezone information is mandatory for scheduled_at'
                     status_code = 400
-                elif planned_at < datetime.datetime.now(pytz.utc):
+                elif scheduled_at < datetime.datetime.now(pytz.utc):
                     data = b'Cannot schedule failover in the past'
                     status_code = 422
-                elif self.server.patroni.dcs.manual_failover(leader, member, planned_at):
+                elif self.server.patroni.dcs.manual_failover(leader, member, scheduled_at):
                     data = b'Failover scheduled'
                     status_code = 200
             except (ValueError, TypeError):
-                logger.exception('Invalid planned failover time: {}'.format(request['planned_at']))
-                data = b'Unable to parse planned timestamp. It should be in an unambiguous format, e.g. ISO 8601'
+                logger.exception('Invalid scheduled failover time: {}'.format(request['scheduled_at']))
+                data = b'Unable to parse scheduled timestamp. It should be in an unambiguous format, e.g. ISO 8601'
         else:
             data = self.is_failover_possible(cluster, leader, member)
             if not data:

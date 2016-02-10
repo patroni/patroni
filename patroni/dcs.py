@@ -86,7 +86,7 @@ class Leader(namedtuple('Leader', 'index,session,member')):
         return self.member.conn_url
 
 
-class Failover(namedtuple('Failover', 'index,leader,member,planned_at')):
+class Failover(namedtuple('Failover', 'index,leader,member,scheduled_at')):
 
     """
     >>> 'Failover' in str(Failover.from_node(1, '{"leader": "cluster_leader"}'))
@@ -95,7 +95,7 @@ class Failover(namedtuple('Failover', 'index,leader,member,planned_at')):
     True
     >>> Failover.from_node(1, 'null') is None
     True
-    >>> n = '{"leader": "cluster_leader", "member": "cluster:member", "planned_at": "2016-01-14T10:09:57.1394Z"}'
+    >>> n = '{"leader": "cluster_leader", "member": "cluster:member", "scheduled_at": "2016-01-14T10:09:57.1394Z"}'
     >>> 'tzinfo=' in str(Failover.from_node(1, n))
     True
     >>> Failover.from_node(1, None) is None
@@ -120,10 +120,10 @@ class Failover(namedtuple('Failover', 'index,leader,member,planned_at')):
             candidate = t[1] if len(t) > 1 else None
             return Failover(index, leader, candidate, None) if leader or candidate else None
 
-        if data.get('planned_at'):
-            data['planned_at'] = dateutil.parser.parse(data['planned_at'])
+        if data.get('scheduled_at'):
+            data['scheduled_at'] = dateutil.parser.parse(data['scheduled_at'])
 
-        return Failover(index, data.get('leader'), data.get('member'), data.get('planned_at'))
+        return Failover(index, data.get('leader'), data.get('member'), data.get('scheduled_at'))
 
 
 class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,members,failover')):
@@ -249,7 +249,7 @@ class AbstractDCS:
     def set_failover_value(self, value, index=None):
         """Create or update `/failover` key"""
 
-    def manual_failover(self, leader, member, planned_at=None, index=None):
+    def manual_failover(self, leader, member, scheduled_at=None, index=None):
         failover_value = dict()
         if leader:
             failover_value['leader'] = leader
@@ -257,8 +257,8 @@ class AbstractDCS:
         if member:
             failover_value['member'] = member
 
-        if planned_at:
-            failover_value['planned_at'] = planned_at.isoformat()
+        if scheduled_at:
+            failover_value['scheduled_at'] = scheduled_at.isoformat()
 
         return self.set_failover_value(json.dumps(failover_value), index)
 

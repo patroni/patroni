@@ -138,15 +138,15 @@ y''')
             result = runner.invoke(ctl, ['failover', 'dummy', '--force'])
             assert 'Member' in result.output
 
-            result = runner.invoke(ctl, ['failover', 'dummy', '--force', '--planned', '2015-01-01T12:00:00+01:00'])
+            result = runner.invoke(ctl, ['failover', 'dummy', '--force', '--scheduled', '2015-01-01T12:00:00+01:00'])
             assert result.exit_code == 0
 
             ## Invalid timestamp
-            result = runner.invoke(ctl, ['failover', 'dummy', '--force', '--planned', 'invalid'])
+            result = runner.invoke(ctl, ['failover', 'dummy', '--force', '--scheduled', 'invalid'])
             assert result.exit_code != 0
 
             ## Invalid timestamp
-            result = runner.invoke(ctl, ['failover', 'dummy', '--force', '--planned', '2115-02-30T12:00:00+01:00'])
+            result = runner.invoke(ctl, ['failover', 'dummy', '--force', '--scheduled', '2115-02-30T12:00:00+01:00'])
             assert result.exit_code != 0
 
             ## Specifying wrong leader
