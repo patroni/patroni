@@ -363,7 +363,7 @@ class Postgresql:
         env = os.environ.copy()
         if 'username' in self.superuser:
             env['PGUSER'] = self.superuser['username']
-        ret = subprocess.call(self._pg_ctl + ['start', '-o', self.server_options()], env=env) == 0
+        ret = subprocess.call(self._pg_ctl + ['start', '-o', self.server_options()], env=env, preexec_fn=os.setsid) == 0
 
         self.set_state('running' if ret else 'start failed')
 
