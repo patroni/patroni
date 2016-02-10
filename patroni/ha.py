@@ -272,26 +272,26 @@ class Ha:
     def process_manual_failover_from_leader(self):
         failover = self.cluster.failover
 
-        if failover.planned_at:
+        if failover.scheduled_at:
             # If the failover is in the far future, we shouldn't do anything and just return.
             # If the failover is in the past, we consider the value to be stale and we remove
             # the value.
             # If the value is close to now, we initiate the failover
             now = datetime.datetime.now(pytz.utc)
-            delta = (failover.planned_at - now).total_seconds()
+            delta = (failover.scheduled_at - now).total_seconds()
 
             if delta > 10:
-                logging.info('Awaiting failover at {0} (in {1:.0f} seconds)'.format(failover.planned_at.isoformat(),
+                logging.info('Awaiting failover at {0} (in {1:.0f} seconds)'.format(failover.scheduled_at.isoformat(),
                                                                                     delta))
                 return
             elif delta < -15:
-                logger.warning('Found a stale failover value, cleaning up: {}'.format(failover.planned_at))
+                logger.warning('Found a stale failover value, cleaning up: {}'.format(failover.scheduled_at))
                 self.dcs.manual_failover('', '', self.cluster.failover.index)
                 return
 
             # The value is very close to now
             time.sleep(max(delta, 0))
-            logger.info('Manual scheduled failover at {}'.format(failover.planned_at.isoformat()))
+            logger.info('Manual scheduled failover at {}'.format(failover.scheduled_at.isoformat()))
 
         if not failover.leader or failover.leader == self.state_handler.name:
             if not failover.member or failover.member != self.state_handler.name:

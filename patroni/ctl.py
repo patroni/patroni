@@ -475,11 +475,12 @@ def reinit(cluster_name, member_names, config_file, dcs, force):
 @click.argument('cluster_name')
 @click.option('--master', help='The name of the current master', default=None)
 @click.option('--candidate', help='The name of the candidate', default=None)
-@click.option('--planned', help='Timestamp of a planned failover in unambiguous format (e.g. ISO 8601)', default=None)
+@click.option('--scheduled', help='Timestamp of a scheduled failover in unambiguous format (e.g. ISO 8601)',
+              default=None)
 @click.option('--force', is_flag=True)
 @option_config_file
 @option_dcs
-def failover(config_file, cluster_name, master, candidate, force, dcs, planned):
+def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled):
     """
         We want to trigger a failover for the specified cluster name.
 
@@ -517,22 +518,23 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, planned):
     if candidate and candidate not in candidate_names:
         raise PatroniCtlException('Member {} does not exist in cluster {}'.format(candidate, cluster_name))
 
-    if planned is None and not force:
-        planned = click.prompt('When should the failover take place (e.g. 2015-10-01T14:30) ', type=str, default='now')
+    if scheduled is None and not force:
+        scheduled = click.prompt('When should the failover take place (e.g. 2015-10-01T14:30) ', type=str,
+                                 default='now')
 
-    if (planned or 'now') == 'now':
-        planned_at = None
+    if (scheduled or 'now') == 'now':
+        scheduled_at = None
     else:
         try:
-            planned_at = dateutil.parser.parse(planned)
-            if planned_at.tzinfo is None:
-                planned_at = tzlocal.get_localzone().localize(planned_at)
+            scheduled_at = dateutil.parser.parse(scheduled)
+            if scheduled_at.tzinfo is None:
+                scheduled_at = tzlocal.get_localzone().localize(scheduled_at)
         except (ValueError, TypeError):
-            message = 'Unable to parse planned timestamp ({}). It should be in an unambiguous format (e.g. ISO 8601)'
-            raise PatroniCtlException(message.format(planned))
-        planned_at = planned_at.isoformat()
+            message = 'Unable to parse scheduled timestamp ({}). It should be in an unambiguous format (e.g. ISO 8601)'
+            raise PatroniCtlException(message.format(scheduled))
+        scheduled_at = scheduled_at.isoformat()
 
-    failover_value = {'leader': master, 'member': candidate, 'planned_at': planned_at}
+    failover_value = {'leader': master, 'member': candidate, 'scheduled_at': scheduled_at}
     logging.debug(failover_value)
 
     # By now we have established that the leader exists and the candidate exists
@@ -562,7 +564,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, planned):
         logging.warning('Failing over to DCS')
         click.echo(timestamp() + ' Could not failover using Patroni api, falling back to DCS')
         click.echo(timestamp() + ' Initializing failover from master {}'.format(master))
-        dcs.manual_failover(leader=master, member=candidate, planned_at=failover_value)
+        dcs.manual_failover(leader=master, member=candidate, scheduled_at=failover_value)
 
     output_members(cluster, name=cluster_name)
 
