@@ -590,9 +590,9 @@ def output_members(cluster, name=None, format='pretty'):
         host = build_connect_parameters(m.conn_url)['host']
 
         xlog_location = m.data.get('xlog_location') or 0
-        lag = round((xlog_location_cluster - xlog_location)/1024/1024)
-        if (xlog_location_cluster < xlog_location):
-            lag = ''
+        lag = ''
+        if (xlog_location_cluster >= xlog_location):
+            lag = round((xlog_location_cluster - xlog_location)/1024/1024)
 
         rows.append([
             name,

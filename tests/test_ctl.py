@@ -119,33 +119,21 @@ y''')
 other
 
 N''')
-<<<<<<< HEAD
-            assert 'Aborting failover' in str(result.output)
-=======
             assert result.exit_code == 1
->>>>>>> Failover: Add more test and fix bugs found by tests. Some formatting
 
             ## Target and source are equal
             result = runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
 leader
 
 y''')
-<<<<<<< HEAD
-            assert 'target and source are the same' in str(result.output)
-=======
             assert result.exit_code == 1
->>>>>>> Failover: Add more test and fix bugs found by tests. Some formatting
 
             ## Reality is not part of this cluster
             result = runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
 Reality
 
 y''')
-<<<<<<< HEAD
-            assert 'Reality does not exist' in str(result.output)
-=======
             assert result.exit_code == 1
->>>>>>> Failover: Add more test and fix bugs found by tests. Some formatting
 
             result = runner.invoke(ctl, ['failover', 'dummy', '--force'])
             assert 'Member' in result.output
@@ -163,22 +151,14 @@ y''')
 
             ## Specifying wrong leader
             result = runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='dummy')
-<<<<<<< HEAD
-            assert 'is not the leader of cluster' in str(result.output)
-=======
             assert result.exit_code == 1
->>>>>>> Failover: Add more test and fix bugs found by tests. Some formatting
 
         with patch('patroni.etcd.Etcd.get_cluster', Mock(return_value=get_cluster_initialized_with_only_leader())):
             ## No members available
             result = runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
 other
 y''')
-<<<<<<< HEAD
-            assert 'No candidates found to failover to' in str(result.output)
-=======
             assert result.exit_code == 1
->>>>>>> Failover: Add more test and fix bugs found by tests. Some formatting
 
         with patch('patroni.etcd.Etcd.get_cluster', Mock(return_value=get_cluster_initialized_without_leader())):
             ## No master available
@@ -186,11 +166,7 @@ y''')
 other
 
 y''')
-<<<<<<< HEAD
-            assert 'This cluster has no master' in str(result.output)
-=======
             assert result.exit_code == 1
->>>>>>> Failover: Add more test and fix bugs found by tests. Some formatting
 
         with patch('patroni.ctl.post_patroni', Mock(side_effect=Exception())):
             ## Non-responding patroni
@@ -205,28 +181,9 @@ y''')
         with patch('patroni.ctl.post_patroni', Mock(return_value=mocked)):
             result = runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
 other
-<<<<<<< HEAD
-y''')
-            assert 'Failover failed, details' in result.output
-
-#        with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=get_cluster_initialized_with_leader())):
-#            result = runner.invoke(ctl, ['failover', 'alpha', '--dcs', '8.8.8.8'], input='nonsense')
-#            assert 'is not the leader of cluster' in str(result.output)
-
-            # result = runner.invoke(ctl, ['failover', 'alpha', '--dcs', '8.8.8.8', '--master', 'nonsense'])
-            # assert 'is not the leader of cluster' in str(result.output)
-
-            # result = runner.invoke(ctl, ['failover', 'alpha', '--dcs', '8.8.8.8'], input='leader\nother\nn')
-            # assert 'Aborting failover' in str(result.output)
-
-            # with patch('patroni.ctl.wait_for_leader', Mock(return_value = get_cluster_initialized_with_leader())):
-                # result = runner.invoke(ctl, ['failover', 'alpha', '--dcs', '8.8.8.8'], input='leader\nother\nY')
-                # assert 'master did not change after' in result.output
-=======
 
 y''')
             assert 'Failover failed' in result.output
->>>>>>> Failover: Add more test and fix bugs found by tests. Some formatting
 
 
     def test_(self):
@@ -247,11 +204,7 @@ y''')
                 '--role',
                 'master',
             ])
-<<<<<<< HEAD
-            assert 'mutually exclusive' in str(result.output)
-=======
             assert result.exit_code == 1
->>>>>>> Failover: Add more test and fix bugs found by tests. Some formatting
 
             with runner.isolated_filesystem():
                 dummy_file = open('dummy', 'w')
@@ -261,23 +214,13 @@ y''')
                 ## Mutually exclusive
                 result = runner.invoke(ctl, [
                     'query',
-                    'alpha'
-                ])
-                assert 'You need to specify' in str(result.output)
-
-                result = runner.invoke(ctl, [
-                    'query',
                     'alpha',
                     '--file',
                     'dummy',
                     '--command',
                     'dummy',
                 ])
-<<<<<<< HEAD
-                assert 'mutually exclusive' in str(result.output)
-=======
                 assert result.exit_code == 1
->>>>>>> Failover: Add more test and fix bugs found by tests. Some formatting
 
                 result = runner.invoke(ctl, ['query', 'alpha', '--file', 'dummy'])
 
@@ -286,7 +229,12 @@ y''')
             result = runner.invoke(ctl, ['query', 'alpha', '--command', 'SELECT 1'])
             assert 'mock column' in result.output
 
-            result = runner.invoke(ctl, ['query', 'alpha', '--command', 'SELECT 1', '--dbname', 'dummy', '--password', '--username', 'dummy'], input='password\n')
+            ## --command or --file is mandatory
+            result = runner.invoke(ctl, ['query', 'alpha'])
+            assert result.exit_code == 1
+
+            result = runner.invoke(ctl, ['query', 'alpha', '--command', 'SELECT 1',
+                                         '--username', 'root', '--password', '--dbname', 'postgres'], input='ab\nab')
             assert 'mock column' in result.output
 
     @patch('patroni.ctl.get_cursor', Mock(return_value=MockConnect().cursor()))
@@ -327,22 +275,11 @@ y''')
                 '--member',
                 'dummy',
             ])
-<<<<<<< HEAD
-            assert 'mutually exclusive' in str(result.output)
-=======
             assert result.exit_code == 1
->>>>>>> Failover: Add more test and fix bugs found by tests. Some formatting
 
             ## Non-existing member
             result = runner.invoke(ctl, ['dsn', 'alpha', '--member', 'dummy'])
-<<<<<<< HEAD
-            assert 'Can not find' in str(result.output)
-
-        # result = runner.invoke(ctl, ['dsn', 'alpha', '--dcs', '8.8.8.8', '--role', 'replica'])
-        # assert 'host=127.0.0.1 port=5436' in result.output
-=======
             assert result.exit_code == 1
->>>>>>> Failover: Add more test and fix bugs found by tests. Some formatting
 
     @patch('patroni.etcd.Etcd.get_cluster', Mock(return_value=get_cluster_initialized_with_leader()))
     @patch('patroni.etcd.Etcd.get_etcd_client', Mock(return_value=None))
@@ -370,11 +307,7 @@ y''')
             'dummy',
             '--any',
         ], input='y')
-<<<<<<< HEAD
-        assert 'not a member' in str(result.output)
-=======
         assert result.exit_code == 1
->>>>>>> Failover: Add more test and fix bugs found by tests. Some formatting
 
         with patch('requests.post', Mock(return_value=MockResponse())):
             result = runner.invoke(ctl, ['restart', 'alpha', '--dcs', '8.8.8.8'], input='y')
@@ -387,30 +320,18 @@ y''')
         result = runner.invoke(ctl, ['remove', 'alpha', '--dcs', '8.8.8.8'], input='alpha\nslave')
         assert 'Please confirm' in result.output
         assert 'You are about to remove all' in result.output
-<<<<<<< HEAD
-        assert 'You did not exactly type' in str(result.output)
-=======
         ## Not typing an exact confirmation
         assert result.exit_code == 1
->>>>>>> Failover: Add more test and fix bugs found by tests. Some formatting
 
         ## master specified does not match master of cluster
         result = runner.invoke(ctl, ['remove', 'alpha', '--dcs', '8.8.8.8'], input='''alpha
 Yes I am aware
 slave''')
-<<<<<<< HEAD
-        assert 'You did not specify the current master of the cluster' in str(result.output)
-=======
         assert result.exit_code == 1
->>>>>>> Failover: Add more test and fix bugs found by tests. Some formatting
 
         ## cluster specified on cmdline does not match verification prompt
         result = runner.invoke(ctl, ['remove', 'alpha', '--dcs', '8.8.8.8'], input='beta\nleader')
-<<<<<<< HEAD
-        assert 'Cluster names specified do not match' in str(result.output)
-=======
         assert result.exit_code == 1
->>>>>>> Failover: Add more test and fix bugs found by tests. Some formatting
 
         with patch('patroni.etcd.Etcd.get_cluster', get_cluster_initialized_with_leader):
             result = runner.invoke(ctl, ['remove', 'alpha', '--dcs', '8.8.8.8'],
@@ -425,11 +346,7 @@ leader''')
                                    input='''alpha
 Yes I am aware
 leader''')
-<<<<<<< HEAD
-            assert 'We have not implemented this for DCS of type' in str(result.output)
-=======
             assert result.exit_code == 1
->>>>>>> Failover: Add more test and fix bugs found by tests. Some formatting
 
     @patch('patroni.etcd.Etcd.watch', Mock(return_value=None))
     @patch('patroni.etcd.Etcd.get_cluster', Mock(return_value=get_cluster_initialized_with_leader()))
