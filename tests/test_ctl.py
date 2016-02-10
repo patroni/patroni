@@ -117,7 +117,13 @@ y''')
             ## Aborting failover,as we anser NO to the confirmation
             result = runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
 other
+2030-01-01T12:23:00
+y''')
+            assert result.exit_code == 0
 
+            ## Aborting failover,as we anser NO to the confirmation
+            result = runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
+other
 N''')
             assert result.exit_code == 1
 
