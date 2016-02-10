@@ -128,14 +128,18 @@ class Postgresql:
                 break
         return local_address + ':' + self.port
 
+    @property
+    def _connect_kwargs(self):
+        r = parseurl('postgres://{}/postgres'.format(self.local_address))
+        if 'username' in self.superuser:
+            r['user'] = self.superuser['username']
+        if 'password' in self.superuser:
+            r['password'] = self.superuser['password']
+        return r
+
     def connection(self):
         if not self._connection or self._connection.closed != 0:
-            r = parseurl('postgres://{}/postgres'.format(self.local_address))
-            if 'username' in self.superuser:
-                r['user'] = self.superuser['username']
-            if 'password' in self.superuser:
-                r['password'] = self.superuser['password']
-            self._connection = psycopg2.connect(**r)
+            self._connection = psycopg2.connect(**self._connect_kwargs)
             self._connection.autocommit = True
             self.server_version = self._connection.server_version
         return self._connection
@@ -370,10 +374,12 @@ class Postgresql:
         ret and not block_callbacks and self.call_nowait(ACTION_ON_START)
         return ret
 
-    def checkpoint(self, connstring=None):
+    def checkpoint(self, connect_kwargs=None):
+        connect_kwargs = connect_kwargs or self._connect_kwargs
+        for p in ['connect_timeout', 'options']:
+            connect_kwargs.pop(p, None)
         try:
-            connstring = connstring or 'postgres://{}/postgres'.format(self.local_address)
-            with psycopg2.connect(connstring) as conn:
+            with psycopg2.connect(**connect_kwargs) as conn:
                 conn.autocommit = True
                 with conn.cursor() as cur:
                     cur.execute("SET statement_timeout = 0")
@@ -480,12 +486,12 @@ recovery_target_timeline = 'latest'
         # prepare pg_rewind connection
         r = parseurl(leader.conn_url)
         r.update(self.pg_rewind)
-        r['user'] = r['username']
+        r['user'] = r.pop('username')
         env = self.write_pgpass(r)
         pc = "user={user} host={host} port={port} dbname=postgres sslmode=prefer sslcompression=1".format(**r)
         # first run a checkpoint on a promoted master in order
         # to make it store the new timeline (5540277D.8020309@iki.fi)
-        self.checkpoint(pc)
+        self.checkpoint(r)
         logger.info("running pg_rewind from {}".format(pc))
         pg_rewind = ['pg_rewind', '-D', self.data_dir, '--source-server', pc]
         try:
