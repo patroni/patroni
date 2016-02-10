@@ -128,13 +128,18 @@ class Postgresql:
                 break
         return local_address + ':' + self.port
 
+    @property
+    def _connect_kwargs(self):
+        r = parseurl('postgres://{}/postgres'.format(self.local_address))
+        if 'username' in self.superuser:
+            r['user'] = self.superuser['username']
+        if 'password' in self.superuser:
+            r['password'] = self.superuser['password']
+        return r
+
     def connection(self):
         if not self._connection or self._connection.closed != 0:
-            r = parseurl('postgres://{}/postgres'.format(self.local_address))
-            r.update(self.superuser)
-            if r.get('username'):
-                r['user'] = r['username']
-            self._connection = psycopg2.connect(**r)
+            self._connection = psycopg2.connect(**self._connect_kwargs)
             self._connection.autocommit = True
             self.server_version = self._connection.server_version
         return self._connection
@@ -196,11 +201,15 @@ class Postgresql:
         self.set_state('initalizing new cluster')
         options = self.get_initdb_options()
         pwfile = None
-        if self.superuser and 'username' not in self.superuser and 'password' in self.superuser:
-            (fd, pwfile) = tempfile.mkstemp()
-            os.write(fd, self.superuser['password'].encode())
-            os.close(fd)
-            options.append('--pwfile={}'.format(pwfile))
+
+        if self.superuser:
+            if 'username' in self.superuser:
+                options.append('--username={}'.format(self.superuser['username']))
+            if 'password' in self.superuser:
+                (fd, pwfile) = tempfile.mkstemp()
+                os.write(fd, self.superuser['password'].encode())
+                os.close(fd)
+                options.append('--pwfile={}'.format(pwfile))
 
         ret = subprocess.call(self._pg_ctl + ['initdb'] + (['-o', ' '.join(options)] if options else [])) == 0
         if pwfile:
@@ -351,7 +360,10 @@ class Postgresql:
         if not block_callbacks:
             self.set_state('starting')
 
-        ret = subprocess.call(self._pg_ctl + ['start', '-o', self.server_options()]) == 0
+        env = os.environ.copy()
+        if 'username' in self.superuser:
+            env['PGUSER'] = self.superuser['username']
+        ret = subprocess.call(self._pg_ctl + ['start', '-o', self.server_options()], env=env) == 0
 
         self.set_state('running' if ret else 'start failed')
 
@@ -362,10 +374,12 @@ class Postgresql:
         ret and not block_callbacks and self.call_nowait(ACTION_ON_START)
         return ret
 
-    def checkpoint(self, connstring=None):
+    def checkpoint(self, connect_kwargs=None):
+        connect_kwargs = connect_kwargs or self._connect_kwargs
+        for p in ['connect_timeout', 'options']:
+            connect_kwargs.pop(p, None)
         try:
-            connstring = connstring or 'postgres://{}/postgres'.format(self.local_address)
-            with psycopg2.connect(connstring) as conn:
+            with psycopg2.connect(**connect_kwargs) as conn:
                 conn.autocommit = True
                 with conn.cursor() as cur:
                     cur.execute("SET statement_timeout = 0")
@@ -472,12 +486,12 @@ recovery_target_timeline = 'latest'
         # prepare pg_rewind connection
         r = parseurl(leader.conn_url)
         r.update(self.pg_rewind)
-        r['user'] = r['username']
+        r['user'] = r.pop('username')
         env = self.write_pgpass(r)
         pc = "user={user} host={host} port={port} dbname=postgres sslmode=prefer sslcompression=1".format(**r)
         # first run a checkpoint on a promoted master in order
         # to make it store the new timeline (5540277D.8020309@iki.fi)
-        self.checkpoint(pc)
+        self.checkpoint(r)
         logger.info("running pg_rewind from {}".format(pc))
         pg_rewind = ['pg_rewind', '-D', self.data_dir, '--source-server', pc]
         try:
@@ -633,11 +647,8 @@ $$""".format(name, options), name, password, password)
     def create_replication_user(self):
         self.create_or_update_role(self.replication['username'], self.replication['password'], 'REPLICATION')
 
-    def create_connection_users(self):
-        if 'username' in self.superuser:
-            self.create_or_update_role(self.superuser['username'], self.superuser['password'], 'SUPERUSER')
-        if self.admin:
-            self.create_or_update_role(self.admin['username'], self.admin['password'], 'CREATEDB CREATEROLE')
+    def create_connection_user(self):
+        self.admin and self.create_or_update_role(self.admin['username'], self.admin['password'], 'CREATEDB CREATEROLE')
 
     def xlog_position(self):
         return self.query("""SELECT pg_xlog_location_diff(CASE WHEN pg_is_in_recovery()
@@ -711,7 +722,7 @@ $$""".format(name, options), name, password, password)
             ret = self.initialize() and self.start()
             if ret:
                 self.create_replication_user()
-                self.create_connection_users()
+                self.create_connection_user()
             else:
                 raise PostgresException("Could not bootstrap master PostgreSQL")
         else:

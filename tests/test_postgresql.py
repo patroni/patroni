@@ -165,7 +165,7 @@ class TestPostgresql(unittest.TestCase):
         self.p = Postgresql({'name': 'test0', 'scope': 'batman', 'data_dir': 'data/test0',
                              'listen': '127.0.0.1, *:5432', 'connect_address': '127.0.0.2:5432',
                              'pg_hba': ['hostssl all all 0.0.0.0/0 md5', 'host all all 0.0.0.0/0 md5'],
-                             'superuser': {'password': 'test'},
+                             'superuser': {'username': 'test', 'password': 'test'},
                              'admin': {'username': 'admin', 'password': 'admin'},
                              'pg_rewind': {'username': 'admin', 'password': 'admin'},
                              'replication': {'username': 'replicator',
@@ -294,12 +294,6 @@ class TestPostgresql(unittest.TestCase):
 
         with patch('subprocess.call', Mock(side_effect=Exception("foo"))):
             self.assertEquals(self.p.create_replica(self.leader, ''), 1)
-
-    def test_create_connection_users(self):
-        cfg = self.p.config
-        cfg['superuser']['username'] = 'test'
-        p = Postgresql(cfg)
-        p.create_connection_users()
 
     def test_sync_replication_slots(self):
         self.p.start()
