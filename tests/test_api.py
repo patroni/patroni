@@ -16,6 +16,8 @@ class MockPostgresql(Mock):
     name = 'test'
     state = 'running'
     role = 'master'
+    server_version = '999999'
+    scope = 'dummy'
 
     def connection(self):
         return psycopg2_connect()
@@ -51,6 +53,7 @@ class MockPatroni:
     ha = MockHa()
     dcs = Mock()
     tags = {}
+    version = '0.00'
 
 
 class MockRequest:

@@ -40,6 +40,9 @@ class MockResponse:
 
 class MockPostgresql(Mock):
 
+    server_version = '999999'
+    scope = 'dummy'
+
     def last_operation(self):
         return '0'
 

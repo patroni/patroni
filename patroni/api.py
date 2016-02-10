@@ -92,6 +92,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_GET_patroni(self):
         response = self.get_postgresql_status(True)
         response.update(self.get_tags())
+        response['patroni'] = {'version': self.server.patroni.version, 'scope': self.server.patroni.postgresql.scope}
 
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
@@ -233,6 +234,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 'state': self.server.patroni.postgresql.state,
                 'postmaster_start_time': row[0],
                 'role': 'replica' if row[1] else 'master',
+                'server_version': self.server.patroni.postgresql.server_version,
                 'xlog': ({
                     'received_location': row[3],
                     'replayed_location': row[4],

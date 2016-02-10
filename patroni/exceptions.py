@@ -13,10 +13,6 @@ class PatroniException(Exception):
         return repr(self.value)
 
 
-class PatroniCtlException(Exception):
-    pass
-
-
 class PostgresException(PatroniException):
     pass
 

@@ -14,21 +14,21 @@ def kv_get(self, key, **kwargs):
     if key == 'service/good/':
         return ('6429',
                 [{'CreateIndex': 1334, 'Flags': 0, 'Key': key + 'failover', 'LockIndex': 0,
-                  'ModifyIndex': 1334, 'Value': ''},
+                  'ModifyIndex': 1334, 'Value': b''},
                  {'CreateIndex': 1334, 'Flags': 0, 'Key': key + 'initialize', 'LockIndex': 0,
-                  'ModifyIndex': 1334, 'Value': 'postgresql0'},
+                  'ModifyIndex': 1334, 'Value': b'postgresql0'},
                  {'CreateIndex': 2621, 'Flags': 0, 'Key': key + 'leader', 'LockIndex': 1,
-                  'ModifyIndex': 2621, 'Session': 'fd4f44fe-2cac-bba5-a60b-304b51ff39b7', 'Value': 'postgresql1'},
+                  'ModifyIndex': 2621, 'Session': 'fd4f44fe-2cac-bba5-a60b-304b51ff39b7', 'Value': b'postgresql1'},
                  {'CreateIndex': 6156, 'Flags': 0, 'Key': key + 'members/postgresql0', 'LockIndex': 1,
                   'ModifyIndex': 6156, 'Session': '782e6da4-ed02-3aef-7963-99a90ed94b53',
-                  'Value': 'postgres://replicator:rep-pass@127.0.0.1:5432/postgres' +
-                    '?application_name=http://127.0.0.1:8008/patroni'},
+                  'Value': ('postgres://replicator:rep-pass@127.0.0.1:5432/postgres' +
+                    '?application_name=http://127.0.0.1:8008/patroni').encode('utf-8')},
                  {'CreateIndex': 2630, 'Flags': 0, 'Key': key + 'members/postgresql1', 'LockIndex': 1,
                   'ModifyIndex': 2630, 'Session': 'fd4f44fe-2cac-bba5-a60b-304b51ff39b7',
-                  'Value': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres' +
-                    '?application_name=http://127.0.0.1:8009/patroni'},
+                  'Value': ('postgres://replicator:rep-pass@127.0.0.1:5433/postgres' +
+                    '?application_name=http://127.0.0.1:8009/patroni').encode('utf-8')},
                  {'CreateIndex': 1085, 'Flags': 0, 'Key': key + 'optime/leader', 'LockIndex': 0,
-                  'ModifyIndex': 6429, 'Value': '4496294792'}])
+                  'ModifyIndex': 6429, 'Value': b'4496294792'}])
     raise ConsulException
 
 

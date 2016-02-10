@@ -119,7 +119,10 @@ class Consul(AbstractDCS):
             if results is None:
                 raise NotFound
 
-            nodes = {os.path.relpath(node['Key'], path): node for node in results}
+            nodes = {}
+            for node in results:
+                node['Value'] = node['Value'].decode('utf-8')
+                nodes[os.path.relpath(node['Key'], path)] = node
 
             # get initialize flag
             initialize = nodes.get(self._INITIALIZE)
