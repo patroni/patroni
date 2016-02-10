@@ -132,6 +132,8 @@ class Postgresql:
         if not self._connection or self._connection.closed != 0:
             r = parseurl('postgres://{}/postgres'.format(self.local_address))
             r.update(self.superuser)
+            if r.get('username'):
+                r['user'] = r['username']
             self._connection = psycopg2.connect(**r)
             self._connection.autocommit = True
             self.server_version = self._connection.server_version
