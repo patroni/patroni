@@ -63,7 +63,7 @@ postgresql:
     password: rep-pass
     network: 127.0.0.1/32
   superuser:
-    user: postgres
+    username: postgres
     password: zalando
   admin:
     username: admin
