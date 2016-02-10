@@ -8,7 +8,8 @@ import psycopg2
 import requests
 import patroni.exceptions
 import etcd
-from mock import patch, Mock
+from mock import patch, Mock, MagicMock
+
 
 from click.testing import CliRunner
 from patroni.ctl import ctl, members, store_config, load_config, output_members, post_patroni, get_dcs, \
@@ -326,8 +327,9 @@ leader''')
         assert cluster.leader.member.name == 'leader'
 
     def test_post_patroni(self):
-        member = get_cluster_initialized_with_leader().leader.member
-        self.assertRaises(requests.exceptions.ConnectionError, post_patroni, member, 'dummy', {})
+        with patch('requests.post', MagicMock(side_effect=requests.exceptions.ConnectionError('foo'))):
+            member = get_cluster_initialized_with_leader().leader.member
+            self.assertRaises(requests.exceptions.ConnectionError, post_patroni, member, 'dummy', {})
 
     def test_ctl(self):
         runner = CliRunner()
