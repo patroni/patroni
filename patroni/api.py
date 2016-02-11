@@ -104,7 +104,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     @check_auth
     def do_POST_restart(self):
-        status_code = 503
+        status_code = 500
         data = b'restart failed'
         try:
             status, msg = self.server.patroni.ha.restart()
@@ -178,7 +178,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         leader = request.get('leader', None)
         member = request.get('member', None)
         cluster = self.server.patroni.ha.dcs.get_cluster()
-        status_code = 503
+        status_code = 500
 
         data = b''
         if request.get('scheduled_at'):
@@ -196,11 +196,13 @@ class RestApiHandler(BaseHTTPRequestHandler):
             except (ValueError, TypeError):
                 logger.exception('Invalid scheduled failover time: {}'.format(request['scheduled_at']))
                 data = b'Unable to parse scheduled timestamp. It should be in an unambiguous format, e.g. ISO 8601'
+                status_code = 422
         else:
             data = self.is_failover_possible(cluster, leader, member)
             if not data:
                 if not self.server.patroni.dcs.manual_failover(leader, member):
                     data = b'failed to write failover key into DCS'
+                    status_code = 503
                 else:
                     self.server.patroni.dcs.event.set()
                     status_code, data = self.poll_failover_result(cluster.leader and cluster.leader.name, member)
