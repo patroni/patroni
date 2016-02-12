@@ -10,17 +10,19 @@ from patroni.ha import Ha
 from patroni.postgresql import Postgresql
 from patroni.utils import setup_signal_handlers, reap_children
 from patroni.zookeeper import ZooKeeper
+from .version import __version__
 
 logger = logging.getLogger(__name__)
 
 
-class Patroni:
+class Patroni(object):
 
     def __init__(self, config):
         self.nap_time = config['loop_wait']
         self.tags = config.get('tags', dict())
         self.postgresql = Postgresql(config['postgresql'])
         self.dcs = self.get_dcs(self.postgresql.name, config)
+        self.version = __version__
         self.api = RestApiServer(self, config['restapi'])
         self.ha = Ha(self)
         self.next_run = time.time()
@@ -28,6 +30,10 @@ class Patroni:
     @property
     def nofailover(self):
         return self.tags.get('nofailover', False)
+
+    @property
+    def replicatefrom(self):
+        return self.tags.get('replicatefrom')
 
     @staticmethod
     def get_dcs(name, config):
@@ -62,7 +68,7 @@ def main():
     setup_signal_handlers()
 
     if len(sys.argv) < 2 or not os.path.isfile(sys.argv[1]):
-        print('Usage: {} config.yml'.format(sys.argv[0]))
+        print('Usage: {0} config.yml'.format(sys.argv[0]))
         return
 
     with open(sys.argv[1], 'r') as f:

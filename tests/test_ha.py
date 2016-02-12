@@ -18,7 +18,7 @@ def false(*args, **kwargs):
 
 
 def get_cluster(initialize, leader, members, failover):
-    return Cluster(initialize, leader, None, members, failover)
+    return Cluster(initialize, leader, 10, members, failover)
 
 
 def get_cluster_not_initialized_without_leader():
@@ -27,7 +27,7 @@ def get_cluster_not_initialized_without_leader():
 
 def get_cluster_initialized_without_leader(leader=False, failover=None):
     m = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
-                                 'api_url': 'http://127.0.0.1:8008/patroni', 'xlog_location':4})
+                                 'api_url': 'http://127.0.0.1:8008/patroni', 'xlog_location': 4})
     l = Leader(0, 0, m) if leader else None
     o = Member(0, 'other', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
                                 'api_url': 'http://127.0.0.1:8011/patroni'})
@@ -36,6 +36,7 @@ def get_cluster_initialized_without_leader(leader=False, failover=None):
 
 def get_cluster_initialized_with_leader(failover=None):
     return get_cluster_initialized_without_leader(leader=True, failover=failover)
+
 
 def get_cluster_initialized_with_only_leader(failover=None):
     l = get_cluster_initialized_without_leader(leader=True, failover=failover).leader
@@ -48,39 +49,51 @@ class MockPostgresql(Mock):
     role = 'replica'
     state = 'running'
     connection_string = 'postgres://foo@bar/postgres'
+    server_version = '999999'
+    scope = 'dummy'
 
-    def is_healthy(self):
+    @staticmethod
+    def is_healthy():
         return True
 
-    def start(self):
+    @staticmethod
+    def start():
         return True
 
-    def is_healthiest_node(self, members):
+    @staticmethod
+    def is_healthiest_node(members):
         return True
 
-    def is_leader(self):
+    @staticmethod
+    def is_leader():
         return True
 
-    def xlog_position(self):
+    @staticmethod
+    def xlog_position():
         return 0
 
-    def last_operation(self):
+    @staticmethod
+    def last_operation():
         return 0
 
-    def data_directory_empty(self):
+    @staticmethod
+    def data_directory_empty():
         return False
 
-    def bootstrap(self, *args, **kwargs):
+    @staticmethod
+    def bootstrap(*args, **kwargs):
         return True
 
-    def check_replication_lag(self, last_leader_operation):
+    @staticmethod
+    def check_replication_lag(last_leader_operation):
         return True
 
-    def check_recovery_conf(self, leader):
+    @staticmethod
+    def check_recovery_conf(leader):
         return False
 
 
-class MockPatroni:
+class MockPatroni(object):
 
     def __init__(self, p, d):
         self.postgresql = p
@@ -88,29 +101,31 @@ class MockPatroni:
         self.api = Mock()
         self.tags = {}
         self.nofailover = None
+        self.replicatefrom = None
         self.api.connection_string = 'http://127.0.0.1:8008'
 
 
 def run_async(func, args=()):
-    func(*args) if args else func()
+    return func(*args) if args else func()
 
 
 class TestHa(unittest.TestCase):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
-    @patch.object(Client, 'machines')
-    def setUp(self, mock_machines):
-        mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
-        self.p = MockPostgresql()
-        self.e = Etcd('foo', {'ttl': 30, 'host': 'ok:2379', 'scope': 'test'})
-        self.e.client.read = etcd_read
-        self.e.client.write = etcd_write
-        self.e.client.delete = Mock(side_effect=etcd.EtcdException())
-        self.ha = Ha(MockPatroni(self.p, self.e))
-        self.ha._async_executor.run_async = run_async
-        self.ha.old_cluster = self.e.get_cluster()
-        self.ha.cluster = get_cluster_not_initialized_without_leader()
-        self.ha.load_cluster_from_dcs = Mock()
+    def setUp(self):
+        with patch.object(Client, 'machines') as mock_machines:
+            mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
+            self.p = MockPostgresql()
+            self.p.can_create_replica_without_leader = MagicMock(return_value=False)
+            self.e = Etcd('foo', {'ttl': 30, 'host': 'ok:2379', 'scope': 'test'})
+            self.e.client.read = etcd_read
+            self.e.client.write = etcd_write
+            self.e.client.delete = Mock(side_effect=etcd.EtcdException())
+            self.ha = Ha(MockPatroni(self.p, self.e))
+            self.ha._async_executor.run_async = run_async
+            self.ha.old_cluster = self.e.get_cluster()
+            self.ha.cluster = get_cluster_not_initialized_without_leader()
+            self.ha.load_cluster_from_dcs = Mock()
 
     def test_update_lock(self):
         self.p.last_operation = Mock(side_effect=PostgresException(''))
@@ -127,13 +142,19 @@ class TestHa(unittest.TestCase):
     def test_recover_replica_failed(self):
         self.p.controldata = lambda: {'Database cluster state': 'in production'}
         self.p.is_healthy = false
-        self.p.follow_the_leader = false
+        self.p.is_running = false
+        self.p.follow = false
+        self.assertEquals(self.ha.run_cycle(), 'started as a secondary')
         self.assertEquals(self.ha.run_cycle(), 'failed to start postgres')
 
     def test_recover_master_failed(self):
-        self.p.follow_the_leader = false
+        self.p.follow = false
         self.p.is_healthy = false
+        self.p.is_running = false
         self.ha.has_lock = true
+        self.p.role = 'master'
+        self.p.controldata = lambda: {'Database cluster state': 'in production'}
+        self.assertEquals(self.ha.run_cycle(), 'started as readonly because i had the session lock')
         self.assertEquals(self.ha.run_cycle(), 'removed leader key after trying and failing to start postgres')
 
     @patch('sys.exit', return_value=1)
@@ -144,7 +165,8 @@ class TestHa(unittest.TestCase):
 
     @patch.object(Cluster, 'is_unlocked', Mock(return_value=False))
     def test_start_as_readonly(self):
-        self.p.is_leader = self.p.is_healthy = false
+        self.p.is_leader = false
+        self.p.is_healthy = true
         self.ha.has_lock = true
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader because i had the session lock')
 
@@ -158,7 +180,7 @@ class TestHa(unittest.TestCase):
 
     def test_demote_after_failing_to_obtain_lock(self):
         self.ha.acquire_lock = false
-        self.assertEquals(self.ha.run_cycle(), 'demoted self due after trying and failing to obtain lock')
+        self.assertEquals(self.ha.run_cycle(), 'demoted self after trying and failing to obtain lock')
 
     def test_follow_new_leader_after_failing_to_obtain_lock(self):
         self.ha.is_healthiest_node = true
@@ -196,9 +218,11 @@ class TestHa(unittest.TestCase):
         self.ha.update_lock = false
         self.assertEquals(self.ha.run_cycle(), 'demoting self because i do not have the lock and i was a leader')
 
-    def test_follow_the_leader(self):
+    def test_follow(self):
         self.ha.cluster.is_unlocked = false
         self.p.is_leader = false
+        self.assertEquals(self.ha.run_cycle(), 'no action.  i am a secondary and i am following a leader')
+        self.ha.patroni.replicatefrom = "foo"
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am a secondary and i am following a leader')
 
     def test_no_etcd_connection_master_demote(self):
@@ -213,6 +237,11 @@ class TestHa(unittest.TestCase):
     def test_bootstrap_waiting_for_leader(self):
         self.ha.cluster = get_cluster_initialized_without_leader()
         self.assertEquals(self.ha.bootstrap(), 'waiting for leader to bootstrap')
+
+    def test_bootstrap_without_leader(self):
+        self.ha.cluster = get_cluster_initialized_without_leader()
+        self.p.can_create_replica_without_leader = MagicMock(return_value=True)
+        self.assertEquals(self.ha.bootstrap(), "trying to bootstrap without leader")
 
     def test_bootstrap_initialize_lock_failed(self):
         self.ha.cluster = get_cluster_not_initialized_without_leader()
@@ -333,3 +362,12 @@ class TestHa(unittest.TestCase):
         self.ha.fetch_node_status(member)
         member = Member(0, 'test', 1, {'api_url': 'http://localhost:8011/patroni'})
         self.ha.fetch_node_status(member)
+
+    def test_post_recover(self):
+        self.p.is_running = false
+        self.ha.has_lock = true
+        self.assertEqual(self.ha.post_recover(), 'removed leader key after trying and failing to start postgres')
+        self.ha.has_lock = false
+        self.assertEqual(self.ha.post_recover(), 'failed to start postgres')
+        self.p.is_running = true
+        self.assertIsNone(self.ha.post_recover())

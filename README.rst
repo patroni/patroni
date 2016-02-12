@@ -77,7 +77,8 @@ For an example file, see ``postgres0.yml``. Regarding settings:
 
 -  *postgresql*:
     -  *name*: the name of the Postgres host. Must be unique for the cluster.
-    -  *listen*: IP address + port that Postgres listens to; must be accessible from other nodes in the cluster, if you're using streaming replication.
+    -  *listen*: IP address + port that Postgres listens to; must be accessible from other nodes in the cluster, if you're using streaming replication. Multiple comma-separated addresses are permitted, as long as the port component is appended after to the last one with a colon, i.e. ``listen: 127.0.0.1,127.0.0.2:5432``. The first address from this list will be used by Patroni to establish local connections to the PostgreSQL node. 
+    
     -  *connect\_address*: IP address + port through which Postgres is accessible from other nodes and applications.
     -  *data\_dir*: file path to initialize and store Postgres data files.
     -  *maximum\_lag\_on\_failover*: the maximum bytes a follower may lag.

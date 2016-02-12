@@ -28,19 +28,19 @@ def time_sleep(*args):
 @patch.object(AsyncExecutor, 'run', Mock())
 class TestPatroni(unittest.TestCase):
 
-    @patch.object(Client, 'machines')
-    def setUp(self, mock_machines):
-        mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
-        self.touched = False
-        self.init_cancelled = False
-        RestApiServer._BaseServer__is_shut_down = Mock()
-        RestApiServer._BaseServer__shutdown_request = True
-        RestApiServer.socket = 0
-        with open('postgres0.yml', 'r') as f:
-            config = yaml.load(f)
-            self.p = Patroni(config)
-            self.p.ha.dcs.client.write = etcd_write
-            self.p.ha.dcs.client.read = etcd_read
+    def setUp(self):
+        with patch.object(Client, 'machines') as mock_machines:
+            mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
+            self.touched = False
+            self.init_cancelled = False
+            RestApiServer._BaseServer__is_shut_down = Mock()
+            RestApiServer._BaseServer__shutdown_request = True
+            RestApiServer.socket = 0
+            with open('postgres0.yml', 'r') as f:
+                config = yaml.load(f)
+                self.p = Patroni(config)
+                self.p.ha.dcs.client.write = etcd_write
+                self.p.ha.dcs.client.read = etcd_read
 
     @patch('patroni.zookeeper.KazooClient', MockKazooClient())
     def test_get_dcs(self):
@@ -80,3 +80,8 @@ class TestPatroni(unittest.TestCase):
         self.assertTrue(self.p.nofailover)
         self.p.tags['nofailover'] = None
         self.assertFalse(self.p.nofailover)
+
+    def test_replicatefrom(self):
+        self.assertIsNone(self.p.replicatefrom)
+        self.p.tags['replicatefrom'] = 'foo'
+        self.assertEqual(self.p.replicatefrom, 'foo')

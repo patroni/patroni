@@ -19,7 +19,7 @@ def is_file_raise_on_backup(*args, **kwargs):
         raise Exception("foo")
 
 
-class MockCursor:
+class MockCursor(object):
 
     def __init__(self, connection):
         self.connection = connection
@@ -59,7 +59,8 @@ class MockCursor:
     def fetchall(self):
         return self.results
 
-    def close(self):
+    @staticmethod
+    def close():
         pass
 
     def __iter__(self):
@@ -154,9 +155,12 @@ def psycopg2_connect(*args, **kwargs):
     return MockConnect()
 
 
+def fake_listdir(path):
+    return ["a", "b", "c"] if path.endswith('pg_xlog/archive_status') else []
+
+
 @patch('subprocess.call', Mock(return_value=0))
 @patch('psycopg2.connect', psycopg2_connect)
-@patch('shutil.copy', Mock())
 class TestPostgresql(unittest.TestCase):
 
     @patch('subprocess.call', Mock(return_value=0))
@@ -165,7 +169,7 @@ class TestPostgresql(unittest.TestCase):
         self.p = Postgresql({'name': 'test0', 'scope': 'batman', 'data_dir': 'data/test0',
                              'listen': '127.0.0.1, *:5432', 'connect_address': '127.0.0.2:5432',
                              'pg_hba': ['hostssl all all 0.0.0.0/0 md5', 'host all all 0.0.0.0/0 md5'],
-                             'superuser': {'password': 'test'},
+                             'superuser': {'username': 'test', 'password': 'test'},
                              'admin': {'username': 'admin', 'password': 'admin'},
                              'pg_rewind': {'username': 'admin', 'password': 'admin'},
                              'replication': {'username': 'replicator',
@@ -181,7 +185,8 @@ class TestPostgresql(unittest.TestCase):
             os.makedirs(self.p.data_dir)
         self.leadermem = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres'})
         self.leader = Leader(-1, 28, self.leadermem)
-        self.other = Member(0, 'test1', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres'})
+        self.other = Member(0, 'test1', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
+                            'tags': {'replicatefrom': 'leader'}})
         self.me = Member(0, 'test0', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres'})
 
     def tearDown(self):
@@ -203,6 +208,11 @@ class TestPostgresql(unittest.TestCase):
     def test_initialize(self):
         self.assertTrue(self.p.initialize())
         self.assertTrue(os.path.exists(os.path.join(self.p.data_dir, 'pg_hba.conf')))
+
+    @patch('os.path.exists', Mock(return_value=True))
+    @patch('os.unlink', Mock())
+    def test_delete_trigger_file(self):
+        self.p.delete_trigger_file()
 
     def test_start(self):
         self.assertTrue(self.p.start())
@@ -228,10 +238,12 @@ class TestPostgresql(unittest.TestCase):
         self.p.write_pgpass({'host': 'localhost', 'port': '5432', 'user': 'foo', 'password': 'bar'})
 
     @patch('patroni.postgresql.Postgresql.write_pgpass', MagicMock(return_value=dict()))
-    def test_sync_from_leader(self):
-        self.assertTrue(self.p.sync_from_leader(self.leader))
+    def test_sync_replica(self):
+        self.assertTrue(self.p.sync_replica(self.leader))
+        self.p.create_replica = Mock(return_value=1)
+        self.assertFalse(self.p.sync_replica(self.leader))
 
-    @patch('subprocess.call', side_effect=Exception("Test"))
+    @patch('subprocess.call', side_effect=OSError)
     @patch('patroni.postgresql.Postgresql.write_pgpass', MagicMock(return_value=dict()))
     def test_pg_rewind(self, mock_call):
         self.assertTrue(self.p.rewind(self.leader))
@@ -242,25 +254,25 @@ class TestPostgresql(unittest.TestCase):
     @patch('patroni.postgresql.Postgresql.remove_data_directory', MagicMock(return_value=True))
     @patch('patroni.postgresql.Postgresql.single_user_mode', MagicMock(return_value=1))
     @patch('patroni.postgresql.Postgresql.write_pgpass', MagicMock(return_value=dict()))
-    def test_follow_the_leader(self, mock_pg_rewind):
-        self.p.demote()
-        self.p.follow_the_leader(None)
-        self.p.demote()
-        self.p.follow_the_leader(self.leader)
-        self.p.follow_the_leader(Leader(-1, 28, self.other))
+    def test_follow(self, mock_pg_rewind):
+        self.p.follow(None)
+        self.p.follow(self.leader)
+        self.p.follow(Leader(-1, 28, self.other))
         self.p.rewind = mock_pg_rewind
-        self.p.follow_the_leader(self.leader)
+        self.p.follow(self.leader)
         self.p.require_rewind()
         with mock.patch('os.path.islink', MagicMock(return_value=True)):
             with mock.patch('patroni.postgresql.Postgresql.can_rewind', new_callable=PropertyMock(return_value=True)):
                 with mock.patch('os.unlink', MagicMock(return_value=True)):
-                    self.p.follow_the_leader(self.leader, recovery=True)
+                    self.p.follow(self.leader, recovery=True)
         self.p.require_rewind()
         with mock.patch('patroni.postgresql.Postgresql.can_rewind', new_callable=PropertyMock(return_value=True)):
             self.p.rewind.return_value = True
-            self.p.follow_the_leader(self.leader, recovery=True)
+            self.p.follow(self.leader, recovery=True)
             self.p.rewind.return_value = False
-            self.p.follow_the_leader(self.leader, recovery=True)
+            self.p.follow(self.leader, recovery=True)
+        with mock.patch('patroni.postgresql.Postgresql.check_recovery_conf', MagicMock(return_value=True)):
+            self.assertTrue(self.p.follow(None))
 
     def test_can_rewind(self):
         tmp = self.p.pg_rewind
@@ -294,12 +306,6 @@ class TestPostgresql(unittest.TestCase):
         with patch('subprocess.call', Mock(side_effect=Exception("foo"))):
             self.assertEquals(self.p.create_replica(self.leader, ''), 1)
 
-    def test_create_connection_users(self):
-        cfg = self.p.config
-        cfg['superuser']['username'] = 'test'
-        p = Postgresql(cfg)
-        p.create_connection_users()
-
     def test_sync_replication_slots(self):
         self.p.start()
         cluster = Cluster(True, self.leader, 0, [self.me, self.other, self.leadermem], None)
@@ -307,6 +313,9 @@ class TestPostgresql(unittest.TestCase):
         self.p.query = Mock(side_effect=psycopg2.OperationalError)
         self.p.schedule_load_slots = True
         self.p.sync_replication_slots(cluster)
+        self.p.schedule_load_slots = False
+        with mock.patch('patroni.postgresql.Postgresql.role', new_callable=PropertyMock(return_value='replica')):
+            self.p.sync_replication_slots(cluster)
 
     @patch.object(MockConnect, 'closed', 2)
     def test__query(self):
@@ -366,7 +375,8 @@ class TestPostgresql(unittest.TestCase):
         with patch('subprocess.call', Mock(return_value=1)):
             self.assertRaises(PostgresException, self.p.bootstrap)
         self.p.bootstrap()
-        self.p.bootstrap(self.leader)
+        with patch('patroni.postgresql.Postgresql.sync_replica', MagicMock(return_value=True)):
+            self.p.bootstrap(self.leader)
 
     def test_remove_data_directory(self):
         self.p.data_dir = 'data_dir'
@@ -376,7 +386,7 @@ class TestPostgresql(unittest.TestCase):
         open(self.p.data_dir, 'w').close()
         self.p.remove_data_directory()
         os.symlink('unexisting', self.p.data_dir)
-        with patch('os.unlink', Mock(side_effect=Exception)):
+        with patch('os.unlink', Mock(side_effect=OSError)):
             self.p.remove_data_directory()
         self.p.remove_data_directory()
 
@@ -431,11 +441,6 @@ class TestPostgresql(unittest.TestCase):
         subprocess_popen_mock.return_value = None
         self.assertEquals(self.p.single_user_mode(), 1)
 
-    def fake_listdir(path):
-        if path.endswith(os.path.join('pg_xlog', 'archive_status')):
-            return ["a", "b", "c"]
-        return []
-
     @patch('os.listdir', MagicMock(side_effect=fake_listdir))
     @patch('os.path.isdir', MagicMock(return_value=True))
     @patch('os.unlink', return_value=True)
@@ -459,8 +464,8 @@ class TestPostgresql(unittest.TestCase):
         mock_unlink.reset_mock()
         mock_remove.reset_mock()
 
-        mock_file.side_effect = Exception("foo")
-        mock_link.side_effect = Exception("foo")
+        mock_file.side_effect = OSError
+        mock_link.side_effect = OSError
         self.p.cleanup_archive_status()
         mock_unlink.assert_not_called()
         mock_remove.assert_not_called()
@@ -469,14 +474,27 @@ class TestPostgresql(unittest.TestCase):
     def test_sysid(self):
         self.assertEqual(self.p.sysid, "6200971513092291716")
 
-    @patch('os.path.isfile', MagicMock(return_value=True))
-    @patch('shutil.copy', side_effect=Exception)
-    def test_save_configuration_files(self, mock_copy):
-        shutil.copy = mock_copy
+    @patch('os.path.isfile', Mock(return_value=True))
+    @patch('shutil.copy', Mock(side_effect=IOError))
+    def test_save_configuration_files(self):
         self.p.save_configuration_files()
 
-    @patch('os.path.isfile', MagicMock(side_effect=is_file_raise_on_backup))
-    @patch('shutil.copy', side_effect=Exception)
-    def test_restore_configuration_files(self, mock_copy):
-        shutil.copy = mock_copy
+    @patch('os.path.isfile', Mock(side_effect=[False, True]))
+    @patch('shutil.copy', Mock(side_effect=IOError))
+    def test_restore_configuration_files(self):
         self.p.restore_configuration_files()
+
+    def test_can_create_replica_without_leader(self):
+        self.p.config['create_replica_method'] = []
+        self.assertFalse(self.p.can_create_replica_without_leader())
+        self.p.config['create_replica_method'] = ['wale', 'basebackup']
+        self.p.config['wale'] = {'command': 'foo', 'no_master': 1}
+        self.assertTrue(self.p.can_create_replica_without_leader())
+
+    def test_replica_method_can_work_without_leader(self):
+        self.assertFalse(self.p.replica_method_can_work_without_leader('basebackup'))
+        self.assertFalse(self.p.replica_method_can_work_without_leader('foobar'))
+        self.p.config['foo'] = {'command': 'bar', 'no_master': 1}
+        self.assertTrue(self.p.replica_method_can_work_without_leader('foo'))
+        self.p.config['foo'] = {'command': 'bar'}
+        self.assertFalse(self.p.replica_method_can_work_without_leader('foo'))

@@ -51,7 +51,8 @@ class Client(etcd.Client):
 
     def api_execute(self, path, method, **kwargs):
         # Update machines_cache if previous attempt of update has failed
-        self._update_machines_cache and self._load_machines_cache()
+        if self._update_machines_cache:
+            self._load_machines_cache()
         try:
             return super(Client, self).api_execute(path, method, **kwargs)
         except etcd.EtcdConnectionFailed:
@@ -73,7 +74,7 @@ class Client(etcd.Client):
         except urllib3.exceptions.TimeoutError:
             raise
         except Exception as e:
-            raise etcd.EtcdException('Unable to decode server response: %s' % e)
+            raise etcd.EtcdException('Unable to decode server response: {0}'.format(e))
         return super(Client, self)._result_from_response(response)
 
     def _get_machines_cache_from_srv(self, discovery_srv):
@@ -83,7 +84,7 @@ class Client(etcd.Client):
 
         ret = []
         for host, port in self.get_srv_record(discovery_srv):
-            url = '{}://{}:{}/members'.format(self._protocol, host, port)
+            url = '{0}://{1}:{2}/members'.format(self._protocol, host, port)
             try:
                 response = requests.get(url, timeout=5)
                 if response.ok:
@@ -101,10 +102,10 @@ class Client(etcd.Client):
         host, port = addr.split(':')
         try:
             for r in set(socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)):
-                ret.append('{}://{}:{}'.format(self._protocol, r[4][0], r[4][1]))
+                ret.append('{0}://{1}:{2}'.format(self._protocol, r[4][0], r[4][1]))
         except socket.error:
             logger.exception('Can not resolve %s', host)
-        return list(set(ret)) if ret else ['{}://{}:{}'.format(self._protocol, host, port)]
+        return list(set(ret)) if ret else ['{0}://{1}:{2}'.format(self._protocol, host, port)]
 
     def _load_machines_cache(self):
         """This method should fill up `_machines_cache` from scratch.
@@ -132,7 +133,9 @@ class Client(etcd.Client):
         # After filling up initial list of machines_cache we should ask etcd-cluster about actual list
         self._base_uri = self._machines_cache.pop(0)
         self._machines_cache = self.machines
-        self._base_uri in self._machines_cache and self._machines_cache.remove(self._base_uri)
+
+        if self._base_uri in self._machines_cache:
+            self._machines_cache.remove(self._base_uri)
 
         self._update_machines_cache = False
 
@@ -140,7 +143,7 @@ class Client(etcd.Client):
 def catch_etcd_errors(func):
     def wrapper(*args, **kwargs):
         try:
-            return not func(*args, **kwargs) is None
+            return func(*args, **kwargs) is not None
         except (RetryFailedError, etcd.EtcdException):
             return False
         except:
@@ -165,7 +168,8 @@ class Etcd(AbstractDCS):
     def retry(self, *args, **kwargs):
         return self._retry.copy()(*args, **kwargs)
 
-    def get_etcd_client(self, config):
+    @staticmethod
+    def get_etcd_client(config):
         client = None
         while not client:
             try:
@@ -185,25 +189,25 @@ class Etcd(AbstractDCS):
             nodes = {os.path.relpath(node.key, result.key): node for node in result.leaves}
 
             # get initialize flag
-            initialize = nodes.get(self._INITIALIZE, None)
+            initialize = nodes.get(self._INITIALIZE)
             initialize = initialize and initialize.value
 
             # get last leader operation
-            last_leader_operation = nodes.get(self._LEADER_OPTIME, None)
+            last_leader_operation = nodes.get(self._LEADER_OPTIME)
             last_leader_operation = 0 if last_leader_operation is None else int(last_leader_operation.value)
 
             # get list of members
             members = [self.member(n) for k, n in nodes.items() if k.startswith(self._MEMBERS) and k.count('/') == 1]
 
             # get leader
-            leader = nodes.get(self._LEADER, None)
+            leader = nodes.get(self._LEADER)
             if leader:
                 member = Member(-1, leader.value, None, {})
                 member = ([m for m in members if m.name == leader.value] or [member])[0]
                 leader = Leader(leader.modifiedIndex, leader.ttl, member)
 
             # failover key
-            failover = nodes.get(self._FAILOVER, None)
+            failover = nodes.get(self._FAILOVER)
             if failover:
                 failover = Failover.from_node(failover.modifiedIndex, failover.value)
 

@@ -9,7 +9,7 @@ import boto.ec2
 logger = logging.getLogger(__name__)
 
 
-class AWSConnection:
+class AWSConnection(object):
     def __init__(self, cluster_name):
         self.available = False
         self.cluster_name = cluster_name if cluster_name is not None else 'unknown'
@@ -56,7 +56,7 @@ class AWSConnection:
             conn = boto.ec2.connect_to_region(self.region)
             conn.create_tags([self.instance_id], tags)
         except Exception as e:
-            logger.info("could not set tags for EC2 instance {}: {}".format(self.instance_id, e))
+            logger.info("could not set tags for EC2 instance %s: %s", self.instance_id, e)
             return False
         return True
 

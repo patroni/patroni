@@ -4,7 +4,7 @@ scope: &scope batman
 restapi:
   listen: 127.0.0.1:8009
   connect_address: 127.0.0.1:8009
-  auth: 'username:password'
+#  auth: 'username:password'
 #  certfile: /etc/ssl/certs/ssl-cert-snakeoil.pem
 #  keyfile: /etc/ssl/private/ssl-cert-snakeoil.key
 etcd:
@@ -63,7 +63,7 @@ postgresql:
     password: rep-pass
     network: 127.0.0.1/32
   superuser:
-    user: postgres
+    username: postgres
     password: zalando
   admin:
     username: admin
@@ -88,14 +88,13 @@ postgresql:
     archive_mode: "on"
     wal_level: hot_standby
     archive_command: mkdir -p ../wal_archive && test ! -f ../wal_archive/%f && cp %p ../wal_archive/%f
-    max_wal_senders: 5
+    max_wal_senders: 10
     wal_keep_segments: 8
     archive_timeout: 1800s
-    max_replication_slots: 5
+    max_replication_slots: 10
     hot_standby: "on"
     wal_log_hints: "on"
 tags:
     nofailover: False
     noloadbalance: False
     clonefrom: False
-    replicatefrom: 127.0.0.1
