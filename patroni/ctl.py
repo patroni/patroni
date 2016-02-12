@@ -61,7 +61,7 @@ def load_config(path, dcs):
     try:
         with open(path, 'rb') as fd:
             config = yaml.safe_load(fd)
-    except:
+    except (IOError, yaml.YAMLError):
         logging.exception('Could not load configuration file')
 
     if dcs:
@@ -81,7 +81,7 @@ def store_config(config, path):
 
 
 option_config_file = click.option('--config-file', '-c', help='Configuration file', default=CONFIG_FILE_PATH)
-option_format = click.option('--format', '-f', help='Output format (pretty, json)', default='pretty')
+option_format = click.option('--format', '-f', 'fmt', help='Output format (pretty, json)', default='pretty')
 option_dcs = click.option('--dcs', '-d', help='Use this DCS', envvar='DCS')
 option_watchrefresh = click.option('-w', '--watch', type=float, help='Auto update the screen every X seconds')
 option_watch = click.option('-W', is_flag=True, help='Auto update the screen every 2 seconds')
@@ -114,9 +114,9 @@ def post_patroni(member, endpoint, content, headers=None):
                          data=json.dumps(content), timeout=60)
 
 
-def print_output(columns, rows=None, alignment=None, format='pretty', header=True, delimiter='\t'):
+def print_output(columns, rows=None, alignment=None, fmt='pretty', header=True, delimiter='\t'):
     rows = rows or []
-    if format == 'pretty':
+    if fmt == 'pretty':
         t = PrettyTable(columns)
         for k, v in (alignment or {}).items():
             t.align[k] = v
@@ -125,14 +125,14 @@ def print_output(columns, rows=None, alignment=None, format='pretty', header=Tru
         click.echo(t)
         return
 
-    if format == 'json':
+    if fmt == 'json':
         elements = list()
         for r in rows:
             elements.append(dict(zip(columns, r)))
 
         click.echo(json.dumps(elements))
 
-    if format == 'tsv':
+    if fmt == 'tsv':
         if columns is not None and header:
             click.echo(delimiter.join(columns) + '\n')
 
@@ -251,8 +251,8 @@ def dsn(cluster_name, config_file, dcs, role, member):
 @click.argument('cluster_name')
 @option_config_file
 @option_format
-@click.option('--format', help='Output format (pretty, json)', default='tsv')
-@click.option('--file', '-f', help='Execute the SQL commands from this file', type=click.File('rb'))
+@click.option('--format', 'fmt', help='Output format (pretty, json)', default='tsv')
+@click.option('--file', '-f', 'p_file', help='Execute the SQL commands from this file', type=click.File('rb'))
 @click.option('--password', help='force password prompt', is_flag=True)
 @click.option('-U', '--username', help='database user name', type=str)
 @option_dcs
@@ -274,21 +274,21 @@ def query(
     watch,
     delimiter,
     command,
-    file,
+    p_file,
     password,
     username,
     dbname,
-    format='tsv',
+    fmt='tsv',
 ):
     if role is not None and member is not None:
         raise PatroniCtlException('--role and --member are mutually exclusive options')
     if member is None and role is None:
         role = 'master'
 
-    if file is not None and command is not None:
+    if p_file is not None and command is not None:
         raise PatroniCtlException('--file and --command are mutually exclusive options')
 
-    if file is None and command is None:
+    if p_file is None and command is None:
         raise PatroniCtlException('You need to specify either --command or --file')
 
     connect_parameters = dict()
@@ -299,8 +299,8 @@ def query(
     if dbname:
         connect_parameters['database'] = dbname
 
-    if file is not None:
-        command = file.read()
+    if p_file is not None:
+        command = p_file.read()
 
     config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
@@ -309,7 +309,7 @@ def query(
 
         output, cursor = query_member(cluster=cluster, cursor=cursor, member=member, role=role, command=command,
                                       connect_parameters=connect_parameters)
-        print_output(None, output, format=format, delimiter=delimiter)
+        print_output(None, output, fmt=fmt, delimiter=delimiter)
 
         if cursor is None:
             cluster = dcs.get_cluster()
@@ -351,13 +351,13 @@ def query_member(cluster, cursor, member, role, command, connect_parameters=None
 @option_config_file
 @option_format
 @option_dcs
-def remove(config_file, cluster_name, format, dcs):
+def remove(config_file, cluster_name, fmt, dcs):
     config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
     if not isinstance(dcs, Etcd):
         raise PatroniCtlException('We have not implemented this for DCS of type {0}'.format(type(dcs)))
 
-    output_members(cluster, format=format)
+    output_members(cluster, fmt=fmt)
 
     confirm = click.prompt('Please confirm the cluster name to remove', type=str)
     if confirm != cluster_name:
@@ -431,11 +431,11 @@ def ctl_load_config(cluster_name, config_file, dcs):
 @click.argument('member_names', nargs=-1)
 @click.option('--role', '-r', help='Restart only members with this role', default='any',
               type=click.Choice(['master', 'replica', 'any']))
-@click.option('--any', help='Restart a single member only', is_flag=True)
+@click.option('--any', 'p_any', help='Restart a single member only', is_flag=True)
 @option_config_file
 @option_force
 @option_dcs
-def restart(cluster_name, member_names, config_file, dcs, force, role, any):
+def restart(cluster_name, member_names, config_file, dcs, force, role, p_any):
     config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
     role_names = [m.name for m in get_all_members(cluster=cluster, role=role)]
@@ -445,7 +445,7 @@ def restart(cluster_name, member_names, config_file, dcs, force, role, any):
     else:
         member_names = role_names
 
-    if any:
+    if p_any:
         random.shuffle(member_names)
         member_names = member_names[:1]
 
@@ -552,7 +552,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs):
     output_members(cluster, name=cluster_name)
 
 
-def output_members(cluster, name=None, format='pretty'):
+def output_members(cluster, name=None, fmt='pretty'):
     rows = []
     logging.debug(cluster)
     leader_name = None
@@ -597,7 +597,7 @@ def output_members(cluster, name=None, format='pretty'):
     ]
     alignment = {'Cluster': 'l', 'Member': 'l', 'Host': 'l', 'Lag in MB': 'r'}
 
-    print_output(columns, rows, alignment, format)
+    print_output(columns, rows, alignment, fmt)
 
 
 @ctl.command('list', help='List the Patroni members for a given Patroni')
@@ -607,7 +607,7 @@ def output_members(cluster, name=None, format='pretty'):
 @option_watch
 @option_watchrefresh
 @option_dcs
-def members(config_file, cluster_names, format, watch, w, dcs):
+def members(config_file, cluster_names, fmt, watch, w, dcs):
     if not cluster_names:
         logging.warning('Listing members: No cluster names were provided')
         return
@@ -617,7 +617,7 @@ def members(config_file, cluster_names, format, watch, w, dcs):
         dcs = get_dcs(config, cn)
 
         for _ in watching(w, watch):
-            output_members(dcs.get_cluster(), name=cn, format=format)
+            output_members(dcs.get_cluster(), name=cn, fmt=fmt)
 
 
 def timestamp(precision=6):

@@ -253,7 +253,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         return {'tags': self.server.patroni.tags}
 
     def log_message(self, fmt, *args):
-        logger.debug("API thread: " + fmt % args)
+        logger.debug("API thread: %s - - [%s] %s", self.client_address[0], self.log_date_time_string() + fmt % args)
 
 
 class RestApiServer(ThreadingMixIn, HTTPServer, Thread):

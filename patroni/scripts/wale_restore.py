@@ -107,23 +107,18 @@ class WALERestore(object):
         # construct the LSN from the segment and offset
         backup_start_lsn = '{0}/{1}'.format(lsn_segment, lsn_offset)
 
-        conn = None
-        cursor = None
         diff_in_bytes = long(backup_size)
         if not self.no_master:
             try:
                 # get the difference in bytes between the current WAL location and the backup start offset
-                conn = psycopg2.connect(self.master_connection)
-                conn.autocommit = True
-                cursor = conn.cursor()
-                cursor.execute("SELECT pg_xlog_location_diff(pg_current_xlog_location(), %s)", (backup_start_lsn,))
-                diff_in_bytes = long(cursor.fetchone()[0])
+                with psycopg2.connect(self.master_connection) as con:
+                    con.autocommit = True
+                    with con.cursor() as cur:
+                        cur.execute("SELECT pg_xlog_location_diff(pg_current_xlog_location(), %s)", (backup_start_lsn,))
+                        diff_in_bytes = long(cur.fetchone()[0])
             except psycopg2.Error as e:
-                logger.error('could not determine difference with the master location: {}'.format(e))
+                logger.error('could not determine difference with the master location: %s', e)
                 return False
-            finally:
-                cursor and cursor.close()
-                conn and conn.close()
         else:
             # always try to use WAL-E if base backup is available
             diff_in_bytes = 0
