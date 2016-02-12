@@ -100,4 +100,3 @@ class TestWALERestore(unittest.TestCase):
     @patch.object(WALERestore, 'run', MagicMock(return_value=0))
     def test_main(self):
         self.assertEqual(_main(), None)
-        sys.argv
