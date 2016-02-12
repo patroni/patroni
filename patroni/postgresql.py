@@ -256,10 +256,7 @@ class Postgresql(object):
             that does not require a running leader to create the replica.
         """
         replica_methods = self.config.get('create_replica_method', [])
-        for replica_method in replica_methods:
-            if self.replica_method_can_work_without_leader(replica_method):
-                return True
-        return False
+        return any(self.replica_method_can_work_without_leader(replica_method) for replica_method in replica_methods)
 
     def create_replica(self, leader, env):
         # create the replica according to the replica_method
@@ -492,7 +489,7 @@ recovery_target_timeline = 'latest'
         # first run a checkpoint on a promoted master in order
         # to make it store the new timeline (5540277D.8020309@iki.fi)
         self.checkpoint(r)
-        logger.info("running pg_rewind from {0}".format(pc))
+        logger.info("running pg_rewind from %s", pc)
         pg_rewind = ['pg_rewind', '-D', self.data_dir, '--source-server', pc]
         try:
             ret = subprocess.call(pg_rewind, env=env) == 0

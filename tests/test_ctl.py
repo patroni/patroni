@@ -199,6 +199,12 @@ y''')
 
                 result = runner.invoke(ctl, [
                     'query',
+                    'alpha'
+                ])
+                assert 'You need to specify' in str(result.output)
+
+                result = runner.invoke(ctl, [
+                    'query',
                     'alpha',
                     '--file',
                     'dummy',
