@@ -50,5 +50,5 @@ class AsyncExecutor(object):
     def __enter__(self):
         self._thread_lock.acquire()
 
-    def __exit__(self, exc_type, exc_value, exc_traceback):
+    def __exit__(self, *args):
         self._thread_lock.release()
