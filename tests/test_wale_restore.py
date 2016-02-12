@@ -1,8 +1,10 @@
-import unittest
-from mock import MagicMock, patch, PropertyMock
 import psycopg2
 import subprocess
-from patroni.scripts.wale_restore import WALERestore, main
+import sys
+import unittest
+
+from mock import MagicMock, patch, PropertyMock
+from patroni.scripts.wale_restore import WALERestore, main as _main
 
 
 def fake_cursor_fetchone(*args, **kwargs):
@@ -94,6 +96,8 @@ class TestWALERestore(unittest.TestCase):
             with patch.object(self.wale_restore, 'create_replica_with_s3', MagicMock(return_value=0)):
                 self.assertEqual(self.wale_restore.run(), 0)
 
+    @patch('sys.exit', MagicMock())
+    @patch.object(WALERestore, 'run', MagicMock(return_value=0))
     def test_main(self):
-        with patch('sys.exit', MagicMock(return_value=0)):
-            self.assertEqual(main(), None)
+        self.assertEqual(_main(), None)
+        sys.argv

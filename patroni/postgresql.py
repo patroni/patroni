@@ -509,8 +509,7 @@ recovery_target_timeline = 'latest'
                 result = {l.split(':')[0].replace('Current ', '', 1): l.split(':')[1].strip() for l in data if l}
         except subprocess.CalledProcessError:
             logger.exception("Error when calling pg_controldata")
-        finally:
-            return result
+        return result
 
     def read_postmaster_opts(self):
         """ returns the list of option names/values from postgres.opts, Empty dict if read failed or no file """

@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
 # sample script to clone new replicas using WAL-E restore
 # falls back to pg_basebackup if WAL-E restore fails, or if
@@ -36,7 +36,6 @@ import argparse
 if sys.hexversion >= 0x03000000:
     long = int
 
-logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -140,6 +139,7 @@ class WALERestore(object):
 
 
 def main():
+    logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
     parser = argparse.ArgumentParser(description='Script to image replicas using WAL-E')
     parser.add_argument('--scope', required=True)
     parser.add_argument('--role', required=False)

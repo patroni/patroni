@@ -7,7 +7,7 @@ from mock import Mock, patch
 from patroni.api import RestApiServer
 from patroni.async_executor import AsyncExecutor
 from patroni.etcd import Etcd
-from patroni import Patroni, main
+from patroni import Patroni, main as _main
 from patroni.zookeeper import ZooKeeper
 from six.moves import BaseHTTPServer
 from test_etcd import Client, SleepException, etcd_read, etcd_write
@@ -51,14 +51,14 @@ class TestPatroni(unittest.TestCase):
     @patch.object(Etcd, 'delete_leader', Mock())
     @patch.object(Client, 'machines')
     def test_patroni_main(self, mock_machines):
-        main()
+        _main()
         sys.argv = ['patroni.py', 'postgres0.yml']
 
         mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
         with patch.object(Patroni, 'run', Mock(side_effect=SleepException())):
-            self.assertRaises(SleepException, main)
+            self.assertRaises(SleepException, _main)
         with patch.object(Patroni, 'run', Mock(side_effect=KeyboardInterrupt())):
-            main()
+            _main()
 
     @patch('time.sleep', Mock(side_effect=SleepException()))
     def test_run(self):

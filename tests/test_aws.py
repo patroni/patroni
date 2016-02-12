@@ -1,9 +1,11 @@
-import unittest
-import requests
 import boto.ec2
+import requests
+import sys
+import unittest
 
+from mock import Mock, patch
 from collections import namedtuple
-from patroni.scripts.aws import AWSConnection
+from patroni.scripts.aws import AWSConnection, main as _main
 from requests.exceptions import RequestException
 
 
@@ -84,3 +86,9 @@ class TestAWSConnection(unittest.TestCase):
     def test_aws_tag_ec2_error(self):
         self.error = True
         self.assertFalse(self.conn._tag_ec2("master"))
+
+    @patch('sys.exit', Mock())
+    def test_main(self):
+        self.assertIsNone(_main())
+        sys.argv = ['aws.py', 'on_start', 'replica', 'foo']
+        self.assertIsNone(_main())

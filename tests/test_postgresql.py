@@ -254,6 +254,7 @@ class TestPostgresql(unittest.TestCase):
     @patch('patroni.postgresql.Postgresql.remove_data_directory', MagicMock(return_value=True))
     @patch('patroni.postgresql.Postgresql.single_user_mode', MagicMock(return_value=1))
     @patch('patroni.postgresql.Postgresql.write_pgpass', MagicMock(return_value=dict()))
+    @patch('subprocess.check_output', Mock(return_value=0, side_effect=pg_controldata_string))
     def test_follow(self, mock_pg_rewind):
         self.p.follow(None)
         self.p.follow(self.leader)
@@ -274,6 +275,7 @@ class TestPostgresql(unittest.TestCase):
         with mock.patch('patroni.postgresql.Postgresql.check_recovery_conf', MagicMock(return_value=True)):
             self.assertTrue(self.p.follow(None))
 
+    @patch('subprocess.check_output', Mock(return_value=0, side_effect=pg_controldata_string))
     def test_can_rewind(self):
         tmp = self.p.pg_rewind
         self.p.pg_rewind = None
@@ -283,7 +285,7 @@ class TestPostgresql(unittest.TestCase):
             self.assertFalse(self.p.can_rewind)
         with mock.patch('subprocess.call', side_effect=OSError("foo")):
             self.assertFalse(self.p.can_rewind)
-        tmp = self.p.controldata()
+        tmp = self.p.controldata
         self.p.controldata = lambda: {'wal_log_hints setting': 'on'}
         self.assertTrue(self.p.can_rewind)
         self.p.controldata = tmp
@@ -390,22 +392,16 @@ class TestPostgresql(unittest.TestCase):
             self.p.remove_data_directory()
         self.p.remove_data_directory()
 
-    @patch('subprocess.check_output', MagicMock(return_value=0, side_effect=pg_controldata_string))
-    @patch('subprocess.check_output', side_effect=subprocess.CalledProcessError)
-    @patch('subprocess.check_output', side_effect=Exception('Failed'))
-    def test_controldata(self, check_output_call_error, check_output_generic_exception):
-        data = self.p.controldata()
-        self.assertEquals(len(data), 50)
-        self.assertEquals(data['Database cluster state'], 'shut down in recovery')
-        self.assertEquals(data['wal_log_hints setting'], 'on')
-        self.assertEquals(int(data['Database block size']), 8192)
+    def test_controldata(self):
+        with patch('subprocess.check_output', Mock(return_value=0, side_effect=pg_controldata_string)):
+            data = self.p.controldata()
+            self.assertEquals(len(data), 50)
+            self.assertEquals(data['Database cluster state'], 'shut down in recovery')
+            self.assertEquals(data['wal_log_hints setting'], 'on')
+            self.assertEquals(int(data['Database block size']), 8192)
 
-        subprocess.check_output = check_output_call_error
-        data = self.p.controldata()
-        self.assertEquals(data, dict())
-
-        subprocess.check_output = check_output_generic_exception
-        self.assertRaises(Exception, self.p.controldata())
+        with patch('subprocess.check_output', Mock(side_effect=subprocess.CalledProcessError(1, ''))):
+            self.assertEquals(self.p.controldata(), {})
 
     def test_read_postmaster_opts(self):
         m = mock_open(read_data=postmaster_opts_string())

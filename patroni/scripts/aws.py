@@ -66,6 +66,7 @@ class AWSConnection(object):
 
 
 def main():
+    logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
     if len(sys.argv) == 4 and sys.argv[1] in ('on_start', 'on_stop', 'on_role_change'):
         AWSConnection(cluster_name=sys.argv[3]).on_role_change(sys.argv[2])
     else:
