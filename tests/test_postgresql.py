@@ -438,7 +438,6 @@ class TestPostgresql(unittest.TestCase):
         self.assertEquals(self.p.single_user_mode(), 1)
 
     @patch('os.listdir', MagicMock(side_effect=fake_listdir))
-    @patch('os.path.isdir', MagicMock(return_value=True))
     @patch('os.unlink', return_value=True)
     @patch('os.remove', return_value=True)
     @patch('os.path.islink', return_value=False)
