@@ -392,8 +392,9 @@ class Postgresql(object):
         # patroni.
 
         self.close_connection()
-        if not self.is_running() and not block_callbacks:
-            self.set_state('stopped')
+        if not self.is_running():
+            if not block_callbacks:
+                self.set_state('stopped')
             return True
 
         if block_callbacks:
