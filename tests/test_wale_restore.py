@@ -1,6 +1,5 @@
 import psycopg2
 import subprocess
-import sys
 import unittest
 
 from mock import MagicMock, patch, PropertyMock
