@@ -546,7 +546,7 @@ recovery_target_timeline = 'latest'
 
     def cleanup_archive_status(self):
         status_dir = os.path.join(self.data_dir, 'pg_xlog', 'archive_status')
-        if os.path.isdir(status_dir):
+        try:
             for f in os.listdir(status_dir):
                 path = os.path.join(status_dir, f)
                 try:
@@ -556,6 +556,8 @@ recovery_target_timeline = 'latest'
                         os.remove(path)
                 except OSError:
                     logger.exception("Unable to remove %s", path)
+        except OSError:
+            logger.exception("Unable to list %s", status_dir)
 
     def follow(self, leader, recovery=False):
         if not self.check_recovery_conf(leader) or recovery:
