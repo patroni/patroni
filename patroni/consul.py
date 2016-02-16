@@ -24,14 +24,12 @@ class HTTPClient(std.HTTPClient):
         self._patch_default_timeout()
 
     def _patch_default_timeout(self):
-        func = self.session.request.__func__ if six.PY3 else self.session.request.im_func
-        defaults = list(func.__defaults__ if six.PY3 else func.func_defaults)
-        code = func.__code__ if six.PY3 else func.func_code
+        request_func = getattr(self.session.request, '__func__' if six.PY3 else 'im_func')
+        defaults_attr_name = '__defaults__' if six.PY3 else 'func_defaults'
+        defaults = list(getattr(request_func, defaults_attr_name))
+        code = request_func.__code__ if six.PY3 else request_func.func_code
         defaults[code.co_varnames[code.co_argcount - len(defaults):code.co_argcount].index('timeout')] = 5
-        if six.PY3:
-            func.__defaults__ = tuple(defaults)
-        else:
-            func.func_defaults = tuple(defaults)
+        setattr(request_func, defaults_attr_name, tuple(defaults))  # monkeypatching
 
     def get(self, callback, path, params=None, timeout=None):
         uri = self.uri(path, params)
@@ -40,7 +38,7 @@ class HTTPClient(std.HTTPClient):
         return callback(self.response(self.session.get(uri, verify=self.verify, timeout=timeout)))
 
 
-class Client(base.Consul):
+class ConsulClient(base.Consul):
 
     def connect(self, host, port, scheme, verify=True):
         return HTTPClient(host, port, scheme, verify)
@@ -61,7 +59,7 @@ class Consul(AbstractDCS):
         super(Consul, self).__init__(name, config)
         self.ttl = config.get('ttl') or 30
         host, port = config.get('host', '127.0.0.1:8500').split(':')
-        self.client = Client(host=host, port=port)
+        self.client = ConsulClient(host=host, port=port)
         self._scope = config['scope']
         self._session = None
         self._new_cluster = False
