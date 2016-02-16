@@ -29,7 +29,7 @@ class BasicReplicationSteps(object):
             assert False, "Error creating table {0} on {1}: {2}".format(table_name, pg_name, e)
 
     def table_is_present_on(self, step, table_name, pg_name):
-        '''Then table (\w+) is present on (\w+)'''
+        '''Table (\w+) is present on (\w+)'''
         for i in range(self.max_replication_delay):
             if world.pctl.query(pg_name, "SELECT 1 FROM {0}".format(table_name), fail_ok=True) is not None:
                 break

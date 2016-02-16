@@ -23,43 +23,40 @@ class PatroniController(object):
 
     def __init__(self):
         self.processes = {}
-        self.patroni_path = None
-        self.cwd = None
+        self._patroni_path = None
         self.connstring = {}
         self.connections = {}
         self.cursors = {}
         self.availability_check_time_limit = 10
-        pass
 
-    def get_patroni_path(self):
-        if self.patroni_path is None:
+    @property
+    def patroni_path(self):
+        if self._patroni_path is None:
             cwd = os.path.realpath(__file__)
             while True:
                 path, entry = os.path.split(cwd)
                 cwd = path
                 if entry == 'features' or cwd == '/':
                     break
-            self.patroni_path = cwd
-        return self.patroni_path
+            self._patroni_path = cwd
+        return self._patroni_path
 
     def patroni_is_running(self, pg_name):
         return pg_name in self.processes and self.processes[pg_name].pid and (self.processes[pg_name].poll() is None)
 
     def stop_patroni(self, pg_name):
-        if pg_name in self.processes and self.processes[pg_name].pid and (self.processes[pg_name].poll() is None):
+        while self.patroni_is_running(pg_name):
             self.processes[pg_name].terminate()
-            while self.patroni_is_running(pg_name):
-                self.processes[pg_name].terminate()
-                sleep(1)
-            del self.processes[pg_name]
+            sleep(1)
+        del self.processes[pg_name]
 
     def start_patroni(self, pg_name):
         if not self.patroni_is_running(pg_name):
             if pg_name in self.processes:
                 del self.processes[pg_name]
-            self.cwd = self.cwd or self.get_patroni_path()
+            cwd = self.patroni_path
             p = subprocess.Popen(['python', 'patroni.py', PATRONI_CONFIG.format(pg_name)],
-                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=self.cwd)
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd)
             if not (p and p.pid and p.poll() is None):
                 assert False, "PostgreSQL {0} is not running after being started".format(pg_name)
             self.processes[pg_name] = p
@@ -76,7 +73,7 @@ class PatroniController(object):
         if pg_name in self.connstring:
             return self.connstring[pg_name]
         try:
-            patroni_path = self.get_patroni_path()
+            patroni_path = self.patroni_path
             with open(os.path.join(patroni_path, world.PATRONI_CONFIG.format(pg_name)), 'r') as f:
                 config = yaml.load(f)
         except OSError:
@@ -122,8 +119,7 @@ class PatroniController(object):
 
 pctl = PatroniController()
 world.pctl = pctl
-patroni_path = pctl.get_patroni_path()
-world.patroni_path = patroni_path
+world.patroni_path = pctl.patroni_path
 world.PATRONI_CONFIG = PATRONI_CONFIG
 
 
@@ -166,7 +162,7 @@ def stop_etcd(total):
 def patroni_cleanup_all():
     pctl.stop_all()
     # remove the data directory
-    shutil.rmtree(os.path.join(patroni_path, 'data'))
+    shutil.rmtree(os.path.join(pctl.patroni_path, 'data'))
 
 
 def etcd_cleanup():
