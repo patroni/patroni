@@ -38,7 +38,7 @@ class MockCursor(object):
         elif sql == 'SELECT pg_is_in_recovery()':
             self.results = [(False, )]
         elif sql.startswith('SELECT to_char(pg_postmaster_start_time'):
-            self.results = [('', True, '', '', '', False)]
+            self.results = [('', True, '', '', '', '', False)]
         else:
             self.results = [(
                 None,
