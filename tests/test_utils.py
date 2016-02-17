@@ -16,14 +16,14 @@ class TestUtils(unittest.TestCase):
 
     @patch('time.sleep', Mock())
     def test_reap_children(self):
-        reap_children()
+        self.assertIsNone(reap_children())
         with patch('os.waitpid', Mock(return_value=(0, 0))):
             sigchld_handler(None, None)
-            reap_children()
+            self.assertIsNone(reap_children())
 
     @patch('time.sleep', time_sleep)
     def test_sleep(self):
-        sleep(0.01)
+        self.assertIsNone(sleep(0.01))
 
 
 @patch('time.sleep', Mock())

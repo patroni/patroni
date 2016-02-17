@@ -87,7 +87,7 @@ class MockRestApiServer(RestApiServer):
 @patch('ssl.wrap_socket', Mock(return_value=0))
 class TestRestApiHandler(unittest.TestCase):
 
-    def test_do_GET(self):
+    def test_do_GET(*args):
         MockRestApiServer(RestApiHandler, b'GET /replica')
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={})):
             MockRestApiServer(RestApiHandler, b'GET /replica')
@@ -103,7 +103,7 @@ class TestRestApiHandler(unittest.TestCase):
             MockRestApiServer(RestApiHandler, b'GET /master')
         MockRestApiServer(RestApiHandler, b'GET /master')
 
-    def test_do_OPTIONS(self):
+    def test_do_OPTIONS(*args):
         MockRestApiServer(RestApiHandler, b'OPTIONS / HTTP/1.0')
 
         with patch.object(BaseHTTPRequestHandler, 'handle_one_request') as mock_handle_request:
@@ -117,14 +117,14 @@ class TestRestApiHandler(unittest.TestCase):
             makefile.return_value.flush = Mock(side_effect=socket.error("foo"))
             MockRestApiServer(RestApiHandler, b'OPTIONS / HTTP/1.0')
 
-    def test_do_GET_patroni(self):
+    def test_do_GET_patroni(*args):
         MockRestApiServer(RestApiHandler, b'GET /patroni')
 
-    def test_basicauth(self):
+    def test_basicauth(*args):
         MockRestApiServer(RestApiHandler, b'POST /restart HTTP/1.0')
         MockRestApiServer(RestApiHandler, b'POST /restart HTTP/1.0\nAuthorization:')
 
-    def test_do_POST_restart(self):
+    def test_do_POST_restart(*args):
         request = b'POST /restart HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0'
         MockRestApiServer(RestApiHandler, request)
         with patch.object(MockHa, 'restart', Mock(side_effect=Exception)):
@@ -140,10 +140,10 @@ class TestRestApiHandler(unittest.TestCase):
         with patch.object(MockHa, 'schedule_reinitialize', Mock(return_value=None)):
             MockRestApiServer(RestApiHandler, request)
         cluster.leader.name = 'test'
-        MockRestApiServer(RestApiHandler, request)
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
 
     @patch('time.sleep', Mock())
-    def test_RestApiServer_query(self):
+    def test_RestApiServer_query(*args):
         with patch.object(MockCursor, 'execute', Mock(side_effect=psycopg2.OperationalError)):
             MockRestApiServer(RestApiHandler, b'GET /patroni')
         with patch.object(MockPostgresql, 'connection', Mock(side_effect=psycopg2.OperationalError)):
@@ -175,4 +175,4 @@ class TestRestApiHandler(unittest.TestCase):
             MockRestApiServer(RestApiHandler, request)
         request = b'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\n' +\
                   b'Content-Length: 50\n\n{"leader": "postgresql1", "member": "postgresql2"}'
-        MockRestApiServer(RestApiHandler, request)
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))

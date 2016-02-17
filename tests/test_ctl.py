@@ -69,20 +69,16 @@ class TestCtl(unittest.TestCase):
 
     @patch('psycopg2.connect', psycopg2_connect)
     def test_get_cursor(self):
-        c = get_cursor(get_cluster_initialized_without_leader(), role='master')
-        assert c is None
+        self.assertIsNone(get_cursor(get_cluster_initialized_without_leader(), role='master'))
 
-        c = get_cursor(get_cluster_initialized_with_leader(), role='master')
-        assert c is not None
+        self.assertIsNotNone(get_cursor(get_cluster_initialized_with_leader(), role='master'))
 
-        c = get_cursor(get_cluster_initialized_with_leader(), role='replica')
-        # # MockCursor returns pg_is_in_recovery as false
-        assert c is None
+        # MockCursor returns pg_is_in_recovery as false
+        self.assertIsNone(get_cursor(get_cluster_initialized_with_leader(), role='replica'))
 
-        c = get_cursor(get_cluster_initialized_with_leader(), role='any')
-        assert c is not None
+        self.assertIsNotNone(get_cursor(get_cluster_initialized_with_leader(), role='any'))
 
-    def test_output_members(self):
+    def test_output_members(*args):
         cluster = get_cluster_initialized_with_leader()
         output_members(cluster, name='abc', fmt='pretty')
         output_members(cluster, name='abc', fmt='json')
@@ -224,17 +220,17 @@ y''')
     @patch('patroni.ctl.get_cursor', Mock(return_value=MockConnect().cursor()))
     def test_query_member(self):
         rows = query_member(None, None, None, 'master', 'SELECT pg_is_in_recovery()')
-        assert 'False' in str(rows)
+        self.assertTrue('False' in str(rows))
 
         rows = query_member(None, None, None, 'replica', 'SELECT pg_is_in_recovery()')
-        assert rows == (None, None)
+        self.assertEquals(rows, (None, None))
 
         with patch('patroni.ctl.get_cursor', Mock(return_value=None)):
             rows = query_member(None, None, None, None, 'SELECT pg_is_in_recovery()')
-            assert 'No connection to' in str(rows)
+            self.assertTrue('No connection to' in str(rows))
 
             rows = query_member(None, None, None, 'replica', 'SELECT pg_is_in_recovery()')
-            assert 'No connection to' in str(rows)
+            self.assertTrue('No connection to' in str(rows))
 
         with patch('patroni.ctl.get_cursor', Mock(side_effect=psycopg2.OperationalError('bla'))):
             rows = query_member(None, None, None, 'replica', 'SELECT pg_is_in_recovery()')
@@ -337,26 +333,23 @@ leader''')
         assert 'Usage:' in result.output
 
     def test_get_any_member(self):
-        m = get_any_member(get_cluster_initialized_without_leader(), role='master')
-        assert m is None
+        self.assertIsNone(get_any_member(get_cluster_initialized_without_leader(), role='master'))
 
         m = get_any_member(get_cluster_initialized_with_leader(), role='master')
-        assert m.name == 'leader'
+        self.assertEquals(m.name, 'leader')
 
     def test_get_all_members(self):
-        r = list(get_all_members(get_cluster_initialized_without_leader(), role='master'))
-        assert len(r) == 0
+        self.assertEquals(list(get_all_members(get_cluster_initialized_without_leader(), role='master')), [])
 
         r = list(get_all_members(get_cluster_initialized_with_leader(), role='master'))
-        assert len(r) == 1
-        assert r[0].name == 'leader'
+        self.assertEquals(len(r), 1)
+        self.assertEquals(r[0].name, 'leader')
 
         r = list(get_all_members(get_cluster_initialized_with_leader(), role='replica'))
-        assert len(r) == 1
-        assert r[0].name == 'other'
+        self.assertEquals(len(r), 1)
+        self.assertEquals(r[0].name, 'other')
 
-        r = list(get_all_members(get_cluster_initialized_without_leader(), role='replica'))
-        assert len(r) == 2
+        self.assertEquals(len(list(get_all_members(get_cluster_initialized_without_leader(), role='replica'))), 2)
 
     @patch('patroni.etcd.Etcd.get_cluster', Mock(return_value=get_cluster_initialized_with_leader()))
     @patch('patroni.etcd.Etcd.get_etcd_client', Mock(return_value=None))
