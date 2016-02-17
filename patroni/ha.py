@@ -3,13 +3,13 @@ import logging
 import psycopg2
 import requests
 import sys
-import time
 import datetime
 import pytz
 
+from multiprocessing.pool import ThreadPool
 from patroni.async_executor import AsyncExecutor
 from patroni.exceptions import DCSError, PostgresConnectionException
-from multiprocessing.pool import ThreadPool
+from patroni.utils import sleep
 
 logger = logging.getLogger(__name__)
 
@@ -283,20 +283,22 @@ class Ha(object):
             # the value.
             # If the value is close to now, we initiate the failover
             now = datetime.datetime.now(pytz.utc)
-            delta = (failover.scheduled_at - now).total_seconds()
+            try:
+                delta = (failover.scheduled_at - now).total_seconds()
 
-            if delta > 10:
-                logging.info('Awaiting failover at {0} (in {1:.0f} seconds)'.format(failover.scheduled_at.isoformat(),
-                                                                                    delta))
-                return
-            elif delta < -15:
-                logger.warning('Found a stale failover value, cleaning up: {}'.format(failover.scheduled_at))
-                self.dcs.manual_failover('', '', self.cluster.failover.index)
-                return
+                if delta > 10:
+                    logging.info('Awaiting failover at %s (in %.0f seconds)', failover.scheduled_at.isoformat(), delta)
+                    return
+                elif delta < -15:
+                    logger.warning('Found a stale failover value, cleaning up: %s', failover.scheduled_at)
+                    self.dcs.manual_failover('', '', self.cluster.failover.index)
+                    return
 
-            # The value is very close to now
-            time.sleep(max(delta, 0))
-            logger.info('Manual scheduled failover at {}'.format(failover.scheduled_at.isoformat()))
+                # The value is very close to now
+                sleep(max(delta, 0))
+                logger.info('Manual scheduled failover at {}'.format(failover.scheduled_at.isoformat()))
+            except TypeError:
+                logger.warning('Incorrect value in of scheduled_at: %s', failover.scheduled_at)
 
         if not failover.leader or failover.leader == self.state_handler.name:
             if not failover.member or failover.member != self.state_handler.name:

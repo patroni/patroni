@@ -297,7 +297,6 @@ class TestHa(unittest.TestCase):
         self.ha.update_lock = false
         self.assertEquals(self.ha.run_cycle(), 'failed to update leader lock during restart')
 
-
     @patch('requests.get', requests_get)
     def test_manual_failover_from_leader(self):
         self.ha.has_lock = true
@@ -316,11 +315,10 @@ class TestHa(unittest.TestCase):
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, None))
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
 
-        ## Failover scheduled time must include timezone
+        # Failover scheduled time must include timezone
         scheduled = datetime.datetime.now()
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, scheduled))
-
-        self.assertRaises(TypeError, self.ha.run_cycle)
+        self.ha.run_cycle()
 
         scheduled = datetime.datetime.utcnow().replace(tzinfo=pytz.UTC)
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name, scheduled))
