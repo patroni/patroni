@@ -526,8 +526,7 @@ recovery_target_timeline = 'latest'
                         result[name] = val
         except IOError:
             logger.exception('Error when reading postmaster.opts')
-        finally:
-            return result
+        return result
 
     def single_user_mode(self, command=None, options=None):
         """ run a given command in a single-user mode. If the command is empty - then just start and stop """
