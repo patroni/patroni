@@ -1,12 +1,15 @@
-import unittest
-import requests
 import boto.ec2
+import requests
+import sys
+import unittest
+
+from mock import Mock, patch
 from collections import namedtuple
-from patroni.scripts.aws import AWSConnection
+from patroni.scripts.aws import AWSConnection, main as _main
 from requests.exceptions import RequestException
 
 
-class MockEc2Connection:
+class MockEc2Connection(object):
 
     def __init__(self, error=False):
         self.error = error
@@ -23,7 +26,7 @@ class MockEc2Connection:
         return True
 
 
-class MockResponse:
+class MockResponse(object):
 
     def __init__(self, content):
         self.content = content
@@ -34,15 +37,6 @@ class MockResponse:
 
 
 class TestAWSConnection(unittest.TestCase):
-
-    def __init__(self, method_name='runTest'):
-        super(TestAWSConnection, self).__init__(method_name)
-
-    def set_error(self):
-        self.error = True
-
-    def set_json_error(self):
-        self.json_error = True
 
     def boto_ec2_connect_to_region(self, region):
         return MockEc2Connection(self.error)
@@ -74,21 +68,27 @@ class TestAWSConnection(unittest.TestCase):
         self.assertTrue(self.conn.on_role_change('master'))
 
     def test_non_aws(self):
-        self.set_error()
+        self.error = True
         conn = AWSConnection('test')
         self.assertFalse(conn.aws_available())
         self.assertFalse(conn._tag_ebs('master'))
         self.assertFalse(conn._tag_ec2('master'))
 
     def test_aws_bizare_response(self):
-        self.set_json_error()
+        self.json_error = True
         conn = AWSConnection('test')
         self.assertFalse(conn.aws_available())
 
     def test_aws_tag_ebs_error(self):
-        self.set_error()
+        self.error = True
         self.assertFalse(self.conn._tag_ebs("master"))
 
     def test_aws_tag_ec2_error(self):
-        self.set_error()
+        self.error = True
         self.assertFalse(self.conn._tag_ec2("master"))
+
+    @patch('sys.exit', Mock())
+    def test_main(self):
+        self.assertIsNone(_main())
+        sys.argv = ['aws.py', 'on_start', 'replica', 'foo']
+        self.assertIsNone(_main())

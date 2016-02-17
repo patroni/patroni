@@ -11,7 +11,7 @@ from multiprocessing.pool import ThreadPool
 logger = logging.getLogger(__name__)
 
 
-class Ha:
+class Ha(object):
 
     def __init__(self, patroni):
         self.patroni = patroni
@@ -110,9 +110,14 @@ class Ha:
                            refresh=True, recovery=True)
 
     def follow(self, demote_reason, follow_reason, refresh=True, recovery=False):
-        refresh and self.load_cluster_from_dcs()
-        ret = demote_reason if (not recovery and self.state_handler.is_leader() or
-                                recovery and self.state_handler.role == 'master') else follow_reason
+        if refresh:
+            self.load_cluster_from_dcs()
+
+        if not recovery and self.state_handler.is_leader() or recovery and self.state_handler.role == 'master':
+            ret = demote_reason
+        else:
+            ret = follow_reason
+
         # determine the node to follow. If replicatefrom tag is set,
         # try to follow the node mentioned there, otherwise, follow the leader.
         if self.patroni.replicatefrom:
@@ -375,7 +380,8 @@ class Ha:
         else:
             return self._async_executor.scheduled_action + ' in progress'
 
-    def sysid_valid(self, sysid):
+    @staticmethod
+    def sysid_valid(sysid):
         # sysid does tv_sec << 32, where tv_sec is the number of seconds sine 1970,
         # so even 1 << 32 would have 10 digits.
         return str(sysid) and len(str(sysid)) >= 10 and str(sysid).isdigit()

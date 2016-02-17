@@ -15,7 +15,7 @@ from .version import __version__
 logger = logging.getLogger(__name__)
 
 
-class Patroni:
+class Patroni(object):
 
     def __init__(self, config):
         self.nap_time = config['loop_wait']
@@ -68,7 +68,7 @@ def main():
     setup_signal_handlers()
 
     if len(sys.argv) < 2 or not os.path.isfile(sys.argv[1]):
-        print('Usage: {} config.yml'.format(sys.argv[0]))
+        print('Usage: {0} config.yml'.format(sys.argv[0]))
         return
 
     with open(sys.argv[1], 'r') as f:

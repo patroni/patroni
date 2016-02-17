@@ -56,12 +56,12 @@ def parse_dcs(dcs):
 
 
 def load_config(path, dcs):
-    logging.debug('Loading configuration from file {}'.format(path))
+    logging.debug('Loading configuration from file %s', path)
     config = dict()
     try:
         with open(path, 'rb') as fd:
             config = yaml.safe_load(fd)
-    except:
+    except (IOError, yaml.YAMLError):
         logging.exception('Could not load configuration file')
 
     if dcs:
@@ -74,15 +74,14 @@ def load_config(path, dcs):
 
 def store_config(config, path):
     dir_path = os.path.dirname(path)
-    if dir_path:
-        if not os.path.isdir(dir_path):
-            os.makedirs(dir_path)
+    if dir_path and not os.path.isdir(dir_path):
+        os.makedirs(dir_path)
     with open(path, 'w') as fd:
         yaml.dump(config, fd)
 
 
 option_config_file = click.option('--config-file', '-c', help='Configuration file', default=CONFIG_FILE_PATH)
-option_format = click.option('--format', '-f', help='Output format (pretty, json)', default='pretty')
+option_format = click.option('--format', '-f', 'fmt', help='Output format (pretty, json)', default='pretty')
 option_dcs = click.option('--dcs', '-d', help='Use this DCS', envvar='DCS')
 option_watchrefresh = click.option('-w', '--watch', type=float, help='Auto update the screen every X seconds')
 option_watch = click.option('-W', is_flag=True, help='Auto update the screen every 2 seconds')
@@ -102,20 +101,22 @@ def get_dcs(config, scope):
     scheme, hostname, port = map(config.get('dcs', {}).get, ('scheme', 'hostname', 'port'))
 
     if scheme == 'etcd':
-        return Etcd(name=scope, config={'scope': scope, 'host': '{}:{}'.format(hostname, port)})
+        return Etcd(name=scope, config={'scope': scope, 'host': '{0}:{1}'.format(hostname, port)})
 
     raise PatroniCtlException('Can not find suitable configuration of distributed configuration store')
 
 
-def post_patroni(member, endpoint, content, headers={'Content-Type': 'application/json'}):
+def post_patroni(member, endpoint, content, headers=None):
     url = urlparse(member.api_url)
     logging.debug(url)
-    return requests.post('{}://{}/{}'.format(url.scheme, url.netloc, endpoint), headers=headers,
+    return requests.post('{0}://{1}/{2}'.format(url.scheme, url.netloc, endpoint),
+                         headers=headers or {'Content-Type': 'application/json'},
                          data=json.dumps(content), timeout=60)
 
 
-def print_output(columns, rows=[], alignment=None, format='pretty', header=True, delimiter='\t'):
-    if format == 'pretty':
+def print_output(columns, rows=None, alignment=None, fmt='pretty', header=True, delimiter='\t'):
+    rows = rows or []
+    if fmt == 'pretty':
         t = PrettyTable(columns)
         for k, v in (alignment or {}).items():
             t.align[k] = v
@@ -124,18 +125,18 @@ def print_output(columns, rows=[], alignment=None, format='pretty', header=True,
         click.echo(t)
         return
 
-    if format == 'json':
+    if fmt == 'json':
         elements = list()
         for r in rows:
             elements.append(dict(zip(columns, r)))
 
         click.echo(json.dumps(elements))
 
-    if format == 'tsv':
+    if fmt == 'tsv':
         if columns is not None and header:
             click.echo(delimiter.join(columns) + '\n')
 
-        for r in rows or []:
+        for r in rows:
             c = [str(c) for c in r]
             click.echo(delimiter.join(c))
 
@@ -169,9 +170,7 @@ def watching(w, watch, max_count=None, clear=True):
 
 
 def build_connect_parameters(conn_url, connect_parameters=None):
-    if connect_parameters is None:
-        connect_parameters = {}
-    params = connect_parameters.copy()
+    params = (connect_parameters or {}).copy()
     parsed = parseurl(conn_url)
     params['host'] = parsed['host']
     params['port'] = parsed['port']
@@ -203,13 +202,11 @@ def get_any_member(cluster, role='master', member=None):
 
 
 def get_cursor(cluster, role='master', member=None, connect_parameters=None):
-    if connect_parameters is None:
-        connect_parameters = {}
     member = get_any_member(cluster=cluster, role=role, member=member)
     if member is None:
         return None
 
-    params = build_connect_parameters(member.conn_url, connect_parameters=connect_parameters)
+    params = build_connect_parameters(member.conn_url, connect_parameters)
 
     conn = psycopg2.connect(**params)
     conn.autocommit = True
@@ -247,15 +244,15 @@ def dsn(cluster_name, config_file, dcs, role, member):
         raise PatroniCtlException('Can not find a suitable member')
 
     params = build_connect_parameters(m.conn_url)
-    click.echo('host={} port={}'.format(params['host'], params['port']))
+    click.echo('host={host} port={port}'.format(**params))
 
 
 @ctl.command('query', help='Query a Patroni PostgreSQL member')
 @click.argument('cluster_name')
 @option_config_file
 @option_format
-@click.option('--format', help='Output format (pretty, json)', default='tsv')
-@click.option('--file', '-f', help='Execute the SQL commands from this file', type=click.File('rb'))
+@click.option('--format', 'fmt', help='Output format (pretty, json)', default='tsv')
+@click.option('--file', '-f', 'p_file', help='Execute the SQL commands from this file', type=click.File('rb'))
 @click.option('--password', help='force password prompt', is_flag=True)
 @click.option('-U', '--username', help='database user name', type=str)
 @option_dcs
@@ -277,21 +274,21 @@ def query(
     watch,
     delimiter,
     command,
-    file,
+    p_file,
     password,
     username,
     dbname,
-    format='tsv',
+    fmt='tsv',
 ):
     if role is not None and member is not None:
         raise PatroniCtlException('--role and --member are mutually exclusive options')
     if member is None and role is None:
         role = 'master'
 
-    if file is not None and command is not None:
+    if p_file is not None and command is not None:
         raise PatroniCtlException('--file and --command are mutually exclusive options')
 
-    if file is None and command is None:
+    if p_file is None and command is None:
         raise PatroniCtlException('You need to specify either --command or --file')
 
     connect_parameters = dict()
@@ -302,8 +299,8 @@ def query(
     if dbname:
         connect_parameters['database'] = dbname
 
-    if file is not None:
-        command = file.read()
+    if p_file is not None:
+        command = p_file.read()
 
     config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
@@ -312,24 +309,22 @@ def query(
 
         output, cursor = query_member(cluster=cluster, cursor=cursor, member=member, role=role, command=command,
                                       connect_parameters=connect_parameters)
-        print_output(None, output, format=format, delimiter=delimiter)
+        print_output(None, output, fmt=fmt, delimiter=delimiter)
 
         if cursor is None:
             cluster = dcs.get_cluster()
 
 
 def query_member(cluster, cursor, member, role, command, connect_parameters=None):
-    if connect_parameters is None:
-        connect_parameters = {}
     try:
         if cursor is None:
             cursor = get_cursor(cluster, role=role, member=member, connect_parameters=connect_parameters)
 
         if cursor is None:
             if role is None:
-                message = 'No connection to member {} is available'.format(member)
+                message = 'No connection to member {0} is available'.format(member)
             else:
-                message = 'No connection to role={} is available'.format(role)
+                message = 'No connection to role={0} is available'.format(role)
             logging.debug(message)
             return [[timestamp(0), message]], None
 
@@ -348,7 +343,7 @@ def query_member(cluster, cursor, member, role, command, connect_parameters=None
             cursor.connection.close()
         message = oe.pgcode or oe.pgerror or str(oe)
         message = message.replace('\n', ' ')
-        return [[timestamp(0), 'ERROR, SQLSTATE: {}'.format(message)]], None
+        return [[timestamp(0), 'ERROR, SQLSTATE: {0}'.format(message)]], None
 
 
 @ctl.command('remove', help='Remove cluster from DCS')
@@ -356,13 +351,13 @@ def query_member(cluster, cursor, member, role, command, connect_parameters=None
 @option_config_file
 @option_format
 @option_dcs
-def remove(config_file, cluster_name, format, dcs):
+def remove(config_file, cluster_name, fmt, dcs):
     config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
     if not isinstance(dcs, Etcd):
-        raise PatroniCtlException('We have not implemented this for DCS of type {}'.format(type(dcs)))
+        raise PatroniCtlException('We have not implemented this for DCS of type {0}'.format(type(dcs)))
 
-    output_members(cluster, format=format)
+    output_members(cluster, fmt=fmt)
 
     confirm = click.prompt('Please confirm the cluster name to remove', type=str)
     if confirm != cluster_name:
@@ -370,17 +365,17 @@ def remove(config_file, cluster_name, format, dcs):
 
     message = 'Yes I am aware'
     confirm = \
-        click.prompt('You are about to remove all information in DCS for {}, please type: "{}"'.format(cluster_name,
+        click.prompt('You are about to remove all information in DCS for {0}, please type: "{1}"'.format(cluster_name,
                      message), type=str)
     if message != confirm:
-        raise PatroniCtlException('You did not exactly type "{}"'.format(message))
+        raise PatroniCtlException('You did not exactly type "{0}"'.format(message))
 
     if cluster.leader:
         confirm = click.prompt('This cluster currently is healthy. Please specify the master name to continue')
         if confirm != cluster.leader.name:
             raise PatroniCtlException('You did not specify the current master of the cluster')
 
-    dcs.client.delete(dcs._base_path, recursive=True)
+    dcs.client.delete(dcs.client_path(''), recursive=True)
 
 
 def wait_for_leader(dcs, timeout=30):
@@ -402,25 +397,25 @@ def empty_post_to_members(cluster, member_names, force, endpoint):
     for m in cluster.members:
         candidates[m.name] = m
 
-    if len(member_names) == 0:
-        member_names = [click.prompt('Which member do you want to {} [{}]?'.format(endpoint,
+    if not member_names:
+        member_names = [click.prompt('Which member do you want to {0} [{1}]?'.format(endpoint,
                         ', '.join(candidates.keys())), type=str, default='')]
 
     for mn in member_names:
         if mn not in candidates.keys():
-            raise PatroniCtlException('{} is not a member of cluster'.format(mn))
+            raise PatroniCtlException('{0} is not a member of cluster'.format(mn))
 
     if not force:
-        confirm = click.confirm('Are you sure you want to {} members {}?'.format(endpoint, ', '.join(member_names)))
+        confirm = click.confirm('Are you sure you want to {0} members {1}?'.format(endpoint, ', '.join(member_names)))
         if not confirm:
-            raise PatroniCtlException('Aborted {}'.format(endpoint))
+            raise PatroniCtlException('Aborted {0}'.format(endpoint))
 
     for mn in member_names:
         r = post_patroni(candidates[mn], endpoint, '')
         if r.status_code != 200:
-            click.echo('{} failed for member {}, status code={}, ({})'.format(endpoint, mn, r.status_code, r.text))
+            click.echo('{0} failed for member {1}, status code={2}, ({3})'.format(endpoint, mn, r.status_code, r.text))
         else:
-            click.echo('Succesful {} on member {}'.format(endpoint, mn))
+            click.echo('Succesful {0} on member {1}'.format(endpoint, mn))
 
 
 def ctl_load_config(cluster_name, config_file, dcs):
@@ -436,21 +431,21 @@ def ctl_load_config(cluster_name, config_file, dcs):
 @click.argument('member_names', nargs=-1)
 @click.option('--role', '-r', help='Restart only members with this role', default='any',
               type=click.Choice(['master', 'replica', 'any']))
-@click.option('--any', help='Restart a single member only', is_flag=True)
+@click.option('--any', 'p_any', help='Restart a single member only', is_flag=True)
 @option_config_file
 @option_force
 @option_dcs
-def restart(cluster_name, member_names, config_file, dcs, force, role, any):
+def restart(cluster_name, member_names, config_file, dcs, force, role, p_any):
     config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
     role_names = [m.name for m in get_all_members(cluster=cluster, role=role)]
 
-    if len(member_names) > 0:
+    if member_names:
         member_names = list(set(member_names) & set(role_names))
     else:
         member_names = role_names
 
-    if any:
+    if p_any:
         random.shuffle(member_names)
         member_names = member_names[:1]
 
@@ -496,13 +491,13 @@ def failover(config_file, cluster_name, master, candidate, force, dcs):
             master = click.prompt('Master', type=str, default=cluster.leader.member.name)
 
     if cluster.leader.member.name != master:
-        raise PatroniCtlException('Member {} is not the leader of cluster {}'.format(master, cluster_name))
+        raise PatroniCtlException('Member {0} is not the leader of cluster {1}'.format(master, cluster_name))
 
     candidate_names = [str(m.name) for m in cluster.members if m.name != master]
     # We sort the names for consistent output to the client
     candidate_names.sort()
 
-    if len(candidate_names) == 0:
+    if not candidate_names:
         raise PatroniCtlException('No candidates found to failover to')
 
     if candidate is None and not force:
@@ -512,7 +507,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs):
         raise PatroniCtlException('Failover target and source are the same.')
 
     if candidate and candidate not in candidate_names:
-        raise PatroniCtlException('Member {} does not exist in cluster {}'.format(candidate, cluster_name))
+        raise PatroniCtlException('Member {0} does not exist in cluster {1}'.format(candidate, cluster_name))
 
     # By now we have established that the leader exists and the candidate exists
     click.echo('Current cluster topology')
@@ -520,12 +515,12 @@ def failover(config_file, cluster_name, master, candidate, force, dcs):
 
     if not force:
         a = \
-            click.confirm('Are you sure you want to failover cluster {}, demoting current master {}?'.format(
+            click.confirm('Are you sure you want to failover cluster {0}, demoting current master {1}?'.format(
                 cluster_name, master))
         if not a:
             raise PatroniCtlException('Aborting failover')
 
-    failover_value = '{}:{}'.format(master, candidate or '')
+    failover_value = '{0}:{1}'.format(master, candidate or '')
 
     t_started = time.time()
     r = None
@@ -535,16 +530,16 @@ def failover(config_file, cluster_name, master, candidate, force, dcs):
             logging.debug(r)
             logging.debug(r.text)
             cluster = dcs.get_cluster()
-            click.echo(timestamp() + ' Failing over to new leader: {}'.format(cluster.leader.member.name))
+            click.echo(timestamp() + ' Failing over to new leader: {0}'.format(cluster.leader.member.name))
         else:
-            click.echo('Failover failed, details: {}, {}'.format(r.status_code, r.text))
+            click.echo('Failover failed, details: {0}, {1}'.format(r.status_code, r.text))
             return
     except:
         logging.exception(r)
         logging.warning('Failing over to DCS')
         click.echo(timestamp() + ' Could not failover using Patroni api, falling back to DCS')
         dcs.set_failover_value(failover_value)
-        click.echo(timestamp() + ' Initialized failover from master {}'.format(master))
+        click.echo(timestamp() + ' Initialized failover from master {0}'.format(master))
         # The failover process should within a minute update the failover key, we will keep watching it until it changes
         # or we timeout
         cluster = wait_for_leader(dcs, timeout=60)
@@ -557,7 +552,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs):
     output_members(cluster, name=cluster_name)
 
 
-def output_members(cluster, name=None, format='pretty'):
+def output_members(cluster, name=None, fmt='pretty'):
     rows = []
     logging.debug(cluster)
     leader_name = None
@@ -602,7 +597,7 @@ def output_members(cluster, name=None, format='pretty'):
     ]
     alignment = {'Cluster': 'l', 'Member': 'l', 'Host': 'l', 'Lag in MB': 'r'}
 
-    print_output(columns, rows, alignment, format)
+    print_output(columns, rows, alignment, fmt)
 
 
 @ctl.command('list', help='List the Patroni members for a given Patroni')
@@ -612,8 +607,8 @@ def output_members(cluster, name=None, format='pretty'):
 @option_watch
 @option_watchrefresh
 @option_dcs
-def members(config_file, cluster_names, format, watch, w, dcs):
-    if len(cluster_names) == 0:
+def members(config_file, cluster_names, fmt, watch, w, dcs):
+    if not cluster_names:
         logging.warning('Listing members: No cluster names were provided')
         return
 
@@ -622,7 +617,7 @@ def members(config_file, cluster_names, format, watch, w, dcs):
         dcs = get_dcs(config, cn)
 
         for _ in watching(w, watch):
-            output_members(dcs.get_cluster(), name=cn, format=format)
+            output_members(dcs.get_cluster(), name=cn, fmt=fmt)
 
 
 def timestamp(precision=6):
