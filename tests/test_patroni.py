@@ -8,7 +8,7 @@ from patroni.api import RestApiServer
 from patroni.async_executor import AsyncExecutor
 from patroni.consul import Consul
 from patroni.etcd import Etcd
-from patroni import Patroni, main
+from patroni import Patroni, main as _main
 from patroni.zookeeper import ZooKeeper
 from six.moves import BaseHTTPServer
 from test_etcd import Client, SleepException, etcd_read, etcd_write
@@ -25,19 +25,19 @@ from test_zookeeper import MockKazooClient
 @patch.object(AsyncExecutor, 'run', Mock())
 class TestPatroni(unittest.TestCase):
 
-    @patch.object(Client, 'machines')
-    def setUp(self, mock_machines):
-        mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
-        self.touched = False
-        self.init_cancelled = False
-        RestApiServer._BaseServer__is_shut_down = Mock()
-        RestApiServer._BaseServer__shutdown_request = True
-        RestApiServer.socket = 0
-        with open('postgres0.yml', 'r') as f:
-            config = yaml.load(f)
-            self.p = Patroni(config)
-            self.p.ha.dcs.client.write = etcd_write
-            self.p.ha.dcs.client.read = etcd_read
+    def setUp(self):
+        with patch.object(Client, 'machines') as mock_machines:
+            mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
+            self.touched = False
+            self.init_cancelled = False
+            RestApiServer._BaseServer__is_shut_down = Mock()
+            RestApiServer._BaseServer__shutdown_request = True
+            RestApiServer.socket = 0
+            with open('postgres0.yml', 'r') as f:
+                config = yaml.load(f)
+                self.p = Patroni(config)
+                self.p.ha.dcs.client.write = etcd_write
+                self.p.ha.dcs.client.read = etcd_read
 
     @patch('patroni.zookeeper.KazooClient', MockKazooClient())
     @patch.object(Consul, 'create_or_restore_session', Mock())
@@ -50,14 +50,14 @@ class TestPatroni(unittest.TestCase):
     @patch.object(Etcd, 'delete_leader', Mock())
     @patch.object(Client, 'machines')
     def test_patroni_main(self, mock_machines):
-        main()
+        _main()
         sys.argv = ['patroni.py', 'postgres0.yml']
 
         mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
         with patch.object(Patroni, 'run', Mock(side_effect=SleepException())):
-            self.assertRaises(SleepException, main)
+            self.assertRaises(SleepException, _main)
         with patch.object(Patroni, 'run', Mock(side_effect=KeyboardInterrupt())):
-            main()
+            _main()
 
     @patch('time.sleep', Mock(side_effect=SleepException()))
     def test_run(self):

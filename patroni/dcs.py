@@ -51,17 +51,17 @@ class Member(namedtuple('Member', 'index,name,session,data')):
         else:
             try:
                 data = json.loads(data)
-            except:
+            except (TypeError, ValueError):
                 data = {}
         return Member(index, name, session, data)
 
     @property
     def conn_url(self):
-        return self.data.get('conn_url', None)
+        return self.data.get('conn_url')
 
     @property
     def api_url(self):
-        return self.data.get('api_url', None)
+        return self.data.get('api_url')
 
     @property
     def nofailover(self):
@@ -115,7 +115,7 @@ class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,mem
         return any(m for m in self.members if m.name == member_name)
 
 
-class AbstractDCS:
+class AbstractDCS(object):
 
     __metaclass__ = abc.ABCMeta
 
@@ -133,7 +133,7 @@ class AbstractDCS:
             i.e.: `zookeeper` for zookeeper, `etcd` for etcd, etc...
         """
         self._name = name
-        self._namespace = '/{}'.format(config.get('namespace', '/service/').strip('/'))
+        self._namespace = '/{0}'.format(config.get('namespace', '/service/').strip('/'))
         self._base_path = '/'.join([self._namespace, config['scope']])
 
         self._cluster = None

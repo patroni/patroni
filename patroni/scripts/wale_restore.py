@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
 # sample script to clone new replicas using WAL-E restore
 # falls back to pg_basebackup if WAL-E restore fails, or if
@@ -36,7 +36,6 @@ import argparse
 if sys.hexversion >= 0x03000000:
     long = int
 
-logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -105,25 +104,20 @@ class WALERestore(object):
         lsn_offset = hex((long(backup_start_segment[16:32], 16) << 24) + long(backup_start_offset))[2:-1]
 
         # construct the LSN from the segment and offset
-        backup_start_lsn = '{}/{}'.format(lsn_segment, lsn_offset)
+        backup_start_lsn = '{0}/{1}'.format(lsn_segment, lsn_offset)
 
-        conn = None
-        cursor = None
         diff_in_bytes = long(backup_size)
         if not self.no_master:
             try:
                 # get the difference in bytes between the current WAL location and the backup start offset
-                conn = psycopg2.connect(self.master_connection)
-                conn.autocommit = True
-                cursor = conn.cursor()
-                cursor.execute("SELECT pg_xlog_location_diff(pg_current_xlog_location(), %s)", (backup_start_lsn,))
-                diff_in_bytes = long(cursor.fetchone()[0])
+                with psycopg2.connect(self.master_connection) as con:
+                    con.autocommit = True
+                    with con.cursor() as cur:
+                        cur.execute("SELECT pg_xlog_location_diff(pg_current_xlog_location(), %s)", (backup_start_lsn,))
+                        diff_in_bytes = long(cur.fetchone()[0])
             except psycopg2.Error as e:
-                logger.error('could not determine difference with the master location: {}'.format(e))
+                logger.error('could not determine difference with the master location: %s', e)
                 return False
-            finally:
-                cursor and cursor.close()
-                conn and conn.close()
         else:
             # always try to use WAL-E if base backup is available
             diff_in_bytes = 0
@@ -145,6 +139,7 @@ class WALERestore(object):
 
 
 def main():
+    logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
     parser = argparse.ArgumentParser(description='Script to image replicas using WAL-E')
     parser.add_argument('--scope', required=True)
     parser.add_argument('--role', required=False)

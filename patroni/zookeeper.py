@@ -17,7 +17,7 @@ class ZooKeeperError(DCSError):
     pass
 
 
-class ExhibitorEnsembleProvider:
+class ExhibitorEnsembleProvider(object):
 
     TIMEOUT = 3.1
 
@@ -54,7 +54,7 @@ class ExhibitorEnsembleProvider:
     def _query_exhibitors(self, exhibitors):
         random.shuffle(exhibitors)
         for host in exhibitors:
-            uri = 'http://{}:{}{}'.format(host, self._exhibitor_port, self._uri_path)
+            uri = 'http://{0}:{1}{2}'.format(host, self._exhibitor_port, self._uri_path)
             try:
                 response = requests.get(uri, timeout=self.TIMEOUT)
                 return response.json()
@@ -84,9 +84,9 @@ class ZooKeeper(AbstractDCS):
             hosts = self.exhibitor.zookeeper_hosts
 
         self.client = KazooClient(hosts=hosts,
-                                  timeout=(config.get('session_timeout', None) or 30),
+                                  timeout=(config.get('session_timeout') or 30),
                                   command_retry={
-                                      'deadline': (config.get('reconnect_timeout', None) or 10),
+                                      'deadline': (config.get('reconnect_timeout') or 10),
                                       'max_delay': 1,
                                       'max_tries': -1},
                                   connection_retry={'max_delay': 1, 'max_tries': -1})
@@ -190,7 +190,8 @@ class ZooKeeper(AbstractDCS):
 
     def attempt_to_acquire_leader(self):
         ret = self._create(self.leader_path, self._name, makepath=True, ephemeral=True)
-        ret or logger.info('Could not take out TTL lock')
+        if ret:
+            logger.info('Could not take out TTL lock')
         return ret
 
     def set_failover_value(self, value, index=None):
