@@ -58,12 +58,7 @@ def requests_get(url, **kwargs):
     elif ':8011/patroni' in url:
         response.content = '{"role": "replica", "xlog": {"replayed_location": 0}, "tags": {}}'
     elif url.endswith('/members'):
-        if url.startswith('http://error'):
-            response.content = '[{}]'
-        else:
-            response.content = members
-    elif url.endswith('/members'):
-        response.content = '{"action":"set","node":{"key":"/service/alpha/failover","value":"{\"leader\": \"f1410e163b6a\"}","modifiedIndex":257,"createdIndex":257},"prevNode":{"key":"/service/alpha/failover","value":"{\"scheduled_at\": \"2016-01-15T17:50:00+01:00\", \"leader\": \"f1410e163b6a\"}","modifiedIndex":241,"createdIndex":241}}'
+        response.content = '[{}]' if url.startswith('http://error') else members
     elif url.startswith('http://exhibitor'):
         response.content = '{"servers":["127.0.0.1","127.0.0.2","127.0.0.3"],"port":2181}'
     else:
