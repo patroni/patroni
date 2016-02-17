@@ -20,7 +20,8 @@ class MockKazooClient(Mock):
     def client_id(self):
         return (-1, '')
 
-    def retry(self, func, *args, **kwargs):
+    @staticmethod
+    def retry(func, *args, **kwargs):
         func(*args, **kwargs)
 
     def get(self, path, watch=None):
@@ -43,7 +44,8 @@ class MockKazooClient(Mock):
             return (b'foo', ZnodeStat(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
         return (b'', ZnodeStat(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
 
-    def get_children(self, path, watch=None, include_data=False):
+    @staticmethod
+    def get_children(path, watch=None, include_data=False):
         if not isinstance(path, six.string_types):
             raise TypeError("Invalid type for 'path' (string expected)")
         if path.startswith('/no_node'):
@@ -62,16 +64,16 @@ class MockKazooClient(Mock):
         elif value == b'retry' or (value == b'exists' and self.exists):
             raise NodeExistsError
 
-    def set(self, path, value, version=-1):
+    @staticmethod
+    def set(path, value, version=-1):
         if not isinstance(path, six.string_types):
             raise TypeError("Invalid type for 'path' (string expected)")
         if not isinstance(value, (six.binary_type,)):
             raise TypeError("Invalid type for 'value' (must be a byte string)")
         if path == '/service/bla/optime/leader':
             raise Exception
-        if path == '/service/test/members/bar':
-            if value == b'retry':
-                return
+        if path == '/service/test/members/bar' and value == b'retry':
+            return
         if path == '/service/test/failover':
             if value == b'Exception':
                 raise Exception

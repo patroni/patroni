@@ -27,7 +27,7 @@ def get_cluster_not_initialized_without_leader():
 
 def get_cluster_initialized_without_leader(leader=False, failover=None):
     m = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
-                                 'api_url': 'http://127.0.0.1:8008/patroni', 'xlog_location':4})
+                                 'api_url': 'http://127.0.0.1:8008/patroni', 'xlog_location': 4})
     l = Leader(0, 0, m) if leader else None
     o = Member(0, 'other', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
                                 'api_url': 'http://127.0.0.1:8011/patroni'})
@@ -36,6 +36,7 @@ def get_cluster_initialized_without_leader(leader=False, failover=None):
 
 def get_cluster_initialized_with_leader(failover=None):
     return get_cluster_initialized_without_leader(leader=True, failover=failover)
+
 
 def get_cluster_initialized_with_only_leader(failover=None):
     l = get_cluster_initialized_without_leader(leader=True, failover=failover).leader
@@ -51,38 +52,48 @@ class MockPostgresql(Mock):
     server_version = '999999'
     scope = 'dummy'
 
-    def is_healthy(self):
+    @staticmethod
+    def is_healthy():
         return True
 
-    def start(self):
+    @staticmethod
+    def start():
         return True
 
-    def is_healthiest_node(self, members):
+    @staticmethod
+    def is_healthiest_node(members):
         return True
 
-    def is_leader(self):
+    @staticmethod
+    def is_leader():
         return True
 
-    def xlog_position(self):
+    @staticmethod
+    def xlog_position():
         return 0
 
-    def last_operation(self):
+    @staticmethod
+    def last_operation():
         return 0
 
-    def data_directory_empty(self):
+    @staticmethod
+    def data_directory_empty():
         return False
 
-    def bootstrap(self, *args, **kwargs):
+    @staticmethod
+    def bootstrap(*args, **kwargs):
         return True
 
-    def check_replication_lag(self, last_leader_operation):
+    @staticmethod
+    def check_replication_lag(last_leader_operation):
         return True
 
-    def check_recovery_conf(self, leader):
+    @staticmethod
+    def check_recovery_conf(leader):
         return False
 
 
-class MockPatroni:
+class MockPatroni(object):
 
     def __init__(self, p, d):
         self.postgresql = p
@@ -95,26 +106,26 @@ class MockPatroni:
 
 
 def run_async(func, args=()):
-    func(*args) if args else func()
+    return func(*args) if args else func()
 
 
 class TestHa(unittest.TestCase):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
-    @patch.object(Client, 'machines')
-    def setUp(self, mock_machines):
-        mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
-        self.p = MockPostgresql()
-        self.p.can_create_replica_without_leader = MagicMock(return_value=False)
-        self.e = Etcd('foo', {'ttl': 30, 'host': 'ok:2379', 'scope': 'test'})
-        self.e.client.read = etcd_read
-        self.e.client.write = etcd_write
-        self.e.client.delete = Mock(side_effect=etcd.EtcdException())
-        self.ha = Ha(MockPatroni(self.p, self.e))
-        self.ha._async_executor.run_async = run_async
-        self.ha.old_cluster = self.e.get_cluster()
-        self.ha.cluster = get_cluster_not_initialized_without_leader()
-        self.ha.load_cluster_from_dcs = Mock()
+    def setUp(self):
+        with patch.object(Client, 'machines') as mock_machines:
+            mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
+            self.p = MockPostgresql()
+            self.p.can_create_replica_without_leader = MagicMock(return_value=False)
+            self.e = Etcd('foo', {'ttl': 30, 'host': 'ok:2379', 'scope': 'test'})
+            self.e.client.read = etcd_read
+            self.e.client.write = etcd_write
+            self.e.client.delete = Mock(side_effect=etcd.EtcdException())
+            self.ha = Ha(MockPatroni(self.p, self.e))
+            self.ha._async_executor.run_async = run_async
+            self.ha.old_cluster = self.e.get_cluster()
+            self.ha.cluster = get_cluster_not_initialized_without_leader()
+            self.ha.load_cluster_from_dcs = Mock()
 
     def test_update_lock(self):
         self.p.last_operation = Mock(side_effect=PostgresException(''))

@@ -172,8 +172,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_POST_failover(self):
         content_length = int(self.headers.get('content-length', 0))
         request = json.loads(self.rfile.read(content_length).decode('utf-8'))
-        leader = request.get('leader', None)
-        member = request.get('member', None)
+        leader = request.get('leader')
+        member = request.get('member')
         cluster = self.server.patroni.ha.dcs.get_cluster()
         status_code = 503
         data = self.is_failover_possible(cluster, leader, member)
@@ -252,8 +252,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def get_tags(self):
         return {'tags': self.server.patroni.tags}
 
-    def log_message(self, format, *args):
-        logger.debug("API thread: " + format % args)
+    def log_message(self, fmt, *args):
+        logger.debug("API thread: %s - - [%s] %s", self.client_address[0], self.log_date_time_string(), fmt % args)
 
 
 class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
@@ -270,12 +270,12 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         # wrap socket with ssl if 'certfile' is defined in a config.yaml
         # Sometime it's also needed to pass reference to a 'keyfile'.
         options = {option: config[option] for option in ['certfile', 'keyfile'] if option in config}
-        if options.get('certfile', None):
+        if options.get('certfile'):
             import ssl
             self.socket = ssl.wrap_socket(self.socket, server_side=True, **options)
             protocol = 'https'
 
-        self.connection_string = '{}://{}/patroni'.format(protocol, config.get('connect_address', config['listen']))
+        self.connection_string = '{0}://{1}/patroni'.format(protocol, config.get('connect_address', config['listen']))
 
         self.patroni = patroni
         self.daemon = True
