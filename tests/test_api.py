@@ -19,10 +19,12 @@ class MockPostgresql(Mock):
     server_version = '999999'
     scope = 'dummy'
 
-    def connection(self):
+    @staticmethod
+    def connection():
         return psycopg2_connect()
 
-    def is_running(self):
+    @staticmethod
+    def is_running():
         return True
 
 
@@ -31,23 +33,28 @@ class MockHa(Mock):
     dcs = Mock()
     state_handler = MockPostgresql()
 
-    def schedule_restart(self):
+    @staticmethod
+    def schedule_restart():
         return 'restart'
 
-    def schedule_reinitialize(self):
+    @staticmethod
+    def schedule_reinitialize():
         return 'reinitialize'
 
-    def restart(self):
+    @staticmethod
+    def restart():
         return (True, '')
 
-    def restart_scheduled(self):
+    @staticmethod
+    def restart_scheduled():
         return False
 
-    def fetch_nodes_statuses(self, members):
+    @staticmethod
+    def fetch_nodes_statuses(members):
         return [[None, True, None, None, {}]]
 
 
-class MockPatroni:
+class MockPatroni(Mock):
 
     postgresql = MockPostgresql()
     ha = MockHa()
@@ -56,7 +63,7 @@ class MockPatroni:
     version = '0.00'
 
 
-class MockRequest:
+class MockRequest(object):
 
     def __init__(self, path):
         self.path = path

@@ -11,7 +11,7 @@ from patroni.dcs import Cluster, DCSError, Leader
 from patroni.etcd import Client, Etcd, EtcdError
 
 
-class MockResponse:
+class MockResponse(object):
 
     def __init__(self):
         self.status_code = 200
@@ -34,6 +34,7 @@ class MockResponse:
     def status(self):
         return self.status_code
 
+    @staticmethod
     def getheader(*args):
         return ''
 
@@ -43,7 +44,8 @@ class MockPostgresql(Mock):
     server_version = '999999'
     scope = 'dummy'
 
-    def last_operation(self):
+    @staticmethod
+    def last_operation():
         return '0'
 
 
@@ -86,9 +88,9 @@ def etcd_watch(key, index=None, timeout=None, recursive=None):
 def etcd_write(key, value, **kwargs):
     if key == '/service/exists/leader':
         raise etcd.EtcdAlreadyExist
-    if key == '/service/test/leader' or key == '/patroni/test/leader':
-        if kwargs.get('prevValue', None) == 'foo' or not kwargs.get('prevExist', True):
-            return True
+    if key in ['/service/test/leader', '/patroni/test/leader'] and \
+            (kwargs.get('prevValue') == 'foo' or not kwargs.get('prevExist', True)):
+        return True
     raise etcd.EtcdException
 
 
@@ -129,12 +131,12 @@ class SleepException(Exception):
     pass
 
 
-class MockSRV:
+class MockSRV(object):
     port = 2380
     target = '127.0.0.1'
 
 
-def dns_query(name, type):
+def dns_query(name, _):
     if name == '_etcd-server._tcp.blabla':
         return []
     elif name == '_etcd-server._tcp.exception':
@@ -176,6 +178,7 @@ class TestClient(unittest.TestCase):
         self.client._machines_cache = []
         self.assertRaises(etcd.EtcdConnectionFailed, self.client.api_execute, '/', 'GET')
         self.assertTrue(self.client._update_machines_cache)
+        self.assertRaises(etcd.EtcdException, self.client.api_execute, '/', 'GET')
 
     def test_get_srv_record(self):
         self.assertEquals(self.client.get_srv_record('blabla'), [])

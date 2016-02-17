@@ -9,9 +9,9 @@ import dateutil.parser
 
 from patroni.exceptions import PatroniException
 
-ignore_sigterm = False
-interrupted_sleep = False
-reap_children = False
+__ignore_sigterm = False
+__interrupted_sleep = False
+__reap_children = False
 
 
 def calculate_ttl(expiration):
@@ -34,28 +34,28 @@ def calculate_ttl(expiration):
 
 
 def sigterm_handler(signo, stack_frame):
-    global ignore_sigterm
-    if not ignore_sigterm:
-        ignore_sigterm = True
+    global __ignore_sigterm
+    if not __ignore_sigterm:
+        __ignore_sigterm = True
         sys.exit()
 
 
 def sigchld_handler(signo, stack_frame):
-    global interrupted_sleep, reap_children
-    reap_children = interrupted_sleep = True
+    global __interrupted_sleep, __reap_children
+    __reap_children = __interrupted_sleep = True
 
 
 def sleep(interval):
-    global interrupted_sleep
+    global __interrupted_sleep
     current_time = time.time()
     end_time = current_time + interval
     while current_time < end_time:
-        interrupted_sleep = False
+        __interrupted_sleep = False
         time.sleep(end_time - current_time)
-        if not interrupted_sleep:  # we will ignore only sigchld
+        if not __interrupted_sleep:  # we will ignore only sigchld
             break
         current_time = time.time()
-    interrupted_sleep = False
+    __interrupted_sleep = False
 
 
 def setup_signal_handlers():
@@ -64,8 +64,8 @@ def setup_signal_handlers():
 
 
 def reap_children():
-    global reap_children
-    if reap_children:
+    global __reap_children
+    if __reap_children:
         try:
             while True:
                 ret = os.waitpid(-1, os.WNOHANG)
@@ -74,7 +74,7 @@ def reap_children():
         except OSError:
             pass
         finally:
-            reap_children = False
+            __reap_children = False
 
 
 class RetryFailedError(PatroniException):
@@ -82,7 +82,7 @@ class RetryFailedError(PatroniException):
     """Raised when retrying an operation ultimately failed, after retrying the maximum number of attempts."""
 
 
-class Retry:
+class Retry(object):
 
     """Helper for retrying a method in the face of retry-able exceptions"""
 

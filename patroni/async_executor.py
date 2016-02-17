@@ -4,10 +4,9 @@ from threading import Lock, Thread
 logger = logging.getLogger(__name__)
 
 
-class AsyncExecutor:
+class AsyncExecutor(object):
 
     def __init__(self):
-        Lock.__init__(self)
         self._busy = False
         self._thread_lock = Lock()
         self._scheduled_action = None
@@ -51,5 +50,5 @@ class AsyncExecutor:
     def __enter__(self):
         self._thread_lock.acquire()
 
-    def __exit__(self, type, value, traceback):
+    def __exit__(self, *args):
         self._thread_lock.release()
