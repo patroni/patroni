@@ -78,11 +78,11 @@ class TestCtl(unittest.TestCase):
 
         self.assertIsNotNone(get_cursor(get_cluster_initialized_with_leader(), role='any'))
 
-    def test_output_members(*args):
+    def test_output_members(self):
         cluster = get_cluster_initialized_with_leader()
-        output_members(cluster, name='abc', fmt='pretty')
-        output_members(cluster, name='abc', fmt='json')
-        output_members(cluster, name='abc', fmt='tsv')
+        self.assertIsNone(output_members(cluster, name='abc', fmt='pretty'))
+        self.assertIsNone(output_members(cluster, name='abc', fmt='json'))
+        self.assertIsNone(output_members(cluster, name='abc', fmt='tsv'))
 
     @patch('patroni.etcd.Etcd.get_cluster', Mock(return_value=get_cluster_initialized_with_leader()))
     @patch('patroni.etcd.Etcd.get_etcd_client', Mock(return_value=None))
