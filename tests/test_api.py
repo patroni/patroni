@@ -177,22 +177,22 @@ class TestRestApiHandler(unittest.TestCase):
                   b'Content-Length: 50\n\n{"leader": "postgresql1", "member": "postgresql2"}'
         MockRestApiServer(RestApiHandler, request)
 
-        ## Valid future date
-        request = b'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\n' +\
-                  b'Content-Length: 103\n\n{"leader": "postgresql1", "member": "postgresql2", "scheduled_at": "6016-02-15T18:13:30.568224+01:00"}'
+        # Valid future date
+        request = b'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\nContent-Length: 103\n\n{"leader": ' +\
+                  b'"postgresql1", "member": "postgresql2", "scheduled_at": "6016-02-15T18:13:30.568224+01:00"}'
         MockRestApiServer(RestApiHandler, request)
 
-        ## Exception: No timezone specified
-        request = b'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\n' +\
-                  b'Content-Length: 97\n\n{"leader": "postgresql1", "member": "postgresql2", "scheduled_at": "6016-02-15T18:13:30.568224"}'
+        # Exception: No timezone specified
+        request = b'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\nContent-Length: 97\n\n{"leader": ' +\
+                  b'"postgresql1", "member": "postgresql2", "scheduled_at": "6016-02-15T18:13:30.568224"}'
         MockRestApiServer(RestApiHandler, request)
 
-        ## Exception: Scheduled in the past
-        request = b'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\n' +\
-                  b'Content-Length: 103\n\n{"leader": "postgresql1", "member": "postgresql2", "scheduled_at": "1016-02-15T18:13:30.568224+01:00"}'
+        # Exception: Scheduled in the past
+        request = b'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\nContent-Length: 103\n\n{"leader": ' +\
+                  b'"postgresql1", "member": "postgresql2", "scheduled_at": "1016-02-15T18:13:30.568224+01:00"}'
         MockRestApiServer(RestApiHandler, request)
 
-        ## Invalid date
-        request = b'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\n' +\
-                  b'Content-Length: 103\n\n{"leader": "postgresql1", "member": "postgresql2", "scheduled_at": "2010-02-29T18:13:30.568224+01:00"}'
+        # Invalid date
+        request = b'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\nContent-Length: 103\n\n{"leader": ' +\
+                  b'"postgresql1", "member": "postgresql2", "scheduled_at": "2010-02-29T18:13:30.568224+01:00"}'
         MockRestApiServer(RestApiHandler, request)
