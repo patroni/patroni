@@ -20,7 +20,7 @@ ExecStart=/bin/patroni /etc/patroni.yml
 # Give a reasonable amount of time for the server to start up/shut down
 TimeoutSec=10
 
-# Always restart the service if it crashes, we want it to continue running
+# Do not restart the service if it crashes, we want to manually inspect database on failure
 Restart=no
 
 [Install]
