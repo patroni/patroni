@@ -118,6 +118,7 @@ y''')
             # Aborting failover,as we anser NO to the confirmation
             result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
 other
+
 N''')
             assert result.exit_code == 1
 
@@ -159,6 +160,7 @@ y''')
             # No members available
             result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
 other
+
 y''')
             assert result.exit_code == 1
 
