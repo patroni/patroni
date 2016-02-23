@@ -14,6 +14,8 @@ import datetime
 from prettytable import PrettyTable
 from six.moves.urllib_parse import urlparse
 import logging
+import dateutil
+import tzlocal
 
 from click import ClickException
 from patroni.etcd import Etcd
@@ -472,10 +474,12 @@ def reinit(cluster_name, member_names, config_file, dcs, force):
 @click.argument('cluster_name')
 @click.option('--master', help='The name of the current master', default=None)
 @click.option('--candidate', help='The name of the candidate', default=None)
+@click.option('--scheduled', help='Timestamp of a scheduled failover in unambiguous format (e.g. ISO 8601)',
+              default=None)
 @click.option('--force', is_flag=True)
 @option_config_file
 @option_dcs
-def failover(config_file, cluster_name, master, candidate, force, dcs):
+def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled):
     """
         We want to trigger a failover for the specified cluster name.
 
@@ -513,6 +517,25 @@ def failover(config_file, cluster_name, master, candidate, force, dcs):
     if candidate and candidate not in candidate_names:
         raise PatroniCtlException('Member {0} does not exist in cluster {1}'.format(candidate, cluster_name))
 
+    if scheduled is None and not force:
+        scheduled = click.prompt('When should the failover take place (e.g. 2015-10-01T14:30) ', type=str,
+                                 default='now')
+
+    if (scheduled or 'now') == 'now':
+        scheduled_at = None
+    else:
+        try:
+            scheduled_at = dateutil.parser.parse(scheduled)
+            if scheduled_at.tzinfo is None:
+                scheduled_at = tzlocal.get_localzone().localize(scheduled_at)
+        except (ValueError, TypeError):
+            message = 'Unable to parse scheduled timestamp ({}). It should be in an unambiguous format (e.g. ISO 8601)'
+            raise PatroniCtlException(message.format(scheduled))
+        scheduled_at = scheduled_at.isoformat()
+
+    failover_value = {'leader': master, 'member': candidate, 'scheduled_at': scheduled_at}
+    logging.debug(failover_value)
+
     # By now we have established that the leader exists and the candidate exists
     click.echo('Current cluster topology')
     output_members(dcs.get_cluster(), name=cluster_name)
@@ -524,17 +547,14 @@ def failover(config_file, cluster_name, master, candidate, force, dcs):
         if not a:
             raise PatroniCtlException('Aborting failover')
 
-    failover_value = '{0}:{1}'.format(master, candidate or '')
-
-    t_started = time.time()
     r = None
     try:
-        r = post_patroni(cluster.leader.member, 'failover', {'leader': master, 'member': candidate or ''})
+        r = post_patroni(cluster.leader.member, 'failover', failover_value)
         if r.status_code == 200:
             logging.debug(r)
-            logging.debug(r.text)
             cluster = dcs.get_cluster()
-            click.echo(timestamp() + ' Failing over to new leader: {0}'.format(cluster.leader.member.name))
+            logging.debug(cluster)
+            click.echo('{0} {1}'.format(timestamp(), r.text))
         else:
             click.echo('Failover failed, details: {0}, {1}'.format(r.status_code, r.text))
             return
@@ -542,17 +562,9 @@ def failover(config_file, cluster_name, master, candidate, force, dcs):
         logging.exception(r)
         logging.warning('Failing over to DCS')
         click.echo(timestamp() + ' Could not failover using Patroni api, falling back to DCS')
-        dcs.set_failover_value(failover_value)
-        click.echo(timestamp() + ' Initialized failover from master {0}'.format(master))
-        # The failover process should within a minute update the failover key, we will keep watching it until it changes
-        # or we timeout
-        cluster = wait_for_leader(dcs, timeout=60)
-        if cluster.leader.member.name == master:
-            click.echo('Failover failed, master did not change after {:0.1f} seconds'.format(time.time() - t_started))
-            return
+        click.echo(timestamp() + ' Initializing failover from master {0}'.format(master))
+        dcs.manual_failover(leader=master, member=candidate, scheduled_at=failover_value)
 
-    click.echo(timestamp() + ' Failover completed in {:0.1f} seconds, new leader is {}'.format(time.time() - t_started,
-               str(cluster.leader.member.name)))
     output_members(cluster, name=cluster_name)
 
 
@@ -576,10 +588,9 @@ def output_members(cluster, name=None, fmt='pretty'):
 
         host = build_connect_parameters(m.conn_url)['host']
 
-        xlog_location = m.data.get('xlog_location')
-        if xlog_location is None or (xlog_location_cluster < xlog_location):
-            lag = ''
-        else:
+        xlog_location = m.data.get('xlog_location') or 0
+        lag = ''
+        if (xlog_location_cluster >= xlog_location):
             lag = round((xlog_location_cluster - xlog_location)/1024/1024)
 
         rows.append([

@@ -10,3 +10,5 @@ python-etcd==0.4.2
 python-consul>=0.4.5
 click>=4.1
 prettytable>=0.7
+tzlocal
+python-dateutil

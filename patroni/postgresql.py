@@ -526,8 +526,7 @@ recovery_target_timeline = 'latest'
                         result[name] = val
         except IOError:
             logger.exception('Error when reading postmaster.opts')
-        finally:
-            return result
+        return result
 
     def single_user_mode(self, command=None, options=None):
         """ run a given command in a single-user mode. If the command is empty - then just start and stop """
@@ -560,46 +559,44 @@ recovery_target_timeline = 'latest'
             logger.exception("Unable to list %s", status_dir)
 
     def follow(self, leader, recovery=False):
-        if not self.check_recovery_conf(leader) or recovery:
-            change_role = (self.role == 'master')
-
-            self._need_rewind = (self._need_rewind or change_role) and self.can_rewind
-            if self._need_rewind:
-                logger.info("set the rewind flag after demote")
-            self.write_recovery_conf(leader)
-            if not leader or not self._need_rewind:  # do not rewind until the leader becomes available
-                ret = self.restart()
-            else:  # we have a leader and need to rewind
-                if self.is_running():
-                    self.stop()
-                # at present, pg_rewind only runs when the cluster is shut down cleanly
-                # and not shutdown in recovery. We have to remove the recovery.conf if present
-                # and start/shutdown in a single user mode to emulate this.
-                # XXX: if recovery.conf is linked, it will be written anew as a normal file.
-                if os.path.islink(self.recovery_conf):
-                    os.unlink(self.recovery_conf)
-                else:
-                    os.remove(self.recovery_conf)
-                # Archived segments might be useful to pg_rewind,
-                # clean the flags that tell we should remove them.
-                self.cleanup_archive_status()
-                # Start in a single user mode and stop to produce a clean shutdown
-                opts = self.read_postmaster_opts()
-                opts['archive_mode'] = 'on'
-                opts['archive_command'] = 'false'
-                self.single_user_mode(options=opts)
-                if self.rewind(leader):
-                    ret = self.start()
-                else:
-                    logger.error("unable to rewind the former master")
-                    self.remove_data_directory()
-                    ret = True
-                self._need_rewind = False
-            if change_role and ret:
-                self.call_nowait(ACTION_ON_ROLE_CHANGE)
-            return ret
-        else:
+        if self.check_recovery_conf(leader) and not recovery:
             return True
+
+        change_role = self.role == 'master'
+        self._need_rewind = (self._need_rewind or change_role) and self.can_rewind
+        if self._need_rewind:
+            logger.info("set the rewind flag after demote")
+        self.write_recovery_conf(leader)
+        if leader and self._need_rewind:  # we have a leader and need to rewind
+            if self.is_running():
+                self.stop()
+            # at present, pg_rewind only runs when the cluster is shut down cleanly
+            # and not shutdown in recovery. We have to remove the recovery.conf if present
+            # and start/shutdown in a single user mode to emulate this.
+            # XXX: if recovery.conf is linked, it will be written anew as a normal file.
+            if os.path.islink(self.recovery_conf):
+                os.unlink(self.recovery_conf)
+            else:
+                os.remove(self.recovery_conf)
+            # Archived segments might be useful to pg_rewind,
+            # clean the flags that tell we should remove them.
+            self.cleanup_archive_status()
+            # Start in a single user mode and stop to produce a clean shutdown
+            opts = self.read_postmaster_opts()
+            opts.update({'archive_mode': 'on', 'archive_command': 'false'})
+            self.single_user_mode(options=opts)
+            if self.rewind(leader):
+                ret = self.start()
+            else:
+                logger.error("unable to rewind the former master")
+                self.remove_data_directory()
+                ret = True
+            self._need_rewind = False
+        else:  # do not rewind until the leader becomes available
+            ret = self.restart()
+        if change_role and ret:
+            self.call_nowait(ACTION_ON_ROLE_CHANGE)
+        return ret
 
     def save_configuration_files(self):
         """
