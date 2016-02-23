@@ -67,7 +67,7 @@ def run_async(func, args=()):
 @patch.object(Postgresql, 'xlog_position', Mock(return_value=0))
 @patch.object(Postgresql, 'call_nowait', Mock(return_value=True))
 @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=False))
-@patch.object(Postgresql, 'controldata', Mock(return_value={}))
+@patch.object(Postgresql, 'controldata', Mock(return_value={'Database system identifier': '1234567890'}))
 @patch.object(Postgresql, 'sync_replication_slots', Mock())
 @patch.object(Postgresql, 'write_pg_hba', Mock())
 @patch.object(Postgresql, 'write_pgpass', Mock())
@@ -85,7 +85,6 @@ class TestHa(unittest.TestCase):
                                  'data_dir': 'data/postgresql0', 'superuser': {}, 'admin': {},
                                  'replication': {'username': '', 'password': '', 'network': ''}})
             self.p.set_state('running')
-            self.p._sysid = '1234567890'
             self.p.check_replication_lag = true
             self.p.can_create_replica_without_leader = MagicMock(return_value=False)
             self.e = Etcd('foo', {'ttl': 30, 'host': 'ok:2379', 'scope': 'test'})
