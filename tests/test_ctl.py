@@ -390,10 +390,8 @@ leader''')
 
     @patch('patroni.ctl.load_config', Mock(return_value={'dcs': {'scheme': 'zookeeper', 'hostname': 'localhost', 'port': 2181}}))
     def test_zookeeper(self):
-        with patch('patroni.ctl.get_dcs', Mock(return_value=self.zk)):
-            self.runner.invoke(ctl, ['list'])
+        self.runner.invoke(ctl, ['list'])
 
     @patch('patroni.ctl.load_config', Mock(return_value={'dcs': {'scheme': 'exhibitor', 'hostname': 'localhost', 'port': 8181}}))
     def test_exhibitor(self):
-        with patch('patroni.ctl.get_dcs', Mock(return_value=self.zk)):
-            self.runner.invoke(ctl, ['list'])
+        self.runner.invoke(ctl, ['list'])
