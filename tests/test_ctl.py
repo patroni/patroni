@@ -1,25 +1,19 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 import os
 import pytest
+import requests.exceptions
 import unittest
-import psycopg2
-import requests
-import patroni.exceptions
-import etcd
-from mock import patch, Mock, MagicMock
-
 
 from click.testing import CliRunner
+from etcd import EtcdException
+from mock import patch, Mock, MagicMock
 from patroni.ctl import ctl, members, store_config, load_config, output_members, post_patroni, get_dcs, \
     wait_for_leader, get_all_members, get_any_member, get_cursor, query_member, configure
-from patroni.ha import Ha
 from patroni.etcd import Etcd, Client
-from test_ha import get_cluster_initialized_without_leader, get_cluster_initialized_with_leader, \
-    get_cluster_initialized_with_only_leader, MockPostgresql, MockPatroni, run_async, \
-    get_cluster_not_initialized_without_leader
+from patroni.exceptions import PatroniCtlException
+from psycopg2 import OperationalError
 from test_etcd import etcd_read, etcd_write, requests_get, socket_getaddrinfo, MockResponse
+from test_ha import get_cluster_initialized_without_leader, get_cluster_initialized_with_leader, \
+    get_cluster_initialized_with_only_leader
 from test_postgresql import MockConnect, psycopg2_connect
 
 CONFIG_FILE_PATH = './test-ctl.yaml'
@@ -56,37 +50,27 @@ class TestCtl(unittest.TestCase):
         self.runner = CliRunner()
         with patch.object(Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
-            self.p = MockPostgresql()
             self.e = Etcd('foo', {'ttl': 30, 'host': 'ok:2379', 'scope': 'test'})
             self.e.client.read = etcd_read
             self.e.client.write = etcd_write
-            self.e.client.delete = Mock(side_effect=etcd.EtcdException())
-            self.ha = Ha(MockPatroni(self.p, self.e))
-            self.ha._async_executor.run_async = run_async
-            self.ha.old_cluster = self.e.get_cluster()
-            self.ha.cluster = get_cluster_not_initialized_without_leader()
-            self.ha.load_cluster_from_dcs = Mock()
+            self.e.client.delete = Mock(side_effect=EtcdException)
 
     @patch('psycopg2.connect', psycopg2_connect)
     def test_get_cursor(self):
-        c = get_cursor(get_cluster_initialized_without_leader(), role='master')
-        assert c is None
+        self.assertIsNone(get_cursor(get_cluster_initialized_without_leader(), role='master'))
 
-        c = get_cursor(get_cluster_initialized_with_leader(), role='master')
-        assert c is not None
+        self.assertIsNotNone(get_cursor(get_cluster_initialized_with_leader(), role='master'))
 
-        c = get_cursor(get_cluster_initialized_with_leader(), role='replica')
-        # # MockCursor returns pg_is_in_recovery as false
-        assert c is None
+        # MockCursor returns pg_is_in_recovery as false
+        self.assertIsNone(get_cursor(get_cluster_initialized_with_leader(), role='replica'))
 
-        c = get_cursor(get_cluster_initialized_with_leader(), role='any')
-        assert c is not None
+        self.assertIsNotNone(get_cursor(get_cluster_initialized_with_leader(), role='any'))
 
     def test_output_members(self):
         cluster = get_cluster_initialized_with_leader()
-        output_members(cluster, name='abc', fmt='pretty')
-        output_members(cluster, name='abc', fmt='json')
-        output_members(cluster, name='abc', fmt='tsv')
+        self.assertIsNone(output_members(cluster, name='abc', fmt='pretty'))
+        self.assertIsNone(output_members(cluster, name='abc', fmt='json'))
+        self.assertIsNone(output_members(cluster, name='abc', fmt='tsv'))
 
     @patch('patroni.etcd.Etcd.get_cluster', Mock(return_value=get_cluster_initialized_with_leader()))
     @patch('patroni.etcd.Etcd.get_etcd_client', Mock(return_value=None))
@@ -190,7 +174,7 @@ y''')
             assert 'Failover failed' in result.output
 
     def test_(self):
-        self.assertRaises(patroni.exceptions.PatroniCtlException, get_dcs, {'scheme': 'dummy'}, 'dummy')
+        self.assertRaises(PatroniCtlException, get_dcs, {'scheme': 'dummy'}, 'dummy')
 
     @patch('psycopg2.connect', psycopg2_connect)
     @patch('patroni.ctl.query_member', Mock(return_value=([['mock column']], None)))
@@ -240,22 +224,22 @@ y''')
     @patch('patroni.ctl.get_cursor', Mock(return_value=MockConnect().cursor()))
     def test_query_member(self):
         rows = query_member(None, None, None, 'master', 'SELECT pg_is_in_recovery()')
-        assert 'False' in str(rows)
+        self.assertTrue('False' in str(rows))
 
         rows = query_member(None, None, None, 'replica', 'SELECT pg_is_in_recovery()')
-        assert rows == (None, None)
+        self.assertEquals(rows, (None, None))
 
         with patch('patroni.ctl.get_cursor', Mock(return_value=None)):
             rows = query_member(None, None, None, None, 'SELECT pg_is_in_recovery()')
-            assert 'No connection to' in str(rows)
+            self.assertTrue('No connection to' in str(rows))
 
             rows = query_member(None, None, None, 'replica', 'SELECT pg_is_in_recovery()')
-            assert 'No connection to' in str(rows)
+            self.assertTrue('No connection to' in str(rows))
 
-        with patch('patroni.ctl.get_cursor', Mock(side_effect=psycopg2.OperationalError('bla'))):
+        with patch('patroni.ctl.get_cursor', Mock(side_effect=OperationalError('bla'))):
             rows = query_member(None, None, None, 'replica', 'SELECT pg_is_in_recovery()')
 
-        with patch('test_postgresql.MockCursor.execute', Mock(side_effect=psycopg2.OperationalError('bla'))):
+        with patch('test_postgresql.MockCursor.execute', Mock(side_effect=OperationalError('bla'))):
             rows = query_member(None, None, None, 'replica', 'SELECT pg_is_in_recovery()')
 
     @patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=get_cluster_initialized_with_leader()))
@@ -345,7 +329,7 @@ leader''')
     @patch('patroni.etcd.Etcd.get_cluster', Mock(return_value=get_cluster_initialized_with_leader()))
     def test_wait_for_leader(self):
         dcs = self.e
-        self.assertRaises(patroni.exceptions.PatroniCtlException, wait_for_leader, dcs, 0)
+        self.assertRaises(PatroniCtlException, wait_for_leader, dcs, 0)
 
         cluster = wait_for_leader(dcs=dcs, timeout=2)
         assert cluster.leader.member.name == 'leader'
@@ -362,26 +346,23 @@ leader''')
         assert 'Usage:' in result.output
 
     def test_get_any_member(self):
-        m = get_any_member(get_cluster_initialized_without_leader(), role='master')
-        assert m is None
+        self.assertIsNone(get_any_member(get_cluster_initialized_without_leader(), role='master'))
 
         m = get_any_member(get_cluster_initialized_with_leader(), role='master')
-        assert m.name == 'leader'
+        self.assertEquals(m.name, 'leader')
 
     def test_get_all_members(self):
-        r = list(get_all_members(get_cluster_initialized_without_leader(), role='master'))
-        assert len(r) == 0
+        self.assertEquals(list(get_all_members(get_cluster_initialized_without_leader(), role='master')), [])
 
         r = list(get_all_members(get_cluster_initialized_with_leader(), role='master'))
-        assert len(r) == 1
-        assert r[0].name == 'leader'
+        self.assertEquals(len(r), 1)
+        self.assertEquals(r[0].name, 'leader')
 
         r = list(get_all_members(get_cluster_initialized_with_leader(), role='replica'))
-        assert len(r) == 1
-        assert r[0].name == 'other'
+        self.assertEquals(len(r), 1)
+        self.assertEquals(r[0].name, 'other')
 
-        r = list(get_all_members(get_cluster_initialized_without_leader(), role='replica'))
-        assert len(r) == 2
+        self.assertEquals(len(list(get_all_members(get_cluster_initialized_without_leader(), role='replica'))), 2)
 
     @patch('patroni.etcd.Etcd.get_cluster', Mock(return_value=get_cluster_initialized_with_leader()))
     @patch('patroni.etcd.Etcd.get_etcd_client', Mock(return_value=None))
