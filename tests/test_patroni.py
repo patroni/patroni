@@ -15,10 +15,6 @@ from test_postgresql import Postgresql, psycopg2_connect
 from test_zookeeper import MockKazooClient
 
 
-def time_sleep(*args):
-    raise SleepException()
-
-
 @patch('time.sleep', Mock())
 @patch('subprocess.call', Mock(return_value=0))
 @patch('psycopg2.connect', psycopg2_connect)
@@ -62,7 +58,7 @@ class TestPatroni(unittest.TestCase):
 
     @patch('time.sleep', Mock(side_effect=SleepException()))
     def test_run(self):
-        self.p.ha.dcs.watch = time_sleep
+        self.p.ha.dcs.watch = Mock(side_effect=SleepException())
         self.assertRaises(SleepException, self.p.run)
 
         self.p.ha.state_handler.is_leader = Mock(return_value=False)
