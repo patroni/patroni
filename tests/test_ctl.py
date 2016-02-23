@@ -16,10 +16,12 @@ from patroni.ctl import ctl, members, store_config, load_config, output_members,
     wait_for_leader, get_all_members, get_any_member, get_cursor, query_member, configure
 from patroni.ha import Ha
 from patroni.etcd import Etcd, Client
+from patroni.zookeeper import ZooKeeper
 from test_ha import get_cluster_initialized_without_leader, get_cluster_initialized_with_leader, \
     get_cluster_initialized_with_only_leader, MockPostgresql, MockPatroni, run_async, \
     get_cluster_not_initialized_without_leader
 from test_etcd import etcd_read, etcd_write, requests_get, socket_getaddrinfo, MockResponse
+from test_zookeeper import MockKazooClient
 from test_postgresql import MockConnect, psycopg2_connect
 
 CONFIG_FILE_PATH = './test-ctl.yaml'
@@ -52,6 +54,7 @@ def test_rw_config():
 class TestCtl(unittest.TestCase):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
+    @patch('patroni.zookeeper.KazooClient', MockKazooClient)
     def setUp(self):
         self.runner = CliRunner()
         with patch.object(Client, 'machines') as mock_machines:
@@ -61,6 +64,7 @@ class TestCtl(unittest.TestCase):
             self.e.client.read = etcd_read
             self.e.client.write = etcd_write
             self.e.client.delete = Mock(side_effect=etcd.EtcdException())
+            self.zk = ZooKeeper('foo', {'ttl': 30, 'hosts': ['ok:2181'], 'scope': 'test'})
             self.ha = Ha(MockPatroni(self.p, self.e))
             self.ha._async_executor.run_async = run_async
             self.ha.old_cluster = self.e.get_cluster()
@@ -377,3 +381,13 @@ leader''')
         ])
 
         assert result.exit_code == 0
+
+    @patch('patroni.ctl.load_config', Mock(return_value={'dcs': {'scheme': 'zookeeper', 'hostname': 'localhost', 'port': 2181}}))
+    def test_zookeeper(self):
+        with patch('patroni.ctl.get_dcs', Mock(return_value=self.zk)):
+            self.runner.invoke(ctl, ['list'])
+
+    @patch('patroni.ctl.load_config', Mock(return_value={'dcs': {'scheme': 'exhibitor', 'hostname': 'localhost', 'port': 8181}}))
+    def test_exhibitor(self):
+        with patch('patroni.ctl.get_dcs', Mock(return_value=self.zk)):
+            self.runner.invoke(ctl, ['list'])
