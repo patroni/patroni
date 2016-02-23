@@ -5,6 +5,9 @@ import logging
 import psycopg2
 import socket
 import time
+import dateutil
+import datetime
+import pytz
 
 from patroni.exceptions import PostgresConnectionException
 from patroni.utils import Retry, RetryFailedError
@@ -101,7 +104,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     @check_auth
     def do_POST_restart(self):
-        status_code = 503
+        status_code = 500
         data = b'restart failed'
         try:
             status, msg = self.server.patroni.ha.restart()
@@ -175,14 +178,34 @@ class RestApiHandler(BaseHTTPRequestHandler):
         leader = request.get('leader')
         member = request.get('member')
         cluster = self.server.patroni.ha.dcs.get_cluster()
-        status_code = 503
-        data = self.is_failover_possible(cluster, leader, member)
-        if not data:
-            if not self.server.patroni.dcs.manual_failover(leader, member):
-                data = b'failed to write failover key into DCS'
-            else:
-                self.server.patroni.dcs.event.set()
-                status_code, data = self.poll_failover_result(cluster.leader and cluster.leader.name, member)
+        status_code = 500
+
+        data = b''
+        if request.get('scheduled_at'):
+            try:
+                scheduled_at = dateutil.parser.parse(request['scheduled_at'])
+                if scheduled_at.tzinfo is None:
+                    data = b'Timezone information is mandatory for scheduled_at'
+                    status_code = 400
+                elif scheduled_at < datetime.datetime.now(pytz.utc):
+                    data = b'Cannot schedule failover in the past'
+                    status_code = 422
+                elif self.server.patroni.dcs.manual_failover(leader, member, scheduled_at):
+                    data = b'Failover scheduled'
+                    status_code = 200
+            except (ValueError, TypeError):
+                logger.exception('Invalid scheduled failover time: {}'.format(request['scheduled_at']))
+                data = b'Unable to parse scheduled timestamp. It should be in an unambiguous format, e.g. ISO 8601'
+                status_code = 422
+        else:
+            data = self.is_failover_possible(cluster, leader, member)
+            if not data:
+                if not self.server.patroni.dcs.manual_failover(leader, member):
+                    data = b'failed to write failover key into DCS'
+                    status_code = 503
+                else:
+                    self.server.patroni.dcs.event.set()
+                    status_code, data = self.poll_failover_result(cluster.leader and cluster.leader.name, member)
 
         self.send_response(status_code)
         self.send_header('Content-Type', 'text/html')
