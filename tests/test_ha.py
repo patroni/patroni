@@ -1,11 +1,14 @@
-import etcd
 import unittest
+import datetime
+import pytz
 
+from etcd import EtcdException
 from mock import Mock, MagicMock, patch
 from patroni.dcs import Cluster, Failover, Leader, Member
 from patroni.etcd import Client, Etcd
 from patroni.exceptions import DCSError, PostgresException
 from patroni.ha import Ha
+from patroni.postgresql import Postgresql
 from test_etcd import socket_getaddrinfo, etcd_read, etcd_write, requests_get
 
 
@@ -43,56 +46,6 @@ def get_cluster_initialized_with_only_leader(failover=None):
     return get_cluster(True, l, [l], failover)
 
 
-class MockPostgresql(Mock):
-
-    name = 'postgresql0'
-    role = 'replica'
-    state = 'running'
-    connection_string = 'postgres://foo@bar/postgres'
-    server_version = '999999'
-    scope = 'dummy'
-
-    @staticmethod
-    def is_healthy():
-        return True
-
-    @staticmethod
-    def start():
-        return True
-
-    @staticmethod
-    def is_healthiest_node(members):
-        return True
-
-    @staticmethod
-    def is_leader():
-        return True
-
-    @staticmethod
-    def xlog_position():
-        return 0
-
-    @staticmethod
-    def last_operation():
-        return 0
-
-    @staticmethod
-    def data_directory_empty():
-        return False
-
-    @staticmethod
-    def bootstrap(*args, **kwargs):
-        return True
-
-    @staticmethod
-    def check_replication_lag(last_leader_operation):
-        return True
-
-    @staticmethod
-    def check_recovery_conf(leader):
-        return False
-
-
 class MockPatroni(object):
 
     def __init__(self, p, d):
@@ -109,18 +62,35 @@ def run_async(func, args=()):
     return func(*args) if args else func()
 
 
+@patch.object(Postgresql, 'is_running', Mock(return_value=True))
+@patch.object(Postgresql, 'is_leader', Mock(return_value=True))
+@patch.object(Postgresql, 'xlog_position', Mock(return_value=0))
+@patch.object(Postgresql, 'call_nowait', Mock(return_value=True))
+@patch.object(Postgresql, 'data_directory_empty', Mock(return_value=False))
+@patch.object(Postgresql, 'controldata', Mock(return_value={'Database system identifier': '1234567890'}))
+@patch.object(Postgresql, 'sync_replication_slots', Mock())
+@patch.object(Postgresql, 'write_pg_hba', Mock())
+@patch.object(Postgresql, 'write_pgpass', Mock())
+@patch.object(Postgresql, 'write_recovery_conf', Mock())
+@patch.object(Postgresql, 'query', Mock())
+@patch.object(Postgresql, 'checkpoint', Mock())
+@patch('subprocess.call', Mock(return_value=0))
 class TestHa(unittest.TestCase):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
     def setUp(self):
         with patch.object(Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
-            self.p = MockPostgresql()
+            self.p = Postgresql({'name': 'postgresql0', 'scope': 'dummy', 'listen': '127.0.0.1:5432',
+                                 'data_dir': 'data/postgresql0', 'superuser': {}, 'admin': {},
+                                 'replication': {'username': '', 'password': '', 'network': ''}})
+            self.p.set_state('running')
+            self.p.check_replication_lag = true
             self.p.can_create_replica_without_leader = MagicMock(return_value=False)
             self.e = Etcd('foo', {'ttl': 30, 'host': 'ok:2379', 'scope': 'test'})
             self.e.client.read = etcd_read
             self.e.client.write = etcd_write
-            self.e.client.delete = Mock(side_effect=etcd.EtcdException())
+            self.e.client.delete = Mock(side_effect=EtcdException())
             self.ha = Ha(MockPatroni(self.p, self.e))
             self.ha._async_executor.run_async = run_async
             self.ha.old_cluster = self.e.get_cluster()
@@ -152,7 +122,7 @@ class TestHa(unittest.TestCase):
         self.p.is_healthy = false
         self.p.is_running = false
         self.ha.has_lock = true
-        self.p.role = 'master'
+        self.p.set_role('master')
         self.p.controldata = lambda: {'Database cluster state': 'in production'}
         self.assertEquals(self.ha.run_cycle(), 'started as readonly because i had the session lock')
         self.assertEquals(self.ha.run_cycle(), 'removed leader key after trying and failing to start postgres')
@@ -298,38 +268,62 @@ class TestHa(unittest.TestCase):
     @patch('requests.get', requests_get)
     def test_manual_failover_from_leader(self):
         self.ha.has_lock = true
-        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', ''))
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', '', None))
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
-        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, '', MockPostgresql.name))
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, '', self.p.name, None))
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
-        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, '', 'blabla'))
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, '', 'blabla', None))
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
-        f = Failover(0, MockPostgresql.name, '')
+        f = Failover(0, self.p.name, '', None)
         self.ha.cluster = get_cluster_initialized_with_leader(f)
         self.assertEquals(self.ha.run_cycle(), 'manual failover: demoting myself')
         self.ha.fetch_node_status = lambda e: (e, True, True, 0, {'nofailover': 'True'})
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
         # manual failover from the previous leader to us won't happen if we hold the nofailover flag
-        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', MockPostgresql.name))
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', self.p.name, None))
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
+
+        # Failover scheduled time must include timezone
+        scheduled = datetime.datetime.now()
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', self.p.name, scheduled))
+        self.ha.run_cycle()
+
+        scheduled = datetime.datetime.utcnow().replace(tzinfo=pytz.UTC)
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', self.p.name, scheduled))
+        self.assertEquals('no action.  i am the leader with the lock', self.ha.run_cycle())
+
+        scheduled = scheduled + datetime.timedelta(seconds=30)
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', self.p.name, scheduled))
+        self.assertEquals('no action.  i am the leader with the lock', self.ha.run_cycle())
+
+        scheduled = scheduled + datetime.timedelta(seconds=-600)
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', self.p.name, scheduled))
+        self.assertEquals('no action.  i am the leader with the lock', self.ha.run_cycle())
+
+        scheduled = None
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', self.p.name, scheduled))
+        self.assertEquals('no action.  i am the leader with the lock', self.ha.run_cycle())
 
     @patch('requests.get', requests_get)
     def test_manual_failover_process_no_leader(self):
         self.p.is_leader = false
-        self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', MockPostgresql.name))
+        self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', self.p.name, None))
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
-        self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', 'leader'))
+        self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', 'leader', None))
+        self.p.set_role('replica')
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
         self.ha.fetch_node_status = lambda e: (e, True, True, 0, {})  # accessible, in_recovery
         self.assertEquals(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
-        self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, MockPostgresql.name, ''))
+        self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, self.p.name, '', None))
         self.assertEquals(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
         self.ha.fetch_node_status = lambda e: (e, False, True, 0, {})  # inaccessible, in_recovery
+        self.p.set_role('replica')
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
         # set failover flag to True for all members of the cluster
         # this should elect the current member, as we are not going to call the API for it.
-        self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', 'other'))
+        self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', 'other', None))
         self.ha.fetch_node_status = lambda e: (e, True, True, 0, {'nofailover': 'True'})  # accessible, in_recovery
+        self.p.set_role('replica')
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
         # same as previous, but set the current member to nofailover. In no case it should be elected as a leader
         self.ha.patroni.nofailover = True
