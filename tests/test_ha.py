@@ -84,7 +84,7 @@ class TestHa(unittest.TestCase):
             self.p = Postgresql({'name': 'postgresql0', 'scope': 'dummy', 'listen': '127.0.0.1:5432',
                                  'data_dir': 'data/postgresql0', 'superuser': {}, 'admin': {},
                                  'replication': {'username': '', 'password': '', 'network': ''}})
-            self.p._state = 'running'
+            self.p.set_state('running')
             self.p._sysid = '1234567890'
             self.p.check_replication_lag = true
             self.p.can_create_replica_without_leader = MagicMock(return_value=False)
@@ -123,7 +123,7 @@ class TestHa(unittest.TestCase):
         self.p.is_healthy = false
         self.p.is_running = false
         self.ha.has_lock = true
-        self.p._role = 'master'
+        self.p.set_role('master')
         self.p.controldata = lambda: {'Database cluster state': 'in production'}
         self.assertEquals(self.ha.run_cycle(), 'started as readonly because i had the session lock')
         self.assertEquals(self.ha.run_cycle(), 'removed leader key after trying and failing to start postgres')
@@ -311,20 +311,20 @@ class TestHa(unittest.TestCase):
         self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', self.p.name, None))
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
         self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', 'leader', None))
-        self.p._role = 'replica'
+        self.p.set_role('replica')
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
         self.ha.fetch_node_status = lambda e: (e, True, True, 0, {})  # accessible, in_recovery
         self.assertEquals(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
         self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, self.p.name, '', None))
         self.assertEquals(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
         self.ha.fetch_node_status = lambda e: (e, False, True, 0, {})  # inaccessible, in_recovery
-        self.p._role = 'replica'
+        self.p.set_role('replica')
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
         # set failover flag to True for all members of the cluster
         # this should elect the current member, as we are not going to call the API for it.
         self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', 'other', None))
         self.ha.fetch_node_status = lambda e: (e, True, True, 0, {'nofailover': 'True'})  # accessible, in_recovery
-        self.p._role = 'replica'
+        self.p.set_role('replica')
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
         # same as previous, but set the current member to nofailover. In no case it should be elected as a leader
         self.ha.patroni.nofailover = True

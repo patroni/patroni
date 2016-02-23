@@ -1,5 +1,6 @@
 import os
 import pytest
+import requests.exceptions
 import unittest
 
 from click.testing import CliRunner
@@ -10,7 +11,6 @@ from patroni.ctl import ctl, members, store_config, load_config, output_members,
 from patroni.etcd import Etcd, Client
 from patroni.exceptions import PatroniCtlException
 from psycopg2 import OperationalError
-from requests.exceptions import ConnectionError
 from test_etcd import etcd_read, etcd_write, requests_get, socket_getaddrinfo, MockResponse
 from test_ha import get_cluster_initialized_without_leader, get_cluster_initialized_with_leader, \
     get_cluster_initialized_with_only_leader
@@ -335,9 +335,9 @@ leader''')
         assert cluster.leader.member.name == 'leader'
 
     def test_post_patroni(self):
-        with patch('requests.post', MagicMock(side_effect=ConnectionError('foo'))):
+        with patch('requests.post', MagicMock(side_effect=requests.exceptions.ConnectionError('foo'))):
             member = get_cluster_initialized_with_leader().leader.member
-            self.assertRaises(ConnectionError, post_patroni, member, 'dummy', {})
+            self.assertRaises(requests.exceptions.ConnectionError, post_patroni, member, 'dummy', {})
 
     def test_ctl(self):
         self.runner.invoke(ctl, ['list'])
