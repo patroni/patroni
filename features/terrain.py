@@ -5,7 +5,7 @@ import requests
 import subprocess
 import shutil
 import tempfile
-from time import sleep
+import time
 import yaml
 
 
@@ -27,7 +27,10 @@ class PatroniController(object):
         self.connstring = {}
         self.connections = {}
         self.cursors = {}
+        self.log = {}
+        self.config = {}
         self.availability_check_time_limit = 10
+        self.output_dir = None
 
     @property
     def patroni_path(self):
@@ -47,16 +50,40 @@ class PatroniController(object):
     def stop_patroni(self, pg_name):
         while self.patroni_is_running(pg_name):
             self.processes[pg_name].terminate()
-            sleep(1)
+            time.sleep(1)
+        self.log.get('pg_name') and self.log[pg_name].close()
         del self.processes[pg_name]
+
+    def make_patroni_test_config(self, pg_name, output_dir):
+        patroni_config_name = PATRONI_CONFIG.format(pg_name)
+        patroni_config_path = os.path.join(output_dir, patroni_config_name)
+
+        with open(patroni_config_name) as f:
+            config = yaml.load(f)
+        postgresql = config['postgresql']['parameters']
+        postgresql['logging_collector'] = 'on'
+        postgresql['log_destination'] = 'csvlog'
+        postgresql['log_directory'] = output_dir
+        postgresql['log_filename'] = '{0}.log'.format(pg_name)
+        postgresql['log_statement'] = 'all'
+        postgresql['log_min_messages'] = 'debug1'
+
+        with open(patroni_config_path, 'w') as f:
+            yaml.dump(config, f, default_flow_style=False)
+
+        return patroni_config_path
 
     def start_patroni(self, pg_name):
         if not self.patroni_is_running(pg_name):
             if pg_name in self.processes:
                 del self.processes[pg_name]
             cwd = self.patroni_path
-            p = subprocess.Popen(['python', 'patroni.py', PATRONI_CONFIG.format(pg_name)],
-                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd)
+            self.log[pg_name] = open(os.path.join(self.output_dir, 'patroni_{0}.log'.format(pg_name)), 'a')
+
+            self.config[pg_name] = self.make_patroni_test_config(pg_name, self.output_dir)
+
+            p = subprocess.Popen(['python', 'patroni.py', self.config[pg_name]],
+                                 stdout=self.log[pg_name], stderr=subprocess.STDOUT, cwd=cwd)
             if not (p and p.pid and p.poll() is None):
                 assert False, "PostgreSQL {0} is not running after being started".format(pg_name)
             self.processes[pg_name] = p
@@ -64,7 +91,7 @@ class PatroniController(object):
         for tick in range(self.availability_check_time_limit):
             if self.query(pg_name, "SELECT 1", fail_ok=True) is not None:
                 break
-            sleep(1)
+            time.sleep(1)
         else:
             assert False,\
                 "Patroni instance is not available for queries after {0} seconds".format(self.availability_check_time_limit)
@@ -113,6 +140,20 @@ class PatroniController(object):
             else:
                 raise
 
+    def check_role_has_changed_to(self, pg_name, new_role, timeout=10):
+        bound_time = time.time() + timeout
+        current_role = 't' if new_role == 'primary' else 'f'
+        role_has_changed = False
+        while not role_has_changed:
+            cur = self.query(pg_name, "SELECT pg_is_in_recovery()", fail_ok=True)
+            if cur:
+                row = cur.fetchone()
+                if row and len(row) > 0 and row[0] != current_role:
+                    role_has_changed = True
+            if time.time() > bound_time:
+                break
+        return role_has_changed
+
     def stop_all(self):
         for patroni in self.processes.copy():
             self.stop_patroni(patroni)
@@ -157,6 +198,15 @@ def stop_etcd(total):
         etcd_handle = None
         shutil.rmtree(etcd_dir)
         etcd_dir = None
+
+
+@before.each_feature
+def make_test_output_dir(feature):
+    feature_dir = os.path.join(pctl.patroni_path, "features", "output", feature.name.encode('utf-8').replace(' ', '_'))
+    if os.path.exists(feature_dir):
+        shutil.rmtree(feature_dir)
+    os.makedirs(feature_dir)
+    pctl.output_dir = feature_dir
 
 
 def patroni_cleanup_all():
