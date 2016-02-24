@@ -16,6 +16,18 @@ class BasicReplicationSteps(object):
         '''I start (\w+)'''
         return world.pctl.start_patroni(pg_name)
 
+    def stop_patroni(self, step, pg_name):
+        '''I shut down (\w+)'''
+        return world.pctl.stop_patroni(pg_name)
+
+    def kill_patroni(self, step, pg_name):
+        '''I kill (\w+)'''
+        return world.pctl.stop_patroni(pg_name, kill=True)
+
+    def do_sleep(self, step, sleep_seconds):
+        '''I sleep (\w+)'''
+        sleep(int(sleep_seconds))
+
     def add_table(self, step, table_name, pg_name):
         '''I add the table (\w+) to (\w+)'''
         # parse the configuration file and get the port
@@ -36,7 +48,8 @@ class BasicReplicationSteps(object):
 
     def check_role(self, step, pg_name, pg_role, max_promotion_timeout):
         '''(\w+) role is the (\w+) after (\d+) seconds'''
-        return world.pctl.check_role_has_changed_to(pg_name, pg_role, timeout=int(max_promotion_timeout))
+        if not world.pctl.check_role_has_changed_to(pg_name, pg_role, timeout=int(max_promotion_timeout)):
+            assert False, "pg_name role didn't change to {0} after {1} seconds".format(pg_role, max_promotion_timeout)
 
 
 BasicReplicationSteps(world)

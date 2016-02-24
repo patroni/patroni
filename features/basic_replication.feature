@@ -1,11 +1,5 @@
 Feature: basic replication
-  In order to check that basic replication works
-  As observers
-  We start the primary and the replica
-  add a table on the primary
-  and check that it gets replicated to the replica over time.
-  We stop the primary and check that the replica promotes itself to primary
-  We start the old primary and check that it rejoins as a replica.
+  We should check that the basic bootstrapping, replication and failover works.
 
   Scenario: check replication of a single table
     Given I start postgres0
@@ -14,9 +8,9 @@ Feature: basic replication
     Then table foo is present on postgres1 after 10 seconds
 
   Scenario: check the basic failover
-    When I shut down postgres0
-    Then postgres1 role is the primary after 10 seconds
+    When I kill postgres0
+    Then postgres1 role is the primary after 30 seconds
     When I start postgres0
     Then postgres0 role is the secondary after 10 seconds
     When I add the table bar to postgres1
-    Then table bar is present on postgres1 after 10 seconds
+    Then table bar is present on postgres0 after 10 seconds

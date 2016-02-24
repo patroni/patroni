@@ -47,9 +47,12 @@ class PatroniController(object):
     def patroni_is_running(self, pg_name):
         return pg_name in self.processes and self.processes[pg_name].pid and (self.processes[pg_name].poll() is None)
 
-    def stop_patroni(self, pg_name):
+    def stop_patroni(self, pg_name, kill=False):
         while self.patroni_is_running(pg_name):
-            self.processes[pg_name].terminate()
+            if not kill:
+                self.processes[pg_name].terminate()
+            else:
+                self.processes[pg_name].kill()
             time.sleep(1)
         self.log.get('pg_name') and self.log[pg_name].close()
         del self.processes[pg_name]
@@ -142,16 +145,17 @@ class PatroniController(object):
 
     def check_role_has_changed_to(self, pg_name, new_role, timeout=10):
         bound_time = time.time() + timeout
-        current_role = 't' if new_role == 'primary' else 'f'
+        recovery_status = False if new_role == 'primary' else True
         role_has_changed = False
         while not role_has_changed:
             cur = self.query(pg_name, "SELECT pg_is_in_recovery()", fail_ok=True)
             if cur:
                 row = cur.fetchone()
-                if row and len(row) > 0 and row[0] != current_role:
+                if row and len(row) > 0 and row[0] == recovery_status:
                     role_has_changed = True
             if time.time() > bound_time:
                 break
+            time.sleep(1)
         return role_has_changed
 
     def stop_all(self):
