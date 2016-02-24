@@ -9,7 +9,6 @@ from mock import patch, Mock, MagicMock
 from patroni.ctl import ctl, members, store_config, load_config, output_members, post_patroni, get_dcs, \
     wait_for_leader, get_all_members, get_any_member, get_cursor, query_member, configure
 from patroni.etcd import Etcd, Client
-from patroni.zookeeper import ZooKeeper
 from patroni.exceptions import PatroniCtlException
 from psycopg2 import OperationalError
 from test_etcd import etcd_read, etcd_write, requests_get, socket_getaddrinfo, MockResponse
@@ -48,7 +47,6 @@ def test_rw_config():
 class TestCtl(unittest.TestCase):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
-    @patch('patroni.zookeeper.KazooClient', MockKazooClient)
     def setUp(self):
         self.runner = CliRunner()
         with patch.object(Client, 'machines') as mock_machines:
@@ -57,7 +55,6 @@ class TestCtl(unittest.TestCase):
             self.e.client.read = etcd_read
             self.e.client.write = etcd_write
             self.e.client.delete = Mock(side_effect=EtcdException)
-            self.zk = ZooKeeper('foo', {'ttl': 30, 'hosts': ['ok:2181'], 'scope': 'test'})
 
     @patch('psycopg2.connect', psycopg2_connect)
     def test_get_cursor(self):
@@ -177,7 +174,11 @@ other
 y''')
             assert 'Failover failed' in result.output
 
-    def test_(self):
+    @patch('patroni.zookeeper.KazooClient', MockKazooClient)
+    @patch('requests.get', requests_get)
+    def test_get_dcs(self):
+        self.assertIsNotNone(get_dcs({'dcs': {'scheme': 'zookeeper', 'hostname': 'foo', 'port': 2181}}, 'dummy'))
+        self.assertIsNotNone(get_dcs({'dcs': {'scheme': 'exhibitor', 'hostname': 'exhibitor', 'port': 8181}}, 'dummy'))
         self.assertRaises(PatroniCtlException, get_dcs, {'scheme': 'dummy'}, 'dummy')
 
     @patch('psycopg2.connect', psycopg2_connect)
@@ -387,11 +388,3 @@ leader''')
         ])
 
         assert result.exit_code == 0
-
-    @patch('patroni.ctl.load_config', Mock(return_value={'dcs': {'scheme': 'zookeeper', 'hostname': 'localhost', 'port': 2181}}))
-    def test_zookeeper(self):
-        self.runner.invoke(ctl, ['list', 'foo'])
-
-    @patch('patroni.ctl.load_config', Mock(return_value={'dcs': {'scheme': 'exhibitor', 'hostname': 'localhost', 'port': 8181}}))
-    def test_exhibitor(self):
-        self.runner.invoke(ctl, ['list', 'foo'])
