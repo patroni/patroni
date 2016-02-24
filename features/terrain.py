@@ -224,7 +224,7 @@ def etcd_cleanup():
         assert False, "Unable to cleanup etcd: {0}".format(e)
 
 
-@after.each_scenario
+@after.each_feature
 def cleanup(scenario):
     patroni_cleanup_all()
     etcd_cleanup()

@@ -34,4 +34,9 @@ class BasicReplicationSteps(object):
             assert False,\
                 "Table {0} is not present on {1} after {2} seconds".format(table_name, pg_name, max_replication_delay)
 
+    def check_role(self, step, pg_name, pg_role, max_promotion_timeout):
+        '''(\w+) role is the (\w+) after (\d+) seconds'''
+        return world.pctl.check_role_has_changed_to(pg_name, pg_role, timeout=int(max_promotion_timeout))
+
+
 BasicReplicationSteps(world)
