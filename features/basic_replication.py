@@ -24,10 +24,6 @@ class BasicReplicationSteps(object):
         '''I kill (\w+)'''
         return world.pctl.stop_patroni(pg_name, kill=True)
 
-    def do_sleep(self, step, sleep_seconds):
-        '''I sleep (\w+)'''
-        sleep(int(sleep_seconds))
-
     def add_table(self, step, table_name, pg_name):
         '''I add the table (\w+) to (\w+)'''
         # parse the configuration file and get the port
