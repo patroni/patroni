@@ -1,4 +1,4 @@
-from lettuce import *
+from lettuce import world, before, after
 import os.path
 import psycopg2
 import requests
@@ -9,28 +9,19 @@ import time
 import yaml
 
 
-ETCD_VERSION_URL = 'http://127.0.0.1:2379/version'
-ETCD_CLEANUP_URL = 'http://127.0.0.1:2379/v2/keys/service/batman?recursive=true'
-PATRONI_CONFIG = '{}.yml'
-etcd_handle = None
-etcd_dir = None
-pctl = None
-
-
-@world.absorb
 class PatroniController(object):
+    PATRONI_CONFIG = '{}.yml'
     """ starts and stops individual patronis"""
 
     def __init__(self):
-        self.processes = {}
+        self._output_dir = None
         self._patroni_path = None
-        self.connstring = {}
-        self.connections = {}
-        self.cursors = {}
-        self.log = {}
-        self.config = {}
-        self.availability_check_time_limit = 10
-        self.output_dir = None
+        self._connections = {}
+        self._config = {}
+        self._connstring = {}
+        self._cursors = {}
+        self._log = {}
+        self._processes = {}
 
     @property
     def patroni_path(self):
@@ -44,97 +35,43 @@ class PatroniController(object):
             self._patroni_path = cwd
         return self._patroni_path
 
-    def patroni_is_running(self, pg_name):
-        return pg_name in self.processes and self.processes[pg_name].pid and (self.processes[pg_name].poll() is None)
-
-    def stop_patroni(self, pg_name, kill=False):
-        while self.patroni_is_running(pg_name):
-            if not kill:
-                self.processes[pg_name].terminate()
-            else:
-                self.processes[pg_name].kill()
-            time.sleep(1)
-        self.log.get('pg_name') and self.log[pg_name].close()
-        del self.processes[pg_name]
-
-    def make_patroni_test_config(self, pg_name, output_dir):
-        patroni_config_name = PATRONI_CONFIG.format(pg_name)
-        patroni_config_path = os.path.join(output_dir, patroni_config_name)
-
-        with open(patroni_config_name) as f:
-            config = yaml.load(f)
-        postgresql = config['postgresql']['parameters']
-        postgresql['logging_collector'] = 'on'
-        postgresql['log_destination'] = 'csvlog'
-        postgresql['log_directory'] = output_dir
-        postgresql['log_filename'] = '{0}.log'.format(pg_name)
-        postgresql['log_statement'] = 'all'
-        postgresql['log_min_messages'] = 'debug1'
-
-        with open(patroni_config_path, 'w') as f:
-            yaml.dump(config, f, default_flow_style=False)
-
-        return patroni_config_path
-
-    def start_patroni(self, pg_name):
-        if not self.patroni_is_running(pg_name):
-            if pg_name in self.processes:
-                del self.processes[pg_name]
+    def start(self, pg_name, max_wait_limit=15):
+        if not self._is_running(pg_name):
+            if pg_name in self._processes:
+                del self._processes[pg_name]
             cwd = self.patroni_path
-            self.log[pg_name] = open(os.path.join(self.output_dir, 'patroni_{0}.log'.format(pg_name)), 'a')
+            self._log[pg_name] = open(os.path.join(self._output_dir, 'patroni_{0}.log'.format(pg_name)), 'a')
 
-            self.config[pg_name] = self.make_patroni_test_config(pg_name, self.output_dir)
+            self._config[pg_name] = self._make_patroni_test_config(pg_name, self._output_dir)
 
-            p = subprocess.Popen(['python', 'patroni.py', self.config[pg_name]],
-                                 stdout=self.log[pg_name], stderr=subprocess.STDOUT, cwd=cwd)
+            p = subprocess.Popen(['python', 'patroni.py', self._config[pg_name]],
+                                 stdout=self._log[pg_name], stderr=subprocess.STDOUT, cwd=cwd)
             if not (p and p.pid and p.poll() is None):
                 assert False, "PostgreSQL {0} is not running after being started".format(pg_name)
-            self.processes[pg_name] = p
+            self._processes[pg_name] = p
         # wait while patroni is available for queries, but not more than 10 seconds.
-        for tick in range(self.availability_check_time_limit):
+        for tick in range(max_wait_limit):
             if self.query(pg_name, "SELECT 1", fail_ok=True) is not None:
                 break
             time.sleep(1)
         else:
             assert False,\
-                "Patroni instance is not available for queries after {0} seconds".format(self.availability_check_time_limit)
+                "Patroni instance is not available for queries after {0} seconds".format(max_wait_limit)
 
-    def make_connstring(self, pg_name):
-        if pg_name in self.connstring:
-            return self.connstring[pg_name]
-        try:
-            patroni_path = self.patroni_path
-            with open(os.path.join(patroni_path, world.PATRONI_CONFIG.format(pg_name)), 'r') as f:
-                config = yaml.load(f)
-        except OSError:
-            return None
-        connstring = config['postgresql']['connect_address']
-        if ':' in connstring:
-            address, port = connstring.split(':')
-        else:
-            address = connstring
-            port = '5432'
-        user = "postgres"
-        dbname = "postgres"
-        self.connstring[pg_name] = "host={0} port={1} dbname={2} user={3}".format(address, port, dbname, user)
-        return self.connstring[pg_name]
-
-    def connection(self, pg_name):
-        if pg_name not in self.connections or self.connections[pg_name].closed:
-            conn = psycopg2.connect(self.make_connstring(pg_name))
-            conn.autocommit = True
-            self.connections[pg_name] = conn
-        return self.connections[pg_name]
-
-    def cursor(self, pg_name):
-        if pg_name not in self.cursors or self.cursors[pg_name].closed:
-            cursor = self.connection(pg_name).cursor()
-            self.cursors[pg_name] = cursor
-        return self.cursors[pg_name]
+    def stop(self, pg_name, kill=False):
+        while self._is_running(pg_name):
+            if not kill:
+                self._processes[pg_name].terminate()
+            else:
+                self._processes[pg_name].kill()
+            time.sleep(1)
+        self._log.get('pg_name') and self._log[pg_name].close()
+        if pg_name in self._processes:
+            del self._processes[pg_name]
 
     def query(self, pg_name, query, fail_ok=False):
         try:
-            cursor = self.cursor(pg_name)
+            cursor = self._cursor(pg_name)
             cursor.execute(query)
             return cursor
         except psycopg2.Error:
@@ -159,76 +96,158 @@ class PatroniController(object):
         return role_has_changed
 
     def stop_all(self):
-        for patroni in self.processes.copy():
-            self.stop_patroni(patroni)
+        for patroni in self._processes.copy():
+            self.stop(patroni)
+
+    def create_and_set_output_directory(self, feature_name):
+        feature_dir = os.path.join(pctl.patroni_path, "features", "output", feature_name.encode('utf-8').replace(' ', '_'))
+        if os.path.exists(feature_dir):
+            shutil.rmtree(feature_dir)
+        os.makedirs(feature_dir)
+        self._output_dir = feature_dir
+
+    def _is_running(self, pg_name):
+        return pg_name in self._processes and self._processes[pg_name].pid and (self._processes[pg_name].poll() is None)
+
+    def _make_patroni_test_config(self, pg_name, output_dir):
+        patroni_config_name = PatroniController.PATRONI_CONFIG.format(pg_name)
+        patroni_config_path = os.path.join(output_dir, patroni_config_name)
+
+        with open(patroni_config_name) as f:
+            config = yaml.load(f)
+        postgresql = config['postgresql']['parameters']
+        postgresql['logging_collector'] = 'on'
+        postgresql['log_destination'] = 'csvlog'
+        postgresql['log_directory'] = output_dir
+        postgresql['log_filename'] = '{0}.log'.format(pg_name)
+        postgresql['log_statement'] = 'all'
+        postgresql['log_min_messages'] = 'debug1'
+
+        with open(patroni_config_path, 'w') as f:
+            yaml.dump(config, f, default_flow_style=False)
+
+        return patroni_config_path
+
+    def _make_connstring(self, pg_name):
+        if pg_name in self._connstring:
+            return self._connstring[pg_name]
+        try:
+            patroni_path = self.patroni_path
+            with open(os.path.join(patroni_path, PatroniController.PATRONI_CONFIG.format(pg_name)), 'r') as f:
+                config = yaml.load(f)
+        except OSError:
+            return None
+        connstring = config['postgresql']['connect_address']
+        if ':' in connstring:
+            address, port = connstring.split(':')
+        else:
+            address = connstring
+            port = '5432'
+        user = "postgres"
+        dbname = "postgres"
+        self._connstring[pg_name] = "host={0} port={1} dbname={2} user={3}".format(address, port, dbname, user)
+        return self._connstring[pg_name]
+
+    def _connection(self, pg_name):
+        if pg_name not in self._connections or self._connections[pg_name].closed:
+            conn = psycopg2.connect(self._make_connstring(pg_name))
+            conn.autocommit = True
+            self._connections[pg_name] = conn
+        return self._connections[pg_name]
+
+    def _cursor(self, pg_name):
+        if pg_name not in self._cursors or self._cursors[pg_name].closed:
+            cursor = self._connection(pg_name).cursor()
+            self._cursors[pg_name] = cursor
+        return self._cursors[pg_name]
+
+
+class EtcdController(object):
+    """ handles all etcd related tasks, used for the tests setup and cleanup """
+    ETCD_VERSION_URL = 'http://127.0.0.1:2379/version'
+    ETCD_CLEANUP_URL = 'http://127.0.0.1:2379/v2/keys/service/batman?recursive=true'
+
+    def __init__(self):
+        self.handle = None
+        self.work_directory = None
+        self.pid = None
+        self.start_timeot = 5
+
+    def start(self):
+        """ start etcd if it's not already running """
+        if self._is_running():
+            return True
+        self.work_directory = tempfile.mkdtemp()
+        self.handle =\
+            subprocess.Popen(["etcd", "--data-dir", self.work_directory], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        start_time = time.time()
+        while (not self._is_running()):
+            if time.time() - start_time > self.start_timeout:
+                assert False, "Failed to start etcd"
+            time.sleep(1)
+        return True
+
+    def stop_and_remove_work_directory(self):
+        """ terminate etcd and wipe out the temp work directory, but only if we actually started it"""
+        if self._is_running() and self.handle:
+            self.handle.terminate()
+            self.handle = None
+        if self.work_directory:
+            shutil.rmtree(self.work_directory)
+            self.work_directory = None
+
+    @staticmethod
+    def cleanup_service_tree():
+        """ clean all contents stored in the tree used for the tests """
+        r = None
+        try:
+            r = requests.delete(EtcdController.ETCD_CLEANUP_URL)
+            if r and not r.ok:
+                assert False,\
+                    "request to cleanup the etcd contents was not successfull: status code {0}".format(r.status_code)
+        except requests.exceptions.RequestException as e:
+            assert False, "exception when cleanin up etcd contents: {0}".format(e)
+
+    def _is_running(self):
+        # if we have already started etcd
+        if self.handle and self.handle.pid and (self.handle.poll() is None):
+            return True
+        # if etcd is running, but we didn't start it
+        try:
+            r = requests.get(EtcdController.ETCD_VERSION_URL)
+            if r and r.ok and 'etcdserver' in r.content:
+                return True
+        except requests.ConnectionError:
+            pass
+        return False
+
 
 pctl = PatroniController()
+etcd_ctl = EtcdController()
+# export pctl to manage patroni from scenario files
 world.pctl = pctl
-world.patroni_path = pctl.patroni_path
-world.PATRONI_CONFIG = PATRONI_CONFIG
 
 
-def etcd_is_running():
-    # if we have already started etcd
-    if etcd_handle and etcd_handle.pid and (etcd_handle.poll() is None):
-        return True
-    # if etcd is running, but we didn't start it
-    try:
-        r = requests.get(ETCD_VERSION_URL)
-        if r and r.ok and 'etcdserver' in r.content:
-            return True
-    except requests.ConnectionError:
-        pass
-    return False
-
-
+# actions to execute on start/stop of the tests and before running invidual features
 @before.all
 def start_etcd():
-    if not etcd_is_running():
-        global etcd_handle
-        global etcd_dir
-        etcd_dir = tempfile.mkdtemp()
-        etcd_handle = subprocess.Popen(["etcd", "--data-dir", etcd_dir], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if not etcd_is_running():
-            assert False, "Failed to start etcd"
+    etcd_ctl.start()
 
 
 @after.all
-def stop_etcd(total):
-    global etcd_handle
-    global etcd_dir
-    if etcd_is_running() and etcd_handle:
-        etcd_handle.terminate()
-        etcd_handle = None
-        shutil.rmtree(etcd_dir)
-        etcd_dir = None
+def stop_etcd(*args, **kwargs):
+    etcd_ctl.stop_and_remove_work_directory()
 
 
 @before.each_feature
 def make_test_output_dir(feature):
-    feature_dir = os.path.join(pctl.patroni_path, "features", "output", feature.name.encode('utf-8').replace(' ', '_'))
-    if os.path.exists(feature_dir):
-        shutil.rmtree(feature_dir)
-    os.makedirs(feature_dir)
-    pctl.output_dir = feature_dir
-
-
-def patroni_cleanup_all():
-    pctl.stop_all()
-    # remove the data directory
-    shutil.rmtree(os.path.join(pctl.patroni_path, 'data'))
-
-
-def etcd_cleanup():
-    try:
-        r = requests.delete(ETCD_CLEANUP_URL)
-        if not r.ok:
-            raise Exception('{}'.format(r.reason))
-    except Exception as e:
-        assert False, "Unable to cleanup etcd: {0}".format(e)
+    """ create per-feature output directory to collect Patroni and PostgreSQL logs """
+    pctl.create_and_set_output_directory(feature.name)
 
 
 @after.each_feature
-def cleanup(scenario):
-    patroni_cleanup_all()
-    etcd_cleanup()
+def cleanup(*args, **kwargs):
+    """ stop all Patronis, remove their data directory and cleanup the keys in etcd """
+    pctl.stop_all()
+    shutil.rmtree(os.path.join(pctl.patroni_path, 'data'))
+    etcd_ctl.cleanup_service_tree()
