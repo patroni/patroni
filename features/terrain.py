@@ -65,7 +65,8 @@ class PatroniController(object):
             else:
                 self._processes[pg_name].kill()
             time.sleep(1)
-        self._log.get('pg_name') and self._log[pg_name].close()
+        if self._log.get('pg_name') and not self._log['pg_name'].closed:
+            self._log[pg_name].close()
         if pg_name in self._processes:
             del self._processes[pg_name]
 
