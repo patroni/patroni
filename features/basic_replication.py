@@ -37,7 +37,7 @@ class BasicReplicationSteps(object):
     @staticmethod
     def table_is_present_on(step, table_name, pg_name, max_replication_delay):
         '''Table (\w+) is present on (\w+) after (\d+) seconds'''
-        for i in range(int(max_replication_delay)):
+        for _ in range(int(max_replication_delay)):
             if world.pctl.query(pg_name, "SELECT 1 FROM {0}".format(table_name), fail_ok=True) is not None:
                 break
             sleep(1)
