@@ -50,7 +50,7 @@ class PatroniController(object):
                 assert False, "PostgreSQL {0} is not running after being started".format(pg_name)
             self._processes[pg_name] = p
         # wait while patroni is available for queries, but not more than 10 seconds.
-        for tick in range(max_wait_limit):
+        for _ in range(max_wait_limit):
             if self.query(pg_name, "SELECT 1", fail_ok=True) is not None:
                 break
             time.sleep(1)
