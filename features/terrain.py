@@ -42,7 +42,7 @@ class PatroniController(object):
             cwd = self.patroni_path
             self._log[pg_name] = open(os.path.join(self._output_dir, 'patroni_{0}.log'.format(pg_name)), 'a')
 
-            self._config[pg_name] = self._make_patroni_test_config(pg_name, self._output_dir)
+            self._config[pg_name] = self._make_patroni_test_config(pg_name)
 
             p = subprocess.Popen(['python', 'patroni.py', self._config[pg_name]],
                                  stdout=self._log[pg_name], stderr=subprocess.STDOUT, cwd=cwd)
@@ -109,16 +109,16 @@ class PatroniController(object):
     def _is_running(self, pg_name):
         return pg_name in self._processes and self._processes[pg_name].pid and (self._processes[pg_name].poll() is None)
 
-    def _make_patroni_test_config(self, pg_name, output_dir):
+    def _make_patroni_test_config(self, pg_name):
         patroni_config_name = PatroniController.PATRONI_CONFIG.format(pg_name)
-        patroni_config_path = os.path.join(output_dir, patroni_config_name)
+        patroni_config_path = os.path.join(self._output_dir, patroni_config_name)
 
         with open(patroni_config_name) as f:
             config = yaml.load(f)
         postgresql = config['postgresql']['parameters']
         postgresql['logging_collector'] = 'on'
         postgresql['log_destination'] = 'csvlog'
-        postgresql['log_directory'] = output_dir
+        postgresql['log_directory'] = self._output_dir
         postgresql['log_filename'] = '{0}.log'.format(pg_name)
         postgresql['log_statement'] = 'all'
         postgresql['log_min_messages'] = 'debug1'
@@ -215,11 +215,10 @@ class EtcdController(object):
         # if etcd is running, but we didn't start it
         try:
             r = requests.get(EtcdController.ETCD_VERSION_URL)
-            if r and r.ok and 'etcdserver' in r.content:
-                return True
+            running = (r and r.ok and 'etcdserver' in r.content)
         except requests.ConnectionError:
-            pass
-        return False
+            running = False
+        return running
 
 
 pctl = PatroniController()
