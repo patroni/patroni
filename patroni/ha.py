@@ -88,6 +88,7 @@ class Ha(object):
                     self.state_handler.move_data_directory()
                     raise
                 self.dcs.take_leader()
+                self.load_cluster_from_dcs()
                 return 'initialized a new cluster'
             else:
                 return 'failed to acquire initialize lock'
