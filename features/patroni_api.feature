@@ -19,3 +19,13 @@ Scenario: check API requests on a stand-alone server
 	When I issue an empty POST request to http://127.0.0.1:8008/failover
 	Then I receive a response code 503
 	And I receive a response text "No values given for required parameters leader and member"
+
+Scenario: check API requests for the primary-replica pair
+	Given I start postgres1
+	And replication works after 10 seconds
+	When I issue a GET request to http://127.0.0.1:8009/replica
+	Then I receive a response code 200
+	And I receive a response state running
+	And I receive a response role replica
+	When I issue an empty POST request to http://127.0.0.1:8009/reinitialize
+	Then I receive a response code 200
