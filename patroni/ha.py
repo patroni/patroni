@@ -3,10 +3,13 @@ import logging
 import psycopg2
 import requests
 import sys
+import datetime
+import pytz
 
+from multiprocessing.pool import ThreadPool
 from patroni.async_executor import AsyncExecutor
 from patroni.exceptions import DCSError, PostgresConnectionException
-from multiprocessing.pool import ThreadPool
+from patroni.utils import sleep
 
 logger = logging.getLogger(__name__)
 
@@ -270,10 +273,34 @@ class Ha(object):
             self.dcs.delete_leader()
             self.touch_member()
             self.dcs.reset_cluster()
-        self.state_handler.follow_the_leader(None)
+        self.state_handler.follow(None)
 
     def process_manual_failover_from_leader(self):
         failover = self.cluster.failover
+
+        if failover.scheduled_at:
+            # If the failover is in the far future, we shouldn't do anything and just return.
+            # If the failover is in the past, we consider the value to be stale and we remove
+            # the value.
+            # If the value is close to now, we initiate the failover
+            now = datetime.datetime.now(pytz.utc)
+            try:
+                delta = (failover.scheduled_at - now).total_seconds()
+
+                if delta > 10:
+                    logging.info('Awaiting failover at %s (in %.0f seconds)', failover.scheduled_at.isoformat(), delta)
+                    return
+                elif delta < -15:
+                    logger.warning('Found a stale failover value, cleaning up: %s', failover.scheduled_at)
+                    self.dcs.manual_failover('', '', self.cluster.failover.index)
+                    return
+
+                # The value is very close to now
+                sleep(max(delta, 0))
+                logger.info('Manual scheduled failover at {}'.format(failover.scheduled_at.isoformat()))
+            except TypeError:
+                logger.warning('Incorrect value in of scheduled_at: %s', failover.scheduled_at)
+
         if not failover.leader or failover.leader == self.state_handler.name:
             if not failover.member or failover.member != self.state_handler.name:
                 members = [m for m in self.cluster.members if not failover.member or m.name == failover.member]
