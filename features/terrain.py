@@ -116,13 +116,15 @@ class PatroniController(object):
 
         with open(patroni_config_name) as f:
             config = yaml.load(f)
-        postgresql = config['postgresql']['parameters']
-        postgresql['logging_collector'] = 'on'
-        postgresql['log_destination'] = 'csvlog'
-        postgresql['log_directory'] = self._output_dir
-        postgresql['log_filename'] = '{0}.log'.format(pg_name)
-        postgresql['log_statement'] = 'all'
-        postgresql['log_min_messages'] = 'debug1'
+        postgresql = config['postgresql']
+        postgresql['name'] = pg_name.encode('utf-8')
+        postgresql_params = postgresql['parameters']
+        postgresql_params['logging_collector'] = 'on'
+        postgresql_params['log_destination'] = 'csvlog'
+        postgresql_params['log_directory'] = self._output_dir
+        postgresql_params['log_filename'] = '{0}.log'.format(pg_name)
+        postgresql_params['log_statement'] = 'all'
+        postgresql_params['log_min_messages'] = 'debug1'
 
         with open(patroni_config_path, 'w') as f:
             yaml.dump(config, f, default_flow_style=False)
@@ -188,6 +190,15 @@ class EtcdController(object):
             time.sleep(1)
         return True
 
+    def query(self, key):
+        """ query etcd for a value of a given key """
+        r = requests.get("http://127.0.0.1:2379/v2/keys/service/batman/{0}".format(key))
+        if r.ok:
+            content = r.json()
+            if content:
+                return content.get('node', {}).get('value', None)
+        return None
+
     def stop_and_remove_work_directory(self):
         """ terminate etcd and wipe out the temp work directory, but only if we actually started it"""
         if self._is_running() and self.handle:
@@ -226,12 +237,14 @@ pctl = PatroniController()
 etcd_ctl = EtcdController()
 # export pctl to manage patroni from scenario files
 world.pctl = pctl
+world.etcd_ctl = etcd_ctl
 
 
 # actions to execute on start/stop of the tests and before running invidual features
 @before.all
 def start_etcd():
     etcd_ctl.start()
+    etcd_ctl.cleanup_service_tree()
 
 
 @after.all
