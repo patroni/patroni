@@ -29,3 +29,12 @@ Scenario: check API requests for the primary-replica pair
 	And I receive a response role replica
 	When I issue an empty POST request to http://127.0.0.1:8009/reinitialize
 	Then I receive a response code 200
+	Given replication works after 10 seconds
+	When I issue an empty POST request to http://127.0.0.1:8008/restart
+	Then I receive a response code 200
+	And postgres0 is a leader after 5 seconds
+
+Scenario: check promotion via the API
+	Given I issue a POST request to http://127.0.0.1:8008/failover with leader=postgres0,candidate=postgres1
+	Then I receive a response code 200
+	And postgres1 is a leader after 10 seconds
