@@ -49,7 +49,7 @@ class PatroniAPISteps(object):
         self.do_post(step, url, None)
 
     def do_post(self, step, url, data):
-        '''I issue a POST request to (https?://(?:\w|\.|:|/)+) with (\s*\w+\s*=\s*\w+\s*,?)+'''
+        '''I issue a POST request to (https?://(?:\w|\.|:|/)+) with ((?:\s*\w+\s*=\s*\w+\s*,?)+)'''
         post_data = {}
         if data:
             post_components = data.split(',')
@@ -80,11 +80,11 @@ class PatroniAPISteps(object):
             assert self.response[component] == data, "{0} does not contain {1}".format(component, data)
 
     def replication_works(self, step, time_limit):
-        '''And replication works after (\d+) seconds'''
+        '''replication works after (\d+) seconds'''
         step.behave_as("""
-           When I add the table foo to postgres0
-            Then table foo is present on postgres1 after {0} seconds
-            """.format(time_limit))
+           When I add the table test_{0} to postgres0
+            Then table test_{0} is present on postgres1 after {1} seconds
+            """.format(int(time.time()), time_limit))
 
 
 PatroniAPISteps(world)
