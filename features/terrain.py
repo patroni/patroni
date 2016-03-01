@@ -58,13 +58,16 @@ class PatroniController(object):
             assert False,\
                 "Patroni instance is not available for queries after {0} seconds".format(max_wait_limit)
 
-    def stop(self, pg_name, kill=False):
+    def stop(self, pg_name, kill=False, timeout=15):
+        start_time = time.time()
         while self._is_running(pg_name):
             if not kill:
                 self._processes[pg_name].terminate()
             else:
                 self._processes[pg_name].kill()
             time.sleep(1)
+            if not kill and time.time() - start_time > timeout:
+                kill = True
         if self._log.get('pg_name') and not self._log['pg_name'].closed:
             self._log[pg_name].close()
         if pg_name in self._processes:
@@ -170,19 +173,24 @@ class EtcdController(object):
     ETCD_VERSION_URL = 'http://127.0.0.1:2379/version'
     ETCD_CLEANUP_URL = 'http://127.0.0.1:2379/v2/keys/service/batman?recursive=true'
 
-    def __init__(self):
+    def __init__(self, log_directory):
         self.handle = None
         self.work_directory = None
+        self.log_directory = log_directory
+        self.log_file = None
         self.pid = None
-        self.start_timeot = 5
+        self.start_timeout = 5
 
     def start(self):
         """ start etcd if it's not already running """
         if self._is_running():
             return True
         self.work_directory = tempfile.mkdtemp()
+        # etcd is running throughout the tests, no need to append to the log
+        self.log_file = open(os.path.join(self.log_directory, "features", "output", 'etcd.log'), 'w')
         self.handle =\
-            subprocess.Popen(["etcd", "--data-dir", self.work_directory], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.Popen(["etcd", "--debug", "--data-dir", self.work_directory],
+                             stdout=self.log_file, stderr=subprocess.STDOUT)
         start_time = time.time()
         while (not self._is_running()):
             if time.time() - start_time > self.start_timeout:
@@ -199,11 +207,21 @@ class EtcdController(object):
                 return content.get('node', {}).get('value', None)
         return None
 
-    def stop_and_remove_work_directory(self):
+    def stop_and_remove_work_directory(self, timeout=15):
         """ terminate etcd and wipe out the temp work directory, but only if we actually started it"""
-        if self._is_running() and self.handle:
-            self.handle.terminate()
-            self.handle = None
+        kill = False
+        start_time = time.time()
+        while self._is_running() and self.handle:
+            if not kill:
+                self.handle.terminate()
+            else:
+                self.handle.kill()
+            time.sleep(1)
+            if not kill and time.time() - start_time > timeout:
+                kill = True
+        self.handle = None
+        if self.log_file and not self.log_file.closed:
+            self.log_file.close()
         if self.work_directory:
             shutil.rmtree(self.work_directory)
             self.work_directory = None
@@ -218,12 +236,9 @@ class EtcdController(object):
                 assert False,\
                     "request to cleanup the etcd contents was not successfull: status code {0}".format(r.status_code)
         except requests.exceptions.RequestException as e:
-            assert False, "exception when cleanin up etcd contents: {0}".format(e)
+            assert False, "exception when cleaning up etcd contents: {0}".format(e)
 
     def _is_running(self):
-        # if we have already started etcd
-        if self.handle and self.handle.pid and (self.handle.poll() is None):
-            return True
         # if etcd is running, but we didn't start it
         try:
             r = requests.get(EtcdController.ETCD_VERSION_URL)
@@ -234,7 +249,7 @@ class EtcdController(object):
 
 
 pctl = PatroniController()
-etcd_ctl = EtcdController()
+etcd_ctl = EtcdController(pctl.patroni_path)
 # export pctl to manage patroni from scenario files
 world.pctl = pctl
 world.etcd_ctl = etcd_ctl
@@ -244,7 +259,11 @@ world.etcd_ctl = etcd_ctl
 @before.all
 def start_etcd():
     etcd_ctl.start()
-    etcd_ctl.cleanup_service_tree()
+    try:
+        etcd_ctl.cleanup_service_tree()
+    except AssertionError:  # after.all handlers won't be executed in before.all
+        etcd_ctl.stop_and_remove_work_directory()
+        raise
 
 
 @after.all
