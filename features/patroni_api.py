@@ -79,12 +79,12 @@ class PatroniAPISteps(object):
             assert component in self.response, "{0} is not part of the response".format(component)
             assert self.response[component] == data, "{0} does not contain {1}".format(component, data)
 
-    def replication_works(self, step, time_limit):
-        '''replication works after (\d+) seconds'''
+    def replication_works(self, step, master, replica, time_limit):
+        '''replication works from (\w+) to (\w+) after (\d+) seconds'''
         step.behave_as("""
-           When I add the table test_{0} to postgres0
-            Then table test_{0} is present on postgres1 after {1} seconds
-            """.format(int(time.time()), time_limit))
+           When I add the table test_{0} to {1}
+            Then table test_{0} is present on {2} after {3} seconds
+            """.format(int(time.time()), master, replica, time_limit))
 
 
 PatroniAPISteps(world)
