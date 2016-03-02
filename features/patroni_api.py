@@ -1,5 +1,7 @@
+from datetime import datetime, timedelta
 from lettuce import world, steps
 import time
+import pytz
 import requests
 
 
@@ -49,7 +51,7 @@ class PatroniAPISteps(object):
         self.do_post(step, url, None)
 
     def do_post(self, step, url, data):
-        '''I issue a POST request to (https?://(?:\w|\.|:|/)+) with ((?:\s*\w+\s*=\s*\w+\s*,?)+)'''
+        '''I issue a POST request to (https?://(?:\w|\.|:|/)+) with ((?:\w+=(?:\w|\.|:|-|\+|\s)+,?)+)'''
         post_data = {}
         if data:
             post_components = data.split(',')
@@ -72,7 +74,8 @@ class PatroniAPISteps(object):
     def check_response(self, step, component, data):
         '''I receive a response (\w+) (.*)'''
         if component == 'code':
-            assert self.status_code == int(data), "status code {0} != {1}".format(self.status_code, int(data))
+            assert self.status_code == int(data),\
+                    "status code {0} != {1}, response: {2}".format(self.status_code, int(data), self.response)
         elif component == 'text':
             assert self.response == data.strip('"'), "response {0} does not contain {1}".format(self.response, data)
         else:
@@ -85,6 +88,12 @@ class PatroniAPISteps(object):
            When I add the table test_{0} to {1}
             Then table test_{0} is present on {2} after {3} seconds
             """.format(int(time.time()), master, replica, time_limit))
+
+    def scheduld_failover(self, step, at_url, from_host, to_host, in_seconds):
+        '''I issue a scheduled failover at (https?://(?:\w|\.|:|/)+) from (\w+) to (\w+) in (\d+) seconds'''
+        step.behave_as("""
+            Given I issue a POST request to {0}/failover with leader={1},candidate={2},scheduled_at={3}
+            """.format(at_url, from_host, to_host, datetime.now(pytz.utc) + timedelta(seconds=int(in_seconds))))
 
 
 PatroniAPISteps(world)
