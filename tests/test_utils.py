@@ -16,20 +16,21 @@ class TestUtils(unittest.TestCase):
 
     @patch('time.sleep', Mock())
     def test_reap_children(self):
-        reap_children()
+        self.assertIsNone(reap_children())
         with patch('os.waitpid', Mock(return_value=(0, 0))):
             sigchld_handler(None, None)
-            reap_children()
+            self.assertIsNone(reap_children())
 
     @patch('time.sleep', time_sleep)
     def test_sleep(self):
-        sleep(0.01)
+        self.assertIsNone(sleep(0.01))
 
 
 @patch('time.sleep', Mock())
 class TestRetrySleeper(unittest.TestCase):
 
-    def _fail(self, times=1):
+    @staticmethod
+    def _fail(times=1):
         scope = dict(times=0)
 
         def inner():
@@ -40,36 +41,33 @@ class TestRetrySleeper(unittest.TestCase):
                 raise PatroniException('Failed!')
         return inner
 
-    def _makeOne(self, *args, **kwargs):
-        return Retry(*args, **kwargs)
-
     def test_reset(self):
-        retry = self._makeOne(delay=0, max_tries=2)
+        retry = Retry(delay=0, max_tries=2)
         retry(self._fail())
         self.assertEquals(retry._attempts, 1)
         retry.reset()
         self.assertEquals(retry._attempts, 0)
 
     def test_too_many_tries(self):
-        retry = self._makeOne(delay=0)
+        retry = Retry(delay=0)
         self.assertRaises(RetryFailedError, retry, self._fail(times=999))
         self.assertEquals(retry._attempts, 1)
 
     def test_maximum_delay(self):
-        retry = self._makeOne(delay=10, max_tries=100)
+        retry = Retry(delay=10, max_tries=100)
         retry(self._fail(times=10))
         self.assertTrue(retry._cur_delay < 4000, retry._cur_delay)
         # gevent's sleep function is picky about the type
         self.assertEquals(type(retry._cur_delay), float)
 
     def test_deadline(self):
-        retry = self._makeOne(deadline=0.0001)
+        retry = Retry(deadline=0.0001)
         self.assertRaises(RetryFailedError, retry, self._fail(times=100))
 
     def test_copy(self):
         def _sleep(t):
-            None
+            pass
 
-        retry = self._makeOne(sleep_func=_sleep)
+        retry = Retry(sleep_func=_sleep)
         rcopy = retry.copy()
         self.assertTrue(rcopy.sleep_func is _sleep)

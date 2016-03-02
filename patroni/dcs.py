@@ -1,5 +1,6 @@
 import abc
 import json
+import dateutil
 
 from collections import namedtuple
 from patroni.exceptions import DCSError
@@ -51,21 +52,25 @@ class Member(namedtuple('Member', 'index,name,session,data')):
         else:
             try:
                 data = json.loads(data)
-            except:
+            except (TypeError, ValueError):
                 data = {}
         return Member(index, name, session, data)
 
     @property
     def conn_url(self):
-        return self.data.get('conn_url', None)
+        return self.data.get('conn_url')
 
     @property
     def api_url(self):
-        return self.data.get('api_url', None)
+        return self.data.get('api_url')
 
     @property
     def nofailover(self):
         return self.data.get('tags', {}).get('nofailover', False)
+
+    @property
+    def replicatefrom(self):
+        return self.data.get('tags', {}).get('replicatefrom')
 
 
 class Leader(namedtuple('Leader', 'index,session,member')):
@@ -85,12 +90,44 @@ class Leader(namedtuple('Leader', 'index,session,member')):
         return self.member.conn_url
 
 
-class Failover(namedtuple('Failover', 'index,leader,member')):
+class Failover(namedtuple('Failover', 'index,leader,member,scheduled_at')):
 
+    """
+    >>> 'Failover' in str(Failover.from_node(1, '{"leader": "cluster_leader"}'))
+    True
+    >>> 'Failover' in str(Failover.from_node(1, '{"leader": "cluster_leader", "member": "cluster:member"}'))
+    True
+    >>> Failover.from_node(1, 'null') is None
+    True
+    >>> n = '{"leader": "cluster_leader", "member": "cluster:member", "scheduled_at": "2016-01-14T10:09:57.1394Z"}'
+    >>> 'tzinfo=' in str(Failover.from_node(1, n))
+    True
+    >>> Failover.from_node(1, None) is None
+    True
+    >>> Failover.from_node(1, '{}') is None
+    True
+    >>> 'abc' in Failover.from_node(1, 'abc:def')
+    True
+    """
     @staticmethod
     def from_node(index, value):
-        t = [a.strip() for a in value.split(':')] + ['']
-        return Failover(index, t[0], t[1]) if t[0] or t[1] else None
+        if not value:
+            return None
+
+        try:
+            data = json.loads(value)
+            if not data:
+                return None
+        except ValueError:
+            t = [a.strip() for a in value.split(':')]
+            leader = t[0]
+            candidate = t[1] if len(t) > 1 else None
+            return Failover(index, leader, candidate, None) if leader or candidate else None
+
+        if data.get('scheduled_at'):
+            data['scheduled_at'] = dateutil.parser.parse(data['scheduled_at'])
+
+        return Failover(index, data.get('leader'), data.get('member'), data.get('scheduled_at'))
 
 
 class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,members,failover')):
@@ -107,8 +144,11 @@ class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,mem
     def is_unlocked(self):
         return not (self.leader and self.leader.name)
 
+    def has_member(self, member_name):
+        return any(m for m in self.members if m.name == member_name)
 
-class AbstractDCS:
+
+class AbstractDCS(object):
 
     __metaclass__ = abc.ABCMeta
 
@@ -126,7 +166,7 @@ class AbstractDCS:
             i.e.: `zookeeper` for zookeeper, `etcd` for etcd, etc...
         """
         self._name = name
-        self._namespace = '/{}'.format(config.get('namespace', '/service/').strip('/'))
+        self._namespace = '/{0}'.format(config.get('namespace', '/service/').strip('/'))
         self._base_path = '/'.join([self._namespace, config['scope']])
 
         self._cluster = None
@@ -216,8 +256,18 @@ class AbstractDCS:
     def set_failover_value(self, value, index=None):
         """Create or update `/failover` key"""
 
-    def manual_failover(self, leader, member, index=None):
-        return self.set_failover_value(leader + (':' + member if member else ''), index)
+    def manual_failover(self, leader, member, scheduled_at=None, index=None):
+        failover_value = dict()
+        if leader:
+            failover_value['leader'] = leader
+
+        if member:
+            failover_value['member'] = member
+
+        if scheduled_at:
+            failover_value['scheduled_at'] = scheduled_at.isoformat()
+
+        return self.set_failover_value(json.dumps(failover_value), index)
 
     def current_leader(self):
         try:

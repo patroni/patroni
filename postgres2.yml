@@ -2,9 +2,9 @@ ttl: &ttl 30
 loop_wait: &loop_wait 10
 scope: &scope batman
 restapi:
-  listen: 127.0.0.1:8008
-  connect_address: 127.0.0.1:8008
-#  auth: 'username:password'
+  listen: 127.0.0.1:8010
+  connect_address: 127.0.0.1:8010
+  auth: 'username:password'
 #  certfile: /etc/ssl/certs/ssl-cert-snakeoil.pem
 #  keyfile: /etc/ssl/private/ssl-cert-snakeoil.key
 etcd:
@@ -27,14 +27,14 @@ etcd:
 #      - host2
 #      - host3
 postgresql:
-  name: postgresql0
+  name: postgresql2
   scope: *scope
-  listen: 127.0.0.1:5432
-  connect_address: 127.0.0.1:5432
-  data_dir: data/postgresql0
+  listen: 127.0.0.1:5434
+  connect_address: 127.0.0.1:5434
+  data_dir: data/postgresql2
   maximum_lag_on_failover: 1048576 # 1 megabyte in bytes
   use_slots: True
-  pgpass: /tmp/pgpass0
+  pgpass: /tmp/pgpass2
   initdb:  ## We allow the following options to be passed on to initdb
   # - auth: authmethod
   # - auth-host: authmethod
@@ -61,20 +61,21 @@ postgresql:
   replication:
     username: replicator
     password: rep-pass
-    network:  127.0.0.1/32
+    network: 127.0.0.1/32
   superuser:
     username: postgres
     password: zalando
   admin:
     username: admin
     password: admin
+# commented-out example for wal-e provisioning
   create_replica_method:
     - basebackup
 #   - wal_e
 # commented-out example for wal-e provisioning
   #wal_e:
     #command: /patroni/scripts/wale_restore.py
-    #env_dir: /etc/wal-e.d/env
+    #env_dir: /home/postgres/etc/wal-e.d/env
     #threshold_megabytes: 10240
     #threshold_backup_size_percentage: 30
     #retries: 2
@@ -97,3 +98,4 @@ tags:
     nofailover: False
     noloadbalance: False
     clonefrom: False
+    replicatefrom: postgresql1
