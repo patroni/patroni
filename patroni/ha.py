@@ -91,6 +91,7 @@ class Ha(object):
                     self.state_handler.move_data_directory()
                     raise
                 self.dcs.take_leader()
+                self.load_cluster_from_dcs()
                 return 'initialized a new cluster'
             else:
                 return 'failed to acquire initialize lock'
@@ -286,10 +287,10 @@ class Ha(object):
             try:
                 delta = (failover.scheduled_at - now).total_seconds()
 
-                if delta > 10:
+                if delta > self.patroni.nap_time:
                     logging.info('Awaiting failover at %s (in %.0f seconds)', failover.scheduled_at.isoformat(), delta)
                     return
-                elif delta < -15:
+                elif delta < - int(self.patroni.nap_time * 1.5):
                     logger.warning('Found a stale failover value, cleaning up: %s', failover.scheduled_at)
                     self.dcs.manual_failover('', '', self.cluster.failover.index)
                     return
