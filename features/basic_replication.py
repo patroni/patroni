@@ -49,7 +49,8 @@ class BasicReplicationSteps(object):
     def check_role(step, pg_name, pg_role, max_promotion_timeout):
         '''(\w+) role is the (\w+) after (\d+) seconds'''
         if not world.pctl.check_role_has_changed_to(pg_name, pg_role, timeout=int(max_promotion_timeout)):
-            assert False, "{0} role didn't change to {1} after {2} seconds".format(pg_name, pg_role, max_promotion_timeout)
+            assert False,\
+                "{0} role didn't change to {1} after {2} seconds".format(pg_name, pg_role, max_promotion_timeout)
 
 
 BasicReplicationSteps(world)
