@@ -35,14 +35,30 @@ class PatroniController(object):
             self._patroni_path = cwd
         return self._patroni_path
 
-    def start(self, pg_name, max_wait_limit=15):
+    def data_dir(self, pg_name):
+        return os.path.join(self.patroni_path, 'data', pg_name)
+
+    def write_label(self, pg_name, content):
+        with open(os.path.join(self.data_dir(pg_name.encode('utf-8')), 'label'), 'w') as f:
+            f.write(content.encode('utf-8'))
+
+    def read_label(self, pg_name):
+        content = None
+        try:
+            with open(os.path.join(self.data_dir(pg_name.encode('utf-8')), 'label'), 'r') as f:
+                content = f.read()
+        except IOError:
+            return None
+        return content.strip()
+
+    def start(self, pg_name, max_wait_limit=15, tags=None):
         if not self._is_running(pg_name):
             if pg_name in self._processes:
                 del self._processes[pg_name]
             cwd = self.patroni_path
             self._log[pg_name] = open(os.path.join(self._output_dir, 'patroni_{0}.log'.format(pg_name)), 'a')
 
-            self._config[pg_name] = self._make_patroni_test_config(pg_name)
+            self._config[pg_name] = self._make_patroni_test_config(pg_name, tags=tags)
 
             p = subprocess.Popen(['python', 'patroni.py', self._config[pg_name]],
                                  stdout=self._log[pg_name], stderr=subprocess.STDOUT, cwd=cwd)
@@ -113,7 +129,7 @@ class PatroniController(object):
     def _is_running(self, pg_name):
         return pg_name in self._processes and self._processes[pg_name].pid and (self._processes[pg_name].poll() is None)
 
-    def _make_patroni_test_config(self, pg_name):
+    def _make_patroni_test_config(self, pg_name, tags=None):
         patroni_config_name = PatroniController.PATRONI_CONFIG.format(pg_name)
         patroni_config_path = os.path.join(self._output_dir, patroni_config_name)
 
@@ -121,6 +137,7 @@ class PatroniController(object):
             config = yaml.load(f)
         postgresql = config['postgresql']
         postgresql['name'] = pg_name.encode('utf-8')
+        postgresql['data_dir'] = 'data/{0}'.format(pg_name.encode('utf-8'))
         postgresql_params = postgresql['parameters']
         postgresql_params['logging_collector'] = 'on'
         postgresql_params['log_destination'] = 'csvlog'
@@ -128,6 +145,11 @@ class PatroniController(object):
         postgresql_params['log_filename'] = '{0}.log'.format(pg_name)
         postgresql_params['log_statement'] = 'all'
         postgresql_params['log_min_messages'] = 'debug1'
+
+        if tags:
+            config['tags'] = {}
+            for tag_name in tags:
+                config['tags'][tag_name.encode('utf-8')] = tags[tag_name].encode('utf-8')
 
         with open(patroni_config_path, 'w') as f:
             yaml.dump(config, f, default_flow_style=False)
@@ -141,7 +163,7 @@ class PatroniController(object):
             patroni_path = self.patroni_path
             with open(os.path.join(patroni_path, PatroniController.PATRONI_CONFIG.format(pg_name)), 'r') as f:
                 config = yaml.load(f)
-        except OSError:
+        except IOError:
             return None
         connstring = config['postgresql']['connect_address']
         if ':' in connstring:
