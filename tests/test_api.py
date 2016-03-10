@@ -153,6 +153,10 @@ class TestRestApiHandler(unittest.TestCase):
     @patch.object(MockHa, 'dcs')
     def test_do_POST_failover(self, dcs):
         cluster = dcs.get_cluster.return_value
+
+        request = b'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\n' +\
+                  b'Content-Length: 0\n\n'
+        MockRestApiServer(RestApiHandler, request)
         request = b'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\n' +\
                   b'Content-Length: 25\n\n{"leader": "postgresql1"}'
         MockRestApiServer(RestApiHandler, request)
