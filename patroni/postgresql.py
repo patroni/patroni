@@ -234,6 +234,7 @@ class Postgresql(object):
         return env
 
     def sync_replica(self, leader):
+        # add either the leader's or replica's credentials to pgpass
         env = self.write_pgpass(parseurl(leader.conn_url)) if leader else os.environ.copy()
         if self.create_replica(leader, env) == 0:
             self.delete_trigger_file()
@@ -258,23 +259,23 @@ class Postgresql(object):
         replica_methods = self.config.get('create_replica_method', [])
         return any(self.replica_method_can_work_without_leader(replica_method) for replica_method in replica_methods)
 
-    def create_replica(self, leader, env):
+    def create_replica(self, source, env):
         # create the replica according to the replica_method
         # defined by the user.  this is a list, so we need to
         # loop through all methods the user supplies
-        connstring = leader.conn_url if leader else ""
+        connstring = source.conn_url if source else ""
         # get list of replica methods from config.
         # If there is no configuration key, or no value is specified, use basebackup
         replica_methods = self.config.get('create_replica_method') or ['basebackup']
-        # if we don't have any leader, leave only replica methods that work without it
-        replica_methods = [r for r in replica_methods if self.replica_method_can_work_without_leader(r)] if not leader \
+        # if we don't have any source, leave only replica methods that work without it
+        replica_methods = [r for r in replica_methods if self.replica_method_can_work_without_leader(r)] if not source \
             else replica_methods
         # go through them in priority order
         ret = 1
         for replica_method in replica_methods:
             # if the method is basebackup, then use the built-in
             if replica_method == "basebackup":
-                ret = self.basebackup(leader, env)
+                ret = self.basebackup(source, env)
                 if ret == 0:
                     logger.info("replica has been created using basebackup")
                     # if basebackup succeeds, exit with success
@@ -702,7 +703,7 @@ $$""".format(name, options), name, password, password)
         """
             Populate PostgreSQL data directory by doing one of the following:
              - create with initdb if there is no master.
-             - initialize the replica from an existing master
+             - initialize the replica from an existing master or replica
              - initialize the replica using the replica creation method that
                works without the master (i.e. restore from on-disk base backup)
 

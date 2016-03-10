@@ -72,6 +72,10 @@ class Member(namedtuple('Member', 'index,name,session,data')):
     def replicatefrom(self):
         return self.data.get('tags', {}).get('replicatefrom')
 
+    @property
+    def clonefrom(self):
+        return self.data.get('tags', {}).get('clonefrom')
+
 
 class Leader(namedtuple('Leader', 'index,session,member')):
 
@@ -146,6 +150,9 @@ class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,mem
 
     def has_member(self, member_name):
         return any(m for m in self.members if m.name == member_name)
+
+    def get_member(self, member_name):
+        return ([m for m in self.members if m.name == member_name] or [None])[0]
 
 
 class AbstractDCS(object):

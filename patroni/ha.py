@@ -76,7 +76,9 @@ class Ha(object):
     def bootstrap(self):
         if not self.cluster.is_unlocked():  # cluster already has leader
             self._async_executor.schedule('bootstrap from leader')
-            self._async_executor.run_async(self.clone, args=(self.cluster.leader, ))
+            clonefrom = self.patroni.clonefrom
+            source = self.cluster.get_member(clonefrom) if self.cluster.has_member(clonefrom) else self.cluster.leader
+            self._async_executor.run_async(self.clone, args=(source,))
             return 'trying to bootstrap from leader'
         elif not self.cluster.initialize and not self.patroni.nofailover:  # no initialize key
             if self.dcs.initialize(create_new=True):  # race for initialization
