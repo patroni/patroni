@@ -13,4 +13,4 @@ curl -L https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v$
 sudo pip2.7 install lettuce python-Levenshtein
 sudo pip2.7 install -r requirements-py2.txt
 
-lettuce
+exec lettuce

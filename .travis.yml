@@ -2,6 +2,8 @@ sudo: required
 language: python
 addons:
   postgresql: "9.5"
+env:
+  - BOTO_CONFIG=''
 python:
   - "2.7"
   - "3.4"
