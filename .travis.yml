@@ -3,7 +3,7 @@ language: python
 addons:
   postgresql: "9.5"
 env:
-  - BOTO_CONFIG=''
+  - BOTO_CONFIG='' ETCDVERSION=2.2.5
 python:
   - "2.7"
   - "3.4"
@@ -19,11 +19,12 @@ install:
   - sudo /etc/init.d/postgresql stop
   - if [[ $TRAVIS_PYTHON_VERSION == 2* ]]; then pip install -r requirements-py2.txt --use-mirrors; fi
   - if [[ $TRAVIS_PYTHON_VERSION == 3* ]]; then pip install -r requirements-py3.txt; fi
-  - pip install coveralls codacy-coverage
+  - curl -L https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v${ETCDVERSION}-linux-amd64.tar.gz | tar xz -C . --strip=1 --wildcards --no-anchored etcd
+  - pip install behave coveralls codacy-coverage
 script:
   - python setup.py test
   - python setup.py flake8
-  - bash -x acceptance_tests.sh
+  - PATH=.:$PATH behave
 after_success:
   - coveralls
   - python-codacy-coverage -r coverage.xml

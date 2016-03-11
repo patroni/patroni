@@ -1,4 +1,3 @@
-from lettuce import world, before, after
 import os.path
 import psycopg2
 import requests
@@ -39,13 +38,13 @@ class PatroniController(object):
         return os.path.join(self.patroni_path, 'data', pg_name)
 
     def write_label(self, pg_name, content):
-        with open(os.path.join(self.data_dir(pg_name.encode('utf-8')), 'label'), 'w') as f:
-            f.write(content.encode('utf-8'))
+        with open(os.path.join(self.data_dir(pg_name), 'label'), 'w') as f:
+            f.write(content)
 
     def read_label(self, pg_name):
         content = None
         try:
-            with open(os.path.join(self.data_dir(pg_name.encode('utf-8')), 'label'), 'r') as f:
+            with open(os.path.join(self.data_dir(pg_name), 'label'), 'r') as f:
                 content = f.read()
         except IOError:
             return None
@@ -120,8 +119,8 @@ class PatroniController(object):
             self.stop(patroni)
 
     def create_and_set_output_directory(self, feature_name):
-        feature_dir = os.path.join(pctl.patroni_path, "features", "output",
-                                   feature_name.encode('utf-8').replace(' ', '_'))
+        feature_dir = os.path.join(self.patroni_path, "features", "output",
+                                   feature_name.replace(' ', '_'))
         if os.path.exists(feature_dir):
             shutil.rmtree(feature_dir)
         os.makedirs(feature_dir)
@@ -137,8 +136,8 @@ class PatroniController(object):
         with open(patroni_config_name) as f:
             config = yaml.load(f)
         postgresql = config['postgresql']
-        postgresql['name'] = pg_name.encode('utf-8')
-        postgresql['data_dir'] = 'data/{0}'.format(pg_name.encode('utf-8'))
+        postgresql['name'] = pg_name
+        postgresql['data_dir'] = 'data/{0}'.format(pg_name)
         postgresql_params = postgresql['parameters']
         postgresql_params['logging_collector'] = 'on'
         postgresql_params['log_destination'] = 'csvlog'
@@ -149,9 +148,7 @@ class PatroniController(object):
         postgresql_params['unix_socket_directories'] = '.'
 
         if tags:
-            config['tags'] = {}
-            for tag_name in tags:
-                config['tags'][tag_name.encode('utf-8')] = tags[tag_name].encode('utf-8')
+            config['tags'] = tags
 
         with open(patroni_config_path, 'w') as f:
             yaml.dump(config, f, default_flow_style=False)
@@ -269,44 +266,35 @@ class EtcdController(object):
         # if etcd is running, but we didn't start it
         try:
             r = requests.get(EtcdController.ETCD_VERSION_URL)
-            running = (r and r.ok and 'etcdserver' in r.content)
+            running = (r and r.ok and b'etcdserver' in r.content)
         except requests.ConnectionError:
             running = False
         return running
 
 
-pctl = PatroniController()
-etcd_ctl = EtcdController(pctl.patroni_path)
-# export pctl to manage patroni from scenario files
-world.pctl = pctl
-world.etcd_ctl = etcd_ctl
-
-
 # actions to execute on start/stop of the tests and before running invidual features
-@before.all
-def start_etcd():
-    etcd_ctl.start()
+def before_all(context):
+    context.pctl = PatroniController()
+    context.etcd_ctl = EtcdController(context.pctl.patroni_path)
+    context.etcd_ctl.start()
     try:
-        etcd_ctl.cleanup_service_tree()
+        context.etcd_ctl.cleanup_service_tree()
     except AssertionError:  # after.all handlers won't be executed in before.all
-        etcd_ctl.stop_and_remove_work_directory()
+        context.etcd_ctl.stop_and_remove_work_directory()
         raise
 
 
-@after.all
-def stop_etcd(*args, **kwargs):
-    etcd_ctl.stop_and_remove_work_directory()
+def after_all(context):
+    context.etcd_ctl.stop_and_remove_work_directory()
 
 
-@before.each_feature
-def make_test_output_dir(feature):
+def before_feature(context, feature):
     """ create per-feature output directory to collect Patroni and PostgreSQL logs """
-    pctl.create_and_set_output_directory(feature.name)
+    context.pctl.create_and_set_output_directory(feature.name)
 
 
-@after.each_feature
-def cleanup(*args, **kwargs):
+def after_feature(context, feature):
     """ stop all Patronis, remove their data directory and cleanup the keys in etcd """
-    pctl.stop_all()
-    shutil.rmtree(os.path.join(pctl.patroni_path, 'data'))
-    etcd_ctl.cleanup_service_tree()
+    context.pctl.stop_all()
+    shutil.rmtree(os.path.join(context.pctl.patroni_path, 'data'))
+    context.etcd_ctl.cleanup_service_tree()
