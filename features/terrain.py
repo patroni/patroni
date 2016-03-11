@@ -120,7 +120,8 @@ class PatroniController(object):
             self.stop(patroni)
 
     def create_and_set_output_directory(self, feature_name):
-        feature_dir = os.path.join(pctl.patroni_path, "features", "output", feature_name.encode('utf-8').replace(' ', '_'))
+        feature_dir = os.path.join(pctl.patroni_path, "features", "output",
+                                   feature_name.encode('utf-8').replace(' ', '_'))
         if os.path.exists(feature_dir):
             shutil.rmtree(feature_dir)
         os.makedirs(feature_dir)
@@ -145,6 +146,7 @@ class PatroniController(object):
         postgresql_params['log_filename'] = '{0}.log'.format(pg_name)
         postgresql_params['log_statement'] = 'all'
         postgresql_params['log_min_messages'] = 'debug1'
+        postgresql_params['unix_socket_directories'] = '.'
 
         if tags:
             config['tags'] = {}
@@ -209,7 +211,10 @@ class EtcdController(object):
             return True
         self.work_directory = tempfile.mkdtemp()
         # etcd is running throughout the tests, no need to append to the log
-        self.log_file = open(os.path.join(self.log_directory, "features", "output", 'etcd.log'), 'w')
+        output_dir = os.path.join(self.log_directory, "features", "output")
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        self.log_file = open(os.path.join(output_dir, 'etcd.log'), 'w')
         self.handle =\
             subprocess.Popen(["etcd", "--debug", "--data-dir", self.work_directory],
                              stdout=self.log_file, stderr=subprocess.STDOUT)

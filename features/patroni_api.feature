@@ -17,7 +17,7 @@ Scenario: check API requests on a stand-alone server
 	Then I receive a response code 500
 	And I receive a response text "failover is not possible: cluster does not have members except leader"
 	When I issue an empty POST request to http://127.0.0.1:8008/failover
-	Then I receive a response code 500
+	Then I receive a response code 400
 	And I receive a response text "No values given for required parameters leader and member"
 
 Scenario: check API requests for the primary-replica pair

@@ -75,7 +75,7 @@ class PatroniAPISteps(object):
         '''I receive a response (\w+) (.*)'''
         if component == 'code':
             assert self.status_code == int(data),\
-                    "status code {0} != {1}, response: {2}".format(self.status_code, int(data), self.response)
+                "status code {0} != {1}, response: {2}".format(self.status_code, int(data), self.response)
         elif component == 'text':
             assert self.response == data.strip('"'), "response {0} does not contain {1}".format(self.response, data)
         else:

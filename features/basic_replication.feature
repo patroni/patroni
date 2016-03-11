@@ -11,6 +11,6 @@ Feature: basic replication
     When I kill postgres0
     Then postgres1 role is the primary after 30 seconds
     When I start postgres0
-    Then postgres0 role is the secondary after 10 seconds
+    Then postgres0 role is the secondary after 15 seconds
     When I add the table bar to postgres1
     Then table bar is present on postgres0 after 10 seconds
