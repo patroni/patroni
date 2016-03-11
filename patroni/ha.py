@@ -203,7 +203,7 @@ class Ha(object):
         ret = False
         members = [m for m in members if m.name != self.state_handler.name and not m.nofailover and m.api_url]
         if members:
-            for member, reachable, in_recovery, xlog_location, tags in self.fetch_nodes_statuses(members):
+            for member, reachable, _, xlog_location, tags in self.fetch_nodes_statuses(members):
                 if reachable and not tags.get('nofailover', False):
                     ret = True  # TODO: check xlog_location
                 elif not reachable:
@@ -223,7 +223,7 @@ class Ha(object):
             # find specific node and check that it is healthy
             members = [m for m in self.cluster.members if m.name == failover.member]
             if members:
-                member, reachable, in_recovery, xlog_location, tags = self.fetch_node_status(members[0])
+                member, reachable, _, xlog_location, tags = self.fetch_node_status(members[0])
                 if reachable and not tags.get('nofailover', False):  # node is healthy
                     logger.info('manual failover: to %s, i am %s', member.name, self.state_handler.name)
                     return False

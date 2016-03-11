@@ -240,7 +240,7 @@ def dsn(cluster_name, config_file, dcs, role, member):
     if member is None and role is None:
         role = 'master'
 
-    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+    _, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
     m = get_any_member(cluster=cluster, role=role, member=member)
     if m is None:
         raise PatroniCtlException('Can not find a suitable member')
