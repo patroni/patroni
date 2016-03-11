@@ -143,7 +143,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def poll_failover_result(self, leader, member):
-        for a in range(0, 15):
+        for _ in range(0, 15):
             time.sleep(1)
             try:
                 cluster = self.server.patroni.dcs.get_cluster()
@@ -166,7 +166,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             members = [m for m in cluster.members if m.name != cluster.leader.name and m.api_url]
             if not members:
                 return b'failover is not possible: cluster does not have members except leader'
-        for member, reachable, in_recovery, xlog_location, tags in self.server.patroni.ha.fetch_nodes_statuses(members):
+        for member, reachable, _, xlog_location, tags in self.server.patroni.ha.fetch_nodes_statuses(members):
             if reachable and not tags.get('nofailover', False):
                 return None
         return b'failover is not possible: no good candidates have been found'

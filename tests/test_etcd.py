@@ -7,8 +7,9 @@ import unittest
 
 from dns.exception import DNSException
 from mock import Mock, patch
-from patroni.dcs import Cluster, DCSError, Leader
+from patroni.dcs import Cluster
 from patroni.etcd import Client, Etcd, EtcdError
+from patroni.exceptions import DCSError
 
 
 class MockResponse(object):
@@ -229,11 +230,8 @@ class TestEtcd(unittest.TestCase):
         cluster = self.etcd.get_cluster()
         self.assertIsInstance(cluster, Cluster)
         self.assertIsNone(cluster.leader)
-
-    def test_current_leader(self):
-        self.assertIsInstance(self.etcd.current_leader(), Leader)
         self.etcd._base_path = '/service/noleader'
-        self.assertIsNone(self.etcd.current_leader())
+        self.assertRaises(EtcdError, self.etcd.get_cluster)
 
     def test_touch_member(self):
         self.assertFalse(self.etcd.touch_member('', ''))
