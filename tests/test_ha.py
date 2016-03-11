@@ -29,12 +29,12 @@ def get_cluster_not_initialized_without_leader():
 
 
 def get_cluster_initialized_without_leader(leader=False, failover=None):
-    m = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
-                                 'api_url': 'http://127.0.0.1:8008/patroni', 'xlog_location': 4})
-    l = Leader(0, 0, m) if leader else None
-    o = Member(0, 'other', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
-                                'api_url': 'http://127.0.0.1:8011/patroni'})
-    return get_cluster(True, l, [m, o], failover)
+    m1 = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
+                                  'api_url': 'http://127.0.0.1:8008/patroni', 'xlog_location': 4})
+    l = Leader(0, 0, m1) if leader else None
+    m2 = Member(0, 'other', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
+                                 'api_url': 'http://127.0.0.1:8011/patroni'})
+    return get_cluster(True, l, [m1, m2], failover)
 
 
 def get_cluster_initialized_with_leader(failover=None):
@@ -205,6 +205,11 @@ class TestHa(unittest.TestCase):
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.p.bootstrap = false
         self.assertEquals(self.ha.bootstrap(), 'trying to bootstrap from leader')
+
+    def test_bootstrap_from_another_member(self):
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.ha.patroni.clonefrom = 'other'
+        self.assertEquals(self.ha.bootstrap(), 'trying to bootstrap from replica \'other\'')
 
     def test_bootstrap_waiting_for_leader(self):
         self.ha.cluster = get_cluster_initialized_without_leader()

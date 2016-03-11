@@ -80,7 +80,7 @@ class Ha(object):
             clonefrom = self.patroni.clonefrom
             clone_member = self.cluster.get_member(clonefrom)\
                 if self.cluster.has_member(clonefrom) else self.cluster.leader
-            clone_member_name = 'leader' if clone_member == self.cluster.leader else 'replica {0}'.format(clonefrom)
+            clone_member_name = 'leader' if clone_member == self.cluster.leader else 'replica \'{0}\''.format(clonefrom)
             self._async_executor.schedule('bootstrap from {0}'.format(clone_member_name))
             self._async_executor.run_async(self.clone, args=(clone_member, clone_member_name))
             return 'trying to bootstrap from {0}'.format(clone_member_name)
