@@ -4,6 +4,7 @@ import sys
 import time
 import yaml
 
+from patroni.plugin import get_plugins
 from patroni.api import RestApiServer
 from patroni.etcd import Etcd
 from patroni.ha import Ha
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 class Patroni(object):
 
     def __init__(self, config):
+        self.plugins = get_plugins(config, self)
         self.nap_time = config['loop_wait']
         self.tags = config.get('tags', dict())
         self.postgresql = Postgresql(config['postgresql'])
