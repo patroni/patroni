@@ -9,4 +9,4 @@ Scenario: check a base backup from the replica
 	And I create label with "postgres1" in postgres1 data directory
 	And I configure and start postgres2 with a tag clonefrom postgres1
 	Then replication works from postgres0 to postgres2 after 30 seconds
-	And there is a label with "postgres0" in postgres2 data directory
+	And there is a label with "postgres1" in postgres2 data directory
