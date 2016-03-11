@@ -262,6 +262,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                                        END,
                                        pg_xlog_location_diff(pg_last_xlog_receive_location(), '0/0')::bigint,
                                        pg_xlog_location_diff(pg_last_xlog_replay_location(), '0/0')::bigint,
+                                       to_char(pg_last_xact_replay_timestamp(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),
                                        pg_is_in_recovery() AND pg_is_xlog_replay_paused()""", retry=retry)[0]
             return {
                 'state': self.server.patroni.postgresql.state,
@@ -271,7 +272,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 'xlog': ({
                     'received_location': row[3],
                     'replayed_location': row[4],
-                    'paused': row[5]} if row[1] else {
+                    'replayed_timestamp': row[5],
+                    'paused': row[6]} if row[1] else {
                     'location': row[2]
                 })
             }
