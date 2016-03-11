@@ -1,9 +1,23 @@
-import time
+import parse
 import pytz
 import requests
+import time
 
+from behave import register_type, step, then
 from datetime import datetime, timedelta
-from behave import step, then
+
+
+@parse.with_pattern(r'https?://(?:\w|\.|:|/)+')
+def parse_url(text):
+    return text
+
+
+@parse.with_pattern(r'(?:\w+=(?:\w|\.|:|-|\+|\s)+,?)+')
+def parse_data(text):
+    return text
+
+
+register_type(url=parse_url, data=parse_data)
 
 
 # there is no way we can find out if the node has already
@@ -11,8 +25,8 @@ from behave import step, then
 # just rely on the database availability, since there is
 # a short gap between the time PostgreSQL becomes available
 # and Patroni assuming the leader role.
-@step('{name} is a leader after {time_limit} seconds')
-@then('{name} is a leader after {time_limit} seconds')
+@step('{name:w} is a leader after {time_limit:d} seconds')
+@then('{name:w} is a leader after {time_limit:d} seconds')
 def is_a_leader(context, name, time_limit):
     max_time = time.time() + int(time_limit)
     while (context.etcd_ctl.query("leader") != name):
@@ -21,12 +35,12 @@ def is_a_leader(context, name, time_limit):
             assert False, "{0} is not a leader in etcd after {1} seconds".format(name, time_limit)
 
 
-@step('I sleep for {value} seconds')
+@step('I sleep for {value:d} seconds')
 def sleep_for_n_seconds(context, value):
     time.sleep(int(value))
 
 
-@step('I issue a GET request to {url}')
+@step('I issue a GET request to {url:url}')
 def do_get(context, url):
     try:
         r = requests.get(url)
@@ -41,12 +55,12 @@ def do_get(context, url):
             context.response = r.content.decode('utf-8')
 
 
-@step('I issue an empty POST request to {url}')
+@step('I issue an empty POST request to {url:url}')
 def do_post_empty(context, url):
     do_post(context, url, None)
 
 
-@step('I issue a POST request to {url} with {data}')
+@step('I issue a POST request to {url:url} with {data:data}')
 def do_post(context, url, data):
     post_data = {}
     if data:
@@ -68,7 +82,7 @@ def do_post(context, url, data):
             context.response = r.content.decode('utf-8')
 
 
-@then('I receive a response {component} {data}')
+@then('I receive a response {component:w} {data}')
 def check_response(context, component, data):
     if component == 'code':
         assert context.status_code == int(data),\
@@ -80,8 +94,8 @@ def check_response(context, component, data):
         assert context.response[component] == data, "{0} does not contain {1}".format(component, data)
 
 
-@step('I issue a scheduled failover at {at_url} from {from_host} to {to_host} in {in_seconds} seconds')
-def scheduld_failover(context, at_url, from_host, to_host, in_seconds):
-    context.execute_steps("""
+@step('I issue a scheduled failover at {at_url:url} from {from_host:w} to {to_host:w} in {in_seconds:d} seconds')
+def scheduled_failover(context, at_url, from_host, to_host, in_seconds):
+    context.execute_steps(u"""
         Given I issue a POST request to {0}/failover with leader={1},candidate={2},scheduled_at={3}
     """.format(at_url, from_host, to_host, datetime.now(pytz.utc) + timedelta(seconds=int(in_seconds))))

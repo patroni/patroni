@@ -1,8 +1,8 @@
-import os.path
+import os
 import psycopg2
 import requests
-import subprocess
 import shutil
+import subprocess
 import tempfile
 import time
 import yaml
@@ -50,7 +50,7 @@ class PatroniController(object):
             return None
         return content.strip()
 
-    def start(self, pg_name, max_wait_limit=15, tags=None):
+    def start(self, pg_name, max_wait_limit=20, tags=None):
         if not self._is_running(pg_name):
             if pg_name in self._processes:
                 del self._processes[pg_name]
