@@ -222,13 +222,14 @@ class EtcdController(object):
             time.sleep(1)
         return True
 
-    def query(self, key):
+    @staticmethod
+    def query(key):
         """ query etcd for a value of a given key """
         r = requests.get("http://127.0.0.1:2379/v2/keys/service/batman/{0}".format(key))
         if r.ok:
             content = r.json()
             if content:
-                return content.get('node', {}).get('value', None)
+                return content.get('node', {}).get('value')
         return None
 
     def stop_and_remove_work_directory(self, timeout=15):
@@ -262,7 +263,8 @@ class EtcdController(object):
         except requests.exceptions.RequestException as e:
             assert False, "exception when cleaning up etcd contents: {0}".format(e)
 
-    def _is_running(self):
+    @staticmethod
+    def _is_running():
         # if etcd is running, but we didn't start it
         try:
             r = requests.get(EtcdController.ETCD_VERSION_URL)
