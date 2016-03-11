@@ -18,6 +18,7 @@ import dateutil
 import tzlocal
 
 from .etcd import Etcd
+from .zookeeper import ZooKeeper
 from .exceptions import PatroniCtlException
 from .postgresql import parseurl
 
@@ -46,12 +47,12 @@ def parse_dcs(dcs):
         parsed = urlparse('//' + dcs)
 
     if scheme == '':
-        default_schemes = {'2181': 'zookeeper', '8500': 'consul'}
+        default_schemes = {'2181': 'zookeeper', '8181': 'exhibitor', '8500': 'consul'}
         scheme = default_schemes.get(str(parsed.port), 'etcd')
 
     port = parsed.port
     if port is None:
-        default_ports = {'consul': 8500, 'zookeeper': 2181}
+        default_ports = {'consul': 8500, 'zookeeper': 2181, 'exhibitor': 8181}
         port = default_ports.get(str(scheme), 4001)
 
     return {'scheme': str(scheme), 'hostname': str(parsed.hostname), 'port': int(port)}
@@ -104,6 +105,12 @@ def get_dcs(config, scope):
 
     if scheme == 'etcd':
         return Etcd(name=scope, config={'scope': scope, 'host': '{0}:{1}'.format(hostname, port)})
+
+    if scheme == 'zookeeper':
+        return ZooKeeper(name=scope, config={'scope': scope, 'hosts': [hostname], 'port': port})
+
+    if scheme == 'exhibitor':
+        return ZooKeeper(name=scope, config={'scope': scope, 'exhibitor': {'hosts': [hostname], 'port': port}})
 
     raise PatroniCtlException('Can not find suitable configuration of distributed configuration store')
 
@@ -240,7 +247,7 @@ def dsn(cluster_name, config_file, dcs, role, member):
     if member is None and role is None:
         role = 'master'
 
-    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+    _, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
     m = get_any_member(cluster=cluster, role=role, member=member)
     if m is None:
         raise PatroniCtlException('Can not find a suitable member')

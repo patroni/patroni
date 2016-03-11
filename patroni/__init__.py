@@ -35,6 +35,10 @@ class Patroni(object):
     def replicatefrom(self):
         return self.tags.get('replicatefrom')
 
+    @property
+    def clonefrom(self):
+        return self.tags.get('clonefrom')
+
     @staticmethod
     def get_dcs(name, config):
         if 'etcd' in config:

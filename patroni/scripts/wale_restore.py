@@ -154,7 +154,7 @@ def main():
     args = parser.parse_args()
 
     # retry cloning in a loop
-    for retry in range(0, args.retries + 1):
+    for _ in range(0, args.retries + 1):
         restore = WALERestore(scope=args.scope, datadir=args.datadir, connstring=args.connstring,
                               env_dir=args.envdir, threshold_mb=args.threshold_megabytes,
                               threshold_pct=args.threshold_backup_size_percentage, use_iam=args.use_iam,

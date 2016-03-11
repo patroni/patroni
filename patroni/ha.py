@@ -65,19 +65,25 @@ class Ha(object):
                 pass
         self.dcs.touch_member(json.dumps(data, separators=(',', ':')))
 
-    def clone(self, leader):
-        if self.state_handler.bootstrap(cluster_initialized=True, current_leader=leader):
-            logger.info('bootstrapped from leader' if leader else 'bootstrapped without leader')
+    def clone(self, clone_member, clone_member_name="leader"):
+        if self.state_handler.bootstrap(cluster_initialized=True, clone_member=clone_member):
+            logger.info('bootstrapped from {0}'.format(clone_member_name)
+                        if clone_member else 'bootstrapped without leader')
         else:
             self.state_handler.stop('immediate')
             self.state_handler.remove_data_directory()
-            logger.error('failed to bootstrap from leader' if leader else 'failed to bootstrap (without leader)')
+            logger.error('failed to bootstrap from {0}'.format(clone_member_name)
+                         if clone_member else 'failed to bootstrap (without leader)')
 
     def bootstrap(self):
         if not self.cluster.is_unlocked():  # cluster already has leader
-            self._async_executor.schedule('bootstrap from leader')
-            self._async_executor.run_async(self.clone, args=(self.cluster.leader, ))
-            return 'trying to bootstrap from leader'
+            clonefrom = self.patroni.clonefrom
+            clone_member = self.cluster.get_member(clonefrom)\
+                if self.cluster.has_member(clonefrom) else self.cluster.leader
+            clone_member_name = 'leader' if clone_member == self.cluster.leader else 'replica \'{0}\''.format(clonefrom)
+            self._async_executor.schedule('bootstrap from {0}'.format(clone_member_name))
+            self._async_executor.run_async(self.clone, args=(clone_member, clone_member_name))
+            return 'trying to bootstrap from {0}'.format(clone_member_name)
         elif not self.cluster.initialize and not self.patroni.nofailover:  # no initialize key
             if self.dcs.initialize(create_new=True):  # race for initialization
                 try:
@@ -96,7 +102,7 @@ class Ha(object):
             else:
                 return 'failed to acquire initialize lock'
         else:
-            if self.state_handler.can_create_replica_without_leader():
+            if self.state_handler.can_create_replica_without_replication_connection():
                 self._async_executor.run_async(self.clone, args=(None, ))
                 return "trying to bootstrap without leader"
             return 'waiting for leader to bootstrap'
@@ -203,7 +209,7 @@ class Ha(object):
         ret = False
         members = [m for m in members if m.name != self.state_handler.name and not m.nofailover and m.api_url]
         if members:
-            for member, reachable, in_recovery, xlog_location, tags in self.fetch_nodes_statuses(members):
+            for member, reachable, _, _, tags in self.fetch_nodes_statuses(members):
                 if reachable and not tags.get('nofailover', False):
                     ret = True  # TODO: check xlog_location
                 elif not reachable:
@@ -223,7 +229,7 @@ class Ha(object):
             # find specific node and check that it is healthy
             members = [m for m in self.cluster.members if m.name == failover.member]
             if members:
-                member, reachable, in_recovery, xlog_location, tags = self.fetch_node_status(members[0])
+                member, reachable, _, _, tags = self.fetch_node_status(members[0])
                 if reachable and not tags.get('nofailover', False):  # node is healthy
                     logger.info('manual failover: to %s, i am %s', member.name, self.state_handler.name)
                     return False

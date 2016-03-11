@@ -3,7 +3,6 @@ import json
 import dateutil
 
 from collections import namedtuple
-from patroni.exceptions import DCSError
 from six.moves.urllib_parse import urlparse, urlunparse, parse_qsl
 from threading import Event, Lock
 
@@ -147,6 +146,9 @@ class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,mem
     def has_member(self, member_name):
         return any(m for m in self.members if m.name == member_name)
 
+    def get_member(self, member_name):
+        return ([m for m in self.members if m.name == member_name] or [None])[0]
+
 
 class AbstractDCS(object):
 
@@ -268,13 +270,6 @@ class AbstractDCS(object):
             failover_value['scheduled_at'] = scheduled_at.isoformat()
 
         return self.set_failover_value(json.dumps(failover_value), index)
-
-    def current_leader(self):
-        try:
-            cluster = self.get_cluster()
-            return None if cluster.is_unlocked() else cluster.leader
-        except DCSError:
-            return None
 
     @abc.abstractmethod
     def touch_member(self, connection_string, ttl=None):
