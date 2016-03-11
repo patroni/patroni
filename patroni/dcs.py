@@ -146,6 +146,9 @@ class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,mem
     def has_member(self, member_name):
         return any(m for m in self.members if m.name == member_name)
 
+    def get_member(self, member_name):
+        return ([m for m in self.members if m.name == member_name] or [None])[0]
+
 
 class AbstractDCS(object):
 

@@ -471,17 +471,17 @@ class TestPostgresql(unittest.TestCase):
     def test_restore_configuration_files(self):
         self.p.restore_configuration_files()
 
-    def test_can_create_replica_without_leader(self):
+    def test_can_create_replica_without_replication_connection(self):
         self.p.config['create_replica_method'] = []
-        self.assertFalse(self.p.can_create_replica_without_leader())
+        self.assertFalse(self.p.can_create_replica_without_replication_connection())
         self.p.config['create_replica_method'] = ['wale', 'basebackup']
         self.p.config['wale'] = {'command': 'foo', 'no_master': 1}
-        self.assertTrue(self.p.can_create_replica_without_leader())
+        self.assertTrue(self.p.can_create_replica_without_replication_connection())
 
-    def test_replica_method_can_work_without_leader(self):
-        self.assertFalse(self.p.replica_method_can_work_without_leader('basebackup'))
-        self.assertFalse(self.p.replica_method_can_work_without_leader('foobar'))
+    def test_replica_method_can_work_without_replication_connection(self):
+        self.assertFalse(self.p.replica_method_can_work_without_replication_connection('basebackup'))
+        self.assertFalse(self.p.replica_method_can_work_without_replication_connection('foobar'))
         self.p.config['foo'] = {'command': 'bar', 'no_master': 1}
-        self.assertTrue(self.p.replica_method_can_work_without_leader('foo'))
+        self.assertTrue(self.p.replica_method_can_work_without_replication_connection('foo'))
         self.p.config['foo'] = {'command': 'bar'}
-        self.assertFalse(self.p.replica_method_can_work_without_leader('foo'))
+        self.assertFalse(self.p.replica_method_can_work_without_replication_connection('foo'))
