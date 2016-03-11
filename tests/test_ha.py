@@ -88,7 +88,7 @@ class TestHa(unittest.TestCase):
                                  'replication': {'username': '', 'password': '', 'network': ''}})
             self.p.set_state('running')
             self.p.check_replication_lag = true
-            self.p.can_create_replica_without_leader = MagicMock(return_value=False)
+            self.p.can_create_replica_without_replication_connection = MagicMock(return_value=False)
             self.e = Etcd('foo', {'ttl': 30, 'host': 'ok:2379', 'scope': 'test'})
             self.e.client.read = etcd_read
             self.e.client.write = etcd_write
@@ -212,7 +212,7 @@ class TestHa(unittest.TestCase):
 
     def test_bootstrap_without_leader(self):
         self.ha.cluster = get_cluster_initialized_without_leader()
-        self.p.can_create_replica_without_leader = MagicMock(return_value=True)
+        self.p.can_create_replica_without_replication_connection = MagicMock(return_value=True)
         self.assertEquals(self.ha.bootstrap(), "trying to bootstrap without leader")
 
     def test_bootstrap_initialize_lock_failed(self):
