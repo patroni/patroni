@@ -59,7 +59,7 @@ class Client(etcd.Client):
             if (isinstance(fields, dict) and fields.get("wait") == "true" and
                     isinstance(e, urllib3.exceptions.ReadTimeoutError)):
                 logger.debug("Watch timed out.")
-                raise etcd.EtcdWatchTimedOut("Watch timed out: %s".format(e), cause=e)
+                raise etcd.EtcdWatchTimedOut("Watch timed out: {0}".format(e), cause=e)
             logger.error("Request to server %s failed: %r", self._base_uri, e)
             logger.info("Reconnection allowed, looking for another server.")
             self._base_uri = self._next_server(cause=e)
