@@ -14,6 +14,7 @@ from patroni.dcs import AbstractDCS, Cluster, Failover, Leader, Member
 from patroni.exceptions import DCSError
 from patroni.utils import Retry, RetryFailedError, sleep
 from requests.exceptions import RequestException
+from six.moves.http_client import HTTPException
 
 logger = logging.getLogger(__name__)
 
@@ -49,12 +50,57 @@ class Client(etcd.Client):
             self._update_machines_cache = True
             return [self._base_uri]
 
-    def api_execute(self, path, method, **kwargs):
+    def _do_http_request(self, request_executor, method, url, fields=None, **kwargs):
+        try:
+            response = request_executor(method, url, fields=fields, **kwargs)
+            response.data.decode('utf-8')
+#            self._check_cluster_id(response)
+        except (urllib3.exceptions.HTTPError, HTTPException, socket.error) as e:
+            if (isinstance(fields, dict) and fields.get("wait") == "true" and
+                    isinstance(e, urllib3.exceptions.ReadTimeoutError)):
+                logger.debug("Watch timed out.")
+                raise etcd.EtcdWatchTimedOut("Watch timed out: %r" % e, cause=e)
+            logger.error("Request to server %s failed: %r", self._base_uri, e)
+            logger.info("Reconnection allowed, looking for another server.")
+            self._base_uri = self._next_server(cause=e)
+            response = False
+        return response
+
+    def api_execute(self, path, method, params=None, timeout=None):
+        if not path.startswith('/'):
+            raise ValueError('Path does not start with /')
+
+        if timeout is None:
+            timeout = self.read_timeout
+
+        if timeout == 0:
+            timeout = None
+
+        kwargs = {'timeout': timeout, 'fields': params, 'redirect': self.allow_redirect,
+                  'headers': self._get_headers(), 'preload_content': False}
+
+        if method in [self._MGET, self._MDELETE]:
+            request_executor = self.http.request
+        elif method in [self._MPUT, self._MPOST]:
+            request_executor = self.http.request_encode_body
+            kwargs['encode_multipart'] = False
+        else:
+            raise etcd.EtcdException('HTTP method {} not supported'.format(method))
+
         # Update machines_cache if previous attempt of update has failed
         if self._update_machines_cache:
             self._load_machines_cache()
+
+        response = False
+
         try:
-            return super(Client, self).api_execute(path, method, **kwargs)
+            while not response:
+                response = self._do_http_request(request_executor, method, self._base_uri + path, **kwargs)
+
+                if response is False and not self._use_proxies:
+                    self._machines_cache = self.machines
+                    self._machines_cache.remove(self._base_uri)
+            return self._handle_server_response(response)
         except etcd.EtcdConnectionFailed:
             self._update_machines_cache = True
             raise
@@ -66,16 +112,6 @@ class Client(etcd.Client):
         except DNSException:
             logger.exception('Can not resolve SRV for %s', host)
         return []
-
-    # try to workarond bug in python-etcd: https://github.com/jplana/python-etcd/issues/81
-    def _result_from_response(self, response):
-        try:
-            response.data.decode('utf-8')
-        except urllib3.exceptions.TimeoutError:
-            raise
-        except Exception as e:
-            raise etcd.EtcdException('Unable to decode server response: {0}'.format(e))
-        return super(Client, self)._result_from_response(response)
 
     def _get_machines_cache_from_srv(self, discovery_srv):
         """Fetch list of etcd-cluster member by resolving _etcd-server._tcp. SRV record.
@@ -272,7 +308,7 @@ class Etcd(AbstractDCS):
                     # Synchronous work of all cluster members with etcd is less expensive
                     # than reestablishing http connection every time from every replica.
                     return True
-                except urllib3.exceptions.TimeoutError:
+                except etcd.EtcdWatchTimedOut:
                     self.client.http.clear()
                     return False
                 except etcd.EtcdException:
