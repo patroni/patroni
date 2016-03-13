@@ -26,7 +26,6 @@ install:
   - curl -L https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v${ETCDVERSION}-linux-amd64.tar.gz | tar xz -C . --strip=1 --wildcards --no-anchored etcd
   - pip install behave codacy-coverage coverage coveralls 
 script:
-  - python setup.py test
   - PATH=.:$PATH $TEST_SUITE
   - python setup.py flake8
 after_success:
