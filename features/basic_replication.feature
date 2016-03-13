@@ -3,9 +3,10 @@ Feature: basic replication
 
   Scenario: check replication of a single table
     Given I start postgres0
+    And postgres0 is a leader after 10 seconds
     And I start postgres1
     When I add the table foo to postgres0
-    Then table foo is present on postgres1 after 10 seconds
+    Then table foo is present on postgres1 after 15 seconds
 
   Scenario: check the basic failover
     When I kill postgres0

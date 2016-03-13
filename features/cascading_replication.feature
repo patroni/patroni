@@ -3,6 +3,7 @@ Feature: cascading replication
 
 Scenario: check a base backup from the replica
 	Given I start postgres0
+	And postgres0 is a leader after 10 seconds
 	And I start postgres1
 	And replication works from postgres0 to postgres1 after 15 seconds
 	And I create label with "postgres0" in postgres0 data directory

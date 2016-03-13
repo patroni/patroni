@@ -59,7 +59,7 @@ class PatroniController(object):
 
             self._config[pg_name] = self._make_patroni_test_config(pg_name, tags=tags)
 
-            p = subprocess.Popen(['python', 'patroni.py', self._config[pg_name]],
+            p = subprocess.Popen(['coverage', 'run', '--branch', '--source=patroni', '-p', 'patroni.py', self._config[pg_name]],
                                  stdout=self._log[pg_name], stderr=subprocess.STDOUT, cwd=cwd)
             if not (p and p.pid and p.poll() is None):
                 assert False, "PostgreSQL {0} is not running after being started".format(pg_name)
@@ -190,6 +190,7 @@ class PatroniController(object):
 
 
 class EtcdController(object):
+
     """ handles all etcd related tasks, used for the tests setup and cleanup """
     ETCD_VERSION_URL = 'http://127.0.0.1:2379/version'
     ETCD_CLEANUP_URL = 'http://127.0.0.1:2379/v2/keys/service/batman?recursive=true'
@@ -300,3 +301,5 @@ def after_feature(context, feature):
     context.pctl.stop_all()
     shutil.rmtree(os.path.join(context.pctl.patroni_path, 'data'))
     context.etcd_ctl.cleanup_service_tree()
+    subprocess.call(['coverage', 'combine'])
+    subprocess.call(['coverage', 'report'])
