@@ -289,6 +289,8 @@ def before_all(context):
 
 def after_all(context):
     context.etcd_ctl.stop_and_remove_work_directory()
+    subprocess.call(['coverage', 'combine'])
+    subprocess.call(['coverage', 'report'])
 
 
 def before_feature(context, feature):
@@ -301,5 +303,3 @@ def after_feature(context, feature):
     context.pctl.stop_all()
     shutil.rmtree(os.path.join(context.pctl.patroni_path, 'data'))
     context.etcd_ctl.cleanup_service_tree()
-    subprocess.call(['coverage', 'combine'])
-    subprocess.call(['coverage', 'report'])
