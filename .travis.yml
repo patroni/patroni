@@ -21,8 +21,7 @@ install:
   - sudo apt-get update
   - sudo apt-get -y install postgresql-9.5
   - sudo /etc/init.d/postgresql stop
-  - if [[ $TRAVIS_PYTHON_VERSION == 2* ]]; then pip install -r requirements-py2.txt --use-mirrors; fi
-  - if [[ $TRAVIS_PYTHON_VERSION == 3* ]]; then pip install -r requirements-py3.txt; fi
+  - pip install -r requirements.txt
   - curl -L https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v${ETCDVERSION}-linux-amd64.tar.gz | tar xz -C . --strip=1 --wildcards --no-anchored etcd
   - pip install behave codacy-coverage coverage coveralls 
 script:
