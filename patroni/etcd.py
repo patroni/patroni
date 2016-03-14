@@ -54,7 +54,7 @@ class Client(etcd.Client):
         try:
             response = request_executor(method, url, fields=fields, **kwargs)
             response.data.decode('utf-8')
-#            self._check_cluster_id(response)
+            self._check_cluster_id(response)
         except (urllib3.exceptions.HTTPError, HTTPException, socket.error) as e:
             if (isinstance(fields, dict) and fields.get("wait") == "true" and
                     isinstance(e, urllib3.exceptions.ReadTimeoutError)):
@@ -85,7 +85,7 @@ class Client(etcd.Client):
             request_executor = self.http.request_encode_body
             kwargs['encode_multipart'] = False
         else:
-            raise etcd.EtcdException('HTTP method {} not supported'.format(method))
+            raise etcd.EtcdException('HTTP method {0} not supported'.format(method))
 
         # Update machines_cache if previous attempt of update has failed
         if self._update_machines_cache:
