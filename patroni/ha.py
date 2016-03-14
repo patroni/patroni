@@ -463,8 +463,8 @@ class Ha(object):
             else:
                 # check if we are allowed to join
                 if self.sysid_valid(self.cluster.initialize) and self.cluster.initialize != self.state_handler.sysid:
-                    logger.fatal("system ID mismatch, node {0} belongs to a different cluster".
-                                 format(self.state_handler.name))
+                    logger.fatal("system ID mismatch, node %s belongs to a different cluster: %s != %s",
+                                 self.state_handler.name, self.cluster.initialize, self.state_handler.sysid)
                     sys.exit(1)
 
             # try to start dead postgres

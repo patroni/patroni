@@ -207,7 +207,7 @@ class Postgresql(object):
                 options.append('--username={0}'.format(self.superuser['username']))
             if 'password' in self.superuser:
                 (fd, pwfile) = tempfile.mkstemp()
-                os.write(fd, self.superuser['password'].encode())
+                os.write(fd, self.superuser['password'].encode('utf-8'))
                 os.close(fd)
                 options.append('--pwfile={0}'.format(pwfile))
 
@@ -509,7 +509,7 @@ recovery_target_timeline = 'latest'
         try:
             data = subprocess.check_output(['pg_controldata', self.data_dir])
             if data:
-                data = data.decode().splitlines()
+                data = data.decode('utf-8').splitlines()
                 result = {l.split(':')[0].replace('Current ', '', 1): l.split(':')[1].strip() for l in data if l}
         except subprocess.CalledProcessError:
             logger.exception("Error when calling pg_controldata")
