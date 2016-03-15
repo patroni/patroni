@@ -51,8 +51,8 @@ CLASSIFIERS = [
     'Operating System :: POSIX :: Linux',
     'Programming Language :: Python',
     'Programming Language :: Python :: 2.7',
-    'Programming Language :: Python :: 3.3',
     'Programming Language :: Python :: 3.4',
+    'Programming Language :: Python :: 3.5',
     'Programming Language :: Python :: Implementation :: CPython',
 ]
 
@@ -76,7 +76,7 @@ class PyTest(TestCommand):
     def finalize_options(self):
         TestCommand.finalize_options(self)
         if self.cov_xml or self.cov_html:
-            self.cov = ['--cov', MAIN_PACKAGE, '--cov', MAIN_PACKAGE, '--cov-report', 'term-missing']
+            self.cov = ['--cov', MAIN_PACKAGE, '--cov-report', 'term-missing']
             if self.cov_xml:
                 self.cov.extend(['--cov-report', 'xml'])
             if self.cov_html:
@@ -116,8 +116,7 @@ def setup_package():
     # Some helper variables
     version = os.getenv('GO_PIPELINE_LABEL', VERSION)
 
-    requirements = 'requirements-py2.txt' if sys.version_info[0] == 2 else 'requirements-py3.txt'
-    install_reqs = get_install_requirements(requirements)
+    install_reqs = get_install_requirements('requirements.txt')
 
     command_options = {'test': {'test_suite': ('setup.py', 'tests')}}
     if JUNIT_XML:
@@ -142,9 +141,9 @@ def setup_package():
         packages=setuptools.find_packages(exclude=['tests', 'tests.*']),
         package_data={MAIN_PACKAGE: ["*.json"]},
         install_requires=install_reqs,
-        setup_requires=['six', 'flake8'],
+        setup_requires=['flake8'],
         cmdclass=cmdclass,
-        tests_require=['pytest-cov', 'pytest'],
+        tests_require=['mock', 'pytest-cov', 'pytest'],
         command_options=command_options,
         entry_points={'console_scripts': CONSOLE_SCRIPTS},
     )

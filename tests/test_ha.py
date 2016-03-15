@@ -29,12 +29,12 @@ def get_cluster_not_initialized_without_leader():
 
 
 def get_cluster_initialized_without_leader(leader=False, failover=None):
-    m = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
-                                 'api_url': 'http://127.0.0.1:8008/patroni', 'xlog_location': 4})
-    l = Leader(0, 0, m) if leader else None
-    o = Member(0, 'other', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
-                                'api_url': 'http://127.0.0.1:8011/patroni'})
-    return get_cluster(True, l, [m, o], failover)
+    m1 = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
+                                  'api_url': 'http://127.0.0.1:8008/patroni', 'xlog_location': 4})
+    l = Leader(0, 0, m1) if leader else None
+    m2 = Member(0, 'other', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
+                                 'api_url': 'http://127.0.0.1:8011/patroni'})
+    return get_cluster(True, l, [m1, m2], failover)
 
 
 def get_cluster_initialized_with_leader(failover=None):
@@ -54,8 +54,10 @@ class MockPatroni(object):
         self.api = Mock()
         self.tags = {}
         self.nofailover = None
+        self.nap_time = 10
         self.replicatefrom = None
         self.api.connection_string = 'http://127.0.0.1:8008'
+        self.clonefrom = None
 
 
 def run_async(func, args=()):
@@ -86,7 +88,7 @@ class TestHa(unittest.TestCase):
                                  'replication': {'username': '', 'password': '', 'network': ''}})
             self.p.set_state('running')
             self.p.check_replication_lag = true
-            self.p.can_create_replica_without_leader = MagicMock(return_value=False)
+            self.p.can_create_replica_without_replication_connection = MagicMock(return_value=False)
             self.e = Etcd('foo', {'ttl': 30, 'host': 'ok:2379', 'scope': 'test'})
             self.e.client.read = etcd_read
             self.e.client.write = etcd_write
@@ -204,13 +206,18 @@ class TestHa(unittest.TestCase):
         self.p.bootstrap = false
         self.assertEquals(self.ha.bootstrap(), 'trying to bootstrap from leader')
 
+    def test_bootstrap_from_another_member(self):
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.ha.patroni.clonefrom = 'other'
+        self.assertEquals(self.ha.bootstrap(), 'trying to bootstrap from replica \'other\'')
+
     def test_bootstrap_waiting_for_leader(self):
         self.ha.cluster = get_cluster_initialized_without_leader()
         self.assertEquals(self.ha.bootstrap(), 'waiting for leader to bootstrap')
 
     def test_bootstrap_without_leader(self):
         self.ha.cluster = get_cluster_initialized_without_leader()
-        self.p.can_create_replica_without_leader = MagicMock(return_value=True)
+        self.p.can_create_replica_without_replication_connection = MagicMock(return_value=True)
         self.assertEquals(self.ha.bootstrap(), "trying to bootstrap without leader")
 
     def test_bootstrap_initialize_lock_failed(self):

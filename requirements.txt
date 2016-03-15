@@ -1,12 +1,10 @@
 boto
-mock
-dnspython3
 psycopg2>=2.6.1
 PyYAML
 requests
-six
+six >= 1.7
 kazoo>=2.2.1
-python-etcd==0.4.2
+python-etcd==0.4.3
 python-consul>=0.4.5
 click>=4.1
 prettytable>=0.7

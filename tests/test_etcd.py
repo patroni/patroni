@@ -7,8 +7,9 @@ import unittest
 
 from dns.exception import DNSException
 from mock import Mock, patch
-from patroni.dcs import Cluster, DCSError, Leader
+from patroni.dcs import Cluster
 from patroni.etcd import Client, Etcd, EtcdError
+from patroni.exceptions import DCSError
 
 
 class MockResponse(object):
@@ -24,11 +25,7 @@ class MockResponse(object):
 
     @property
     def data(self):
-        if self.content == 'TimeoutError':
-            raise urllib3.exceptions.TimeoutError
-        if self.content == 'Exception':
-            raise Exception
-        return self.content
+        return self.content.encode('utf-8')
 
     @property
     def status(self):
@@ -69,7 +66,7 @@ def requests_get(url, **kwargs):
 
 def etcd_watch(key, index=None, timeout=None, recursive=None):
     if timeout == 2.0:
-        raise urllib3.exceptions.TimeoutError
+        raise etcd.EtcdWatchTimedOut
     elif timeout == 5.0:
         return etcd.EtcdResult('delete', {})
     elif timeout == 10.0:
@@ -146,6 +143,8 @@ def socket_getaddrinfo(*args):
 
 
 def http_request(method, url, **kwargs):
+    if url == 'http://localhost:2379/timeout':
+        raise urllib3.exceptions.ReadTimeoutError(None, None, None)
     if url == 'http://localhost:2379/':
         return MockResponse()
     raise socket.error
@@ -163,30 +162,26 @@ class TestClient(unittest.TestCase):
             mock_machines.__get__ = Mock(return_value=['http://localhost:2379', 'http://localhost:4001'])
             self.client = Client({'discovery_srv': 'test'})
             self.client.http.request = http_request
+            self.client.http.request_encode_body = http_request
 
     def test_api_execute(self):
         self.client._base_uri = 'http://localhost:4001'
         self.client._machines_cache = ['http://localhost:2379']
-        self.client.api_execute('/', 'GET')
+        self.assertRaises(etcd.EtcdWatchTimedOut, self.client.api_execute, '/timeout', 'POST', params={'wait': 'true'})
+        self.client._update_machines_cache = False
+        self.client.api_execute('/', 'POST', timeout=0)
         self.client._update_machines_cache = False
         self.client._base_uri = 'http://localhost:4001'
         self.client._machines_cache = []
         self.assertRaises(etcd.EtcdConnectionFailed, self.client.api_execute, '/', 'GET')
         self.assertTrue(self.client._update_machines_cache)
         self.assertRaises(etcd.EtcdException, self.client.api_execute, '/', 'GET')
+        self.assertRaises(etcd.EtcdException, self.client.api_execute, '/', '')
+        self.assertRaises(ValueError, self.client.api_execute, '', '')
 
     def test_get_srv_record(self):
         self.assertEquals(self.client.get_srv_record('blabla'), [])
         self.assertEquals(self.client.get_srv_record('exception'), [])
-
-    def test__result_from_response(self):
-        response = MockResponse()
-        response.content = 'TimeoutError'
-        self.assertRaises(urllib3.exceptions.TimeoutError, self.client._result_from_response, response)
-        response.content = 'Exception'
-        self.assertRaises(etcd.EtcdException, self.client._result_from_response, response)
-        response.content = b'{}'
-        self.assertRaises(etcd.EtcdException, self.client._result_from_response, response)
 
     def test__get_machines_cache_from_srv(self):
         self.client.get_srv_record = Mock(return_value=[('localhost', 2380)])
@@ -229,11 +224,8 @@ class TestEtcd(unittest.TestCase):
         cluster = self.etcd.get_cluster()
         self.assertIsInstance(cluster, Cluster)
         self.assertIsNone(cluster.leader)
-
-    def test_current_leader(self):
-        self.assertIsInstance(self.etcd.current_leader(), Leader)
         self.etcd._base_path = '/service/noleader'
-        self.assertIsNone(self.etcd.current_leader())
+        self.assertRaises(EtcdError, self.etcd.get_cluster)
 
     def test_touch_member(self):
         self.assertFalse(self.etcd.touch_member('', ''))

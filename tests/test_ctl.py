@@ -11,6 +11,7 @@ from patroni.ctl import ctl, members, store_config, load_config, output_members,
 from patroni.etcd import Etcd, Client
 from psycopg2 import OperationalError
 from test_etcd import etcd_read, etcd_write, requests_get, socket_getaddrinfo, MockResponse
+from test_zookeeper import MockKazooClient
 from test_ha import get_cluster_initialized_without_leader, get_cluster_initialized_with_leader, \
     get_cluster_initialized_with_only_leader
 from test_postgresql import MockConnect, psycopg2_connect
@@ -172,7 +173,11 @@ other
 y''')
             assert 'Failover failed' in result.output
 
-    def test_(self):
+    @patch('patroni.zookeeper.KazooClient', MockKazooClient)
+    @patch('requests.get', requests_get)
+    def test_get_dcs(self):
+        self.assertIsNotNone(get_dcs({'dcs': {'scheme': 'zookeeper', 'hostname': 'foo', 'port': 2181}}, 'dummy'))
+        self.assertIsNotNone(get_dcs({'dcs': {'scheme': 'exhibitor', 'hostname': 'exhibitor', 'port': 8181}}, 'dummy'))
         self.assertRaises(PatroniCtlException, get_dcs, {'scheme': 'dummy'}, 'dummy')
 
     @patch('psycopg2.connect', psycopg2_connect)
