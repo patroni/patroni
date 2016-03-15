@@ -77,6 +77,7 @@ def run_async(func, args=()):
 @patch.object(Postgresql, 'query', Mock())
 @patch.object(Postgresql, 'checkpoint', Mock())
 @patch.object(etcd.Client, 'write', etcd_write)
+@patch.object(etcd.Client, 'read', etcd_read)
 @patch.object(etcd.Client, 'delete', Mock(side_effect=etcd.EtcdException))
 @patch('subprocess.call', Mock(return_value=0))
 class TestHa(unittest.TestCase):
