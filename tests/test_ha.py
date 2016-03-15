@@ -1,8 +1,8 @@
+import etcd
 import unittest
 import datetime
 import pytz
 
-from etcd import EtcdException
 from mock import Mock, MagicMock, patch
 from patroni.dcs import Cluster, Failover, Leader, Member
 from patroni.etcd import Client, Etcd
@@ -76,10 +76,13 @@ def run_async(func, args=()):
 @patch.object(Postgresql, 'write_recovery_conf', Mock())
 @patch.object(Postgresql, 'query', Mock())
 @patch.object(Postgresql, 'checkpoint', Mock())
+@patch.object(etcd.Client, 'write', etcd_write)
+@patch.object(etcd.Client, 'delete', Mock(side_effect=etcd.EtcdException))
 @patch('subprocess.call', Mock(return_value=0))
 class TestHa(unittest.TestCase):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
+    @patch.object(etcd.Client, 'read', etcd_read)
     def setUp(self):
         with patch.object(Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
@@ -90,9 +93,6 @@ class TestHa(unittest.TestCase):
             self.p.check_replication_lag = true
             self.p.can_create_replica_without_replication_connection = MagicMock(return_value=False)
             self.e = Etcd('foo', {'ttl': 30, 'host': 'ok:2379', 'scope': 'test'})
-            self.e.client.read = etcd_read
-            self.e.client.write = etcd_write
-            self.e.client.delete = Mock(side_effect=EtcdException())
             self.ha = Ha(MockPatroni(self.p, self.e))
             self.ha._async_executor.run_async = run_async
             self.ha.old_cluster = self.e.get_cluster()

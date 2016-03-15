@@ -92,7 +92,7 @@ class MockKazooClient(Mock):
             raise Exception
         elif path == '/service/test/members/buzz':
             raise Exception
-        elif path.endswith('/initialize') or path == '/service/test/members/bar':
+        elif path.endswith('/') or path.endswith('/initialize') or path == '/service/test/members/bar':
             raise NoNodeError
 
 
@@ -152,7 +152,7 @@ class TestZooKeeper(unittest.TestCase):
         self.zk._name = 'bar'
         self.zk.touch_member('new')
         self.zk._name = 'na'
-        self.zk.client.exists = 1
+        self.zk._client.exists = 1
         self.zk.touch_member('exists')
         self.zk._name = 'bar'
         self.zk.touch_member('retry')
@@ -171,6 +171,9 @@ class TestZooKeeper(unittest.TestCase):
         self.zk.write_leader_optime('1')
         self.zk._base_path = self.zk._base_path.replace('test', 'bla')
         self.zk.write_leader_optime('2')
+
+    def test_delete_cluster(self):
+        self.assertTrue(self.zk.delete_cluster())
 
     def test_watch(self):
         self.zk.watch(0)
