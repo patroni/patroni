@@ -203,37 +203,23 @@ class PatroniPoolController(object):
 
     def start(self, pg_name, max_wait_limit=20, tags=None):
         if pg_name not in self._processes:
-            self._processes[pg_name] = PatroniController(self.dcs, pg_name, self._patroni_path, self._output_dir, tags)
+            self._processes[pg_name] = PatroniController(self.dcs, pg_name, self.patroni_path, self._output_dir, tags)
         self._processes[pg_name].start(max_wait_limit)
 
-    def check_proc(func):
-        def wrapper(self, pg_name, *args, **kwargs):
-            return pg_name in self._processes and func(self, pg_name, *args, **kwargs)
+    def __getattr__(self, func):
+        if func not in ['stop', 'query', 'write_label', 'read_label', 'check_role_has_changed_to']:
+            raise AttributeError("PatroniPoolController instance has no attribute '{0}'".format(func))
+
+        def wrapper(pg_name, *args, **kwargs):
+            proc = self._processes.get(pg_name)
+            if proc:
+                return getattr(proc, func)(*args, **kwargs)
         return wrapper
 
-    @check_proc
-    def stop(self, pg_name, kill=False, timeout=15):
-        return self._processes.pop(pg_name).stop(kill, timeout)
-
-    @check_proc
-    def write_label(self, pg_name, content):
-        return self._processes[pg_name].write_label(content)
-
-    @check_proc
-    def read_label(self, pg_name):
-        return self._processes[pg_name].read_label()
-
-    @check_proc
-    def query(self, pg_name, query, fail_ok=False):
-        return self._processes[pg_name].query(query, fail_ok)
-
-    @check_proc
-    def check_role_has_changed_to(self, pg_name, new_role, timeout=10):
-        return self._processes[pg_name].check_role_has_changed_to(new_role, timeout)
-
     def stop_all(self):
-        for patroni in self._processes.copy():
-            self.stop(patroni)
+        for ctl in self._processes.values():
+            ctl.stop()
+        self._processes.clear()
 
     def create_and_set_output_directory(self, feature_name):
         feature_dir = os.path.join(self.patroni_path, "features", "output", feature_name.replace(' ', '_'))
