@@ -83,12 +83,9 @@ class ZooKeeper(AbstractDCS):
             self.exhibitor = ExhibitorEnsembleProvider(exhibitor['hosts'], exhibitor['port'], poll_interval=interval)
             hosts = self.exhibitor.zookeeper_hosts
 
-        self._client = KazooClient(hosts=hosts,
-                                   timeout=(config.get('session_timeout') or 30),
-                                   command_retry={
-                                        'deadline': (config.get('reconnect_timeout') or 10),
-                                        'max_delay': 1,
-                                        'max_tries': -1},
+        self._client = KazooClient(hosts=hosts, timeout=(config.get('session_timeout') or 30),
+                                   command_retry={'deadline': (config.get('reconnect_timeout') or 10),
+                                                  'max_delay': 1, 'max_tries': -1},
                                    connection_retry={'max_delay': 1, 'max_tries': -1})
         self._client.add_listener(self.session_listener)
 

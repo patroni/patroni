@@ -180,17 +180,17 @@ class RestApiHandler(BaseHTTPRequestHandler):
             request = {}
         leader = request.get('leader')
         member = request.get('member')
+        scheduled_at = request.get('scheduled_at')
         cluster = self.server.patroni.ha.dcs.get_cluster()
         status_code = 500
 
-        logger.info("received failover request with leader {0} member {1} scheduled_at {2}".
-                    format(leader, member, request.get("scheduled_at")))
+        logger.info("received failover request with leader %s member %s scheduled_at %s", leader, member, scheduled_at)
 
         data = b''
         if leader or member:
             if request.get('scheduled_at'):
                 try:
-                    scheduled_at = dateutil.parser.parse(request['scheduled_at'])
+                    scheduled_at = dateutil.parser.parse(scheduled_at)
                     if scheduled_at.tzinfo is None:
                         data = b'Timezone information is mandatory for scheduled_at'
                         status_code = 400
@@ -201,7 +201,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                         data = b'Failover scheduled'
                         status_code = 200
                 except (ValueError, TypeError):
-                    logger.exception('Invalid scheduled failover time: {}'.format(request['scheduled_at']))
+                    logger.exception('Invalid scheduled failover time: %s', request['scheduled_at'])
                     data = b'Unable to parse scheduled timestamp. It should be in an unambiguous format, e.g. ISO 8601'
                     status_code = 422
             else:

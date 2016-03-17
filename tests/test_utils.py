@@ -2,7 +2,8 @@ import unittest
 
 from mock import Mock, patch
 from patroni.exceptions import PatroniException
-from patroni.utils import Retry, RetryFailedError, reap_children, sigchld_handler, sigterm_handler, sleep
+from patroni.utils import reap_children, Retry, RetryFailedError, set_ignore_sigterm,\
+    sigchld_handler, sigterm_handler, sleep
 
 
 def time_sleep(_):
@@ -12,6 +13,7 @@ def time_sleep(_):
 class TestUtils(unittest.TestCase):
 
     def test_sigterm_handler(self):
+        set_ignore_sigterm(False)
         self.assertRaises(SystemExit, sigterm_handler, None, None)
 
     @patch('time.sleep', Mock())

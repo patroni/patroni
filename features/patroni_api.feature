@@ -29,15 +29,17 @@ Scenario: check API requests for the primary-replica pair
 	And I receive a response role replica
 	When I issue an empty POST request to http://127.0.0.1:8009/reinitialize
 	Then I receive a response code 200
-	Given replication works from postgres0 to postgres1 after 10 seconds
 	When I issue an empty POST request to http://127.0.0.1:8008/restart
 	Then I receive a response code 200
-	And postgres0 is a leader after 5 seconds
+        When I sleep for 5 seconds
+        Then postgres1 role is the secondary after 15 seconds
 
 Scenario: check the failover via the API
 	Given I issue a POST request to http://127.0.0.1:8008/failover with leader=postgres0,candidate=postgres1
 	Then I receive a response code 200
 	And postgres1 is a leader after 5 seconds
+        And postgres1 role is the primary after 5 seconds
+        And postgres0 role is the secondary after 5 seconds
 	And replication works from postgres1 to postgres0 after 15 seconds
 
 Scenario: check the scheduled failover

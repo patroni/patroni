@@ -93,6 +93,7 @@ postgresql:
     max_replication_slots: 10
     hot_standby: "on"
     wal_log_hints: "on"
+    unix_socket_directories: '.'
 tags:
     nofailover: False
     noloadbalance: False
