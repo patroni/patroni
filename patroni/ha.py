@@ -298,7 +298,7 @@ class Ha(object):
                     return
                 elif delta < - int(self.patroni.nap_time * 1.5):
                     logger.warning('Found a stale failover value, cleaning up: %s', failover.scheduled_at)
-                    self.dcs.manual_failover('', '', self.cluster.failover.index)
+                    self.dcs.manual_failover('', '', index=self.cluster.failover.index)
                     return
 
                 # The value is very close to now
@@ -323,7 +323,7 @@ class Ha(object):
                            self.cluster.failover.leader, self.state_handler.name)
 
         logger.info('Trying to clean up failover key')
-        self.dcs.manual_failover('', '', self.cluster.failover.index)
+        self.dcs.manual_failover('', '', index=self.cluster.failover.index)
 
     def process_unhealthy_cluster(self):
         if self.is_healthiest_node():
