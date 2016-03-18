@@ -39,7 +39,6 @@ def set_ignore_sigterm(value=True):
 
 
 def sigterm_handler(signo, stack_frame):
-    global __ignore_sigterm
     if not __ignore_sigterm:
         set_ignore_sigterm()
         sys.exit()

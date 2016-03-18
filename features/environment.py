@@ -20,30 +20,43 @@ class AbstractController(object):
         self._handle = None
         self._log = None
 
-    @abc.abstractmethod
+    def _has_started(self):
+        return self._handle and self._handle.pid and self._handle.poll() is None
+
     def _is_running(self):
-        """:returns: `True` if process is already running"""
+        return self._has_started()
+
+    @abc.abstractmethod
+    def _is_accessible(self):
+        """process is accessible for queries"""
 
     @abc.abstractmethod
     def _start(self):
         """start process"""
 
-    def start(self):
+    def start(self, max_wait_limit=5):
         if self._is_running():
             return True
 
         self._log = open(os.path.join(self._output_dir, self._name + '.log'), 'a')
         self._handle = self._start()
 
-        assert self._handle and self._handle.pid and self._handle.poll() is None,\
-            "Process {0} is not running after being started".format(self._name)
+        assert self._has_started(), "Process {0} is not running after being started".format(self._name)
+
+        for _ in range(max_wait_limit):
+            if self._is_accessible():
+                break
+            time.sleep(1)
+        else:
+            assert False,\
+                "{0} instance is not available for queries after {1} seconds".format(self._name, max_wait_limit)
 
     def stop(self, kill=False, timeout=15):
         """ terminate process and wipe out the temp work directory, but only if we actually started it"""
         term = False
         start_time = time.time()
 
-        while self._is_running() and self._handle:
+        while self._handle and self._is_running():
             if kill:
                 self._handle.kill()
             elif not term:
@@ -81,23 +94,12 @@ class PatroniController(AbstractController):
         except IOError:
             return None
 
-    def _is_running(self):
-        return self._handle and self._handle.pid and self._handle.poll() is None
-
     def _start(self):
         return subprocess.Popen(['coverage', 'run', '--source=patroni', '-p', 'patroni.py', self._config],
                                 stdout=self._log, stderr=subprocess.STDOUT, cwd=self._work_directory)
 
-    def start(self, max_wait_limit):
-        super(PatroniController, self).start()
-        # wait while patroni is available for queries, but not more than 10 seconds.
-        for _ in range(max_wait_limit):
-            if self.query("SELECT 1", fail_ok=True) is not None:
-                break
-            time.sleep(1)
-        else:
-            assert False,\
-                "Patroni instance is not available for queries after {0} seconds".format(max_wait_limit)
+    def _is_accessible(self):
+        return self.query("SELECT 1", fail_ok=True) is not None
 
     def _make_patroni_test_config(self, name, dcs, tags):
         patroni_config_name = self.PATRONI_CONFIG.format(name)
@@ -118,9 +120,12 @@ class PatroniController(AbstractController):
 
         if dcs != 'etcd':
             etcd = config.pop('etcd')
-            if dcs == 'zookeeper':
-                config['zookeeper'] = {'session_timeout': etcd['ttl'], 'reconnect_timeout': config['loop_wait'],
-                                       'scope': etcd['scope'], 'exhibitor': {'hosts': ['127.0.0.1'], 'port': 8181}}
+            config['zookeeper'] = {'scope': etcd['scope'], 'session_timeout': etcd['ttl'],
+                                   'reconnect_timeout': config['loop_wait']}
+            if dcs == 'exhibitor':
+                config['zookeeper']['exhibitor'] = {'hosts': ['127.0.0.1'], 'port': 8181}
+            else:
+                config['zookeeper']['hosts'] = ['127.0.0.1:2181']
 
         with open(patroni_config_path, 'w') as f:
             yaml.dump(config, f, default_flow_style=False)
@@ -230,16 +235,19 @@ class PatroniPoolController(object):
     def dcs(self):
         if self._dcs is None:
             self._dcs = os.environ.get('DCS', 'etcd')
-            assert self._dcs in ['etcd', 'zookeeper'], 'Unsupported dcs: ' + self.dcs
+            assert self._dcs in ['etcd', 'exhibitor', 'zookeeper'], 'Unsupported dcs: ' + self.dcs
         return self._dcs
 
 
-class DcsController(AbstractController):
+class AbstractDcsController(AbstractController):
 
     _CLUSTER_NODE = 'service/batman'
 
     def __init__(self, name, output_dir):
-        super(DcsController, self).__init__(name, tempfile.mkdtemp(), output_dir)
+        super(AbstractDcsController, self).__init__(name, tempfile.mkdtemp(), output_dir)
+
+    def _is_accessible(self):
+        return self._is_running()
 
     def stop_and_remove_work_directory(self, kill=False, timeout=15):
         self.stop(kill, timeout)
@@ -255,7 +263,7 @@ class DcsController(AbstractController):
         """ clean all contents stored in the tree used for the tests """
 
 
-class EtcdController(DcsController):
+class EtcdController(AbstractDcsController):
 
     """ handles all etcd related tasks, used for the tests setup and cleanup """
 
@@ -289,7 +297,7 @@ class EtcdController(DcsController):
             return False
 
 
-class ZooKeeperController(DcsController):
+class ZooKeeperController(AbstractDcsController):
 
     """ handles all zookeeper related tasks, used for the tests setup and cleanup """
 
@@ -325,9 +333,15 @@ class ZooKeeperController(DcsController):
             return False
 
 
+class ExhibitorController(ZooKeeperController):
+    pass
+
+
 # actions to execute on start/stop of the tests and before running invidual features
 def before_all(context):
     context.pctl = PatroniPoolController()
+    if context.pctl.dcs == 'exhibitor':
+        context.dcs_ctl = ExhibitorController(context.pctl.output_dir)
     if context.pctl.dcs == 'zookeeper':
         context.dcs_ctl = ZooKeeperController(context.pctl.output_dir)
     else:  # context.pctl.dcs == 'etcd'
