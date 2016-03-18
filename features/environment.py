@@ -342,7 +342,7 @@ def before_all(context):
     context.pctl = PatroniPoolController()
     if context.pctl.dcs == 'exhibitor':
         context.dcs_ctl = ExhibitorController(context.pctl.output_dir)
-    if context.pctl.dcs == 'zookeeper':
+    elif context.pctl.dcs == 'zookeeper':
         context.dcs_ctl = ZooKeeperController(context.pctl.output_dir)
     else:  # context.pctl.dcs == 'etcd'
         context.dcs_ctl = EtcdController(context.pctl.output_dir)
