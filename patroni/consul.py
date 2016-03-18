@@ -59,7 +59,7 @@ class Consul(AbstractDCS):
         super(Consul, self).__init__(name, config)
         self.ttl = int((config.get('ttl') or 30)/2)
         host, port = config.get('host', '127.0.0.1:8500').split(':')
-        self.client = ConsulClient(host=host, port=port)
+        self._client = ConsulClient(host=host, port=port)
         self._scope = config['scope']
         self._session = None
         self._new_cluster = False
@@ -67,16 +67,16 @@ class Consul(AbstractDCS):
         self.create_or_restore_session()
 
     def create_or_restore_session(self):
-        index, member = self.client.kv.get(self.member_path)
+        index, member = self._client.kv.get(self.member_path)
         self._session = (member or {}).get('Session', None)
         if self.referesh_session(retry=True):
-            self.client.kv.delete(self.member_path)
+            self._client.kv.delete(self.member_path)
 
     def create_session(self, retry=False):
         name = self._scope + '-' + self._name
         while not self._session:
             try:
-                self._session = self.client.session.create(name=name, lock_delay=0, behavior='delete', ttl=self.ttl)
+                self._session = self._client.session.create(name=name, lock_delay=0, behavior='delete', ttl=self.ttl)
             except (ConsulException, RequestException):
                 if not retry:
                     return
@@ -87,7 +87,7 @@ class Consul(AbstractDCS):
         """:returns: `!True` if it had to create new session"""
         if self._session:
             try:
-                return not self.client.session.renew(self._session) is None
+                return not self._client.session.renew(self._session) is None
             except NotFound:
                 self._session = None
         if not self._session:
@@ -112,7 +112,7 @@ class Consul(AbstractDCS):
             path = self.client_path('/')
             index = self._cluster_index if timeout else None
             wait = str(timeout) + 's' if timeout else None
-            self._cluster_index, results = self.client.kv.get(path, recurse=True, index=index, wait=wait)
+            self._cluster_index, results = self._client.kv.get(path, recurse=True, index=index, wait=wait)
 
             if results is None:
                 raise NotFound
@@ -137,7 +137,7 @@ class Consul(AbstractDCS):
             leader = nodes.get(self._LEADER, None)
             if leader and leader['Value'] == self._name and self._session != leader.get('Session', 'x'):
                 logger.info('I am leader but not owner of the session. Removing leader node')
-                self.client.kv.delete(self.leader_path, cas=leader['ModifyIndex'])
+                self._client.kv.delete(self.leader_path, cas=leader['ModifyIndex'])
                 leader = None
 
             if leader:
@@ -166,17 +166,17 @@ class Consul(AbstractDCS):
         cluster = self.cluster
         member_exists = cluster and any(m.name == self._name for m in cluster.members)
         if create_member and member_exists:
-            self.client.kv.delete(self.member_path)
+            self._client.kv.delete(self.member_path)
         if create_member or not member_exists:
             try:
-                self.client.kv.put(self.member_path, connection_string, acquire=self._session)
+                self._client.kv.put(self.member_path, connection_string, acquire=self._session)
             except:
                 logger.exception('touch_member')
         return True
 
     @catch_consul_errors
     def attempt_to_acquire_leader(self):
-        ret = self.client.kv.put(self.leader_path, self._name, acquire=self._session)
+        ret = self._client.kv.put(self.leader_path, self._name, acquire=self._session)
         ret or logger.info('Could not take out TTL lock')
         return ret
 
@@ -185,11 +185,11 @@ class Consul(AbstractDCS):
 
     @catch_consul_errors
     def set_failover_value(self, value, index=None):
-        return self.client.kv.put(self.failover_path, value, cas=index)
+        return self._client.kv.put(self.failover_path, value, cas=index)
 
     @catch_consul_errors
     def write_leader_optime(self, last_operation):
-        return self.client.kv.put(self.leader_optime_path, last_operation)
+        return self._client.kv.put(self.leader_optime_path, last_operation)
 
     def update_leader(self):
         return True
@@ -197,21 +197,21 @@ class Consul(AbstractDCS):
     @catch_consul_errors
     def initialize(self, create_new=True, sysid=''):
         kwargs = {'cas': 0} if create_new else {}
-        return self.client.kv.put(self.initialize_path, sysid, **kwargs)
+        return self._client.kv.put(self.initialize_path, sysid, **kwargs)
 
     @catch_consul_errors
     def cancel_initialization(self):
-        return self.client.kv.delete(self.initialize_path)
+        return self._client.kv.delete(self.initialize_path)
 
     @catch_consul_errors
     def delete_cluster(self):
-        return self.client.kv.delete(self.client_path(''), recurse=True)
+        return self._client.kv.delete(self.client_path(''), recurse=True)
 
     @catch_consul_errors
     def delete_leader(self):
         cluster = self.cluster
         if cluster and isinstance(cluster.leader, Leader) and cluster.leader.name == self._name:
-            return self.client.kv.delete(self.leader_path, cas=cluster.leader.index)
+            return self._client.kv.delete(self.leader_path, cas=cluster.leader.index)
 
     def watch(self, timeout):
         cluster = self.cluster

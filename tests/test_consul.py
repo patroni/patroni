@@ -2,7 +2,7 @@ import consul
 import unittest
 
 from mock import Mock, patch
-from patroni.consul import Cluster, Consul, ConsulError, ConsulException, NotFound
+from patroni.consul import Cluster, Consul, ConsulError, ConsulException, HTTPClient, NotFound
 from test_etcd import SleepException
 
 
@@ -22,11 +22,11 @@ def kv_get(self, key, **kwargs):
                  {'CreateIndex': 6156, 'Flags': 0, 'Key': key + 'members/postgresql0', 'LockIndex': 1,
                   'ModifyIndex': 6156, 'Session': '782e6da4-ed02-3aef-7963-99a90ed94b53',
                   'Value': ('postgres://replicator:rep-pass@127.0.0.1:5432/postgres' +
-                    '?application_name=http://127.0.0.1:8008/patroni').encode('utf-8')},
+                            '?application_name=http://127.0.0.1:8008/patroni').encode('utf-8')},
                  {'CreateIndex': 2630, 'Flags': 0, 'Key': key + 'members/postgresql1', 'LockIndex': 1,
                   'ModifyIndex': 2630, 'Session': 'fd4f44fe-2cac-bba5-a60b-304b51ff39b7',
                   'Value': ('postgres://replicator:rep-pass@127.0.0.1:5433/postgres' +
-                    '?application_name=http://127.0.0.1:8009/patroni').encode('utf-8')},
+                            '?application_name=http://127.0.0.1:8009/patroni').encode('utf-8')},
                  {'CreateIndex': 1085, 'Flags': 0, 'Key': key + 'optime/leader', 'LockIndex': 0,
                   'ModifyIndex': 6429, 'Value': b'4496294792'}])
     raise ConsulException
@@ -52,6 +52,14 @@ def session_create(self, *args, **kwargs):
     raise ConsulException
 
 
+class TestHTTPClient(unittest.TestCase):
+
+    def test_get(self):
+        self.client = HTTPClient('127.0.0.1', '8500', 'http', False)
+        self.client.session.get = Mock()
+        self.client.get(Mock(), '', {'wait': '1s', 'index': 1})
+
+
 class TestConsul(unittest.TestCase):
 
     def setUp(self):
@@ -63,10 +71,6 @@ class TestConsul(unittest.TestCase):
         self.c = Consul('postgresql1', {'ttl': 30, 'scope': 'test', 'host': 'localhost:1'})
         self.c._base_path = '/service/good'
         self.c._load_cluster(1)
-
-    def test_client_get(self):
-        self.c.client.http.session.get = Mock()
-        self.c.client.http.get(Mock(), '', {'wait': '1s', 'index': 1})
 
     def test_referesh_session(self):
         self.c._session = '1'
