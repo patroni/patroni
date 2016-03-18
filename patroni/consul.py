@@ -57,7 +57,7 @@ class Consul(AbstractDCS):
 
     def __init__(self, name, config):
         super(Consul, self).__init__(name, config)
-        self.ttl = config.get('ttl') or 30
+        self.ttl = int((config.get('ttl') or 30)/2)
         host, port = config.get('host', '127.0.0.1:8500').split(':')
         self.client = ConsulClient(host=host, port=port)
         self._scope = config['scope']
@@ -185,7 +185,7 @@ class Consul(AbstractDCS):
 
     @catch_consul_errors
     def set_failover_value(self, value, index=None):
-        return self.client.kv.put(self.failover_path, value, cas=index or 0)
+        return self.client.kv.put(self.failover_path, value, cas=index)
 
     @catch_consul_errors
     def write_leader_optime(self, last_operation):
