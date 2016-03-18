@@ -1,10 +1,10 @@
+import etcd
 import os
 import pytest
 import requests.exceptions
 import unittest
 
 from click.testing import CliRunner
-from etcd import EtcdException
 from mock import patch, Mock, MagicMock
 from patroni.ctl import ctl, members, store_config, load_config, output_members, post_patroni, get_dcs, \
     wait_for_leader, get_all_members, get_any_member, get_cursor, query_member, configure
@@ -44,6 +44,9 @@ def test_rw_config():
 
 
 @patch('patroni.ctl.load_config', Mock(return_value={'dcs': {'scheme': 'etcd', 'hostname': 'localhost', 'port': 4001}}))
+@patch.object(etcd.Client, 'write', etcd_write)
+@patch.object(etcd.Client, 'read', etcd_read)
+@patch.object(etcd.Client, 'delete', Mock(side_effect=etcd.EtcdException))
 class TestCtl(unittest.TestCase):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
@@ -52,9 +55,6 @@ class TestCtl(unittest.TestCase):
         with patch.object(Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
             self.e = Etcd('foo', {'ttl': 30, 'host': 'ok:2379', 'scope': 'test'})
-            self.e.client.read = etcd_read
-            self.e.client.write = etcd_write
-            self.e.client.delete = Mock(side_effect=EtcdException)
 
     @patch('psycopg2.connect', psycopg2_connect)
     def test_get_cursor(self):
@@ -298,37 +298,28 @@ y''')
             result = self.runner.invoke(ctl, ['restart', 'alpha', '--dcs', '8.8.8.8'], input='y')
 
     @patch('patroni.etcd.Etcd.get_cluster', Mock(return_value=get_cluster_initialized_with_leader()))
-    @patch('patroni.etcd.Etcd.get_etcd_client', Mock(return_value=None))
     def test_remove(self):
-        result = self.runner.invoke(ctl, ['remove', 'alpha', '--dcs', '8.8.8.8'], input='alpha\nslave')
-        assert 'Please confirm' in result.output
-        assert 'You are about to remove all' in result.output
-        # Not typing an exact confirmation
-        assert result.exit_code == 1
+        with patch('patroni.ctl.get_dcs', Mock(return_value=self.e)):
+            result = self.runner.invoke(ctl, ['remove', 'alpha', '--dcs', '8.8.8.8'], input='alpha\nslave')
+            assert 'Please confirm' in result.output
+            assert 'You are about to remove all' in result.output
+            # Not typing an exact confirmation
+            assert result.exit_code == 1
 
-        # master specified does not match master of cluster
-        result = self.runner.invoke(ctl, ['remove', 'alpha', '--dcs', '8.8.8.8'], input='''alpha
+            # master specified does not match master of cluster
+            result = self.runner.invoke(ctl, ['remove', 'alpha', '--dcs', '8.8.8.8'], input='''alpha
 Yes I am aware
 slave''')
-        assert result.exit_code == 1
+            assert result.exit_code == 1
 
-        # cluster specified on cmdline does not match verification prompt
-        result = self.runner.invoke(ctl, ['remove', 'alpha', '--dcs', '8.8.8.8'], input='beta\nleader')
-        assert result.exit_code == 1
+            # cluster specified on cmdline does not match verification prompt
+            result = self.runner.invoke(ctl, ['remove', 'alpha', '--dcs', '8.8.8.8'], input='beta\nleader')
+            assert result.exit_code == 1
 
-        with patch('patroni.etcd.Etcd.get_cluster', get_cluster_initialized_with_leader):
-            result = self.runner.invoke(ctl, ['remove', 'alpha', '--dcs', '8.8.8.8'],
-                                        input='''alpha
-Yes I am aware
-leader''')
-            assert 'object has no attribute' in str(result.exception)
-
-        with patch('patroni.ctl.get_dcs', Mock(return_value=Mock())):
-            # Not implemented DCS
             result = self.runner.invoke(ctl, ['remove', 'alpha', '--dcs', '8.8.8.8'], input='''alpha
 Yes I am aware
 leader''')
-            assert result.exit_code == 1
+            assert result.exit_code == 0
 
     @patch('patroni.etcd.Etcd.watch', Mock(return_value=None))
     @patch('patroni.etcd.Etcd.get_cluster', Mock(return_value=get_cluster_initialized_with_leader()))

@@ -199,7 +199,7 @@ class Etcd(AbstractDCS):
                                               etcd.EtcdLeaderElectionInProgress,
                                               etcd.EtcdWatcherCleared,
                                               etcd.EtcdEventIndexCleared))
-        self.client = self.get_etcd_client(config)
+        self._client = self.get_etcd_client(config)
 
     def retry(self, *args, **kwargs):
         return self._retry.copy()(*args, **kwargs)
@@ -221,7 +221,7 @@ class Etcd(AbstractDCS):
 
     def _load_cluster(self):
         try:
-            result = self.retry(self.client.read, self.client_path(''), recursive=True)
+            result = self.retry(self._client.read, self.client_path(''), recursive=True)
             nodes = {os.path.relpath(node.key, result.key): node for node in result.leaves}
 
             # get initialize flag
@@ -256,15 +256,15 @@ class Etcd(AbstractDCS):
 
     @catch_etcd_errors
     def touch_member(self, connection_string, ttl=None):
-        return self.retry(self.client.set, self.member_path, connection_string, ttl or self.ttl)
+        return self.retry(self._client.set, self.member_path, connection_string, ttl or self.ttl)
 
     @catch_etcd_errors
     def take_leader(self):
-        return self.retry(self.client.set, self.leader_path, self._name, self.ttl)
+        return self.retry(self._client.set, self.leader_path, self._name, self.ttl)
 
     def attempt_to_acquire_leader(self):
         try:
-            return bool(self.retry(self.client.write, self.leader_path, self._name, ttl=self.ttl, prevExist=False))
+            return bool(self.retry(self._client.write, self.leader_path, self._name, ttl=self.ttl, prevExist=False))
         except etcd.EtcdAlreadyExist:
             logger.info('Could not take out TTL lock')
         except (RetryFailedError, etcd.EtcdException):
@@ -273,27 +273,31 @@ class Etcd(AbstractDCS):
 
     @catch_etcd_errors
     def set_failover_value(self, value, index=None):
-        return self.client.write(self.failover_path, value, prevIndex=index or 0)
+        return self._client.write(self.failover_path, value, prevIndex=index or 0)
 
     @catch_etcd_errors
     def write_leader_optime(self, last_operation):
-        return self.client.set(self.leader_optime_path, last_operation)
+        return self._client.set(self.leader_optime_path, last_operation)
 
     @catch_etcd_errors
     def update_leader(self):
-        return self.retry(self.client.test_and_set, self.leader_path, self._name, self._name, self.ttl)
+        return self.retry(self._client.test_and_set, self.leader_path, self._name, self._name, self.ttl)
 
     @catch_etcd_errors
     def initialize(self, create_new=True, sysid=""):
-        return self.retry(self.client.write, self.initialize_path, sysid, prevExist=(not create_new))
+        return self.retry(self._client.write, self.initialize_path, sysid, prevExist=(not create_new))
 
     @catch_etcd_errors
     def delete_leader(self):
-        return self.client.delete(self.leader_path, prevValue=self._name)
+        return self._client.delete(self.leader_path, prevValue=self._name)
 
     @catch_etcd_errors
     def cancel_initialization(self):
-        return self.retry(self.client.delete, self.initialize_path)
+        return self.retry(self._client.delete, self.initialize_path)
+
+    @catch_etcd_errors
+    def delete_cluster(self):
+        return self.retry(self._client.delete, self.client_path(''), recursive=True)
 
     def watch(self, timeout):
         cluster = self.cluster
@@ -304,12 +308,12 @@ class Etcd(AbstractDCS):
 
             while index and timeout >= 1:  # when timeout is too small urllib3 doesn't have enough time to connect
                 try:
-                    self.client.watch(self.leader_path, index=index + 1, timeout=timeout + 0.5)
+                    self._client.watch(self.leader_path, index=index + 1, timeout=timeout + 0.5)
                     # Synchronous work of all cluster members with etcd is less expensive
                     # than reestablishing http connection every time from every replica.
                     return True
                 except etcd.EtcdWatchTimedOut:
-                    self.client.http.clear()
+                    self._client.http.clear()
                     return False
                 except etcd.EtcdException:
                     logging.exception('watch')

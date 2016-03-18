@@ -308,6 +308,10 @@ class AbstractDCS(object):
     def cancel_initialization(self):
         """ Removes the initialize key for a cluster """
 
+    @abc.abstractmethod
+    def delete_cluster(self):
+        """Delete cluster from DCS"""
+
     def watch(self, timeout):
         """If the current node is a master it should just sleep.
         Any other node should watch for changes of leader key with a given timeout

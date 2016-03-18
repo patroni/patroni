@@ -64,7 +64,7 @@ def requests_get(url, **kwargs):
     return response
 
 
-def etcd_watch(key, index=None, timeout=None, recursive=None):
+def etcd_watch(self, key, index=None, timeout=None, recursive=None):
     if timeout == 2.0:
         raise etcd.EtcdWatchTimedOut
     elif timeout == 5.0:
@@ -77,7 +77,7 @@ def etcd_watch(key, index=None, timeout=None, recursive=None):
         return etcd.EtcdResult('set', {'value': 'postgresql2', 'modifiedIndex': index + 1})
 
 
-def etcd_write(key, value, **kwargs):
+def etcd_write(self, key, value, **kwargs):
     if key == '/service/exists/leader':
         raise etcd.EtcdAlreadyExist
     if key in ['/service/test/leader', '/patroni/test/leader'] and \
@@ -86,7 +86,7 @@ def etcd_write(key, value, **kwargs):
     raise etcd.EtcdException
 
 
-def etcd_read(key, **kwargs):
+def etcd_read(self, key, **kwargs):
     if key == '/service/noleader/':
         raise DCSError('noleader')
     elif key == '/service/nocluster/':
@@ -198,15 +198,15 @@ class TestClient(unittest.TestCase):
 
 
 @patch('requests.get', requests_get)
+@patch.object(etcd.Client, 'write', etcd_write)
+@patch.object(etcd.Client, 'read', etcd_read)
+@patch.object(etcd.Client, 'delete', Mock(side_effect=etcd.EtcdException))
 class TestEtcd(unittest.TestCase):
 
     def setUp(self):
         with patch.object(Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://localhost:2379', 'http://localhost:4001'])
             self.etcd = Etcd('foo', {'namespace': '/patroni/', 'ttl': 30, 'host': 'localhost:2379', 'scope': 'test'})
-            self.etcd.client.write = etcd_write
-            self.etcd.client.read = etcd_read
-            self.etcd.client.delete = Mock(side_effect=etcd.EtcdException())
 
     def test_base_path(self):
         self.assertEquals(self.etcd._base_path, '/patroni/test')
@@ -254,8 +254,8 @@ class TestEtcd(unittest.TestCase):
     def test_delete_leader(self):
         self.assertFalse(self.etcd.delete_leader())
 
+    @patch.object(etcd.Client, 'watch', etcd_watch)
     def test_watch(self):
-        self.etcd.client.watch = etcd_watch
         self.etcd.watch(0)
         self.etcd.get_cluster()
         self.etcd.watch(1.5)
