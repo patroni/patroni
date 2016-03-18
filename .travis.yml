@@ -14,18 +14,16 @@ python:
   - "3.5"
 install:
   - |
-    if [[ $TEST_SUITE == "behave" ]]; then sudo bash -c '
-        /etc/init.d/postgresql stop
-        apt-get -y remove --purge postgresql-9.1 postgresql-9.2 postgresql-9.3 postgresql-9.4
-        apt-get -y autoremove
-        apt-key adv --keyserver keys.gnupg.net --recv-keys 7FCC7D46ACCC4CF8
-        echo "deb http://apt.postgresql.org/pub/repos/apt/ precise-pgdg main 9.5" >> /etc/apt/sources.list.d/postgresql.list
-        apt-get update
-        apt-get -y install postgresql-9.5
-        /etc/init.d/postgresql stop
-    '; fi
-  - |
     if [[ $TEST_SUITE == "behave" ]]; then
+        sudo bash -c '
+            /etc/init.d/postgresql stop
+            apt-get -y remove --purge postgresql-9.1 postgresql-9.2 postgresql-9.3 postgresql-9.4
+            apt-get -y autoremove
+            apt-key adv --keyserver keys.gnupg.net --recv-keys 7FCC7D46ACCC4CF8
+            echo "deb http://apt.postgresql.org/pub/repos/apt/ precise-pgdg main 9.5" >> /etc/apt/sources.list.d/postgresql.list
+            apt-get update
+            apt-get -y install postgresql-9.5
+            /etc/init.d/postgresql stop'
         curl -L https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v${ETCDVERSION}-linux-amd64.tar.gz | tar xz -C . --strip=1 --wildcards --no-anchored etcd
         curl -L http://www.apache.org/dist/zookeeper/zookeeper-${ZKVERSION}/zookeeper-${ZKVERSION}.tar.gz | tar xz
         mv zookeeper-${ZKVERSION}/conf/zoo_sample.cfg zookeeper-${ZKVERSION}/conf/zoo.cfg
