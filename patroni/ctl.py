@@ -316,8 +316,7 @@ def query(
     cursor = None
     for _ in watching(w, watch, clear=False):
 
-        output, cursor = query_member(cluster=cluster, cursor=cursor, member=member, role=role, command=command,
-                                      connect_parameters=connect_parameters)
+        output, cursor = query_member(cluster, cursor, member, role, command, connect_parameters)
         print_output(None, output, fmt=fmt, delimiter=delimiter)
 
         if cursor is None:
@@ -533,7 +532,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
             raise PatroniCtlException(message.format(scheduled))
         scheduled_at = scheduled_at.isoformat()
 
-    failover_value = {'leader': master, 'member': candidate, 'scheduled_at': scheduled_at}
+    failover_value = {'leader': master, 'candidate': candidate, 'scheduled_at': scheduled_at}
     logging.debug(failover_value)
 
     # By now we have established that the leader exists and the candidate exists
@@ -563,7 +562,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
         logging.warning('Failing over to DCS')
         click.echo(timestamp() + ' Could not failover using Patroni api, falling back to DCS')
         click.echo(timestamp() + ' Initializing failover from master {0}'.format(master))
-        dcs.manual_failover(leader=master, member=candidate, scheduled_at=failover_value)
+        dcs.manual_failover(master, candidate, scheduled_at=failover_value)
 
     output_members(cluster, name=cluster_name)
 

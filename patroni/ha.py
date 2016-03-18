@@ -222,12 +222,12 @@ class Ha(object):
 
     def manual_failover_process_no_leader(self):
         failover = self.cluster.failover
-        if failover.member:  # manual failover to specific member
-            if failover.member == self.state_handler.name:  # manual failover to me
+        if failover.candidate:  # manual failover to specific member
+            if failover.candidate == self.state_handler.name:  # manual failover to me
                 return True
 
             # find specific node and check that it is healthy
-            members = [m for m in self.cluster.members if m.name == failover.member]
+            members = [m for m in self.cluster.members if m.name == failover.candidate]
             if members:
                 member, reachable, _, _, tags = self.fetch_node_status(members[0])
                 if reachable and not tags.get('nofailover', False):  # node is healthy
@@ -240,13 +240,13 @@ class Ha(object):
                     logger.warning('manual failover: member %s is not allowed to promote', member.name)
 
             # at this point we should consider all members as a candidates for failover
-            # i.e. we assume that failover.member is None
+            # i.e. we assume that failover.candidate is None
 
         # try to pick some other members to failover and check that they are healthy
         if failover.leader:
             if self.state_handler.name == failover.leader:  # I was the leader
-                # exclude me and desired member which is unhealthy (failover.member can be None)
-                members = [m for m in self.cluster.members if m.name not in (failover.member, failover.leader)]
+                # exclude me and desired member which is unhealthy (failover.candidate can be None)
+                members = [m for m in self.cluster.members if m.name not in (failover.candidate, failover.leader)]
                 if self.is_failover_possible(members):  # check that there are healthy members
                     return False
                 else:  # I was the leader and it looks like currently I am the only healthy member
@@ -308,8 +308,8 @@ class Ha(object):
                 logger.warning('Incorrect value in of scheduled_at: %s', failover.scheduled_at)
 
         if not failover.leader or failover.leader == self.state_handler.name:
-            if not failover.member or failover.member != self.state_handler.name:
-                members = [m for m in self.cluster.members if not failover.member or m.name == failover.member]
+            if not failover.candidate or failover.candidate != self.state_handler.name:
+                members = [m for m in self.cluster.members if not failover.candidate or m.name == failover.candidate]
                 if self.is_failover_possible(members):  # check that there are healthy members
                     self._async_executor.schedule('manual failover: demote')
                     self._async_executor.run_async(self.demote)

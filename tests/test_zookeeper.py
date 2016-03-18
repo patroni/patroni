@@ -162,6 +162,8 @@ class TestZooKeeper(unittest.TestCase):
 
     def test_take_leader(self):
         self.zk.take_leader()
+        with patch.object(MockKazooClient, 'create', Mock(side_effect=Exception)):
+            self.zk.take_leader()
 
     def test_update_leader(self):
         self.assertTrue(self.zk.update_leader())

@@ -142,7 +142,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def poll_failover_result(self, leader, member):
+    def poll_failover_result(self, leader, candidate):
         for _ in range(0, 15):
             time.sleep(1)
             try:
@@ -155,18 +155,18 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 pass
         return 503, b'Failover status unknown'
 
-    def is_failover_possible(self, cluster, leader, member):
+    def is_failover_possible(self, cluster, leader, candidate):
         if leader and not cluster.leader or cluster.leader.name != leader:
             return b'leader name does not match'
-        if member:
-            members = [m for m in cluster.members if m.name == member]
+        if candidate:
+            members = [m for m in cluster.members if m.name == candidate]
             if not members:
-                return b'member does not exists'
+                return b'candidate does not exists'
         else:
             members = [m for m in cluster.members if m.name != cluster.leader.name and m.api_url]
             if not members:
                 return b'failover is not possible: cluster does not have members except leader'
-        for member, reachable, _, xlog_location, tags in self.server.patroni.ha.fetch_nodes_statuses(members):
+        for _, reachable, _, _, tags in self.server.patroni.ha.fetch_nodes_statuses(members):
             if reachable and not tags.get('nofailover', False):
                 return None
         return b'failover is not possible: no good candidates have been found'
@@ -179,43 +179,44 @@ class RestApiHandler(BaseHTTPRequestHandler):
         except ValueError:
             request = {}
         leader = request.get('leader')
-        member = request.get('member')
+        candidate = request.get('candidate') or request.get('member')
+        scheduled_at = request.get('scheduled_at')
         cluster = self.server.patroni.ha.dcs.get_cluster()
         status_code = 500
 
-        logger.info("received failover request with leader {0} member {1} scheduled_at {2}".
-                    format(leader, member, request.get("scheduled_at")))
+        logger.info("received failover request with leader=%s candidate=%s scheduled_at=%s",
+                    leader, candidate, scheduled_at)
 
         data = b''
-        if leader or member:
-            if request.get('scheduled_at'):
+        if leader or candidate:
+            if scheduled_at:
                 try:
-                    scheduled_at = dateutil.parser.parse(request['scheduled_at'])
+                    scheduled_at = dateutil.parser.parse(scheduled_at)
                     if scheduled_at.tzinfo is None:
                         data = b'Timezone information is mandatory for scheduled_at'
                         status_code = 400
                     elif scheduled_at < datetime.datetime.now(pytz.utc):
                         data = b'Cannot schedule failover in the past'
                         status_code = 422
-                    elif self.server.patroni.dcs.manual_failover(leader, member, scheduled_at=scheduled_at):
+                    elif self.server.patroni.dcs.manual_failover(leader, candidate, scheduled_at=scheduled_at):
                         data = b'Failover scheduled'
                         status_code = 200
                 except (ValueError, TypeError):
-                    logger.exception('Invalid scheduled failover time: {}'.format(request['scheduled_at']))
+                    logger.exception('Invalid scheduled failover time: %s', request['scheduled_at'])
                     data = b'Unable to parse scheduled timestamp. It should be in an unambiguous format, e.g. ISO 8601'
                     status_code = 422
             else:
-                data = self.is_failover_possible(cluster, leader, member)
+                data = self.is_failover_possible(cluster, leader, candidate)
                 if not data:
-                    if not self.server.patroni.dcs.manual_failover(leader, member):
+                    if not self.server.patroni.dcs.manual_failover(leader, candidate):
                         data = b'failed to write failover key into DCS'
                         status_code = 503
                     else:
                         self.server.patroni.dcs.event.set()
-                        status_code, data = self.poll_failover_result(cluster.leader and cluster.leader.name, member)
+                        status_code, data = self.poll_failover_result(cluster.leader and cluster.leader.name, candidate)
         else:
             status_code = 400
-            data = b'No values given for required parameters leader and member'
+            data = b'No values given for required parameters leader and candidate'
 
         self.send_response(status_code)
         self.send_header('Content-Type', 'text/html')
