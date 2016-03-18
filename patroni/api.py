@@ -197,7 +197,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     elif scheduled_at < datetime.datetime.now(pytz.utc):
                         data = b'Cannot schedule failover in the past'
                         status_code = 422
-                    elif self.server.patroni.dcs.manual_failover(leader, member, scheduled_at):
+                    elif self.server.patroni.dcs.manual_failover(leader, member, scheduled_at=scheduled_at):
                         data = b'Failover scheduled'
                         status_code = 200
                 except (ValueError, TypeError):
