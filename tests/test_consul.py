@@ -116,6 +116,9 @@ class TestConsul(unittest.TestCase):
     def test_cancel_initialization(self):
         self.c.cancel_initialization()
 
+    def test_delete_cluster(self):
+        self.c.delete_cluster()
+
     def test_watch(self):
         self.c._name = ''
         self.c._load_cluster = Mock(return_value=None)

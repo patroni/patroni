@@ -204,6 +204,10 @@ class Consul(AbstractDCS):
         return self.client.kv.delete(self.initialize_path)
 
     @catch_consul_errors
+    def delete_cluster(self):
+        return self.client.kv.delete(self.client_path(''), recurse=True)
+
+    @catch_consul_errors
     def delete_leader(self):
         cluster = self.cluster
         if cluster and isinstance(cluster.leader, Leader) and cluster.leader.name == self._name:
