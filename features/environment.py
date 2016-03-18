@@ -44,12 +44,11 @@ class AbstractController(object):
         start_time = time.time()
 
         while self._is_running() and self._handle:
-            if not kill:
-                if not term:
-                    self._handle.terminate()
-                    term = False
-            else:
+            if kill:
                 self._handle.kill()
+            elif not term:
+                self._handle.terminate()
+                term = True
             time.sleep(1)
             if not kill and time.time() - start_time > timeout:
                 kill = True
@@ -80,8 +79,7 @@ class PatroniController(AbstractController):
             with open(os.path.join(self._data_dir, 'label'), 'r') as f:
                 return f.read().strip()
         except IOError:
-            pass
-        return None
+            return None
 
     def _is_running(self):
         return self._handle and self._handle.pid and self._handle.poll() is None
@@ -279,7 +277,7 @@ class EtcdController(DcsController):
         try:
             self._client.delete('/' + self._CLUSTER_NODE, recursive=True)
         except (etcd.EtcdKeyNotFound, etcd.EtcdConnectionFailed):
-            pass
+            return
         except Exception as e:
             assert False, "exception when cleaning up etcd contents: {0}".format(e)
 
@@ -287,7 +285,7 @@ class EtcdController(DcsController):
         # if etcd is running, but we didn't start it
         try:
             return bool(self._client.machines)
-        except:
+        except Exception:
             return False
 
 
@@ -312,7 +310,7 @@ class ZooKeeperController(DcsController):
         try:
             self._client.delete('/' + self._CLUSTER_NODE, recursive=True)
         except (kazoo.exceptions.NoNodeError):
-            pass
+            return
         except Exception as e:
             assert False, "exception when cleaning up zookeeper contents: {0}".format(e)
 
@@ -323,7 +321,7 @@ class ZooKeeperController(DcsController):
         try:
             self._client.start(1)
             return True
-        except:
+        except Exception:
             return False
 
 
