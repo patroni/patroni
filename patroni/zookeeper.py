@@ -83,20 +83,20 @@ class ZooKeeper(AbstractDCS):
             self.exhibitor = ExhibitorEnsembleProvider(exhibitor['hosts'], exhibitor['port'], poll_interval=interval)
             hosts = self.exhibitor.zookeeper_hosts
 
-        self.client = KazooClient(hosts=hosts,
-                                  timeout=(config.get('session_timeout') or 30),
-                                  command_retry={
-                                      'deadline': (config.get('reconnect_timeout') or 10),
-                                      'max_delay': 1,
-                                      'max_tries': -1},
-                                  connection_retry={'max_delay': 1, 'max_tries': -1})
-        self.client.add_listener(self.session_listener)
+        self._client = KazooClient(hosts=hosts,
+                                   timeout=(config.get('session_timeout') or 30),
+                                   command_retry={
+                                        'deadline': (config.get('reconnect_timeout') or 10),
+                                        'max_delay': 1,
+                                        'max_tries': -1},
+                                   connection_retry={'max_delay': 1, 'max_tries': -1})
+        self._client.add_listener(self.session_listener)
 
         self._my_member_data = None
         self.fetch_cluster = True
         self.last_leader_operation = 0
 
-        self.client.start(None)
+        self._client.start(None)
 
     def session_listener(self, state):
         if state in [KazooState.SUSPENDED, KazooState.LOST]:
@@ -108,7 +108,7 @@ class ZooKeeper(AbstractDCS):
 
     def get_node(self, key, watch=None):
         try:
-            ret = self.client.get(key, watch)
+            ret = self._client.get(key, watch)
             return (ret[0].decode('utf-8'), ret[1])
         except NoNodeError:
             return None
@@ -119,7 +119,7 @@ class ZooKeeper(AbstractDCS):
 
     def get_children(self, key, watch=None):
         try:
-            return self.client.get_children(key, watch)
+            return self._client.get_children(key, watch)
         except NoNodeError:
             return []
 
@@ -147,10 +147,10 @@ class ZooKeeper(AbstractDCS):
         # get leader
         leader = self.get_node(self.leader_path) if self._LEADER in nodes else None
         if leader:
-            client_id = self.client.client_id
+            client_id = self._client.client_id
             if leader[0] == self._name and client_id is not None and client_id[0] != leader[1].ephemeralOwner:
                 logger.info('I am leader but not owner of the session. Removing leader node')
-                self.client.delete(self.leader_path)
+                self._client.delete(self.leader_path)
                 leader = None
 
             if leader:
@@ -171,11 +171,11 @@ class ZooKeeper(AbstractDCS):
 
     def _load_cluster(self):
         if self.exhibitor and self.exhibitor.poll():
-            self.client.set_hosts(self.exhibitor.zookeeper_hosts)
+            self._client.set_hosts(self.exhibitor.zookeeper_hosts)
 
         if self.fetch_cluster:
             try:
-                self.client.retry(self._inner_load_cluster)
+                self._client.retry(self._inner_load_cluster)
             except:
                 logger.exception('get_cluster')
                 self.session_listener(KazooState.LOST)
@@ -183,7 +183,7 @@ class ZooKeeper(AbstractDCS):
 
     def _create(self, path, value, **kwargs):
         try:
-            self.client.retry(self.client.create, path, value.encode('utf-8'), **kwargs)
+            self._client.retry(self._client.create, path, value.encode('utf-8'), **kwargs)
             return True
         except:
             return False
@@ -196,7 +196,7 @@ class ZooKeeper(AbstractDCS):
 
     def set_failover_value(self, value, index=None):
         try:
-            self.client.retry(self.client.set, self.failover_path, value.encode('utf-8'), version=index or -1)
+            self._client.retry(self._client.set, self.failover_path, value.encode('utf-8'), version=index or -1)
             return True
         except NoNodeError:
             return value == '' or (not index and self._create(self.failover_path, value))
@@ -206,7 +206,7 @@ class ZooKeeper(AbstractDCS):
 
     def initialize(self, create_new=True, sysid=""):
         return self._create(self.initialize_path, sysid, makepath=True) if create_new \
-            else self.client.retry(self.client.set, self.initialize_path,  sysid.encode("utf-8"))
+            else self._client.retry(self._client.set, self.initialize_path,  sysid.encode("utf-8"))
 
     def touch_member(self, data, ttl=None):
         cluster = self.cluster
@@ -214,9 +214,9 @@ class ZooKeeper(AbstractDCS):
         path = self.member_path
         data = data.encode('utf-8')
         create = not me
-        if me and self.client.client_id is not None and me.session != self.client.client_id[0]:
+        if me and self._client.client_id is not None and me.session != self._client.client_id[0]:
             try:
-                self.client.retry(self.client.delete, path)
+                self._client.retry(self._client.delete, path)
             except NoNodeError:
                 pass
             except:
@@ -228,14 +228,14 @@ class ZooKeeper(AbstractDCS):
 
         try:
             if create:
-                self.client.retry(self.client.create, path, data, makepath=True, ephemeral=True)
+                self._client.retry(self._client.create, path, data, makepath=True, ephemeral=True)
             else:
-                self.client.retry(self.client.set, path, data)
+                self._client.retry(self._client.set, path, data)
             self._my_member_data = data
             return True
         except NodeExistsError:
             try:
-                self.client.retry(self.client.set, path, data)
+                self._client.retry(self._client.set, path, data)
                 self._my_member_data = data
                 return True
             except:
@@ -253,10 +253,10 @@ class ZooKeeper(AbstractDCS):
             self.last_leader_operation = last_operation
             path = self.leader_optime_path
             try:
-                self.client.retry(self.client.set, path, last_operation)
+                self._client.retry(self._client.set, path, last_operation)
             except NoNodeError:
                 try:
-                    self.client.retry(self.client.create, path, last_operation, makepath=True)
+                    self._client.retry(self._client.create, path, last_operation, makepath=True)
                 except:
                     logger.exception('Failed to create %s', path)
             except:
@@ -266,20 +266,26 @@ class ZooKeeper(AbstractDCS):
         return True
 
     def delete_leader(self):
-        self.client.restart()
+        self._client.restart()
         self._my_member_data = None
         return True
 
     def _cancel_initialization(self):
         node = self.get_node(self.initialize_path)
         if node:
-            self.client.delete(self.initialize_path, version=node[1].version)
+            self._client.delete(self.initialize_path, version=node[1].version)
 
     def cancel_initialization(self):
         try:
-            self.client.retry(self._cancel_initialization)
+            self._client.retry(self._cancel_initialization)
         except:
             logger.exception("Unable to delete initialize key")
+
+    def delete_cluster(self):
+        try:
+            return self._client.retry(self._client.delete, self.client_path(''), recursive=True)
+        except NoNodeError:
+            return True
 
     def watch(self, timeout):
         if super(ZooKeeper, self).watch(timeout):

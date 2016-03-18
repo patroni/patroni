@@ -367,9 +367,6 @@ def query_member(cluster, cursor, member, role, command, connect_parameters=None
 def remove(config_file, cluster_name, fmt, dcs):
     config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
-    if not isinstance(dcs, Etcd):
-        raise PatroniCtlException('We have not implemented this for DCS of type {0}'.format(type(dcs)))
-
     output_members(cluster, fmt=fmt)
 
     confirm = click.prompt('Please confirm the cluster name to remove', type=str)
@@ -388,7 +385,7 @@ def remove(config_file, cluster_name, fmt, dcs):
         if confirm != cluster.leader.name:
             raise PatroniCtlException('You did not specify the current master of the cluster')
 
-    dcs.client.delete(dcs.client_path(''), recursive=True)
+    dcs.delete_cluster()
 
 
 def wait_for_leader(dcs, timeout=30):

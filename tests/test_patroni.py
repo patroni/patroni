@@ -1,3 +1,4 @@
+import etcd
 import sys
 import time
 import unittest
@@ -23,6 +24,8 @@ from test_zookeeper import MockKazooClient
 @patch.object(Postgresql, 'write_recovery_conf', Mock())
 @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
 @patch.object(AsyncExecutor, 'run', Mock())
+@patch.object(etcd.Client, 'write', etcd_write)
+@patch.object(etcd.Client, 'read', etcd_read)
 class TestPatroni(unittest.TestCase):
 
     def setUp(self):
@@ -36,8 +39,6 @@ class TestPatroni(unittest.TestCase):
             with open('postgres0.yml', 'r') as f:
                 config = yaml.load(f)
                 self.p = Patroni(config)
-                self.p.ha.dcs.client.write = etcd_write
-                self.p.ha.dcs.client.read = etcd_read
 
     @patch('patroni.zookeeper.KazooClient', MockKazooClient())
     @patch.object(Consul, 'create_or_restore_session', Mock())
