@@ -45,6 +45,6 @@ Scenario: check the failover via the API
 Scenario: check the scheduled failover
 	Given I issue a scheduled failover at http://127.0.0.1:8009 from postgres1 to postgresq0 in 10 seconds
 	Then I receive a response code 200
-	And postgres0 is a leader after 15 seconds
+	And postgres0 is a leader after 20 seconds
 	And replication works from postgres0 to postgres1 after 25 seconds
 
