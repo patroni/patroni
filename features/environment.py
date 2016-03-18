@@ -121,8 +121,8 @@ class PatroniController(AbstractController):
         if dcs != 'etcd':
             etcd = config.pop('etcd')
             if dcs == 'zookeeper':
-                config['zookeeper'] = {'scope': etcd['scope'], 'reconnect_timeout': config['loop_wait'],
-                                       'session_timeout': etcd['ttl'], 'hosts': ['127.0.0.1:2181']}
+                config['zookeeper'] = {'session_timeout': etcd['ttl'], 'reconnect_timeout': config['loop_wait'],
+                                       'scope': etcd['scope'], 'exhibitor': {'hosts': ['127.0.0.1'], 'port': 8181}}
 
         with open(patroni_config_path, 'w') as f:
             yaml.dump(config, f, default_flow_style=False)
