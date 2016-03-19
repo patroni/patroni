@@ -110,7 +110,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             status, msg = self.server.patroni.ha.restart()
             status_code = 200 if status else 503
             data = msg.encode('utf-8')
-        except:
+        except Exception:
             logger.exception('Exception during restart')
 
         self.send_response(status_code)
@@ -148,11 +148,15 @@ class RestApiHandler(BaseHTTPRequestHandler):
             try:
                 cluster = self.server.patroni.dcs.get_cluster()
                 if cluster.leader and cluster.leader.name != leader:
-                    return 200, ('Successfully failed over to ' + cluster.leader.name).encode('utf-8')
+                    if not candidate or candidate == cluster.leader.name:
+                        return 200, ('Successfully failed over to ' + cluster.leader.name).encode('utf-8')
+                    else:
+                        return 200, 'Failed over to "{0}" instead of "{1}"'.format(cluster.leader.name,
+                                                                                   candidate).encode('utf-8')
                 if not cluster.failover:
                     return 503, b'Failover failed'
-            except:
-                pass
+            except Exception as e:
+                logger.debug('Exception occured during polling failover result: %s', e)
         return 503, b'Failover status unknown'
 
     def is_failover_possible(self, cluster, leader, candidate):
