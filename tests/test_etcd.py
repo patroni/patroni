@@ -36,16 +36,6 @@ class MockResponse(object):
         return ''
 
 
-class MockPostgresql(Mock):
-
-    server_version = '999999'
-    scope = 'dummy'
-
-    @staticmethod
-    def last_operation():
-        return '0'
-
-
 def requests_get(url, **kwargs):
     members = '[{"id":14855829450254237642,"peerURLs":["http://localhost:2380","http://localhost:7001"],' +\
               '"name":"default","clientURLs":["http://localhost:2379","http://localhost:4001"]}]'
@@ -73,8 +63,6 @@ def etcd_watch(self, key, index=None, timeout=None, recursive=None):
         raise etcd.EtcdException
     elif index == 20729:
         return etcd.EtcdResult('set', {'value': 'postgresql1', 'modifiedIndex': index + 1})
-    elif index == 20731:
-        return etcd.EtcdResult('set', {'value': 'postgresql2', 'modifiedIndex': index + 1})
 
 
 def etcd_write(self, key, value, **kwargs):

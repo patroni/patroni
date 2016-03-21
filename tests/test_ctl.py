@@ -5,13 +5,13 @@ import requests.exceptions
 import unittest
 
 from click.testing import CliRunner
-from mock import patch, Mock, MagicMock
+from mock import patch, Mock
 from patroni.ctl import ctl, members, store_config, load_config, output_members, post_patroni, get_dcs, \
     wait_for_leader, get_all_members, get_any_member, get_cursor, query_member, configure
 from patroni.etcd import Etcd, Client
 from patroni.exceptions import PatroniCtlException
 from psycopg2 import OperationalError
-from test_etcd import etcd_read, etcd_write, requests_get, socket_getaddrinfo, MockResponse
+from test_etcd import etcd_read, requests_get, socket_getaddrinfo, MockResponse
 from test_zookeeper import MockKazooClient
 from test_ha import get_cluster_initialized_without_leader, get_cluster_initialized_with_leader, \
     get_cluster_initialized_with_only_leader
@@ -44,9 +44,6 @@ def test_rw_config():
 
 
 @patch('patroni.ctl.load_config', Mock(return_value={'dcs': {'scheme': 'etcd', 'hostname': 'localhost', 'port': 4001}}))
-@patch.object(etcd.Client, 'write', etcd_write)
-@patch.object(etcd.Client, 'read', etcd_read)
-@patch.object(etcd.Client, 'delete', Mock(side_effect=etcd.EtcdException))
 class TestCtl(unittest.TestCase):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
@@ -75,71 +72,64 @@ class TestCtl(unittest.TestCase):
 
     @patch('patroni.etcd.Etcd.get_cluster', Mock(return_value=get_cluster_initialized_with_leader()))
     @patch('patroni.etcd.Etcd.get_etcd_client', Mock(return_value=None))
-    @patch('patroni.etcd.Etcd.set_failover_value', Mock(return_value=None))
-    @patch('patroni.ctl.wait_for_leader', Mock(return_value=get_cluster_initialized_with_leader()))
-    @patch('requests.get', requests_get)
-    @patch('requests.post', requests_get)
     @patch('patroni.ctl.post_patroni', Mock(return_value=MockResponse()))
     def test_failover(self):
-        with patch('patroni.etcd.Etcd.get_cluster', Mock(return_value=get_cluster_initialized_with_leader())):
-            result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
+        result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
 other
 
 y''')
-            assert 'leader' in result.output
+        assert 'leader' in result.output
 
-            result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
+        result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
 other
 2100-01-01T12:23:00
 y''')
-            assert result.exit_code == 0
+        assert result.exit_code == 0
 
-            result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
+        result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
 other
 2030-01-01T12:23:00
 y''')
-            assert result.exit_code == 0
+        assert result.exit_code == 0
 
-            # Aborting failover,as we anser NO to the confirmation
-            result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
+        # Aborting failover,as we anser NO to the confirmation
+        result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
 other
 
 N''')
-            assert result.exit_code == 1
+        assert result.exit_code == 1
 
-            # Target and source are equal
-            result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
+        # Target and source are equal
+        result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
 leader
 
 y''')
-            assert result.exit_code == 1
+        assert result.exit_code == 1
 
-            # Reality is not part of this cluster
-            result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
+        # Reality is not part of this cluster
+        result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
 Reality
 
 y''')
-            assert result.exit_code == 1
+        assert result.exit_code == 1
 
-            result = self.runner.invoke(ctl, ['failover', 'dummy', '--force'])
-            assert 'Member' in result.output
+        result = self.runner.invoke(ctl, ['failover', 'dummy', '--force'])
+        assert 'Member' in result.output
 
-            result = self.runner.invoke(ctl, ['failover', 'dummy', '--force',
-                                              '--scheduled', '2015-01-01T12:00:00+01:00'])
-            assert result.exit_code == 0
+        result = self.runner.invoke(ctl, ['failover', 'dummy', '--force', '--scheduled', '2015-01-01T12:00:00+01:00'])
+        assert result.exit_code == 0
 
-            # Invalid timestamp
-            result = self.runner.invoke(ctl, ['failover', 'dummy', '--force', '--scheduled', 'invalid'])
-            assert result.exit_code != 0
+        # Invalid timestamp
+        result = self.runner.invoke(ctl, ['failover', 'dummy', '--force', '--scheduled', 'invalid'])
+        assert result.exit_code != 0
 
-            # Invalid timestamp
-            result = self.runner.invoke(ctl, ['failover', 'dummy', '--force',
-                                              '--scheduled', '2115-02-30T12:00:00+01:00'])
-            assert result.exit_code != 0
+        # Invalid timestamp
+        result = self.runner.invoke(ctl, ['failover', 'dummy', '--force', '--scheduled', '2115-02-30T12:00:00+01:00'])
+        assert result.exit_code != 0
 
-            # Specifying wrong leader
-            result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='dummy')
-            assert result.exit_code == 1
+        # Specifying wrong leader
+        result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='dummy')
+        assert result.exit_code == 1
 
         with patch('patroni.etcd.Etcd.get_cluster', Mock(return_value=get_cluster_initialized_with_only_leader())):
             # No members available
@@ -157,7 +147,7 @@ other
 y''')
             assert result.exit_code == 1
 
-        with patch('patroni.ctl.post_patroni', Mock(side_effect=Exception())):
+        with patch('patroni.ctl.post_patroni', Mock(side_effect=Exception)):
             # Non-responding patroni
             result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
 other
@@ -165,9 +155,8 @@ other
 y''')
             assert 'falling back to DCS' in result.output
 
-        mocked = Mock()
-        mocked.return_value.status_code = 500
-        with patch('patroni.ctl.post_patroni', Mock(return_value=mocked)):
+        with patch('patroni.ctl.post_patroni') as mocked:
+            mocked.return_value.status_code = 500
             result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
 other
 
@@ -183,17 +172,11 @@ y''')
 
     @patch('psycopg2.connect', psycopg2_connect)
     @patch('patroni.ctl.query_member', Mock(return_value=([['mock column']], None)))
+    @patch.object(etcd.Client, 'read', etcd_read)
     def test_query(self):
         with patch('patroni.ctl.get_dcs', Mock(return_value=self.e)):
             # Mutually exclusive
-            result = self.runner.invoke(ctl, [
-                'query',
-                'alpha',
-                '--member',
-                'abc',
-                '--role',
-                'master',
-            ])
+            result = self.runner.invoke(ctl, ['query', 'alpha', '--member', 'abc', '--role', 'master'])
             assert result.exit_code == 1
 
             with self.runner.isolated_filesystem():
@@ -201,17 +184,11 @@ y''')
                     dummy_file.write('SELECT 1')
 
                 # Mutually exclusive
-                result = self.runner.invoke(ctl, [
-                    'query',
-                    'alpha',
-                    '--file',
-                    'dummy',
-                    '--command',
-                    'dummy',
-                ])
+                result = self.runner.invoke(ctl, ['query', 'alpha', '--file', 'dummy', '--command', 'dummy'])
                 assert result.exit_code == 1
 
                 result = self.runner.invoke(ctl, ['query', 'alpha', '--file', 'dummy'])
+                assert result.exit_code == 0
 
                 os.remove('dummy')
 
@@ -226,13 +203,16 @@ y''')
                                               '--password', '--dbname', 'postgres'], input='ab\nab')
             assert 'mock column' in result.output
 
-    @patch('patroni.ctl.get_cursor', Mock(return_value=MockConnect().cursor()))
     def test_query_member(self):
-        rows = query_member(None, None, None, 'master', 'SELECT pg_is_in_recovery()')
-        self.assertTrue('False' in str(rows))
+        with patch('patroni.ctl.get_cursor', Mock(return_value=MockConnect().cursor())):
+            rows = query_member(None, None, None, 'master', 'SELECT pg_is_in_recovery()')
+            self.assertTrue('False' in str(rows))
 
-        rows = query_member(None, None, None, 'replica', 'SELECT pg_is_in_recovery()')
-        self.assertEquals(rows, (None, None))
+            rows = query_member(None, None, None, 'replica', 'SELECT pg_is_in_recovery()')
+            self.assertEquals(rows, (None, None))
+
+            with patch('test_postgresql.MockCursor.execute', Mock(side_effect=OperationalError('bla'))):
+                rows = query_member(None, None, None, 'replica', 'SELECT pg_is_in_recovery()')
 
         with patch('patroni.ctl.get_cursor', Mock(return_value=None)):
             rows = query_member(None, None, None, None, 'SELECT pg_is_in_recovery()')
@@ -244,9 +224,6 @@ y''')
         with patch('patroni.ctl.get_cursor', Mock(side_effect=OperationalError('bla'))):
             rows = query_member(None, None, None, 'replica', 'SELECT pg_is_in_recovery()')
 
-        with patch('test_postgresql.MockCursor.execute', Mock(side_effect=OperationalError('bla'))):
-            rows = query_member(None, None, None, 'replica', 'SELECT pg_is_in_recovery()')
-
     @patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=get_cluster_initialized_with_leader()))
     def test_dsn(self):
         with patch('patroni.ctl.get_dcs', Mock(return_value=self.e)):
@@ -254,14 +231,7 @@ y''')
             assert 'host=127.0.0.1 port=5435' in result.output
 
             # Mutually exclusive options
-            result = self.runner.invoke(ctl, [
-                'dsn',
-                'alpha',
-                '--role',
-                'master',
-                '--member',
-                'dummy',
-            ])
+            result = self.runner.invoke(ctl, ['dsn', 'alpha', '--role', 'master', '--member', 'dummy'])
             assert result.exit_code == 1
 
             # Non-existing member
@@ -270,7 +240,6 @@ y''')
 
     @patch('patroni.etcd.Etcd.get_cluster', Mock(return_value=get_cluster_initialized_with_leader()))
     @patch('patroni.etcd.Etcd.get_etcd_client', Mock(return_value=None))
-    @patch('requests.get', requests_get)
     @patch('requests.post', requests_get)
     def test_restart_reinit(self):
         result = self.runner.invoke(ctl, ['restart', 'alpha', '--dcs', '8.8.8.8'], input='y')
@@ -284,20 +253,15 @@ y''')
         assert result.exit_code == 1
 
         # Not a member
-        result = self.runner.invoke(ctl, [
-            'restart',
-            'alpha',
-            '--dcs',
-            '8.8.8.8',
-            'dummy',
-            '--any',
-        ], input='y')
+        result = self.runner.invoke(ctl, ['restart', 'alpha', '--dcs', '8.8.8.8', 'dummy', '--any'], input='y')
         assert result.exit_code == 1
 
         with patch('requests.post', Mock(return_value=MockResponse())):
             result = self.runner.invoke(ctl, ['restart', 'alpha', '--dcs', '8.8.8.8'], input='y')
+            assert result.exit_code == 0
 
     @patch('patroni.etcd.Etcd.get_cluster', Mock(return_value=get_cluster_initialized_with_leader()))
+    @patch.object(etcd.Client, 'delete', Mock(side_effect=etcd.EtcdException))
     def test_remove(self):
         with patch('patroni.ctl.get_dcs', Mock(return_value=self.e)):
             result = self.runner.invoke(ctl, ['remove', 'alpha', '--dcs', '8.8.8.8'], input='alpha\nslave')
@@ -324,16 +288,15 @@ leader''')
     @patch('patroni.etcd.Etcd.watch', Mock(return_value=None))
     @patch('patroni.etcd.Etcd.get_cluster', Mock(return_value=get_cluster_initialized_with_leader()))
     def test_wait_for_leader(self):
-        dcs = self.e
-        self.assertRaises(PatroniCtlException, wait_for_leader, dcs, 0)
+        self.assertRaises(PatroniCtlException, wait_for_leader, self.e, 0)
 
-        cluster = wait_for_leader(dcs=dcs, timeout=2)
+        cluster = wait_for_leader(self.e, timeout=2)
         assert cluster.leader.member.name == 'leader'
 
+    @patch('requests.post', Mock(side_effect=requests.exceptions.ConnectionError('foo')))
     def test_post_patroni(self):
-        with patch('requests.post', MagicMock(side_effect=requests.exceptions.ConnectionError('foo'))):
-            member = get_cluster_initialized_with_leader().leader.member
-            self.assertRaises(requests.exceptions.ConnectionError, post_patroni, member, 'dummy', {})
+        member = get_cluster_initialized_with_leader().leader.member
+        self.assertRaises(requests.exceptions.ConnectionError, post_patroni, member, 'dummy', {})
 
     def test_ctl(self):
         self.runner.invoke(ctl, ['list'])
@@ -362,20 +325,10 @@ leader''')
 
     @patch('patroni.etcd.Etcd.get_cluster', Mock(return_value=get_cluster_initialized_with_leader()))
     @patch('patroni.etcd.Etcd.get_etcd_client', Mock(return_value=None))
-    @patch('requests.get', requests_get)
-    @patch('requests.post', requests_get)
     def test_members(self):
         result = self.runner.invoke(members, ['alpha'])
         assert result.exit_code == 0
 
     def test_configure(self):
-        result = self.runner.invoke(configure, [
-            '--dcs',
-            'abc',
-            '-c',
-            'dummy',
-            '-n',
-            'bla',
-        ])
-
+        result = self.runner.invoke(configure, ['--dcs', 'abc', '-c', 'dummy', '-n', 'bla'])
         assert result.exit_code == 0
