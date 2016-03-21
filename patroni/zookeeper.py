@@ -93,7 +93,7 @@ class ZooKeeper(AbstractDCS):
         self.fetch_cluster = True
         self.last_leader_operation = 0
 
-        self._client.start(None)
+        self._client.start()
 
     def session_listener(self, state):
         if state in [KazooState.SUSPENDED, KazooState.LOST]:
