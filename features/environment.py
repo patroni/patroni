@@ -66,7 +66,7 @@ class AbstractController(object):
             if not kill and time.time() - start_time > timeout:
                 kill = True
 
-        if self._log and not self._log.closed:
+        if self._log:
             self._log.close()
 
 
@@ -76,9 +76,9 @@ class PatroniController(AbstractController):
 
     def __init__(self, dcs, name, work_directory, output_dir, tags=None):
         super(PatroniController, self).__init__('patroni_' + name, work_directory, output_dir)
+        self._data_dir = os.path.join(work_directory, 'data', name)
         self._connstring = None
         self._config = self._make_patroni_test_config(name, dcs, tags)
-        self._data_dir = os.path.join(work_directory, 'data')
 
         self._conn = None
         self._curs = None
@@ -110,7 +110,7 @@ class PatroniController(AbstractController):
 
         self._connstring = self._make_connstring(config)
 
-        config['postgresql'].update({'name': name, 'data_dir': 'data/' + name})
+        config['postgresql'].update({'name': name, 'data_dir': self._data_dir})
         config['postgresql']['parameters'].update({
             'logging_collector': 'on', 'log_destination': 'csvlog', 'log_directory': self._output_dir,
             'log_filename': name + '.log', 'log_statement': 'all', 'log_min_messages': 'debug1'})
@@ -134,13 +134,8 @@ class PatroniController(AbstractController):
 
     @staticmethod
     def _make_connstring(config):
-        connstring = config['postgresql']['connect_address']
-        if ':' in connstring:
-            address, port = connstring.split(':')
-        else:
-            address = connstring
-            port = '5432'
-        return 'host={0} port={1} dbname=postgres user=postgres'.format(address, port)
+        tmp = (config['postgresql']['connect_address'] + ':5432').split(':')
+        return 'host={0} port={1} dbname=postgres user=postgres'.format(*tmp)
 
     def _connection(self):
         if not self._conn or self._conn.closed != 0:
@@ -161,96 +156,29 @@ class PatroniController(AbstractController):
         except psycopg2.Error:
             if not fail_ok:
                 raise
-            return None
 
     def check_role_has_changed_to(self, new_role, timeout=10):
         bound_time = time.time() + timeout
-        recovery_status = False if new_role == 'primary' else True
-        role_has_changed = False
-        while not role_has_changed:
+        recovery_status = new_role != 'primary'
+        while time.time() < bound_time:
             cur = self.query("SELECT pg_is_in_recovery()", fail_ok=True)
             if cur:
                 row = cur.fetchone()
-                if row and len(row) > 0 and row[0] == recovery_status:
-                    role_has_changed = True
-            if time.time() > bound_time:
-                break
+                if row and row[0] == recovery_status:
+                    return True
             time.sleep(1)
-        return role_has_changed
-
-
-class PatroniPoolController(object):
-
-    def __init__(self):
-        self._dcs = None
-        self._output_dir = None
-        self._patroni_path = None
-        self._processes = {}
-        self.create_and_set_output_directory('')
-
-    @property
-    def patroni_path(self):
-        if self._patroni_path is None:
-            cwd = os.path.realpath(__file__)
-            while True:
-                path, entry = os.path.split(cwd)
-                cwd = path
-                if entry == 'features' or cwd == '/':
-                    break
-            self._patroni_path = cwd
-        return self._patroni_path
-
-    @property
-    def output_dir(self):
-        return self._output_dir
-
-    def start(self, pg_name, max_wait_limit=20, tags=None):
-        if pg_name not in self._processes:
-            self._processes[pg_name] = PatroniController(self.dcs, pg_name, self.patroni_path, self._output_dir, tags)
-        self._processes[pg_name].start(max_wait_limit)
-
-    def __getattr__(self, func):
-        if func not in ['stop', 'query', 'write_label', 'read_label', 'check_role_has_changed_to']:
-            raise AttributeError("PatroniPoolController instance has no attribute '{0}'".format(func))
-
-        def wrapper(pg_name, *args, **kwargs):
-            proc = self._processes.get(pg_name)
-            if proc:
-                return getattr(proc, func)(*args, **kwargs)
-        return wrapper
-
-    def stop_all(self):
-        for ctl in self._processes.values():
-            ctl.stop()
-        self._processes.clear()
-
-    def create_and_set_output_directory(self, feature_name):
-        feature_dir = os.path.join(self.patroni_path, "features", "output", feature_name.replace(' ', '_'))
-        if os.path.exists(feature_dir):
-            shutil.rmtree(feature_dir)
-        os.makedirs(feature_dir)
-        self._output_dir = feature_dir
-
-    @property
-    def dcs(self):
-        if self._dcs is None:
-            self._dcs = os.environ.get('DCS', 'etcd')
-            assert self._dcs in ['etcd', 'exhibitor', 'zookeeper'], 'Unsupported dcs: ' + self.dcs
-        return self._dcs
+        return False
 
 
 class AbstractDcsController(AbstractController):
 
     _CLUSTER_NODE = 'service/batman'
 
-    def __init__(self, name, output_dir):
-        super(AbstractDcsController, self).__init__(name, tempfile.mkdtemp(), output_dir)
-
     def _is_accessible(self):
         return self._is_running()
 
-    def stop_and_remove_work_directory(self, kill=False, timeout=15):
-        self.stop(kill, timeout)
+    def stop_and_remove_work_directory(self, timeout=15):
+        self.stop(timeout=timeout)
         if self._work_directory:
             shutil.rmtree(self._work_directory)
 
@@ -268,7 +196,7 @@ class EtcdController(AbstractDcsController):
     """ handles all etcd related tasks, used for the tests setup and cleanup """
 
     def __init__(self, output_dir):
-        super(EtcdController, self).__init__('etcd', output_dir)
+        super(EtcdController, self).__init__('etcd', tempfile.mkdtemp(), output_dir)
         self._client = etcd.Client()
 
     def _start(self):
@@ -302,7 +230,7 @@ class ZooKeeperController(AbstractDcsController):
     """ handles all zookeeper related tasks, used for the tests setup and cleanup """
 
     def __init__(self, output_dir):
-        super(ZooKeeperController, self).__init__('zookeeper', output_dir)
+        super(ZooKeeperController, self).__init__('zookeeper', None, output_dir)
         self._client = kazoo.client.KazooClient()
 
     def _start(self):
@@ -327,25 +255,74 @@ class ZooKeeperController(AbstractDcsController):
         if self._client.connected:
             return True
         try:
-            self._client.start(1)
-            return True
+            return self._client.start(1) or True
         except Exception:
             return False
 
 
-class ExhibitorController(ZooKeeperController):
-    pass
+class PatroniPoolController(object):
+
+    KNOWN_DCS = {'etcd': EtcdController, 'zookeeper': ZooKeeperController, 'exhibitor': ZooKeeperController}
+
+    def __init__(self):
+        self._dcs = None
+        self._output_dir = None
+        self._patroni_path = None
+        self._processes = {}
+        self.create_and_set_output_directory('')
+
+    @property
+    def patroni_path(self):
+        if self._patroni_path is None:
+            cwd = os.path.realpath(__file__)
+            while True:
+                cwd, entry = os.path.split(cwd)
+                if entry == 'features' or cwd == '/':
+                    break
+            self._patroni_path = cwd
+        return self._patroni_path
+
+    @property
+    def output_dir(self):
+        return self._output_dir
+
+    def start(self, pg_name, max_wait_limit=20, tags=None):
+        if pg_name not in self._processes:
+            self._processes[pg_name] = PatroniController(self.dcs, pg_name, self.patroni_path, self._output_dir, tags)
+        self._processes[pg_name].start(max_wait_limit)
+
+    def __getattr__(self, func):
+        if func not in ['stop', 'query', 'write_label', 'read_label', 'check_role_has_changed_to']:
+            raise AttributeError("PatroniPoolController instance has no attribute '{0}'".format(func))
+
+        def wrapper(pg_name, *args, **kwargs):
+            return pg_name in self._processes and getattr(self._processes[pg_name], func)(*args, **kwargs)
+        return wrapper
+
+    def stop_all(self):
+        for ctl in self._processes.values():
+            ctl.stop()
+        self._processes.clear()
+
+    def create_and_set_output_directory(self, feature_name):
+        feature_dir = os.path.join(self.patroni_path, 'features/output', feature_name.replace(' ', '_'))
+        if os.path.exists(feature_dir):
+            shutil.rmtree(feature_dir)
+        os.makedirs(feature_dir)
+        self._output_dir = feature_dir
+
+    @property
+    def dcs(self):
+        if self._dcs is None:
+            self._dcs = os.environ.get('DCS', 'etcd')
+            assert self._dcs in self.KNOWN_DCS, 'Unsupported dcs: ' + self.dcs
+        return self._dcs
 
 
 # actions to execute on start/stop of the tests and before running invidual features
 def before_all(context):
     context.pctl = PatroniPoolController()
-    if context.pctl.dcs == 'exhibitor':
-        context.dcs_ctl = ExhibitorController(context.pctl.output_dir)
-    elif context.pctl.dcs == 'zookeeper':
-        context.dcs_ctl = ZooKeeperController(context.pctl.output_dir)
-    else:  # context.pctl.dcs == 'etcd'
-        context.dcs_ctl = EtcdController(context.pctl.output_dir)
+    context.dcs_ctl = context.pctl.KNOWN_DCS[context.pctl.dcs](context.pctl.output_dir)
     context.dcs_ctl.start()
     try:
         context.dcs_ctl.cleanup_service_tree()
