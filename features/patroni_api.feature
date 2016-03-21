@@ -18,7 +18,7 @@ Scenario: check API requests on a stand-alone server
 	And I receive a response text "failover is not possible: cluster does not have members except leader"
 	When I issue an empty POST request to http://127.0.0.1:8008/failover
 	Then I receive a response code 400
-	And I receive a response text "No values given for required parameters leader and member"
+	And I receive a response text "No values given for required parameters leader and candidate"
 
 Scenario: check API requests for the primary-replica pair
 	Given I start postgres1
@@ -43,7 +43,7 @@ Scenario: check the failover via the API
 	And replication works from postgres1 to postgres0 after 15 seconds
 
 Scenario: check the scheduled failover
-	Given I issue a scheduled failover at http://127.0.0.1:8009 from postgres1 to postgresq0 in 10 seconds
+	Given I issue a scheduled failover at http://127.0.0.1:8009 from postgres1 to postgres0 in 10 seconds
 	Then I receive a response code 200
 	And postgres0 is a leader after 20 seconds
 	And replication works from postgres0 to postgres1 after 25 seconds
