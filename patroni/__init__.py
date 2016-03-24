@@ -85,5 +85,5 @@ def main():
         pass
     finally:
         patroni.api.shutdown()
-        patroni.postgresql.stop()
+        patroni.postgresql.stop(checkpoint=False)
         patroni.dcs.delete_leader()

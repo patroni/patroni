@@ -388,7 +388,7 @@ class Postgresql(object):
         except psycopg2.Error:
             logging.exception('Exception during CHECKPOINT')
 
-    def stop(self, mode='fast', block_callbacks=False):
+    def stop(self, mode='fast', block_callbacks=False, checkpoint=True):
         # make sure we close all connections established against
         # the former node, otherwise, we might get a stalled one
         # after kill -9, which would report incorrect data to
@@ -400,9 +400,10 @@ class Postgresql(object):
                 self.set_state('stopped')
             return True
 
-        if block_callbacks:
+        if checkpoint:
             self.checkpoint()
-        else:
+
+        if not block_callbacks:
             self.set_state('stopping')
 
         ret = subprocess.call(self._pg_ctl + ['stop', '-m', mode]) == 0
