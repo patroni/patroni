@@ -151,7 +151,7 @@ class TestZooKeeper(unittest.TestCase):
         self.zk.touch_member('exists')
         self.zk._name = 'bar'
         self.zk.touch_member('retry')
-        self.zk.fetch_cluster = True
+        self.zk._fetch_cluster = True
         self.zk.get_cluster()
         self.zk.touch_member('retry')
 
