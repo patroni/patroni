@@ -5,12 +5,14 @@ import kazoo.exceptions
 import os
 import psycopg2
 import shutil
+import six
 import subprocess
 import tempfile
 import time
 import yaml
 
 
+@six.add_metaclass(abc.ABCMeta)
 class AbstractController(object):
 
     def __init__(self, name, work_directory, output_dir):
