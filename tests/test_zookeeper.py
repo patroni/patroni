@@ -14,7 +14,6 @@ class MockKazooClient(Mock):
 
     leader = False
     exists = True
-    handler = Mock()
 
     @property
     def client_id(self):
@@ -34,8 +33,6 @@ class MockKazooClient(Mock):
                 b'postgres://repuser:rep-pass@localhost:5434/postgres?application_name=http://127.0.0.1:8009/patroni',
                 ZnodeStat(0, 0, 0, 0, 0, 0, 0, 0 if self.exists else -1, 0, 0, 0)
             )
-        elif path.endswith('/optime/leader'):
-            return (b'1', ZnodeStat(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
         elif path.endswith('/leader'):
             if self.leader:
                 return (b'foo', ZnodeStat(0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0))
@@ -86,8 +83,6 @@ class MockKazooClient(Mock):
             raise TypeError("Invalid type for 'path' (string expected)")
         self.exists = False
         if path == '/service/test/leader':
-            if self.leader:
-                return
             self.leader = True
             raise Exception
         elif path == '/service/test/members/buzz':

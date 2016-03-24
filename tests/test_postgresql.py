@@ -54,10 +54,6 @@ class MockCursor(object):
     def fetchall(self):
         return self.results
 
-    @staticmethod
-    def close():
-        pass
-
     def __iter__(self):
         for i in self.results:
             yield i
@@ -69,8 +65,9 @@ class MockCursor(object):
         pass
 
 
-class MockConnect(Mock):
+class MockConnect(object):
 
+    server_version = '99999'
     autocommit = False
     closed = 0
 
@@ -81,6 +78,10 @@ class MockConnect(Mock):
         return self
 
     def __exit__(self, *args):
+        pass
+
+    @staticmethod
+    def close():
         pass
 
 

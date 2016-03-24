@@ -6,22 +6,6 @@ from mock import MagicMock, patch, PropertyMock
 from patroni.scripts.wale_restore import WALERestore, main as _main
 
 
-def fake_cursor_fetchone(*args, **kwargs):
-    return ('16777216',)
-
-
-def fake_call_fail_for_wal_e(*args, **kwargs):
-    if len(args) > 0 and 'backup-fetch' in args[0]:
-        return 1
-    return 0
-
-
-def fake_call_fail_for_base_backup(*args, **kwargs):
-    if len(args) > 0 and 'backup-fetch' in args[0]:
-        return 0
-    return 1
-
-
 def fake_backup_data(self, *args, **kwargs):
     """ return the fake result of WAL-E backup-list"""
     return """name    last_modified   expanded_size_bytes wal_segment_backup_start    wal_segment_offset_backup_start wal_segment_backup_stop wal_segment_offset_backup_stop
@@ -52,7 +36,6 @@ base_00000001000000000000007F_00000040  2015-05-18T10:13:25.000Z 167772160   000
 @patch('os.makedirs', MagicMock(return_value=True))
 @patch('os.path.exists', MagicMock(return_value=True))
 @patch('os.path.isdir', MagicMock(return_value=True))
-@patch('psycopg2.extensions.cursor.fetchone', MagicMock(side_effect=fake_cursor_fetchone))
 @patch('psycopg2.extensions.cursor', MagicMock(autospec=True))
 @patch('psycopg2.extensions.connection', MagicMock(autospec=True))
 @patch('psycopg2.connect', MagicMock(autospec=True))
@@ -60,11 +43,7 @@ base_00000001000000000000007F_00000040  2015-05-18T10:13:25.000Z 167772160   000
 class TestWALERestore(unittest.TestCase):
 
     def setUp(self):
-        self.wale_restore = WALERestore("batman", "/data",
-                                        "host=batman port=5432 user=batman", "/etc", 100, 100, 1, 0)
-
-    def tearDown(self):
-        pass
+        self.wale_restore = WALERestore("batman", "/data", "host=batman port=5432 user=batman", "/etc", 100, 100, 1, 0)
 
     def test_should_use_s3_to_create_replica(self):
         with patch('psycopg2.connect', MagicMock(side_effect=psycopg2.Error("foo"))):
