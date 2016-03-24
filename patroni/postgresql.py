@@ -44,17 +44,18 @@ class Postgresql(object):
     def __init__(self, config):
         self.config = config
         self.name = config['name']
-        self.server_parameters = config.get('parameters', {})
+        self.server_parameters = config.get('parameters') or {}
         self.scope = config['scope']
         self.listen_addresses, self.port = config['listen'].split(':')
         self.data_dir = config['data_dir']
         self.replication = config['replication']
-        self.superuser = config['superuser']
-        self.admin = config['admin']
-        self.initdb_options = config.get('initdb', [])
+        self.superuser = config.get('superuser') or {}
+        self.admin = config.get('admin') or {}
+
+        self.initdb_options = config.get('initdb') or []
         self.pgpass = config.get('pgpass') or os.path.join(os.path.expanduser('~'), 'pgpass')
-        self.pg_rewind = config.get('pg_rewind', {})
-        self.callback = config.get('callbacks', {})
+        self.pg_rewind = config.get('pg_rewind') or {}
+        self.callback = config.get('callbacks') or {}
         self.use_slots = config.get('use_slots', True)
         self.schedule_load_slots = self.use_slots
         self.recovery_conf = os.path.join(self.data_dir, 'recovery.conf')
