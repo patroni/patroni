@@ -89,16 +89,16 @@ class Leader(namedtuple('Leader', 'index,session,member')):
         return self.member.conn_url
 
 
-class Failover(namedtuple('Failover', 'index,leader,member,scheduled_at')):
+class Failover(namedtuple('Failover', 'index,leader,candidate,scheduled_at')):
 
     """
     >>> 'Failover' in str(Failover.from_node(1, '{"leader": "cluster_leader"}'))
     True
-    >>> 'Failover' in str(Failover.from_node(1, '{"leader": "cluster_leader", "member": "cluster:member"}'))
+    >>> 'Failover' in str(Failover.from_node(1, '{"leader": "cluster_leader", "member": "cluster_candidate"}'))
     True
     >>> Failover.from_node(1, 'null') is None
     True
-    >>> n = '{"leader": "cluster_leader", "member": "cluster:member", "scheduled_at": "2016-01-14T10:09:57.1394Z"}'
+    >>> n = '{"leader": "cluster_leader", "member": "cluster_candidate", "scheduled_at": "2016-01-14T10:09:57.1394Z"}'
     >>> 'tzinfo=' in str(Failover.from_node(1, n))
     True
     >>> Failover.from_node(1, None) is None
@@ -258,13 +258,13 @@ class AbstractDCS(object):
     def set_failover_value(self, value, index=None):
         """Create or update `/failover` key"""
 
-    def manual_failover(self, leader, member, scheduled_at=None, index=None):
-        failover_value = dict()
+    def manual_failover(self, leader, candidate, scheduled_at=None, index=None):
+        failover_value = {}
         if leader:
             failover_value['leader'] = leader
 
-        if member:
-            failover_value['member'] = member
+        if candidate:
+            failover_value['member'] = candidate
 
         if scheduled_at:
             failover_value['scheduled_at'] = scheduled_at.isoformat()

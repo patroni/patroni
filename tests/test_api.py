@@ -11,7 +11,7 @@ import socket
 from test_postgresql import psycopg2_connect, MockCursor
 
 
-class MockPostgresql(Mock):
+class MockPostgresql(object):
 
     name = 'test'
     state = 'running'
@@ -23,19 +23,11 @@ class MockPostgresql(Mock):
     def connection():
         return psycopg2_connect()
 
-    @staticmethod
-    def is_running():
-        return True
 
-
-class MockHa(Mock):
+class MockHa(object):
 
     dcs = Mock()
     state_handler = MockPostgresql()
-
-    @staticmethod
-    def schedule_restart():
-        return 'restart'
 
     @staticmethod
     def schedule_reinitialize():
@@ -54,7 +46,7 @@ class MockHa(Mock):
         return [[None, True, None, None, {}]]
 
 
-class MockPatroni(Mock):
+class MockPatroni(object):
 
     postgresql = MockPostgresql()
     ha = MockHa()
@@ -113,8 +105,8 @@ class TestRestApiHandler(unittest.TestCase):
         # make sure socket.error gets propagated via wfile object in finalize()
         with patch.object(MockRequest, 'makefile') as makefile:
             makefile.return_value.closed = False
-            makefile.return_value.readline.side_effect = lambda x: b"foo"
-            makefile.return_value.flush = Mock(side_effect=socket.error("foo"))
+            makefile.return_value.readline = Mock(return_value=b'foo')
+            makefile.return_value.flush = Mock(side_effect=socket.error('foo'))
             MockRestApiServer(RestApiHandler, b'OPTIONS / HTTP/1.0')
 
     def test_do_GET_patroni(self):
@@ -157,29 +149,40 @@ class TestRestApiHandler(unittest.TestCase):
         request = b'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\n' +\
                   b'Content-Length: 0\n\n'
         MockRestApiServer(RestApiHandler, request)
+
+        cluster.leader.name = 'postgresql1'
+        MockRestApiServer(RestApiHandler, request)
+
         request = b'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\n' +\
                   b'Content-Length: 25\n\n{"leader": "postgresql1"}'
         MockRestApiServer(RestApiHandler, request)
+
+        cluster.leader.name = 'postgresql2'
+        request = b'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\n' +\
+                  b'Content-Length: 53\n\n{"leader": "postgresql1", "candidate": "postgresql2"}'
+        MockRestApiServer(RestApiHandler, request)
+
         cluster.leader.name = 'postgresql1'
         MockRestApiServer(RestApiHandler, request)
-        cluster.members = [Member(0, 'postgresql0', 30, {'api_url': 'http'})]
+
+        cluster.members = [Member(0, 'postgresql0', 30, {'api_url': 'http'}),
+                           Member(0, 'postgresql2', 30, {'api_url': 'http'})]
         MockRestApiServer(RestApiHandler, request)
         with patch.object(MockPatroni, 'dcs') as d:
             cluster = d.get_cluster.return_value
             cluster.leader.name = 'postgresql0'
             MockRestApiServer(RestApiHandler, request)
+            cluster.leader.name = 'postgresql2'
+            MockRestApiServer(RestApiHandler, request)
             cluster.leader.name = 'postgresql1'
             cluster.failover = None
             MockRestApiServer(RestApiHandler, request)
-            d.get_cluster = Mock(side_effect=Exception())
+            d.get_cluster = Mock(side_effect=Exception)
             MockRestApiServer(RestApiHandler, request)
             d.manual_failover.return_value = False
             MockRestApiServer(RestApiHandler, request)
         with patch.object(MockHa, 'fetch_nodes_statuses', Mock(return_value=[])):
             MockRestApiServer(RestApiHandler, request)
-        request = b'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\n' +\
-                  b'Content-Length: 50\n\n{"leader": "postgresql1", "member": "postgresql2"}'
-        MockRestApiServer(RestApiHandler, request)
 
         # Valid future date
         request = b'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\nContent-Length: 103\n\n{"leader": ' +\
