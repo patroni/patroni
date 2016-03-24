@@ -110,14 +110,12 @@ class Ha(object):
     def recover(self):
         # try to see if we are the former master that crashed. If so - we likely need to run pg_rewind
         # in order to join the former standby being promoted.
-        pg_controldata = self.state_handler.controldata()
-        if (self.state_handler.role == 'master') and pg_controldata and\
-                pg_controldata.get('Database cluster state', '') == 'in production':  # crashed master
-            self.state_handler.require_rewind()
+        if self.state_handler.role == 'master':
+            pg_controldata = self.state_handler.controldata()
+            if pg_controldata and pg_controldata.get('Database cluster state', '') == 'in production':  # crashed master
+                self.state_handler.require_rewind()
         self.recovering = True
-        return self.follow("started as readonly because i had the session lock",
-                           "started as a secondary",
-                           refresh=True, recovery=True)
+        return self.follow("started as readonly because i had the session lock", "started as a secondary", True, True)
 
     def follow(self, demote_reason, follow_reason, refresh=True, recovery=False):
         if refresh:
@@ -279,7 +277,11 @@ class Ha(object):
             self.dcs.delete_leader()
             self.touch_member()
             self.dcs.reset_cluster()
-        self.state_handler.follow(None)
+            self.state_handler.set_role('replica')
+            sleep(2)  # Give a time to somebody to promote
+            self.recover()
+        else:
+            self.state_handler.follow(None)
 
     def process_manual_failover_from_leader(self):
         failover = self.cluster.failover
@@ -331,7 +333,7 @@ class Ha(object):
                 if self.cluster.failover:
                     logger.info('Cleaning up failover key after acquiring leader lock...')
                     self.dcs.manual_failover('', '')
-                self.dcs.get_cluster()
+                self.load_cluster_from_dcs()
                 return self.enforce_master_role('acquired session lock as a leader',
                                                 'promoted self to leader by acquiring session lock')
             else:

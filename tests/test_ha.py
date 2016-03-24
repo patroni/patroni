@@ -274,6 +274,7 @@ class TestHa(unittest.TestCase):
         self.assertEquals(self.ha.run_cycle(), 'failed to update leader lock during restart')
 
     @patch('requests.get', requests_get)
+    @patch('time.sleep', Mock())
     def test_manual_failover_from_leader(self):
         self.ha.has_lock = true
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', '', None))
