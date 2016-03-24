@@ -11,7 +11,7 @@ import socket
 from test_postgresql import psycopg2_connect, MockCursor
 
 
-class MockPostgresql(Mock):
+class MockPostgresql(object):
 
     name = 'test'
     state = 'running'
@@ -23,19 +23,11 @@ class MockPostgresql(Mock):
     def connection():
         return psycopg2_connect()
 
-    @staticmethod
-    def is_running():
-        return True
 
-
-class MockHa(Mock):
+class MockHa(object):
 
     dcs = Mock()
     state_handler = MockPostgresql()
-
-    @staticmethod
-    def schedule_restart():
-        return 'restart'
 
     @staticmethod
     def schedule_reinitialize():
@@ -54,7 +46,7 @@ class MockHa(Mock):
         return [[None, True, None, None, {}]]
 
 
-class MockPatroni(Mock):
+class MockPatroni(object):
 
     postgresql = MockPostgresql()
     ha = MockHa()
