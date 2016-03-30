@@ -33,7 +33,7 @@ def get_cluster_initialized_without_leader(leader=False, failover=None):
                                   'api_url': 'http://127.0.0.1:8008/patroni', 'xlog_location': 4})
     l = Leader(0, 0, m1) if leader else None
     m2 = Member(0, 'other', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
-                                 'api_url': 'http://127.0.0.1:8011/patroni'})
+                                 'api_url': 'http://127.0.0.1:8011/patroni', 'tags': {'clonefrom': True}})
     return get_cluster(True, l, [m1, m2], failover)
 
 
@@ -202,14 +202,8 @@ class TestHa(unittest.TestCase):
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
         self.assertEquals(self.ha.run_cycle(), 'demoted self because DCS is not accessible and i was a leader')
 
-    def test_bootstrap_from_leader(self):
-        self.ha.cluster = get_cluster_initialized_with_leader()
-        self.p.bootstrap = false
-        self.assertEquals(self.ha.bootstrap(), 'trying to bootstrap from leader')
-
     def test_bootstrap_from_another_member(self):
         self.ha.cluster = get_cluster_initialized_with_leader()
-        self.ha.patroni.clonefrom = 'other'
         self.assertEquals(self.ha.bootstrap(), 'trying to bootstrap from replica \'other\'')
 
     def test_bootstrap_waiting_for_leader(self):
@@ -219,7 +213,7 @@ class TestHa(unittest.TestCase):
     def test_bootstrap_without_leader(self):
         self.ha.cluster = get_cluster_initialized_without_leader()
         self.p.can_create_replica_without_replication_connection = MagicMock(return_value=True)
-        self.assertEquals(self.ha.bootstrap(), "trying to bootstrap without leader")
+        self.assertEquals(self.ha.bootstrap(), 'trying to bootstrap (without leader)')
 
     def test_bootstrap_initialize_lock_failed(self):
         self.ha.cluster = get_cluster_not_initialized_without_leader()
