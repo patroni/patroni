@@ -52,7 +52,7 @@ class MockPatroni(object):
         self.postgresql = p
         self.dcs = d
         self.api = Mock()
-        self.tags = {}
+        self.tags = {'foo': 'bar'}
         self.nofailover = None
         self.nap_time = 10
         self.replicatefrom = None
