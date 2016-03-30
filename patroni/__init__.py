@@ -19,7 +19,8 @@ class Patroni(object):
 
     def __init__(self, config):
         self.nap_time = config['loop_wait']
-        self.tags = config.get('tags', dict())
+        self.tags = {tag: value for tag, value in config.get('tags', {}).items()
+                     if tag not in ('clonefrom', 'nofailover', 'noloadbalance') or value}
         self.postgresql = Postgresql(config['postgresql'])
         self.dcs = self.get_dcs(self.postgresql.name, config)
         self.version = __version__
