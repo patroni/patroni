@@ -1,6 +1,7 @@
 import abc
-import json
 import dateutil
+import json
+import six
 
 from collections import namedtuple
 from six.moves.urllib_parse import urlparse, urlunparse, parse_qsl
@@ -150,9 +151,8 @@ class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,mem
         return ([m for m in self.members if m.name == member_name] or [None])[0]
 
 
+@six.add_metaclass(abc.ABCMeta)
 class AbstractDCS(object):
-
-    __metaclass__ = abc.ABCMeta
 
     _INITIALIZE = 'initialize'
     _LEADER = 'leader'
