@@ -1,7 +1,7 @@
 Feature: cascading replication
 	We should check that patroni can do base backup and streaming from the replica
 
-Scenario: check a base backup from the replica
+Scenario: check a base backup and streaming replication from a replica
 	Given I start postgres0
 	And postgres0 is a leader after 10 seconds
 	And I configure and start postgres1 with a tag clonefrom true
