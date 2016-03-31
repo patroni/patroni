@@ -31,6 +31,7 @@ Scenario: check API requests for the primary-replica pair
 	Then I receive a response code 200
 	When I issue an empty POST request to http://127.0.0.1:8008/restart
 	Then I receive a response code 200
+        And postgres0 role is the primary after 5 seconds
         When I sleep for 10 seconds
         Then postgres1 role is the secondary after 15 seconds
 
