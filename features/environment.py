@@ -54,7 +54,6 @@ class AbstractController(object):
                 "{0} instance is not available for queries after {1} seconds".format(self._name, max_wait_limit)
 
     def stop(self, kill=False, timeout=15):
-        """ terminate process and wipe out the temp work directory, but only if we actually started it"""
         term = False
         start_time = time.time()
 
@@ -137,7 +136,7 @@ class PatroniController(AbstractController):
     @staticmethod
     def _make_connstring(config):
         tmp = (config['postgresql']['connect_address'] + ':5432').split(':')
-        return 'host={0} port={1} dbname=postgres user=postgres'.format(*tmp)
+        return 'host={0} port={1} dbname=postgres user=postgres'.format(*tmp[:2])
 
     def _connection(self):
         if not self._conn or self._conn.closed != 0:
@@ -180,6 +179,7 @@ class AbstractDcsController(AbstractController):
         return self._is_running()
 
     def stop_and_remove_work_directory(self, timeout=15):
+        """ terminate process and wipe out the temp work directory, but only if we actually started it"""
         self.stop(timeout=timeout)
         if self._work_directory:
             shutil.rmtree(self._work_directory)
@@ -298,7 +298,7 @@ class PatroniPoolController(object):
             raise AttributeError("PatroniPoolController instance has no attribute '{0}'".format(func))
 
         def wrapper(pg_name, *args, **kwargs):
-            return pg_name in self._processes and getattr(self._processes[pg_name], func)(*args, **kwargs)
+            return getattr(self._processes[pg_name], func)(*args, **kwargs)
         return wrapper
 
     def stop_all(self):
