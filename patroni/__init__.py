@@ -80,7 +80,7 @@ def main():
         use_env = config_env is not None
         if not use_env:
             print('Usage: {0} config.yml'.format(sys.argv[0]))
-            print('\tPatroni may also read the configuration from the {} environemnt variable'.
+            print('\tPatroni may also read the configuration from the {} environment variable'.
                   format(Patroni.PATRONI_CONFIG_VARIABLE))
             return
 
