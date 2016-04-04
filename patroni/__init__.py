@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class Patroni(object):
+    PATRONI_CONFIG_VARIABLE = 'PATRONI_CONFIGURATION'
 
     def __init__(self, config):
         self.nap_time = config['loop_wait']
@@ -71,12 +72,23 @@ def main():
     logging.getLogger('requests').setLevel(logging.WARNING)
     setup_signal_handlers()
 
-    if len(sys.argv) < 2 or not os.path.isfile(sys.argv[1]):
-        print('Usage: {0} config.yml'.format(sys.argv[0]))
-        return
+    # Patroni reads the configuration from the command-line argument if it exists, and from the environment otherwise.
+    use_env = False
+    use_file = (len(sys.argv) >= 2 and os.path.isfile(sys.argv[1]))
+    if not use_file:
+        config_env = os.environ.get(Patroni.PATRONI_CONFIG_VARIABLE)
+        use_env = config_env is not None
+        if not use_env:
+            print('Usage: {0} config.yml'.format(sys.argv[0]))
+            print('\tPatroni may also read the configuration from the {} environemnt variable'.
+                  format(Patroni.PATRONI_CONFIG_VARIABLE))
+            return
 
-    with open(sys.argv[1], 'r') as f:
-        config = yaml.load(f)
+    if use_file:
+        with open(sys.argv[1], 'r') as f:
+            config = yaml.load(f)
+    elif use_env:
+        config = yaml.load(config_env)
 
     patroni = Patroni(config)
     try:
