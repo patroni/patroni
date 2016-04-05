@@ -17,6 +17,9 @@ Group=postgres
 
 ExecStart=/bin/patroni /etc/patroni.yml
 
+# only kill the patroni process, not it's children, so it will gracefully stop postgres
+KillMode=process
+
 # Give a reasonable amount of time for the server to start up/shut down
 TimeoutSec=10
 
