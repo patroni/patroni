@@ -14,6 +14,7 @@ from patroni.dcs import AbstractDCS, Cluster, Failover, Leader, Member
 from patroni.exceptions import DCSError
 from patroni.utils import Retry, RetryFailedError, sleep
 from requests.exceptions import RequestException
+from six.moves.http_client import HTTPException
 
 logger = logging.getLogger(__name__)
 
@@ -49,12 +50,57 @@ class Client(etcd.Client):
             self._update_machines_cache = True
             return [self._base_uri]
 
-    def api_execute(self, path, method, **kwargs):
+    def _do_http_request(self, request_executor, method, url, fields=None, **kwargs):
+        try:
+            response = request_executor(method, url, fields=fields, **kwargs)
+            response.data.decode('utf-8')
+            self._check_cluster_id(response)
+        except (urllib3.exceptions.HTTPError, HTTPException, socket.error) as e:
+            if (isinstance(fields, dict) and fields.get("wait") == "true" and
+                    isinstance(e, urllib3.exceptions.ReadTimeoutError)):
+                logger.debug("Watch timed out.")
+                raise etcd.EtcdWatchTimedOut("Watch timed out: {0}".format(e), cause=e)
+            logger.error("Request to server %s failed: %r", self._base_uri, e)
+            logger.info("Reconnection allowed, looking for another server.")
+            self._base_uri = self._next_server(cause=e)
+            response = False
+        return response
+
+    def api_execute(self, path, method, params=None, timeout=None):
+        if not path.startswith('/'):
+            raise ValueError('Path does not start with /')
+
+        if timeout is None:
+            timeout = self.read_timeout
+
+        if timeout == 0:
+            timeout = None
+
+        kwargs = {'timeout': timeout, 'fields': params, 'redirect': self.allow_redirect,
+                  'headers': self._get_headers(), 'preload_content': False}
+
+        if method in [self._MGET, self._MDELETE]:
+            request_executor = self.http.request
+        elif method in [self._MPUT, self._MPOST]:
+            request_executor = self.http.request_encode_body
+            kwargs['encode_multipart'] = False
+        else:
+            raise etcd.EtcdException('HTTP method {0} not supported'.format(method))
+
         # Update machines_cache if previous attempt of update has failed
         if self._update_machines_cache:
             self._load_machines_cache()
+
+        response = False
+
         try:
-            return super(Client, self).api_execute(path, method, **kwargs)
+            while not response:
+                response = self._do_http_request(request_executor, method, self._base_uri + path, **kwargs)
+
+                if response is False and not self._use_proxies:
+                    self._machines_cache = self.machines
+                    self._machines_cache.remove(self._base_uri)
+            return self._handle_server_response(response)
         except etcd.EtcdConnectionFailed:
             self._update_machines_cache = True
             raise
@@ -66,16 +112,6 @@ class Client(etcd.Client):
         except DNSException:
             logger.exception('Can not resolve SRV for %s', host)
         return []
-
-    # try to workarond bug in python-etcd: https://github.com/jplana/python-etcd/issues/81
-    def _result_from_response(self, response):
-        try:
-            response.data.decode('utf-8')
-        except urllib3.exceptions.TimeoutError:
-            raise
-        except Exception as e:
-            raise etcd.EtcdException('Unable to decode server response: {0}'.format(e))
-        return super(Client, self)._result_from_response(response)
 
     def _get_machines_cache_from_srv(self, discovery_srv):
         """Fetch list of etcd-cluster member by resolving _etcd-server._tcp. SRV record.
@@ -163,7 +199,7 @@ class Etcd(AbstractDCS):
                                               etcd.EtcdLeaderElectionInProgress,
                                               etcd.EtcdWatcherCleared,
                                               etcd.EtcdEventIndexCleared))
-        self.client = self.get_etcd_client(config)
+        self._client = self.get_etcd_client(config)
 
     def retry(self, *args, **kwargs):
         return self._retry.copy()(*args, **kwargs)
@@ -185,7 +221,7 @@ class Etcd(AbstractDCS):
 
     def _load_cluster(self):
         try:
-            result = self.retry(self.client.read, self.client_path(''), recursive=True)
+            result = self.retry(self._client.read, self.client_path(''), recursive=True)
             nodes = {os.path.relpath(node.key, result.key): node for node in result.leaves}
 
             # get initialize flag
@@ -220,15 +256,15 @@ class Etcd(AbstractDCS):
 
     @catch_etcd_errors
     def touch_member(self, connection_string, ttl=None):
-        return self.retry(self.client.set, self.member_path, connection_string, ttl or self.ttl)
+        return self.retry(self._client.set, self.member_path, connection_string, ttl or self.ttl)
 
     @catch_etcd_errors
     def take_leader(self):
-        return self.retry(self.client.set, self.leader_path, self._name, self.ttl)
+        return self.retry(self._client.set, self.leader_path, self._name, self.ttl)
 
     def attempt_to_acquire_leader(self):
         try:
-            return bool(self.retry(self.client.write, self.leader_path, self._name, ttl=self.ttl, prevExist=False))
+            return bool(self.retry(self._client.write, self.leader_path, self._name, ttl=self.ttl, prevExist=False))
         except etcd.EtcdAlreadyExist:
             logger.info('Could not take out TTL lock')
         except (RetryFailedError, etcd.EtcdException):
@@ -237,27 +273,31 @@ class Etcd(AbstractDCS):
 
     @catch_etcd_errors
     def set_failover_value(self, value, index=None):
-        return self.client.write(self.failover_path, value, prevIndex=index or 0)
+        return self._client.write(self.failover_path, value, prevIndex=index or 0)
 
     @catch_etcd_errors
     def write_leader_optime(self, last_operation):
-        return self.client.set(self.leader_optime_path, last_operation)
+        return self._client.set(self.leader_optime_path, last_operation)
 
     @catch_etcd_errors
     def update_leader(self):
-        return self.retry(self.client.test_and_set, self.leader_path, self._name, self._name, self.ttl)
+        return self.retry(self._client.test_and_set, self.leader_path, self._name, self._name, self.ttl)
 
     @catch_etcd_errors
     def initialize(self, create_new=True, sysid=""):
-        return self.retry(self.client.write, self.initialize_path, sysid, prevExist=(not create_new))
+        return self.retry(self._client.write, self.initialize_path, sysid, prevExist=(not create_new))
 
     @catch_etcd_errors
     def delete_leader(self):
-        return self.client.delete(self.leader_path, prevValue=self._name)
+        return self._client.delete(self.leader_path, prevValue=self._name)
 
     @catch_etcd_errors
     def cancel_initialization(self):
-        return self.retry(self.client.delete, self.initialize_path)
+        return self.retry(self._client.delete, self.initialize_path)
+
+    @catch_etcd_errors
+    def delete_cluster(self):
+        return self.retry(self._client.delete, self.client_path(''), recursive=True)
 
     def watch(self, timeout):
         cluster = self.cluster
@@ -268,12 +308,12 @@ class Etcd(AbstractDCS):
 
             while index and timeout >= 1:  # when timeout is too small urllib3 doesn't have enough time to connect
                 try:
-                    self.client.watch(self.leader_path, index=index + 1, timeout=timeout + 0.5)
+                    self._client.watch(self.leader_path, index=index + 1, timeout=timeout + 0.5)
                     # Synchronous work of all cluster members with etcd is less expensive
                     # than reestablishing http connection every time from every replica.
                     return True
-                except urllib3.exceptions.TimeoutError:
-                    self.client.http.clear()
+                except etcd.EtcdWatchTimedOut:
+                    self._client.http.clear()
                     return False
                 except etcd.EtcdException:
                     logging.exception('watch')

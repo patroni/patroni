@@ -14,7 +14,6 @@ class MockKazooClient(Mock):
 
     leader = False
     exists = True
-    handler = Mock()
 
     @property
     def client_id(self):
@@ -34,8 +33,6 @@ class MockKazooClient(Mock):
                 b'postgres://repuser:rep-pass@localhost:5434/postgres?application_name=http://127.0.0.1:8009/patroni',
                 ZnodeStat(0, 0, 0, 0, 0, 0, 0, 0 if self.exists else -1, 0, 0, 0)
             )
-        elif path.endswith('/optime/leader'):
-            return (b'1', ZnodeStat(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
         elif path.endswith('/leader'):
             if self.leader:
                 return (b'foo', ZnodeStat(0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0))
@@ -86,13 +83,11 @@ class MockKazooClient(Mock):
             raise TypeError("Invalid type for 'path' (string expected)")
         self.exists = False
         if path == '/service/test/leader':
-            if self.leader:
-                return
             self.leader = True
             raise Exception
         elif path == '/service/test/members/buzz':
             raise Exception
-        elif path.endswith('/initialize') or path == '/service/test/members/bar':
+        elif path.endswith('/') or path.endswith('/initialize') or path == '/service/test/members/bar':
             raise NoNodeError
 
 
@@ -152,16 +147,18 @@ class TestZooKeeper(unittest.TestCase):
         self.zk._name = 'bar'
         self.zk.touch_member('new')
         self.zk._name = 'na'
-        self.zk.client.exists = 1
+        self.zk._client.exists = 1
         self.zk.touch_member('exists')
         self.zk._name = 'bar'
         self.zk.touch_member('retry')
-        self.zk.fetch_cluster = True
+        self.zk._fetch_cluster = True
         self.zk.get_cluster()
         self.zk.touch_member('retry')
 
     def test_take_leader(self):
         self.zk.take_leader()
+        with patch.object(MockKazooClient, 'create', Mock(side_effect=Exception)):
+            self.zk.take_leader()
 
     def test_update_leader(self):
         self.assertTrue(self.zk.update_leader())
@@ -171,6 +168,9 @@ class TestZooKeeper(unittest.TestCase):
         self.zk.write_leader_optime('1')
         self.zk._base_path = self.zk._base_path.replace('test', 'bla')
         self.zk.write_leader_optime('2')
+
+    def test_delete_cluster(self):
+        self.assertTrue(self.zk.delete_cluster())
 
     def test_watch(self):
         self.zk.watch(0)

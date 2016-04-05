@@ -1,3 +1,5 @@
+import etcd
+import os
 import sys
 import time
 import unittest
@@ -15,10 +17,6 @@ from test_postgresql import Postgresql, psycopg2_connect
 from test_zookeeper import MockKazooClient
 
 
-def time_sleep(*args):
-    raise SleepException()
-
-
 @patch('time.sleep', Mock())
 @patch('subprocess.call', Mock(return_value=0))
 @patch('psycopg2.connect', psycopg2_connect)
@@ -26,6 +24,8 @@ def time_sleep(*args):
 @patch.object(Postgresql, 'write_recovery_conf', Mock())
 @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
 @patch.object(AsyncExecutor, 'run', Mock())
+@patch.object(etcd.Client, 'write', etcd_write)
+@patch.object(etcd.Client, 'read', etcd_read)
 class TestPatroni(unittest.TestCase):
 
     def setUp(self):
@@ -39,8 +39,6 @@ class TestPatroni(unittest.TestCase):
             with open('postgres0.yml', 'r') as f:
                 config = yaml.load(f)
                 self.p = Patroni(config)
-                self.p.ha.dcs.client.write = etcd_write
-                self.p.ha.dcs.client.read = etcd_read
 
     @patch('patroni.zookeeper.KazooClient', MockKazooClient())
     def test_get_dcs(self):
@@ -59,10 +57,18 @@ class TestPatroni(unittest.TestCase):
             self.assertRaises(SleepException, _main)
         with patch.object(Patroni, 'run', Mock(side_effect=KeyboardInterrupt())):
             _main()
+        sys.argv = ['patroni.py']
+        # read the content of the yaml configuration file into the environment variable
+        # in order to test how does patroni handle the configuration passed from the environment.
+        with open('postgres0.yml', 'r') as f:
+            os.environ[Patroni.PATRONI_CONFIG_VARIABLE] = f.read()
+        with patch.object(Patroni, 'run', Mock(side_effect=SleepException())):
+            self.assertRaises(SleepException, _main)
+        del os.environ[Patroni.PATRONI_CONFIG_VARIABLE]
 
     @patch('time.sleep', Mock(side_effect=SleepException()))
     def test_run(self):
-        self.p.ha.dcs.watch = time_sleep
+        self.p.ha.dcs.watch = Mock(side_effect=SleepException())
         self.assertRaises(SleepException, self.p.run)
 
         self.p.ha.state_handler.is_leader = Mock(return_value=False)

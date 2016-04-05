@@ -207,7 +207,7 @@ class Postgresql(object):
                 options.append('--username={0}'.format(self.superuser['username']))
             if 'password' in self.superuser:
                 (fd, pwfile) = tempfile.mkstemp()
-                os.write(fd, self.superuser['password'].encode())
+                os.write(fd, self.superuser['password'].encode('utf-8'))
                 os.close(fd)
                 options.append('--pwfile={0}'.format(pwfile))
 
@@ -233,9 +233,10 @@ class Postgresql(object):
         env['PGPASSFILE'] = self.pgpass
         return env
 
-    def sync_replica(self, leader):
-        env = self.write_pgpass(parseurl(leader.conn_url)) if leader else os.environ.copy()
-        if self.create_replica(leader, env) == 0:
+    def sync_replica(self, clone_member):
+        # add the credentials to connect to the replica origin to pgpass.
+        env = self.write_pgpass(parseurl(clone_member.conn_url)) if clone_member else os.environ.copy()
+        if self.create_replica(clone_member, env) == 0:
             self.delete_trigger_file()
             return True
         return False
@@ -248,33 +249,35 @@ class Postgresql(object):
         """
         return ' '.join('{0}={1}'.format(param, val) for param, val in sorted(conn.items()))
 
-    def replica_method_can_work_without_leader(self, method):
+    def replica_method_can_work_without_replication_connection(self, method):
         return method != 'basebackup' and self.config and self.config.get(method, {}).get('no_master')
 
-    def can_create_replica_without_leader(self):
+    def can_create_replica_without_replication_connection(self):
         """ go through the replication methods to see if there are ones
-            that does not require a running leader to create the replica.
+            that does not require a working replication connection.
         """
         replica_methods = self.config.get('create_replica_method', [])
-        return any(self.replica_method_can_work_without_leader(replica_method) for replica_method in replica_methods)
+        return any(self.replica_method_can_work_without_replication_connection(replica_method)
+                   for replica_method in replica_methods)
 
-    def create_replica(self, leader, env):
+    def create_replica(self, clone_member, env):
         # create the replica according to the replica_method
         # defined by the user.  this is a list, so we need to
         # loop through all methods the user supplies
-        connstring = leader.conn_url if leader else ""
+        connstring = clone_member.conn_url if clone_member else ""
         # get list of replica methods from config.
         # If there is no configuration key, or no value is specified, use basebackup
         replica_methods = self.config.get('create_replica_method') or ['basebackup']
-        # if we don't have any leader, leave only replica methods that work without it
-        replica_methods = [r for r in replica_methods if self.replica_method_can_work_without_leader(r)] if not leader \
-            else replica_methods
+        # if we don't have any source, leave only replica methods that work without it
+        replica_methods = \
+            [r for r in replica_methods if self.replica_method_can_work_without_replication_connection(r)]\
+            if not clone_member else replica_methods
         # go through them in priority order
         ret = 1
         for replica_method in replica_methods:
             # if the method is basebackup, then use the built-in
             if replica_method == "basebackup":
-                ret = self.basebackup(leader, env)
+                ret = self.basebackup(clone_member, env)
                 if ret == 0:
                     logger.info("replica has been created using basebackup")
                     # if basebackup succeeds, exit with success
@@ -385,7 +388,7 @@ class Postgresql(object):
         except psycopg2.Error:
             logging.exception('Exception during CHECKPOINT')
 
-    def stop(self, mode='fast', block_callbacks=False):
+    def stop(self, mode='fast', block_callbacks=False, checkpoint=True):
         # make sure we close all connections established against
         # the former node, otherwise, we might get a stalled one
         # after kill -9, which would report incorrect data to
@@ -397,9 +400,10 @@ class Postgresql(object):
                 self.set_state('stopped')
             return True
 
-        if block_callbacks:
+        if checkpoint:
             self.checkpoint()
-        else:
+
+        if not block_callbacks:
             self.set_state('stopping')
 
         ret = subprocess.call(self._pg_ctl + ['stop', '-m', mode]) == 0
@@ -506,7 +510,7 @@ recovery_target_timeline = 'latest'
         try:
             data = subprocess.check_output(['pg_controldata', self.data_dir])
             if data:
-                data = data.decode().splitlines()
+                data = data.decode('utf-8').splitlines()
                 result = {l.split(':')[0].replace('Current ', '', 1): l.split(':')[1].strip() for l in data if l}
         except subprocess.CalledProcessError:
             logger.exception("Error when calling pg_controldata")
@@ -526,8 +530,7 @@ recovery_target_timeline = 'latest'
                         result[name] = val
         except IOError:
             logger.exception('Error when reading postmaster.opts')
-        finally:
-            return result
+        return result
 
     def single_user_mode(self, command=None, options=None):
         """ run a given command in a single-user mode. If the command is empty - then just start and stop """
@@ -560,46 +563,44 @@ recovery_target_timeline = 'latest'
             logger.exception("Unable to list %s", status_dir)
 
     def follow(self, leader, recovery=False):
-        if not self.check_recovery_conf(leader) or recovery:
-            change_role = (self.role == 'master')
-
-            self._need_rewind = (self._need_rewind or change_role) and self.can_rewind
-            if self._need_rewind:
-                logger.info("set the rewind flag after demote")
-            self.write_recovery_conf(leader)
-            if not leader or not self._need_rewind:  # do not rewind until the leader becomes available
-                ret = self.restart()
-            else:  # we have a leader and need to rewind
-                if self.is_running():
-                    self.stop()
-                # at present, pg_rewind only runs when the cluster is shut down cleanly
-                # and not shutdown in recovery. We have to remove the recovery.conf if present
-                # and start/shutdown in a single user mode to emulate this.
-                # XXX: if recovery.conf is linked, it will be written anew as a normal file.
-                if os.path.islink(self.recovery_conf):
-                    os.unlink(self.recovery_conf)
-                else:
-                    os.remove(self.recovery_conf)
-                # Archived segments might be useful to pg_rewind,
-                # clean the flags that tell we should remove them.
-                self.cleanup_archive_status()
-                # Start in a single user mode and stop to produce a clean shutdown
-                opts = self.read_postmaster_opts()
-                opts['archive_mode'] = 'on'
-                opts['archive_command'] = 'false'
-                self.single_user_mode(options=opts)
-                if self.rewind(leader):
-                    ret = self.start()
-                else:
-                    logger.error("unable to rewind the former master")
-                    self.remove_data_directory()
-                    ret = True
-                self._need_rewind = False
-            if change_role and ret:
-                self.call_nowait(ACTION_ON_ROLE_CHANGE)
-            return ret
-        else:
+        if self.check_recovery_conf(leader) and not recovery:
             return True
+
+        change_role = self.role == 'master'
+        self._need_rewind = (self._need_rewind or change_role) and self.can_rewind
+        if self._need_rewind:
+            logger.info("set the rewind flag after demote")
+        self.write_recovery_conf(leader)
+        if leader and self._need_rewind:  # we have a leader and need to rewind
+            if self.is_running():
+                self.stop()
+            # at present, pg_rewind only runs when the cluster is shut down cleanly
+            # and not shutdown in recovery. We have to remove the recovery.conf if present
+            # and start/shutdown in a single user mode to emulate this.
+            # XXX: if recovery.conf is linked, it will be written anew as a normal file.
+            if os.path.islink(self.recovery_conf):
+                os.unlink(self.recovery_conf)
+            else:
+                os.remove(self.recovery_conf)
+            # Archived segments might be useful to pg_rewind,
+            # clean the flags that tell we should remove them.
+            self.cleanup_archive_status()
+            # Start in a single user mode and stop to produce a clean shutdown
+            opts = self.read_postmaster_opts()
+            opts.update({'archive_mode': 'on', 'archive_command': 'false'})
+            self.single_user_mode(options=opts)
+            if self.rewind(leader):
+                ret = self.start()
+            else:
+                logger.error("unable to rewind the former master")
+                self.remove_data_directory()
+                ret = True
+            self._need_rewind = False
+        else:  # do not rewind until the leader becomes available
+            ret = self.restart()
+        if change_role and ret:
+            self.call_nowait(ACTION_ON_ROLE_CHANGE)
+        return ret
 
     def save_configuration_files(self):
         """
@@ -701,18 +702,19 @@ $$""".format(name, options), name, password, password)
     def last_operation(self):
         return str(self.xlog_position())
 
-    def bootstrap(self, cluster_initialized=False, current_leader=None):
+    def bootstrap(self, cluster_initialized=False, clone_member=None):
         """
             Populate PostgreSQL data directory by doing one of the following:
              - create with initdb if there is no master.
-             - initialize the replica from an existing master
+             - initialize the replica from an existing member (master or replica)
              - initialize the replica using the replica creation method that
-               works without the master (i.e. restore from on-disk base backup)
+               works without the replication connection (i.e. restore from on-disk
+               base backup)
 
             The choice between the last 2 is triggered by the initialize flag.
             We should never try to initdb an already initialized cluster, nor
-            try to bootstrap the cluster that lacks the initialize key from from
-            the master-less replica creation method (in the latter case, there is
+            try to bootstrap the cluster that lacks the initialize key using the
+            master-less replica creation method (in the latter case, there is
             no clear inidicator of the moment we should abandon our attempts and
             swich to initdb).
 
@@ -722,7 +724,7 @@ $$""".format(name, options), name, password, password)
             that should be retried in the future.
         """
         ret = False
-        if not (cluster_initialized or current_leader):
+        if not (cluster_initialized or clone_member):
             ret = self.initialize() and self.start()
             if ret:
                 self.create_replication_user()
@@ -730,9 +732,9 @@ $$""".format(name, options), name, password, password)
             else:
                 raise PostgresException("Could not bootstrap master PostgreSQL")
         else:
-            if self.sync_replica(current_leader):
+            if self.sync_replica(clone_member):
                 self.restore_configuration_files()
-                self.write_recovery_conf(current_leader, True)
+                self.write_recovery_conf(clone_member, True)
                 ret = self.start()
         return ret
 
@@ -760,12 +762,12 @@ $$""".format(name, options), name, password, password)
             logger.exception('Could not remove data directory %s', self.data_dir)
             self.move_data_directory()
 
-    def basebackup(self, leader, env):
+    def basebackup(self, clone_member, env):
         # creates a replica data dir using pg_basebackup.
         # this is the default, built-in create_replica_method
         # tries twice, then returns failure (as 1)
         # uses "stream" as the xlog-method to avoid sync issues
-        master_connection = leader.conn_url
+        master_connection = clone_member.conn_url
         maxfailures = 2
         ret = 1
         for bbfailures in range(0, maxfailures):

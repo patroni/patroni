@@ -2,21 +2,16 @@ import mock  # for the mock.call method, importing it without a namespace breaks
 import os
 import psycopg2
 import shutil
+import subprocess
 import unittest
 
-from six.moves import builtins
 from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.dcs import Cluster, Leader, Member
 from patroni.exceptions import PostgresException, PostgresConnectionException
 from patroni.postgresql import Postgresql
 from patroni.utils import RetryFailedError
+from six.moves import builtins
 from test_ha import false
-import subprocess
-
-
-def is_file_raise_on_backup(*args, **kwargs):
-    if args[0].endswith('.backup'):
-        raise Exception("foo")
 
 
 class MockCursor(object):
@@ -38,7 +33,7 @@ class MockCursor(object):
         elif sql == 'SELECT pg_is_in_recovery()':
             self.results = [(False, )]
         elif sql.startswith('SELECT to_char(pg_postmaster_start_time'):
-            self.results = [('', True, '', '', '', False)]
+            self.results = [('', True, '', '', '', '', False)]
         else:
             self.results = [(
                 None,
@@ -59,10 +54,6 @@ class MockCursor(object):
     def fetchall(self):
         return self.results
 
-    @staticmethod
-    def close():
-        pass
-
     def __iter__(self):
         for i in self.results:
             yield i
@@ -74,8 +65,9 @@ class MockCursor(object):
         pass
 
 
-class MockConnect(Mock):
+class MockConnect(object):
 
+    server_version = '99999'
     autocommit = False
     closed = 0
 
@@ -86,6 +78,10 @@ class MockConnect(Mock):
         return self
 
     def __exit__(self, *args):
+        pass
+
+    @staticmethod
+    def close():
         pass
 
 
@@ -283,7 +279,7 @@ class TestPostgresql(unittest.TestCase):
         self.p.pg_rewind = tmp
         with mock.patch('subprocess.call', MagicMock(return_value=1)):
             self.assertFalse(self.p.can_rewind)
-        with mock.patch('subprocess.call', side_effect=OSError("foo")):
+        with mock.patch('subprocess.call', side_effect=OSError):
             self.assertFalse(self.p.can_rewind)
         tmp = self.p.controldata
         self.p.controldata = lambda: {'wal_log_hints setting': 'on'}
@@ -292,7 +288,7 @@ class TestPostgresql(unittest.TestCase):
 
     @patch('time.sleep', Mock())
     def test_create_replica(self):
-        self.p.delete_trigger_file = Mock(side_effect=OSError())
+        self.p.delete_trigger_file = Mock(side_effect=OSError)
         with patch('subprocess.call', Mock(side_effect=[1, 0])):
             self.assertEquals(self.p.create_replica(self.leader, ''), 0)
         with patch('subprocess.call', Mock(side_effect=[Exception(), 0])):
@@ -349,7 +345,7 @@ class TestPostgresql(unittest.TestCase):
     def test_last_operation(self):
         self.assertEquals(self.p.last_operation(), '0')
 
-    @patch('subprocess.Popen', Mock(side_effect=OSError()))
+    @patch('subprocess.Popen', Mock(side_effect=OSError))
     def test_call_nowait(self):
         self.assertFalse(self.p.call_nowait('on_start'))
 
@@ -369,7 +365,7 @@ class TestPostgresql(unittest.TestCase):
     def test_move_data_directory(self):
         self.p.is_running = false
         self.p.move_data_directory()
-        with patch('os.rename', Mock(side_effect=OSError())):
+        with patch('os.rename', Mock(side_effect=OSError)):
             self.p.move_data_directory()
 
     @patch('patroni.postgresql.Postgresql.write_pgpass', MagicMock(return_value=dict()))
@@ -411,12 +407,9 @@ class TestPostgresql(unittest.TestCase):
             self.assertEquals(int(data['max_replication_slots']), 5)
             self.assertEqual(data.get('D'), None)
 
-            m.side_effect = IOError("foo")
+            m.side_effect = IOError
             data = self.p.read_postmaster_opts()
             self.assertEqual(data, dict())
-
-            m.side_effect = Exception("foo")
-            self.assertRaises(Exception, self.p.read_postmaster_opts())
 
     @patch('subprocess.Popen')
     @patch.object(builtins, 'open', MagicMock(return_value=42))
@@ -479,17 +472,17 @@ class TestPostgresql(unittest.TestCase):
     def test_restore_configuration_files(self):
         self.p.restore_configuration_files()
 
-    def test_can_create_replica_without_leader(self):
+    def test_can_create_replica_without_replication_connection(self):
         self.p.config['create_replica_method'] = []
-        self.assertFalse(self.p.can_create_replica_without_leader())
+        self.assertFalse(self.p.can_create_replica_without_replication_connection())
         self.p.config['create_replica_method'] = ['wale', 'basebackup']
         self.p.config['wale'] = {'command': 'foo', 'no_master': 1}
-        self.assertTrue(self.p.can_create_replica_without_leader())
+        self.assertTrue(self.p.can_create_replica_without_replication_connection())
 
-    def test_replica_method_can_work_without_leader(self):
-        self.assertFalse(self.p.replica_method_can_work_without_leader('basebackup'))
-        self.assertFalse(self.p.replica_method_can_work_without_leader('foobar'))
+    def test_replica_method_can_work_without_replication_connection(self):
+        self.assertFalse(self.p.replica_method_can_work_without_replication_connection('basebackup'))
+        self.assertFalse(self.p.replica_method_can_work_without_replication_connection('foobar'))
         self.p.config['foo'] = {'command': 'bar', 'no_master': 1}
-        self.assertTrue(self.p.replica_method_can_work_without_leader('foo'))
+        self.assertTrue(self.p.replica_method_can_work_without_replication_connection('foo'))
         self.p.config['foo'] = {'command': 'bar'}
-        self.assertFalse(self.p.replica_method_can_work_without_leader('foo'))
+        self.assertFalse(self.p.replica_method_can_work_without_replication_connection('foo'))
