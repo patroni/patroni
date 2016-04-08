@@ -7,7 +7,7 @@ from test_etcd import SleepException
 
 
 def kv_get(self, key, **kwargs):
-    if key == 'service/test/members/postgresql1':
+    if key in ['service/test/members/postgresql1', 'service/dummy/members/dummy']:
         return 1, {'Session': 'fd4f44fe-2cac-bba5-a60b-304b51ff39b7'}
     if key == 'service/test/':
         return None, None
@@ -47,7 +47,7 @@ def session_renew(self, session):
 
 
 def session_create(self, *args, **kwargs):
-    if kwargs.get('name', None) == 'test-postgresql1':
+    if kwargs.get('name', None) in ['test-postgresql1', 'dummy-dummy']:
         return 'fd4f44fe-2cac-bba5-a60b-304b51ff39b7'
     raise ConsulException
 
@@ -60,18 +60,20 @@ class TestHTTPClient(unittest.TestCase):
         self.client.get(Mock(), '', {'wait': '1s', 'index': 1})
 
 
+@patch.object(consul.Consul.KV, 'get', kv_get)
+@patch.object(consul.Consul.KV, 'delete', kv_delete)
 class TestConsul(unittest.TestCase):
 
+    @patch.object(consul.Consul.Session, 'create', session_create)
+    @patch.object(consul.Consul.Session, 'renew', session_renew)
+    @patch.object(consul.Consul.KV, 'get', kv_get)
+    @patch.object(consul.Consul.KV, 'delete', kv_delete)
     def setUp(self):
-        consul.Consul.KV.get = kv_get
-        consul.Consul.KV.put = kv_put
-        consul.Consul.KV.delete = kv_delete
-        consul.Consul.Session.create = session_create
-        consul.Consul.Session.renew = session_renew
         self.c = Consul('postgresql1', {'ttl': 30, 'scope': 'test', 'host': 'localhost:1'})
         self.c._base_path = '/service/good'
         self.c._load_cluster(1)
 
+    @patch.object(consul.Consul.Session, 'renew', session_renew)
     def test_referesh_session(self):
         self.c._session = '1'
         self.c._name = ''
@@ -99,6 +101,7 @@ class TestConsul(unittest.TestCase):
         self.c.referesh_session = Mock(return_value=True)
         self.c.touch_member('balbla')
 
+    @patch.object(consul.Consul.KV, 'put', kv_put)
     def test_take_leader(self):
         self.c.take_leader()
 

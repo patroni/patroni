@@ -1,3 +1,4 @@
+import consul
 import etcd
 import os
 import pytest
@@ -5,6 +6,7 @@ import requests.exceptions
 import unittest
 
 from click.testing import CliRunner
+from test_consul import kv_get, kv_delete, session_create, session_renew
 from mock import patch, Mock
 from patroni.ctl import ctl, members, store_config, load_config, output_members, post_patroni, get_dcs, \
     wait_for_leader, get_all_members, get_any_member, get_cursor, query_member, configure, PatroniCtlException
@@ -164,9 +166,14 @@ y''')
 
     @patch('patroni.zookeeper.KazooClient', MockKazooClient)
     @patch('requests.get', requests_get)
+    @patch.object(consul.Consul.KV, 'get', kv_get)
+    @patch.object(consul.Consul.KV, 'delete', kv_delete)
+    @patch.object(consul.Consul.Session, 'create', session_create)
+    @patch.object(consul.Consul.Session, 'renew', session_renew)
     def test_get_dcs(self):
         self.assertIsNotNone(get_dcs({'dcs': {'scheme': 'zookeeper', 'hostname': 'foo', 'port': 2181}}, 'dummy'))
         self.assertIsNotNone(get_dcs({'dcs': {'scheme': 'exhibitor', 'hostname': 'exhibitor', 'port': 8181}}, 'dummy'))
+        self.assertIsNotNone(get_dcs({'dcs': {'scheme': 'consul', 'hostname': 'consul', 'port': 8500}}, 'dummy'))
         self.assertRaises(PatroniCtlException, get_dcs, {'scheme': 'dummy'}, 'dummy')
 
     @patch('psycopg2.connect', psycopg2_connect)

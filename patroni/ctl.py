@@ -16,9 +16,7 @@ import tzlocal
 import yaml
 
 from click import ClickException
-from patroni.etcd import Etcd
 from patroni.postgresql import parseurl
-from patroni.zookeeper import ZooKeeper
 from prettytable import PrettyTable
 from six.moves.urllib_parse import urlparse
 
@@ -54,10 +52,7 @@ def parse_dcs(dcs):
         default_schemes = {'2181': 'zookeeper', '8181': 'exhibitor', '8500': 'consul'}
         scheme = default_schemes.get(str(parsed.port), 'etcd')
 
-    port = parsed.port
-    if port is None:
-        default_ports = {'consul': 8500, 'zookeeper': 2181, 'exhibitor': 8181}
-        port = default_ports.get(str(scheme), 4001)
+    port = parsed.port or {'consul': 8500, 'zookeeper': 2181, 'exhibitor': 8181}.get(str(scheme), 4001)
 
     return {'scheme': str(scheme), 'hostname': str(parsed.hostname), 'port': int(port)}
 
@@ -108,13 +103,20 @@ def get_dcs(config, scope):
     scheme, hostname, port = map(config.get('dcs', {}).get, ('scheme', 'hostname', 'port'))
 
     if scheme == 'etcd':
+        from patroni.etcd import Etcd
         return Etcd(name=scope, config={'scope': scope, 'host': '{0}:{1}'.format(hostname, port)})
 
     if scheme == 'zookeeper':
+        from patroni.zookeeper import ZooKeeper
         return ZooKeeper(name=scope, config={'scope': scope, 'hosts': [hostname], 'port': port})
 
     if scheme == 'exhibitor':
+        from patroni.zookeeper import ZooKeeper
         return ZooKeeper(name=scope, config={'scope': scope, 'exhibitor': {'hosts': [hostname], 'port': port}})
+
+    if scheme == 'consul':
+        from patroni.consul import Consul
+        return Consul(name=scope, config={'scope': scope, 'host': '{0}:{1}'.format(hostname, port)})
 
     raise PatroniCtlException('Can not find suitable configuration of distributed configuration store')
 
