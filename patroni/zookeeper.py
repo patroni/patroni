@@ -93,8 +93,8 @@ class ZooKeeper(AbstractDCS):
         self._client.add_listener(self.session_listener)
 
         self._my_member_data = None
-        self.fetch_cluster = True
-        self.last_leader_operation = 0
+        self._fetch_cluster = True
+        self._last_leader_operation = 0
 
         self._client.start(None)
 
@@ -103,7 +103,7 @@ class ZooKeeper(AbstractDCS):
             self.cluster_watcher(None)
 
     def cluster_watcher(self, event):
-        self.fetch_cluster = True
+        self._fetch_cluster = True
         self.event.set()
 
     def get_node(self, key, watch=None):
@@ -132,11 +132,11 @@ class ZooKeeper(AbstractDCS):
         return members
 
     def _inner_load_cluster(self):
-        self.fetch_cluster = False
+        self._fetch_cluster = False
         self.event.clear()
         nodes = set(self.get_children(self.client_path(''), self.cluster_watcher))
         if not nodes:
-            self.fetch_cluster = True
+            self._fetch_cluster = True
 
         # get initialize flag
         initialize = (self.get_node(self.initialize_path) or [None])[0] if self._INITIALIZE in nodes else None
@@ -157,7 +157,7 @@ class ZooKeeper(AbstractDCS):
                 member = Member(-1, leader[0], None, {})
                 member = ([m for m in members if m.name == leader[0]] or [member])[0]
                 leader = Leader(leader[1].version, leader[1].ephemeralOwner, member)
-                self.fetch_cluster = member.index == -1
+                self._fetch_cluster = member.index == -1
 
         # failover key
         failover = self.get_node(self.failover_path, watch=self.cluster_watcher) if self._FAILOVER in nodes else None
@@ -165,15 +165,15 @@ class ZooKeeper(AbstractDCS):
             failover = Failover.from_node(failover[1].version, failover[0])
 
         # get last leader operation
-        optime = self.get_node(self.leader_optime_path) if self._OPTIME in nodes and self.fetch_cluster else None
-        self.last_leader_operation = 0 if optime is None else int(optime[0])
-        self._cluster = Cluster(initialize, leader, self.last_leader_operation, members, failover)
+        optime = self.get_node(self.leader_optime_path) if self._OPTIME in nodes and self._fetch_cluster else None
+        self._last_leader_operation = 0 if optime is None else int(optime[0])
+        self._cluster = Cluster(initialize, leader, self._last_leader_operation, members, failover)
 
     def _load_cluster(self):
         if self.exhibitor and self.exhibitor.poll():
             self._client.set_hosts(self.exhibitor.zookeeper_hosts)
 
-        if self.fetch_cluster:
+        if self._fetch_cluster or self._cluster is None:
             try:
                 self._client.retry(self._inner_load_cluster)
             except:
@@ -249,8 +249,8 @@ class ZooKeeper(AbstractDCS):
 
     def write_leader_optime(self, last_operation):
         last_operation = last_operation.encode('utf-8')
-        if last_operation != self.last_leader_operation:
-            self.last_leader_operation = last_operation
+        if last_operation != self._last_leader_operation:
+            self._last_leader_operation = last_operation
             path = self.leader_optime_path
             try:
                 self._client.retry(self._client.set, path, last_operation)
@@ -289,5 +289,5 @@ class ZooKeeper(AbstractDCS):
 
     def watch(self, timeout):
         if super(ZooKeeper, self).watch(timeout):
-            self.fetch_cluster = True
-        return self.fetch_cluster
+            self._fetch_cluster = True
+        return self._fetch_cluster

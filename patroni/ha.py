@@ -110,32 +110,30 @@ class Ha(object):
     def recover(self):
         # try to see if we are the former master that crashed. If so - we likely need to run pg_rewind
         # in order to join the former standby being promoted.
-        pg_controldata = self.state_handler.controldata()
-        if (self.state_handler.role == 'master') and pg_controldata and\
-                pg_controldata.get('Database cluster state', '') == 'in production':  # crashed master
-            self.state_handler.require_rewind()
+        if self.state_handler.role == 'master':
+            pg_controldata = self.state_handler.controldata()
+            if pg_controldata and pg_controldata.get('Database cluster state', '') == 'in production':  # crashed master
+                self.state_handler.require_rewind()
         self.recovering = True
-        return self.follow("started as readonly because i had the session lock",
-                           "started as a secondary",
-                           refresh=True, recovery=True)
+        return self.follow("starting as readonly because i had the session lock", "starting as a secondary", True, True)
 
     def follow(self, demote_reason, follow_reason, refresh=True, recovery=False):
         if refresh:
             self.load_cluster_from_dcs()
 
-        if not recovery and self.state_handler.is_leader() or recovery and self.state_handler.role == 'master':
-            ret = demote_reason
-        else:
-            ret = follow_reason
+        ret = demote_reason if not recovery and self.state_handler.is_leader() else follow_reason
 
         # determine the node to follow. If replicatefrom tag is set,
         # try to follow the node mentioned there, otherwise, follow the leader.
+
         if self.patroni.replicatefrom:
             node_to_follow = [m for m in self.cluster.members if m.name == self.patroni.replicatefrom]
             node_to_follow = node_to_follow[0] if node_to_follow else self.cluster.leader
         else:
             node_to_follow = self.cluster.leader
-        node_to_follow = None if node_to_follow and node_to_follow.name == self.state_handler.name else node_to_follow
+        if node_to_follow and node_to_follow.name == self.state_handler.name:
+            ret = demote_reason
+            node_to_follow = None
         if not self.state_handler.check_recovery_conf(node_to_follow) or recovery:
             self._async_executor.schedule('changing primary_conninfo and restarting')
             self._async_executor.run_async(self.state_handler.follow, (node_to_follow, recovery))
@@ -279,7 +277,10 @@ class Ha(object):
             self.dcs.delete_leader()
             self.touch_member()
             self.dcs.reset_cluster()
-        self.state_handler.follow(None)
+            sleep(2)  # Give a time to somebody to promote
+            self.recover()
+        else:
+            self.state_handler.follow(None)
 
     def process_manual_failover_from_leader(self):
         failover = self.cluster.failover
@@ -331,7 +332,7 @@ class Ha(object):
                 if self.cluster.failover:
                     logger.info('Cleaning up failover key after acquiring leader lock...')
                     self.dcs.manual_failover('', '')
-                self.dcs.get_cluster()
+                self.load_cluster_from_dcs()
                 return self.enforce_master_role('acquired session lock as a leader',
                                                 'promoted self to leader by acquiring session lock')
             else:
