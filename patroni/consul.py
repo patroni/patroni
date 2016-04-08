@@ -87,7 +87,7 @@ class Consul(AbstractDCS):
         """:returns: `!True` if it had to create new session"""
         if self._session:
             try:
-                return not self._client.session.renew(self._session) is None
+                return self._client.session.renew(self._session) is None
             except NotFound:
                 self._session = None
         if not self._session:
@@ -219,9 +219,7 @@ class Consul(AbstractDCS):
             end_time = time.time() + timeout
             while timeout >= 1:
                 try:
-                    cluster = self._load_cluster(timeout)
-                    if not cluster or not cluster.leader:
-                        return False
+                    return self._load_cluster(timeout) or True
                 except (ConsulException, RequestException):
                     logging.exception('watch')
 
