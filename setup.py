@@ -4,13 +4,12 @@
     Setup file for patroni
 """
 
-import sys
-import os
 import inspect
+import os
+import sys
 
-import setuptools
 from setuptools.command.test import test as TestCommand
-from setuptools import setup
+from setuptools import find_packages, setup
 
 if sys.version_info < (2, 7, 0):
     sys.stderr.write('FATAL: patroni needs to be run with Python 2.7+\n')
@@ -138,7 +137,7 @@ def setup_package():
         long_description=read('README.rst'),
         classifiers=CLASSIFIERS,
         test_suite='tests',
-        packages=setuptools.find_packages(exclude=['tests', 'tests.*']),
+        packages=find_packages(exclude=['tests', 'tests.*']),
         package_data={MAIN_PACKAGE: ["*.json"]},
         install_requires=install_reqs,
         setup_requires=['flake8'],

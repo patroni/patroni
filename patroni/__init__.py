@@ -7,7 +7,7 @@ import yaml
 from patroni.api import RestApiServer
 from patroni.ha import Ha
 from patroni.postgresql import Postgresql
-from patroni.utils import setup_signal_handlers, reap_children
+from patroni.utils import reap_children, set_ignore_sigterm, setup_signal_handlers
 from patroni.version import __version__
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,8 @@ class Patroni(object):
 
     def __init__(self, config):
         self.nap_time = config['loop_wait']
-        self.tags = config.get('tags', dict())
+        self.tags = {tag: value for tag, value in config.get('tags', {}).items()
+                     if tag not in ('clonefrom', 'nofailover', 'noloadbalance') or value}
         self.postgresql = Postgresql(config['postgresql'])
         self.dcs = self.get_dcs(self.postgresql.name, config)
         self.version = __version__
@@ -33,10 +34,6 @@ class Patroni(object):
     @property
     def replicatefrom(self):
         return self.tags.get('replicatefrom')
-
-    @property
-    def clonefrom(self):
-        return self.tags.get('clonefrom')
 
     @staticmethod
     def get_dcs(name, config):
@@ -97,7 +94,7 @@ def main():
     try:
         patroni.run()
     except KeyboardInterrupt:
-        pass
+        set_ignore_sigterm()
     finally:
         patroni.api.shutdown()
         patroni.postgresql.stop(checkpoint=False)

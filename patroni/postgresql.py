@@ -269,9 +269,8 @@ class Postgresql(object):
         # If there is no configuration key, or no value is specified, use basebackup
         replica_methods = self.config.get('create_replica_method') or ['basebackup']
         # if we don't have any source, leave only replica methods that work without it
-        replica_methods = \
-            [r for r in replica_methods if self.replica_method_can_work_without_replication_connection(r)]\
-            if not clone_member else replica_methods
+        replica_methods = replica_methods if clone_member else \
+            [r for r in replica_methods if self.replica_method_can_work_without_replication_connection(r)]
         # go through them in priority order
         ret = 1
         for replica_method in replica_methods:

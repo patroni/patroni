@@ -14,4 +14,4 @@ Feature: basic replication
     When I start postgres0
     Then postgres0 role is the secondary after 15 seconds
     When I add the table bar to postgres1
-    Then table bar is present on postgres0 after 10 seconds
+    Then table bar is present on postgres0 after 15 seconds

@@ -4,7 +4,7 @@ addons:
   postgresql: "9.5"
 env:
   global:
-    - BOTO_CONFIG='' ETCDVERSION=2.2.5
+    - BOTO_CONFIG='' ETCDVERSION=2.2.5 ZKVERSION=3.4.6
   matrix:
     - TEST_SUITE="python setup.py test"
     - TEST_SUITE="behave"
@@ -13,20 +13,31 @@ python:
   - "3.4"
   - "3.5"
 install:
-  - sudo /etc/init.d/postgresql stop
-  - sudo apt-get -y remove --purge postgresql-9.1 postgresql-9.2 postgresql-9.3 postgresql-9.4
-  - sudo apt-get -y autoremove
-  - sudo apt-key adv --keyserver keys.gnupg.net --recv-keys 7FCC7D46ACCC4CF8
-  - sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ precise-pgdg main 9.5" >> /etc/apt/sources.list.d/postgresql.list'
-  - sudo apt-get update
-  - sudo apt-get -y install postgresql-9.5
-  - sudo /etc/init.d/postgresql stop
+  - |
+    if [[ $TEST_SUITE == "behave" ]]; then
+        sudo bash -c '
+            /etc/init.d/postgresql stop
+            apt-get -y remove --purge postgresql-9.1 postgresql-9.2 postgresql-9.3 postgresql-9.4
+            apt-get -y autoremove
+            apt-key adv --keyserver keys.gnupg.net --recv-keys 7FCC7D46ACCC4CF8
+            echo "deb http://apt.postgresql.org/pub/repos/apt/ precise-pgdg main 9.5" >> /etc/apt/sources.list.d/postgresql.list
+            apt-get update
+            apt-get -y install postgresql-9.5
+            /etc/init.d/postgresql stop'
+        curl -L https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v${ETCDVERSION}-linux-amd64.tar.gz | tar xz -C . --strip=1 --wildcards --no-anchored etcd
+        curl -L http://www.apache.org/dist/zookeeper/zookeeper-${ZKVERSION}/zookeeper-${ZKVERSION}.tar.gz | tar xz
+        mv zookeeper-${ZKVERSION}/conf/zoo_sample.cfg zookeeper-${ZKVERSION}/conf/zoo.cfg
+        zookeeper-${ZKVERSION}/bin/zkServer.sh start
+        while true; do
+            echo -e 'HTTP/1.0 200 OK\nContent-Type: application/json\n\n{"servers":["127.0.0.1"],"port":2181}' \
+              | nc -l 8181 &> /dev/null
+        done&
+    fi
   - pip install -r requirements.txt
-  - curl -L https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v${ETCDVERSION}-linux-amd64.tar.gz | tar xz -C . --strip=1 --wildcards --no-anchored etcd
-  - pip install behave codacy-coverage coverage coveralls 
+  - pip install behave codacy-coverage coverage coveralls
 script:
   - PATH=.:$PATH $TEST_SUITE
-  - python setup.py flake8
+  - if [[ $TEST_SUITE == "behave" ]]; then PATH=.:$PATH DCS=exhibitor $TEST_SUITE; else python setup.py flake8; fi
 after_success:
   - coveralls
   - if [[ -f coverage.xml ]]; then python-codacy-coverage -r coverage.xml; fi
