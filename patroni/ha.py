@@ -55,9 +55,10 @@ class Ha(object):
             'conn_url': self.state_handler.connection_string,
             'api_url': self.patroni.api.connection_string,
             'state': self.state_handler.state,
-            'role': self.state_handler.role,
-            'tags': self.patroni.tags
+            'role': self.state_handler.role
         }
+        if self.patroni.tags:
+            data['tags'] = self.patroni.tags
         if data['state'] in ['running', 'restarting', 'starting']:
             try:
                 data['xlog_location'] = self.state_handler.xlog_position()
@@ -65,25 +66,22 @@ class Ha(object):
                 pass
         self.dcs.touch_member(json.dumps(data, separators=(',', ':')))
 
-    def clone(self, clone_member, clone_member_name="leader"):
+    def clone(self, clone_member=None, msg='(without leader)'):
         if self.state_handler.bootstrap(cluster_initialized=True, clone_member=clone_member):
-            logger.info('bootstrapped from {0}'.format(clone_member_name)
-                        if clone_member else 'bootstrapped without leader')
+            logger.info('bootstrapped %s', msg)
         else:
+            logger.error('failed to bootstrap %s', msg)
             self.state_handler.stop('immediate')
             self.state_handler.remove_data_directory()
-            logger.error('failed to bootstrap from {0}'.format(clone_member_name)
-                         if clone_member else 'failed to bootstrap (without leader)')
 
     def bootstrap(self):
         if not self.cluster.is_unlocked():  # cluster already has leader
-            clonefrom = self.patroni.clonefrom
-            clone_member = self.cluster.get_member(clonefrom)\
-                if self.cluster.has_member(clonefrom) else self.cluster.leader
-            clone_member_name = 'leader' if clone_member == self.cluster.leader else 'replica \'{0}\''.format(clonefrom)
-            self._async_executor.schedule('bootstrap from {0}'.format(clone_member_name))
-            self._async_executor.run_async(self.clone, args=(clone_member, clone_member_name))
-            return 'trying to bootstrap from {0}'.format(clone_member_name)
+            clone_member = self.cluster.get_clone_member()
+            member_role = 'leader' if clone_member == self.cluster.leader else 'replica'
+            msg = "from {0} '{1}'".format(member_role, clone_member.name)
+            self._async_executor.schedule('bootstrap {0}'.format(msg))
+            self._async_executor.run_async(self.clone, args=(clone_member, msg))
+            return 'trying to bootstrap {0}'.format(msg)
         elif not self.cluster.initialize and not self.patroni.nofailover:  # no initialize key
             if self.dcs.initialize(create_new=True):  # race for initialization
                 try:
@@ -103,8 +101,8 @@ class Ha(object):
                 return 'failed to acquire initialize lock'
         else:
             if self.state_handler.can_create_replica_without_replication_connection():
-                self._async_executor.run_async(self.clone, args=(None, ))
-                return "trying to bootstrap without leader"
+                self._async_executor.run_async(self.clone)
+                return "trying to bootstrap (without leader)"
             return 'waiting for leader to bootstrap'
 
     def recover(self):
@@ -127,8 +125,7 @@ class Ha(object):
         # try to follow the node mentioned there, otherwise, follow the leader.
 
         if self.patroni.replicatefrom:
-            node_to_follow = [m for m in self.cluster.members if m.name == self.patroni.replicatefrom]
-            node_to_follow = node_to_follow[0] if node_to_follow else self.cluster.leader
+            node_to_follow = self.cluster.get_member(self.patroni.replicatefrom, fallback_to_leader=True)
         else:
             node_to_follow = self.cluster.leader
         if node_to_follow and node_to_follow.name == self.state_handler.name:
@@ -225,9 +222,9 @@ class Ha(object):
                 return True
 
             # find specific node and check that it is healthy
-            members = [m for m in self.cluster.members if m.name == failover.candidate]
-            if members:
-                member, reachable, _, _, tags = self.fetch_node_status(members[0])
+            member = self.cluster.get_member(failover.candidate, fallback_to_leader=False)
+            if member:
+                member, reachable, _, _, tags = self.fetch_node_status(member)
                 if reachable and not tags.get('nofailover', False):  # node is healthy
                     logger.info('manual failover: to %s, i am %s', member.name, self.state_handler.name)
                     return False
@@ -390,7 +387,10 @@ class Ha(object):
     def reinitialize(self, cluster):
         self.state_handler.stop('immediate')
         self.state_handler.remove_data_directory()
-        self.clone(cluster.leader)
+
+        clone_member = cluster.get_clone_member()
+        member_role = 'leader' if clone_member == cluster.leader else 'replica'
+        self.clone(clone_member, "from {0} '{1}'".format(member_role, clone_member.name))
 
     def process_scheduled_action(self):
         if self.reinitialize_scheduled():

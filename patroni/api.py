@@ -290,7 +290,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             return {'state': state}
 
     def get_tags(self):
-        return {'tags': self.server.patroni.tags}
+        return {'tags': self.server.patroni.tags} if self.server.patroni.tags else {}
 
     def log_message(self, fmt, *args):
         logger.debug("API thread: %s - - [%s] %s", self.client_address[0], self.log_date_time_string(), fmt % args)
