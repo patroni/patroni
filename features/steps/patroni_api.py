@@ -29,10 +29,9 @@ register_type(url=parse_url, data=parse_data)
 @then('{name:w} is a leader after {time_limit:d} seconds')
 def is_a_leader(context, name, time_limit):
     max_time = time.time() + int(time_limit)
-    while (context.etcd_ctl.query("leader") != name):
+    while (context.dcs_ctl.query("leader") != name):
         time.sleep(1)
-        if time.time() > max_time:
-            assert False, "{0} is not a leader in etcd after {1} seconds".format(name, time_limit)
+        assert time.time() < max_time, "{0} is not a leader in dcs after {1} seconds".format(name, time_limit)
 
 
 @step('I sleep for {value:d} seconds')

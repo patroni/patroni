@@ -8,7 +8,7 @@ from patroni.api import RestApiServer
 from patroni.etcd import Etcd
 from patroni.ha import Ha
 from patroni.postgresql import Postgresql
-from patroni.utils import setup_signal_handlers, reap_children
+from patroni.utils import reap_children, set_ignore_sigterm, setup_signal_handlers
 from patroni.zookeeper import ZooKeeper
 from .version import __version__
 
@@ -91,7 +91,7 @@ def main():
     try:
         patroni.run()
     except KeyboardInterrupt:
-        pass
+        set_ignore_sigterm()
     finally:
         patroni.api.shutdown()
         patroni.postgresql.stop(checkpoint=False)

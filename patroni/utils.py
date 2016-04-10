@@ -33,10 +33,14 @@ def calculate_ttl(expiration):
     return int((expiration - now).total_seconds())
 
 
-def sigterm_handler(signo, stack_frame):
+def set_ignore_sigterm(value=True):
     global __ignore_sigterm
+    __ignore_sigterm = value
+
+
+def sigterm_handler(signo, stack_frame):
     if not __ignore_sigterm:
-        __ignore_sigterm = True
+        set_ignore_sigterm()
         sys.exit()
 
 

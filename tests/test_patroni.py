@@ -45,7 +45,7 @@ class TestPatroni(unittest.TestCase):
         self.assertIsInstance(self.p.get_dcs('', {'zookeeper': {'scope': '', 'hosts': ''}}), ZooKeeper)
         self.assertRaises(Exception, self.p.get_dcs, '', {})
 
-    @patch('time.sleep', Mock(side_effect=SleepException()))
+    @patch('time.sleep', Mock(side_effect=SleepException))
     @patch.object(Etcd, 'delete_leader', Mock())
     @patch.object(Client, 'machines')
     def test_patroni_main(self, mock_machines):
@@ -53,7 +53,7 @@ class TestPatroni(unittest.TestCase):
         sys.argv = ['patroni.py', 'postgres0.yml']
 
         mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
-        with patch.object(Patroni, 'run', Mock(side_effect=SleepException())):
+        with patch.object(Patroni, 'run', Mock(side_effect=SleepException)):
             self.assertRaises(SleepException, _main)
         with patch.object(Patroni, 'run', Mock(side_effect=KeyboardInterrupt())):
             _main()
@@ -66,12 +66,8 @@ class TestPatroni(unittest.TestCase):
             self.assertRaises(SleepException, _main)
         del os.environ[Patroni.PATRONI_CONFIG_VARIABLE]
 
-    @patch('time.sleep', Mock(side_effect=SleepException()))
     def test_run(self):
-        self.p.ha.dcs.watch = Mock(side_effect=SleepException())
-        self.assertRaises(SleepException, self.p.run)
-
-        self.p.ha.state_handler.is_leader = Mock(return_value=False)
+        self.p.ha.dcs.watch = Mock(side_effect=SleepException)
         self.p.api.start = Mock()
         self.assertRaises(SleepException, self.p.run)
 
