@@ -1,4 +1,5 @@
 import etcd
+import os
 import sys
 import time
 import unittest
@@ -56,6 +57,14 @@ class TestPatroni(unittest.TestCase):
             self.assertRaises(SleepException, _main)
         with patch.object(Patroni, 'run', Mock(side_effect=KeyboardInterrupt())):
             _main()
+        sys.argv = ['patroni.py']
+        # read the content of the yaml configuration file into the environment variable
+        # in order to test how does patroni handle the configuration passed from the environment.
+        with open('postgres0.yml', 'r') as f:
+            os.environ[Patroni.PATRONI_CONFIG_VARIABLE] = f.read()
+        with patch.object(Patroni, 'run', Mock(side_effect=SleepException())):
+            self.assertRaises(SleepException, _main)
+        del os.environ[Patroni.PATRONI_CONFIG_VARIABLE]
 
     def test_run(self):
         self.p.ha.dcs.watch = Mock(side_effect=SleepException)

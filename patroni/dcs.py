@@ -4,6 +4,7 @@ import json
 import six
 
 from collections import namedtuple
+from random import randint
 from six.moves.urllib_parse import urlparse, urlunparse, parse_qsl
 from threading import Event, Lock
 
@@ -65,12 +66,20 @@ class Member(namedtuple('Member', 'index,name,session,data')):
         return self.data.get('api_url')
 
     @property
+    def tags(self):
+        return self.data.get('tags', {})
+
+    @property
     def nofailover(self):
-        return self.data.get('tags', {}).get('nofailover', False)
+        return self.tags.get('nofailover', False)
 
     @property
     def replicatefrom(self):
-        return self.data.get('tags', {}).get('replicatefrom')
+        return self.tags.get('replicatefrom')
+
+    @property
+    def clonefrom(self):
+        return self.tags.get('clonefrom', False)
 
 
 class Leader(namedtuple('Leader', 'index,session,member')):
@@ -147,8 +156,12 @@ class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,mem
     def has_member(self, member_name):
         return any(m for m in self.members if m.name == member_name)
 
-    def get_member(self, member_name):
-        return ([m for m in self.members if m.name == member_name] or [None])[0]
+    def get_member(self, member_name, fallback_to_leader=True):
+        return ([m for m in self.members if m.name == member_name] or [self.leader if fallback_to_leader else None])[0]
+
+    def get_clone_member(self):
+        candidates = [m for m in self.members if m.clonefrom and (not self.leader or m.name != self.leader.name)]
+        return candidates[randint(0, len(candidates) - 1)] if candidates else self.leader
 
 
 @six.add_metaclass(abc.ABCMeta)

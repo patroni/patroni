@@ -202,16 +202,14 @@ def get_all_members(cluster, role='master'):
 
 
 def get_any_member(cluster, role='master', member=None):
-    members = get_all_members(cluster=cluster, role=role)
+    members = get_all_members(cluster, role)
     for m in members:
         if member is None or m.name == member:
             return m
 
-    return None
-
 
 def get_cursor(cluster, role='master', member=None, connect_parameters=None):
-    member = get_any_member(cluster=cluster, role=role, member=member)
+    member = get_any_member(cluster, role=role, member=member)
     if member is None:
         return None
 
@@ -248,7 +246,7 @@ def dsn(cluster_name, config_file, dcs, role, member):
         role = 'master'
 
     _, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
-    m = get_any_member(cluster=cluster, role=role, member=member)
+    m = get_any_member(cluster, role=role, member=member)
     if m is None:
         raise PatroniCtlException('Can not find a suitable member')
 
@@ -362,7 +360,7 @@ def query_member(cluster, cursor, member, role, command, connect_parameters=None
 def remove(config_file, cluster_name, fmt, dcs):
     config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
-    output_members(cluster, fmt=fmt)
+    output_members(cluster, cluster_name, fmt)
 
     confirm = click.prompt('Please confirm the cluster name to remove', type=str)
     if confirm != cluster_name:
@@ -443,7 +441,7 @@ def ctl_load_config(cluster_name, config_file, dcs):
 def restart(cluster_name, member_names, config_file, dcs, force, role, p_any):
     config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
-    role_names = [m.name for m in get_all_members(cluster=cluster, role=role)]
+    role_names = [m.name for m in get_all_members(cluster, role)]
 
     if member_names:
         member_names = list(set(member_names) & set(role_names))
@@ -454,7 +452,7 @@ def restart(cluster_name, member_names, config_file, dcs, force, role, p_any):
         random.shuffle(member_names)
         member_names = member_names[:1]
 
-    output_members(cluster)
+    output_members(cluster, cluster_name)
     empty_post_to_members(cluster, member_names, force, 'restart')
 
 
@@ -537,7 +535,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
 
     # By now we have established that the leader exists and the candidate exists
     click.echo('Current cluster topology')
-    output_members(dcs.get_cluster(), name=cluster_name)
+    output_members(dcs.get_cluster(), cluster_name)
 
     if not force:
         a = \
@@ -564,10 +562,10 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
         click.echo(timestamp() + ' Initializing failover from master {0}'.format(master))
         dcs.manual_failover(master, candidate, scheduled_at=failover_value)
 
-    output_members(cluster, name=cluster_name)
+    output_members(cluster, cluster_name)
 
 
-def output_members(cluster, name=None, fmt='pretty'):
+def output_members(cluster, name, fmt='pretty'):
     rows = []
     logging.debug(cluster)
     leader_name = None
@@ -627,11 +625,11 @@ def members(config_file, cluster_names, fmt, watch, w, dcs):
         return
 
     config = load_config(config_file, dcs)
-    for cn in cluster_names:
-        dcs = get_dcs(config, cn)
+    for cluster_name in cluster_names:
+        dcs = get_dcs(config, cluster_name)
 
         for _ in watching(w, watch):
-            output_members(dcs.get_cluster(), name=cn, fmt=fmt)
+            output_members(dcs.get_cluster(), cluster_name, fmt)
 
 
 def timestamp(precision=6):
