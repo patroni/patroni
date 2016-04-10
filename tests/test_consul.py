@@ -38,14 +38,6 @@ def kv_put(self, key, value, **kwargs):
     raise ConsulException
 
 
-def kv_delete(self, key, *args, **kwargs):
-    pass
-
-
-def session_renew(self, session):
-    raise NotFound
-
-
 def session_create(self, *args, **kwargs):
     if kwargs.get('name', None) in ['test-postgresql1', 'dummy-dummy']:
         return 'fd4f44fe-2cac-bba5-a60b-304b51ff39b7'
@@ -61,31 +53,31 @@ class TestHTTPClient(unittest.TestCase):
 
 
 @patch.object(consul.Consul.KV, 'get', kv_get)
-@patch.object(consul.Consul.KV, 'delete', kv_delete)
 class TestConsul(unittest.TestCase):
 
     @patch.object(consul.Consul.Session, 'create', session_create)
-    @patch.object(consul.Consul.Session, 'renew', session_renew)
+    @patch.object(consul.Consul.Session, 'renew', Mock(side_effect=NotFound))
     @patch.object(consul.Consul.KV, 'get', kv_get)
-    @patch.object(consul.Consul.KV, 'delete', kv_delete)
+    @patch.object(consul.Consul.KV, 'delete', Mock())
     def setUp(self):
         self.c = Consul('postgresql1', {'ttl': 30, 'scope': 'test', 'host': 'localhost:1'})
         self.c._base_path = '/service/good'
         self.c._load_cluster(1)
 
-    @patch.object(consul.Consul.Session, 'renew', session_renew)
+    @patch.object(consul.Consul.Session, 'renew', Mock(side_effect=NotFound))
     def test_referesh_session(self):
         self.c._session = '1'
         self.c._name = ''
         self.assertRaises(ConsulError, self.c.referesh_session)
 
-    @patch('time.sleep', Mock(side_effect=SleepException()))
+    @patch('time.sleep', Mock(side_effect=SleepException))
     def test_create_session(self):
         self.c._session = None
         self.c._name = ''
         self.assertRaises(SleepException, self.c.create_session, True)
         self.c.create_session()
 
+    @patch.object(consul.Consul.KV, 'delete', Mock())
     def test_get_cluster(self):
         self.c._base_path = '/service/test'
         self.assertIsInstance(self.c.get_cluster(), Cluster)
@@ -97,6 +89,7 @@ class TestConsul(unittest.TestCase):
         self.c._session = 'fd4f44fe-2cac-bba5-a60b-304b51ff39b8'
         self.assertIsInstance(self.c.get_cluster(), Cluster)
 
+    @patch.object(consul.Consul.KV, 'delete', Mock())
     def test_touch_member(self):
         self.c.referesh_session = Mock(return_value=True)
         self.c.touch_member('balbla')
@@ -130,5 +123,5 @@ class TestConsul(unittest.TestCase):
         self.c._name = ''
         self.c._load_cluster = Mock(return_value=None)
         self.c.watch(1)
-        self.c._load_cluster = session_create
+        self.c._load_cluster = Mock(side_effect=ConsulException)
         self.c.watch(1)
