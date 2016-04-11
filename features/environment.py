@@ -1,4 +1,5 @@
 import abc
+import consul
 import etcd
 import kazoo.client
 import kazoo.exceptions
@@ -120,13 +121,18 @@ class PatroniController(AbstractController):
             config['tags'] = tags
 
         if dcs != 'etcd':
-            etcd = config.pop('etcd')
-            config['zookeeper'] = {'scope': etcd['scope'], 'session_timeout': etcd['ttl'],
-                                   'reconnect_timeout': config['loop_wait']}
-            if dcs == 'exhibitor':
-                config['zookeeper']['exhibitor'] = {'hosts': ['127.0.0.1'], 'port': 8181}
+            dcs_config = config.pop('etcd')
+            dcs_config.pop('host')
+
+            if dcs == 'consul':
+                config[dcs] = dcs_config
             else:
-                config['zookeeper']['hosts'] = ['127.0.0.1:2181']
+                dcs_config.update({'session_timeout': dcs_config.pop('ttl'), 'reconnect_timeout': config['loop_wait']})
+                if dcs == 'exhibitor':
+                    dcs_config['exhibitor'] = {'hosts': ['127.0.0.1'], 'port': 8181}
+                else:
+                    dcs_config['hosts'] = ['127.0.0.1:2181']
+                config['zookeeper'] = dcs_config
 
         with open(patroni_config_path, 'w') as f:
             yaml.dump(config, f, default_flow_style=False)
@@ -191,6 +197,30 @@ class AbstractDcsController(AbstractController):
     @abc.abstractmethod
     def cleanup_service_tree(self):
         """ clean all contents stored in the tree used for the tests """
+
+
+class ConsulController(AbstractDcsController):
+
+    def __init__(self, output_dir):
+        super(ConsulController, self).__init__('consul', tempfile.mkdtemp(), output_dir)
+        self._client = consul.Consul()
+
+    def _start(self):
+        return subprocess.Popen(['consul', 'agent', '-server', '-bootstrap', '-advertise=127.0.0.1',
+                                 '-data-dir', self._work_directory], stdout=self._log, stderr=subprocess.STDOUT)
+
+    def _is_running(self):
+        try:
+            return bool(self._client.status.leader())
+        except Exception:
+            return False
+
+    def query(self, key):
+        _, value = self._client.kv.get('{0}/{1}'.format(self._CLUSTER_NODE, key))
+        return value and value['Value'].decode('utf-8')
+
+    def cleanup_service_tree(self):
+        self._client.kv.delete(self._CLUSTER_NODE, recurse=True)
 
 
 class EtcdController(AbstractDcsController):
@@ -264,7 +294,8 @@ class ZooKeeperController(AbstractDcsController):
 
 class PatroniPoolController(object):
 
-    KNOWN_DCS = {'etcd': EtcdController, 'zookeeper': ZooKeeperController, 'exhibitor': ZooKeeperController}
+    KNOWN_DCS = {'consul': ConsulController, 'etcd': EtcdController,
+                 'zookeeper': ZooKeeperController, 'exhibitor': ZooKeeperController}
 
     def __init__(self):
         self._dcs = None

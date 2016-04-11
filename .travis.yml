@@ -4,7 +4,7 @@ addons:
   postgresql: "9.5"
 env:
   global:
-    - BOTO_CONFIG='' ETCDVERSION=2.2.5 ZKVERSION=3.4.6
+    - BOTO_CONFIG='' CONSULVERSION=0.6.4 ETCDVERSION=2.2.5 ZKVERSION=3.4.6
   matrix:
     - TEST_SUITE="python setup.py test"
     - TEST_SUITE="behave"
@@ -24,6 +24,7 @@ install:
             apt-get update
             apt-get -y install postgresql-9.5
             /etc/init.d/postgresql stop'
+        curl -L https://releases.hashicorp.com/consul/${CONSULVERSION}/consul_${CONSULVERSION}_linux_amd64.zip | gunzip > consul && chmod +x consul
         curl -L https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v${ETCDVERSION}-linux-amd64.tar.gz | tar xz -C . --strip=1 --wildcards --no-anchored etcd
         curl -L http://www.apache.org/dist/zookeeper/zookeeper-${ZKVERSION}/zookeeper-${ZKVERSION}.tar.gz | tar xz
         mv zookeeper-${ZKVERSION}/conf/zoo_sample.cfg zookeeper-${ZKVERSION}/conf/zoo.cfg
@@ -37,6 +38,7 @@ install:
   - pip install behave codacy-coverage coverage coveralls
 script:
   - PATH=.:$PATH $TEST_SUITE
+  - if [[ $TEST_SUITE == "behave" ]]; then PATH=.:$PATH DCS=consul $TEST_SUITE; fi
   - if [[ $TEST_SUITE == "behave" ]]; then PATH=.:$PATH DCS=exhibitor $TEST_SUITE; else python setup.py flake8; fi
 after_success:
   - coveralls
