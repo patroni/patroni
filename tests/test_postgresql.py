@@ -205,6 +205,12 @@ class TestPostgresql(unittest.TestCase):
         self.assertTrue(self.p.initialize())
         self.assertTrue(os.path.exists(os.path.join(self.p.data_dir, 'pg_hba.conf')))
 
+        with open(os.path.join(self.p.data_dir, 'pg_hba.conf')) as f:
+            lines = f.readlines()
+            assert 'host replication replicator 127.0.0.1/32 md5\n' in lines
+            assert 'host all all 0.0.0.0/0 md5\n' in lines
+            assert not any(l.startswith('hostssl') for l in lines)
+
     @patch('os.path.exists', Mock(return_value=True))
     @patch('os.unlink', Mock())
     def test_delete_trigger_file(self):
