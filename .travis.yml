@@ -54,6 +54,7 @@ script:
                 echo Running acceptance tests using python${pv}
                 if ! PATH=.:$PATH $TEST_SUITE; then
                     grep . features/output/*/*postgres?.*
+                    exit 1
                 fi
             fi
         else
