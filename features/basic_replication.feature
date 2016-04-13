@@ -6,7 +6,7 @@ Feature: basic replication
     And postgres0 is a leader after 10 seconds
     And I start postgres1
     When I add the table foo to postgres0
-    Then table foo is present on postgres1 after 15 seconds
+    Then table foo is present on postgres1 after 20 seconds
 
   Scenario: check the basic failover
     When I kill postgres0
@@ -14,4 +14,4 @@ Feature: basic replication
     When I start postgres0
     Then postgres0 role is the secondary after 15 seconds
     When I add the table bar to postgres1
-    Then table bar is present on postgres0 after 15 seconds
+    Then table bar is present on postgres0 after 20 seconds
