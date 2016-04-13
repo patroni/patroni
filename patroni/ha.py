@@ -59,7 +59,7 @@ class Ha(object):
         }
         if self.patroni.tags:
             data['tags'] = self.patroni.tags
-        if data['state'] in ['running', 'restarting', 'starting']:
+        if not self._async_executor.busy and data['state'] in ['running', 'restarting', 'starting']:
             try:
                 data['xlog_location'] = self.state_handler.xlog_position()
             except:
