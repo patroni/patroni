@@ -44,7 +44,7 @@ Scenario: check the failover via the API
 	And replication works from postgres1 to postgres0 after 15 seconds
 
 Scenario: check the scheduled failover
-	Given I issue a scheduled failover at http://127.0.0.1:8009 from postgres1 to postgres0 in 10 seconds
+	Given I issue a scheduled failover at http://127.0.0.1:8009 from postgres1 to postgres0 in 1 seconds
 	Then I receive a response code 200
 	And postgres0 is a leader after 20 seconds
         And postgres0 role is the primary after 5 seconds
