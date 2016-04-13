@@ -38,7 +38,7 @@ class Ha(object):
 
     def update_lock(self):
         ret = self.dcs.update_leader()
-        if ret:
+        if ret and not self._async_executor.busy:
             try:
                 self.dcs.write_leader_optime(self.state_handler.last_operation())
             except:
