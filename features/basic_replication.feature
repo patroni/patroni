@@ -10,7 +10,7 @@ Feature: basic replication
 
   Scenario: check the basic failover
     When I kill postgres0
-    Then postgres1 role is the primary after 30 seconds
+    Then postgres1 role is the primary after 32 seconds
     When I start postgres0
     Then postgres0 role is the secondary after 15 seconds
     When I add the table bar to postgres1
