@@ -51,15 +51,19 @@ script:
 
         if [[ $TEST_SUITE == "behave" ]]; then
             if [[ $pv != "3.4" ]]; then
+                echo Running acceptance tests using python${pv}
                 if ! PATH=.:$PATH $TEST_SUITE; then
                     grep . features/output/*/*postgres?.*
                 fi
             fi
         else
+            echo Running unit tests using python${pv}
             $TEST_SUITE test
             $TEST_SUITE flake8
         fi
     done
+
+    set +e
 after_success:
   - coveralls
   - if [[ $TEST_SUITE != "behave" ]]; then python-codacy-coverage -r coverage.xml; fi
