@@ -25,21 +25,25 @@ install:
 
     if [[ $TEST_SUITE == "behave" ]]; then
         if [[ $DCS == "etcd" ]]; then
-            curl -L https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v${ETCDVERSION}-linux-amd64.tar.gz | tar xz -C . --strip=1 --wildcards --no-anchored etcd
+            curl -L https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v${ETCDVERSION}-linux-amd64.tar.gz \
+                | tar xz -C . --strip=1 --wildcards --no-anchored etcd
         fi
 
         if [[ $DCS == "exhibitor" ]]; then
             curl -L http://www.apache.org/dist/zookeeper/zookeeper-${ZKVERSION}/zookeeper-${ZKVERSION}.tar.gz | tar xz
             mv zookeeper-${ZKVERSION}/conf/zoo_sample.cfg zookeeper-${ZKVERSION}/conf/zoo.cfg
             zookeeper-${ZKVERSION}/bin/zkServer.sh start
+            # following lines are 'emulating' exhibitor REST API
             while true; do
-                echo -e 'HTTP/1.0 200 OK\nContent-Type: application/json\n\n{"servers":["127.0.0.1"],"port":2181}' | nc -l 8181 &> /dev/null
+                echo -e 'HTTP/1.0 200 OK\nContent-Type: application/json\n\n{"servers":["127.0.0.1"],"port":2181}' \
+                    | nc -l 8181 &> /dev/null
             done&
         fi
     fi
 
     for pv in "2.7" "3.4" "3.5"; do
         source ~/virtualenv/python${pv}/bin/activate
+        # explicitly install all needed python modules to cache them
         for p in '-r requirements.txt' 'behave codacy-coverage coverage coveralls flake8 mock pytest-cov pytest'; do
             pip install $p
         done
@@ -53,6 +57,7 @@ script:
             if [[ $pv != "3.4" ]]; then
                 echo Running acceptance tests using python${pv}
                 if ! PATH=.:$PATH $TEST_SUITE; then
+                    # output all log files when tests are failing
                     grep . features/output/*/*postgres?.*
                     exit 1
                 fi
