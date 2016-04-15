@@ -364,7 +364,7 @@ def query_member(cluster, cursor, member, role, command, connect_parameters=None
 @option_format
 @option_dcs
 def remove(config_file, cluster_name, fmt, dcs):
-    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+    _, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
     output_members(cluster, cluster_name, fmt)
 
