@@ -93,7 +93,12 @@ class PyTest(TestCommand):
             params['args'] += self.cov
         if self.junitxml:
             params['args'] += self.junitxml
-        params['args'] += ['--doctest-modules', MAIN_PACKAGE, '-s', '-vv']
+        params['args'] += ['--doctest-modules', MAIN_PACKAGE, '-vv']
+
+        import logging
+        silence = logging.WARNING
+        logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=os.getenv('LOGLEVEL', silence))
+        params['args'] += ['-s' if logging.getLogger().getEffectiveLevel() < silence else '--capture=fd']
         errno = pytest.main(**params)
         sys.exit(errno)
 

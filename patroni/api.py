@@ -203,8 +203,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
                         data = b'Cannot schedule failover in the past'
                         status_code = 422
                     elif self.server.patroni.dcs.manual_failover(leader, candidate, scheduled_at=scheduled_at):
+                        self.server.patroni.dcs.event.set()
                         data = b'Failover scheduled'
                         status_code = 200
+                    else:
+                        data = b'failed to write failover key into DCS'
+                        status_code = 503
                 except (ValueError, TypeError):
                     logger.exception('Invalid scheduled failover time: %s', request['scheduled_at'])
                     data = b'Unable to parse scheduled timestamp. It should be in an unambiguous format, e.g. ISO 8601'
@@ -212,12 +216,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
             else:
                 data = self.is_failover_possible(cluster, leader, candidate)
                 if not data:
-                    if not self.server.patroni.dcs.manual_failover(leader, candidate):
-                        data = b'failed to write failover key into DCS'
-                        status_code = 503
-                    else:
+                    if self.server.patroni.dcs.manual_failover(leader, candidate):
                         self.server.patroni.dcs.event.set()
                         status_code, data = self.poll_failover_result(cluster.leader and cluster.leader.name, candidate)
+                    else:
+                        data = b'failed to write failover key into DCS'
+                        status_code = 503
         else:
             status_code = 400
             data = b'No values given for required parameters leader and candidate'
