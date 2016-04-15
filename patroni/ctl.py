@@ -445,7 +445,7 @@ def ctl_load_config(cluster_name, config_file, dcs):
 @option_force
 @option_dcs
 def restart(cluster_name, member_names, config_file, dcs, force, role, p_any):
-    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+    _, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
     role_names = [m.name for m in get_all_members(cluster, role)]
 
@@ -469,7 +469,7 @@ def restart(cluster_name, member_names, config_file, dcs, force, role, p_any):
 @option_force
 @option_dcs
 def reinit(cluster_name, member_names, config_file, dcs, force):
-    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+    _, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
     empty_post_to_members(cluster, member_names, force, 'reinitialize')
 
 
@@ -490,7 +490,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
         If so, we trigger a failover and keep the client up to date.
     """
 
-    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+    _, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
     if cluster.leader is None:
         raise PatroniCtlException('This cluster has no master')
