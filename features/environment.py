@@ -72,11 +72,13 @@ class AbstractController(object):
 
 
 class PatroniController(AbstractController):
+    __PORT = 5440
     PATRONI_CONFIG = '{}.yml'
     """ starts and stops individual patronis"""
 
     def __init__(self, dcs, name, work_directory, output_dir, tags=None):
         super(PatroniController, self).__init__('patroni_' + name, work_directory, output_dir)
+        PatroniController.__PORT += 1
         self._data_dir = os.path.join(work_directory, 'data', name)
         self._connstring = None
         self._config = self._make_patroni_test_config(name, dcs, tags)
@@ -109,7 +111,11 @@ class PatroniController(AbstractController):
         with open(patroni_config_name) as f:
             config = yaml.load(f)
 
-        self._connstring = self._make_connstring(config)
+        host = config['postgresql']['listen'].split(':')[0]
+
+        config['postgresql']['listen'] = config['postgresql']['connect_address'] = '{0}:{1}'.format(host, self.__PORT)
+
+        self._connstring = 'host={0} port={1} dbname=postgres user=postgres'.format(host, self.__PORT)
 
         config['postgresql'].update({'name': name, 'data_dir': self._data_dir})
         config['postgresql']['parameters'].update({
@@ -132,11 +138,6 @@ class PatroniController(AbstractController):
             yaml.dump(config, f, default_flow_style=False)
 
         return patroni_config_path
-
-    @staticmethod
-    def _make_connstring(config):
-        tmp = (config['postgresql']['connect_address'] + ':5432').split(':')
-        return 'host={0} port={1} dbname=postgres user=postgres'.format(*tmp[:2])
 
     def _connection(self):
         if not self._conn or self._conn.closed != 0:

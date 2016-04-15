@@ -188,6 +188,9 @@ class TestRestApiHandler(unittest.TestCase):
         request = b'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\nContent-Length: 103\n\n{"leader": ' +\
                   b'"postgresql1", "member": "postgresql2", "scheduled_at": "6016-02-15T18:13:30.568224+01:00"}'
         MockRestApiServer(RestApiHandler, request)
+        with patch.object(MockPatroni, 'dcs') as d:
+            d.manual_failover.return_value = False
+            MockRestApiServer(RestApiHandler, request)
 
         # Exception: No timezone specified
         request = b'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\nContent-Length: 97\n\n{"leader": ' +\
