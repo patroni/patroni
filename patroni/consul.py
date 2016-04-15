@@ -68,7 +68,7 @@ class Consul(AbstractDCS):
         self.create_or_restore_session()
 
     def create_or_restore_session(self):
-        index, member = self._client.kv.get(self.member_path)
+        _, member = self._client.kv.get(self.member_path)
         self._session = (member or {}).get('Session')
         if self.referesh_session(retry=True):
             self._client.kv.delete(self.member_path)
@@ -104,7 +104,7 @@ class Consul(AbstractDCS):
     def member(node):
         return Member.from_node(node['ModifyIndex'], os.path.basename(node['Key']), node['Session'], node['Value'])
 
-    def _load_cluster(self, timeout=None):
+    def _do_load_cluster(self, timeout=None):
         if not timeout and self._new_cluster:
             self._new_cluster = False
             return self._cluster
@@ -162,6 +162,9 @@ class Consul(AbstractDCS):
         self._new_cluster = bool(timeout)
         return self._cluster
 
+    def _load_cluster(self):
+        self._do_load_cluster()
+
     def touch_member(self, connection_string, **kwargs):
         create_member = self.referesh_session()
         cluster = self.cluster
@@ -178,7 +181,8 @@ class Consul(AbstractDCS):
     @catch_consul_errors
     def attempt_to_acquire_leader(self):
         ret = self._client.kv.put(self.leader_path, self._name, acquire=self._session)
-        ret or logger.info('Could not take out TTL lock')
+        if not ret:
+            logger.info('Could not take out TTL lock')
         return ret
 
     def take_leader(self):
@@ -221,7 +225,7 @@ class Consul(AbstractDCS):
             end_time = time.time() + timeout
             while timeout >= 1:
                 try:
-                    return self._load_cluster(timeout) or True
+                    return self._do_load_cluster(timeout) or True
                 except (ConsulException, RequestException):
                     logging.exception('watch')
 

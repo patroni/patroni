@@ -62,7 +62,7 @@ class TestConsul(unittest.TestCase):
     def setUp(self):
         self.c = Consul('postgresql1', {'ttl': 30, 'scope': 'test', 'host': 'localhost:1'})
         self.c._base_path = '/service/good'
-        self.c._load_cluster(1)
+        self.c._do_load_cluster(1)
 
     @patch.object(consul.Consul.Session, 'renew', Mock(side_effect=NotFound))
     def test_referesh_session(self):
@@ -84,7 +84,7 @@ class TestConsul(unittest.TestCase):
         self.assertIsInstance(self.c.get_cluster(), Cluster)
         self.c._base_path = '/service/fail'
         self.assertRaises(ConsulError, self.c.get_cluster)
-        self.assertRaises(ConsulException, self.c._load_cluster, 1)
+        self.assertRaises(ConsulException, self.c._do_load_cluster, 1)
         self.c._base_path = '/service/good'
         self.c._session = 'fd4f44fe-2cac-bba5-a60b-304b51ff39b8'
         self.assertIsInstance(self.c.get_cluster(), Cluster)
@@ -121,7 +121,7 @@ class TestConsul(unittest.TestCase):
 
     def test_watch(self):
         self.c._name = ''
-        self.c._load_cluster = Mock(return_value=None)
+        self.c._do_load_cluster = Mock(return_value=None)
         self.c.watch(1)
-        self.c._load_cluster = Mock(side_effect=ConsulException)
+        self.c._do_load_cluster = Mock(side_effect=ConsulException)
         self.c.watch(1)
