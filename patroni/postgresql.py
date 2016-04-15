@@ -79,7 +79,7 @@ class Postgresql(object):
 
         self._state = 'stopped'
         self._state_lock = Lock()
-        self._role = 'replica'
+        self._role = 'replica' if os.path.exists(self.recovery_conf) else 'master'
         self._role_lock = Lock()
 
         if self.is_running():
