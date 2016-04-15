@@ -315,7 +315,7 @@ def query(
     if p_file is not None:
         command = p_file.read()
 
-    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+    _, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
     cursor = None
     for _ in watching(w, watch, clear=False):
@@ -561,7 +561,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
         else:
             click.echo('Failover failed, details: {0}, {1}'.format(r.status_code, r.text))
             return
-    except:
+    except Exception:
         logging.exception(r)
         logging.warning('Failing over to DCS')
         click.echo(timestamp() + ' Could not failover using Patroni api, falling back to DCS')
