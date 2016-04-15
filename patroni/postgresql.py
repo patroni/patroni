@@ -79,7 +79,7 @@ class Postgresql(object):
 
         self._state = 'stopped'
         self._state_lock = Lock()
-        self._role = 'replica' if os.path.exists(self.recovery_conf) else 'master'
+        self._role = self.get_postgres_role_from_data_directory()
         self._role_lock = Lock()
 
         if self.is_running():
@@ -123,6 +123,9 @@ class Postgresql(object):
                 local_address = 'localhost'  # connection via localhost is preferred
                 break
         return local_address + ':' + self.port
+
+    def get_postgres_role_from_data_directory(self):
+        return 'replica' if os.path.exists(self.recovery_conf) else 'master'
 
     @property
     def _connect_kwargs(self):
@@ -347,7 +350,7 @@ class Postgresql(object):
             logger.error('Cannot start PostgreSQL because one is already running.')
             return True
 
-        self.set_role('replica' if os.path.exists(self.recovery_conf) else 'master')
+        self.set_role(self.get_postgres_role_from_data_directory())
         if os.path.exists(self.postmaster_pid):
             os.remove(self.postmaster_pid)
             logger.info('Removed %s', self.postmaster_pid)
