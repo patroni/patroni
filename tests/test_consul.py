@@ -32,14 +32,14 @@ def kv_get(self, key, **kwargs):
     raise ConsulException
 
 
-def kv_put(self, key, value, **kwargs):
+def kv_put(self, key, *args, **kwargs):
     if key == 'service/good/leader':
         return False
     raise ConsulException
 
 
 def session_create(self, *args, **kwargs):
-    if kwargs.get('name', None) in ['test-postgresql1', 'dummy-dummy']:
+    if kwargs.get('name') in ['test-postgresql1', 'dummy-dummy']:
         return 'fd4f44fe-2cac-bba5-a60b-304b51ff39b7'
     raise ConsulException
 

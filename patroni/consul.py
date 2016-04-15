@@ -40,7 +40,8 @@ class HTTPClient(std.HTTPClient):
 
 class ConsulClient(base.Consul):
 
-    def connect(self, host, port, scheme, verify=True):
+    @staticmethod
+    def connect(host, port, scheme, verify=True):
         return HTTPClient(host, port, scheme, verify)
 
 
@@ -68,7 +69,7 @@ class Consul(AbstractDCS):
 
     def create_or_restore_session(self):
         index, member = self._client.kv.get(self.member_path)
-        self._session = (member or {}).get('Session', None)
+        self._session = (member or {}).get('Session')
         if self.referesh_session(retry=True):
             self._client.kv.delete(self.member_path)
 
@@ -127,14 +128,14 @@ class Consul(AbstractDCS):
             initialize = initialize and initialize['Value']
 
             # get last leader operation
-            last_leader_operation = nodes.get(self._LEADER_OPTIME, None)
+            last_leader_operation = nodes.get(self._LEADER_OPTIME)
             last_leader_operation = 0 if last_leader_operation is None else int(last_leader_operation['Value'])
 
             # get list of members
             members = [self.member(n) for k, n in nodes.items() if k.startswith(self._MEMBERS) and k.count('/') == 1]
 
             # get leader
-            leader = nodes.get(self._LEADER, None)
+            leader = nodes.get(self._LEADER)
             if leader and leader['Value'] == self._name and self._session != leader.get('Session', 'x'):
                 logger.info('I am leader but not owner of the session. Removing leader node')
                 self._client.kv.delete(self.leader_path, cas=leader['ModifyIndex'])
@@ -146,7 +147,7 @@ class Consul(AbstractDCS):
                 leader = Leader(leader['ModifyIndex'], leader['Session'], member)
 
             # failover key
-            failover = nodes.get(self._FAILOVER, None)
+            failover = nodes.get(self._FAILOVER)
             if failover:
                 failover = Failover.from_node(failover['ModifyIndex'], failover['Value'])
 
@@ -161,7 +162,7 @@ class Consul(AbstractDCS):
         self._new_cluster = bool(timeout)
         return self._cluster
 
-    def touch_member(self, connection_string, ttl=None):
+    def touch_member(self, connection_string, **kwargs):
         create_member = self.referesh_session()
         cluster = self.cluster
         member_exists = cluster and any(m.name == self._name for m in cluster.members)
@@ -170,7 +171,7 @@ class Consul(AbstractDCS):
         if create_member or not member_exists:
             try:
                 self._client.kv.put(self.member_path, connection_string, acquire=self._session)
-            except:
+            except Exception:
                 logger.exception('touch_member')
         return True
 
@@ -191,7 +192,8 @@ class Consul(AbstractDCS):
     def write_leader_optime(self, last_operation):
         return self._client.kv.put(self.leader_optime_path, last_operation)
 
-    def update_leader(self):
+    @staticmethod
+    def update_leader():
         return True
 
     @catch_consul_errors
