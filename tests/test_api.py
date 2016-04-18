@@ -17,6 +17,7 @@ class MockPostgresql(object):
     state = 'running'
     role = 'master'
     server_version = '999999'
+    sysid = 'dummysysid'
     scope = 'dummy'
 
     @staticmethod
