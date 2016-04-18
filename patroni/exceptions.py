@@ -1,6 +1,3 @@
-from click import ClickException
-
-
 class PatroniException(Exception):
 
     """Parent class for all kind of exceptions related to selected distributed configuration store"""
@@ -14,10 +11,6 @@ class PatroniException(Exception):
         "'foo'"
         """
         return repr(self.value)
-
-
-class PatroniCtlException(ClickException):
-    pass
 
 
 class PostgresException(PatroniException):

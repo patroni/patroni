@@ -3,39 +3,44 @@ Patroni Control
 '''
 
 import click
-import os
-import yaml
+import datetime
+import dateutil
 import json
-import time
+import logging
+import os
 import psycopg2
 import random
 import requests
-import datetime
+import time
+import tzlocal
+import yaml
+
+from click import ClickException
+from patroni import Patroni, PatroniException
+from patroni.postgresql import parseurl
 from prettytable import PrettyTable
 from six.moves.urllib_parse import urlparse
-import logging
-import dateutil
-import tzlocal
-
-from .etcd import Etcd
-from .zookeeper import ZooKeeper
-from .exceptions import PatroniCtlException
-from .postgresql import parseurl
 
 CONFIG_DIR_PATH = click.get_app_dir('patroni')
 CONFIG_FILE_PATH = os.path.join(CONFIG_DIR_PATH, 'patronictl.yaml')
 LOGLEVEL = 'WARNING'
 
 
+class PatroniCtlException(ClickException):
+    pass
+
+
 def parse_dcs(dcs):
     """
     Break up the provided dcs string
-    >>> parse_dcs('localhost') == {'scheme': 'etcd', 'hostname': 'localhost', 'port': 4001}
-    True
-    >>> parse_dcs('localhost:8500') == {'scheme': 'consul', 'hostname': 'localhost', 'port': 8500}
-    True
-    >>> parse_dcs('zookeeper://localhost') == {'scheme': 'zookeeper', 'hostname': 'localhost', 'port': 2181}
-    True
+    >>> parse_dcs('localhost')
+    {'etcd': {'host': 'localhost:4001'}}
+    >>> parse_dcs('localhost:8500')
+    {'consul': {'host': 'localhost:8500'}}
+    >>> parse_dcs('zookeeper://localhost')
+    {'zookeeper': {'hosts': ['localhost:2181']}}
+    >>> parse_dcs('exhibitor://localhost')
+    {'zookeeper': {'exhibitor': {'hosts': ['localhost'], 'port': 8181}}}
     """
 
     if not dcs:
@@ -55,7 +60,13 @@ def parse_dcs(dcs):
         default_ports = {'consul': 8500, 'zookeeper': 2181, 'exhibitor': 8181}
         port = default_ports.get(str(scheme), 4001)
 
-    return {'scheme': str(scheme), 'hostname': str(parsed.hostname), 'port': int(port)}
+    config = {'host': '{0}:{1}'.format(parsed.hostname, port)}
+    if scheme == 'exhibitor':
+        config = {scheme: {'port': int(port), 'hosts': [str(parsed.hostname)]}}
+        scheme = 'zookeeper'
+    elif scheme == 'zookeeper':
+        config['hosts'] = [config.pop('host')]
+    return {scheme: config}
 
 
 def load_config(path, dcs):
@@ -101,18 +112,12 @@ def ctl(ctx):
 
 
 def get_dcs(config, scope):
-    scheme, hostname, port = map(config.get('dcs', {}).get, ('scheme', 'hostname', 'port'))
-
-    if scheme == 'etcd':
-        return Etcd(name=scope, config={'scope': scope, 'host': '{0}:{1}'.format(hostname, port)})
-
-    if scheme == 'zookeeper':
-        return ZooKeeper(name=scope, config={'scope': scope, 'hosts': [hostname], 'port': port})
-
-    if scheme == 'exhibitor':
-        return ZooKeeper(name=scope, config={'scope': scope, 'exhibitor': {'hosts': [hostname], 'port': port}})
-
-    raise PatroniCtlException('Can not find suitable configuration of distributed configuration store')
+    dcs_config = config.get('dcs', {})
+    dcs_config[dcs_config.keys()[0]]['scope'] = scope
+    try:
+        return Patroni.get_dcs(scope, dcs_config)
+    except PatroniException as e:
+        raise PatroniCtlException(str(e))
 
 
 def post_patroni(member, endpoint, content, headers=None):
@@ -526,7 +531,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
             if scheduled_at.tzinfo is None:
                 scheduled_at = tzlocal.get_localzone().localize(scheduled_at)
         except (ValueError, TypeError):
-            message = 'Unable to parse scheduled timestamp ({}). It should be in an unambiguous format (e.g. ISO 8601)'
+            message = 'Unable to parse scheduled timestamp ({0}). It should be in an unambiguous format (e.g. ISO 8601)'
             raise PatroniCtlException(message.format(scheduled))
         scheduled_at = scheduled_at.isoformat()
 

@@ -7,12 +7,10 @@ import unittest
 from click.testing import CliRunner
 from mock import patch, Mock
 from patroni.ctl import ctl, members, store_config, load_config, output_members, post_patroni, get_dcs, \
-    wait_for_leader, get_all_members, get_any_member, get_cursor, query_member, configure
+    wait_for_leader, get_all_members, get_any_member, get_cursor, query_member, configure, PatroniCtlException
 from patroni.etcd import Etcd, Client
-from patroni.exceptions import PatroniCtlException
 from psycopg2 import OperationalError
 from test_etcd import etcd_read, requests_get, socket_getaddrinfo, MockResponse
-from test_zookeeper import MockKazooClient
 from test_ha import get_cluster_initialized_without_leader, get_cluster_initialized_with_leader, \
     get_cluster_initialized_with_only_leader
 from test_postgresql import MockConnect, psycopg2_connect
@@ -43,7 +41,7 @@ def test_rw_config():
     load_config(CONFIG_FILE_PATH, '0.0.0.0')
 
 
-@patch('patroni.ctl.load_config', Mock(return_value={'dcs': {'scheme': 'etcd', 'hostname': 'localhost', 'port': 4001}}))
+@patch('patroni.ctl.load_config', Mock(return_value={'dcs': {'etcd': {'host': 'localhost:4001'}}}))
 class TestCtl(unittest.TestCase):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
@@ -74,43 +72,25 @@ class TestCtl(unittest.TestCase):
     @patch('patroni.etcd.Etcd.get_etcd_client', Mock(return_value=None))
     @patch('patroni.ctl.post_patroni', Mock(return_value=MockResponse()))
     def test_failover(self):
-        result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
-other
-
-y''')
+        result = self.runner.invoke(ctl, ['failover', 'dummy'], input='''leader\nother\n\ny''')
         assert 'leader' in result.output
 
-        result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
-other
-2100-01-01T12:23:00
-y''')
+        result = self.runner.invoke(ctl, ['failover', 'dummy'], input='''leader\nother\n2100-01-01T12:23:00\ny''')
         assert result.exit_code == 0
 
-        result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
-other
-2030-01-01T12:23:00
-y''')
+        result = self.runner.invoke(ctl, ['failover', 'dummy'], input='''leader\nother\n2030-01-01T12:23:00\ny''')
         assert result.exit_code == 0
 
         # Aborting failover,as we anser NO to the confirmation
-        result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
-other
-
-N''')
+        result = self.runner.invoke(ctl, ['failover', 'dummy'], input='''leader\nother\n\nN''')
         assert result.exit_code == 1
 
         # Target and source are equal
-        result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
-leader
-
-y''')
+        result = self.runner.invoke(ctl, ['failover', 'dummy'], input='''leader\nleader\n\ny''')
         assert result.exit_code == 1
 
         # Reality is not part of this cluster
-        result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
-Reality
-
-y''')
+        result = self.runner.invoke(ctl, ['failover', 'dummy'], input='''leader\nReality\n\ny''')
         assert result.exit_code == 1
 
         result = self.runner.invoke(ctl, ['failover', 'dummy', '--force'])
@@ -128,47 +108,31 @@ y''')
         assert result.exit_code != 0
 
         # Specifying wrong leader
-        result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='dummy')
+        result = self.runner.invoke(ctl, ['failover', 'dummy'], input='dummy')
         assert result.exit_code == 1
 
         with patch('patroni.etcd.Etcd.get_cluster', Mock(return_value=get_cluster_initialized_with_only_leader())):
             # No members available
-            result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
-other
-
-y''')
+            result = self.runner.invoke(ctl, ['failover', 'dummy'], input='''leader\nother\n\ny''')
             assert result.exit_code == 1
 
         with patch('patroni.etcd.Etcd.get_cluster', Mock(return_value=get_cluster_initialized_without_leader())):
             # No master available
-            result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
-other
-
-y''')
+            result = self.runner.invoke(ctl, ['failover', 'dummy'], input='''leader\nother\n\ny''')
             assert result.exit_code == 1
 
         with patch('patroni.ctl.post_patroni', Mock(side_effect=Exception)):
             # Non-responding patroni
-            result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
-other
-
-y''')
+            result = self.runner.invoke(ctl, ['failover', 'dummy'], input='''leader\nother\n\ny''')
             assert 'falling back to DCS' in result.output
 
         with patch('patroni.ctl.post_patroni') as mocked:
             mocked.return_value.status_code = 500
-            result = self.runner.invoke(ctl, ['failover', 'dummy', '--dcs', '8.8.8.8'], input='''leader
-other
-
-y''')
+            result = self.runner.invoke(ctl, ['failover', 'dummy'], input='''leader\nother\n\ny''')
             assert 'Failover failed' in result.output
 
-    @patch('patroni.zookeeper.KazooClient', MockKazooClient)
-    @patch('requests.get', requests_get)
     def test_get_dcs(self):
-        self.assertIsNotNone(get_dcs({'dcs': {'scheme': 'zookeeper', 'hostname': 'foo', 'port': 2181}}, 'dummy'))
-        self.assertIsNotNone(get_dcs({'dcs': {'scheme': 'exhibitor', 'hostname': 'exhibitor', 'port': 8181}}, 'dummy'))
-        self.assertRaises(PatroniCtlException, get_dcs, {'scheme': 'dummy'}, 'dummy')
+        self.assertRaises(PatroniCtlException, get_dcs, {'dcs': {'dummy': {}}}, 'dummy')
 
     @patch('psycopg2.connect', psycopg2_connect)
     @patch('patroni.ctl.query_member', Mock(return_value=([['mock column']], None)))
@@ -227,7 +191,7 @@ y''')
     @patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=get_cluster_initialized_with_leader()))
     def test_dsn(self):
         with patch('patroni.ctl.get_dcs', Mock(return_value=self.e)):
-            result = self.runner.invoke(ctl, ['dsn', 'alpha', '--dcs', '8.8.8.8'])
+            result = self.runner.invoke(ctl, ['dsn', 'alpha'])
             assert 'host=127.0.0.1 port=5435' in result.output
 
             # Mutually exclusive options
@@ -242,45 +206,45 @@ y''')
     @patch('patroni.etcd.Etcd.get_etcd_client', Mock(return_value=None))
     @patch('requests.post', requests_get)
     def test_restart_reinit(self):
-        result = self.runner.invoke(ctl, ['restart', 'alpha', '--dcs', '8.8.8.8'], input='y')
+        result = self.runner.invoke(ctl, ['restart', 'alpha'], input='y')
         assert result.exit_code == 0
 
-        result = self.runner.invoke(ctl, ['reinit', 'alpha', '--dcs', '8.8.8.8'], input='y')
+        result = self.runner.invoke(ctl, ['reinit', 'alpha'], input='y')
         assert result.exit_code == 1
 
         # Aborted restart
-        result = self.runner.invoke(ctl, ['restart', 'alpha', '--dcs', '8.8.8.8'], input='N')
+        result = self.runner.invoke(ctl, ['restart', 'alpha'], input='N')
         assert result.exit_code == 1
 
         # Not a member
-        result = self.runner.invoke(ctl, ['restart', 'alpha', '--dcs', '8.8.8.8', 'dummy', '--any'], input='y')
+        result = self.runner.invoke(ctl, ['restart', 'alpha', 'dummy', '--any'], input='y')
         assert result.exit_code == 1
 
         with patch('requests.post', Mock(return_value=MockResponse())):
-            result = self.runner.invoke(ctl, ['restart', 'alpha', '--dcs', '8.8.8.8'], input='y')
+            result = self.runner.invoke(ctl, ['restart', 'alpha'], input='y')
             assert result.exit_code == 0
 
     @patch('patroni.etcd.Etcd.get_cluster', Mock(return_value=get_cluster_initialized_with_leader()))
     @patch.object(etcd.Client, 'delete', Mock(side_effect=etcd.EtcdException))
     def test_remove(self):
         with patch('patroni.ctl.get_dcs', Mock(return_value=self.e)):
-            result = self.runner.invoke(ctl, ['remove', 'alpha', '--dcs', '8.8.8.8'], input='alpha\nslave')
+            result = self.runner.invoke(ctl, ['remove', 'alpha'], input='alpha\nslave')
             assert 'Please confirm' in result.output
             assert 'You are about to remove all' in result.output
             # Not typing an exact confirmation
             assert result.exit_code == 1
 
             # master specified does not match master of cluster
-            result = self.runner.invoke(ctl, ['remove', 'alpha', '--dcs', '8.8.8.8'], input='''alpha
+            result = self.runner.invoke(ctl, ['remove', 'alpha'], input='''alpha
 Yes I am aware
 slave''')
             assert result.exit_code == 1
 
             # cluster specified on cmdline does not match verification prompt
-            result = self.runner.invoke(ctl, ['remove', 'alpha', '--dcs', '8.8.8.8'], input='beta\nleader')
+            result = self.runner.invoke(ctl, ['remove', 'alpha'], input='beta\nleader')
             assert result.exit_code == 1
 
-            result = self.runner.invoke(ctl, ['remove', 'alpha', '--dcs', '8.8.8.8'], input='''alpha
+            result = self.runner.invoke(ctl, ['remove', 'alpha'], input='''alpha
 Yes I am aware
 leader''')
             assert result.exit_code == 0
