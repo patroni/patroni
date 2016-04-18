@@ -33,14 +33,14 @@ class PatroniCtlException(ClickException):
 def parse_dcs(dcs):
     """
     Break up the provided dcs string
-    >>> parse_dcs('localhost')
-    {'etcd': {'host': 'localhost:4001'}}
-    >>> parse_dcs('localhost:8500')
-    {'consul': {'host': 'localhost:8500'}}
-    >>> parse_dcs('zookeeper://localhost')
-    {'zookeeper': {'hosts': ['localhost:2181']}}
-    >>> parse_dcs('exhibitor://localhost')
-    {'zookeeper': {'exhibitor': {'hosts': ['localhost'], 'port': 8181}}}
+    >>> parse_dcs('localhost') == {'etcd': {'host': 'localhost:4001'}}
+    True
+    >>> parse_dcs('localhost:8500') == {'consul': {'host': 'localhost:8500'}}
+    True
+    >>> parse_dcs('zookeeper://localhost') == {'zookeeper': {'hosts': ['localhost:2181']}}
+    True
+    >>> parse_dcs('exhibitor://localhost') == {'zookeeper': {'exhibitor': {'hosts': ['localhost'], 'port': 8181}}}
+    True
     """
 
     if not dcs:
@@ -113,7 +113,7 @@ def ctl(ctx):
 
 def get_dcs(config, scope):
     dcs_config = config.get('dcs', {})
-    dcs_config[dcs_config.keys()[0]]['scope'] = scope
+    dcs_config[list(dcs_config.keys())[0]]['scope'] = scope
     try:
         return Patroni.get_dcs(scope, dcs_config)
     except PatroniException as e:
