@@ -235,18 +235,14 @@ class TestCtl(unittest.TestCase):
             assert result.exit_code == 1
 
             # master specified does not match master of cluster
-            result = self.runner.invoke(ctl, ['remove', 'alpha'], input='''alpha
-Yes I am aware
-slave''')
+            result = self.runner.invoke(ctl, ['remove', 'alpha'], input='''alpha\nYes I am aware\nslave''')
             assert result.exit_code == 1
 
             # cluster specified on cmdline does not match verification prompt
             result = self.runner.invoke(ctl, ['remove', 'alpha'], input='beta\nleader')
             assert result.exit_code == 1
 
-            result = self.runner.invoke(ctl, ['remove', 'alpha'], input='''alpha
-Yes I am aware
-leader''')
+            result = self.runner.invoke(ctl, ['remove', 'alpha'], input='''alpha\nYes I am aware\nleader''')
             assert result.exit_code == 0
 
     @patch('patroni.etcd.Etcd.watch', Mock(return_value=None))
