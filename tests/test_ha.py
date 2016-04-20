@@ -91,6 +91,7 @@ class TestHa(unittest.TestCase):
                                  'data_dir': 'data/postgresql0', 'superuser': {}, 'admin': {},
                                  'replication': {'username': '', 'password': '', 'network': ''}})
             self.p.set_state('running')
+            self.p.set_role('replica')
             self.p.check_replication_lag = true
             self.p.can_create_replica_without_replication_connection = MagicMock(return_value=False)
             self.e = Etcd('foo', {'ttl': 30, 'host': 'ok:2379', 'scope': 'test'})
