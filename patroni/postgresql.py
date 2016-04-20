@@ -469,17 +469,15 @@ class Postgresql(object):
                     return pattern and (pattern in line)
         return not pattern
 
-    def write_recovery_conf(self, leader, bootstrap=False):
+    def write_recovery_conf(self, leader):
         with open(self.recovery_conf, 'w') as f:
-            f.write("""standby_mode = 'on'
-recovery_target_timeline = 'latest'
-""")
+            f.write("standby_mode = 'on'\nrecovery_target_timeline = 'latest'\n")
             if leader and leader.conn_url:
-                f.write("""primary_conninfo = '{0}'\n""".format(self.primary_conninfo(leader.conn_url)))
+                f.write("primary_conninfo = '{0}'\n".format(self.primary_conninfo(leader.conn_url)))
                 if self.use_slots:
-                    f.write("""primary_slot_name = '{0}'\n""".format(self.name))
-            if (leader and leader.conn_url) or bootstrap:
-                for name, value in self.config.get('recovery_conf', {}).items():
+                    f.write("primary_slot_name = '{0}'\n".format(self.name))
+            for name, value in self.config.get('recovery_conf', {}).items():
+                if name not in ('standby_mode', 'recovery_target_timeline', 'primary_conninfo', 'primary_slot_name'):
                     f.write("{0} = '{1}'\n".format(name, value))
 
     def rewind(self, leader):
@@ -729,7 +727,7 @@ $$""".format(name, options), name, password, password)
         else:
             if self.sync_replica(clone_member):
                 self.restore_configuration_files()
-                self.write_recovery_conf(clone_member, True)
+                self.write_recovery_conf(clone_member)
                 ret = self.start()
         return ret
 
