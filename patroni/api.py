@@ -278,6 +278,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 'postmaster_start_time': row[0],
                 'role': 'replica' if row[1] else 'master',
                 'server_version': self.server.patroni.postgresql.server_version,
+                'database_system_identifier': self.server.patroni.postgresql.sysid,
                 'xlog': ({
                     'received_location': row[3],
                     'replayed_location': row[4],
