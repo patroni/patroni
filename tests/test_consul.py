@@ -68,7 +68,7 @@ class TestConsul(unittest.TestCase):
     def test_referesh_session(self):
         self.c._session = '1'
         self.c._name = ''
-        self.assertRaises(ConsulError, self.c.referesh_session)
+        self.assertRaises(ConsulError, self.c.refresh_session)
 
     @patch('time.sleep', Mock(side_effect=SleepException))
     def test_create_session(self):
@@ -91,7 +91,7 @@ class TestConsul(unittest.TestCase):
 
     @patch.object(consul.Consul.KV, 'delete', Mock())
     def test_touch_member(self):
-        self.c.referesh_session = Mock(return_value=True)
+        self.c.refresh_session = Mock(return_value=True)
         self.c.touch_member('balbla')
 
     @patch.object(consul.Consul.KV, 'put', kv_put)
