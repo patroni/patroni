@@ -164,13 +164,14 @@ class TestPostgresql(unittest.TestCase):
     def setUp(self):
         self.p = Postgresql({'name': 'test0', 'scope': 'batman', 'data_dir': 'data/test0',
                              'listen': '127.0.0.1, *:5432', 'connect_address': '127.0.0.2:5432',
-                             'pg_hba': ['hostssl all all 0.0.0.0/0 md5', 'host all all 0.0.0.0/0 md5'],
+                             'pg_hba': ['host replication replicator 127.0.0.1/32 md5',
+                                        'hostssl all all 0.0.0.0/0 md5',
+                                        'host all all 0.0.0.0/0 md5'],
                              'superuser': {'username': 'test', 'password': 'test'},
                              'admin': {'username': 'admin', 'password': 'admin'},
                              'pg_rewind': {'username': 'admin', 'password': 'admin'},
                              'replication': {'username': 'replicator',
-                                             'password': 'rep-pass',
-                                             'network': '127.0.0.1/32'},
+                                             'password': 'rep-pass'},
                              'parameters': {'foo': 'bar'}, 'recovery_conf': {'foo': 'bar'},
                              'callbacks': {'on_start': 'true', 'on_stop': 'true',
                                            'on_restart': 'true', 'on_role_change': 'true',
@@ -204,6 +205,11 @@ class TestPostgresql(unittest.TestCase):
     def test_initialize(self):
         self.assertTrue(self.p.initialize())
         self.assertTrue(os.path.exists(os.path.join(self.p.data_dir, 'pg_hba.conf')))
+
+        with open(os.path.join(self.p.data_dir, 'pg_hba.conf')) as f:
+            lines = f.readlines()
+            assert 'host replication replicator 127.0.0.1/32 md5\n' in lines
+            assert 'host all all 0.0.0.0/0 md5\n' in lines
 
     @patch('os.path.exists', Mock(return_value=True))
     @patch('os.unlink', Mock())
