@@ -106,12 +106,6 @@ class Ha(object):
             return 'waiting for leader to bootstrap'
 
     def recover(self):
-        # try to see if we are the former master that crashed. If so - we likely need to run pg_rewind
-        # in order to join the former standby being promoted.
-        if self.state_handler.role == 'master':
-            pg_controldata = self.state_handler.controldata()
-            if pg_controldata and pg_controldata.get('Database cluster state', '') == 'in production':  # crashed master
-                self.state_handler.require_rewind()
         self.recovering = True
         return self.follow("starting as readonly because i had the session lock", "starting as a secondary", True, True)
 
