@@ -10,7 +10,7 @@ from patroni.api import RestApiServer
 from patroni.async_executor import AsyncExecutor
 from patroni.consul import Consul
 from patroni.etcd import Etcd
-from patroni import Patroni, main as _main
+from patroni import Patroni, PatroniException, main as _main
 from patroni.zookeeper import ZooKeeper
 from six.moves import BaseHTTPServer
 from test_etcd import Client, SleepException, etcd_read, etcd_write
@@ -46,7 +46,7 @@ class TestPatroni(unittest.TestCase):
     def test_get_dcs(self):
         self.assertIsInstance(self.p.get_dcs('', {'zookeeper': {'scope': '', 'hosts': ''}}), ZooKeeper)
         self.assertIsInstance(self.p.get_dcs('', {'consul': {'scope': '', 'hosts': '127.0.0.1:1'}}), Consul)
-        self.assertRaises(Exception, self.p.get_dcs, '', {})
+        self.assertRaises(PatroniException, self.p.get_dcs, '', {})
 
     @patch('time.sleep', Mock(side_effect=SleepException))
     @patch.object(Etcd, 'delete_leader', Mock())

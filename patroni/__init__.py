@@ -5,6 +5,7 @@ import time
 import yaml
 
 from patroni.api import RestApiServer
+from patroni.exceptions import PatroniException
 from patroni.ha import Ha
 from patroni.postgresql import Postgresql
 from patroni.utils import reap_children, set_ignore_sigterm, setup_signal_handlers
@@ -46,7 +47,7 @@ class Patroni(object):
         if 'consul' in config:
             from patroni.consul import Consul
             return Consul(name, config['consul'])
-        raise Exception('Can not find suitable configuration of distributed configuration store')
+        raise PatroniException('Can not find suitable configuration of distributed configuration store')
 
     def schedule_next_run(self):
         self.next_run += self.nap_time
