@@ -54,6 +54,7 @@ class MockPatroni(object):
     dcs = Mock()
     tags = {}
     version = '0.00'
+    noloadbalance = Mock(return_value=False)
 
 
 class MockRequest(object):

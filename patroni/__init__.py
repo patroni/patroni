@@ -29,6 +29,10 @@ class Patroni(object):
         self.next_run = time.time()
 
     @property
+    def noloadbalance(self):
+        return self.tags.get('noloadbalance', False)
+
+    @property
     def nofailover(self):
         return self.tags.get('nofailover', False)
 
