@@ -116,7 +116,9 @@ class PatroniController(AbstractController):
 
         config['postgresql']['listen'] = config['postgresql']['connect_address'] = '{0}:{1}'.format(host, self.__PORT)
 
-        self._connstring = 'host={0} port={1} dbname=postgres user=postgres'.format(host, self.__PORT)
+        user = config['postgresql'].get('superuser', {})
+        self._connkwargs = {k: user[n] for n, k in [('username', 'user'), ('password', 'password')] if n in user}
+        self._connkwargs.update({'host': host, 'port': self.__PORT, 'database': 'postgres'})
 
         config['postgresql'].update({'name': name, 'data_dir': self._data_dir})
         config['postgresql']['parameters'].update({
@@ -147,7 +149,7 @@ class PatroniController(AbstractController):
 
     def _connection(self):
         if not self._conn or self._conn.closed != 0:
-            self._conn = psycopg2.connect(self._connstring)
+            self._conn = psycopg2.connect(**self._connkwargs)
             self._conn.autocommit = True
         return self._conn
 
