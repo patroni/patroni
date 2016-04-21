@@ -91,6 +91,7 @@ For an example file, see ``postgres0.yml``. Regarding settings:
 
     -  *pg\_hba*: list of lines which should be added to pg\_hba.conf.
         -  *- host all all 0.0.0.0/0 md5*.
+        -  *- host replication replicator 127.0.0.1/32 md5* # A line like this is required for replication
 
     -  *replication*:
         -  *username*: replication username; user will be created during initialization.
