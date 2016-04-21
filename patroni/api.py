@@ -34,12 +34,19 @@ def check_auth(func):
 
 class RestApiHandler(BaseHTTPRequestHandler):
 
+    def _write_response(self, status_code, body, headers=None):
+        self.send_response(status_code)
+        if body is not None:
+            headers = headers or {}
+            if 'Content-Type' not in headers:
+                headers['Content-Type'] = 'text/html'
+            for name, value in (headers or {}).items():
+                self.send_header(name, value)
+            self.end_headers()
+            self.wfile.write(body.encode('utf-8'))
+
     def send_auth_request(self, body):
-        self.send_response(401)
-        self.send_header('WWW-Authenticate', 'Basic realm=\"Patroni\"')
-        self.send_header('Content-type', 'text/html')
-        self.end_headers()
-        self.wfile.write(body.encode('utf-8'))
+        self._write_response(401, body, {'WWW-Authenticate': 'Basic realm=\"Patroni\"'})
 
     def finish(self, *args, **kwargs):
         try:
@@ -55,15 +62,23 @@ class RestApiHandler(BaseHTTPRequestHandler):
         status = self.server.check_auth_header(auth_header)
         return not status or self.send_auth_request(status)
 
-    def do_OPTIONS(self):
-        self.do_GET(options=True)
+    def _write_status_response(self, status_code, response, options=False):
+        if options:
+            body = None
+        else:
+            patroni = self.server.patroni
+            response.update({'tags': patroni.tags} if patroni.tags else {})
+            if patroni.postgresql.sysid:
+                response['database_system_identifier'] = patroni.postgresql.sysid
+            response['patroni'] = {'version': patroni.version, 'scope': patroni.postgresql.scope}
+            body = json.dumps(response)
+        self._write_response(status_code, body, {'Content-Type': 'application/json'})
 
     def do_GET(self, options=False):
         """Default method for processing all GET requests which can not be routed to other methods"""
 
         path = '/master' if self.path == '/' else self.path
         response = self.get_postgresql_status()
-        response.update(self.get_tags())
 
         patroni = self.server.patroni
         cluster = patroni.dcs.cluster
@@ -85,38 +100,25 @@ class RestApiHandler(BaseHTTPRequestHandler):
             status_code = 200
         else:
             status_code = 503
+        self._write_status_response(status_code, response, options)
 
-        self.send_response(status_code)
-        if not options:
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps(response).encode('utf-8'))
+    def do_OPTIONS(self):
+        self.do_GET(options=True)
 
     def do_GET_patroni(self):
         response = self.get_postgresql_status(True)
-        response.update(self.get_tags())
-        response['patroni'] = {'version': self.server.patroni.version, 'scope': self.server.patroni.postgresql.scope}
-
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
-        self.end_headers()
-        self.wfile.write(json.dumps(response).encode('utf-8'))
+        self._write_status_response(200, response)
 
     @check_auth
     def do_POST_restart(self):
         status_code = 500
-        data = b'restart failed'
+        data = 'restart failed'
         try:
-            status, msg = self.server.patroni.ha.restart()
+            status, data = self.server.patroni.ha.restart()
             status_code = 200 if status else 503
-            data = msg.encode('utf-8')
         except Exception:
             logger.exception('Exception during restart')
-
-        self.send_response(status_code)
-        self.send_header('Content-Type', 'text/html')
-        self.end_headers()
-        self.wfile.write(data)
+        self._write_response(status_code, data)
 
     @check_auth
     def do_POST_reinitialize(self):
@@ -124,23 +126,19 @@ class RestApiHandler(BaseHTTPRequestHandler):
         cluster = ha.dcs.get_cluster()
         if cluster.is_unlocked():
             status_code = 503
-            data = b'Cluster has no leader, can not reinitialize'
+            data = 'Cluster has no leader, can not reinitialize'
         elif cluster.leader.name == ha.state_handler.name:
             status_code = 503
-            data = b'I am the leader, can not reinitialize'
+            data = 'I am the leader, can not reinitialize'
         else:
             action = ha.schedule_reinitialize()
             if action is not None:
                 status_code = 503
-                data = (action + ' already in progress').encode('utf-8')
+                data = action + ' already in progress'
             else:
                 status_code = 200
-                data = b'reinitialize scheduled'
-
-        self.send_response(status_code)
-        self.send_header('Content-Type', 'text/html')
-        self.end_headers()
-        self.wfile.write(data)
+                data = 'reinitialize scheduled'
+        self._write_response(status_code, data)
 
     def poll_failover_result(self, leader, candidate):
         for _ in range(0, 15):
@@ -149,31 +147,30 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 cluster = self.server.patroni.dcs.get_cluster()
                 if cluster.leader and cluster.leader.name != leader:
                     if not candidate or candidate == cluster.leader.name:
-                        return 200, ('Successfully failed over to ' + cluster.leader.name).encode('utf-8')
+                        return 200, 'Successfully failed over to "{0}"'.format(cluster.leader.name)
                     else:
-                        return 200, 'Failed over to "{0}" instead of "{1}"'.format(cluster.leader.name,
-                                                                                   candidate).encode('utf-8')
+                        return 200, 'Failed over to "{0}" instead of "{1}"'.format(cluster.leader.name, candidate)
                 if not cluster.failover:
-                    return 503, b'Failover failed'
+                    return 503, 'Failover failed'
             except Exception as e:
                 logger.debug('Exception occured during polling failover result: %s', e)
-        return 503, b'Failover status unknown'
+        return 503, 'Failover status unknown'
 
     def is_failover_possible(self, cluster, leader, candidate):
         if leader and not cluster.leader or cluster.leader.name != leader:
-            return b'leader name does not match'
+            return 'leader name does not match'
         if candidate:
             members = [m for m in cluster.members if m.name == candidate]
             if not members:
-                return b'candidate does not exists'
+                return 'candidate does not exists'
         else:
             members = [m for m in cluster.members if m.name != cluster.leader.name and m.api_url]
             if not members:
-                return b'failover is not possible: cluster does not have members except leader'
+                return 'failover is not possible: cluster does not have members except leader'
         for _, reachable, _, _, tags in self.server.patroni.ha.fetch_nodes_statuses(members):
             if reachable and not tags.get('nofailover', False):
                 return None
-        return b'failover is not possible: no good candidates have been found'
+        return 'failover is not possible: no good candidates have been found'
 
     @check_auth
     def do_POST_failover(self):
@@ -191,27 +188,27 @@ class RestApiHandler(BaseHTTPRequestHandler):
         logger.info("received failover request with leader=%s candidate=%s scheduled_at=%s",
                     leader, candidate, scheduled_at)
 
-        data = b''
+        data = ''
         if leader or candidate:
             if scheduled_at:
                 try:
                     scheduled_at = dateutil.parser.parse(scheduled_at)
                     if scheduled_at.tzinfo is None:
-                        data = b'Timezone information is mandatory for scheduled_at'
+                        data = 'Timezone information is mandatory for scheduled_at'
                         status_code = 400
                     elif scheduled_at < datetime.datetime.now(pytz.utc):
-                        data = b'Cannot schedule failover in the past'
+                        data = 'Cannot schedule failover in the past'
                         status_code = 422
                     elif self.server.patroni.dcs.manual_failover(leader, candidate, scheduled_at=scheduled_at):
                         self.server.patroni.dcs.event.set()
-                        data = b'Failover scheduled'
+                        data = 'Failover scheduled'
                         status_code = 200
                     else:
-                        data = b'failed to write failover key into DCS'
+                        data = 'failed to write failover key into DCS'
                         status_code = 503
                 except (ValueError, TypeError):
                     logger.exception('Invalid scheduled failover time: %s', request['scheduled_at'])
-                    data = b'Unable to parse scheduled timestamp. It should be in an unambiguous format, e.g. ISO 8601'
+                    data = 'Unable to parse scheduled timestamp. It should be in an unambiguous format, e.g. ISO 8601'
                     status_code = 422
             else:
                 data = self.is_failover_possible(cluster, leader, candidate)
@@ -220,16 +217,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
                         self.server.patroni.dcs.event.set()
                         status_code, data = self.poll_failover_result(cluster.leader and cluster.leader.name, candidate)
                     else:
-                        data = b'failed to write failover key into DCS'
+                        data = 'failed to write failover key into DCS'
                         status_code = 503
         else:
             status_code = 400
-            data = b'No values given for required parameters leader and candidate'
-
-        self.send_response(status_code)
-        self.send_header('Content-Type', 'text/html')
-        self.end_headers()
-        self.wfile.write(data)
+            data = 'No values given for required parameters leader and candidate'
+        self._write_response(status_code, data)
 
     def parse_request(self):
         """Override parse_request method to enrich basic functionality of `BaseHTTPRequestHandler` class
@@ -278,7 +271,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 'postmaster_start_time': row[0],
                 'role': 'replica' if row[1] else 'master',
                 'server_version': self.server.patroni.postgresql.server_version,
-                'database_system_identifier': self.server.patroni.postgresql.sysid,
                 'xlog': ({
                     'received_location': row[3],
                     'replayed_location': row[4],
@@ -293,9 +285,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 logger.exception('get_postgresql_status')
                 state = 'unknown'
             return {'state': state}
-
-    def get_tags(self):
-        return {'tags': self.server.patroni.tags} if self.server.patroni.tags else {}
 
     def log_message(self, fmt, *args):
         logger.debug("API thread: %s - - [%s] %s", self.client_address[0], self.log_date_time_string(), fmt % args)
