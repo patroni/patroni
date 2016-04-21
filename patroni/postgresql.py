@@ -359,8 +359,9 @@ class Postgresql(object):
         if not block_callbacks:
             self.set_state('starting')
 
-        env = os.environ.copy()
-        if 'username' in self.superuser:
+        env = {'PATH': os.environ.get('PATH')}
+        # pg_ctl will write a FATAL if the username is incorrect. exporting PGUSER if necessary
+        if 'username' in self.superuser and self.superuser['username'] != os.environ.get('USER'):
             env['PGUSER'] = self.superuser['username']
         ret = subprocess.call(self._pg_ctl + ['start', '-o', self.server_options()], env=env, preexec_fn=os.setsid) == 0
 
