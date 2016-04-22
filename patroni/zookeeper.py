@@ -207,27 +207,26 @@ class ZooKeeper(AbstractDCS):
 
     def touch_member(self, data, ttl=None):
         cluster = self.cluster
-        me = cluster and ([m for m in cluster.members if m.name == self._name] or [None])[0]
+        member = cluster and ([m for m in cluster.members if m.name == self._name] or [None])[0]
         path = self.member_path
         data = data.encode('utf-8')
-        create = not me
-        if me and self._client.client_id is not None and me.session != self._client.client_id[0]:
+        if member and self._client.client_id is not None and member.session != self._client.client_id[0]:
             try:
                 self._client.retry(self._client.delete, path)
             except NoNodeError:
                 pass
             except:
                 return False
-            create = True
+            member = None
 
-        if not create and data == self._my_member_data:
+        if member and data == self._my_member_data:
             return True
 
         try:
-            if create:
-                self._client.retry(self._client.create, path, data, makepath=True, ephemeral=True)
-            else:
+            if member:
                 self._client.retry(self._client.set, path, data)
+            else:
+                self._client.retry(self._client.create, path, data, makepath=True, ephemeral=True)
             self._my_member_data = data
             return True
         except NodeExistsError:
