@@ -6,7 +6,7 @@ import unittest
 
 from click.testing import CliRunner
 from mock import patch, Mock
-from patroni.ctl import ctl, members, store_config, load_config, output_members, post_patroni, get_dcs, \
+from patroni.ctl import ctl, members, store_config, load_config, output_members, post_patroni, get_dcs, parse_dcs, \
     wait_for_leader, get_all_members, get_any_member, get_cursor, query_member, configure, PatroniCtlException
 from patroni.etcd import Etcd, Client
 from psycopg2 import OperationalError
@@ -40,8 +40,11 @@ def test_rw_config():
     load_config(CONFIG_FILE_PATH, None)
     load_config(CONFIG_FILE_PATH, '0.0.0.0')
 
+    store_config({'dcs_api': None}, CONFIG_FILE_PATH)
+    load_config(CONFIG_FILE_PATH, None)
 
-@patch('patroni.ctl.load_config', Mock(return_value={'dcs': {'etcd': {'host': 'localhost:4001'}}}))
+
+@patch('patroni.ctl.load_config', Mock(return_value={'etcd': {'host': 'localhost:4001'}}))
 class TestCtl(unittest.TestCase):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
@@ -61,6 +64,16 @@ class TestCtl(unittest.TestCase):
         self.assertIsNone(get_cursor(get_cluster_initialized_with_leader(), role='replica'))
 
         self.assertIsNotNone(get_cursor(get_cluster_initialized_with_leader(), role='any'))
+
+    def test_parse_dcs(self):
+        assert parse_dcs(None) is None
+        assert parse_dcs('localhost') == {'etcd': {'host': 'localhost:4001'}}
+        assert parse_dcs('') == {'etcd': {'host': 'localhost:4001'}}
+        assert parse_dcs('localhost:8500') == {'consul': {'host': 'localhost:8500'}}
+        assert parse_dcs('zookeeper://localhost') == {'zookeeper': {'hosts': ['localhost:2181']}}
+        assert parse_dcs('exhibitor://dummy') == {'zookeeper': {'exhibitor': {'hosts': ['dummy'], 'port': 8181}}}
+        assert parse_dcs('consul://localhost') == {'consul': {'host': 'localhost:8500'}}
+        self.assertRaises(PatroniCtlException, parse_dcs, 'invalid://test')
 
     def test_output_members(self):
         cluster = get_cluster_initialized_with_leader()
@@ -132,7 +145,9 @@ class TestCtl(unittest.TestCase):
             assert 'Failover failed' in result.output
 
     def test_get_dcs(self):
-        self.assertRaises(PatroniCtlException, get_dcs, {'dcs': {'dummy': {}}}, 'dummy')
+        self.assertRaises(PatroniCtlException, get_dcs, {'dummy': {}}, 'dummy')
+        with patch('patroni.Patroni.get_dcs', Mock(return_value=self.e)):
+            assert get_dcs({'etcd': {'host': 'none'}}, 'dummy').client_path('') == '/service/test/'
 
     @patch('psycopg2.connect', psycopg2_connect)
     @patch('patroni.ctl.query_member', Mock(return_value=([['mock column']], None)))
@@ -207,6 +222,7 @@ class TestCtl(unittest.TestCase):
     @patch('requests.post', requests_get)
     def test_restart_reinit(self):
         result = self.runner.invoke(ctl, ['restart', 'alpha'], input='y')
+        assert 'restart failed for' in result.output
         assert result.exit_code == 0
 
         result = self.runner.invoke(ctl, ['reinit', 'alpha'], input='y')
@@ -287,6 +303,7 @@ class TestCtl(unittest.TestCase):
     @patch('patroni.etcd.Etcd.get_etcd_client', Mock(return_value=None))
     def test_members(self):
         result = self.runner.invoke(members, ['alpha'])
+        assert '127.0.0.1' in result.output
         assert result.exit_code == 0
 
     def test_configure(self):

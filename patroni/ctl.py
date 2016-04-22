@@ -24,6 +24,10 @@ from six.moves.urllib_parse import urlparse
 CONFIG_DIR_PATH = click.get_app_dir('patroni')
 CONFIG_FILE_PATH = os.path.join(CONFIG_DIR_PATH, 'patronictl.yaml')
 LOGLEVEL = 'WARNING'
+DCS_DEFAULTS = {'zookeeper': {'port': 2181, 'template': "zookeeper:\n hosts: ['{host}:{port}']"},
+                'exhibitor': {'port': 8181, 'template': "zookeeper:\n exhibitor:\n  hosts: [{host}]\n  port: {port}"},
+                'consul': {'port': 8500, 'template': "consul:\n host: '{host}:{port}'"},
+                'etcd': {'port': 4001, 'template': "etcd:\n host: '{host}:{port}'"}}
 
 
 class PatroniCtlException(ClickException):
@@ -31,39 +35,22 @@ class PatroniCtlException(ClickException):
 
 
 def parse_dcs(dcs):
-    """
-    Break up the provided dcs string
-    >>> parse_dcs('localhost') == {'etcd': {'host': 'localhost:4001'}}
-    True
-    >>> parse_dcs('localhost:8500') == {'consul': {'host': 'localhost:8500'}}
-    True
-    >>> parse_dcs('zookeeper://localhost') == {'zookeeper': {'hosts': ['localhost:2181']}}
-    True
-    >>> parse_dcs('exhibitor://localhost') == {'zookeeper': {'exhibitor': {'hosts': ['localhost'], 'port': 8181}}}
-    True
-    """
-
-    if not dcs:
-        return {}
+    if dcs is None:
+        return None
 
     parsed = urlparse(dcs)
     scheme = parsed.scheme
     if scheme == '' and parsed.netloc == '':
         parsed = urlparse('//' + dcs)
+    port = int(parsed.port) if parsed.port else None
 
     if scheme == '':
-        default_schemes = {'2181': 'zookeeper', '8181': 'exhibitor', '8500': 'consul'}
-        scheme = default_schemes.get(str(parsed.port), 'etcd')
+        scheme = ([k for k, v in DCS_DEFAULTS.items() if v['port'] == port] or ['etcd'])[0]
+    elif scheme not in DCS_DEFAULTS:
+        raise PatroniCtlException('Unknown dcs scheme: {}'.format(scheme))
 
-    port = parsed.port or {'consul': 8500, 'zookeeper': 2181, 'exhibitor': 8181}.get(str(scheme), 4001)
-
-    config = {'host': '{0}:{1}'.format(parsed.hostname, port)}
-    if scheme == 'exhibitor':
-        config = {scheme: {'port': int(port), 'hosts': [str(parsed.hostname)]}}
-        scheme = 'zookeeper'
-    elif scheme == 'zookeeper':
-        config['hosts'] = [config.pop('host')]
-    return {scheme: config}
+    dcs_info = DCS_DEFAULTS[scheme]
+    return yaml.load(dcs_info['template'].format(host=parsed.hostname or 'localhost', port=port or dcs_info['port']))
 
 
 def load_config(path, dcs):
@@ -75,10 +62,7 @@ def load_config(path, dcs):
     except (IOError, yaml.YAMLError):
         logging.exception('Could not load configuration file')
 
-    if dcs:
-        config['dcs'] = parse_dcs(dcs)
-    else:
-        config['dcs'] = parse_dcs(config.get('dcs_api'))
+    config.update(parse_dcs(dcs) or parse_dcs(config.get('dcs_api')) or {})
 
     return config
 
@@ -109,10 +93,10 @@ def ctl(ctx):
 
 
 def get_dcs(config, scope):
-    dcs_config = config.get('dcs', {})
-    dcs_config[list(dcs_config.keys())[0]]['scope'] = scope
+    for k in set(DCS_DEFAULTS.keys()) & set(config.keys()):
+        config[k].setdefault('scope', scope)
     try:
-        return Patroni.get_dcs(scope, dcs_config)
+        return Patroni.get_dcs(scope, config)
     except PatroniException as e:
         raise PatroniCtlException(str(e))
 
