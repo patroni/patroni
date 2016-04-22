@@ -68,6 +68,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
         else:
             patroni = self.server.patroni
             response.update({'tags': patroni.tags} if patroni.tags else {})
+            if patroni.postgresql.sysid:
+                response['database_system_identifier'] = patroni.postgresql.sysid
             response['patroni'] = {'version': patroni.version, 'scope': patroni.postgresql.scope}
             body = json.dumps(response)
         self._write_response(status_code, body, {'Content-Type': 'application/json'})
@@ -269,7 +271,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 'postmaster_start_time': row[0],
                 'role': 'replica' if row[1] else 'master',
                 'server_version': self.server.patroni.postgresql.server_version,
-                'database_system_identifier': self.server.patroni.postgresql.sysid,
                 'xlog': ({
                     'received_location': row[3],
                     'replayed_location': row[4],
