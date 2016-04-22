@@ -63,6 +63,7 @@ class Consul(AbstractDCS):
         self._client = ConsulClient(host=host, port=port)
         self._scope = config['scope']
         self._session = None
+        self._my_member_data = None
         self._return_cluster_from_cache = False
         self._cluster_index = None
         self.create_or_restore_session()
@@ -169,18 +170,26 @@ class Consul(AbstractDCS):
     def _load_cluster(self):
         self._do_load_cluster()
 
-    def touch_member(self, connection_string, **kwargs):
+    def touch_member(self, data, **kwargs):
         create_member = self.refresh_session()
         cluster = self.cluster
-        member_exists = cluster and any(m.name == self._name for m in cluster.members)
-        if create_member and member_exists:
-            self._client.kv.delete(self.member_path)
-        if create_member or not member_exists:
+        member = cluster and ([m for m in cluster.members if m.name == self._name] or [None])[0]
+        if create_member and member:
             try:
-                self._client.kv.put(self.member_path, connection_string, acquire=self._session)
+                self._client.kv.delete(self.member_path)
             except Exception:
-                logger.exception('touch_member')
-        return True
+                return False
+
+        if not create_member and member and data == self._my_member_data:
+            return True
+
+        try:
+            self._client.kv.put(self.member_path, data, acquire=self._session)
+            self._my_member_data = data
+            return True
+        except Exception:
+            logger.exception('touch_member')
+        return False
 
     @catch_consul_errors
     def attempt_to_acquire_leader(self):
