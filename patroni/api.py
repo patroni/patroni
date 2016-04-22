@@ -74,12 +74,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 status_code = 503
             elif response['role'] == 'master':  # running as master but without leader lock!!!!
                 status_code = 503
-            elif response['role'] in path:
-                status_code = 200
+            elif response['role'] in path:  # response['role'] != 'master'
+                status_code = 503 if patroni.noloadbalance else 200
             else:
                 status_code = 503
         elif 'role' in response and response['role'] in path:
-            status_code = 200
+            status_code = 503 if response['role'] != 'master' and patroni.noloadbalance else 200
         elif patroni.ha.restart_scheduled() and patroni.postgresql.role == 'master' and 'master' in path:
             # exceptional case for master node when the postgres is being restarted via API
             status_code = 200

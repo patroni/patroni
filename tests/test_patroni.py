@@ -77,6 +77,10 @@ class TestPatroni(unittest.TestCase):
         self.p.next_run = time.time() - self.p.nap_time - 1
         self.p.schedule_next_run()
 
+    def test_noloadbalance(self):
+        self.p.tags['noloadbalance'] = True
+        self.assertTrue(self.p.noloadbalance)
+
     def test_nofailover(self):
         self.p.tags['nofailover'] = True
         self.assertTrue(self.p.nofailover)
