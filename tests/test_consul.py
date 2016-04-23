@@ -8,9 +8,11 @@ from test_etcd import SleepException
 
 def kv_get(self, key, **kwargs):
     if key == 'service/test/members/postgresql1':
-        return 1, {'Session': 'fd4f44fe-2cac-bba5-a60b-304b51ff39b7'}
+        return '1', {'Session': 'fd4f44fe-2cac-bba5-a60b-304b51ff39b7'}
     if key == 'service/test/':
         return None, None
+    if key == 'service/good/leader':
+        return '1', None
     if key == 'service/good/':
         return ('6429',
                 [{'CreateIndex': 1334, 'Flags': 0, 'Key': key + 'failover', 'LockIndex': 0,
@@ -50,7 +52,7 @@ class TestConsul(unittest.TestCase):
     def setUp(self):
         self.c = Consul('postgresql1', {'ttl': 30, 'scope': 'test', 'host': 'localhost:1'})
         self.c._base_path = '/service/good'
-        self.c._do_load_cluster(1)
+        self.c._load_cluster()
 
     @patch.object(consul.Consul.Session, 'renew', Mock(side_effect=NotFound))
     @patch.object(consul.Consul.Session, 'create', Mock(side_effect=ConsulException))
@@ -74,7 +76,6 @@ class TestConsul(unittest.TestCase):
         self.assertIsInstance(self.c.get_cluster(), Cluster)
         self.c._base_path = '/service/fail'
         self.assertRaises(ConsulError, self.c.get_cluster)
-        self.assertRaises(ConsulException, self.c._do_load_cluster, 1)
         self.c._base_path = '/service/good'
         self.c._session = 'fd4f44fe-2cac-bba5-a60b-304b51ff39b8'
         self.assertIsInstance(self.c.get_cluster(), Cluster)
@@ -122,7 +123,6 @@ class TestConsul(unittest.TestCase):
 
     def test_watch(self):
         self.c._name = ''
-        self.c._do_load_cluster = Mock(return_value=None)
         self.c.watch(1)
-        self.c._do_load_cluster = Mock(side_effect=ConsulException)
-        self.c.watch(1)
+        with patch.object(consul.Consul.KV, 'get', Mock(side_effect=ConsulException)):
+            self.c.watch(1)

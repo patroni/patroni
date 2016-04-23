@@ -64,8 +64,6 @@ class Consul(AbstractDCS):
         self._scope = config['scope']
         self._session = None
         self._my_member_data = None
-        self._return_cluster_from_cache = False
-        self._cluster_index = None
         self.create_or_restore_session()
 
     def create_or_restore_session(self):
@@ -105,28 +103,18 @@ class Consul(AbstractDCS):
     def member(node):
         return Member.from_node(node['ModifyIndex'], os.path.basename(node['Key']), node['Session'], node['Value'])
 
-    def _get_cluster_nodes(self, timeout):
-        path = self.client_path('/')
-        index = self._cluster_index if timeout else None
-        wait = str(timeout) + 's' if timeout else None
-        self._cluster_index, results = self._client.kv.get(path, recurse=True, index=index, wait=wait)
-
-        if results is None:
-            raise NotFound
-
-        nodes = {}
-        for node in results:
-            node['Value'] = node['Value'].decode('utf-8')
-            nodes[os.path.relpath(node['Key'], path)] = node
-        return nodes
-
-    def _do_load_cluster(self, timeout=None):
-        if not timeout and self._return_cluster_from_cache:
-            self._return_cluster_from_cache = False
-            return self._cluster
-
+    def _load_cluster(self):
         try:
-            nodes = self._get_cluster_nodes(timeout)
+            path = self.client_path('/')
+            _, results = self._client.kv.get(path, recurse=True)
+
+            if results is None:
+                raise NotFound
+
+            nodes = {}
+            for node in results:
+                node['Value'] = node['Value'].decode('utf-8')
+                nodes[os.path.relpath(node['Key'], path)] = node
 
             # get initialize flag
             initialize = nodes.get(self._INITIALIZE)
@@ -160,15 +148,8 @@ class Consul(AbstractDCS):
         except NotFound:
             self._cluster = Cluster(False, None, None, [], None)
         except:
-            if timeout:
-                raise
             logger.exception('get_cluster')
             raise ConsulError('Consul is not responding properly')
-        self._return_cluster_from_cache = bool(timeout)
-        return self._cluster
-
-    def _load_cluster(self):
-        self._do_load_cluster()
 
     def touch_member(self, data, **kwargs):
         create_member = self.refresh_session()
@@ -234,15 +215,15 @@ class Consul(AbstractDCS):
 
     def watch(self, timeout):
         cluster = self.cluster
-        if cluster and cluster.leader and cluster.leader.name != self._name:
+        if cluster and cluster.leader and cluster.leader.name != self._name and cluster.leader.index and timeout >= 1:
             end_time = time.time() + timeout
-            while timeout >= 1:
-                try:
-                    return self._do_load_cluster(timeout) or True
-                except (ConsulException, RequestException):
-                    logging.exception('watch')
+            try:
+                index, _ = self._client.kv.get(self.leader_path, index=cluster.leader.index, wait=str(timeout) + 's')
+                return str(index) != str(cluster.leader.index)
+            except (ConsulException, RequestException):
+                logging.exception('watch')
 
-                timeout = end_time - time.time()
+            timeout = end_time - time.time()
 
         try:
             return super(Consul, self).watch(timeout)
