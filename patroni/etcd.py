@@ -6,13 +6,13 @@ import random
 import requests
 import socket
 import time
-import urllib3
 
 from dns.exception import DNSException
 from dns import resolver
 from patroni.dcs import AbstractDCS, Cluster, Failover, Leader, Member
 from patroni.exceptions import DCSError
 from patroni.utils import Retry, RetryFailedError, sleep
+from urllib3.exceptions import HTTPError, ReadTimeoutError
 from requests.exceptions import RequestException
 from six.moves.http_client import HTTPException
 
@@ -55,9 +55,9 @@ class Client(etcd.Client):
             response = request_executor(method, url, fields=fields, **kwargs)
             response.data.decode('utf-8')
             self._check_cluster_id(response)
-        except (urllib3.exceptions.HTTPError, HTTPException, socket.error) as e:
+        except (HTTPError, HTTPException, socket.error, socket.timeout) as e:
             if (isinstance(fields, dict) and fields.get("wait") == "true" and
-                    isinstance(e, urllib3.exceptions.ReadTimeoutError)):
+                    isinstance(e, ReadTimeoutError)):
                 logger.debug("Watch timed out.")
                 raise etcd.EtcdWatchTimedOut("Watch timed out: {0}".format(e), cause=e)
             logger.error("Request to server %s failed: %r", self._base_uri, e)
@@ -302,13 +302,12 @@ class Etcd(AbstractDCS):
     def watch(self, timeout):
         cluster = self.cluster
         # watch on leader key changes if it is defined and current node is not lock owner
-        if cluster and cluster.leader and cluster.leader.name != self._name:
+        if cluster and cluster.leader and cluster.leader.name != self._name and cluster.leader.index:
             end_time = time.time() + timeout
-            index = cluster.leader.index
 
-            while index and timeout >= 1:  # when timeout is too small urllib3 doesn't have enough time to connect
+            while timeout >= 1:  # when timeout is too small urllib3 doesn't have enough time to connect
                 try:
-                    self._client.watch(self.leader_path, index=index + 1, timeout=timeout + 0.5)
+                    self._client.watch(self.leader_path, index=cluster.leader.index + 1, timeout=timeout + 0.5)
                     # Synchronous work of all cluster members with etcd is less expensive
                     # than reestablishing http connection every time from every replica.
                     return True
