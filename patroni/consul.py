@@ -213,15 +213,16 @@ class Consul(AbstractDCS):
 
     def watch(self, timeout):
         cluster = self.cluster
-        if cluster and cluster.leader and cluster.leader.name != self._name and cluster.leader.index and timeout >= 1:
+        if cluster and cluster.leader and cluster.leader.name != self._name and cluster.leader.index:
             end_time = time.time() + timeout
-            try:
-                index, _ = self._client.kv.get(self.leader_path, index=cluster.leader.index, wait=str(timeout) + 's')
-                return str(index) != str(cluster.leader.index)
-            except (ConsulException, RequestException):
-                logging.exception('watch')
+            while timeout >= 1:
+                try:
+                    idx, _ = self._client.kv.get(self.leader_path, index=cluster.leader.index, wait=str(timeout) + 's')
+                    return str(idx) != str(cluster.leader.index)
+                except (ConsulException, RequestException):
+                    logging.exception('watch')
 
-            timeout = end_time - time.time()
+                timeout = end_time - time.time()
 
         try:
             return super(Consul, self).watch(timeout)
