@@ -1,6 +1,7 @@
 import consul
 import unittest
 
+from patroni.dcs import AbstractDCS
 from mock import Mock, patch
 from patroni.consul import Cluster, Consul, ConsulError, ConsulException, HTTPClient, NotFound
 from test_etcd import SleepException
@@ -54,20 +55,17 @@ class TestConsul(unittest.TestCase):
         self.c._base_path = '/service/good'
         self.c._load_cluster()
 
+    @patch('time.sleep', Mock(side_effect=SleepException))
+    def test_create_or_restore_session(self):
+        self.c._session = None
+        self.assertRaises(SleepException, self.c.create_or_restore_session)
+
     @patch.object(consul.Consul.Session, 'renew', Mock(side_effect=NotFound))
     @patch.object(consul.Consul.Session, 'create', Mock(side_effect=ConsulException))
     def test_referesh_session(self):
         self.c._session = '1'
         self.c._name = ''
         self.assertRaises(ConsulError, self.c.refresh_session)
-
-    @patch('time.sleep', Mock(side_effect=SleepException))
-    @patch.object(consul.Consul.Session, 'create', Mock(side_effect=ConsulException))
-    def test_create_session(self):
-        self.c._session = None
-        self.c._name = ''
-        self.assertRaises(SleepException, self.c.create_session, True)
-        self.c.create_session()
 
     @patch.object(consul.Consul.KV, 'delete', Mock())
     def test_get_cluster(self):
@@ -121,6 +119,7 @@ class TestConsul(unittest.TestCase):
     def test_delete_cluster(self):
         self.c.delete_cluster()
 
+    @patch.object(AbstractDCS, 'watch', Mock())
     def test_watch(self):
         self.c._name = ''
         self.c.watch(1)

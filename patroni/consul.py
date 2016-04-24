@@ -67,23 +67,17 @@ class Consul(AbstractDCS):
         self.create_or_restore_session()
 
     def create_or_restore_session(self):
-        _, member = self._client.kv.get(self.member_path)
-        self._session = (member or {}).get('Session')
-        if self.refresh_session(retry=True):
-            self._client.kv.delete(self.member_path)
-
-    def create_session(self, retry=False):
-        name = self._scope + '-' + self._name
         while not self._session:
             try:
-                self._session = self._client.session.create(name=name, lock_delay=0, behavior='delete', ttl=self.ttl)
+                _, member = self._client.kv.get(self.member_path)
+                self._session = (member or {}).get('Session')
+                if self.refresh_session():
+                    self._client.kv.delete(self.member_path)
             except (ConsulException, RequestException):
-                if not retry:
-                    return
                 logger.info('waiting on consul')
                 sleep(5)
 
-    def refresh_session(self, retry=False):
+    def refresh_session(self):
         """:returns: `!True` if it had to create new session"""
         if self._session:
             try:
@@ -91,7 +85,11 @@ class Consul(AbstractDCS):
             except NotFound:
                 self._session = None
         if not self._session:
-            self.create_session(retry)
+            name = self._scope + '-' + self._name
+            try:
+                self._session = self._client.session.create(name=name, lock_delay=0, behavior='delete', ttl=self.ttl)
+            except (ConsulException, RequestException):
+                logger.exception('session.create')
         if not self._session:
             raise ConsulError('Failed to renew/create session')
         return True
