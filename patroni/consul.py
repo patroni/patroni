@@ -101,7 +101,7 @@ class Consul(AbstractDCS):
 
     @staticmethod
     def member(node):
-        return Member.from_node(node['ModifyIndex'], os.path.basename(node['Key']), node['Session'], node['Value'])
+        return Member.from_node(node['ModifyIndex'], os.path.basename(node['Key']), node.get('Session'), node['Value'])
 
     def _load_cluster(self):
         try:
@@ -113,7 +113,7 @@ class Consul(AbstractDCS):
 
             nodes = {}
             for node in results:
-                node['Value'] = node['Value'].decode('utf-8')
+                node['Value'] = (node['Value'] or b'').decode('utf-8')
                 nodes[os.path.relpath(node['Key'], path)] = node
 
             # get initialize flag
@@ -137,7 +137,7 @@ class Consul(AbstractDCS):
             if leader:
                 member = Member(-1, leader['Value'], None, {})
                 member = ([m for m in members if m.name == leader['Value']] or [member])[0]
-                leader = Leader(leader['ModifyIndex'], leader['Session'], member)
+                leader = Leader(leader['ModifyIndex'], leader.get('Session'), member)
 
             # failover key
             failover = nodes.get(self._FAILOVER)
