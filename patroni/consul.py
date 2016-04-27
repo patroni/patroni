@@ -24,6 +24,13 @@ class HTTPClient(std.HTTPClient):
         self._patch_default_timeout()
 
     def _patch_default_timeout(self):
+        # Set a default timeout for the `request.session.request` method, that is used
+        # internally  by the methods request.session.get, request.session.post and
+        # others. We monkey-patch here to avoid reimplementing each individual method from
+        # `std.HTTPClient`. By default, the timeout is not set. It means that a new
+        # session may hang almost indefinitely waiting for the server to respond,
+        # which is not what we want in Patroni.
+
         request_func = getattr(self.session.request, '__func__' if six.PY3 else 'im_func')
         defaults_attr_name = '__defaults__' if six.PY3 else 'func_defaults'
         defaults = list(getattr(request_func, defaults_attr_name))
@@ -31,11 +38,18 @@ class HTTPClient(std.HTTPClient):
         defaults[code.co_varnames[code.co_argcount - len(defaults):code.co_argcount].index('timeout')] = 5
         setattr(request_func, defaults_attr_name, tuple(defaults))  # monkeypatching
 
-    def get(self, callback, path, params=None, timeout=None):
-        uri = self.uri(path, params)
-        if timeout is None and isinstance(params, dict) and 'index' in params:
+    def get(self, callback, path, params=None):
+        # The get function is overridden to handle a special case of it being called
+        # with an index and wait parameters. That form indicates that a user needs to
+        # wait for the given key to change its value, with a wait timeout supplied. We
+        # don't want our monkey-patched timeout to be less than the value of the wait
+        # parameter, therefore, we set it to either the value of wait or a default of 5 minutes.
+
+        if isinstance(params, dict) and 'index' in params:
             timeout = (float(params['wait'][:-1]) if 'wait' in params else 300) + 1
-        return callback(self.response(self.session.get(uri, verify=self.verify, timeout=timeout)))
+        else:
+            timeout = None
+        return callback(self.response(self.session.get(self.uri(path, params), verify=self.verify, timeout=timeout)))
 
 
 class ConsulClient(base.Consul):
@@ -58,7 +72,7 @@ class Consul(AbstractDCS):
 
     def __init__(self, name, config):
         super(Consul, self).__init__(name, config)
-        self.ttl = int((config.get('ttl') or 30)/2)
+        self.ttl = int((config.get('ttl') or 30)/2)  # My experiments have shown that session expires after 2*ttl time
         host, port = config.get('host', '127.0.0.1:8500').split(':')
         self._client = ConsulClient(host=host, port=port)
         self._scope = config['scope']

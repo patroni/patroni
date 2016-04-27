@@ -40,6 +40,7 @@ class TestHTTPClient(unittest.TestCase):
     def test_get(self):
         self.client = HTTPClient('127.0.0.1', '8500', 'http', False)
         self.client.session.get = Mock()
+        self.client.get(Mock(), '')
         self.client.get(Mock(), '', {'wait': '1s', 'index': 1})
 
 
