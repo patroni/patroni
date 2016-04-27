@@ -1,15 +1,15 @@
 import etcd
 import json
 import requests
-import urllib3
 import socket
 import unittest
 
 from dns.exception import DNSException
 from mock import Mock, patch
-from patroni.dcs import Cluster
+from patroni.dcs import Cluster, AbstractDCS
 from patroni.etcd import Client, Etcd, EtcdError
 from patroni.exceptions import DCSError
+from urllib3.exceptions import ReadTimeoutError
 
 
 class MockResponse(object):
@@ -61,8 +61,6 @@ def etcd_watch(self, key, index=None, timeout=None, recursive=None):
         return etcd.EtcdResult('delete', {})
     elif timeout == 10.0:
         raise etcd.EtcdException
-    elif index == 20729:
-        return etcd.EtcdResult('set', {'value': 'postgresql1', 'modifiedIndex': index + 1})
 
 
 def etcd_write(self, key, value, **kwargs):
@@ -132,7 +130,7 @@ def socket_getaddrinfo(*args):
 
 def http_request(method, url, **kwargs):
     if url == 'http://localhost:2379/timeout':
-        raise urllib3.exceptions.ReadTimeoutError(None, None, None)
+        raise ReadTimeoutError(None, None, None)
     if url == 'http://localhost:2379/':
         return MockResponse()
     raise socket.error
@@ -248,8 +246,8 @@ class TestEtcd(unittest.TestCase):
         self.etcd.get_cluster()
         self.etcd.watch(1.5)
         self.etcd.watch(4.5)
-        self.etcd.watch(9.5)
-        self.etcd.watch(100)
+        with patch.object(AbstractDCS, 'watch', Mock()):
+            self.etcd.watch(9.5)
 
     @patch('patroni.etcd.Etcd.retry', Mock(side_effect=AttributeError("foo")))
     def test_other_exceptions(self):
