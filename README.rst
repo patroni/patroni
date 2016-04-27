@@ -1,6 +1,6 @@
 |Build Status| |Coverage Status|
 
-Patroni: A Template for PostgreSQL HA with ZooKeeper or etcd
+Patroni: A Template for PostgreSQL HA with ZooKeeper, etcd or Consul
 ------------------------------------------------------------
 
 Patroni was previously known as Governor.
@@ -8,7 +8,7 @@ Patroni was previously known as Governor.
 *There are many ways to run high availability with PostgreSQL. Here, we
 present a template for you to create your own customized, high-availability 
 solution using Python and — for maximum accessibility — a distributed 
-configuration store like ZooKeeper or etcd.*
+configuration store like ZooKeeper, etcd or Consul.*
 
 Getting Started
 ---------------
@@ -61,12 +61,17 @@ For an example file, see ``postgres0.yml``. Regarding settings:
     -  *keyfile*: (optional) Specifies a file with the secret key in the PEM format.
 
 -  *etcd*:
-    -  *scope*: the relative path used on etcd's HTTP API for this deployment; makes it possible to run multiple HA deployments from a single etcd.
+    -  *scope*: the relative path used on etcd's HTTP API for this deployment; makes it possible to run multiple HA deployments from a single etcd cluster.
     -  *ttl*: the TTL to acquire the leader lock. Think of it as the length of time before initiation of the automatic failover process.
     -  *host*: the host:port for the etcd endpoint.
 
+-  *consul*:
+    -  *scope*: the relative path used on Consul's HTTP API for this deployment; makes it possible to run multiple HA deployments from a single Consul cluster.
+    -  *ttl*: the TTL to acquire the leader lock. Think of it as the length of time before initiation of the automatic failover process.
+    -  *host*: the host:port for the Consul endpoint.
+
 -  *zookeeper*:
-    -  *scope*: the relative path used on etcd's HTTP API for this deployment; makes it possible to run multiple HA deployments from a single etcd.
+    -  *scope*: the relative path used on ZooKeeper for this deployment; makes it possible to run multiple HA deployments from a single ZooKeeper cluster.
     -  *session\_timeout*: the TTL to acquire the leader lock. Think of it as the length of time before initiation of the automatic failover process.
     -  *reconnect\_timeout*: how long we should try to reconnect to ZooKeeper after a connection loss. After this timeout, assume that you no longer have a lock and restart in read-only mode.
     -  *hosts*: list of ZooKeeper cluster members in format: ['host1:port1', 'host2:port2', 'etc...']

@@ -5,6 +5,7 @@ requests
 six >= 1.7
 kazoo>=2.2.1
 python-etcd==0.4.3
+python-consul==0.6.0
 click>=4.1
 prettytable>=0.7
 tzlocal

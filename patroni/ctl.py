@@ -295,7 +295,7 @@ def query(
     if p_file is not None:
         command = p_file.read()
 
-    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+    _, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
     cursor = None
     for _ in watching(w, watch, clear=False):
@@ -344,7 +344,7 @@ def query_member(cluster, cursor, member, role, command, connect_parameters=None
 @option_format
 @option_dcs
 def remove(config_file, cluster_name, fmt, dcs):
-    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+    _, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
     output_members(cluster, cluster_name, fmt)
 
@@ -425,7 +425,7 @@ def ctl_load_config(cluster_name, config_file, dcs):
 @option_force
 @option_dcs
 def restart(cluster_name, member_names, config_file, dcs, force, role, p_any):
-    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+    _, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
     role_names = [m.name for m in get_all_members(cluster, role)]
 
@@ -449,7 +449,7 @@ def restart(cluster_name, member_names, config_file, dcs, force, role, p_any):
 @option_force
 @option_dcs
 def reinit(cluster_name, member_names, config_file, dcs, force):
-    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+    _, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
     empty_post_to_members(cluster, member_names, force, 'reinitialize')
 
 
@@ -470,7 +470,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
         If so, we trigger a failover and keep the client up to date.
     """
 
-    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+    _, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
     if cluster.leader is None:
         raise PatroniCtlException('This cluster has no master')
@@ -541,7 +541,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
         else:
             click.echo('Failover failed, details: {0}, {1}'.format(r.status_code, r.text))
             return
-    except:
+    except Exception:
         logging.exception(r)
         logging.warning('Failing over to DCS')
         click.echo(timestamp() + ' Could not failover using Patroni api, falling back to DCS')

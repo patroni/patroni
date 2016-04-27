@@ -9,11 +9,12 @@ addons:
   postgresql: "9.5"
 env:
   global:
-  - ETCDVERSION=2.3.1 ZKVERSION=3.4.6
+  - ETCDVERSION=2.3.2 ZKVERSION=3.4.6 CONSULVERSION=0.6.4
   matrix:
   - TEST_SUITE="python setup.py"
   - DCS="etcd" TEST_SUITE="behave"
   - DCS="exhibitor" TEST_SUITE="behave"
+  - DCS="consul" TEST_SUITE="behave"
 cache:
   directories:
   - $HOME/virtualenv/python2.7.9
@@ -24,6 +25,12 @@ install:
     set -e
 
     if [[ $TEST_SUITE == "behave" ]]; then
+        if [[ $DCS == "consul" ]]; then
+            curl -L https://releases.hashicorp.com/consul/${CONSULVERSION}/consul_${CONSULVERSION}_linux_amd64.zip \
+                | gunzip > consul
+            chmod +x consul
+        fi
+
         if [[ $DCS == "etcd" ]]; then
             curl -L https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v${ETCDVERSION}-linux-amd64.tar.gz \
                 | tar xz -C . --strip=1 --wildcards --no-anchored etcd

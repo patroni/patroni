@@ -48,6 +48,9 @@ class Patroni(object):
         if 'zookeeper' in config:
             from patroni.zookeeper import ZooKeeper
             return ZooKeeper(name, config['zookeeper'])
+        if 'consul' in config:
+            from patroni.consul import Consul
+            return Consul(name, config['consul'])
         raise PatroniException('Can not find suitable configuration of distributed configuration store')
 
     def schedule_next_run(self):

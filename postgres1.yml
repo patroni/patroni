@@ -12,6 +12,10 @@ etcd:
   ttl: *ttl
   host: 127.0.0.1:4001
   #discovery_srv: my-etcd.domain
+#consul:
+#  scope: *scope
+#  ttl: *ttl
+#  host: 127.0.0.1:8500
 #zookeeper:
 #  scope: *scope
 #  session_timeout: *ttl
