@@ -67,11 +67,13 @@ class Ha(object):
         self.dcs.touch_member(json.dumps(data, separators=(',', ':')))
 
     def clone(self, clone_member=None, msg='(without leader)'):
-        if self.state_handler.bootstrap(cluster_initialized=True, clone_member=clone_member):
+        if self.state_handler.clone(clone_member):
             logger.info('bootstrapped %s', msg)
+            cluster = self.dcs.get_cluster()
+            node_to_follow = self._get_node_to_follow(cluster)
+            self.state_handler.follow(node_to_follow, True)
         else:
             logger.error('failed to bootstrap %s', msg)
-            self.state_handler.stop('immediate')
             self.state_handler.remove_data_directory()
 
     def bootstrap(self):
@@ -109,22 +111,27 @@ class Ha(object):
         self.recovering = True
         return self.follow("starting as readonly because i had the session lock", "starting as a secondary", True, True)
 
+    def _get_node_to_follow(self, cluster):
+        # determine the node to follow. If replicatefrom tag is set,
+        # try to follow the node mentioned there, otherwise, follow the leader.
+        if not self.patroni.replicatefrom or self.patroni.replicatefrom == self.state_handler.name:
+            node_to_follow = cluster.leader
+        else:
+            node_to_follow = cluster.get_member(self.patroni.replicatefrom)
+
+        return node_to_follow if node_to_follow and node_to_follow.name != self.state_handler.name else None
+
     def follow(self, demote_reason, follow_reason, refresh=True, recovery=False):
         if refresh:
             self.load_cluster_from_dcs()
 
-        ret = demote_reason if not recovery and self.state_handler.is_leader() else follow_reason
-
-        # determine the node to follow. If replicatefrom tag is set,
-        # try to follow the node mentioned there, otherwise, follow the leader.
-
-        if self.patroni.replicatefrom:
-            node_to_follow = self.cluster.get_member(self.patroni.replicatefrom, fallback_to_leader=True)
+        if recovery:
+            ret = demote_reason if self.has_lock() else follow_reason
         else:
-            node_to_follow = self.cluster.leader
-        if node_to_follow and node_to_follow.name == self.state_handler.name:
-            ret = demote_reason
-            node_to_follow = None
+            ret = demote_reason if self.state_handler.is_leader() else follow_reason
+
+        node_to_follow = self._get_node_to_follow(self.cluster)
+
         if not self.state_handler.check_recovery_conf(node_to_follow) or recovery:
             self._async_executor.schedule('changing primary_conninfo and restarting')
             self._async_executor.run_async(self.state_handler.follow, (node_to_follow, recovery))
