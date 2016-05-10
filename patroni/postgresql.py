@@ -261,6 +261,8 @@ class Postgresql(object):
                    for replica_method in replica_methods)
 
     def create_replica(self, clone_member, env):
+        self.set_state('creating replica')
+        self._sysid = None
         # create the replica according to the replica_method
         # defined by the user.  this is a list, so we need to
         # loop through all methods the user supplies
@@ -308,6 +310,7 @@ class Postgresql(object):
                     logger.exception('Error creating replica using method {0}: {1}'.format(replica_method, str(e)))
                     ret = 1
 
+        self.set_state('stopped')
         return ret
 
     def is_leader(self):
@@ -501,13 +504,14 @@ class Postgresql(object):
     def controldata(self):
         """ return the contents of pg_controldata, or non-True value if pg_controldata call failed """
         result = {}
-        try:
-            data = subprocess.check_output(['pg_controldata', self.data_dir])
-            if data:
-                data = data.decode('utf-8').splitlines()
-                result = {l.split(':')[0].replace('Current ', '', 1): l.split(':')[1].strip() for l in data if l}
-        except subprocess.CalledProcessError:
-            logger.exception("Error when calling pg_controldata")
+        if self.state != 'creating replica':  # Don't try to call pg_controldata during backup restore
+            try:
+                data = subprocess.check_output(['pg_controldata', self.data_dir])
+                if data:
+                    data = data.decode('utf-8').splitlines()
+                    result = {l.split(':')[0].replace('Current ', '', 1): l.split(':')[1].strip() for l in data if l}
+            except subprocess.CalledProcessError:
+                logger.exception("Error when calling pg_controldata")
         return result
 
     def read_postmaster_opts(self):
