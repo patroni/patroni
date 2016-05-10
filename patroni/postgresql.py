@@ -263,6 +263,9 @@ class Postgresql(object):
             loop through all methods the user supplies
         """
 
+        self.set_state('creating replica')
+        self._sysid = None
+
         # get list of replica methods from config.
         # If there is no configuration key, or no value is specified, use basebackup
         replica_methods = self.config.get('create_replica_method') or ['basebackup']
@@ -315,6 +318,7 @@ class Postgresql(object):
                     logger.exception('Error creating replica using method %s', replica_method)
                     ret = 1
 
+        self.set_state('stopped')
         return ret
 
     def is_leader(self):
@@ -457,10 +461,11 @@ class Postgresql(object):
         with open(os.path.join(self.data_dir, 'pg_hba.conf'), 'a') as f:
             f.write('\n{}\n'.format('\n'.join(self.config.get('pg_hba', []))))
 
-    @staticmethod
-    def primary_conninfo(leader_url):
+    def primary_conninfo(self, leader_url):
         r = parseurl(leader_url)
-        return 'user={user} password={password} host={host} port={port} sslmode=prefer sslcompression=1'.format(**r)
+        r.update({'application_name': self.name, 'sslmode': 'prefer', 'sslcompression': '1'})
+        keywords = 'user password host port sslmode sslcompression application_name'.split()
+        return ' '.join('{0}={{{0}}}'.format(kw) for kw in keywords).format(**r)
 
     def check_recovery_conf(self, leader):
         if not os.path.isfile(self.recovery_conf):
@@ -508,13 +513,14 @@ class Postgresql(object):
     def controldata(self):
         """ return the contents of pg_controldata, or non-True value if pg_controldata call failed """
         result = {}
-        try:
-            data = subprocess.check_output(['pg_controldata', self.data_dir])
-            if data:
-                data = data.decode('utf-8').splitlines()
-                result = {l.split(':')[0].replace('Current ', '', 1): l.split(':')[1].strip() for l in data if l}
-        except subprocess.CalledProcessError:
-            logger.exception("Error when calling pg_controldata")
+        if self.state != 'creating replica':  # Don't try to call pg_controldata during backup restore
+            try:
+                data = subprocess.check_output(['pg_controldata', self.data_dir])
+                if data:
+                    data = data.decode('utf-8').splitlines()
+                    result = {l.split(':')[0].replace('Current ', '', 1): l.split(':')[1].strip() for l in data if l}
+            except subprocess.CalledProcessError:
+                logger.exception("Error when calling pg_controldata")
         return result
 
     def read_postmaster_opts(self):

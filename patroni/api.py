@@ -46,9 +46,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
             self.wfile.write(body.encode('utf-8'))
 
     def send_auth_request(self, body):
-        self._write_response(401, body, {'WWW-Authenticate': 'Basic realm=\"Patroni\"'})
+        headers = {'WWW-Authenticate': 'Basic realm="' + self.server.patroni.__class__.__name__ + '"'}
+        self._write_response(401, body, headers)
 
-    def finish(self, *args, **kwargs):
+    def finish(self):
         try:
             if not self.wfile.closed:
                 self.wfile.flush()
