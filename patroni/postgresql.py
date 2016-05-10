@@ -715,17 +715,12 @@ $$""".format(name, options), name, password, password)
         return ret
 
     def bootstrap(self):
-        """
-            Failure during initdb always leads to an exception, since there is
-            no point in continuing if initdb fails. For the rest of the cases,
-            the function returns False in order to inidicate a failed attempt
-            that should be retried in the future.
-        """
+        """ Initialize a new node from scratch and start it. """
         if self.initialize() and self.start():
             self.create_replication_user()
             self.create_connection_user()
-            return True
-        raise PostgresException("Could not bootstrap master PostgreSQL")
+        else:
+            raise PostgresException("Could not bootstrap master PostgreSQL")
 
     def move_data_directory(self):
         if os.path.isdir(self.data_dir) and not self.is_running():
