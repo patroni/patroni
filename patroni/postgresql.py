@@ -453,10 +453,11 @@ class Postgresql(object):
         with open(os.path.join(self.data_dir, 'pg_hba.conf'), 'a') as f:
             f.write('\n{}\n'.format('\n'.join(self.config.get('pg_hba', []))))
 
-    @staticmethod
-    def primary_conninfo(leader_url):
+    def primary_conninfo(self, leader_url):
         r = parseurl(leader_url)
-        return 'user={user} password={password} host={host} port={port} sslmode=prefer sslcompression=1'.format(**r)
+        r.update({'application_name': self.name, 'sslmode': 'prefer', 'sslcompression': '1'})
+        keywords = 'user password host port sslmode sslcompression application_name'.split()
+        return ' '.join('{0}={{{0}}}'.format(kw) for kw in keywords).format(**r)
 
     def check_recovery_conf(self, leader):
         if not os.path.isfile(self.recovery_conf):
