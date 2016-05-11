@@ -126,7 +126,12 @@ class Postgresql(object):
         return local_address + ':' + self.port
 
     def get_postgres_role_from_data_directory(self):
-        return 'replica' if os.path.exists(self.recovery_conf) else 'master'
+        if self.data_directory_empty():
+            return 'uninitialized'
+        elif os.path.exists(self.recovery_conf):
+            return 'replica'
+        else:
+            return 'master'
 
     @property
     def _connect_kwargs(self):
@@ -233,14 +238,6 @@ class Postgresql(object):
         env['PGPASSFILE'] = self.pgpass
         return env
 
-    def sync_replica(self, clone_member):
-        # add the credentials to connect to the replica origin to pgpass.
-        env = self.write_pgpass(parseurl(clone_member.conn_url)) if clone_member else os.environ.copy()
-        if self.create_replica(clone_member, env) == 0:
-            self.delete_trigger_file()
-            return True
-        return False
-
     @staticmethod
     def build_connstring(conn):
         """
@@ -257,28 +254,39 @@ class Postgresql(object):
             that does not require a working replication connection.
         """
         replica_methods = self.config.get('create_replica_method', [])
-        return any(self.replica_method_can_work_without_replication_connection(replica_method)
-                   for replica_method in replica_methods)
+        return any(self.replica_method_can_work_without_replication_connection(method) for method in replica_methods)
 
-    def create_replica(self, clone_member, env):
+    def create_replica(self, clone_member):
+        """
+            create the replica according to the replica_method
+            defined by the user.  this is a list, so we need to
+            loop through all methods the user supplies
+        """
+
         self.set_state('creating replica')
         self._sysid = None
-        # create the replica according to the replica_method
-        # defined by the user.  this is a list, so we need to
-        # loop through all methods the user supplies
-        connstring = clone_member.conn_url if clone_member else ""
+
         # get list of replica methods from config.
         # If there is no configuration key, or no value is specified, use basebackup
         replica_methods = self.config.get('create_replica_method') or ['basebackup']
-        # if we don't have any source, leave only replica methods that work without it
-        replica_methods = replica_methods if clone_member else \
-            [r for r in replica_methods if self.replica_method_can_work_without_replication_connection(r)]
+
+        if clone_member:
+            connstring = clone_member.conn_url
+            # add the credentials to connect to the replica origin to pgpass.
+            env = self.write_pgpass(parseurl(clone_member.conn_url))
+        else:
+            connstring = ''
+            env = os.environ.copy()
+            # if we don't have any source, leave only replica methods that work without it
+            replica_methods = \
+                [r for r in replica_methods if self.replica_method_can_work_without_replication_connection(r)]
+
         # go through them in priority order
         ret = 1
         for replica_method in replica_methods:
             # if the method is basebackup, then use the built-in
             if replica_method == "basebackup":
-                ret = self.basebackup(clone_member, env)
+                ret = self.basebackup(connstring, env)
                 if ret == 0:
                     logger.info("replica has been created using basebackup")
                     # if basebackup succeeds, exit with success
@@ -304,10 +312,10 @@ class Postgresql(object):
                     ret = subprocess.call(shlex.split(cmd) + params, env=env)
                     # if we succeeded, stop
                     if ret == 0:
-                        logger.info("replica has been created using {0}".format(replica_method))
+                        logger.info('replica has been created using %s', replica_method)
                         break
-                except Exception as e:
-                    logger.exception('Error creating replica using method {0}: {1}'.format(replica_method, str(e)))
+                except Exception:
+                    logger.exception('Error creating replica using method %s', replica_method)
                     ret = 1
 
         self.set_state('stopped')
@@ -698,41 +706,27 @@ $$""".format(name, options), name, password, password)
     def last_operation(self):
         return str(self.xlog_position())
 
-    def bootstrap(self, cluster_initialized=False, clone_member=None):
+    def clone(self, clone_member):
         """
-            Populate PostgreSQL data directory by doing one of the following:
-             - create with initdb if there is no master.
              - initialize the replica from an existing member (master or replica)
              - initialize the replica using the replica creation method that
                works without the replication connection (i.e. restore from on-disk
                base backup)
-
-            The choice between the last 2 is triggered by the initialize flag.
-            We should never try to initdb an already initialized cluster, nor
-            try to bootstrap the cluster that lacks the initialize key using the
-            master-less replica creation method (in the latter case, there is
-            no clear inidicator of the moment we should abandon our attempts and
-            swich to initdb).
-
-            Failure during initdb always leads to an exception, since there is
-            no point in continuing if initdb fails. For the rest of the cases,
-            the function returns False in order to inidicate a failed attempt
-            that should be retried in the future.
         """
-        ret = False
-        if not (cluster_initialized or clone_member):
-            ret = self.initialize() and self.start()
-            if ret:
-                self.create_replication_user()
-                self.create_connection_user()
-            else:
-                raise PostgresException("Could not bootstrap master PostgreSQL")
-        else:
-            if self.sync_replica(clone_member):
-                self.restore_configuration_files()
-                self.write_recovery_conf(clone_member)
-                ret = self.start()
+
+        ret = self.create_replica(clone_member) == 0
+        if ret:
+            self.delete_trigger_file()
+            self.restore_configuration_files()
         return ret
+
+    def bootstrap(self):
+        """ Initialize a new node from scratch and start it. """
+        if self.initialize() and self.start():
+            self.create_replication_user()
+            self.create_connection_user()
+        else:
+            raise PostgresException("Could not bootstrap master PostgreSQL")
 
     def move_data_directory(self):
         if os.path.isdir(self.data_dir) and not self.is_running():
@@ -758,18 +752,17 @@ $$""".format(name, options), name, password, password)
             logger.exception('Could not remove data directory %s', self.data_dir)
             self.move_data_directory()
 
-    def basebackup(self, clone_member, env):
+    def basebackup(self, conn_url, env):
         # creates a replica data dir using pg_basebackup.
         # this is the default, built-in create_replica_method
         # tries twice, then returns failure (as 1)
         # uses "stream" as the xlog-method to avoid sync issues
-        master_connection = clone_member.conn_url
         maxfailures = 2
         ret = 1
         for bbfailures in range(0, maxfailures):
             try:
                 ret = subprocess.call(['pg_basebackup', '--pgdata=' + self.data_dir,
-                                       '--xlog-method=stream', "--dbname=" + master_connection], env=env)
+                                       '--xlog-method=stream', "--dbname=" + conn_url], env=env)
                 if ret == 0:
                     break
 

@@ -239,12 +239,6 @@ class TestPostgresql(unittest.TestCase):
     def test_write_pgpass(self):
         self.p.write_pgpass({'host': 'localhost', 'port': '5432', 'user': 'foo', 'password': 'bar'})
 
-    @patch('patroni.postgresql.Postgresql.write_pgpass', MagicMock(return_value=dict()))
-    def test_sync_replica(self):
-        self.assertTrue(self.p.sync_replica(self.leader))
-        self.p.create_replica = Mock(return_value=1)
-        self.assertFalse(self.p.sync_replica(self.leader))
-
     @patch('subprocess.call', side_effect=OSError)
     @patch('patroni.postgresql.Postgresql.write_pgpass', MagicMock(return_value=dict()))
     def test_pg_rewind(self, mock_call):
@@ -294,19 +288,19 @@ class TestPostgresql(unittest.TestCase):
     def test_create_replica(self):
         self.p.delete_trigger_file = Mock(side_effect=OSError)
         with patch('subprocess.call', Mock(side_effect=[1, 0])):
-            self.assertEquals(self.p.create_replica(self.leader, ''), 0)
+            self.assertEquals(self.p.create_replica(self.leader), 0)
         with patch('subprocess.call', Mock(side_effect=[Exception(), 0])):
-            self.assertEquals(self.p.create_replica(self.leader, ''), 0)
+            self.assertEquals(self.p.create_replica(self.leader), 0)
 
         self.p.config['create_replica_method'] = ['wale', 'basebackup']
         self.p.config['wale'] = {'command': 'foo'}
         with patch('subprocess.call', Mock(return_value=0)):
-            self.assertEquals(self.p.create_replica(self.leader, ''), 0)
+            self.assertEquals(self.p.create_replica(self.leader), 0)
             del self.p.config['wale']
-            self.assertEquals(self.p.create_replica(self.leader, ''), 0)
+            self.assertEquals(self.p.create_replica(self.leader), 0)
 
         with patch('subprocess.call', Mock(side_effect=Exception("foo"))):
-            self.assertEquals(self.p.create_replica(self.leader, ''), 1)
+            self.assertEquals(self.p.create_replica(self.leader), 1)
 
     def test_sync_replication_slots(self):
         self.p.start()
@@ -372,13 +366,19 @@ class TestPostgresql(unittest.TestCase):
         with patch('os.rename', Mock(side_effect=OSError)):
             self.p.move_data_directory()
 
-    @patch('patroni.postgresql.Postgresql.write_pgpass', MagicMock(return_value=dict()))
     def test_bootstrap(self):
         with patch('subprocess.call', Mock(return_value=1)):
             self.assertRaises(PostgresException, self.p.bootstrap)
         self.p.bootstrap()
-        with patch('patroni.postgresql.Postgresql.sync_replica', MagicMock(return_value=True)):
-            self.p.bootstrap(self.leader)
+
+    @patch('patroni.postgresql.Postgresql.create_replica', Mock(return_value=0))
+    def test_clone(self):
+        self.p.clone(self.leader)
+
+    @patch('os.listdir', Mock(return_value=['recovery.conf']))
+    @patch('os.path.exists', Mock(return_value=True))
+    def test_get_postgres_role_from_data_directory(self):
+        self.assertEquals(self.p.get_postgres_role_from_data_directory(), 'replica')
 
     def test_remove_data_directory(self):
         self.p.data_dir = 'data_dir'
