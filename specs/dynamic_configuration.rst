@@ -27,8 +27,8 @@ Some options may not be increased on the master independently of the replicas (m
 
 Regarding the options that can be set, the following restrictions apply:
 
-- dynamic configuration options that are also listed in the startup configuration will not be changed, except for the case
-of master-dependent options.
+- dynamic configuration options that are also listed in the startup configuration will not be changed,
+  except for the case of master-dependent options.
 
 When applying the startup or dynamic configuration options, the following actions should be taken:
 
@@ -36,9 +36,9 @@ When applying the startup or dynamic configuration options, the following action
 - If it exists, it contains the renamed "original" configuration.
 - If it doesn't, the original postgresql.conf is taken and renamed to postgresql.conf.patroni.
 - The dynamic options (with the exceptions above) are dumped into the postgresql.conf and an include is set in
-postgresql.conf to postgresql.conf.patroni. Therefore, we would be able to apply new options without re-reading the conf file to check if the include is present not.
+  postgresql.conf to postgresql.conf.patroni. Therefore, we would be able to apply new options without re-reading the configuration file to check if the include is present not.
 - If some of the options that require restart are changed (we should look at the context in pg_settings and at the actual
-values of those options), a restart_pending flag of a given node should be set. This flag is reset on any restart.
+  values of those options), a restart_pending flag of a given node should be set. This flag is reset on any restart.
 
 Also, the following patroni configuration options can be changed dynamically:
 
