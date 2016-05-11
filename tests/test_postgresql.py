@@ -5,7 +5,7 @@ import shutil
 import subprocess
 import unittest
 
-from mock import Mock, MagicMock, PropertyMock, patch, mock_open
+from mock import Mock, MagicMock, PropertyMock, patch
 from patroni.dcs import Cluster, Leader, Member
 from patroni.exceptions import PostgresException, PostgresConnectionException
 from patroni.postgresql import Postgresql
@@ -140,13 +140,6 @@ Data page checksum version:           0
 """
 
 
-def postmaster_opts_string(*args, **kwargs):
-    return '/usr/local/pgsql/bin/postgres "-D" "data/postgresql0" "--listen_addresses=127.0.0.1" \
-"--port=5432" "--hot_standby=on" "--wal_keep_segments=8" "--wal_level=hot_standby" \
-"--archive_command=mkdir -p ../wal_archive && cp %p ../wal_archive/%f" "--wal_log_hints=on" \
-"--max_wal_senders=5" "--archive_timeout=1800s" "--archive_mode=on" "--max_replication_slots=5"\n'
-
-
 def psycopg2_connect(*args, **kwargs):
     return MockConnect()
 
@@ -161,8 +154,12 @@ class TestPostgresql(unittest.TestCase):
 
     @patch('subprocess.call', Mock(return_value=0))
     @patch('psycopg2.connect', psycopg2_connect)
+    @patch('os.rename', Mock())
     def setUp(self):
-        self.p = Postgresql({'name': 'test0', 'scope': 'batman', 'data_dir': 'data/test0',
+        self.data_dir = 'data/test0'
+        if not os.path.exists(self.data_dir):
+            os.makedirs(self.data_dir)
+        self.p = Postgresql({'name': 'test0', 'scope': 'batman', 'data_dir': self.data_dir,
                              'listen': '127.0.0.1, *:5432', 'connect_address': '127.0.0.2:5432',
                              'pg_hba': ['host replication replicator 127.0.0.1/32 md5',
                                         'hostssl all all 0.0.0.0/0 md5',
@@ -178,8 +175,6 @@ class TestPostgresql(unittest.TestCase):
                                            'on_reload': 'true'
                                            },
                              'restore': 'true'})
-        if not os.path.exists(self.p.data_dir):
-            os.makedirs(self.p.data_dir)
         self.leadermem = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres'})
         self.leader = Leader(-1, 28, self.leadermem)
         self.other = Member(0, 'test1', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
@@ -188,9 +183,6 @@ class TestPostgresql(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree('data')
-
-    def test_data_directory_empty(self):
-        self.assertTrue(self.p.data_directory_empty())
 
     def test_get_initdb_options(self):
         self.p.initdb_options = [{'encoding': 'UTF8'}, 'data-checksums']
@@ -204,9 +196,8 @@ class TestPostgresql(unittest.TestCase):
 
     def test_initialize(self):
         self.assertTrue(self.p.initialize())
-        self.assertTrue(os.path.exists(os.path.join(self.p.data_dir, 'pg_hba.conf')))
 
-        with open(os.path.join(self.p.data_dir, 'pg_hba.conf')) as f:
+        with open(os.path.join(self.data_dir, 'pg_hba.conf')) as f:
             lines = f.readlines()
             assert 'host replication replicator 127.0.0.1/32 md5\n' in lines
             assert 'host all all 0.0.0.0/0 md5\n' in lines
@@ -219,8 +210,13 @@ class TestPostgresql(unittest.TestCase):
     def test_start(self):
         self.assertTrue(self.p.start())
         self.p.is_running = false
-        open(os.path.join(self.p.data_dir, 'postmaster.pid'), 'w').close()
+        open(os.path.join(self.data_dir, 'postmaster.pid'), 'w').close()
+        pg_conf = os.path.join(self.data_dir, 'postgresql.conf')
+        open(pg_conf, 'w').close()
         self.assertTrue(self.p.start())
+        with open(pg_conf) as f:
+            lines = f.readlines()
+            self.assertTrue("foo = 'bar'\n" in lines)
 
     def test_stop(self):
         self.assertTrue(self.p.stop())
@@ -381,13 +377,10 @@ class TestPostgresql(unittest.TestCase):
         self.assertEquals(self.p.get_postgres_role_from_data_directory(), 'replica')
 
     def test_remove_data_directory(self):
-        self.p.data_dir = 'data_dir'
         self.p.remove_data_directory()
-        os.mkdir(self.p.data_dir)
+        open(self.data_dir, 'w').close()
         self.p.remove_data_directory()
-        open(self.p.data_dir, 'w').close()
-        self.p.remove_data_directory()
-        os.symlink('unexisting', self.p.data_dir)
+        os.symlink('unexisting', self.data_dir)
         with patch('os.unlink', Mock(side_effect=OSError)):
             self.p.remove_data_directory()
         self.p.remove_data_directory()
@@ -403,31 +396,19 @@ class TestPostgresql(unittest.TestCase):
         with patch('subprocess.check_output', Mock(side_effect=subprocess.CalledProcessError(1, ''))):
             self.assertEquals(self.p.controldata(), {})
 
-    def test_read_postmaster_opts(self):
-        m = mock_open(read_data=postmaster_opts_string())
-        with patch.object(builtins, 'open', m):
-            data = self.p.read_postmaster_opts()
-            self.assertEquals(data['wal_level'], 'hot_standby')
-            self.assertEquals(int(data['max_replication_slots']), 5)
-            self.assertEqual(data.get('D'), None)
-
-            m.side_effect = IOError
-            data = self.p.read_postmaster_opts()
-            self.assertEqual(data, dict())
-
     @patch('subprocess.Popen')
     @patch.object(builtins, 'open', MagicMock(return_value=42))
     def test_single_user_mode(self, subprocess_popen_mock):
         subprocess_popen_mock.return_value.wait.return_value = 0
         self.assertEquals(self.p.single_user_mode(options=dict(archive_mode='on', archive_command='false')), 0)
-        subprocess_popen_mock.assert_called_once_with(['postgres', '--single', '-D', self.p.data_dir,
+        subprocess_popen_mock.assert_called_once_with(['postgres', '--single', '-D', self.data_dir,
                                                       '-c', 'archive_command=false', '-c', 'archive_mode=on',
                                                        'postgres'], stdin=subprocess.PIPE,
                                                       stdout=42,
                                                       stderr=subprocess.STDOUT)
         subprocess_popen_mock.reset_mock()
         self.assertEquals(self.p.single_user_mode(command="CHECKPOINT"), 0)
-        subprocess_popen_mock.assert_called_once_with(['postgres', '--single', '-D', self.p.data_dir,
+        subprocess_popen_mock.assert_called_once_with(['postgres', '--single', '-D', self.data_dir,
                                                       'postgres'], stdin=subprocess.PIPE,
                                                       stdout=42,
                                                       stderr=subprocess.STDOUT)
@@ -440,7 +421,7 @@ class TestPostgresql(unittest.TestCase):
     @patch('os.path.islink', return_value=False)
     @patch('os.path.isfile', return_value=True)
     def test_cleanup_archive_status(self, mock_file, mock_link, mock_remove, mock_unlink):
-        ap = os.path.join(self.p.data_dir, 'pg_xlog', 'archive_status/')
+        ap = os.path.join(self.data_dir, 'pg_xlog', 'archive_status/')
         self.p.cleanup_archive_status()
         mock_remove.assert_has_calls([mock.call(ap+'a'), mock.call(ap+'b'), mock.call(ap+'c')])
         mock_unlink.assert_not_called()

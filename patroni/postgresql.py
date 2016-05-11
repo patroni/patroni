@@ -44,10 +44,11 @@ class Postgresql(object):
     def __init__(self, config):
         self.config = config
         self.name = config['name']
-        self.server_parameters = config.get('parameters') or {}
+        self._server_parameters = self.get_server_parameters(config)
+        self._listen_addresses, self._port = (config['listen'] + ':5432').split(':')[:2]
+
         self.scope = config['scope']
-        self.listen_addresses, self.port = config['listen'].split(':')
-        self.data_dir = config['data_dir']
+        self._data_dir = config['data_dir']
         self.replication = config['replication']
         self.superuser = config.get('superuser') or {}
         self.admin = config.get('admin') or {}
@@ -57,15 +58,18 @@ class Postgresql(object):
         self.pg_rewind = config.get('pg_rewind') or {}
         self.callback = config.get('callbacks') or {}
         self.use_slots = config.get('use_slots', True)
-        self.schedule_load_slots = self.use_slots
-        self.recovery_conf = os.path.join(self.data_dir, 'recovery.conf')
-        self.configuration_to_save = (os.path.join(self.data_dir, 'pg_hba.conf'),
-                                      os.path.join(self.data_dir, 'postgresql.conf'))
-        self.postmaster_pid = os.path.join(self.data_dir, 'postmaster.pid')
-        self.trigger_file = config.get('recovery_conf', {}).get('trigger_file') or 'promote'
-        self.trigger_file = os.path.abspath(os.path.join(self.data_dir, self.trigger_file))
+        self._schedule_load_slots = self.use_slots
+        self._postgresql_conf = os.path.join(self._data_dir, 'postgresql.conf')
+        self._postgresql_base_conf_name = 'postgresql.base.conf'
+        self._postgresql_base_conf = os.path.join(self._data_dir, self._postgresql_base_conf_name)
+        self._recovery_conf = os.path.join(self._data_dir, 'recovery.conf')
+        self._configuration_to_save = (self._postgresql_conf, self._postgresql_base_conf,
+                                       os.path.join(self._data_dir, 'pg_hba.conf'))
+        self._postmaster_pid = os.path.join(self._data_dir, 'postmaster.pid')
+        self._trigger_file = config.get('recovery_conf', {}).get('trigger_file') or 'promote'
+        self._trigger_file = os.path.abspath(os.path.join(self._data_dir, self._trigger_file))
 
-        self._pg_ctl = ['pg_ctl', '-w', '-D', self.data_dir]
+        self._pg_ctl = ['pg_ctl', '-w', '-D', self._data_dir]
 
         self.local_address = self.get_local_address()
         connect_address = config.get('connect_address') or self.local_address
@@ -75,17 +79,22 @@ class Postgresql(object):
         self._connection = None
         self._cursor_holder = None
         self._sysid = None
-        self.replication_slots = []  # list of already existing replication slots
+        self._replication_slots = []  # list of already existing replication slots
         self.retry = Retry(max_tries=-1, deadline=5, max_delay=1, retry_exceptions=PostgresConnectionException)
 
-        self._state = 'stopped'
         self._state_lock = Lock()
-        self._role = self.get_postgres_role_from_data_directory()
+        self.set_state('stopped')
         self._role_lock = Lock()
+        self.set_role(self.get_postgres_role_from_data_directory())
 
         if self.is_running():
-            self._state = 'running'
-            self._role = 'master' if self.is_leader() else 'replica'
+            self.set_state('running')
+            self.set_role('master' if self.is_leader() else 'replica')
+            self._write_postgresql_conf()  # we are "joining" already running postgres
+
+    @staticmethod
+    def get_server_parameters(config):
+        return {p: v for p, v in (config.get('parameters') or {}).items() if p not in ('listen_addresses', 'port')}
 
     @property
     def can_rewind(self):
@@ -116,19 +125,19 @@ class Postgresql(object):
         return self._sysid
 
     def get_local_address(self):
-        listen_addresses = self.listen_addresses.split(',')
+        listen_addresses = self._listen_addresses.split(',')
         local_address = listen_addresses[0].strip()  # take first address from listen_addresses
 
         for la in listen_addresses:
             if la.strip() in ['*', '0.0.0.0']:  # we are listening on *
                 local_address = 'localhost'  # connection via localhost is preferred
                 break
-        return local_address + ':' + self.port
+        return local_address + ':' + self._port
 
     def get_postgres_role_from_data_directory(self):
         if self.data_directory_empty():
             return 'uninitialized'
-        elif os.path.exists(self.recovery_conf):
+        elif os.path.exists(self._recovery_conf):
             return 'replica'
         else:
             return 'master'
@@ -180,7 +189,7 @@ class Postgresql(object):
             raise PostgresConnectionException(str(e))
 
     def data_directory_empty(self):
-        return not os.path.exists(self.data_dir) or os.listdir(self.data_dir) == []
+        return not os.path.exists(self._data_dir) or os.listdir(self._data_dir) == []
 
     @staticmethod
     def initdb_allowed_option(name):
@@ -226,8 +235,8 @@ class Postgresql(object):
         return ret
 
     def delete_trigger_file(self):
-        if os.path.exists(self.trigger_file):
-            os.unlink(self.trigger_file)
+        if os.path.exists(self._trigger_file):
+            os.unlink(self._trigger_file)
 
     def write_pgpass(self, record):
         with open(self.pgpass, 'w') as f:
@@ -237,14 +246,6 @@ class Postgresql(object):
         env = os.environ.copy()
         env['PGPASSFILE'] = self.pgpass
         return env
-
-    @staticmethod
-    def build_connstring(conn):
-        """
-        >>> Postgresql.build_connstring({'host': '127.0.0.1', 'port': '5432'}) == 'host=127.0.0.1 port=5432'
-        True
-        """
-        return ' '.join('{0}={1}'.format(param, val) for param, val in sorted(conn.items()))
 
     def replica_method_can_work_without_replication_connection(self, method):
         return method != 'basebackup' and self.config and self.config.get(method, {}).get('no_master')
@@ -305,7 +306,7 @@ class Postgresql(object):
                 try:
                     method_config.update({"scope": self.scope,
                                           "role": "replica",
-                                          "datadir": self.data_dir,
+                                          "datadir": self._data_dir,
                                           "connstring": connstring})
                     params = ["--{0}={1}".format(arg, val) for arg, val in method_config.items()]
                     # call script with the full set of parameters
@@ -363,9 +364,9 @@ class Postgresql(object):
             return True
 
         self.set_role(self.get_postgres_role_from_data_directory())
-        if os.path.exists(self.postmaster_pid):
-            os.remove(self.postmaster_pid)
-            logger.info('Removed %s', self.postmaster_pid)
+        if os.path.exists(self._postmaster_pid):
+            os.remove(self._postmaster_pid)
+            logger.info('Removed %s', self._postmaster_pid)
 
         if not block_callbacks:
             self.set_state('starting')
@@ -374,11 +375,13 @@ class Postgresql(object):
         # pg_ctl will write a FATAL if the username is incorrect. exporting PGUSER if necessary
         if 'username' in self.superuser and self.superuser['username'] != os.environ.get('USER'):
             env['PGUSER'] = self.superuser['username']
-        ret = subprocess.call(self._pg_ctl + ['start', '-o', self.server_options()], env=env, preexec_fn=os.setsid) == 0
+        self._write_postgresql_conf()
+        server_arguments = ['-o', "--listen_addresses='{0}' --port={1}".format(self._listen_addresses, self._port)]
+        ret = subprocess.call(self._pg_ctl + ['start'] + server_arguments, env=env, preexec_fn=os.setsid) == 0
 
         self.set_state('running' if ret else 'start failed')
 
-        self.schedule_load_slots = ret and self.use_slots
+        self._schedule_load_slots = ret and self.use_slots
         self.save_configuration_files()
         # block_callbacks is used during restart to avoid
         # running start/stop callbacks in addition to restart ones
@@ -442,11 +445,16 @@ class Postgresql(object):
             self.set_state('restart failed ({0})'.format(self.state))
         return ret
 
-    def server_options(self):
-        options = "--listen_addresses='{0}' --port={1}".format(self.listen_addresses, self.port)
-        for setting, value in self.server_parameters.items():
-            options += " --{0}='{1}'".format(setting, value)
-        return options
+    def _write_postgresql_conf(self):
+        # rename the original configuration if it is necessary
+        if not os.path.exists(self._postgresql_base_conf):
+            os.rename(self._postgresql_conf, self._postgresql_base_conf)
+
+        with open(self._postgresql_conf, 'w') as f:
+            f.write('# Do not edit this file manually!\n# It will be overwritten by Patroni!\n')
+            f.write("include '{0}'\n\n".format(self._postgresql_base_conf_name))
+            for setting, value in sorted(self._server_parameters.items()):
+                f.write("{0} = '{1}'\n".format(setting, value))
 
     def is_healthy(self):
         if not self.is_running():
@@ -458,7 +466,7 @@ class Postgresql(object):
         return (last_leader_operation or 0) - self.xlog_position() <= self.config.get('maximum_lag_on_failover', 0)
 
     def write_pg_hba(self):
-        with open(os.path.join(self.data_dir, 'pg_hba.conf'), 'a') as f:
+        with open(os.path.join(self._data_dir, 'pg_hba.conf'), 'a') as f:
             f.write('\n{}\n'.format('\n'.join(self.config.get('pg_hba', []))))
 
     def primary_conninfo(self, leader_url):
@@ -468,19 +476,19 @@ class Postgresql(object):
         return ' '.join('{0}={{{0}}}'.format(kw) for kw in keywords).format(**r)
 
     def check_recovery_conf(self, leader):
-        if not os.path.isfile(self.recovery_conf):
+        if not os.path.isfile(self._recovery_conf):
             return False
 
         pattern = leader and leader.conn_url and self.primary_conninfo(leader.conn_url)
 
-        with open(self.recovery_conf, 'r') as f:
+        with open(self._recovery_conf, 'r') as f:
             for line in f:
                 if line.startswith('primary_conninfo'):
                     return pattern and (pattern in line)
         return not pattern
 
     def write_recovery_conf(self, leader):
-        with open(self.recovery_conf, 'w') as f:
+        with open(self._recovery_conf, 'w') as f:
             f.write("standby_mode = 'on'\nrecovery_target_timeline = 'latest'\n")
             if leader and leader.conn_url:
                 f.write("primary_conninfo = '{0}'\n".format(self.primary_conninfo(leader.conn_url)))
@@ -501,7 +509,7 @@ class Postgresql(object):
         # to make it store the new timeline (5540277D.8020309@iki.fi)
         self.checkpoint(r)
         logger.info("running pg_rewind from %s", pc)
-        pg_rewind = ['pg_rewind', '-D', self.data_dir, '--source-server', pc]
+        pg_rewind = ['pg_rewind', '-D', self._data_dir, '--source-server', pc]
         try:
             ret = subprocess.call(pg_rewind, env=env) == 0
         except OSError:
@@ -515,7 +523,7 @@ class Postgresql(object):
         result = {}
         if self.state != 'creating replica':  # Don't try to call pg_controldata during backup restore
             try:
-                data = subprocess.check_output(['pg_controldata', self.data_dir])
+                data = subprocess.check_output(['pg_controldata', self._data_dir])
                 if data:
                     data = data.decode('utf-8').splitlines()
                     result = {l.split(':')[0].replace('Current ', '', 1): l.split(':')[1].strip() for l in data if l}
@@ -523,25 +531,9 @@ class Postgresql(object):
                 logger.exception("Error when calling pg_controldata")
         return result
 
-    def read_postmaster_opts(self):
-        """ returns the list of option names/values from postgres.opts, Empty dict if read failed or no file """
-        result = {}
-        try:
-            with open(os.path.join(self.data_dir, "postmaster.opts")) as f:
-                data = f.read()
-                opts = [opt.strip('"\n') for opt in data.split(' "')]
-                for opt in opts:
-                    if '=' in opt and opt.startswith('--'):
-                        name, val = opt.split('=', 1)
-                        name = name.strip('-')
-                        result[name] = val
-        except IOError:
-            logger.exception('Error when reading postmaster.opts')
-        return result
-
     def single_user_mode(self, command=None, options=None):
         """ run a given command in a single-user mode. If the command is empty - then just start and stop """
-        cmd = ['postgres', '--single', '-D', self.data_dir]
+        cmd = ['postgres', '--single', '-D', self._data_dir]
         for opt, val in sorted((options or {}).items()):
             cmd.extend(['-c', '{0}={1}'.format(opt, val)])
         # need a database name to connect
@@ -555,7 +547,7 @@ class Postgresql(object):
         return 1
 
     def cleanup_archive_status(self):
-        status_dir = os.path.join(self.data_dir, 'pg_xlog', 'archive_status')
+        status_dir = os.path.join(self._data_dir, 'pg_xlog', 'archive_status')
         try:
             for f in os.listdir(status_dir):
                 path = os.path.join(status_dir, f)
@@ -584,17 +576,15 @@ class Postgresql(object):
             # and not shutdown in recovery. We have to remove the recovery.conf if present
             # and start/shutdown in a single user mode to emulate this.
             # XXX: if recovery.conf is linked, it will be written anew as a normal file.
-            if os.path.islink(self.recovery_conf):
-                os.unlink(self.recovery_conf)
+            if os.path.islink(self._recovery_conf):
+                os.unlink(self._recovery_conf)
             else:
-                os.remove(self.recovery_conf)
+                os.remove(self._recovery_conf)
             # Archived segments might be useful to pg_rewind,
             # clean the flags that tell we should remove them.
             self.cleanup_archive_status()
             # Start in a single user mode and stop to produce a clean shutdown
-            opts = self.read_postmaster_opts()
-            opts.update({'archive_mode': 'on', 'archive_command': 'false'})
-            self.single_user_mode(options=opts)
+            self.single_user_mode(options={'archive_mode': 'on', 'archive_command': 'false'})
             if self.rewind(leader):
                 ret = self.start()
             else:
@@ -614,7 +604,7 @@ class Postgresql(object):
             - in case of WAL-E basebackup (see http://comments.gmane.org/gmane.comp.db.postgresql.wal-e/239)
         """
         try:
-            for f in self.configuration_to_save:
+            for f in self._configuration_to_save:
                 if os.path.isfile(f):
                     shutil.copy(f, f + '.backup')
         except IOError:
@@ -623,7 +613,7 @@ class Postgresql(object):
     def restore_configuration_files(self):
         """ restore a previously saved postgresql.conf """
         try:
-            for f in self.configuration_to_save:
+            for f in self._configuration_to_save:
                 if not os.path.isfile(f) and os.path.isfile(f + '.backup'):
                     shutil.copy(f + '.backup', f)
         except IOError:
@@ -666,10 +656,10 @@ $$""".format(name, options), name, password, password)
                                                           END, '0/0')::bigint""").fetchone()[0]
 
     def load_replication_slots(self):
-        if self.use_slots and self.schedule_load_slots:
+        if self.use_slots and self._schedule_load_slots:
             cursor = self.query("SELECT slot_name FROM pg_replication_slots WHERE slot_type='physical'")
-            self.replication_slots = [r[0] for r in cursor]
-            self.schedule_load_slots = False
+            self._replication_slots = [r[0] for r in cursor]
+            self._schedule_load_slots = False
 
     def sync_replication_slots(self, cluster):
         if self.use_slots:
@@ -688,18 +678,18 @@ $$""".format(name, options), name, password, password)
                     slots = [m.name for m in cluster.members if m.replicatefrom == self.name and
                              m.name != cluster.leader.name]
                 # drop unused slots
-                for slot in set(self.replication_slots) - set(slots):
+                for slot in set(self._replication_slots) - set(slots):
                     self.query("""SELECT pg_drop_replication_slot(%s)
                                    WHERE EXISTS(SELECT 1 FROM pg_replication_slots
                                    WHERE slot_name = %s)""", slot, slot)
 
                 # create new slots
-                for slot in set(slots) - set(self.replication_slots):
+                for slot in set(slots) - set(self._replication_slots):
                     self.query("""SELECT pg_create_physical_replication_slot(%s)
                                    WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots
                                    WHERE slot_name = %s)""", slot, slot)
 
-                self.replication_slots = slots
+                self._replication_slots = slots
             except psycopg2.Error:
                 logger.exception('Exception when changing replication slots')
 
@@ -729,27 +719,27 @@ $$""".format(name, options), name, password, password)
             raise PostgresException("Could not bootstrap master PostgreSQL")
 
     def move_data_directory(self):
-        if os.path.isdir(self.data_dir) and not self.is_running():
+        if os.path.isdir(self._data_dir) and not self.is_running():
             try:
-                new_name = '{0}_{1}'.format(self.data_dir, time.strftime('%Y-%m-%d-%H-%M-%S'))
+                new_name = '{0}_{1}'.format(self._data_dir, time.strftime('%Y-%m-%d-%H-%M-%S'))
                 logger.info('renaming data directory to %s', new_name)
-                os.rename(self.data_dir, new_name)
+                os.rename(self._data_dir, new_name)
             except OSError:
-                logger.exception("Could not rename data directory %s", self.data_dir)
+                logger.exception("Could not rename data directory %s", self._data_dir)
 
     def remove_data_directory(self):
-        logger.info('Removing data directory: %s', self.data_dir)
+        logger.info('Removing data directory: %s', self._data_dir)
         try:
-            if os.path.islink(self.data_dir):
-                os.unlink(self.data_dir)
-            elif not os.path.exists(self.data_dir):
+            if os.path.islink(self._data_dir):
+                os.unlink(self._data_dir)
+            elif not os.path.exists(self._data_dir):
                 return
-            elif os.path.isfile(self.data_dir):
-                os.remove(self.data_dir)
-            elif os.path.isdir(self.data_dir):
-                shutil.rmtree(self.data_dir)
+            elif os.path.isfile(self._data_dir):
+                os.remove(self._data_dir)
+            elif os.path.isdir(self._data_dir):
+                shutil.rmtree(self._data_dir)
         except (IOError, OSError):
-            logger.exception('Could not remove data directory %s', self.data_dir)
+            logger.exception('Could not remove data directory %s', self._data_dir)
             self.move_data_directory()
 
     def basebackup(self, conn_url, env):
@@ -761,7 +751,7 @@ $$""".format(name, options), name, password, password)
         ret = 1
         for bbfailures in range(0, maxfailures):
             try:
-                ret = subprocess.call(['pg_basebackup', '--pgdata=' + self.data_dir,
+                ret = subprocess.call(['pg_basebackup', '--pgdata=' + self._data_dir,
                                        '--xlog-method=stream', "--dbname=" + conn_url], env=env)
                 if ret == 0:
                     break
