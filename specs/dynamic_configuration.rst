@@ -26,10 +26,12 @@ Some options may not be increased on the master independently of the replicas (m
 - max_prepared_transactions
 
 Regarding the options that can be set, the following restrictions apply:
+
 - dynamic configuration options that are also listed in the startup configuration will not be changed, except for the case
 of master-dependent options.
 
 When applying the startup or dynamic configuration options, the following actions should be taken:
+
 - The node should first check if there is a postgresql.conf.patroni.
 - If it exists, it contains the renamed "original" configuration.
 - If it doesn't, the original postgresql.conf is taken and renamed to postgresql.conf.patroni.
