@@ -3,7 +3,7 @@ Patroni configuration reload
 
 Patroni configuration should be stored in the DCS. There will be 3 types of configuration:
 
-- default configuraton set in Patroni
+- bootstrap configuraton set in Patroni
 	That should be applied during the initialization time and written to etcd.
 
 - startup configuration (also in patroni.yml).
@@ -34,8 +34,7 @@ When applying the startup or dynamic configuration options, the following action
 - If it exists, it contains the renamed "original" configuration.
 - If it doesn't, the original postgresql.conf is taken and renamed to postgresql.conf.patroni.
 - The dynamic options (with the exceptions above) are dumped into the postgresql.conf and an include is set in
-postgresql.conf to postgresql.conf.patroni. Therefore, we woul be able to apply new options without re-reading the conf file
-to check if the include is present not.
+postgresql.conf to postgresql.conf.patroni. Therefore, we would be able to apply new options without re-reading the conf file to check if the include is present not.
 - If some of the options that require restart are changed (we should look at the context in pg_settings and at the actual
 values of those options), a restart_pending flag of a given node should be set. This flag is reset on any restart.
 
@@ -49,7 +48,7 @@ Upon changing those options, Patroni should read the relevant section of the con
 run-time values.
 
 Patroni nodes should dump the state of the DCS options to disk on startup and upon every change of the configuration.
-Only master is allowed to restore those options from the on-disk dump if those are completely absent from the DCS on invalid.
+Only master is allowed to restore those options from the on-disk dump if those are completely absent from the DCS or invalid.
 
 
 
