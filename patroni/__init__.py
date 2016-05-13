@@ -38,7 +38,7 @@ class Patroni(object):
         return {tag: value for tag, value in config.get('tags', {}).items()
                 if tag not in ('clonefrom', 'nofailover', 'noloadbalance') or value}
 
-    def _load_config(self, fail=True):
+    def _load_config(self):
         with open(self._config_file) as f:
             return yaml.load(f)
 
