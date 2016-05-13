@@ -52,22 +52,23 @@ class TestPatroni(unittest.TestCase):
     @patch.object(Etcd, 'delete_leader', Mock())
     @patch.object(Client, 'machines')
     def test_patroni_main(self, mock_machines):
-        _main()
-        sys.argv = ['patroni.py', 'postgres0.yml']
-
-        mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
-        with patch.object(Patroni, 'run', Mock(side_effect=SleepException)):
-            self.assertRaises(SleepException, _main)
-        with patch.object(Patroni, 'run', Mock(side_effect=KeyboardInterrupt())):
+        with patch('subprocess.call', Mock(return_value=1)):
             _main()
-        sys.argv = ['patroni.py']
-        # read the content of the yaml configuration file into the environment variable
-        # in order to test how does patroni handle the configuration passed from the environment.
-        with open('postgres0.yml', 'r') as f:
-            os.environ[Patroni.PATRONI_CONFIG_VARIABLE] = f.read()
-        with patch.object(Patroni, 'run', Mock(side_effect=SleepException())):
-            self.assertRaises(SleepException, _main)
-        del os.environ[Patroni.PATRONI_CONFIG_VARIABLE]
+            sys.argv = ['patroni.py', 'postgres0.yml']
+
+            mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
+            with patch.object(Patroni, 'run', Mock(side_effect=SleepException)):
+                self.assertRaises(SleepException, _main)
+            with patch.object(Patroni, 'run', Mock(side_effect=KeyboardInterrupt())):
+                _main()
+            sys.argv = ['patroni.py']
+            # read the content of the yaml configuration file into the environment variable
+            # in order to test how does patroni handle the configuration passed from the environment.
+            with open('postgres0.yml', 'r') as f:
+                os.environ[Patroni.PATRONI_CONFIG_VARIABLE] = f.read()
+            with patch.object(Patroni, 'run', Mock(side_effect=SleepException())):
+                self.assertRaises(SleepException, _main)
+            del os.environ[Patroni.PATRONI_CONFIG_VARIABLE]
 
     def test_run(self):
         self.p.ha.dcs.watch = Mock(side_effect=SleepException)
