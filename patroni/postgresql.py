@@ -44,12 +44,15 @@ class Postgresql(object):
     def __init__(self, config):
         self.config = config
         self.name = config['name']
+        self._restart_pending = False
         self._server_parameters = self.get_server_parameters(config)
         self._listen_addresses, self._port = (config['listen'] + ':5432').split(':')[:2]
+        self._connect_address = config.get('connect_address')
+        self.replication = config['replication']
+        self.resolve_connection_addresses()
 
         self.scope = config['scope']
         self._data_dir = config['data_dir']
-        self.replication = config['replication']
         self.superuser = config.get('superuser') or {}
         self.admin = config.get('admin') or {}
 
@@ -71,11 +74,6 @@ class Postgresql(object):
 
         self._pg_ctl = ['pg_ctl', '-w', '-D', self._data_dir]
 
-        self.local_address = self.get_local_address()
-        connect_address = config.get('connect_address') or self.local_address
-        self.connection_string = 'postgres://{username}:{password}@{connect_address}/postgres'.format(
-            connect_address=connect_address, **self.replication)
-
         self._connection = None
         self._cursor_holder = None
         self._sysid = None
@@ -95,6 +93,40 @@ class Postgresql(object):
     @staticmethod
     def get_server_parameters(config):
         return {p: v for p, v in (config.get('parameters') or {}).items() if p not in ('listen_addresses', 'port')}
+
+    def resolve_connection_addresses(self):
+        self.local_address = self.get_local_address()
+        self.connection_string = 'postgres://{username}:{password}@{connect_address}/postgres'.format(
+            connect_address=self._connect_address or self.local_address, **self.replication)
+
+    def reload_config(self, config):
+        server_parameters = self.get_server_parameters(config)
+        self._connect_address = config.get('connect_address')
+        listen_addresses, port = (config['listen'] + ':5432').split(':')[:2]
+        if self._listen_addresses == listen_addresses and self._port == port:
+            self.resolve_connection_addresses()
+
+        self._listen_addresses = listen_addresses
+        self._port = port
+        if self.is_healthy():
+            changes = server_parameters.copy()
+            changes.update({p: None for p, v in self._server_parameters.items() if p not in server_parameters})
+            if changes:
+                for r in self.query("""SELECT name, setting
+                                         FROM pg_settings
+                                        WHERE context in ('internal', 'postmaster')
+                                          AND name IN (""" + ', '.join('%s' for _ in changes.keys()) + ')',
+                                    *(list(changes.keys()))):
+                    if server_parameters[r[0]] is None or str(server_parameters[r[0]]) != str(r[1]):
+                        self._restart_pending = True
+                        break
+        self._server_parameters = server_parameters
+        self._write_postgresql_conf()
+        self.reload()
+
+    @property
+    def restart_pending(self):
+        return self._restart_pending
 
     @property
     def can_rewind(self):
@@ -378,10 +410,13 @@ class Postgresql(object):
         self._write_postgresql_conf()
         server_arguments = ['-o', "--listen_addresses='{0}' --port={1}".format(self._listen_addresses, self._port)]
         ret = subprocess.call(self._pg_ctl + ['start'] + server_arguments, env=env, preexec_fn=os.setsid) == 0
+        self._restart_pending = False
 
         self.set_state('running' if ret else 'start failed')
+        if ret:
+            self.resolve_connection_addresses()
+            self._schedule_load_slots = self.use_slots
 
-        self._schedule_load_slots = ret and self.use_slots
         self.save_configuration_files()
         # block_callbacks is used during restart to avoid
         # running start/stop callbacks in addition to restart ones

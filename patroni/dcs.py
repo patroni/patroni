@@ -216,6 +216,10 @@ class AbstractDCS(object):
         return self.client_path(self._LEADER_OPTIME)
 
     @abc.abstractmethod
+    def set_ttl(self, ttl):
+        """Set the new ttl value for leader key"""
+
+    @abc.abstractmethod
     def _load_cluster(self):
         """Internally this method should build  `Cluster` object which
            represents current state and topology of the cluster in DCS.
@@ -285,12 +289,12 @@ class AbstractDCS(object):
         return self.set_failover_value(json.dumps(failover_value), index)
 
     @abc.abstractmethod
-    def touch_member(self, connection_string, ttl=None):
+    def touch_member(self, data, ttl=None):
         """Update member key in DCS.
         This method should create or update key with the name = '/members/' + `~self._name`
-        and value = connection_string in a given DCS.
+        and value = data in a given DCS.
 
-        :param connection_string: how this instance can be accessed by other instances
+        :param data: json serialized information about instance (including connection strings)
         :param ttl: ttl for member key, optional parameter. If it is None `~self.member_ttl will be used`
         :returns: `!True` on success otherwise `!False`
         """

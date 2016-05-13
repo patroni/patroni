@@ -193,7 +193,7 @@ class Etcd(AbstractDCS):
 
     def __init__(self, name, config):
         super(Etcd, self).__init__(name, config)
-        self.ttl = config.get('ttl', 30)
+        self.set_ttl(config.get('ttl', 30))
         self._retry = Retry(deadline=10, max_delay=1, max_tries=-1,
                             retry_exceptions=(etcd.EtcdConnectionFailed,
                                               etcd.EtcdLeaderElectionInProgress,
@@ -214,6 +214,9 @@ class Etcd(AbstractDCS):
                 logger.info('waiting on etcd')
                 sleep(5)
         return client
+
+    def set_ttl(self, ttl):
+        self.ttl = int(ttl)
 
     @staticmethod
     def member(node):
@@ -255,8 +258,8 @@ class Etcd(AbstractDCS):
             raise EtcdError('Etcd is not responding properly')
 
     @catch_etcd_errors
-    def touch_member(self, connection_string, ttl=None):
-        return self.retry(self._client.set, self.member_path, connection_string, ttl or self.ttl)
+    def touch_member(self, data, ttl=None):
+        return self.retry(self._client.set, self.member_path, data, ttl or self.ttl)
 
     @catch_etcd_errors
     def take_leader(self):

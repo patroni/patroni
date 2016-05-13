@@ -19,6 +19,7 @@ class MockPostgresql(object):
     server_version = '999999'
     sysid = 'dummysysid'
     scope = 'dummy'
+    restart_pending = True
 
     @staticmethod
     def connection():
@@ -73,8 +74,10 @@ class MockRestApiServer(RestApiServer):
         BaseHTTPServer.HTTPServer.__init__ = Mock()
         MockRestApiServer._BaseServer__is_shut_down = Mock()
         MockRestApiServer._BaseServer__shutdown_request = True
-        config = {'listen': '127.0.0.1:8008', 'auth': 'test:test', 'certfile': 'dumb'}
+        config = {'listen': '127.0.0.1:8008', 'auth': 'test:test'}
         super(MockRestApiServer, self).__init__(MockPatroni(), config)
+        config['certfile'] = 'dumb'
+        self.reload_config(config)
         Handler(MockRequest(request), ('0.0.0.0', 8080), self)
 
 

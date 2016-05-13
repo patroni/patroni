@@ -3,7 +3,6 @@ import os
 import sys
 import time
 import unittest
-import yaml
 
 from mock import Mock, patch
 from patroni.api import RestApiServer
@@ -22,6 +21,7 @@ from test_zookeeper import MockKazooClient
 @patch('subprocess.call', Mock(return_value=0))
 @patch('psycopg2.connect', psycopg2_connect)
 @patch.object(Postgresql, 'write_pg_hba', Mock())
+@patch.object(Postgresql, '_write_postgresql_conf', Mock())
 @patch.object(Postgresql, 'write_recovery_conf', Mock())
 @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
 @patch.object(AsyncExecutor, 'run', Mock())
@@ -37,9 +37,7 @@ class TestPatroni(unittest.TestCase):
             RestApiServer._BaseServer__is_shut_down = Mock()
             RestApiServer._BaseServer__shutdown_request = True
             RestApiServer.socket = 0
-            with open('postgres0.yml', 'r') as f:
-                config = yaml.load(f)
-                self.p = Patroni(config)
+            self.p = Patroni('postgres0.yml')
 
     @patch('patroni.zookeeper.KazooClient', MockKazooClient())
     @patch.object(Consul, 'create_or_restore_session', Mock())
@@ -71,6 +69,7 @@ class TestPatroni(unittest.TestCase):
             del os.environ[Patroni.PATRONI_CONFIG_VARIABLE]
 
     def test_run(self):
+        self.p.sighup_handler()
         self.p.ha.dcs.watch = Mock(side_effect=SleepException)
         self.p.api.start = Mock()
         self.assertRaises(SleepException, self.p.run)
@@ -95,3 +94,8 @@ class TestPatroni(unittest.TestCase):
         self.assertIsNone(self.p.replicatefrom)
         self.p.tags['replicatefrom'] = 'foo'
         self.assertEqual(self.p.replicatefrom, 'foo')
+
+    def test_reload_config(self):
+        self.p.reload_config()
+        with patch('yaml.load', Mock(side_effect=Exception)):
+            self.p.reload_config()
