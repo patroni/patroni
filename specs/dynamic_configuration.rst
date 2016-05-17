@@ -32,13 +32,26 @@ Regarding the options that can be set, the following restrictions apply:
 
 When applying the startup or dynamic configuration options, the following actions should be taken:
 
-- The node should first check if there is a postgresql.conf.patroni.
+- The node should first check if there is a postgresql.base.conf.
 - If it exists, it contains the renamed "original" configuration.
-- If it doesn't, the original postgresql.conf is taken and renamed to postgresql.conf.patroni.
+- If it doesn't, the original postgresql.conf is taken and renamed to postgresql.base.conf.
 - The dynamic options (with the exceptions above) are dumped into the postgresql.conf and an include is set in
-  postgresql.conf to postgresql.conf.patroni. Therefore, we would be able to apply new options without re-reading the configuration file to check if the include is present not.
+  postgresql.conf to postgresql.base.conf. Therefore, we would be able to apply new options without re-reading the configuration file to check if the include is present not.
+- Some parameters that are essential for Patroni to manage the cluster are overridden using the command line, these
+  include at least `port`, `listen_addresses`, `wal_level`
 - If some of the options that require restart are changed (we should look at the context in pg_settings and at the actual
   values of those options), a restart_pending flag of a given node should be set. This flag is reset on any restart.
+
+Parameters would be applied in the following order (run-time are given the highest priority):
+
+1. load parameters from file `postgresql.base.conf`
+2. load parameters from file `postgresql.conf`
+3. load parameters from file `postgresql.auto.conf`
+4. run-time parameter using `-o --name=value`
+
+This allows configuration for all the nodes (2), configuration for a specific node using `ALTER SYSTEM` (3) and ensures that
+parameters essential to the running of Patroni are enforced. (4)
+
 
 Also, the following patroni configuration options can be changed dynamically:
 
