@@ -1,31 +1,38 @@
 ### To be discussed
 scope: &scope batman
+namespace: /service/
 restapi:
   listen: 127.0.0.1:8008
   connect_address: 127.0.0.1:8008
 #  auth: 'username:password'
 #  certfile: /etc/ssl/certs/ssl-cert-snakeoil.pem
 #  keyfile: /etc/ssl/private/ssl-cert-snakeoil.key
+
+## The bootstrap section is only evaluated once, when a new PostgreSQL
+## cluster needs to be initialized.
 bootstrap:
-  ttl: &ttl 30
-  loop_wait: &loop_wait 10
-  initdb:  ## We allow the following options to be passed on to initdb
-  # - auth: authmethod
-  # - auth-host: authmethod
-  # - auth-local: authmethod
+  dcs:
+    ttl: &ttl 30
+    loop_wait: &loop_wait 10
+    use_pg_rewind: true
+    use_slots: True
+    postgresql:
+      # recovery_conf:
+      #   restore_command: cp ../wal_archive/%f %p
+      parameters:
+        # archive_mode: "on"
+        # archive_command: mkdir -p ../wal_archive && test ! -f ../wal_archive/%f && cp %p ../wal_archive/%f
+        wal_level: hot_standby
+        max_wal_senders: 10
+        wal_keep_segments: 8
+        archive_timeout: 1800s
+        max_replication_slots: 10
+        hot_standby: "on"
+        wal_log_hints: "on"
+  initdb:  ## Note: It needs to be a list (some options need values, others are switches)
   - encoding: UTF8
-  # - data-checksums  # When pg_rewind is needed on 9.3, this needs to be enabled
-  # - locale: locale
-  # - lc-collate: locale
-  # - lc-ctype: locale
-  # - lc-messages: locale
-  # - lc-monetary: locale
-  # - lc-numeric: locale
-  # - lc-time: locale
-  # - text-search-config: CFG
-  # - xlogdir: directory
-  # - debug
-  # - noclean
+  - data-checksums
+  - auth-local: peer
   pg_hba:
   - host replication replicator 127.0.0.1/32 md5
   - host all all 0.0.0.0/0 md5
@@ -44,47 +51,12 @@ bootstrap:
       password: &superuser_password zalando
       options:
         - superuser
-  pg_rewind:
-    enabled: true
-    username: &superuser_username
-    password: &superuser_password
-  postgresql:
-    archive_mode: "on"
-    wal_level: hot_standby
-    max_wal_senders: 10
-    wal_keep_segments: 8
-    archive_timeout: 1800s
-    max_replication_slots: 10
-    hot_standby: "on"
-    wal_log_hints: "on"
-  create_replica_method:
-    - basebackup
-#   - wal_e
-# commented-out example for wal-e provisioning
-  #wal_e:
-    #command: /patroni/scripts/wale_restore.py
-    #env_dir: /etc/wal-e.d/env
-    #threshold_megabytes: 10240
-    #threshold_backup_size_percentage: 30
-    #retries: 2
-    #use_iam: 1
-  #recovery_conf:
-    #restore_command: envdir /etc/wal-e.d/env wal-e wal-fetch "%f" "%p" -p 1
-  recovery_conf:
-    restore_command: cp ../wal_archive/%f %p
 etcd:
-  scope: *scope
-  ttl: *ttl
   host: 127.0.0.1:4001
   #discovery_srv: my-etcd.domain
 #consul:
-#  scope: *scope
-#  ttl: *ttl
 #  host: 127.0.0.1:8500
 #zookeeper:
-#  scope: *scope
-#  session_timeout: *ttl
-#  reconnect_timeout: *loop_wait
 #  hosts:
 #    - 127.0.0.1:2181
 #    - 127.0.0.2:2181
@@ -97,10 +69,9 @@ etcd:
 #      - host3
 postgresql:
   name: postgresql0
-  listen: 127.0.0.1:5432
   connect_address: 127.0.0.1:5432
+  listen: 127.0.0.1:5432
   data_dir: data/postgresql0
-  use_slots: True
   pgpass: /tmp/pgpass0
   authentication:
     replication:
@@ -109,24 +80,16 @@ postgresql:
     superuser:
       username: *superuser_username
       password: *superuser_password
-  create_replica_method:
-    - basebackup
-#   - wal_e
-# commented-out example for wal-e provisioning
-  #wal_e:
-    #command: /patroni/scripts/wale_restore.py
-    #env_dir: /etc/wal-e.d/env
-    #threshold_megabytes: 10240
-    #threshold_backup_size_percentage: 30
-    #retries: 2
-    #use_iam: 1
-  #recovery_conf:
-    #restore_command: envdir /etc/wal-e.d/env wal-e wal-fetch "%f" "%p" -p 1
-  recovery_conf:
-    restore_command: cp ../wal_archive/%f %p
+  ## You can override node specific PostgreSQL parameters here
+  ## from 9.4 on it may be better to use ALTER SYSTEM
+  ##
+  ## Some parameters are essential for Patroni to operate, these parameters will be ignored:
+  ## - listen_addresses
+  ## - port
+  ## - wal_level (if lower than hot_standby)
+  ## - min_wal_senders = 0
   parameters:
-    archive_command: mkdir -p ../wal_archive && test ! -f ../wal_archive/%f && cp %p ../wal_archive/%f
-    unix_socket_directories: '.'
+  # work_mem: 1GB
 tags:
     nofailover: False
     noloadbalance: False
