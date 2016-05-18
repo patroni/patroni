@@ -30,15 +30,24 @@ bootstrap:
   - host replication replicator 127.0.0.1/32 md5
   - host all all 0.0.0.0/0 md5
   # - hostssl all all 0.0.0.0/0 md5
-  replication:
-    username: replicator
-    password: rep-pass
-  superuser:
-    username: postgres
-    password: zalando
-  admin:
-    username: admin
-    password: admin
+  users:
+    admin:
+      password: admin
+      options:
+        - createrole
+        - createdatabase
+    &replication_username replicator
+      password: &replication_password replicada
+      options:
+        - replication
+    &superuser_username postgres:
+      password: &superuser_password zalando
+      options:
+        - superuser
+  pg_rewind:
+    enabled: true
+    username: &superuser_username
+    password: &superuser_password
   postgresql:
     archive_mode: "on"
     wal_level: hot_standby
@@ -88,15 +97,18 @@ etcd:
 #      - host3
 postgresql:
   name: postgresql0
-  scope: *scope
   listen: 127.0.0.1:5432
   connect_address: 127.0.0.1:5432
   data_dir: data/postgresql0
   use_slots: True
   pgpass: /tmp/pgpass0
-  pg_rewind:
-    username: postgres
-    password: zalando
+  authentication:
+    replication:
+      username: *replication_username
+      password: *replication_password
+    superuser:
+      username: *superuser_username
+      password: *superuser_password
   create_replica_method:
     - basebackup
 #   - wal_e
