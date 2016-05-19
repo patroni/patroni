@@ -6,8 +6,7 @@ import unittest
 
 from dns.exception import DNSException
 from mock import Mock, patch
-from patroni.dcs import Cluster, AbstractDCS
-from patroni.etcd import Client, Etcd, EtcdError
+from patroni.dcs.etcd import AbstractDCS, Client, Cluster, Etcd, EtcdError
 from patroni.exceptions import DCSError
 from urllib3.exceptions import ReadTimeoutError
 

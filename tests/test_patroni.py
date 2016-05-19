@@ -8,9 +8,9 @@ import yaml
 from mock import Mock, patch
 from patroni.api import RestApiServer
 from patroni.async_executor import AsyncExecutor
-from patroni.consul import Consul
+from patroni.dcs.consul import Consul
+from patroni.dcs.zookeeper import ZooKeeper
 from patroni import Patroni, PatroniException, main as _main
-from patroni.zookeeper import ZooKeeper
 from six.moves import BaseHTTPServer
 from test_etcd import SleepException, etcd_read, etcd_write
 from test_postgresql import Postgresql, psycopg2_connect
@@ -38,7 +38,7 @@ class TestPatroni(unittest.TestCase):
                 config = yaml.load(f)
                 self.p = Patroni(config)
 
-    @patch('patroni.zookeeper.KazooClient', MockKazooClient())
+    @patch('patroni.dcs.zookeeper.KazooClient', MockKazooClient())
     @patch.object(Consul, 'create_or_restore_session', Mock())
     def test_get_dcs(self):
         self.assertIsInstance(self.p.get_dcs('', {'zookeeper': {'scope': '', 'hosts': ''}}), ZooKeeper)

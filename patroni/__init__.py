@@ -43,13 +43,13 @@ class Patroni(object):
     @staticmethod
     def get_dcs(name, config):
         if 'etcd' in config:
-            from patroni.etcd import Etcd
+            from patroni.dcs.etcd import Etcd
             return Etcd(name, config['etcd'])
         if 'zookeeper' in config:
-            from patroni.zookeeper import ZooKeeper
+            from patroni.dcs.zookeeper import ZooKeeper
             return ZooKeeper(name, config['zookeeper'])
         if 'consul' in config:
-            from patroni.consul import Consul
+            from patroni.dcs.consul import Consul
             return Consul(name, config['consul'])
         raise PatroniException('Can not find suitable configuration of distributed configuration store')
 
