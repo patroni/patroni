@@ -4,11 +4,10 @@ import datetime
 import pytz
 
 from mock import Mock, MagicMock, patch
-from patroni.dcs import Cluster, Failover, Leader, Member
+from patroni.dcs import Cluster, Failover, Leader, Member, get_dcs
 from patroni.exceptions import DCSError, PostgresException
 from patroni.ha import Ha
 from patroni.postgresql import Postgresql
-from patroni import Patroni
 from test_etcd import socket_getaddrinfo, etcd_read, etcd_write, requests_get
 
 
@@ -94,7 +93,7 @@ class TestHa(unittest.TestCase):
             self.p.set_role('replica')
             self.p.check_replication_lag = true
             self.p.can_create_replica_without_replication_connection = MagicMock(return_value=False)
-            self.e = Patroni.get_dcs('foo', {'etcd': {'ttl': 30, 'host': 'ok:2379', 'scope': 'test'}})
+            self.e = get_dcs('foo', {'etcd': {'ttl': 30, 'host': 'ok:2379', 'scope': 'test'}})
             self.ha = Ha(MockPatroni(self.p, self.e))
             self.ha._async_executor.run_async = run_async
             self.ha.old_cluster = self.e.get_cluster()

@@ -16,7 +16,8 @@ import tzlocal
 import yaml
 
 from click import ClickException
-from patroni import Patroni, PatroniException
+from patroni.dcs import get_dcs as _get_dcs
+from patroni.exceptions import PatroniException
 from patroni.postgresql import parseurl
 from prettytable import PrettyTable
 from six.moves.urllib_parse import urlparse
@@ -93,10 +94,9 @@ def ctl(ctx):
 
 
 def get_dcs(config, scope):
-    for k in set(DCS_DEFAULTS.keys()) & set(config.keys()):
-        config[k].setdefault('scope', scope)
+    config.setdefault('scope', scope)
     try:
-        return Patroni.get_dcs(scope, config)
+        return _get_dcs(scope, config)
     except PatroniException as e:
         raise PatroniCtlException(str(e))
 
