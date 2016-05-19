@@ -1,9 +1,8 @@
 import consul
 import unittest
 
-from patroni.dcs import AbstractDCS
 from mock import Mock, patch
-from patroni.consul import Cluster, Consul, ConsulError, ConsulException, HTTPClient, NotFound
+from patroni.dcs.consul import AbstractDCS, Cluster, Consul, ConsulError, ConsulException, HTTPClient, NotFound
 from test_etcd import SleepException
 
 

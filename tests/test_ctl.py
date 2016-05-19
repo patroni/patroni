@@ -146,8 +146,6 @@ class TestCtl(unittest.TestCase):
 
     def test_get_dcs(self):
         self.assertRaises(PatroniCtlException, get_dcs, {'dummy': {}}, 'dummy')
-        with patch('patroni.Patroni.get_dcs', Mock(return_value=self.e)):
-            assert get_dcs({'etcd': {'host': 'none'}}, 'dummy').client_path('') == '/service/test/'
 
     @patch('psycopg2.connect', psycopg2_connect)
     @patch('patroni.ctl.query_member', Mock(return_value=([['mock column']], None)))
