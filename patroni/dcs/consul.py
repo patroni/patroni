@@ -72,12 +72,13 @@ class Consul(AbstractDCS):
 
     def __init__(self, name, config):
         super(Consul, self).__init__(name, config)
-        self.ttl = int((config.get('ttl') or 30)/2)  # My experiments have shown that session expires after 2*ttl time
+        self._ttl = None
+        self._session = None
+        self._my_member_data = None
+        self.set_ttl(config.get('ttl') or 30)
         host, port = config.get('host', '127.0.0.1:8500').split(':')
         self._client = ConsulClient(host=host, port=port)
         self._scope = config['scope']
-        self._session = None
-        self._my_member_data = None
         self.create_or_restore_session()
 
     def create_or_restore_session(self):
@@ -91,6 +92,12 @@ class Consul(AbstractDCS):
                 logger.info('waiting on consul')
                 sleep(5)
 
+    def set_ttl(self, ttl):
+        ttl = int(ttl/2)  # My experiments have shown that session expires after 2*ttl time
+        if self._ttl != ttl:
+            self._session = None
+        self._ttl = ttl
+
     def refresh_session(self):
         """:returns: `!True` if it had to create new session"""
         if self._session:
@@ -101,7 +108,7 @@ class Consul(AbstractDCS):
         if not self._session:
             name = self._scope + '-' + self._name
             try:
-                self._session = self._client.session.create(name=name, lock_delay=0, behavior='delete', ttl=self.ttl)
+                self._session = self._client.session.create(name=name, lock_delay=0, behavior='delete', ttl=self._ttl)
             except (ConsulException, RequestException):
                 logger.exception('session.create')
         if not self._session:

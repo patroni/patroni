@@ -34,19 +34,10 @@ class MockCursor(object):
             self.results = [(False, )]
         elif sql.startswith('SELECT to_char(pg_postmaster_start_time'):
             self.results = [('', True, '', '', '', '', False)]
+        elif sql.startswith('SELECT name, setting'):
+            self.results = [('archive_mode', 'off')]
         else:
-            self.results = [(
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )]
+            self.results = [(None, None, None, None, None, None, None, None, None, None)]
 
     def fetchone(self):
         return self.results[0]

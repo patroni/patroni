@@ -103,6 +103,14 @@ class ZooKeeper(AbstractDCS):
         self._fetch_cluster = True
         self.event.set()
 
+    def set_ttl(self, ttl):
+        ttl = int(ttl * 1000)
+        # I know, it's weird to access private attributes and method
+        # but there is no other way to change session_timeout without losing session
+        if self._client._session_timeout != ttl:
+            self._client._session_timeout = ttl
+            self._client._connection._socket.close()
+
     def get_node(self, key, watch=None):
         try:
             ret = self._client.get(key, watch)

@@ -1,5 +1,6 @@
 import logging
 import os
+import signal
 import sys
 import time
 import yaml
@@ -17,16 +18,44 @@ logger = logging.getLogger(__name__)
 class Patroni(object):
     PATRONI_CONFIG_VARIABLE = 'PATRONI_CONFIGURATION'
 
-    def __init__(self, config):
+    def __init__(self, config_file=None, config_env=None):
+        self._config_file = config_file
+        config = yaml.load(config_env) if config_env else self._load_config()
+
         self.nap_time = config['loop_wait']
-        self.tags = {tag: value for tag, value in config.get('tags', {}).items()
-                     if tag not in ('clonefrom', 'nofailover', 'noloadbalance') or value}
+        self.tags = self.get_tags(config)
         self.postgresql = Postgresql(config['postgresql'])
         self.dcs = get_dcs(self.postgresql.name, config)
         self.version = __version__
         self.api = RestApiServer(self, config['restapi'])
         self.ha = Ha(self)
         self.next_run = time.time()
+
+        self._reload_config_scheduled = False
+
+    @staticmethod
+    def get_tags(config):
+        return {tag: value for tag, value in config.get('tags', {}).items()
+                if tag not in ('clonefrom', 'nofailover', 'noloadbalance') or value}
+
+    def _load_config(self):
+        with open(self._config_file) as f:
+            return yaml.load(f)
+
+    def reload_config(self):
+        try:
+            config = self._load_config()
+            self.tags = self.get_tags(config)
+            self.nap_time = config['loop_wait']
+            self.dcs.set_ttl(config.get('ttl') or 30)
+            self.api.reload_config(config['restapi'])
+            self.postgresql.reload_config(config['postgresql'])
+        except Exception:
+            logger.exception('Failed to reload config_file=%s', self._config_file)
+        self._reload_config_scheduled = False
+
+    def sighup_handler(self, *args):
+        self._reload_config_scheduled = True
 
     @property
     def noloadbalance(self):
@@ -51,38 +80,34 @@ class Patroni(object):
 
     def run(self):
         self.api.start()
+        signal.signal(signal.SIGHUP, self.sighup_handler)
         self.next_run = time.time()
 
         while True:
+            if self._reload_config_scheduled:
+                self.reload_config()
             logger.info(self.ha.run_cycle())
             reap_children()
             self.schedule_next_run()
 
 
 def main():
-    logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
+    logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.DEBUG)
     logging.getLogger('requests').setLevel(logging.WARNING)
     setup_signal_handlers()
 
     # Patroni reads the configuration from the command-line argument if it exists, and from the environment otherwise.
-    use_env = False
-    use_file = (len(sys.argv) >= 2 and os.path.isfile(sys.argv[1]))
-    if not use_file:
+    config_env = False
+    config_file = len(sys.argv) >= 2 and os.path.isfile(sys.argv[1]) and sys.argv[1]
+    if not config_file:
         config_env = os.environ.get(Patroni.PATRONI_CONFIG_VARIABLE)
-        use_env = config_env is not None
-        if not use_env:
+        if config_env is None:
             print('Usage: {0} config.yml'.format(sys.argv[0]))
             print('\tPatroni may also read the configuration from the {} environment variable'.
                   format(Patroni.PATRONI_CONFIG_VARIABLE))
             return
 
-    if use_file:
-        with open(sys.argv[1], 'r') as f:
-            config = yaml.load(f)
-    elif use_env:
-        config = yaml.load(config_env)
-
-    patroni = Patroni(config)
+    patroni = Patroni(config_file, config_env)
     try:
         patroni.run()
     except KeyboardInterrupt:

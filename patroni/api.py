@@ -71,6 +71,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
             response.update({'tags': patroni.tags} if patroni.tags else {})
             if patroni.postgresql.sysid:
                 response['database_system_identifier'] = patroni.postgresql.sysid
+            if patroni.postgresql.restart_pending:
+                response['restart_pending'] = True
             response['patroni'] = {'version': patroni.version, 'scope': patroni.postgresql.scope}
             body = json.dumps(response)
         self._write_response(status_code, body, {'Content-Type': 'application/json'})
@@ -294,25 +296,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
 class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
     def __init__(self, patroni, config):
-        self._auth_key = base64.b64encode(config['auth'].encode('utf-8')).decode('utf-8') if 'auth' in config else None
-        host, port = config['listen'].split(':')
-        HTTPServer.__init__(self, (host, int(port)), RestApiHandler)
-        Thread.__init__(self, target=self.serve_forever)
-        self._set_fd_cloexec(self.socket)
-
-        protocol = 'http'
-
-        # wrap socket with ssl if 'certfile' is defined in a config.yaml
-        # Sometime it's also needed to pass reference to a 'keyfile'.
-        options = {option: config[option] for option in ['certfile', 'keyfile'] if option in config}
-        if options.get('certfile'):
-            import ssl
-            self.socket = ssl.wrap_socket(self.socket, server_side=True, **options)
-            protocol = 'https'
-
-        self.connection_string = '{0}://{1}/patroni'.format(protocol, config.get('connect_address', config['listen']))
-
         self.patroni = patroni
+        self.__initialize(config)
+        self.__set_config_parameters(config)
         self.daemon = True
 
     def query(self, sql, *params):
@@ -332,11 +318,47 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         fcntl.fcntl(fd, fcntl.F_SETFD, flags | fcntl.FD_CLOEXEC)
 
     def check_basic_auth_key(self, key):
-        return self._auth_key == key
+        return self.__auth_key == key
 
     def check_auth_header(self, auth_header):
-        if self._auth_key:
+        if self.__auth_key:
             if auth_header is None:
                 return 'no auth header received'
             if not auth_header.startswith('Basic ') or not self.check_basic_auth_key(auth_header[6:]):
                 return 'not authenticated'
+
+    @staticmethod
+    def __get_ssl_options(config):
+        return {option: config[option] for option in ['certfile', 'keyfile'] if option in config}
+
+    def __set_connection_string(self, connect_address):
+        self.connection_string = '{0}://{1}/patroni'.format(self.__protocol, connect_address or self.__listen)
+
+    def __set_config_parameters(self, config):
+        self.__auth_key = base64.b64encode(config['auth'].encode('utf-8')).decode('utf-8') if 'auth' in config else None
+        self.__set_connection_string(config.get('connect_address'))
+
+    def __initialize(self, config):
+        self.__ssl_options = self.__get_ssl_options(config)
+        self.__listen = config['listen']
+        host, port = config['listen'].split(':')
+        HTTPServer.__init__(self, (host, int(port)), RestApiHandler)
+        Thread.__init__(self, target=self.serve_forever)
+        self._set_fd_cloexec(self.socket)
+
+        self.__protocol = 'http'
+
+        # wrap socket with ssl if 'certfile' is defined in a config.yaml
+        # Sometime it's also needed to pass reference to a 'keyfile'.
+        if self.__ssl_options.get('certfile'):
+            import ssl
+            self.socket = ssl.wrap_socket(self.socket, server_side=True, **self.__ssl_options)
+            self.__protocol = 'https'
+        self.__set_connection_string(config.get('connect_address'))
+
+    def reload_config(self, config):
+        self.__set_config_parameters(config)
+        if self.__listen != config['listen'] or self.__ssl_options != self.__get_ssl_options(config):
+            self.shutdown()
+            self.__initialize(config)
+            self.start()
