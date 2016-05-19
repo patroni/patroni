@@ -6,8 +6,7 @@ import unittest
 
 from dns.exception import DNSException
 from mock import Mock, patch
-from patroni.dcs import Cluster, AbstractDCS
-from patroni.etcd import Client, Etcd, EtcdError
+from patroni.dcs.etcd import AbstractDCS, Client, Cluster, Etcd, EtcdError
 from patroni.exceptions import DCSError
 from urllib3.exceptions import ReadTimeoutError
 
@@ -240,6 +239,9 @@ class TestEtcd(unittest.TestCase):
     def test_delete_leader(self):
         self.assertFalse(self.etcd.delete_leader())
 
+    def test_delete_cluster(self):
+        self.assertFalse(self.etcd.delete_cluster())
+
     @patch.object(etcd.Client, 'watch', etcd_watch)
     def test_watch(self):
         self.etcd.watch(0)
@@ -249,6 +251,6 @@ class TestEtcd(unittest.TestCase):
         with patch.object(AbstractDCS, 'watch', Mock()):
             self.etcd.watch(9.5)
 
-    @patch('patroni.etcd.Etcd.retry', Mock(side_effect=AttributeError("foo")))
     def test_other_exceptions(self):
+        self.etcd.retry = Mock(side_effect=AttributeError('foo'))
         self.assertRaises(EtcdError, self.etcd.cancel_initialization)

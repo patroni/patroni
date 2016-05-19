@@ -1,9 +1,13 @@
 import abc
 import dateutil
+import importlib
+import inspect
 import json
+import os
 import six
 
 from collections import namedtuple
+from patroni.exceptions import PatroniException
 from random import randint
 from six.moves.urllib_parse import urlparse, urlunparse, parse_qsl
 from threading import Event, Lock
@@ -24,6 +28,26 @@ def parse_connection_string(value):
     conn_url = urlunparse((scheme, netloc, path, params, '', fragment))
     api_url = ([v for n, v in parse_qsl(query) if n == 'application_name'] or [None])[0]
     return conn_url, api_url
+
+
+def get_dcs(node_name, config):
+    available_implementations = []
+    for name in os.listdir(os.path.dirname(__file__)):
+        if name.endswith('.py') and not name.startswith('__'):  # find module
+            module = importlib.import_module(__package__ + '.' + name[:-3])
+            for name in dir(module):  # iterate through module content
+                if not name.startswith('__'):  # skip internal stuff
+                    value = getattr(module, name)
+                    name = name.lower()
+                    # try to find implementation of AbstractDCS interface
+                    if inspect.isclass(value) and issubclass(value, AbstractDCS):
+                        available_implementations.append(name)
+                        if name in config:  # which has configuration section in the config file
+                            # propagate some parameters
+                            config[name].update({p: config[p] for p in ('namespace', 'scope', 'ttl') if p in config})
+                            return value(node_name, config[name])
+    raise PatroniException("""Can not find suitable configuration of distributed configuration store
+Available implementations: """ + ', '.join(available_implementations))
 
 
 class Member(namedtuple('Member', 'index,name,session,data')):

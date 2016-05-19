@@ -6,7 +6,7 @@ import time
 import yaml
 
 from patroni.api import RestApiServer
-from patroni.exceptions import PatroniException
+from patroni.dcs import get_dcs
 from patroni.ha import Ha
 from patroni.postgresql import Postgresql
 from patroni.utils import reap_children, set_ignore_sigterm, setup_signal_handlers
@@ -25,7 +25,7 @@ class Patroni(object):
         self.nap_time = config['loop_wait']
         self.tags = self.get_tags(config)
         self.postgresql = Postgresql(config['postgresql'])
-        self.dcs = self.get_dcs(self.postgresql.name, config)
+        self.dcs = get_dcs(self.postgresql.name, config)
         self.version = __version__
         self.api = RestApiServer(self, config['restapi'])
         self.ha = Ha(self)
@@ -68,19 +68,6 @@ class Patroni(object):
     @property
     def replicatefrom(self):
         return self.tags.get('replicatefrom')
-
-    @staticmethod
-    def get_dcs(name, config):
-        if 'etcd' in config:
-            from patroni.etcd import Etcd
-            return Etcd(name, config['etcd'])
-        if 'zookeeper' in config:
-            from patroni.zookeeper import ZooKeeper
-            return ZooKeeper(name, config['zookeeper'])
-        if 'consul' in config:
-            from patroni.consul import Consul
-            return Consul(name, config['consul'])
-        raise PatroniException('Can not find suitable configuration of distributed configuration store')
 
     def schedule_next_run(self):
         self.next_run += self.nap_time

@@ -7,14 +7,10 @@ import unittest
 from mock import Mock, patch
 from patroni.api import RestApiServer
 from patroni.async_executor import AsyncExecutor
-from patroni.consul import Consul
-from patroni.etcd import Etcd
-from patroni import Patroni, PatroniException, main as _main
-from patroni.zookeeper import ZooKeeper
+from patroni import Patroni, main as _main
 from six.moves import BaseHTTPServer
-from test_etcd import Client, SleepException, etcd_read, etcd_write
+from test_etcd import SleepException, etcd_read, etcd_write
 from test_postgresql import Postgresql, psycopg2_connect
-from test_zookeeper import MockKazooClient
 
 
 @patch('time.sleep', Mock())
@@ -30,25 +26,16 @@ from test_zookeeper import MockKazooClient
 class TestPatroni(unittest.TestCase):
 
     def setUp(self):
-        with patch.object(Client, 'machines') as mock_machines:
+        RestApiServer._BaseServer__is_shut_down = Mock()
+        RestApiServer._BaseServer__shutdown_request = True
+        RestApiServer.socket = 0
+        with patch.object(etcd.Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
-            self.touched = False
-            self.init_cancelled = False
-            RestApiServer._BaseServer__is_shut_down = Mock()
-            RestApiServer._BaseServer__shutdown_request = True
-            RestApiServer.socket = 0
             self.p = Patroni('postgres0.yml')
 
-    @patch('patroni.zookeeper.KazooClient', MockKazooClient())
-    @patch.object(Consul, 'create_or_restore_session', Mock())
-    def test_get_dcs(self):
-        self.assertIsInstance(self.p.get_dcs('', {'zookeeper': {'scope': '', 'hosts': ''}}), ZooKeeper)
-        self.assertIsInstance(self.p.get_dcs('', {'consul': {'scope': '', 'hosts': '127.0.0.1:1'}}), Consul)
-        self.assertRaises(PatroniException, self.p.get_dcs, '', {})
-
     @patch('time.sleep', Mock(side_effect=SleepException))
-    @patch.object(Etcd, 'delete_leader', Mock())
-    @patch.object(Client, 'machines')
+    @patch.object(etcd.Client, 'delete', Mock())
+    @patch.object(etcd.Client, 'machines')
     def test_patroni_main(self, mock_machines):
         with patch('subprocess.call', Mock(return_value=1)):
             _main()

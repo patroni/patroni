@@ -1,12 +1,11 @@
 import six
 import unittest
 
-from mock import Mock, patch
-from patroni.dcs import Leader
-from patroni.zookeeper import ExhibitorEnsembleProvider, ZooKeeper, ZooKeeperError
 from kazoo.client import KazooState
 from kazoo.exceptions import NoNodeError, NodeExistsError
 from kazoo.protocol.states import ZnodeStat
+from mock import Mock, patch
+from patroni.dcs.zookeeper import Leader, ExhibitorEnsembleProvider, ZooKeeper, ZooKeeperError
 from test_etcd import SleepException, requests_get
 
 
@@ -92,7 +91,7 @@ class MockKazooClient(Mock):
 
 
 @patch('requests.get', requests_get)
-@patch('patroni.zookeeper.sleep', Mock(side_effect=SleepException()))
+@patch('time.sleep', Mock(side_effect=SleepException))
 class TestExhibitorEnsembleProvider(unittest.TestCase):
 
     def test_init(self):
@@ -102,7 +101,7 @@ class TestExhibitorEnsembleProvider(unittest.TestCase):
 class TestZooKeeper(unittest.TestCase):
 
     @patch('requests.get', requests_get)
-    @patch('patroni.zookeeper.KazooClient', MockKazooClient)
+    @patch('patroni.dcs.zookeeper.KazooClient', MockKazooClient)
     def setUp(self):
         self.zk = ZooKeeper('foo', {'exhibitor': {'hosts': ['localhost', 'exhibitor'], 'port': 8181}, 'scope': 'test'})
 
