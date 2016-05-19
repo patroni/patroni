@@ -2,7 +2,7 @@ approvals:
   # PR needs at least 4 approvals
   minimum: 1
   # approval = comment that matches this regex
-  pattern: "^\s*:?\\+1:?\s*$"
+  pattern: "^\\s*(:?\\+1:?|\\u{1F44D})\\s*$"
   from:
     # commenter must be either one of:
     # a public zalando org member
