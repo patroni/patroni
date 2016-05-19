@@ -92,7 +92,7 @@ class MockKazooClient(Mock):
 
 
 @patch('requests.get', requests_get)
-@patch('patroni.zookeeper.sleep', Mock(side_effect=SleepException()))
+@patch('time.sleep', Mock(side_effect=SleepException))
 class TestExhibitorEnsembleProvider(unittest.TestCase):
 
     def test_init(self):

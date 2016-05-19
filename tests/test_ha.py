@@ -5,10 +5,10 @@ import pytz
 
 from mock import Mock, MagicMock, patch
 from patroni.dcs import Cluster, Failover, Leader, Member
-from patroni.etcd import Client, Etcd
 from patroni.exceptions import DCSError, PostgresException
 from patroni.ha import Ha
 from patroni.postgresql import Postgresql
+from patroni import Patroni
 from test_etcd import socket_getaddrinfo, etcd_read, etcd_write, requests_get
 
 
@@ -85,7 +85,7 @@ class TestHa(unittest.TestCase):
     @patch('socket.getaddrinfo', socket_getaddrinfo)
     @patch.object(etcd.Client, 'read', etcd_read)
     def setUp(self):
-        with patch.object(Client, 'machines') as mock_machines:
+        with patch.object(etcd.Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
             self.p = Postgresql({'name': 'postgresql0', 'scope': 'dummy', 'listen': '127.0.0.1:5432',
                                  'data_dir': 'data/postgresql0', 'superuser': {}, 'admin': {},
@@ -94,7 +94,7 @@ class TestHa(unittest.TestCase):
             self.p.set_role('replica')
             self.p.check_replication_lag = true
             self.p.can_create_replica_without_replication_connection = MagicMock(return_value=False)
-            self.e = Etcd('foo', {'ttl': 30, 'host': 'ok:2379', 'scope': 'test'})
+            self.e = Patroni.get_dcs('foo', {'etcd': {'ttl': 30, 'host': 'ok:2379', 'scope': 'test'}})
             self.ha = Ha(MockPatroni(self.p, self.e))
             self.ha._async_executor.run_async = run_async
             self.ha.old_cluster = self.e.get_cluster()
