@@ -1,6 +1,8 @@
 ### To be discussed
 scope: &scope batman
 namespace: /service/
+name: postgresql0
+
 restapi:
   listen: 127.0.0.1:8008
   connect_address: 127.0.0.1:8008
@@ -12,13 +14,14 @@ restapi:
 ## cluster needs to be initialized.
 bootstrap:
   dcs:
-    ttl: &ttl 30
-    loop_wait: &loop_wait 10
-    use_pg_rewind: true
-    use_slots: True
+    ttl: 30
+    loop_wait: 10
+    maximum_lag_on_failover: 1048576
     postgresql:
       # recovery_conf:
       #   restore_command: cp ../wal_archive/%f %p
+      use_pg_rewind: true
+      #use_slots: True
       parameters:
         # archive_mode: "on"
         # archive_command: mkdir -p ../wal_archive && test ! -f ../wal_archive/%f && cp %p ../wal_archive/%f
@@ -43,14 +46,6 @@ bootstrap:
       options:
         - createrole
         - createdatabase
-    &replication_username replicator
-      password: &replication_password replicada
-      options:
-        - replication
-    &superuser_username postgres:
-      password: &superuser_password zalando
-      options:
-        - superuser
 etcd:
   host: 127.0.0.1:4001
   #discovery_srv: my-etcd.domain
@@ -68,27 +63,32 @@ etcd:
 #      - host2
 #      - host3
 postgresql:
-  name: postgresql0
   connect_address: 127.0.0.1:5432
   listen: 127.0.0.1:5432
   data_dir: data/postgresql0
   pgpass: /tmp/pgpass0
   authentication:
     replication:
-      username: *replication_username
-      password: *replication_password
+      username: replicator
+      password: rep-pass
     superuser:
-      username: *superuser_username
-      password: *superuser_password
+      username: postgres
+      password: zalando
+  parameters:
   ## You can override node specific PostgreSQL parameters here
   ## from 9.4 on it may be better to use ALTER SYSTEM
   ##
-  ## Some parameters are essential for Patroni to operate, these parameters will be ignored:
+  ## Some parameters are essential for Patroni to operate, these parameters will be ignored when changed with ALTER SYSTEM
+  ## They should be changed only in this file
   ## - listen_addresses
   ## - port
-  ## - wal_level (if lower than hot_standby)
-  ## - min_wal_senders = 0
-  parameters:
+  ## The following parameters cannot be lower than the values below
+  ## - hot_standby = 'on'
+  ## - wal_level = 'hot_standby'
+  ## - max_wal_senders = 5
+  ## - max_replication_slots = 5 ## 9.4+
+  ## - wal_log_hints = 'on' ## 9.4+
+  ## 
   # work_mem: 1GB
 tags:
     nofailover: False
