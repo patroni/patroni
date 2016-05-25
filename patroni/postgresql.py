@@ -120,7 +120,8 @@ class Postgresql(object):
                 logger.exception('Failed to read PG_VERSION from %s', self._data_dir)
         return 0.0
 
-    def get_server_parameters(self, config):
+    @staticmethod
+    def get_server_parameters(config):
         parameters = config['parameters'].copy()
         listen_addresses, port = (config['listen'] + ':5432').split(':')[:2]
         parameters.update({'listen_addresses': listen_addresses, 'port': port})

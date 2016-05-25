@@ -110,7 +110,7 @@ class PatroniController(AbstractController):
         patroni_config_path = os.path.join(self._output_dir, patroni_config_name)
 
         with open(patroni_config_name) as f:
-            config = yaml.load(f)
+            config = yaml.safe_load(f)
 
         host = config['postgresql']['listen'].split(':')[0]
 
@@ -143,7 +143,7 @@ class PatroniController(AbstractController):
                 config['zookeeper'] = dcs_config
 
         with open(patroni_config_path, 'w') as f:
-            yaml.dump(config, f, default_flow_style=False)
+            yaml.safe_dump(config, f, default_flow_style=False)
 
         return patroni_config_path
 

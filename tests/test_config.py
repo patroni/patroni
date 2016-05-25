@@ -14,7 +14,7 @@ class TestConfig(unittest.TestCase):
         self.config = Config(config_env='postgresql: {data_dir: foo}')
 
     def test_reload_local_configuration(self):
-        Config(config_file='postgres0.yml').reload_local_configuration()
+        self.assertIsNone(Config(config_file='postgres0.yml').reload_local_configuration())
 
     @patch('tempfile.mkstemp', Mock(return_value=[3000, 'blabla']))
     @patch('os.path.exists', Mock(return_value=True))
