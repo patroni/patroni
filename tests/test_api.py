@@ -1,4 +1,5 @@
 import psycopg2
+import socket
 import unittest
 
 from mock import Mock, patch
@@ -7,7 +8,6 @@ from patroni.dcs import Member
 from six import BytesIO as IO
 from six.moves import BaseHTTPServer
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler
-import socket
 from test_postgresql import psycopg2_connect, MockCursor
 
 
@@ -71,6 +71,7 @@ class MockRestApiServer(RestApiServer):
 
     def __init__(self, Handler, request):
         self.socket = 0
+        self.serve_forever = Mock()
         BaseHTTPServer.HTTPServer.__init__ = Mock()
         MockRestApiServer._BaseServer__is_shut_down = Mock()
         MockRestApiServer._BaseServer__shutdown_request = True

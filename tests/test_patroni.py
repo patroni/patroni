@@ -7,6 +7,7 @@ import unittest
 from mock import Mock, patch
 from patroni.api import RestApiServer
 from patroni.async_executor import AsyncExecutor
+from patroni.exceptions import DCSError
 from patroni import Patroni, main as _main
 from six.moves import BaseHTTPServer
 from test_etcd import SleepException, etcd_read, etcd_write
@@ -25,6 +26,7 @@ from test_postgresql import Postgresql, psycopg2_connect
 @patch.object(etcd.Client, 'read', etcd_read)
 class TestPatroni(unittest.TestCase):
 
+    @patch.object(etcd.Client, 'read', etcd_read)
     def setUp(self):
         RestApiServer._BaseServer__is_shut_down = Mock()
         RestApiServer._BaseServer__shutdown_request = True
@@ -32,6 +34,12 @@ class TestPatroni(unittest.TestCase):
         with patch.object(etcd.Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
             self.p = Patroni('postgres0.yml')
+
+    @patch('patroni.dcs.AbstractDCS.get_cluster', Mock(side_effect=[None, DCSError('foo'), None]))
+    def test_load_dynamic_configuration(self):
+        self.p.config._dynamic_configuration = {}
+        self.p.load_dynamic_configuration()
+        self.p.load_dynamic_configuration()
 
     @patch('time.sleep', Mock(side_effect=SleepException))
     @patch.object(etcd.Client, 'delete', Mock())
@@ -55,11 +63,15 @@ class TestPatroni(unittest.TestCase):
                 self.assertRaises(SleepException, _main)
             del os.environ[Patroni.PATRONI_CONFIG_VARIABLE]
 
+    @patch('patroni.config.Config.save_cache', Mock())
     def test_run(self):
         self.p.sighup_handler()
         self.p.ha.dcs.watch = Mock(side_effect=SleepException)
         self.p.api.start = Mock()
+        self.p.config._dynamic_configuration = {}
         self.assertRaises(SleepException, self.p.run)
+        with patch('patroni.postgresql.Postgresql.data_directory_empty', Mock(return_value=False)):
+            self.assertRaises(SleepException, self.p.run)
 
     def test_schedule_next_run(self):
         self.p.ha.dcs.watch = Mock(return_value=True)
@@ -84,5 +96,5 @@ class TestPatroni(unittest.TestCase):
 
     def test_reload_config(self):
         self.p.reload_config()
-        with patch('yaml.load', Mock(side_effect=Exception)):
-            self.p.reload_config()
+        self.p.get_tags = Mock(side_effect=Exception)
+        self.p.reload_config()

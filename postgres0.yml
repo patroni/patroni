@@ -1,104 +1,70 @@
-ttl: &ttl 30
-loop_wait: &loop_wait 10
-scope: &scope batman
+scope: batman
+#namespace: /service/
+name: postgresql0
+
 restapi:
   listen: 127.0.0.1:8008
   connect_address: 127.0.0.1:8008
-#  auth: 'username:password'
-#  certfile: /etc/ssl/certs/ssl-cert-snakeoil.pem
-#  keyfile: /etc/ssl/private/ssl-cert-snakeoil.key
+
 etcd:
-  scope: *scope
-  ttl: *ttl
   host: 127.0.0.1:4001
-  #discovery_srv: my-etcd.domain
-#consul:
-#  scope: *scope
-#  ttl: *ttl
-#  host: 127.0.0.1:8500
-#zookeeper:
-#  scope: *scope
-#  session_timeout: *ttl
-#  reconnect_timeout: *loop_wait
-#  hosts:
-#    - 127.0.0.1:2181
-#    - 127.0.0.2:2181
-#  exhibitor:
-#    poll_interval: 300
-#    port: 8181
-#    hosts:
-#      - host1
-#      - host2
-#      - host3
+
+bootstrap:
+  # this section will be written into Etcd:/<namespace>/<scope>/config after initializing new cluster
+  # and all other cluster members will use it as a `global configuration`
+  dcs:
+    ttl: 30
+    loop_wait: 10
+    retry_timeout: 5
+    maximum_lag_on_failover: 1048576
+    postgresql:
+      use_pg_rewind: true
+#      use_slots: true
+      parameters:
+#        wal_level: hot_standby
+#        hot_standby: "on"
+#        wal_keep_segments: 8
+#        max_wal_senders: 5
+#        max_replication_slots: 5
+#        wal_log_hints: "on"
+        archive_mode: "on"
+        archive_timeout: 1800s
+        archive_command: mkdir -p ../wal_archive && test ! -f ../wal_archive/%f && cp %p ../wal_archive/%f
+      recovery_conf:
+        restore_command: cp ../wal_archive/%f %p
+
+  # some desired options for 'initdb'
+  initdb:  # Note: It needs to be a list (some options need values, others are switches)
+  - encoding: UTF8
+  - data-checksums
+
+  pg_hba:  # Add following lines to pg_hba.conf after running 'initdb'
+  - host replication replicator 127.0.0.1/32 md5
+  - host all all 0.0.0.0/0 md5
+#  - hostssl all all 0.0.0.0/0 md5
+
+  # Some additional users users which needs to be created after initializing new cluster
+  users:
+    admin:
+      password: admin
+      options:
+        - createrole
+        - createdb
 postgresql:
-  name: postgresql0
-  scope: *scope
   listen: 127.0.0.1:5432
   connect_address: 127.0.0.1:5432
   data_dir: data/postgresql0
-  maximum_lag_on_failover: 1048576 # 1 megabyte in bytes
-  use_slots: True
   pgpass: /tmp/pgpass0
-  initdb:  ## We allow the following options to be passed on to initdb
-  # - auth: authmethod
-  # - auth-host: authmethod
-  # - auth-local: authmethod
-  - encoding: UTF8
-  # - data-checksums  # When pg_rewind is needed on 9.3, this needs to be enabled
-  # - locale: locale
-  # - lc-collate: locale
-  # - lc-ctype: locale
-  # - lc-messages: locale
-  # - lc-monetary: locale
-  # - lc-numeric: locale
-  # - lc-time: locale
-  # - text-search-config: CFG
-  # - xlogdir: directory
-  # - debug
-  # - noclean
-  pg_rewind:
-    username: postgres
-    password: zalando
-  pg_hba:
-  - host replication replicator 127.0.0.1/32 md5
-  - host all all 0.0.0.0/0 md5
-  # - hostssl all all 0.0.0.0/0 md5
-  replication:
-    username: replicator
-    password: rep-pass
-  superuser:
-    username: postgres
-    password: zalando
-  admin:
-    username: admin
-    password: admin
-  create_replica_method:
-    - basebackup
-#   - wal_e
-# commented-out example for wal-e provisioning
-  #wal_e:
-    #command: /patroni/scripts/wale_restore.py
-    #env_dir: /etc/wal-e.d/env
-    #threshold_megabytes: 10240
-    #threshold_backup_size_percentage: 30
-    #retries: 2
-    #use_iam: 1
-  #recovery_conf:
-    #restore_command: envdir /etc/wal-e.d/env wal-e wal-fetch "%f" "%p" -p 1
-  recovery_conf:
-    restore_command: cp ../wal_archive/%f %p
+  authentication:
+    replication:
+      username: replicator
+      password: rep-pass
+    superuser:
+      username: postgres
+      password: zalando
   parameters:
-    archive_mode: "on"
-    wal_level: hot_standby
-    archive_command: mkdir -p ../wal_archive && test ! -f ../wal_archive/%f && cp %p ../wal_archive/%f
-    max_wal_senders: 10
-    wal_keep_segments: 8
-    archive_timeout: 1800s
-    max_replication_slots: 10
-    hot_standby: "on"
-    wal_log_hints: "on"
     unix_socket_directories: '.'
 tags:
-    nofailover: False
-    noloadbalance: False
-    clonefrom: False
+    nofailover: false
+    noloadbalance: false
+    clonefrom: false

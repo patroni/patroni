@@ -5,7 +5,7 @@ import time
 import six
 
 from consul import ConsulException, NotFound, base, std
-from patroni.dcs import AbstractDCS, Cluster, Failover, Leader, Member
+from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member
 from patroni.exceptions import DCSError
 from patroni.utils import sleep
 from requests.exceptions import RequestException
@@ -70,8 +70,8 @@ def catch_consul_errors(func):
 
 class Consul(AbstractDCS):
 
-    def __init__(self, name, config):
-        super(Consul, self).__init__(name, config)
+    def __init__(self, config):
+        super(Consul, self).__init__(config)
         self._ttl = None
         self._session = None
         self._my_member_data = None
@@ -139,6 +139,10 @@ class Consul(AbstractDCS):
             initialize = nodes.get(self._INITIALIZE)
             initialize = initialize and initialize['Value']
 
+            # get global dynamic configuration
+            config = nodes.get(self._CONFIG)
+            config = config and ClusterConfig.from_node(config['ModifyIndex'], config['Value'])
+
             # get last leader operation
             last_leader_operation = nodes.get(self._LEADER_OPTIME)
             last_leader_operation = 0 if last_leader_operation is None else int(last_leader_operation['Value'])
@@ -163,9 +167,9 @@ class Consul(AbstractDCS):
             if failover:
                 failover = Failover.from_node(failover['ModifyIndex'], failover['Value'])
 
-            self._cluster = Cluster(initialize, leader, last_leader_operation, members, failover)
+            self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover)
         except NotFound:
-            self._cluster = Cluster(False, None, None, [], None)
+            self._cluster = Cluster(False, None, None, None, [], None)
         except:
             logger.exception('get_cluster')
             raise ConsulError('Consul is not responding properly')
@@ -204,6 +208,10 @@ class Consul(AbstractDCS):
     @catch_consul_errors
     def set_failover_value(self, value, index=None):
         return self._client.kv.put(self.failover_path, value, cas=index)
+
+    @catch_consul_errors
+    def set_config_value(self, value, index=None):
+        return self._client.kv.put(self.config_path, value, cas=index)
 
     @catch_consul_errors
     def write_leader_optime(self, last_operation):

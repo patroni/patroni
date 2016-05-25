@@ -95,8 +95,9 @@ def ctl(ctx):
 
 def get_dcs(config, scope):
     config.setdefault('scope', scope)
+    config.setdefault('name', scope)
     try:
-        return _get_dcs(scope, config)
+        return _get_dcs(config)
     except PatroniException as e:
         raise PatroniCtlException(str(e))
 

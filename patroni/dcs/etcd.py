@@ -9,7 +9,7 @@ import time
 
 from dns.exception import DNSException
 from dns import resolver
-from patroni.dcs import AbstractDCS, Cluster, Failover, Leader, Member
+from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member
 from patroni.exceptions import DCSError
 from patroni.utils import Retry, RetryFailedError, sleep
 from urllib3.exceptions import HTTPError, ReadTimeoutError
@@ -191,8 +191,8 @@ def catch_etcd_errors(func):
 
 class Etcd(AbstractDCS):
 
-    def __init__(self, name, config):
-        super(Etcd, self).__init__(name, config)
+    def __init__(self, config):
+        super(Etcd, self).__init__(config)
         self.set_ttl(config.get('ttl', 30))
         self._retry = Retry(deadline=10, max_delay=1, max_tries=-1,
                             retry_exceptions=(etcd.EtcdConnectionFailed,
@@ -231,6 +231,10 @@ class Etcd(AbstractDCS):
             initialize = nodes.get(self._INITIALIZE)
             initialize = initialize and initialize.value
 
+            # get global dynamic configuration
+            config = nodes.get(self._CONFIG)
+            config = config and ClusterConfig.from_node(config.modifiedIndex, config.value)
+
             # get last leader operation
             last_leader_operation = nodes.get(self._LEADER_OPTIME)
             last_leader_operation = 0 if last_leader_operation is None else int(last_leader_operation.value)
@@ -250,9 +254,9 @@ class Etcd(AbstractDCS):
             if failover:
                 failover = Failover.from_node(failover.modifiedIndex, failover.value)
 
-            self._cluster = Cluster(initialize, leader, last_leader_operation, members, failover)
+            self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover)
         except etcd.EtcdKeyNotFound:
-            self._cluster = Cluster(False, None, None, [], None)
+            self._cluster = Cluster(False, None, None, None, [], None)
         except:
             logger.exception('get_cluster')
             raise EtcdError('Etcd is not responding properly')
@@ -277,6 +281,10 @@ class Etcd(AbstractDCS):
     @catch_etcd_errors
     def set_failover_value(self, value, index=None):
         return self._client.write(self.failover_path, value, prevIndex=index or 0)
+
+    @catch_etcd_errors
+    def set_config_value(self, value, index=None):
+        return self._client.write(self.config_path, value, prevIndex=index or 0)
 
     @catch_etcd_errors
     def write_leader_optime(self, last_operation):

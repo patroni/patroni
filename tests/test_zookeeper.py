@@ -70,7 +70,7 @@ class MockKazooClient(Mock):
             raise Exception
         if path == '/service/test/members/bar' and value == b'retry':
             return
-        if path == '/service/test/failover':
+        if path in ('/service/test/failover', '/service/test/config'):
             if value == b'Exception':
                 raise Exception
             elif value == b'ok':
@@ -103,7 +103,8 @@ class TestZooKeeper(unittest.TestCase):
     @patch('requests.get', requests_get)
     @patch('patroni.dcs.zookeeper.KazooClient', MockKazooClient)
     def setUp(self):
-        self.zk = ZooKeeper('foo', {'exhibitor': {'hosts': ['localhost', 'exhibitor'], 'port': 8181}, 'scope': 'test'})
+        self.zk = ZooKeeper({'exhibitor': {'hosts': ['localhost', 'exhibitor'], 'port': 8181},
+                             'scope': 'test', 'name': 'foo'})
 
     def test_session_listener(self):
         self.zk.session_listener(KazooState.SUSPENDED)
@@ -135,6 +136,11 @@ class TestZooKeeper(unittest.TestCase):
         self.zk.set_failover_value('')
         self.zk.set_failover_value('ok')
         self.zk.set_failover_value('Exception')
+
+    def test_set_config_value(self):
+        self.zk.set_config_value('')
+        self.zk.set_config_value('ok')
+        self.zk.set_config_value('Exception')
 
     def test_initialize(self):
         self.assertFalse(self.zk.initialize())

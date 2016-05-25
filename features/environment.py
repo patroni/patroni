@@ -116,11 +116,12 @@ class PatroniController(AbstractController):
 
         config['postgresql']['listen'] = config['postgresql']['connect_address'] = '{0}:{1}'.format(host, self.__PORT)
 
-        user = config['postgresql'].get('superuser', {})
+        user = config['postgresql'].get('authentication', config['postgresql']).get('superuser', {})
         self._connkwargs = {k: user[n] for n, k in [('username', 'user'), ('password', 'password')] if n in user}
         self._connkwargs.update({'host': host, 'port': self.__PORT, 'database': 'postgres'})
 
-        config['postgresql'].update({'name': name, 'data_dir': self._data_dir})
+        config['name'] = name
+        config['postgresql']['data_dir'] = self._data_dir
         config['postgresql']['parameters'].update({
             'logging_collector': 'on', 'log_destination': 'csvlog', 'log_directory': self._output_dir,
             'log_filename': name + '.log', 'log_statement': 'all', 'log_min_messages': 'debug1'})
@@ -135,7 +136,6 @@ class PatroniController(AbstractController):
             if dcs == 'consul':
                 config[dcs] = dcs_config
             else:
-                dcs_config.update({'session_timeout': dcs_config.pop('ttl'), 'reconnect_timeout': config['loop_wait']})
                 if dcs == 'exhibitor':
                     dcs_config['exhibitor'] = {'hosts': ['127.0.0.1'], 'port': 8181}
                 else:

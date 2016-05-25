@@ -86,10 +86,11 @@ class Ha(object):
             self._async_executor.schedule('bootstrap {0}'.format(msg))
             self._async_executor.run_async(self.clone, args=(clone_member, msg))
             return 'trying to bootstrap {0}'.format(msg)
-        elif not self.cluster.initialize and not self.patroni.nofailover:  # no initialize key
+        # no initialize key and node is allowed to be master and has 'bootstrap' section in a configuration file
+        elif not (self.cluster.initialize or self.patroni.nofailover) and 'bootstrap' in self.patroni.config:
             if self.dcs.initialize(create_new=True):  # race for initialization
                 try:
-                    self.state_handler.bootstrap()
+                    self.state_handler.bootstrap(self.patroni.config['bootstrap'])
                     self.dcs.initialize(create_new=False, sysid=self.state_handler.sysid)
                 except:  # initdb or start failed
                     # remove initialization key and give a chance to other members
@@ -98,6 +99,7 @@ class Ha(object):
                     self.state_handler.stop('immediate')
                     self.state_handler.move_data_directory()
                     raise
+                self.dcs.set_config_value(json.dumps(self.patroni.config.dynamic_configuration, separators=(',', ':')))
                 self.dcs.take_leader()
                 self.load_cluster_from_dcs()
                 return 'initialized a new cluster'
@@ -440,8 +442,11 @@ class Ha(object):
             self.touch_member()
 
             # cluster has leader key but not initialize key
-            if not self.cluster.is_unlocked() and not self.sysid_valid(self.cluster.initialize) and self.has_lock():
+            if not (self.cluster.is_unlocked() or self.sysid_valid(self.cluster.initialize)) and self.has_lock():
                 self.dcs.initialize(create_new=(self.cluster.initialize is None), sysid=self.state_handler.sysid)
+
+            if not (self.cluster.is_unlocked() or self.cluster.config and self.cluster.config.data) and self.has_lock():
+                self.dcs.set_config_value(json.dumps(self.patroni.config.dynamic_configuration, separators=(',', ':')))
 
             if self._async_executor.busy:
                 return self.handle_long_action_in_progress()

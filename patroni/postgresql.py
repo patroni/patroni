@@ -41,27 +41,44 @@ def parseurl(url):
 
 class Postgresql(object):
 
+    # List of parameters which must be always passed to postmaster as command line options
+    # to make it not possible to change them with 'ALTER SYSTEM'.
+    # Some of these parameters have sane default value assigned and Patroni doesn't allow
+    # to decrease this value. E.g. 'wal_level' can't be lower then 'hot_standby' and so on.
+    # These parameters could be changed only globally, i.e. via DCS.
+    # P.S. 'listen_addresses' and 'port' are added here just for convenience, to mark them
+    # as a parameters which should always be passed through command line.
+    CMDLINE_OPTIONS = {
+        'listen_addresses': None,
+        'port': None,
+        'wal_level': 'hot_standby',
+        'hot_standby': 'on',
+        'max_wal_senders': 5,
+        'wal_keep_segments': 8,
+        'max_replication_slots': 5,
+        'wal_log_hints': 'on'
+    }
+
     def __init__(self, config):
         self.config = config
         self.name = config['name']
-        self._restart_pending = False
-        self._server_parameters = self.get_server_parameters(config)
-        self._listen_addresses, self._port = (config['listen'] + ':5432').split(':')[:2]
-        self._connect_address = config.get('connect_address')
-        self.replication = config['replication']
-        self.resolve_connection_addresses()
-
         self.scope = config['scope']
         self._data_dir = config['data_dir']
-        self.superuser = config.get('superuser') or {}
-        self.admin = config.get('admin') or {}
+        self._restart_pending = False
+        self._server_parameters = self.get_server_parameters(config)
 
-        self.initdb_options = config.get('initdb') or []
-        self.pgpass = config.get('pgpass') or os.path.join(os.path.expanduser('~'), 'pgpass')
-        self.pg_rewind = config.get('pg_rewind') or {}
-        self.callback = config.get('callbacks') or {}
-        self.use_slots = config.get('use_slots', True)
+        self._connect_address = config.get('connect_address')
+        self._superuser = config['authentication'].get('superuser', {})
+        self._replication = config['authentication']['replication']
+        self.resolve_connection_addresses()
+
+        self._use_pg_rewind = config.get('use_pg_rewind', False)
+        self._use_slots = config.get('use_slots', True)
+        self._major_version = self.get_major_version()
         self._schedule_load_slots = self.use_slots
+
+        self._pgpass = config.get('pgpass') or os.path.join(os.path.expanduser('~'), 'pgpass')
+        self.callback = config.get('callbacks') or {}
         self._postgresql_conf = os.path.join(self._data_dir, 'postgresql.conf')
         self._postgresql_base_conf_name = 'postgresql.base.conf'
         self._postgresql_base_conf = os.path.join(self._data_dir, self._postgresql_base_conf_name)
@@ -90,39 +107,58 @@ class Postgresql(object):
             self.set_role('master' if self.is_leader() else 'replica')
             self._write_postgresql_conf()  # we are "joining" already running postgres
 
-    @staticmethod
-    def get_server_parameters(config):
-        return {p: v for p, v in (config.get('parameters') or {}).items() if p not in ('listen_addresses', 'port')}
+    @property
+    def use_slots(self):
+        return self._use_slots and self._major_version >= 9.4
+
+    def get_major_version(self):
+        if not self.data_directory_empty():
+            try:
+                with open(os.path.join(self._data_dir, 'PG_VERSION')) as f:
+                    return float(f.read())
+            except Exception:
+                logger.exception('Failed to read PG_VERSION from %s', self._data_dir)
+        return 0.0
+
+    def get_server_parameters(self, config):
+        parameters = config['parameters'].copy()
+        listen_addresses, port = (config['listen'] + ':5432').split(':')[:2]
+        parameters.update({'listen_addresses': listen_addresses, 'port': port})
+        return parameters
 
     def resolve_connection_addresses(self):
-        self.local_address = self.get_local_address()
+        self._local_address = self.get_local_address()
         self.connection_string = 'postgres://{username}:{password}@{connect_address}/postgres'.format(
-            connect_address=self._connect_address or self.local_address, **self.replication)
+            connect_address=self._connect_address or self._local_address, **self._replication)
 
     def reload_config(self, config):
         server_parameters = self.get_server_parameters(config)
-        self._connect_address = config.get('connect_address')
-        listen_addresses, port = (config['listen'] + ':5432').split(':')[:2]
-        if self._listen_addresses == listen_addresses and self._port == port:
-            self.resolve_connection_addresses()
 
-        self._listen_addresses = listen_addresses
-        self._port = port
+        listen_address_changed = reload_pending = False
         if self.is_healthy():
             changes = server_parameters.copy()
             changes.update({p: None for p, v in self._server_parameters.items() if p not in server_parameters})
             if changes:
-                for r in self.query("""SELECT name, setting
+                for r in self.query("""SELECT name, setting, context
                                          FROM pg_settings
-                                        WHERE context in ('internal', 'postmaster')
-                                          AND name IN (""" + ', '.join('%s' for _ in changes.keys()) + ')',
+                                        WHERE name IN (""" + ', '.join('%s' for _ in changes.keys()) + ')',
                                     *(list(changes.keys()))):
                     if server_parameters[r[0]] is None or str(server_parameters[r[0]]) != str(r[1]):
-                        self._restart_pending = True
-                        break
+                        reload_pending = True
+                        if r[2] in ('internal', 'postmaster'):
+                            self._restart_pending = True
+                            if r[0] in ('listen_addresses', 'port'):
+                                listen_address_changed = True
+        self.config = config
         self._server_parameters = server_parameters
-        self._write_postgresql_conf()
-        self.reload()
+        self._connect_address = config.get('connect_address')
+
+        if not listen_address_changed:
+            self.resolve_connection_addresses()
+
+        if reload_pending:
+            self._write_postgresql_conf()
+            self.reload()
 
     @property
     def restart_pending(self):
@@ -134,8 +170,7 @@ class Postgresql(object):
             we have either wal_log_hints or checksums turned on
         """
         # low-hanging fruit: check if pg_rewind configuration is there
-        if not self.pg_rewind or\
-           not (self.pg_rewind.get('username', '') and self.pg_rewind.get('password', '')):
+        if not (self._use_pg_rewind and all(self._superuser.get(n) for n in ('username', 'password'))):
             return False
 
         cmd = ['pg_rewind', '--help']
@@ -157,14 +192,14 @@ class Postgresql(object):
         return self._sysid
 
     def get_local_address(self):
-        listen_addresses = self._listen_addresses.split(',')
+        listen_addresses = self._server_parameters['listen_addresses'].split(',')
         local_address = listen_addresses[0].strip()  # take first address from listen_addresses
 
         for la in listen_addresses:
-            if la.strip() in ['*', '0.0.0.0']:  # we are listening on *
+            if la.strip() in ('*', '0.0.0.0', '127.0.0.1', 'localhost'):  # we are listening on '*' or localhost
                 local_address = 'localhost'  # connection via localhost is preferred
                 break
-        return local_address + ':' + self._port
+        return local_address + ':' + self._server_parameters['port']
 
     def get_postgres_role_from_data_directory(self):
         if self.data_directory_empty():
@@ -176,11 +211,11 @@ class Postgresql(object):
 
     @property
     def _connect_kwargs(self):
-        r = parseurl('postgres://{0}/postgres'.format(self.local_address))
-        if 'username' in self.superuser:
-            r['user'] = self.superuser['username']
-        if 'password' in self.superuser:
-            r['password'] = self.superuser['password']
+        r = parseurl('postgres://{0}/postgres'.format(self._local_address))
+        if 'username' in self._superuser:
+            r['user'] = self._superuser['username']
+        if 'password' in self._superuser:
+            r['password'] = self._superuser['password']
         return r
 
     def connection(self):
@@ -229,9 +264,9 @@ class Postgresql(object):
             raise Exception('{0} option for initdb is not allowed'.format(name))
         return True
 
-    def get_initdb_options(self):
+    def get_initdb_options(self, config):
         options = []
-        for o in self.initdb_options:
+        for o in config:
             if isinstance(o, string_types) and self.initdb_allowed_option(o):
                 options.append('--{0}'.format(o))
             elif isinstance(o, dict):
@@ -243,17 +278,17 @@ class Postgresql(object):
                 raise Exception('Unknown type of initdb option: {0}'.format(o))
         return options
 
-    def initialize(self):
+    def _initialize(self, config):
         self.set_state('initalizing new cluster')
-        options = self.get_initdb_options()
+        options = self.get_initdb_options(config.get('initdb') or [])
         pwfile = None
 
-        if self.superuser:
-            if 'username' in self.superuser:
-                options.append('--username={0}'.format(self.superuser['username']))
-            if 'password' in self.superuser:
+        if self._superuser:
+            if 'username' in self._superuser:
+                options.append('--username={0}'.format(self._superuser['username']))
+            if 'password' in self._superuser:
                 (fd, pwfile) = tempfile.mkstemp()
-                os.write(fd, self.superuser['password'].encode('utf-8'))
+                os.write(fd, self._superuser['password'].encode('utf-8'))
                 os.close(fd)
                 options.append('--pwfile={0}'.format(pwfile))
 
@@ -261,7 +296,8 @@ class Postgresql(object):
         if pwfile:
             os.remove(pwfile)
         if ret:
-            self.write_pg_hba()
+            self.write_pg_hba(config.get('pg_hba', []))
+            self._major_version = self.get_major_version()
         else:
             self.set_state('initdb failed')
         return ret
@@ -271,12 +307,12 @@ class Postgresql(object):
             os.unlink(self._trigger_file)
 
     def write_pgpass(self, record):
-        with open(self.pgpass, 'w') as f:
+        with open(self._pgpass, 'w') as f:
             os.fchmod(f.fileno(), 0o600)
             f.write('{host}:{port}:*:{user}:{password}\n'.format(**record))
 
         env = os.environ.copy()
-        env['PGPASSFILE'] = self.pgpass
+        env['PGPASSFILE'] = self._pgpass
         return env
 
     def replica_method_can_work_without_replication_connection(self, method):
@@ -405,16 +441,20 @@ class Postgresql(object):
 
         env = {'PATH': os.environ.get('PATH')}
         # pg_ctl will write a FATAL if the username is incorrect. exporting PGUSER if necessary
-        if 'username' in self.superuser and self.superuser['username'] != os.environ.get('USER'):
-            env['PGUSER'] = self.superuser['username']
+        if 'username' in self._superuser and self._superuser['username'] != os.environ.get('USER'):
+            env['PGUSER'] = self._superuser['username']
+
         self._write_postgresql_conf()
-        server_arguments = ['-o', "--listen_addresses='{0}' --port={1}".format(self._listen_addresses, self._port)]
-        ret = subprocess.call(self._pg_ctl + ['start'] + server_arguments, env=env, preexec_fn=os.setsid) == 0
+        self.resolve_connection_addresses()
+
+        options = ' '.join("--{0}='{1}'".format(p, self._server_parameters[p]) for p in self.CMDLINE_OPTIONS
+                           if not (self._major_version < 9.4 and p in ('max_replication_slots', 'wal_log_hints')))
+
+        ret = subprocess.call(self._pg_ctl + ['start', '-o', options], env=env, preexec_fn=os.setsid) == 0
         self._restart_pending = False
 
         self.set_state('running' if ret else 'start failed')
         if ret:
-            self.resolve_connection_addresses()
             self._schedule_load_slots = self.use_slots
 
         self.save_configuration_files()
@@ -488,8 +528,9 @@ class Postgresql(object):
         with open(self._postgresql_conf, 'w') as f:
             f.write('# Do not edit this file manually!\n# It will be overwritten by Patroni!\n')
             f.write("include '{0}'\n\n".format(self._postgresql_base_conf_name))
-            for setting, value in sorted(self._server_parameters.items()):
-                f.write("{0} = '{1}'\n".format(setting, value))
+            for name, value in sorted(self._server_parameters.items()):
+                if name not in self.CMDLINE_OPTIONS:
+                    f.write("{0} = '{1}'\n".format(name, value))
 
     def is_healthy(self):
         if not self.is_running():
@@ -500,9 +541,9 @@ class Postgresql(object):
     def check_replication_lag(self, last_leader_operation):
         return (last_leader_operation or 0) - self.xlog_position() <= self.config.get('maximum_lag_on_failover', 0)
 
-    def write_pg_hba(self):
+    def write_pg_hba(self, config):
         with open(os.path.join(self._data_dir, 'pg_hba.conf'), 'a') as f:
-            f.write('\n{}\n'.format('\n'.join(self.config.get('pg_hba', []))))
+            f.write('\n{}\n'.format('\n'.join(config)))
 
     def primary_conninfo(self, leader_url):
         r = parseurl(leader_url)
@@ -536,7 +577,7 @@ class Postgresql(object):
     def rewind(self, leader):
         # prepare pg_rewind connection
         r = parseurl(leader.conn_url)
-        r.update(self.pg_rewind)
+        r.update(self._superuser)
         r['user'] = r.pop('username')
         env = self.write_pgpass(r)
         pc = "user={user} host={host} port={port} dbname=postgres sslmode=prefer sslcompression=1".format(**r)
@@ -546,12 +587,9 @@ class Postgresql(object):
         logger.info("running pg_rewind from %s", pc)
         pg_rewind = ['pg_rewind', '-D', self._data_dir, '--source-server', pc]
         try:
-            ret = subprocess.call(pg_rewind, env=env) == 0
+            return subprocess.call(pg_rewind, env=env) == 0
         except OSError:
-            ret = False
-        if ret:
-            self.write_recovery_conf(leader)
-        return ret
+            return False
 
     def controldata(self):
         """ return the contents of pg_controldata, or non-True value if pg_controldata call failed """
@@ -564,6 +602,22 @@ class Postgresql(object):
                     result = {l.split(':')[0].replace('Current ', '', 1): l.split(':')[1].strip() for l in data if l}
             except subprocess.CalledProcessError:
                 logger.exception("Error when calling pg_controldata")
+        return result
+
+    def read_postmaster_opts(self):
+        """ returns the list of option names/values from postgres.opts, Empty dict if read failed or no file """
+        result = {}
+        try:
+            with open(os.path.join(self._data_dir, "postmaster.opts")) as f:
+                data = f.read()
+                opts = [opt.strip('"\n') for opt in data.split(' "')]
+                for opt in opts:
+                    if '=' in opt and opt.startswith('--'):
+                        name, val = opt.split('=', 1)
+                        name = name.strip('-')
+                        result[name] = val
+        except IOError:
+            logger.exception('Error when reading postmaster.opts')
         return result
 
     def single_user_mode(self, command=None, options=None):
@@ -603,7 +657,6 @@ class Postgresql(object):
         need_rewind = change_role and self.can_rewind
         if need_rewind:
             logger.info("set the rewind flag after demote")
-        self.write_recovery_conf(leader)
         if leader and need_rewind:  # we have a leader and need to rewind
             if self.is_running():
                 self.stop()
@@ -613,20 +666,24 @@ class Postgresql(object):
             # XXX: if recovery.conf is linked, it will be written anew as a normal file.
             if os.path.islink(self._recovery_conf):
                 os.unlink(self._recovery_conf)
-            else:
+            elif os.path.isfile(self._recovery_conf):
                 os.remove(self._recovery_conf)
             # Archived segments might be useful to pg_rewind,
             # clean the flags that tell we should remove them.
             self.cleanup_archive_status()
             # Start in a single user mode and stop to produce a clean shutdown
-            self.single_user_mode(options={'archive_mode': 'on', 'archive_command': 'false'})
+            opts = self.read_postmaster_opts()
+            opts.update({'archive_mode': 'on', 'archive_command': 'false'})
+            self.single_user_mode(options=opts)
             if self.rewind(leader):
+                self.write_recovery_conf(leader)
                 ret = self.start()
             else:
                 logger.error("unable to rewind the former master")
                 self.remove_data_directory()
                 ret = True
         else:  # do not rewind until the leader becomes available
+            self.write_recovery_conf(leader)
             ret = self.restart()
         if change_role and ret:
             self.call_nowait(ACTION_ON_ROLE_CHANGE)
@@ -664,25 +721,18 @@ class Postgresql(object):
             self.call_nowait(ACTION_ON_ROLE_CHANGE)
         return ret
 
-    def create_or_update_role(self, name, password, options):
+    def create_or_update_user(self, name, password, options):
         self.query("""DO $$
 BEGIN
     SET local synchronous_commit = 'local';
     PERFORM * FROM pg_authid WHERE rolname = %s;
     IF FOUND THEN
-        ALTER ROLE "{0}" WITH LOGIN {1} PASSWORD %s;
+        ALTER USER "{0}" WITH {1} PASSWORD %s;
     ELSE
-        CREATE ROLE "{0}" WITH LOGIN {1} PASSWORD %s;
+        CREATE USER "{0}" WITH {1} PASSWORD %s;
     END IF;
 END;
 $$""".format(name, options), name, password, password)
-
-    def create_replication_user(self):
-        self.create_or_update_role(self.replication['username'], self.replication['password'], 'REPLICATION')
-
-    def create_connection_user(self):
-        if self.admin:
-            self.create_or_update_role(self.admin['username'], self.admin['password'], 'CREATEDB CREATEROLE')
 
     def xlog_position(self):
         return self.query("""SELECT pg_xlog_location_diff(CASE WHEN pg_is_in_recovery()
@@ -741,15 +791,18 @@ $$""".format(name, options), name, password, password)
 
         ret = self.create_replica(clone_member) == 0
         if ret:
+            self._major_version = self.get_major_version()
             self.delete_trigger_file()
             self.restore_configuration_files()
         return ret
 
-    def bootstrap(self):
+    def bootstrap(self, config):
         """ Initialize a new node from scratch and start it. """
-        if self.initialize() and self.start():
-            self.create_replication_user()
-            self.create_connection_user()
+        if self._initialize(config) and self.start():
+            for name, value in config['users'].items():
+                if name not in (self._superuser.get('username'), self._replication['username']):
+                    self.create_or_update_user(name, value['password'], ' '.join(value.get('options', [])).upper())
+            self.create_or_update_user(self._replication['username'], self._replication['password'], 'REPLICATION')
         else:
             raise PostgresException("Could not bootstrap master PostgreSQL")
 

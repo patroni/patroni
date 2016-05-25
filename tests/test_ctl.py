@@ -51,7 +51,7 @@ class TestCtl(unittest.TestCase):
         self.runner = CliRunner()
         with patch.object(etcd.Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
-            self.e = get_dcs({'etcd': {'ttl': 30, 'host': 'ok:2379', 'scope': 'test'}}, 'foo')
+            self.e = get_dcs({'etcd': {'ttl': 30, 'host': 'ok:2379'}}, 'foo')
 
     @patch('psycopg2.connect', psycopg2_connect)
     def test_get_cursor(self):
