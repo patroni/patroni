@@ -95,7 +95,14 @@ class Consul(AbstractDCS):
     def set_ttl(self, ttl):
         ttl = int(ttl/2)  # My experiments have shown that session expires after 2*ttl time
         if self._ttl != ttl:
+            if self._session:
+                try:
+                    self._client.session.destroy(self._session)
+                except Exception:
+                    logger.exception("Can not destroy session %s", self._session)
             self._session = None
+            self.reset_cluster()
+            self.event.set()
         self._ttl = ttl
 
     def refresh_session(self):

@@ -257,3 +257,6 @@ class TestEtcd(unittest.TestCase):
     def test_other_exceptions(self):
         self.etcd.retry = Mock(side_effect=AttributeError('foo'))
         self.assertRaises(EtcdError, self.etcd.cancel_initialization)
+
+    def test_set_ttl(self):
+        self.etcd.set_ttl(20)

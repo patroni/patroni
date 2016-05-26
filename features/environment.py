@@ -182,7 +182,7 @@ class PatroniController(AbstractController):
 
 class AbstractDcsController(AbstractController):
 
-    _CLUSTER_NODE = 'service/batman'
+    _CLUSTER_NODE = '/service/batman'
 
     def _is_accessible(self):
         return self._is_running()
@@ -193,9 +193,16 @@ class AbstractDcsController(AbstractController):
         if self._work_directory:
             shutil.rmtree(self._work_directory)
 
+    def path(self, key=None):
+        return self._CLUSTER_NODE + (key and '/' + key or '')
+
     @abc.abstractmethod
     def query(self, key):
         """ query for a value of a given key """
+
+    @abc.abstractmethod
+    def set(self, key, value):
+        """ set a value to a given key """
 
     @abc.abstractmethod
     def cleanup_service_tree(self):
@@ -218,12 +225,18 @@ class ConsulController(AbstractDcsController):
         except Exception:
             return False
 
+    def path(self, key=None):
+        return super(ConsulController, self).path(key)[1:]
+
     def query(self, key):
-        _, value = self._client.kv.get('{0}/{1}'.format(self._CLUSTER_NODE, key))
+        _, value = self._client.kv.get(self.path(key))
         return value and value['Value'].decode('utf-8')
 
+    def set(self, key, value):
+        self._client.kv.put(self.path(key), value)
+
     def cleanup_service_tree(self):
-        self._client.kv.delete(self._CLUSTER_NODE, recurse=True)
+        self._client.kv.delete(self.path(), recurse=True)
 
 
 class EtcdController(AbstractDcsController):
@@ -240,13 +253,16 @@ class EtcdController(AbstractDcsController):
 
     def query(self, key):
         try:
-            return self._client.get('/{0}/{1}'.format(self._CLUSTER_NODE, key)).value
+            return self._client.get(self.path(key)).value
         except etcd.EtcdKeyNotFound:
             return None
 
+    def set(self, key, value):
+        self._client.set(self.path(key), value)
+
     def cleanup_service_tree(self):
         try:
-            self._client.delete('/' + self._CLUSTER_NODE, recursive=True)
+            self._client.delete(self.path(), recursive=True)
         except (etcd.EtcdKeyNotFound, etcd.EtcdConnectionFailed):
             return
         except Exception as e:
@@ -273,13 +289,16 @@ class ZooKeeperController(AbstractDcsController):
 
     def query(self, key):
         try:
-            return self._client.get('/{0}/{1}'.format(self._CLUSTER_NODE, key))[0].decode('utf-8')
+            return self._client.get(self.path(key))[0].decode('utf-8')
         except kazoo.exceptions.NoNodeError:
             return None
 
+    def set(self, key, value):
+        self._client.set(self.path(key), value.encode('utf-8'))
+
     def cleanup_service_tree(self):
         try:
-            self._client.delete('/' + self._CLUSTER_NODE, recursive=True)
+            self._client.delete(self.path(), recursive=True)
         except (kazoo.exceptions.NoNodeError):
             return
         except Exception as e:

@@ -109,7 +109,7 @@ class ZooKeeper(AbstractDCS):
         # but there is no other way to change session_timeout without losing session
         if self._client._session_timeout != ttl:
             self._client._session_timeout = ttl
-            self._client._connection._socket.close()
+            self._client.restart()
 
     def get_node(self, key, watch=None):
         try:

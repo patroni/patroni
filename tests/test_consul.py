@@ -129,3 +129,7 @@ class TestConsul(unittest.TestCase):
         self.c.watch(1)
         with patch.object(consul.Consul.KV, 'get', Mock(side_effect=ConsulException)):
             self.c.watch(1)
+
+    @patch.object(consul.Consul.Session, 'destroy', Mock(side_effect=ConsulException))
+    def test_set_ttl(self):
+        self.c.set_ttl(20)

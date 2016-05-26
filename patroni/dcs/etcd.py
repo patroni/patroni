@@ -193,7 +193,7 @@ class Etcd(AbstractDCS):
 
     def __init__(self, config):
         super(Etcd, self).__init__(config)
-        self.set_ttl(config.get('ttl', 30))
+        self._ttl = int(config.get('ttl') or 30)
         self._retry = Retry(deadline=10, max_delay=1, max_tries=-1,
                             retry_exceptions=(etcd.EtcdConnectionFailed,
                                               etcd.EtcdLeaderElectionInProgress,
@@ -216,7 +216,11 @@ class Etcd(AbstractDCS):
         return client
 
     def set_ttl(self, ttl):
-        self.ttl = int(ttl)
+        ttl = int(ttl)
+        if self._ttl != ttl:
+            self.reset_cluster()
+            self.event.set()
+        self._ttl = ttl
 
     @staticmethod
     def member(node):
@@ -263,15 +267,15 @@ class Etcd(AbstractDCS):
 
     @catch_etcd_errors
     def touch_member(self, data, ttl=None):
-        return self.retry(self._client.set, self.member_path, data, ttl or self.ttl)
+        return self.retry(self._client.set, self.member_path, data, ttl or self._ttl)
 
     @catch_etcd_errors
     def take_leader(self):
-        return self.retry(self._client.set, self.leader_path, self._name, self.ttl)
+        return self.retry(self._client.set, self.leader_path, self._name, self._ttl)
 
     def attempt_to_acquire_leader(self):
         try:
-            return bool(self.retry(self._client.write, self.leader_path, self._name, ttl=self.ttl, prevExist=False))
+            return bool(self.retry(self._client.write, self.leader_path, self._name, ttl=self._ttl, prevExist=False))
         except etcd.EtcdAlreadyExist:
             logger.info('Could not take out TTL lock')
         except (RetryFailedError, etcd.EtcdException):
@@ -292,7 +296,7 @@ class Etcd(AbstractDCS):
 
     @catch_etcd_errors
     def update_leader(self):
-        return self.retry(self._client.test_and_set, self.leader_path, self._name, self._name, self.ttl)
+        return self.retry(self._client.test_and_set, self.leader_path, self._name, self._name, self._ttl)
 
     @catch_etcd_errors
     def initialize(self, create_new=True, sysid=""):
