@@ -43,7 +43,7 @@ class Config(object):
         self._config_file = None if config_env else config_file
         self._dynamic_configuration = {}
         self._local_configuration = yaml.safe_load(config_env) if config_env else self._load_config_file()
-        self._build_effective_configuration()
+        self._build_effective_configuration(self._dynamic_configuration, self._local_configuration)
         self._data_dir = self.__effective_configuration['postgresql']['data_dir']
         self._cache_file = os.path.join(self._data_dir, self.__CACHE_FILENAME)
         self._load_cache()
@@ -94,14 +94,31 @@ class Config(object):
 
     def set_dynamic_configuration(self, configuration):
         if configuration and self._dynamic_configuration != configuration:
-            self._dynamic_configuration = configuration
-            self._build_effective_configuration()
-            self._cache_needs_saving = True
-            return True
+            try:
+                self._build_effective_configuration(configuration, self._local_configuration)
+                self._dynamic_configuration = configuration
+                self._cache_needs_saving = True
+                return True
+            except Exception:
+                logger.exception('Exception when setting dynamic_configuration')
 
-    def reload_local_configuration(self):
-        self._local_configuration = self._load_config_file()
-        self._build_effective_configuration()
+    def reload_local_configuration(self, dry_run=False):
+        if self.config_file:
+            try:
+                configuration = self._load_config_file()
+                if self._local_configuration != configuration:
+                    old_effective_configuration = self.__effective_configuration
+                    self._build_effective_configuration(self._dynamic_configuration, configuration)
+                    if dry_run:
+                        ret = old_effective_configuration != self.__effective_configuration
+                        self.__effective_configuration = old_effective_configuration
+                        return ret
+                    self._local_configuration = configuration
+                    return True
+            except Exception:
+                logger.exception('Exception when reloading local configuration from %s', self.config_file)
+                if dry_run:
+                    raise
 
     def _process_postgresql_parameters(self, parameters, is_local=False):
         ret = {}
@@ -114,10 +131,10 @@ class Config(object):
                 ret[name] = value
         return ret
 
-    def _safe_copy_dynamic_configuration(self):
+    def _safe_copy_dynamic_configuration(self, dynamic_configuration):
         config = deepcopy(self.__DEFAULT_CONFIG)
 
-        for name, value in self._dynamic_configuration.items():
+        for name, value in dynamic_configuration.items():
             if name == 'postgresql':
                 for name, value in (value or {}).items():
                     if name == 'parameters':
@@ -128,9 +145,9 @@ class Config(object):
                 config[name] = value
         return config
 
-    def _build_effective_configuration(self):
-        config = self._safe_copy_dynamic_configuration()
-        for name, value in self._local_configuration.items():
+    def _build_effective_configuration(self, dynamic_configuration, local_configuration):
+        config = self._safe_copy_dynamic_configuration(dynamic_configuration)
+        for name, value in local_configuration.items():
             if name == 'postgresql':
                 for name, value in (value or {}).items():
                     if name == 'parameters':

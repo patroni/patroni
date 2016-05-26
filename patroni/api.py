@@ -113,6 +113,19 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self._write_status_response(200, response)
 
     @check_auth
+    def do_POST_reload(self):
+        try:
+            configuration_is_changed = self.server.patroni.config.reload_local_configuration(True)
+            status_code = configuration_is_changed and 200 or 304
+            response = configuration_is_changed and 'reload scheduled' or ''
+            if configuration_is_changed:
+                self.server.patroni.sighup_handler()
+        except Exception as e:
+            status_code = 500
+            response = str(e)
+        self._write_response(status_code, response)
+
+    @check_auth
     def do_POST_restart(self):
         status_code = 500
         data = 'restart failed'

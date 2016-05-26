@@ -13,8 +13,17 @@ class TestConfig(unittest.TestCase):
     def setUp(self):
         self.config = Config(config_env='postgresql: {data_dir: foo}')
 
+    @patch.object(Config, '_build_effective_configuration', Mock(side_effect=Exception))
+    def test_set_dynamic_configuration(self):
+        self.assertIsNone(self.config.set_dynamic_configuration({'foo': 'bar'}))
+
     def test_reload_local_configuration(self):
-        self.assertIsNone(Config(config_file='postgres0.yml').reload_local_configuration())
+        config = Config(config_file='postgres0.yml')
+        with patch.object(Config, '_load_config_file', Mock(return_value={})):
+            with patch.object(Config, '_build_effective_configuration', Mock(side_effect=Exception)):
+                self.assertRaises(Exception, config.reload_local_configuration, True)
+            self.assertTrue(config.reload_local_configuration(True))
+            self.assertTrue(config.reload_local_configuration())
 
     @patch('tempfile.mkstemp', Mock(return_value=[3000, 'blabla']))
     @patch('os.path.exists', Mock(return_value=True))

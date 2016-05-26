@@ -94,8 +94,8 @@ class Patroni(object):
         while True:
             if self._received_sighup:
                 self._received_sighup = False
-                self.config.reload_local_configuration()
-                self.reload_config()
+                if self.config.reload_local_configuration():
+                    self.reload_config()
 
             logger.info(self.ha.run_cycle())
 

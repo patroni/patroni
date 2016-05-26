@@ -64,6 +64,7 @@ class TestPatroni(unittest.TestCase):
             del os.environ[Patroni.PATRONI_CONFIG_VARIABLE]
 
     @patch('patroni.config.Config.save_cache', Mock())
+    @patch('patroni.config.Config.reload_local_configuration', Mock(return_value=True))
     def test_run(self):
         self.p.sighup_handler()
         self.p.ha.dcs.watch = Mock(side_effect=SleepException)

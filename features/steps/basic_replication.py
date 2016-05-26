@@ -82,3 +82,8 @@ def check_http_response(context, url, value, timeout):
     else:
         assert False,\
             "Value {0} is not present in response after {1} seconds".format(value, timeout)
+
+
+@step('I add tag {tag:w} {value:w} to {pg_name:w} config')
+def add_tag_to_config(context, tag, value, pg_name):
+    context.pctl.add_tag_to_config(pg_name, tag, value)

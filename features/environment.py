@@ -98,6 +98,13 @@ class PatroniController(AbstractController):
         except IOError:
             return None
 
+    def add_tag_to_config(self, tag, value):
+        with open(self._config) as r:
+            config = yaml.safe_load(r)
+            config['tags']['tag'] = value
+            with open(self._config, 'w') as w:
+                yaml.safe_dump(config, w, default_flow_style=False)
+
     def _start(self):
         return subprocess.Popen(['coverage', 'run', '--source=patroni', '-p', 'patroni.py', self._config],
                                 stdout=self._log, stderr=subprocess.STDOUT, cwd=self._work_directory)
@@ -125,6 +132,9 @@ class PatroniController(AbstractController):
         config['postgresql']['parameters'].update({
             'logging_collector': 'on', 'log_destination': 'csvlog', 'log_directory': self._output_dir,
             'log_filename': name + '.log', 'log_statement': 'all', 'log_min_messages': 'debug1'})
+
+        if 'bootstrap' in config and 'initdb' in config['bootstrap']:
+            config['bootstrap']['initdb'].extend([{'auth': 'md5'}, {'auth-host': 'md5'}])
 
         if tags:
             config['tags'] = tags
@@ -347,7 +357,7 @@ class PatroniPoolController(object):
         self._processes[pg_name].start(max_wait_limit)
 
     def __getattr__(self, func):
-        if func not in ['stop', 'query', 'write_label', 'read_label', 'check_role_has_changed_to']:
+        if func not in ['stop', 'query', 'write_label', 'read_label', 'check_role_has_changed_to', 'add_tag_to_config']:
             raise AttributeError("PatroniPoolController instance has no attribute '{0}'".format(func))
 
         def wrapper(pg_name, *args, **kwargs):

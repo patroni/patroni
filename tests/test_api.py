@@ -50,12 +50,17 @@ class MockHa(object):
 
 class MockPatroni(object):
 
+    config = Mock()
     postgresql = MockPostgresql()
     ha = MockHa()
     dcs = Mock()
     tags = {}
     version = '0.00'
     noloadbalance = Mock(return_value=False)
+
+    @staticmethod
+    def sighup_handler():
+        pass
 
 
 class MockRequest(object):
@@ -121,6 +126,10 @@ class TestRestApiHandler(unittest.TestCase):
     def test_basicauth(self):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'POST /restart HTTP/1.0'))
         MockRestApiServer(RestApiHandler, 'POST /restart HTTP/1.0\nAuthorization:')
+
+    @patch.object(MockPatroni, 'sighup_handler', Mock(side_effect=Exception))
+    def test_do_POST_reload(self):
+        MockRestApiServer(RestApiHandler, 'POST /reload HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0')
 
     def test_do_POST_restart(self):
         request = 'POST /restart HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0'
