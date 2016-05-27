@@ -34,23 +34,23 @@ def check_auth(func):
 
 class RestApiHandler(BaseHTTPRequestHandler):
 
-    def _write_response(self, status_code, body, headers=None):
+    def _write_response(self, status_code, body, content_type='text/html', headers=None):
         self.send_response(status_code)
         if body is not None:
             headers = headers or {}
-            if 'Content-Type' not in headers:
-                headers['Content-Type'] = 'text/html'
-            for name, value in (headers or {}).items():
+            if content_type:
+                headers['Content-Type'] = content_type
+            for name, value in headers.items():
                 self.send_header(name, value)
             self.end_headers()
             self.wfile.write(body.encode('utf-8'))
 
     def _write_json_response(self, status_code, response):
-        self._write_response(status_code, json.dumps(response), {'Content-Type': 'application/json'})
+        self._write_response(status_code, json.dumps(response), content_type='application/json')
 
     def send_auth_request(self, body):
         headers = {'WWW-Authenticate': 'Basic realm="' + self.server.patroni.__class__.__name__ + '"'}
-        self._write_response(401, body, headers)
+        self._write_response(401, body, headers=headers)
 
     def finish(self):
         try:
@@ -133,21 +133,20 @@ class RestApiHandler(BaseHTTPRequestHandler):
         cluster = self.server.patroni.ha.dcs.get_cluster()
         data = cluster.config.data.copy()
         RestApiHandler._patch_config(data, request)
-        response_code = data == cluster.config.data and 304 or 200
-        if response_code == 200:
+        if data != cluster.config.data:
             self.server.patroni.ha.dcs.set_config_value(json.dumps(data, separators=(',', ':')), cluster.config.index)
             self._write_json_response(200, data)
         else:
-            self._write_response(304, None)
+            self._write_response(304, '', '')
 
     @check_auth
     def do_POST_reload(self):
         try:
-            configuration_is_changed = self.server.patroni.config.reload_local_configuration(True)
-            status_code = configuration_is_changed and 202 or 304
-            response = configuration_is_changed and 'reload scheduled' or None
-            if configuration_is_changed:
-                self.server.patroni.sighup_handler()
+            if not self.server.patroni.config.reload_local_configuration(True):
+                return self._write_response(304, '', '')
+            status_code = 202
+            response = 'reload scheduled'
+            self.server.patroni.sighup_handler()
         except Exception as e:
             status_code = 500
             response = str(e)

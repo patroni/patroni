@@ -144,6 +144,9 @@ class TestRestApiHandler(unittest.TestCase):
 
     @patch.object(MockPatroni, 'sighup_handler', Mock(side_effect=Exception))
     def test_do_POST_reload(self):
+        with patch.object(MockPatroni, 'config') as mock_config:
+            mock_config.reload_local_configuration.return_value = False
+            MockRestApiServer(RestApiHandler, 'POST /reload HTTP/1.0' + self._authorization)
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'POST /reload HTTP/1.0' + self._authorization))
 
     def test_do_POST_restart(self):
