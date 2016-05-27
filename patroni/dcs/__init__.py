@@ -169,14 +169,14 @@ class ClusterConfig(namedtuple('ClusterConfig', 'index,data')):
     @staticmethod
     def from_node(index, data):
         """
-        >>> ClusterConfig.from_node(1, '{').data
-        {}
+        >>> ClusterConfig.from_node(1, '{') is None
+        True
         """
 
         try:
             data = json.loads(data)
         except (TypeError, ValueError):
-            data = {}
+            return None
         return ClusterConfig(index, data)
 
 

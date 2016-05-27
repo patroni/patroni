@@ -43,7 +43,8 @@ class Config(object):
         self._config_file = None if config_env else config_file
         self._dynamic_configuration = {}
         self._local_configuration = yaml.safe_load(config_env) if config_env else self._load_config_file()
-        self._build_effective_configuration(self._dynamic_configuration, self._local_configuration)
+        self.__effective_configuration = self._build_effective_configuration(self._dynamic_configuration,
+                                                                             self._local_configuration)
         self._data_dir = self.__effective_configuration['postgresql']['data_dir']
         self._cache_file = os.path.join(self._data_dir, self.__CACHE_FILENAME)
         self._load_cache()
@@ -93,9 +94,10 @@ class Config(object):
                         logger.error('Can not remove temporary file %s', tmpfile)
 
     def set_dynamic_configuration(self, configuration):
-        if configuration and self._dynamic_configuration != configuration:
+        if self._dynamic_configuration != configuration:
             try:
-                self._build_effective_configuration(configuration, self._local_configuration)
+                self.__effective_configuration = self._build_effective_configuration(configuration,
+                                                                                     self._local_configuration)
                 self._dynamic_configuration = configuration
                 self._cache_needs_saving = True
                 return True
@@ -107,13 +109,11 @@ class Config(object):
             try:
                 configuration = self._load_config_file()
                 if self._local_configuration != configuration:
-                    old_effective_configuration = self.__effective_configuration
-                    self._build_effective_configuration(self._dynamic_configuration, configuration)
+                    new_configuration = self._build_effective_configuration(self._dynamic_configuration, configuration)
                     if dry_run:
-                        ret = old_effective_configuration != self.__effective_configuration
-                        self.__effective_configuration = old_effective_configuration
-                        return ret
+                        return new_configuration != self.__effective_configuration
                     self._local_configuration = configuration
+                    self.__effective_configuration = new_configuration
                     return True
             except Exception:
                 logger.exception('Exception when reloading local configuration from %s', self.config_file)
@@ -173,7 +173,7 @@ class Config(object):
         pg_config.update({p: config[p] for p in ('name', 'scope', 'retry_timeout',
                           'maximum_lag_on_failover') if p in config})
 
-        self.__effective_configuration = config
+        return config
 
     def get(self, key, default=None):
         return self.__effective_configuration.get(key, default)

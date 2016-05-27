@@ -1,4 +1,3 @@
-import json
 import psycopg2 as pg
 import requests
 
@@ -54,22 +53,6 @@ def replication_works(context, master, replica, time_limit):
         When I add the table test_{0} to {1}
         Then table test_{0} is present on {2} after {3} seconds
     """.format(int(time()), master, replica, time_limit))
-
-
-def patch_config_with_data(config, data):
-    for name, value in data.items():
-        if isinstance(value, dict):
-            patch_config_with_data(config[name], value)
-        else:
-            config[name] = value
-
-
-@step('I patch global configuration with {data}')
-def patch_config(context, data):
-    data = json.loads(data)
-    config = json.loads(context.dcs_ctl.query('config'))
-    patch_config_with_data(config, data)
-    context.dcs_ctl.set('config', json.dumps(config))
 
 
 @then('Response on GET {url} contains {value} after {timeout:d} seconds')

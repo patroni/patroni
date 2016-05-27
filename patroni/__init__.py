@@ -100,8 +100,7 @@ class Patroni(object):
             logger.info(self.ha.run_cycle())
 
             cluster = self.dcs.cluster
-            if cluster and cluster.config and cluster.config.data and \
-                    self.config.set_dynamic_configuration(cluster.config.data):
+            if cluster and cluster.config and self.config.set_dynamic_configuration(cluster.config.data):
                 self.reload_config()
 
             if not self.postgresql.data_directory_empty():

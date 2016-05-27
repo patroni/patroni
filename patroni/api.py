@@ -45,6 +45,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body.encode('utf-8'))
 
+    def _write_json_response(self, status_code, response):
+        self._write_response(status_code, json.dumps(response), {'Content-Type': 'application/json'})
+
     def send_auth_request(self, body):
         headers = {'WWW-Authenticate': 'Basic realm="' + self.server.patroni.__class__.__name__ + '"'}
         self._write_response(401, body, headers)
@@ -65,17 +68,15 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     def _write_status_response(self, status_code, response, options=False):
         if options:
-            body = None
-        else:
-            patroni = self.server.patroni
-            response.update({'tags': patroni.tags} if patroni.tags else {})
-            if patroni.postgresql.sysid:
-                response['database_system_identifier'] = patroni.postgresql.sysid
-            if patroni.postgresql.restart_pending:
-                response['restart_pending'] = True
-            response['patroni'] = {'version': patroni.version, 'scope': patroni.postgresql.scope}
-            body = json.dumps(response)
-        self._write_response(status_code, body, {'Content-Type': 'application/json'})
+            return self._write_response(status_code, None)
+        patroni = self.server.patroni
+        response.update({'tags': patroni.tags} if patroni.tags else {})
+        if patroni.postgresql.sysid:
+            response['database_system_identifier'] = patroni.postgresql.sysid
+        if patroni.postgresql.restart_pending:
+            response['restart_pending'] = True
+        response['patroni'] = {'version': patroni.version, 'scope': patroni.postgresql.scope}
+        self._write_json_response(status_code, response)
 
     def do_GET(self, options=False):
         """Default method for processing all GET requests which can not be routed to other methods"""
@@ -112,12 +113,39 @@ class RestApiHandler(BaseHTTPRequestHandler):
         response = self.get_postgresql_status(True)
         self._write_status_response(200, response)
 
+    def do_GET_config(self):
+        self._write_json_response(200, self.server.patroni.config.dynamic_configuration)
+
+    @staticmethod
+    def _patch_config(config, data):
+        for name, value in data.items():
+            if isinstance(value, dict) and name in config:
+                RestApiHandler._patch_config(config[name], value)
+            elif value is None:
+                config.pop(name, None)
+            else:
+                config[name] = value
+
+    @check_auth
+    def do_PATCH_config(self):
+        content_length = int(self.headers.get('content-length', 0))
+        request = json.loads(self.rfile.read(content_length).decode('utf-8'))
+        cluster = self.server.patroni.ha.dcs.get_cluster()
+        data = cluster.config.data.copy()
+        RestApiHandler._patch_config(data, request)
+        response_code = data == cluster.config.data and 304 or 200
+        if response_code == 200:
+            self.server.patroni.ha.dcs.set_config_value(json.dumps(data, separators=(',', ':')), cluster.config.index)
+            self._write_json_response(200, data)
+        else:
+            self._write_response(304, None)
+
     @check_auth
     def do_POST_reload(self):
         try:
             configuration_is_changed = self.server.patroni.config.reload_local_configuration(True)
-            status_code = configuration_is_changed and 200 or 304
-            response = configuration_is_changed and 'reload scheduled' or ''
+            status_code = configuration_is_changed and 202 or 304
+            response = configuration_is_changed and 'reload scheduled' or None
             if configuration_is_changed:
                 self.server.patroni.sighup_handler()
         except Exception as e:
@@ -218,7 +246,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     elif self.server.patroni.dcs.manual_failover(leader, candidate, scheduled_at=scheduled_at):
                         self.server.patroni.dcs.event.set()
                         data = 'Failover scheduled'
-                        status_code = 200
+                        status_code = 202
                     else:
                         data = 'failed to write failover key into DCS'
                         status_code = 503

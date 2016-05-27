@@ -1,3 +1,4 @@
+import json
 import parse
 import pytz
 import requests
@@ -12,12 +13,7 @@ def parse_url(text):
     return text
 
 
-@parse.with_pattern(r'(?:\w+=(?:\w|\.|:|-|\+|\s)+,?)+')
-def parse_data(text):
-    return text
-
-
-register_type(url=parse_url, data=parse_data)
+register_type(url=parse_url)
 
 
 # there is no way we can find out if the node has already
@@ -56,20 +52,17 @@ def do_get(context, url):
 
 @step('I issue an empty POST request to {url:url}')
 def do_post_empty(context, url):
-    do_post(context, url, None)
+    do_request(context, 'POST', url, None)
 
 
-@step('I issue a POST request to {url:url} with {data:data}')
-def do_post(context, url, data):
-    post_data = {}
-    if data:
-        post_components = data.split(',')
-        for pc in post_components:
-            if '=' in pc:
-                k, v = pc.split('=', 2)
-                post_data[k.strip()] = v.strip()
+@step('I issue a {request_method:w} request to {url:url} with {data}')
+def do_request(context, request_method, url, data):
+    data = data and json.loads(data) or {}
     try:
-        r = requests.post(url, json=post_data)
+        if request_method == 'PATCH':
+            r = requests.patch(url, json=data)
+        else:
+            r = requests.post(url, json=data)
     except requests.exceptions.RequestException:
         context.status_code = None
         context.response = None
@@ -96,5 +89,5 @@ def check_response(context, component, data):
 @step('I issue a scheduled failover at {at_url:url} from {from_host:w} to {to_host:w} in {in_seconds:d} seconds')
 def scheduled_failover(context, at_url, from_host, to_host, in_seconds):
     context.execute_steps(u"""
-        Given I issue a POST request to {0}/failover with leader={1},candidate={2},scheduled_at={3}
+        Given I issue a POST request to {0}/failover with {{"leader": "{1}", "candidate": "{2}", "scheduled_at": "{3}"}}
     """.format(at_url, from_host, to_host, datetime.now(pytz.utc) + timedelta(seconds=int(in_seconds))))
