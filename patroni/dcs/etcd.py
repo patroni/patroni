@@ -218,7 +218,9 @@ class Etcd(AbstractDCS):
     def set_ttl(self, ttl):
         ttl = int(ttl)
         if self._ttl != ttl:
+            # force `watch` method to call `AbstractDCS.watch` instead of watching for leader key
             self.reset_cluster()
+            # fire up an event to wake up from `watch` and immediately run HA loop (to update TTL of leader and member)
             self.event.set()
         self._ttl = ttl
 

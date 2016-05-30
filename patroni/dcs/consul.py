@@ -101,7 +101,9 @@ class Consul(AbstractDCS):
                 except Exception:
                     logger.exception("Can not destroy session %s", self._session)
             self._session = None
+            # force `watch` method to call `AbstractDCS.watch` instead of watching for leader key
             self.reset_cluster()
+            # fire up an event to wake up from `watch` and immediately run HA loop (to create the new session)
             self.event.set()
         self._ttl = ttl
 
