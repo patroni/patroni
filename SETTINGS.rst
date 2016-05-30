@@ -57,10 +57,10 @@ REST API
 -------- 
 -  **connect\_address**: IP address and port through which restapi is accessible.
 -  **listen**: IP address and port that Patroni will listen to, to provide health-check information for HAProxy.
--**Optional**:
--  **auth**: 'username:password' to protect dangerous REST API endpoints.
-    -  **certfile**: Specifies a file with the certificate in the PEM format. If the certfile is not specified or is left empty, the API server will work without SSL.
-    -  **keyfile**: Specifies a file with the secret key in the PEM format.
+- **Optional**:
+        -  **auth**: 'username:password' to protect dangerous REST API endpoints.
+        -  **certfile**: Specifies a file with the certificate in the PEM format. If the certfile is not specified or is left empty, the API server will work without SSL.
+        -  **keyfile**: Specifies a file with the secret key in the PEM format.
 
 ZooKeeper
 ----------
