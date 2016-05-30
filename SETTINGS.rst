@@ -34,9 +34,9 @@ PostgreSQL
 -  **create\_replica\_methods**: an ordered list of the create methods for turning a Patroni node into a new replica. "basebackup" is the default method; other methods are assumed to refer to scripts, each of which is configured as its own config item.
 -  **data\_dir**: file path to initialize and store Postgres data files.
 -  **initdb**: List options to be passed on to initdb.
--  **data-checksums**: Must be enabled when pg_rewind is needed on 9.3.
--  **encoding**: default encoding for new databases.
--  **locale**: default locale for new databases.
+        -  **data-checksums**: Must be enabled when pg_rewind is needed on 9.3.
+        -  **encoding**: default encoding for new databases.
+        -  **locale**: default locale for new databases.
 -  **listen**: IP address + port that Postgres listens to; must be accessible from other nodes in the cluster, if you're using streaming replication. Multiple comma-separated addresses are permitted, as long as the port component is appended after to the last one with a colon, i.e. ``listen: 127.0.0.1,127.0.0.2:5432``. Patroni will use the first address from this list to establish local connections to the PostgreSQL node.
 -  **maximum\_lag\_on\_failover**: the maximum bytes a follower may lag.
 -  **name**: the name of the Postgres host. Must be unique for the cluster.
@@ -69,10 +69,8 @@ ZooKeeper
 -  **scope**: the relative path used on ZooKeeper for this deployment. Makes it possible to run multiple HA deployments from a single ZooKeeper cluster.
 -  **session\_timeout**: the TTL to acquire the leader lock. Think of it as the length of time before initiation of the automatic failover process.
 
-ZooKeeper Exhibitor
---------------------
-If you are running a ZooKeeper cluster under the Exhibitor supervisory, this section might interest you:
+-  **exhibitor**:  If you are running a ZooKeeper cluster under the Exhibitor supervisory, this section might interest you:
 
--  **hosts**: initial list of Exhibitor (ZooKeeper) nodes in format: ['host1', 'host2', 'etc...' ]. This list updates automatically whenever the Exhibitor (ZooKeeper) cluster topology changes.
--  **poll\_interval**: how often the list of ZooKeeper and Exhibitor nodes should be updated from Exhibitor
--  **port**: Exhibitor port.
+        -  **hosts**: initial list of Exhibitor (ZooKeeper) nodes in format: ['host1', 'host2', 'etc...' ]. This list updates automatically whenever the Exhibitor (ZooKeeper) cluster topology changes.
+        -  **poll\_interval**: how often the list of ZooKeeper and Exhibitor nodes should be updated from Exhibitor
+        -  **port**: Exhibitor port.
