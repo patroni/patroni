@@ -1,3 +1,5 @@
+|Build Status| |Coverage Status|
+
 Patroni: A Template for PostgreSQL HA with ZooKeeper, etcd or Consul
 ------------------------------------------------------------
 There are many ways to run high availability with PostgreSQL; for a list, see the `PostgreSQL Documentation <https://wiki.postgresql.org/wiki/Replication,_Clustering,_and_Connection_Pooling>`__.
@@ -16,8 +18,6 @@ How Patroni Works
 ==============
 
 Patroni originated as a fork of `Governor <https://github.com/compose/governor>`__, the project from Compose. It includes plenty of new features. 
-
-For a diagram of the high availability decision loop, review `this pdf <https://github.com/zalando/patroni/blob/master/postgres-ha.pdf>`__.
 
 For an example of a Docker-based deployment with Patroni, see `Spilo <https://github.com/zalando/spilo>`__, currently in use at Zalando.
 
