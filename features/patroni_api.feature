@@ -29,17 +29,19 @@ Scenario: check local configuration reload
 
 Scenario: check dynamic configuration change via DCS
         Given I issue a PATCH request to http://127.0.0.1:8008/config with {"ttl": 20, "loop_wait": 1, "postgresql": {"parameters": {"max_connections": 101}}}
-	And I start postgres1
-	And replication works from postgres0 to postgres1 after 20 seconds
+        Then I receive a response code 200
+        And I receive a response loop_wait 1
+        And Response on GET http://127.0.0.1:8008/patroni contains restart_pending after 11 seconds
         When I issue a GET request to http://127.0.0.1:8008/config
         Then I receive a response code 200
         And I receive a response loop_wait 1
         When I issue a GET request to http://127.0.0.1:8008/patroni
         Then I receive a response code 200
-        And I receive a response restart_pending True
         And I receive a response tags {'tag': 'new_value'}
 
 Scenario: check API requests for the primary-replica pair
+	Given I start postgres1
+	And replication works from postgres0 to postgres1 after 20 seconds
 	When I issue a GET request to http://127.0.0.1:8009/replica
 	Then I receive a response code 200
 	And I receive a response state running

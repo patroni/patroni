@@ -106,3 +106,15 @@ def scheduled_failover(context, at_url, from_host, to_host, in_seconds):
 @step('I add tag {tag:w} {value:w} to {pg_name:w} config')
 def add_tag_to_config(context, tag, value, pg_name):
     context.pctl.add_tag_to_config(pg_name, tag, value)
+
+
+@then('Response on GET {url} contains {value} after {timeout:d} seconds')
+def check_http_response(context, url, value, timeout):
+    for _ in range(int(timeout)):
+        r = requests.get(url)
+        if value in r.content.decode('utf-8'):
+            break
+        time.sleep(1)
+    else:
+        assert False,\
+            "Value {0} is not present in response after {1} seconds".format(value, timeout)
