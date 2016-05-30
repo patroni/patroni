@@ -53,3 +53,26 @@ PostgreSQL
 -  **superuser**:
         -  **password**: password for the Postgres user, set during initialization.
 
+REST API
+-------- 
+-  **connect\_address**: IP address and port through which restapi is accessible.
+-  **listen**: IP address and port that Patroni will listen to, to provide health-check information for HAProxy.
+-**Optional**:
+-  **auth**: 'username:password' to protect dangerous REST API endpoints.
+    -  **certfile**: Specifies a file with the certificate in the PEM format. If the certfile is not specified or is left empty, the API server will work without SSL.
+    -  **keyfile**: Specifies a file with the secret key in the PEM format.
+
+ ZooKeeper
+----------
+-  **hosts**: list of ZooKeeper cluster members in format: ['host1:port1', 'host2:port2', 'etc...'].
+-  **reconnect\_timeout**: how long you should try to reconnect to ZooKeeper after a connection loss. After this timeout, assume that you no longer have a lock and restart in read-only mode.
+-  **scope**: the relative path used on ZooKeeper for this deployment. Makes it possible to run multiple HA deployments from a single ZooKeeper cluster.
+-  **session\_timeout**: the TTL to acquire the leader lock. Think of it as the length of time before initiation of the automatic failover process.
+
+ ZooKeeper Exhibitor
+--------------------
+If you are running a ZooKeeper cluster under the Exhibitor supervisory, this section might interest you:
+
+-  **hosts**: initial list of Exhibitor (ZooKeeper) nodes in format: ['host1', 'host2', 'etc...' ]. This list updates automatically whenever the Exhibitor (ZooKeeper) cluster topology changes.
+-  **poll\_interval**: how often the list of ZooKeeper and Exhibitor nodes should be updated from Exhibitor
+-  **port**: Exhibitor port.
