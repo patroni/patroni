@@ -248,22 +248,22 @@ class TestPostgresql(unittest.TestCase):
     @patch('patroni.postgresql.Postgresql.write_pgpass', MagicMock(return_value=dict()))
     @patch('subprocess.check_output', Mock(return_value=0, side_effect=pg_controldata_string))
     def test_follow(self, mock_pg_rewind):
-        self.p.follow(None)
-        self.p.follow(self.leader)
-        self.p.follow(Leader(-1, 28, self.other))
+        self.p.follow(None, None)
+        self.p.follow(self.leader, self.leader)
+        self.p.follow(Leader(-1, 28, self.other), self.leader)
         self.p.rewind = mock_pg_rewind
-        self.p.follow(self.leader)
+        self.p.follow(self.leader, self.leader)
         with mock.patch('os.path.islink', MagicMock(return_value=True)):
             with mock.patch('patroni.postgresql.Postgresql.can_rewind', new_callable=PropertyMock(return_value=True)):
                 with mock.patch('os.unlink', MagicMock(return_value=True)):
-                    self.p.follow(self.leader, recovery=True)
+                    self.p.follow(self.leader, self.leader, recovery=True)
         with mock.patch('patroni.postgresql.Postgresql.can_rewind', new_callable=PropertyMock(return_value=True)):
             self.p.rewind.return_value = True
-            self.p.follow(self.leader, recovery=True)
+            self.p.follow(self.leader, self.leader, recovery=True)
             self.p.rewind.return_value = False
-            self.p.follow(self.leader, recovery=True)
+            self.p.follow(self.leader, self.leader, recovery=True)
         with mock.patch('patroni.postgresql.Postgresql.check_recovery_conf', MagicMock(return_value=True)):
-            self.assertTrue(self.p.follow(None))
+            self.assertTrue(self.p.follow(None, None))
 
     @patch('subprocess.check_output', Mock(return_value=0, side_effect=pg_controldata_string))
     def test_can_rewind(self):
@@ -423,7 +423,7 @@ class TestPostgresql(unittest.TestCase):
     def test_cleanup_archive_status(self, mock_file, mock_link, mock_remove, mock_unlink):
         ap = os.path.join(self.data_dir, 'pg_xlog', 'archive_status/')
         self.p.cleanup_archive_status()
-        mock_remove.assert_has_calls([mock.call(ap+'a'), mock.call(ap+'b'), mock.call(ap+'c')])
+        mock_remove.assert_has_calls([mock.call(ap + 'a'), mock.call(ap + 'b'), mock.call(ap + 'c')])
         mock_unlink.assert_not_called()
 
         mock_remove.reset_mock()
@@ -431,7 +431,7 @@ class TestPostgresql(unittest.TestCase):
         mock_file.return_value = False
         mock_link.return_value = True
         self.p.cleanup_archive_status()
-        mock_unlink.assert_has_calls([mock.call(ap+'a'), mock.call(ap+'b'), mock.call(ap+'c')])
+        mock_unlink.assert_has_calls([mock.call(ap + 'a'), mock.call(ap + 'b'), mock.call(ap + 'c')])
         mock_remove.assert_not_called()
 
         mock_unlink.reset_mock()

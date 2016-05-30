@@ -511,12 +511,9 @@ class Postgresql(object):
         logger.info("running pg_rewind from %s", pc)
         pg_rewind = ['pg_rewind', '-D', self._data_dir, '--source-server', pc]
         try:
-            ret = subprocess.call(pg_rewind, env=env) == 0
+            return subprocess.call(pg_rewind, env=env) == 0
         except OSError:
-            ret = False
-        if ret:
-            self.write_recovery_conf(leader)
-        return ret
+            return False
 
     def controldata(self):
         """ return the contents of pg_controldata, or non-True value if pg_controldata call failed """
@@ -561,14 +558,13 @@ class Postgresql(object):
         except OSError:
             logger.exception("Unable to list %s", status_dir)
 
-    def follow(self, leader, recovery=False):
-        if self.check_recovery_conf(leader) and not recovery:
+    def follow(self, member, leader, recovery=False):
+        if self.check_recovery_conf(member) and not recovery:
             return True
         change_role = self.role == 'master'
         need_rewind = change_role and self.can_rewind
         if need_rewind:
             logger.info("set the rewind flag after demote")
-        self.write_recovery_conf(leader)
         if leader and need_rewind:  # we have a leader and need to rewind
             if self.is_running():
                 self.stop()
@@ -578,7 +574,7 @@ class Postgresql(object):
             # XXX: if recovery.conf is linked, it will be written anew as a normal file.
             if os.path.islink(self._recovery_conf):
                 os.unlink(self._recovery_conf)
-            else:
+            elif os.path.isfile(self._recovery_conf):
                 os.remove(self._recovery_conf)
             # Archived segments might be useful to pg_rewind,
             # clean the flags that tell we should remove them.
@@ -586,12 +582,14 @@ class Postgresql(object):
             # Start in a single user mode and stop to produce a clean shutdown
             self.single_user_mode(options={'archive_mode': 'on', 'archive_command': 'false'})
             if self.rewind(leader):
+                self.write_recovery_conf(member)
                 ret = self.start()
             else:
                 logger.error("unable to rewind the former master")
                 self.remove_data_directory()
                 ret = True
         else:  # do not rewind until the leader becomes available
+            self.write_recovery_conf(member)
             ret = self.restart()
         if change_role and ret:
             self.call_nowait(ACTION_ON_ROLE_CHANGE)
