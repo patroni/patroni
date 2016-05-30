@@ -15,14 +15,31 @@ Scenario: check API requests on a stand-alone server
 	And I receive a response text "I am the leader, can not reinitialize"
 	When I issue a POST request to http://127.0.0.1:8008/failover with {"leader": "postgres0"}
 	Then I receive a response code 500
-	And I receive a response text "failover is not possible: cluster does not have members except leader"
+	And I receive a response text failover is not possible: cluster does not have members except leader
 	When I issue an empty POST request to http://127.0.0.1:8008/failover
 	Then I receive a response code 400
 	And I receive a response text "No values given for required parameters leader and candidate"
 
-Scenario: check API requests for the primary-replica pair
-	Given I start postgres1
+Scenario: check local configuration reload
+        Given I issue an empty POST request to http://127.0.0.1:8008/reload
+        Then I receive a response code 304
+        When I add tag new_tag new_value to postgres0 config
+        And I issue an empty POST request to http://127.0.0.1:8008/reload
+        Then I receive a response code 202
+
+Scenario: check dynamic configuration change via DCS
+        Given I issue a PATCH request to http://127.0.0.1:8008/config with {"ttl": 20, "loop_wait": 1, "postgresql": {"parameters": {"max_connections": 101}}}
+	And I start postgres1
 	And replication works from postgres0 to postgres1 after 20 seconds
+        When I issue a GET request to http://127.0.0.1:8008/config
+        Then I receive a response code 200
+        And I receive a response loop_wait 1
+        When I issue a GET request to http://127.0.0.1:8008/patroni
+        Then I receive a response code 200
+        And I receive a response restart_pending True
+        And I receive a response tags {'tag': 'new_value'}
+
+Scenario: check API requests for the primary-replica pair
 	When I issue a GET request to http://127.0.0.1:8009/replica
 	Then I receive a response code 200
 	And I receive a response state running
@@ -50,4 +67,3 @@ Scenario: check the scheduled failover
         And postgres0 role is the primary after 5 seconds
         And postgres1 role is the secondary after 10 seconds
 	And replication works from postgres0 to postgres1 after 25 seconds
-

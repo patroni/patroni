@@ -3,7 +3,7 @@
 Patroni: A Template for PostgreSQL HA with ZooKeeper, etcd or Consul
 ------------------------------------------------------------
 
-Patroni was previously known as Governor.
+Patroni originates from Compose Governor and includes plenty of new features.
 
 *There are many ways to run high availability with PostgreSQL. Here, we
 present a template for you to create your own customized, high-availability 

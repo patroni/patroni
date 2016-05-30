@@ -651,8 +651,8 @@ class Postgresql(object):
         except OSError:
             logger.exception("Unable to list %s", status_dir)
 
-    def follow(self, leader, recovery=False):
-        if self.check_recovery_conf(leader) and not recovery:
+    def follow(self, member, leader, recovery=False):
+        if self.check_recovery_conf(member) and not recovery:
             return True
         change_role = self.role == 'master'
         need_rewind = change_role and self.can_rewind
@@ -677,14 +677,14 @@ class Postgresql(object):
             opts.update({'archive_mode': 'on', 'archive_command': 'false'})
             self.single_user_mode(options=opts)
             if self.rewind(leader):
-                self.write_recovery_conf(leader)
+                self.write_recovery_conf(member)
                 ret = self.start()
             else:
                 logger.error("unable to rewind the former master")
                 self.remove_data_directory()
                 ret = True
         else:  # do not rewind until the leader becomes available
-            self.write_recovery_conf(leader)
+            self.write_recovery_conf(member)
             ret = self.restart()
         if change_role and ret:
             self.call_nowait(ACTION_ON_ROLE_CHANGE)

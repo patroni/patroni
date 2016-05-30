@@ -73,7 +73,7 @@ class Ha(object):
             logger.info('bootstrapped %s', msg)
             cluster = self.dcs.get_cluster()
             node_to_follow = self._get_node_to_follow(cluster)
-            self.state_handler.follow(node_to_follow, True)
+            self.state_handler.follow(node_to_follow, cluster.leader, True)
         else:
             logger.error('failed to bootstrap %s', msg)
             self.state_handler.remove_data_directory()
@@ -138,7 +138,7 @@ class Ha(object):
 
         if not self.state_handler.check_recovery_conf(node_to_follow) or recovery:
             self._async_executor.schedule('changing primary_conninfo and restarting')
-            self._async_executor.run_async(self.state_handler.follow, (node_to_follow, recovery))
+            self._async_executor.run_async(self.state_handler.follow, (node_to_follow, self.cluster.leader, recovery))
         return ret
 
     def enforce_master_role(self, message, promote_message):
@@ -280,9 +280,11 @@ class Ha(object):
             self.touch_member()
             self.dcs.reset_cluster()
             sleep(2)  # Give a time to somebody to promote
-            self.recover()
+            cluster = self.dcs.get_cluster()
+            node_to_follow = self._get_node_to_follow(cluster)
+            self.state_handler.follow(node_to_follow, True)
         else:
-            self.state_handler.follow(None)
+            self.state_handler.follow(None, None)
 
     def process_manual_failover_from_leader(self):
         failover = self.cluster.failover

@@ -1,5 +1,4 @@
 import psycopg2 as pg
-import requests
 
 from behave import step, then
 from time import sleep, time
@@ -53,20 +52,3 @@ def replication_works(context, master, replica, time_limit):
         When I add the table test_{0} to {1}
         Then table test_{0} is present on {2} after {3} seconds
     """.format(int(time()), master, replica, time_limit))
-
-
-@then('Response on GET {url} contains {value} after {timeout:d} seconds')
-def check_http_response(context, url, value, timeout):
-    for _ in range(int(timeout)):
-        r = requests.get(url)
-        if value in r.content.decode('utf-8'):
-            break
-        sleep(1)
-    else:
-        assert False,\
-            "Value {0} is not present in response after {1} seconds".format(value, timeout)
-
-
-@step('I add tag {tag:w} {value:w} to {pg_name:w} config')
-def add_tag_to_config(context, tag, value, pg_name):
-    context.pctl.add_tag_to_config(pg_name, tag, value)
