@@ -724,7 +724,11 @@ class Postgresql(object):
             self.call_nowait(ACTION_ON_ROLE_CHANGE)
         return ret
 
-    def create_or_update_user(self, name, password, options):
+    def create_or_update_role(self, name, password, options):
+        options = list(map(str.upper, options))
+        if 'NOLOGIN' not in options and 'LOGIN' not in options:
+            options.append('LOGIN')
+
         self.query("""DO $$
 BEGIN
     SET local synchronous_commit = 'local';
@@ -735,7 +739,7 @@ BEGIN
         CREATE USER "{0}" WITH {1} PASSWORD %s;
     END IF;
 END;
-$$""".format(name, options), name, password, password)
+$$""".format(name, ' '.join(options)), name, password, password)
 
     def xlog_position(self):
         return self.query("""SELECT pg_xlog_location_diff(CASE WHEN pg_is_in_recovery()
@@ -804,8 +808,8 @@ $$""".format(name, options), name, password, password)
         if self._initialize(config) and self.start():
             for name, value in config['users'].items():
                 if name not in (self._superuser.get('username'), self._replication['username']):
-                    self.create_or_update_user(name, value['password'], ' '.join(value.get('options', [])).upper())
-            self.create_or_update_user(self._replication['username'], self._replication['password'], 'REPLICATION')
+                    self.create_or_update_role(name, value['password'], value.get('options', []))
+            self.create_or_update_role(self._replication['username'], self._replication['password'], ['REPLICATION'])
         else:
             raise PostgresException("Could not bootstrap master PostgreSQL")
 
