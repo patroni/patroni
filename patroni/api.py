@@ -66,8 +66,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
         status = self.server.check_auth_header(auth_header)
         return not status or self.send_auth_request(status)
 
-    def _write_status_response(self, status_code, response, options=False):
-        if options:
+    def _write_status_response(self, status_code, response, only_status_code=False):
+        if only_status_code:
             return self._write_response(status_code, None)
         patroni = self.server.patroni
         response.update({'tags': patroni.tags} if patroni.tags else {})
@@ -78,7 +78,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         response['patroni'] = {'version': patroni.version, 'scope': patroni.postgresql.scope}
         self._write_json_response(status_code, response)
 
-    def do_GET(self, options=False):
+    def do_GET(self, only_status_code=False):
         """Default method for processing all GET requests which can not be routed to other methods"""
 
         path = '/master' if self.path == '/' else self.path
@@ -104,10 +104,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
             status_code = 200
         else:
             status_code = 503
-        self._write_status_response(status_code, response, options)
+        self._write_status_response(status_code, response, only_status_code)
 
     def do_OPTIONS(self):
-        self.do_GET(options=True)
+        self.do_GET(only_status_code=True)
 
     def do_GET_patroni(self):
         response = self.get_postgresql_status(True)
