@@ -160,7 +160,7 @@ class TestPostgresql(unittest.TestCase):
         self.data_dir = 'data/test0'
         if not os.path.exists(self.data_dir):
             os.makedirs(self.data_dir)
-        self.p = Postgresql({'name': 'test0', 'scope': 'batman', 'data_dir': self.data_dir,
+        self.p = Postgresql({'name': 'test0', 'scope': 'batman', 'data_dir': self.data_dir, 'retry_timeout': 10,
                              'listen': '127.0.0.1, *:5432', 'connect_address': '127.0.0.2:5432',
                              'authentication': {'superuser': {'username': 'test', 'password': 'test'},
                                                 'replication': {'username': 'replicator', 'password': 'rep-pass'}},
@@ -475,8 +475,8 @@ class TestPostgresql(unittest.TestCase):
         self.assertFalse(self.p.replica_method_can_work_without_replication_connection('foo'))
 
     def test_reload_config(self):
-        self.p.reload_config({'listen': '*', 'parameters': self._PARAMETERS})
-        self.p.reload_config({'listen': '*:5433', 'parameters': self._PARAMETERS})
+        self.p.reload_config({'retry_timeout': 10, 'listen': '*', 'parameters': self._PARAMETERS})
+        self.p.reload_config({'retry_timeout': 10, 'listen': '*:5433', 'parameters': self._PARAMETERS})
 
     @patch.object(builtins, 'open', mock_open(read_data='9.4'))
     def test_get_major_version(self):

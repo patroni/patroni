@@ -194,7 +194,7 @@ class Etcd(AbstractDCS):
     def __init__(self, config):
         super(Etcd, self).__init__(config)
         self._ttl = int(config.get('ttl') or 30)
-        self._retry = Retry(deadline=10, max_delay=1, max_tries=-1,
+        self._retry = Retry(deadline=config['retry_timeout'], max_delay=1, max_tries=-1,
                             retry_exceptions=(etcd.EtcdConnectionFailed,
                                               etcd.EtcdLeaderElectionInProgress,
                                               etcd.EtcdWatcherCleared,
@@ -223,6 +223,9 @@ class Etcd(AbstractDCS):
             # fire up an event to wake up from `watch` and immediately run HA loop (to update TTL of leader and member)
             self.event.set()
         self._ttl = ttl
+
+    def set_retry_timeout(self, retry_timeout):
+        self._retry.deadline = retry_timeout
 
     @staticmethod
     def member(node):

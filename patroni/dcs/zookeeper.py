@@ -83,9 +83,8 @@ class ZooKeeper(AbstractDCS):
             self.exhibitor = ExhibitorEnsembleProvider(exhibitor['hosts'], exhibitor['port'], poll_interval=interval)
             hosts = self.exhibitor.zookeeper_hosts
 
-        self._client = KazooClient(hosts=hosts, timeout=(config.get('session_timeout') or config.get('ttl') or 30),
-                                   command_retry={'deadline': (config.get('reconnect_timeout') or 10),
-                                                  'max_delay': 1, 'max_tries': -1},
+        self._client = KazooClient(hosts=hosts, timeout=config['ttl'],
+                                   command_retry={'deadline': config['retry_timeout'], 'max_delay': 1, 'max_tries': -1},
                                    connection_retry={'max_delay': 1, 'max_tries': -1})
         self._client.add_listener(self.session_listener)
 
@@ -105,11 +104,14 @@ class ZooKeeper(AbstractDCS):
 
     def set_ttl(self, ttl):
         ttl = int(ttl * 1000)
-        # I know, it's weird to access private attributes and method
-        # but there is no other way to change session_timeout without losing session
+        # I know, it's weird to access private attributes, but there is
+        # no other way to change session_timeout without losing session
         if self._client._session_timeout != ttl:
             self._client._session_timeout = ttl
             self._client.restart()
+
+    def set_retry_timeout(self, retry_timeout):
+        self._client._retry.deadline = retry_timeout
 
     def get_node(self, key, watch=None):
         try:

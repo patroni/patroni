@@ -95,7 +95,8 @@ class Postgresql(object):
         self._cursor_holder = None
         self._sysid = None
         self._replication_slots = []  # list of already existing replication slots
-        self.retry = Retry(max_tries=-1, deadline=5, max_delay=1, retry_exceptions=PostgresConnectionException)
+        self.retry = Retry(max_tries=-1, deadline=config['retry_timeout']/2.0, max_delay=1,
+                           retry_exceptions=PostgresConnectionException)
 
         self._state_lock = Lock()
         self.set_state('stopped')
@@ -160,6 +161,7 @@ class Postgresql(object):
         if reload_pending:
             self._write_postgresql_conf()
             self.reload()
+        self.retry.deadline = config['retry_timeout']/2.0
 
     @property
     def restart_pending(self):

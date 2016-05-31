@@ -57,6 +57,7 @@ class Patroni(object):
             self.tags = self.get_tags()
             self.nap_time = self.config['loop_wait']
             self.dcs.set_ttl(self.config.get('ttl') or 30)
+            self.dcs.set_retry_timeout(self.config.get('retry_timeout') or self.nap_time)
             self.api.reload_config(self.config['restapi'])
             self.postgresql.reload_config(self.config['postgresql'])
         except Exception:

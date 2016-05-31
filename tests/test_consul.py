@@ -51,7 +51,7 @@ class TestConsul(unittest.TestCase):
     @patch.object(consul.Consul.KV, 'get', kv_get)
     @patch.object(consul.Consul.KV, 'delete', Mock())
     def setUp(self):
-        self.c = Consul({'ttl': 30, 'scope': 'test', 'name': 'postgresql1', 'host': 'localhost:1'})
+        self.c = Consul({'ttl': 30, 'scope': 'test', 'name': 'postgresql1', 'host': 'localhost:1', 'retry_timeout': 10})
         self.c._base_path = '/service/good'
         self.c._load_cluster()
 
@@ -133,3 +133,6 @@ class TestConsul(unittest.TestCase):
     @patch.object(consul.Consul.Session, 'destroy', Mock(side_effect=ConsulException))
     def test_set_ttl(self):
         self.c.set_ttl(20)
+
+    def test_set_retry_timeout(self):
+        self.c.set_retry_timeout(10)

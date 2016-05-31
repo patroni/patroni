@@ -104,13 +104,16 @@ class TestZooKeeper(unittest.TestCase):
     @patch('patroni.dcs.zookeeper.KazooClient', MockKazooClient)
     def setUp(self):
         self.zk = ZooKeeper({'exhibitor': {'hosts': ['localhost', 'exhibitor'], 'port': 8181},
-                             'scope': 'test', 'name': 'foo'})
+                             'scope': 'test', 'name': 'foo', 'ttl': 30, 'retry_timeout': 10})
 
     def test_session_listener(self):
         self.zk.session_listener(KazooState.SUSPENDED)
 
     def test_set_ttl(self):
         self.zk.set_ttl(20)
+
+    def test_set_retry_timeout(self):
+        self.zk.set_retry_timeout(10)
 
     def test_get_node(self):
         self.assertIsNone(self.zk.get_node('/no_node'))

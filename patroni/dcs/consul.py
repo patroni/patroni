@@ -21,9 +21,8 @@ class HTTPClient(std.HTTPClient):
 
     def __init__(self, *args, **kwargs):
         super(HTTPClient, self).__init__(*args, **kwargs)
-        self._patch_default_timeout()
 
-    def _patch_default_timeout(self):
+    def patch_default_timeout(self, timeout):
         # Set a default timeout for the `request.session.request` method, that is used
         # internally  by the methods request.session.get, request.session.post and
         # others. We monkey-patch here to avoid reimplementing each individual method from
@@ -78,6 +77,7 @@ class Consul(AbstractDCS):
         self.set_ttl(config.get('ttl') or 30)
         host, port = config.get('host', '127.0.0.1:8500').split(':')
         self._client = ConsulClient(host=host, port=port)
+        self._client.http.patch_default_timeout(config['retry_timeout']/2.0)
         self._scope = config['scope']
         self.create_or_restore_session()
 
@@ -93,7 +93,7 @@ class Consul(AbstractDCS):
                 sleep(5)
 
     def set_ttl(self, ttl):
-        ttl = int(ttl/2)  # My experiments have shown that session expires after 2*ttl time
+        ttl = ttl/2.0  # My experiments have shown that session expires after 2*ttl time
         if self._ttl != ttl:
             if self._session:
                 try:
@@ -106,6 +106,9 @@ class Consul(AbstractDCS):
             # fire up an event to wake up from `watch` and immediately run HA loop (to create the new session)
             self.event.set()
         self._ttl = ttl
+
+    def set_retry_timeout(self, retry_timeout):
+        self._client.http.patch_default_timeout(retry_timeout/2.0)
 
     def refresh_session(self):
         """:returns: `!True` if it had to create new session"""

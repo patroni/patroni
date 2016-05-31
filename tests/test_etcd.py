@@ -193,7 +193,7 @@ class TestEtcd(unittest.TestCase):
     def setUp(self):
         with patch.object(Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://localhost:2379', 'http://localhost:4001'])
-            self.etcd = Etcd({'namespace': '/patroni/', 'ttl': 30,
+            self.etcd = Etcd({'namespace': '/patroni/', 'ttl': 30, 'retry_timeout': 10,
                               'host': 'localhost:2379', 'scope': 'test', 'name': 'foo'})
 
     def test_base_path(self):

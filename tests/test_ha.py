@@ -102,7 +102,7 @@ class TestHa(unittest.TestCase):
         with patch.object(etcd.Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
             self.p = Postgresql({'name': 'postgresql0', 'scope': 'dummy', 'listen': '127.0.0.1:5432',
-                                 'data_dir': 'data/postgresql0',
+                                 'data_dir': 'data/postgresql0', 'retry_timeout': 10,
                                  'authentication': {'superuser': {'username': 'foo', 'password': 'bar'},
                                                     'replication': {'username': '', 'password': ''}},
                                  'parameters': {'wal_level': 'hot_standby', 'max_replication_slots': 5, 'foo': 'bar',
@@ -111,7 +111,8 @@ class TestHa(unittest.TestCase):
             self.p.set_role('replica')
             self.p.check_replication_lag = true
             self.p.can_create_replica_without_replication_connection = MagicMock(return_value=False)
-            self.e = get_dcs({'etcd': {'ttl': 30, 'host': 'ok:2379', 'scope': 'test', 'name': 'foo'}})
+            self.e = get_dcs({'etcd': {'ttl': 30, 'host': 'ok:2379', 'scope': 'test',
+                                       'name': 'foo', 'retry_timeout': 10}})
             self.ha = Ha(MockPatroni(self.p, self.e))
             self.ha._async_executor.run_async = run_async
             self.ha.old_cluster = self.e.get_cluster()

@@ -266,6 +266,10 @@ class AbstractDCS(object):
         """Set the new ttl value for leader key"""
 
     @abc.abstractmethod
+    def set_retry_timeout(self, retry_timeout):
+        """Set the new value for retry_timeout"""
+
+    @abc.abstractmethod
     def _load_cluster(self):
         """Internally this method should build  `Cluster` object which
            represents current state and topology of the cluster in DCS.

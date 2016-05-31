@@ -32,7 +32,7 @@ class Config(object):
 
     __CACHE_FILENAME = 'patroni.dynamic.json'
     __DEFAULT_CONFIG = {
-        'ttl': 30, 'loop_wait': 10, 'retry_timeout': 5,
+        'ttl': 30, 'loop_wait': 10, 'retry_timeout': 10,
         'maximum_lag_on_failover': 1048576,
         'postgresql': {
             'parameters': Postgresql.CMDLINE_OPTIONS
