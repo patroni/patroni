@@ -110,13 +110,22 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     @staticmethod
     def _patch_config(config, data):
+        is_changed = False
         for name, value in data.items():
-            if isinstance(value, dict) and name in config:
-                RestApiHandler._patch_config(config[name], value)
-            elif value is None:
-                config.pop(name, None)
+            if value is None:
+                if config.pop(name, None) is not None:
+                    is_changed = True
+            elif name in config:
+                if isinstance(value, dict):
+                    if RestApiHandler._patch_config(config[name], value):
+                        is_changed = True
+                elif str(config[name]) != str(value):
+                    config[name] = value
+                    is_changed = True
             else:
                 config[name] = value
+                is_changed = True
+        return is_changed
 
     @check_auth
     def do_PATCH_config(self):
@@ -124,8 +133,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         request = json.loads(self.rfile.read(content_length).decode('utf-8'))
         cluster = self.server.patroni.ha.dcs.get_cluster()
         data = cluster.config.data.copy()
-        RestApiHandler._patch_config(data, request)
-        if data != cluster.config.data:
+        if RestApiHandler._patch_config(data, request):
             self.server.patroni.ha.dcs.set_config_value(json.dumps(data, separators=(',', ':')), cluster.config.index)
             self._write_json_response(200, data)
         else:

@@ -1,3 +1,4 @@
+import json
 import psycopg2
 import unittest
 
@@ -123,11 +124,14 @@ class TestRestApiHandler(unittest.TestCase):
 
     @patch.object(MockHa, 'dcs')
     def test_do_PATCH_config(self, mock_dcs):
-        mock_dcs.get_cluster.return_value.config = \
-            ClusterConfig.from_node(1, '{"postgresql": {"use_slots": false, "parameters": {"wal_level": "logical"}}}')
+        config = {'postgresql': {'use_slots': False, 'use_pg_rewind': True, 'parameters': {'wal_level': 'logical'}}}
+        mock_dcs.get_cluster.return_value.config = ClusterConfig.from_node(1, json.dumps(config))
         request = 'PATCH /config HTTP/1.0' + self._authorization + '\nContent-Length: '
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, request + '2\n\n{}'))
-        MockRestApiServer(RestApiHandler, request + '59\n\n{"ttl":5,"use_slots":true,"postgresql":{"parameters":null}}')
+        config['ttl'] = 5
+        config['postgresql'].update({'use_slots': True, "parameters": None})
+        config = json.dumps(config)
+        MockRestApiServer(RestApiHandler, request + str(len(config)) + '\n\n' + config)
 
     @patch.object(MockPatroni, 'sighup_handler', Mock(side_effect=Exception))
     def test_do_POST_reload(self):
