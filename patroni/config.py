@@ -142,7 +142,7 @@ class Config(object):
                     elif name not in ('connect_address', 'listen', 'data_dir', 'pgpass', 'authentication'):
                         config['postgresql'][name] = deepcopy(value)
             elif name in config:
-                config[name] = value
+                config[name] = int(value)
         return config
 
     def _build_effective_configuration(self, dynamic_configuration, local_configuration):
