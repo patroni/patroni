@@ -33,6 +33,32 @@ def calculate_ttl(expiration):
     return int((expiration - now).total_seconds())
 
 
+def deep_compare(obj1, obj2):
+    """
+    >>> deep_compare({'1': None}, {})
+    False
+    >>> deep_compare({'1': {}}, {'1': None})
+    False
+    >>> deep_compare({'1': [1]}, {'1': [2]})
+    False
+    >>> deep_compare({'1': 2}, {'1': '2'})
+    True
+    >>> deep_compare({'1': {'2': [3, 4]}}, {'1': {'2': [3, 4]}})
+    True
+    """
+
+    if set(list(obj1.keys())) != set(list(obj2.keys())):  # Objects have different sets of keys
+        return False
+
+    for key, value in obj1.items():
+        if isinstance(value, dict):
+            if not (isinstance(obj2[key], dict) and deep_compare(value, obj2[key])):
+                return False
+        elif str(value) != str(obj2[key]):
+            return False
+    return True
+
+
 def set_ignore_sigterm(value=True):
     global __ignore_sigterm
     __ignore_sigterm = value

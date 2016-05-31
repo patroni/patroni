@@ -6,6 +6,7 @@ import yaml
 
 from copy import deepcopy
 from patroni.postgresql import Postgresql
+from patroni.utils import deep_compare
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +95,7 @@ class Config(object):
                         logger.error('Can not remove temporary file %s', tmpfile)
 
     def set_dynamic_configuration(self, configuration):
-        if self._dynamic_configuration != configuration:
+        if not deep_compare(self._dynamic_configuration, configuration):
             try:
                 self.__effective_configuration = self._build_effective_configuration(configuration,
                                                                                      self._local_configuration)
@@ -108,10 +109,10 @@ class Config(object):
         if self.config_file:
             try:
                 configuration = self._load_config_file()
-                if self._local_configuration != configuration:
+                if not deep_compare(self._local_configuration, configuration):
                     new_configuration = self._build_effective_configuration(self._dynamic_configuration, configuration)
                     if dry_run:
-                        return new_configuration != self.__effective_configuration
+                        return not deep_compare(new_configuration, self.__effective_configuration)
                     self._local_configuration = configuration
                     self.__effective_configuration = new_configuration
                     return True
