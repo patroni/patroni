@@ -3,7 +3,6 @@ import fcntl
 import json
 import logging
 import psycopg2
-import socket
 import time
 import dateutil
 import datetime
@@ -36,14 +35,13 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     def _write_response(self, status_code, body, content_type='text/html', headers=None):
         self.send_response(status_code)
-        if body is not None:
-            headers = headers or {}
-            if content_type:
-                headers['Content-Type'] = content_type
-            for name, value in headers.items():
-                self.send_header(name, value)
-            self.end_headers()
-            self.wfile.write(body.encode('utf-8'))
+        headers = headers or {}
+        if content_type:
+            headers['Content-Type'] = content_type
+        for name, value in headers.items():
+            self.send_header(name, value)
+        self.end_headers()
+        self.wfile.write(body.encode('utf-8'))
 
     def _write_json_response(self, status_code, response):
         self._write_response(status_code, json.dumps(response), content_type='application/json')
@@ -52,23 +50,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
         headers = {'WWW-Authenticate': 'Basic realm="' + self.server.patroni.__class__.__name__ + '"'}
         self._write_response(401, body, headers=headers)
 
-    def finish(self):
-        try:
-            if not self.wfile.closed:
-                self.wfile.flush()
-                self.wfile.close()
-        except socket.error:
-            pass
-        self.rfile.close()
-
     def check_auth_header(self):
         auth_header = self.headers.get('Authorization')
         status = self.server.check_auth_header(auth_header)
         return not status or self.send_auth_request(status)
 
-    def _write_status_response(self, status_code, response, only_status_code=False):
-        if only_status_code:
-            return self._write_response(status_code, None)
+    def _write_status_response(self, status_code, response):
         patroni = self.server.patroni
         response.update({'tags': patroni.tags} if patroni.tags else {})
         if patroni.postgresql.sysid:
@@ -78,7 +65,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         response['patroni'] = {'version': patroni.version, 'scope': patroni.postgresql.scope}
         self._write_json_response(status_code, response)
 
-    def do_GET(self, only_status_code=False):
+    def do_GET(self, write_status_code_only=False):
         """Default method for processing all GET requests which can not be routed to other methods"""
 
         path = '/master' if self.path == '/' else self.path
@@ -104,10 +91,15 @@ class RestApiHandler(BaseHTTPRequestHandler):
             status_code = 200
         else:
             status_code = 503
-        self._write_status_response(status_code, response, only_status_code)
+
+        if write_status_code_only:  # when haproxy sends OPTIONS request it reads only statue code and nothing more
+            message = self.responses[status_code][0]
+            self.wfile.write(("%s %d %s\r\n" % (self.protocol_version, status_code, message)).encode('utf-8'))
+        else:
+            self._write_status_response(status_code, response)
 
     def do_OPTIONS(self):
-        self.do_GET(only_status_code=True)
+        self.do_GET(write_status_code_only=True)
 
     def do_GET_patroni(self):
         response = self.get_postgresql_status(True)
@@ -284,12 +276,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
             if hasattr(self, 'do_' + mname):
                 self.command = mname
         return ret
-
-    def handle_one_request(self):
-        try:
-            BaseHTTPRequestHandler.handle_one_request(self)
-        except socket.error:
-            pass
 
     def query(self, sql, *params, **kwargs):
         if not kwargs.get('retry', False):

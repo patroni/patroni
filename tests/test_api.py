@@ -1,5 +1,4 @@
 import psycopg2
-import socket
 import unittest
 
 from mock import Mock, patch
@@ -7,7 +6,6 @@ from patroni.api import RestApiHandler, RestApiServer
 from patroni.dcs import ClusterConfig, Member
 from six import BytesIO as IO
 from six.moves import BaseHTTPServer
-from six.moves.BaseHTTPServer import BaseHTTPRequestHandler
 from test_postgresql import psycopg2_connect, MockCursor
 
 
@@ -110,17 +108,6 @@ class TestRestApiHandler(unittest.TestCase):
 
     def test_do_OPTIONS(self):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'OPTIONS / HTTP/1.0'))
-
-        with patch.object(BaseHTTPRequestHandler, 'handle_one_request') as mock_handle_request:
-            mock_handle_request.side_effect = socket.error("foo")
-            MockRestApiServer(RestApiHandler, 'OPTIONS / HTTP/1.0')
-
-        # make sure socket.error gets propagated via wfile object in finalize()
-        with patch.object(MockRequest, 'makefile') as makefile:
-            makefile.return_value.closed = False
-            makefile.return_value.readline = Mock(return_value=b'foo')
-            makefile.return_value.flush = Mock(side_effect=socket.error('foo'))
-            MockRestApiServer(RestApiHandler, 'OPTIONS / HTTP/1.0')
 
     def test_do_GET_patroni(self):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /patroni'))
