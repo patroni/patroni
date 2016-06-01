@@ -260,3 +260,4 @@ class TestEtcd(unittest.TestCase):
 
     def test_set_ttl(self):
         self.etcd.set_ttl(20)
+        self.assertTrue(self.etcd.watch(1))

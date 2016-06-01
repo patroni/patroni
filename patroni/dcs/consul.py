@@ -79,32 +79,22 @@ class Consul(AbstractDCS):
         self._client = ConsulClient(host=host, port=port)
         self._client.http.patch_default_timeout(config['retry_timeout']/2.0)
         self._scope = config['scope']
-        self.create_or_restore_session()
+        self.create_session()
+        self.__do_not_watch = False
 
-    def create_or_restore_session(self):
+    def create_session(self):
         while not self._session:
             try:
-                _, member = self._client.kv.get(self.member_path)
-                self._session = (member or {}).get('Session')
-                if self.refresh_session():
-                    self._client.kv.delete(self.member_path)
-            except (ConsulException, RequestException):
+                self.refresh_session()
+            except ConsulError:
                 logger.info('waiting on consul')
                 sleep(5)
 
     def set_ttl(self, ttl):
         ttl = ttl/2.0  # My experiments have shown that session expires after 2*ttl time
         if self._ttl != ttl:
-            if self._session:
-                try:
-                    self._client.session.destroy(self._session)
-                except Exception:
-                    logger.exception("Can not destroy session %s", self._session)
             self._session = None
-            # force `watch` method to call `AbstractDCS.watch` instead of watching for leader key
-            self.reset_cluster()
-            # fire up an event to wake up from `watch` and immediately run HA loop (to create the new session)
-            self.event.set()
+            self.__do_not_watch = True
         self._ttl = ttl
 
     def set_retry_timeout(self, retry_timeout):
@@ -187,12 +177,13 @@ class Consul(AbstractDCS):
             raise ConsulError('Consul is not responding properly')
 
     def touch_member(self, data, **kwargs):
-        create_member = self.refresh_session()
         cluster = self.cluster
         member = cluster and ([m for m in cluster.members if m.name == self._name] or [None])[0]
-        if create_member and member:
+        create_member = self.refresh_session()
+        if member and (create_member or member.session != self._session):
             try:
                 self._client.kv.delete(self.member_path)
+                create_member = True
             except Exception:
                 return False
 
@@ -253,6 +244,10 @@ class Consul(AbstractDCS):
             return self._client.kv.delete(self.leader_path, cas=cluster.leader.index)
 
     def watch(self, timeout):
+        if self.__do_not_watch:
+            self.__do_not_watch = False
+            return True
+
         cluster = self.cluster
         if cluster and cluster.leader and cluster.leader.name != self._name and cluster.leader.index:
             end_time = time.time() + timeout

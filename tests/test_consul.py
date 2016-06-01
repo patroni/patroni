@@ -56,9 +56,10 @@ class TestConsul(unittest.TestCase):
         self.c._load_cluster()
 
     @patch('time.sleep', Mock(side_effect=SleepException))
-    def test_create_or_restore_session(self):
+    @patch.object(consul.Consul.Session, 'create', Mock(side_effect=ConsulException))
+    def test_create_session(self):
         self.c._session = None
-        self.assertRaises(SleepException, self.c.create_or_restore_session)
+        self.assertRaises(SleepException, self.c.create_session)
 
     @patch.object(consul.Consul.Session, 'renew', Mock(side_effect=NotFound))
     @patch.object(consul.Consul.Session, 'create', Mock(side_effect=ConsulException))
@@ -133,6 +134,7 @@ class TestConsul(unittest.TestCase):
     @patch.object(consul.Consul.Session, 'destroy', Mock(side_effect=ConsulException))
     def test_set_ttl(self):
         self.c.set_ttl(20)
+        self.assertTrue(self.c.watch(1))
 
     def test_set_retry_timeout(self):
         self.c.set_retry_timeout(10)

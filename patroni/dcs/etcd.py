@@ -200,6 +200,7 @@ class Etcd(AbstractDCS):
                                               etcd.EtcdWatcherCleared,
                                               etcd.EtcdEventIndexCleared))
         self._client = self.get_etcd_client(config)
+        self.__do_not_watch = False
 
     def retry(self, *args, **kwargs):
         return self._retry.copy()(*args, **kwargs)
@@ -217,11 +218,7 @@ class Etcd(AbstractDCS):
 
     def set_ttl(self, ttl):
         ttl = int(ttl)
-        if self._ttl != ttl:
-            # force `watch` method to call `AbstractDCS.watch` instead of watching for leader key
-            self.reset_cluster()
-            # fire up an event to wake up from `watch` and immediately run HA loop (to update TTL of leader and member)
-            self.event.set()
+        self.__do_not_watch = self._ttl != ttl
         self._ttl = ttl
 
     def set_retry_timeout(self, retry_timeout):
@@ -320,6 +317,10 @@ class Etcd(AbstractDCS):
         return self.retry(self._client.delete, self.client_path(''), recursive=True)
 
     def watch(self, timeout):
+        if self.__do_not_watch:
+            self.__do_not_watch = False
+            return True
+
         cluster = self.cluster
         # watch on leader key changes if it is defined and current node is not lock owner
         if cluster and cluster.leader and cluster.leader.name != self._name and cluster.leader.index:
