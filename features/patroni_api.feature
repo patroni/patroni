@@ -18,6 +18,8 @@ Scenario: check API requests on a stand-alone server
 	And I receive a response text failover is not possible: cluster does not have members except leader
 	When I issue an empty POST request to http://127.0.0.1:8008/failover
 	Then I receive a response code 400
+	When I issue a POST request to http://127.0.0.1:8008/failover with {"foo": "bar"}
+	Then I receive a response code 400
 	And I receive a response text "No values given for required parameters leader and candidate"
 
 Scenario: check local configuration reload

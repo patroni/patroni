@@ -9,7 +9,7 @@ import datetime
 import pytz
 
 from patroni.exceptions import PostgresConnectionException
-from patroni.utils import Retry, RetryFailedError
+from patroni.utils import deep_compare, Retry, RetryFailedError
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from six.moves.socketserver import ThreadingMixIn
 from threading import Thread
@@ -127,17 +127,46 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 is_changed = True
         return is_changed
 
+    def _read_json_content(self):
+        if 'content-length' not in self.headers:
+            return self.send_error(411)
+        try:
+            content_length = int(self.headers.get('content-length'))
+            request = json.loads(self.rfile.read(content_length).decode('utf-8'))
+            if isinstance(request, dict) and request:
+                return request
+        except Exception:
+            logger.exception('Bad request')
+        self.send_error(400)
+
     @check_auth
     def do_PATCH_config(self):
-        content_length = int(self.headers.get('content-length', 0))
-        request = json.loads(self.rfile.read(content_length).decode('utf-8'))
-        cluster = self.server.patroni.ha.dcs.get_cluster()
-        data = cluster.config.data.copy()
-        if RestApiHandler._patch_config(data, request):
-            self.server.patroni.ha.dcs.set_config_value(json.dumps(data, separators=(',', ':')), cluster.config.index)
-            self._write_json_response(200, data)
-        else:
-            self._write_response(304, '', '')
+        request = self._read_json_content()
+        if request:
+            cluster = self.server.patroni.ha.dcs.get_cluster()
+            data = cluster.config.data.copy()
+            if RestApiHandler._patch_config(data, request):
+                value = json.dumps(data, separators=(',', ':'))
+                if self.server.patroni.ha.dcs.set_config_value(value, cluster.config.index):
+                    self._write_json_response(200, data)
+                else:
+                    self.send_error(409)
+            else:
+                self.send_error(304)
+
+    @check_auth
+    def do_PUT_config(self):
+        request = self._read_json_content()
+        if request:
+            cluster = self.server.patroni.ha.dcs.get_cluster()
+            if deep_compare(request, cluster.config.data):
+                self.send_error(304)
+            else:
+                value = json.dumps(request, separators=(',', ':'))
+                if self.server.patroni.ha.dcs.set_config_value(value):
+                    self._write_json_response(200, request)
+                else:
+                    self.send_error(502)
 
     @check_auth
     def do_POST_reload(self):
@@ -184,7 +213,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self._write_response(status_code, data)
 
     def poll_failover_result(self, leader, candidate):
-        for _ in range(0, 15):
+        timeout = 10 if self.server.patroni.nap_time < 10 else self.server.patroni.nap_time
+        for _ in range(0, timeout*2):
             time.sleep(1)
             try:
                 cluster = self.server.patroni.dcs.get_cluster()
@@ -217,11 +247,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     @check_auth
     def do_POST_failover(self):
-        content_length = int(self.headers.get('content-length', 0))
-        try:
-            request = json.loads(self.rfile.read(content_length).decode('utf-8'))
-        except ValueError:
-            request = {}
+        request = self._read_json_content()
+        if not request:
+            return
+
         leader = request.get('leader')
         candidate = request.get('candidate') or request.get('member')
         scheduled_at = request.get('scheduled_at')
