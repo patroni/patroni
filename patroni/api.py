@@ -92,7 +92,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         else:
             status_code = 503
 
-        if write_status_code_only:  # when haproxy sends OPTIONS request it reads only statue code and nothing more
+        if write_status_code_only:  # when haproxy sends OPTIONS request it reads only status code and nothing more
             message = self.responses[status_code][0]
             self.wfile.write(("%s %d %s\r\n" % (self.protocol_version, status_code, message)).encode('utf-8'))
         else:
