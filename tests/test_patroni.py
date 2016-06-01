@@ -71,6 +71,8 @@ class TestPatroni(unittest.TestCase):
         self.p.api.start = Mock()
         self.p.config._dynamic_configuration = {}
         self.assertRaises(SleepException, self.p.run)
+        with patch('patroni.config.Config.set_dynamic_configuration', Mock(return_value=True)):
+            self.assertRaises(SleepException, self.p.run)
         with patch('patroni.postgresql.Postgresql.data_directory_empty', Mock(return_value=False)):
             self.assertRaises(SleepException, self.p.run)
 

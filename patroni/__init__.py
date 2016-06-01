@@ -41,7 +41,7 @@ class Patroni(object):
             try:
                 cluster = self.dcs.get_cluster()
                 if cluster and cluster.config:
-                    self.config.set_dynamic_configuration(cluster.config.data)
+                    self.config.set_dynamic_configuration(cluster.config)
                 elif not self.config.dynamic_configuration and 'bootstrap' in self.config:
                     self.config.set_dynamic_configuration(self.config['bootstrap']['dcs'])
                 break
@@ -101,7 +101,7 @@ class Patroni(object):
             logger.info(self.ha.run_cycle())
 
             cluster = self.dcs.cluster
-            if cluster and cluster.config and self.config.set_dynamic_configuration(cluster.config.data):
+            if cluster and cluster.config and self.config.set_dynamic_configuration(cluster.config):
                 self.reload_config()
 
             if not self.postgresql.data_directory_empty():

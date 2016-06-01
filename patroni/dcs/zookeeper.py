@@ -150,7 +150,7 @@ class ZooKeeper(AbstractDCS):
 
         # get global dynamic configuration
         config = self.get_node(self.config_path, watch=self.cluster_watcher) if self._CONFIG in nodes else None
-        config = config and ClusterConfig.from_node(config[1].version, config[0])
+        config = config and ClusterConfig.from_node(config[1].version, config[0], config[1].mzxid)
 
         # get list of members
         members = self.load_members() if self._MEMBERS[:-1] in nodes else []
@@ -209,7 +209,7 @@ class ZooKeeper(AbstractDCS):
             self._client.retry(self._client.set, self.failover_path, value.encode('utf-8'), version=index or -1)
             return True
         except NoNodeError:
-            return value == '' or (not index and self._create(self.failover_path, value))
+            return value == '' or (index is None and self._create(self.failover_path, value))
         except:
             logging.exception('set_failover_value')
             return False
@@ -219,7 +219,7 @@ class ZooKeeper(AbstractDCS):
             self._client.retry(self._client.set, self.config_path, value.encode('utf-8'), version=index or -1)
             return True
         except NoNodeError:
-            return value == '' or (not index and self._create(self.config_path, value))
+            return index is None and self._create(self.config_path, value)
         except Exception:
             logging.exception('set_config_value')
             return False

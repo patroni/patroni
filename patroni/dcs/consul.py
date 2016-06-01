@@ -34,7 +34,7 @@ class HTTPClient(std.HTTPClient):
         defaults_attr_name = '__defaults__' if six.PY3 else 'func_defaults'
         defaults = list(getattr(request_func, defaults_attr_name))
         code = request_func.__code__ if six.PY3 else request_func.func_code
-        defaults[code.co_varnames[code.co_argcount - len(defaults):code.co_argcount].index('timeout')] = 5
+        defaults[code.co_varnames[code.co_argcount - len(defaults):code.co_argcount].index('timeout')] = timeout
         setattr(request_func, defaults_attr_name, tuple(defaults))  # monkeypatching
 
     def get(self, callback, path, params=None):

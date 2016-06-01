@@ -5,6 +5,7 @@ import tempfile
 import yaml
 
 from copy import deepcopy
+from patroni.dcs import ClusterConfig
 from patroni.postgresql import Postgresql
 from patroni.utils import deep_compare
 
@@ -42,6 +43,7 @@ class Config(object):
 
     def __init__(self, config_file=None, config_env=None):
         self._config_file = None if config_env else config_file
+        self._modify_index = -1
         self._dynamic_configuration = {}
         self._local_configuration = yaml.safe_load(config_env) if config_env else self._load_config_file()
         self.__effective_configuration = self._build_effective_configuration(self._dynamic_configuration,
@@ -94,7 +96,14 @@ class Config(object):
                     except Exception:
                         logger.error('Can not remove temporary file %s', tmpfile)
 
+    # configuration could be either ClusterConfig or dict
     def set_dynamic_configuration(self, configuration):
+        if isinstance(configuration, ClusterConfig):
+            if self._modify_index == configuration.modify_index:
+                return False  # If the index didn't changed there is nothing to do
+            self._modify_index = configuration.modify_index
+            configuration = configuration.data
+
         if not deep_compare(self._dynamic_configuration, configuration):
             try:
                 self.__effective_configuration = self._build_effective_configuration(configuration,

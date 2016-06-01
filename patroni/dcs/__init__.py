@@ -164,10 +164,10 @@ class Failover(namedtuple('Failover', 'index,leader,candidate,scheduled_at')):
         return Failover(index, data.get('leader'), data.get('member'), data.get('scheduled_at'))
 
 
-class ClusterConfig(namedtuple('ClusterConfig', 'index,data')):
+class ClusterConfig(namedtuple('ClusterConfig', 'index,data,modify_index')):
 
     @staticmethod
-    def from_node(index, data):
+    def from_node(index, data, modify_index=None):
         """
         >>> ClusterConfig.from_node(1, '{') is None
         True
@@ -177,7 +177,7 @@ class ClusterConfig(namedtuple('ClusterConfig', 'index,data')):
             data = json.loads(data)
         except (TypeError, ValueError):
             return None
-        return ClusterConfig(index, data)
+        return ClusterConfig(index, data, modify_index or index)
 
 
 class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operation,members,failover')):
