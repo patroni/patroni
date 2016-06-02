@@ -51,7 +51,6 @@ class Postgresql(object):
     CMDLINE_OPTIONS = {
         'listen_addresses': None,
         'port': None,
-        'config_file': None,
         'wal_level': 'hot_standby',
         'hot_standby': 'on',
         'max_wal_senders': 5,
@@ -454,8 +453,7 @@ class Postgresql(object):
         self.resolve_connection_addresses()
 
         options = ' '.join("--{0}='{1}'".format(p, self._server_parameters[p]) for p in self.CMDLINE_OPTIONS
-                           if self._server_parameters[p] is not None and
-                           not (self._major_version < 9.4 and p in ('max_replication_slots', 'wal_log_hints')))
+                           if not (self._major_version < 9.4 and p in ('max_replication_slots', 'wal_log_hints')))
 
         ret = subprocess.call(self._pg_ctl + ['start', '-o', options], env=env, preexec_fn=os.setsid) == 0
         self._pending_restart = False
