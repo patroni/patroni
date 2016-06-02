@@ -2,6 +2,7 @@ import datetime
 import os
 import random
 import signal
+import six
 import sys
 import time
 import pytz
@@ -57,6 +58,95 @@ def deep_compare(obj1, obj2):
         elif str(value) != str(obj2[key]):
             return False
     return True
+
+
+def parse_bool(value):
+    """
+    >>> parse_bool(1)
+    True
+    >>> parse_bool('off')
+    False
+    >>> parse_bool('foo')
+    """
+    value = str(value).lower()
+    if value in ('on', 'true', 'yes', '1'):
+        return True
+    if value in ('off', 'false', 'no', '0'):
+        return False
+
+
+def split_int_unit(value, strict=True):
+    value = str(value)
+    l = len(value) - 1
+    while l >= 0 and not value[l].isdigit():
+        l -= 1
+    unit = value[l + 1:].strip()
+    try:
+        value = int(value[:l + 1], 0) if six.PY3 else long(value[:l + 1], 0)
+    except ValueError:
+        value = None if strict else 1
+    return (value, unit)
+
+
+def parse_int(value, base_unit=None):
+    """
+    >>> parse_int('1') == 1
+    True
+    >>> parse_int(' 0x400 MB ', '16384kB') == 64
+    True
+    >>> parse_int('1MB', 'kB') == 1024
+    True
+    >>> parse_int('1000 ms', 's') == 1
+    True
+    >>> parse_int('1GB', 'MB') is None
+    True
+    """
+
+    convert = {
+        'kB': {'kB': 1, 'MB': 1024, 'GB': 1024 * 1024, 'TB': 1024 * 1024 * 1024},
+        'ms': {'ms': 1, 's': 1000, 'min': 1000 * 60, 'h': 1000 * 60 * 60, 'd': 1000 * 60 * 60 * 24},
+        's': {'ms': -1000, 's': 1, 'min': 60, 'h': 60 * 60, 'd': 60 * 60 * 24},
+        'min': {'ms': -1000 * 60, 's': -60, 'min': 1, 'h': 60, 'd': 60 * 24}
+    }
+
+    value, unit = split_int_unit(value)
+    if value is not None:
+        if not unit:
+            return value
+
+        if base_unit and base_unit not in convert:
+            base_value, base_unit = split_int_unit(base_unit, False)
+        else:
+            base_value = 1
+        if base_unit in convert and unit in convert[base_unit]:
+            multiplier = convert[base_unit][unit]
+            if multiplier < 0:
+                value /= -multiplier
+            else:
+                value *= multiplier
+            return int(value/base_value)
+
+
+def compare_values(vartype, unit, old_value, new_value):
+    """
+    >>> compare_values('enum', None, 'remote_write', 'REMOTE_WRITE')
+    True
+    >>> compare_values('real', None, '1.23', 1.23)
+    True
+    """
+
+    # if the integer or bool new_value is not correct this function will return False
+    if vartype == 'bool':
+        old_value = parse_bool(old_value)
+        new_value = parse_bool(new_value)
+    elif vartype == 'integer':
+        old_value = parse_int(old_value)
+        new_value = parse_int(new_value, unit)
+    elif vartype == 'enum':
+        return str(old_value).lower() == str(new_value).lower()
+    else:  # ('string', 'real')
+        return str(old_value) == str(new_value)
+    return old_value is not None and new_value is not None and old_value == new_value
 
 
 def set_ignore_sigterm(value=True):

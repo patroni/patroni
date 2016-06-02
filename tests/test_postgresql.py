@@ -35,7 +35,8 @@ class MockCursor(object):
         elif sql.startswith('SELECT to_char(pg_postmaster_start_time'):
             self.results = [('', True, '', '', '', '', False)]
         elif sql.startswith('SELECT name, setting'):
-            self.results = [('port', '5433', 'postmaster')]
+            self.results = [('port', '5433', None, 'integer', 'postmaster'),
+                            ('autovacuum', 'on', None, 'bool', 'sighup')]
         else:
             self.results = [(None, None, None, None, None, None, None, None, None, None)]
 
@@ -149,7 +150,7 @@ def fake_listdir(path):
 @patch('subprocess.call', Mock(return_value=0))
 @patch('psycopg2.connect', psycopg2_connect)
 class TestPostgresql(unittest.TestCase):
-    _PARAMETERS = {'wal_level': 'hot_standby', 'max_replication_slots': 5, 'foo': 'bar',
+    _PARAMETERS = {'wal_level': 'hot_standby', 'max_replication_slots': 5, 'foo': 'bar', 'config_file': None,
                    'hot_standby': 'on', 'max_wal_senders': 5, 'wal_keep_segments': 8, 'wal_log_hints': 'on'}
 
     @patch('subprocess.call', Mock(return_value=0))
@@ -475,8 +476,11 @@ class TestPostgresql(unittest.TestCase):
         self.assertFalse(self.p.replica_method_can_work_without_replication_connection('foo'))
 
     def test_reload_config(self):
-        self.p.reload_config({'retry_timeout': 10, 'listen': '*', 'parameters': self._PARAMETERS})
-        self.p.reload_config({'retry_timeout': 10, 'listen': '*:5433', 'parameters': self._PARAMETERS})
+        parameters = self._PARAMETERS.copy()
+        parameters['autovacuum'] = 'on'
+        self.p.reload_config({'retry_timeout': 10, 'listen': '*', 'parameters': parameters})
+        parameters['autovacuum'] = 'off'
+        self.p.reload_config({'retry_timeout': 10, 'listen': '*:5433', 'parameters': parameters})
 
     @patch.object(builtins, 'open', mock_open(read_data='9.4'))
     def test_get_major_version(self):

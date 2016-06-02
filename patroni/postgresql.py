@@ -8,7 +8,7 @@ import tempfile
 import time
 
 from patroni.exceptions import PostgresConnectionException, PostgresException
-from patroni.utils import Retry, RetryFailedError
+from patroni.utils import compare_values, Retry, RetryFailedError
 from six import string_types
 from six.moves.urllib_parse import urlparse
 from threading import Lock
@@ -51,6 +51,7 @@ class Postgresql(object):
     CMDLINE_OPTIONS = {
         'listen_addresses': None,
         'port': None,
+        'config_file': None,
         'wal_level': 'hot_standby',
         'hot_standby': 'on',
         'max_wal_senders': 5,
@@ -136,21 +137,23 @@ class Postgresql(object):
     def reload_config(self, config):
         server_parameters = self.get_server_parameters(config)
 
-        listen_address_changed = reload_pending = False
+        listen_address_changed = pending_reload = False
         if self.is_healthy():
             changes = server_parameters.copy()
             changes.update({p: None for p, v in self._server_parameters.items() if p not in server_parameters})
             if changes:
-                for r in self.query("""SELECT name, setting, context
+                for r in self.query("""SELECT name, setting, unit, vartype, context
                                          FROM pg_settings
                                         WHERE name IN (""" + ', '.join('%s' for _ in changes.keys()) + ')',
                                     *(list(changes.keys()))):
-                    if server_parameters[r[0]] is None or str(server_parameters[r[0]]) != str(r[1]):
-                        reload_pending = True
-                        if r[2] in ('internal', 'postmaster'):
+                    unit = '16384kB' if r[0] in ('min_wal_size', 'max_wal_size') else r[2]
+                    if server_parameters[r[0]] is None or not compare_values(r[3], unit, r[1], server_parameters[r[0]]):
+                        if r[4] == 'postmaster':
                             self._pending_restart = True
                             if r[0] in ('listen_addresses', 'port'):
                                 listen_address_changed = True
+                        elif r[4] != 'internal':
+                            pending_reload = True
         self.config = config
         self._server_parameters = server_parameters
         self._connect_address = config.get('connect_address')
@@ -158,7 +161,7 @@ class Postgresql(object):
         if not listen_address_changed:
             self.resolve_connection_addresses()
 
-        if reload_pending:
+        if pending_reload:
             self._write_postgresql_conf()
             self.reload()
         self.retry.deadline = config['retry_timeout']/2.0
@@ -451,7 +454,8 @@ class Postgresql(object):
         self.resolve_connection_addresses()
 
         options = ' '.join("--{0}='{1}'".format(p, self._server_parameters[p]) for p in self.CMDLINE_OPTIONS
-                           if not (self._major_version < 9.4 and p in ('max_replication_slots', 'wal_log_hints')))
+                           if self._server_parameters[p] is not None and
+                           not (self._major_version < 9.4 and p in ('max_replication_slots', 'wal_log_hints')))
 
         ret = subprocess.call(self._pg_ctl + ['start', '-o', options], env=env, preexec_fn=os.setsid) == 0
         self._pending_restart = False
