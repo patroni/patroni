@@ -60,8 +60,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
         response.update({'tags': patroni.tags} if patroni.tags else {})
         if patroni.postgresql.sysid:
             response['database_system_identifier'] = patroni.postgresql.sysid
-        if patroni.postgresql.restart_pending:
-            response['restart_pending'] = True
+        if patroni.postgresql.pending_restart:
+            response['pending_restart'] = True
         response['patroni'] = {'version': patroni.version, 'scope': patroni.postgresql.scope}
         self._write_json_response(status_code, response)
 

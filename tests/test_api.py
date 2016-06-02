@@ -18,7 +18,7 @@ class MockPostgresql(object):
     server_version = '999999'
     sysid = 'dummysysid'
     scope = 'dummy'
-    restart_pending = True
+    pending_restart = True
 
     @staticmethod
     def connection():

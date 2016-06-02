@@ -64,7 +64,7 @@ class Postgresql(object):
         self.name = config['name']
         self.scope = config['scope']
         self._data_dir = config['data_dir']
-        self._restart_pending = False
+        self._pending_restart = False
         self._server_parameters = self.get_server_parameters(config)
 
         self._connect_address = config.get('connect_address')
@@ -148,7 +148,7 @@ class Postgresql(object):
                     if server_parameters[r[0]] is None or str(server_parameters[r[0]]) != str(r[1]):
                         reload_pending = True
                         if r[2] in ('internal', 'postmaster'):
-                            self._restart_pending = True
+                            self._pending_restart = True
                             if r[0] in ('listen_addresses', 'port'):
                                 listen_address_changed = True
         self.config = config
@@ -164,8 +164,8 @@ class Postgresql(object):
         self.retry.deadline = config['retry_timeout']/2.0
 
     @property
-    def restart_pending(self):
-        return self._restart_pending
+    def pending_restart(self):
+        return self._pending_restart
 
     @property
     def can_rewind(self):
@@ -454,7 +454,7 @@ class Postgresql(object):
                            if not (self._major_version < 9.4 and p in ('max_replication_slots', 'wal_log_hints')))
 
         ret = subprocess.call(self._pg_ctl + ['start', '-o', options], env=env, preexec_fn=os.setsid) == 0
-        self._restart_pending = False
+        self._pending_restart = False
 
         self.set_state('running' if ret else 'start failed')
         if ret:

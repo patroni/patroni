@@ -33,7 +33,7 @@ Scenario: check dynamic configuration change via DCS
         Given I issue a PATCH request to http://127.0.0.1:8008/config with {"ttl": 20, "loop_wait": 1, "postgresql": {"parameters": {"max_connections": 101}}}
         Then I receive a response code 200
         And I receive a response loop_wait 1
-        And Response on GET http://127.0.0.1:8008/patroni contains restart_pending after 11 seconds
+        And Response on GET http://127.0.0.1:8008/patroni contains pending_restart after 11 seconds
         When I issue a GET request to http://127.0.0.1:8008/config
         Then I receive a response code 200
         And I receive a response loop_wait 1
