@@ -734,9 +734,9 @@ BEGIN
     SET local synchronous_commit = 'local';
     PERFORM * FROM pg_authid WHERE rolname = %s;
     IF FOUND THEN
-        ALTER USER "{0}" WITH {1} PASSWORD %s;
+        ALTER ROLE "{0}" WITH {1} PASSWORD %s;
     ELSE
-        CREATE USER "{0}" WITH {1} PASSWORD %s;
+        CREATE ROLE "{0}" WITH {1} PASSWORD %s;
     END IF;
 END;
 $$""".format(name, ' '.join(options)), name, password, password)
