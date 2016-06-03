@@ -35,7 +35,10 @@ class MockCursor(object):
         elif sql.startswith('SELECT to_char(pg_postmaster_start_time'):
             self.results = [('', True, '', '', '', '', False)]
         elif sql.startswith('SELECT name, setting'):
-            self.results = [('port', '5433', None, 'integer', 'postmaster'),
+            self.results = [('wal_segment_size', '2048', '8kB', 'integer', 'internal'),
+                            ('search_path', 'public', None, 'string', 'user'),
+                            ('port', '5433', None, 'integer', 'postmaster'),
+                            ('listen_addresses', '*', None, 'string', 'postmaster'),
                             ('autovacuum', 'on', None, 'bool', 'sighup')]
         else:
             self.results = [(None, None, None, None, None, None, None, None, None, None)]
@@ -150,7 +153,7 @@ def fake_listdir(path):
 @patch('subprocess.call', Mock(return_value=0))
 @patch('psycopg2.connect', psycopg2_connect)
 class TestPostgresql(unittest.TestCase):
-    _PARAMETERS = {'wal_level': 'hot_standby', 'max_replication_slots': 5, 'foo': 'bar', 'config_file': None,
+    _PARAMETERS = {'wal_level': 'hot_standby', 'max_replication_slots': 5, 'f.oo': 'bar', 'search_path': 'public',
                    'hot_standby': 'on', 'max_wal_senders': 5, 'wal_keep_segments': 8, 'wal_log_hints': 'on'}
 
     @patch('subprocess.call', Mock(return_value=0))
@@ -203,7 +206,7 @@ class TestPostgresql(unittest.TestCase):
         self.assertTrue(self.p.start())
         with open(pg_conf) as f:
             lines = f.readlines()
-            self.assertTrue("foo = 'bar'\n" in lines)
+            self.assertTrue("f.oo = 'bar'\n" in lines)
 
     def test_stop(self):
         self.assertTrue(self.p.stop())
@@ -477,9 +480,14 @@ class TestPostgresql(unittest.TestCase):
 
     def test_reload_config(self):
         parameters = self._PARAMETERS.copy()
+        parameters.pop('f.oo')
+        self.p.reload_config({'retry_timeout': 10, 'listen': '*', 'parameters': parameters})
+        parameters['b.ar'] = 'bar'
+        self.p.reload_config({'retry_timeout': 10, 'listen': '*', 'parameters': parameters})
         parameters['autovacuum'] = 'on'
         self.p.reload_config({'retry_timeout': 10, 'listen': '*', 'parameters': parameters})
         parameters['autovacuum'] = 'off'
+        parameters.pop('search_path')
         self.p.reload_config({'retry_timeout': 10, 'listen': '*:5433', 'parameters': parameters})
 
     @patch.object(builtins, 'open', mock_open(read_data='9.4'))

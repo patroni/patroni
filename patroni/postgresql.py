@@ -8,7 +8,7 @@ import tempfile
 import time
 
 from patroni.exceptions import PostgresConnectionException, PostgresException
-from patroni.utils import compare_values, Retry, RetryFailedError
+from patroni.utils import compare_values, parse_int, Retry, RetryFailedError
 from six import string_types
 from six.moves.urllib_parse import urlparse
 from threading import Lock
@@ -138,21 +138,49 @@ class Postgresql(object):
 
         listen_address_changed = pending_reload = False
         if self.is_healthy():
-            changes = server_parameters.copy()
-            changes.update({p: None for p, v in self._server_parameters.items() if p not in server_parameters})
+            changes = {p: v for p, v in server_parameters.items() if '.' not in p}
+            changes.update({p: None for p, v in self._server_parameters.items() if not ('.' in p or p in changes)})
             if changes:
+                if 'wal_segment_size' not in changes:
+                    changes['wal_segment_size'] = '16384kB'
+                # XXX: query can raise an exception
                 for r in self.query("""SELECT name, setting, unit, vartype, context
                                          FROM pg_settings
-                                        WHERE name IN (""" + ', '.join('%s' for _ in changes.keys()) + ')',
-                                    *(list(changes.keys()))):
-                    unit = '16384kB' if r[0] in ('min_wal_size', 'max_wal_size') else r[2]
-                    if server_parameters[r[0]] is None or not compare_values(r[3], unit, r[1], server_parameters[r[0]]):
-                        if r[4] == 'postmaster':
-                            self._pending_restart = True
-                            if r[0] in ('listen_addresses', 'port'):
-                                listen_address_changed = True
-                        elif r[4] != 'internal':
+                                        WHERE name IN (""" + ', '.join(['%s'] * len(changes)) + """)
+                                        ORDER BY 1 DESC""", *(list(changes.keys()))):
+                    if r[4] == 'internal':
+                        if r[0] == 'wal_segment_size':
+                            server_parameters.pop(r[0], None)
+                            wal_segment_size = parse_int(r[2], 'kB')
+                            if wal_segment_size is not None:
+                                changes['wal_segment_size'] = '{0}kB'.format(int(r[1]) * wal_segment_size)
+                    elif r[0] in changes:
+                        unit = changes['wal_segment_size'] if r[0] in ('min_wal_size', 'max_wal_size') else r[2]
+                        new_value = changes.pop(r[0])
+                        if new_value is None or not compare_values(r[3], unit, r[1], new_value):
+                            if r[4] == 'postmaster':
+                                self._pending_restart = True
+                                if r[0] in ('listen_addresses', 'port'):
+                                    listen_address_changed = True
+                            else:
+                                pending_reload = True
+                for param, value in changes.items():
+                    if param in server_parameters:
+                        logger.warning('Removing invalid parameter `%s` from postgresql.parameters', param)
+                        server_parameters.pop(param)
+
+            # Check that user-defined-paramters have changed (parameters with period in name)
+            if not pending_reload:
+                for p, v in server_parameters.items():
+                    if '.' in p and (p not in self._server_parameters or str(v) != str(self._server_parameters[p])):
+                        pending_reload = True
+                        break
+                if not pending_reload:
+                    for p, v in self._server_parameters.items():
+                        if '.' in p and (p not in server_parameters or str(v) != str(server_parameters[p])):
                             pending_reload = True
+                            break
+
         self.config = config
         self._server_parameters = server_parameters
         self._connect_address = config.get('connect_address')
