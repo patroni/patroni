@@ -164,7 +164,7 @@ class Postgresql(object):
                                     listen_address_changed = True
                             else:
                                 pending_reload = True
-                for param, value in changes.items():
+                for param in changes:
                     if param in server_parameters:
                         logger.warning('Removing invalid parameter `%s` from postgresql.parameters', param)
                         server_parameters.pop(param)
