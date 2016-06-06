@@ -373,9 +373,10 @@ class Postgresql(object):
         replica_methods = self.config.get('create_replica_method') or ['basebackup']
 
         if clone_member:
-            connstring = clone_member.conn_url
+            r = parseurl(clone_member.conn_url)
+            connstring = 'postgres://{user}@{host}:{port}/{database}'.format(**r)
             # add the credentials to connect to the replica origin to pgpass.
-            env = self.write_pgpass(parseurl(clone_member.conn_url))
+            env = self.write_pgpass(r)
         else:
             connstring = ''
             env = os.environ.copy()
