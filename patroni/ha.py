@@ -276,7 +276,9 @@ class Ha(object):
             self.touch_member()
             self.dcs.reset_cluster()
             sleep(2)  # Give a time to somebody to promote
-            self.recover()
+            cluster = self.dcs.get_cluster()
+            node_to_follow = self._get_node_to_follow(cluster)
+            self.state_handler.follow(node_to_follow, cluster.leader, True)
         else:
             self.state_handler.follow(None, None)
 
