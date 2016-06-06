@@ -24,7 +24,8 @@ Scenario: check API requests on a stand-alone server
 
 Scenario: check local configuration reload
         Given I issue an empty POST request to http://127.0.0.1:8008/reload
-        Then I receive a response code 304
+        Then I receive a response code 200
+        And I receive a response text nothing changed
         When I add tag new_tag new_value to postgres0 config
         And I issue an empty POST request to http://127.0.0.1:8008/reload
         Then I receive a response code 202

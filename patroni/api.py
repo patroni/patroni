@@ -147,35 +147,31 @@ class RestApiHandler(BaseHTTPRequestHandler):
             data = cluster.config.data.copy()
             if RestApiHandler._patch_config(data, request):
                 value = json.dumps(data, separators=(',', ':'))
-                if self.server.patroni.ha.dcs.set_config_value(value, cluster.config.index):
-                    self._write_json_response(200, data)
-                else:
-                    self.send_error(409)
-            else:
-                self.send_error(304)
+                if not self.server.patroni.ha.dcs.set_config_value(value, cluster.config.index):
+                    return self.send_error(409)
+            self._write_json_response(200, data)
 
     @check_auth
     def do_PUT_config(self):
         request = self._read_json_content()
         if request:
             cluster = self.server.patroni.ha.dcs.get_cluster()
-            if deep_compare(request, cluster.config.data):
-                self.send_error(304)
-            else:
+            if not deep_compare(request, cluster.config.data):
                 value = json.dumps(request, separators=(',', ':'))
-                if self.server.patroni.ha.dcs.set_config_value(value):
-                    self._write_json_response(200, request)
-                else:
-                    self.send_error(502)
+                if not self.server.patroni.ha.dcs.set_config_value(value):
+                    return self.send_error(502)
+            self._write_json_response(200, request)
 
     @check_auth
     def do_POST_reload(self):
         try:
-            if not self.server.patroni.config.reload_local_configuration(True):
-                return self._write_response(304, '', '')
-            status_code = 202
-            response = 'reload scheduled'
-            self.server.patroni.sighup_handler()
+            if self.server.patroni.config.reload_local_configuration(True):
+                status_code = 202
+                response = 'reload scheduled'
+                self.server.patroni.sighup_handler()
+            else:
+                status_code = 200
+                response = 'nothing changed'
         except Exception as e:
             status_code = 500
             response = str(e)
