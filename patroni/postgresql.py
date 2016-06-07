@@ -60,7 +60,8 @@ class Postgresql(object):
         self.callback = config.get('callbacks') or {}
         self.use_slots = config.get('use_slots', True)
         self._schedule_load_slots = self.use_slots
-        self._postgresql_conf = os.path.join(self._data_dir, 'postgresql.conf')
+        self._postgresql_conf = os.path.join(self._data_dir,
+                                             config.get('config', 'postgresql.conf'))
         self._postgresql_base_conf_name = 'postgresql.base.conf'
         self._postgresql_base_conf = os.path.join(self._data_dir, self._postgresql_base_conf_name)
         self._recovery_conf = os.path.join(self._data_dir, 'recovery.conf')
