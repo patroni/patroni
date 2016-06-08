@@ -166,6 +166,7 @@ class Config(object):
     @staticmethod
     def _build_environment_configuration():
         ret = defaultdict(dict)
+
         def _popenv(name):
             return os.environ.pop('PATRONI_' + name.upper(), None)
 
