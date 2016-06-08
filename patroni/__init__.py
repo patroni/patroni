@@ -120,7 +120,7 @@ def main():
     config_env = False
     config_file = len(sys.argv) >= 2 and os.path.isfile(sys.argv[1]) and sys.argv[1]
     if not config_file:
-        config_env = os.environ.get(Patroni.PATRONI_CONFIG_VARIABLE)
+        config_env = os.environ.pop(Patroni.PATRONI_CONFIG_VARIABLE, None)
         if config_env is None:
             print('Usage: {0} config.yml'.format(sys.argv[0]))
             print('\tPatroni may also read the configuration from the {} environment variable'.

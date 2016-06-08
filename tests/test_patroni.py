@@ -61,7 +61,6 @@ class TestPatroni(unittest.TestCase):
                 os.environ[Patroni.PATRONI_CONFIG_VARIABLE] = f.read()
             with patch.object(Patroni, 'run', Mock(side_effect=SleepException())):
                 self.assertRaises(SleepException, _main)
-            del os.environ[Patroni.PATRONI_CONFIG_VARIABLE]
 
     @patch('patroni.config.Config.save_cache', Mock())
     @patch('patroni.config.Config.reload_local_configuration', Mock(return_value=True))

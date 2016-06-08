@@ -60,6 +60,27 @@ def deep_compare(obj1, obj2):
     return True
 
 
+def patch_config(config, data):
+    """recursively 'patch' `config` with `data`
+    :returns: `!True` if the `config` was changed"""
+    is_changed = False
+    for name, value in data.items():
+        if value is None:
+            if config.pop(name, None) is not None:
+                is_changed = True
+        elif name in config:
+            if isinstance(value, dict):
+                if patch_config(config[name], value):
+                    is_changed = True
+            elif str(config[name]) != str(value):
+                config[name] = value
+                is_changed = True
+        else:
+            config[name] = value
+            is_changed = True
+    return is_changed
+
+
 def parse_bool(value):
     """
     >>> parse_bool(1)

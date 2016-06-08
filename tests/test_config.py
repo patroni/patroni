@@ -1,3 +1,4 @@
+import os
 import unittest
 
 from mock import MagicMock, Mock, patch
@@ -11,15 +12,40 @@ class TestConfig(unittest.TestCase):
     @patch('json.load', Mock(side_effect=Exception))
     @patch.object(builtins, 'open', MagicMock())
     def setUp(self):
-        self.config = Config(config_env='postgresql: {data_dir: foo}')
+        self.config = Config(config_env='restapi: {}\npostgresql: {data_dir: foo}')
 
     @patch.object(Config, '_build_effective_configuration', Mock(side_effect=Exception))
     def test_set_dynamic_configuration(self):
         self.assertIsNone(self.config.set_dynamic_configuration({'foo': 'bar'}))
 
     def test_reload_local_configuration(self):
+        os.environ.update({
+            'PATRONI_NAME': 'postgres0',
+            'PATRONI_NAMESPACE': '/patroni/',
+            'PATRONI_SCOPE': 'batman2',
+            'PATRONI_RESTAPI_USERNAME': 'username',
+            'PATRONI_RESTAPI_PASSWORD': 'password',
+            'PATRONI_RESTAPI_LISTEN': '0.0.0.0:8008',
+            'PATRONI_RESTAPI_CONNECT_ADDRESS': '127.0.0.1:8008',
+            'PATRONI_RESTAPI_CERTFILE': '/certfile',
+            'PATRONI_RESTAPI_KEYFILE': '/keyfile',
+            'PATRONI_POSTGRESQL_LISTEN': '0.0.0.0:5432',
+            'PATRONI_POSTGRESQL_CONNECT_ADDRESS': '127.0.0.1:5432',
+            'PATRONI_POSTGRESQL_DATA_DIR': 'data/postgres0',
+            'PATRONI_POSTGRESQL_PGPASS': '/tmp/pgpass0',
+            'PATRONI_ETCD_HOST': '127.0.0.1:2379',
+            'PATRONI_CONSUL_HOST': '127.0.0.1:8500',
+            'PATRONI_ZOOKEEPER_HOSTS': 'host1,host2',
+            'PATRONI_foo_HOSTS': '[host1,host2',  # Exception in parse_list
+            'PATRONI_SUPERUSER_USERNAME': 'postgres',
+            'PATRONI_SUPERUSER_PASSWORD': 'zalando',
+            'PATRONI_REPLICATION_USERNAME': 'replicator',
+            'PATRONI_REPLICATION_PASSWORD': 'rep-pass',
+            'PATRONI_admin_PASSWORD': 'admin',
+            'PATRONI_admin_OPTIONS': 'createrole,createdb'
+        })
         config = Config(config_file='postgres0.yml')
-        with patch.object(Config, '_load_config_file', Mock(return_value={})):
+        with patch.object(Config, '_load_config_file', Mock(return_value={'restapi': {}})):
             with patch.object(Config, '_build_effective_configuration', Mock(side_effect=Exception)):
                 self.assertRaises(Exception, config.reload_local_configuration, True)
             self.assertTrue(config.reload_local_configuration(True))

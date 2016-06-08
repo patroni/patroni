@@ -50,6 +50,8 @@ class MockPatroni(object):
 
     def __init__(self, p, d):
         self.config = Config(config_env="""
+restapi:
+  listen: 0.0.0.0:8008
 bootstrap:
   users:
     replicator:
