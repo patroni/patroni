@@ -23,13 +23,13 @@ etcd:
 #  hosts:
 #    - 127.0.0.1:2181
 #    - 127.0.0.2:2181
-#  exhibitor:
-#    poll_interval: 300
-#    port: 8181
-#    hosts:
-#      - host1
-#      - host2
-#      - host3
+#exhibitor:
+#  poll_interval: 300
+#  port: 8181
+#  hosts:
+#    - host1
+#    - host2
+#    - host3
 postgresql:
   name: postgresql0
   scope: *scope
