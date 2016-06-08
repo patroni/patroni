@@ -15,9 +15,11 @@ Global/Universal
 Bootstrap configuration
 -----------------------
 It is possible to define users which will be created right after initializing of a new cluster by defining following environment variables:
+
 -  **PATRONI\_<username>\_PASSWORD='<password>'**
 -  **PATRONI\_<username>\_OPTIONS='list,of,options'**
-Example: defining of `PATRONI\_admin\_PASSWORD=admin` `PATRONI\_admin\_OPTIONS='createrole,createdb'` will cause creation of `admin` user which is allowed to create other users and databases
+
+Example: defining of ``PATRONI_admin_PASSWORD=strongpasswd`` and ``PATRONI_admin_OPTIONS='createrole,createdb'`` will cause creation of user **admin** with the password **strongpasswd**, which is allowed to create other users and databases.
 
 Consul
 ------
