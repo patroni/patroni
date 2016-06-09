@@ -143,14 +143,11 @@ class PatroniController(AbstractController):
             dcs_config = config.pop('etcd')
             dcs_config.pop('host')
 
-            if dcs == 'consul':
-                config[dcs] = dcs_config
-            else:
-                if dcs == 'exhibitor':
-                    dcs_config['exhibitor'] = {'hosts': ['127.0.0.1'], 'port': 8181}
-                else:
-                    dcs_config['hosts'] = ['127.0.0.1:2181']
-                config['zookeeper'] = dcs_config
+            if dcs == 'exhibitor':
+                dcs_config.update({'hosts': ['127.0.0.1'], 'port': 8181})
+            elif dcs == 'zookeeper':
+                dcs_config['hosts'] = ['127.0.0.1:2181']
+            config[dcs] = dcs_config
 
         with open(patroni_config_path, 'w') as f:
             yaml.safe_dump(config, f, default_flow_style=False)

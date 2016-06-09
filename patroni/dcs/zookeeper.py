@@ -1,70 +1,15 @@
 import logging
-import random
-import requests
-import time
 
 from kazoo.client import KazooClient, KazooState
 from kazoo.exceptions import NoNodeError, NodeExistsError
 from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member
 from patroni.exceptions import DCSError
-from patroni.utils import sleep
-from requests.exceptions import RequestException
 
 logger = logging.getLogger(__name__)
 
 
 class ZooKeeperError(DCSError):
     pass
-
-
-class ExhibitorEnsembleProvider(object):
-
-    TIMEOUT = 3.1
-
-    def __init__(self, hosts, port, uri_path='/exhibitor/v1/cluster/list', poll_interval=300):
-        self._exhibitor_port = port
-        self._uri_path = uri_path
-        self._poll_interval = poll_interval
-        self._exhibitors = hosts
-        self._master_exhibitors = hosts
-        self._zookeeper_hosts = ''
-        self._next_poll = None
-        while not self.poll():
-            logger.info('waiting on exhibitor')
-            sleep(5)
-
-    def poll(self):
-        if self._next_poll and self._next_poll > time.time():
-            return False
-
-        json = self._query_exhibitors(self._exhibitors)
-        if not json:
-            json = self._query_exhibitors(self._master_exhibitors)
-
-        if isinstance(json, dict) and 'servers' in json and 'port' in json:
-            self._next_poll = time.time() + self._poll_interval
-            zookeeper_hosts = ','.join([h + ':' + str(json['port']) for h in sorted(json['servers'])])
-            if self._zookeeper_hosts != zookeeper_hosts:
-                logger.info('ZooKeeper connection string has changed: %s => %s', self._zookeeper_hosts, zookeeper_hosts)
-                self._zookeeper_hosts = zookeeper_hosts
-                self._exhibitors = json['servers']
-                return True
-        return False
-
-    def _query_exhibitors(self, exhibitors):
-        random.shuffle(exhibitors)
-        for host in exhibitors:
-            uri = 'http://{0}:{1}{2}'.format(host, self._exhibitor_port, self._uri_path)
-            try:
-                response = requests.get(uri, timeout=self.TIMEOUT)
-                return response.json()
-            except RequestException:
-                pass
-        return None
-
-    @property
-    def zookeeper_hosts(self):
-        return self._zookeeper_hosts
 
 
 class ZooKeeper(AbstractDCS):
@@ -76,16 +21,8 @@ class ZooKeeper(AbstractDCS):
         if isinstance(hosts, list):
             hosts = ','.join(hosts)
 
-        self.exhibitor = None
-        if 'exhibitor' in config:
-            exhibitor = config['exhibitor']
-            interval = exhibitor.get('poll_interval', 300)
-            self.exhibitor = ExhibitorEnsembleProvider(exhibitor['hosts'], exhibitor['port'], poll_interval=interval)
-            hosts = self.exhibitor.zookeeper_hosts
-
-        self._client = KazooClient(hosts=hosts, timeout=config['ttl'],
-                                   command_retry={'deadline': config['retry_timeout'], 'max_delay': 1, 'max_tries': -1},
-                                   connection_retry={'max_delay': 1, 'max_tries': -1})
+        self._client = KazooClient(hosts, timeout=config['ttl'], connection_retry={'max_delay': 1, 'max_tries': -1},
+                                   command_retry={'deadline': config['retry_timeout'], 'max_delay': 1, 'max_tries': -1})
         self._client.add_listener(self.session_listener)
 
         self._my_member_data = None
@@ -104,8 +41,7 @@ class ZooKeeper(AbstractDCS):
 
     def set_ttl(self, ttl):
         ttl = int(ttl * 1000)
-        # I know, it's weird to access private attributes, but there is
-        # no other way to change session_timeout without losing session
+        # I know, it's weird to access private attributes
         if self._client._session_timeout != ttl:
             self._client._session_timeout = ttl
             self._client.restart()
@@ -180,9 +116,6 @@ class ZooKeeper(AbstractDCS):
         self._cluster = Cluster(initialize, config, leader, self._last_leader_operation, members, failover)
 
     def _load_cluster(self):
-        if self.exhibitor and self.exhibitor.poll():
-            self._client.set_hosts(self.exhibitor.zookeeper_hosts)
-
         if self._fetch_cluster or self._cluster is None:
             try:
                 self._client.retry(self._inner_load_cluster)

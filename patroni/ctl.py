@@ -26,7 +26,7 @@ CONFIG_DIR_PATH = click.get_app_dir('patroni')
 CONFIG_FILE_PATH = os.path.join(CONFIG_DIR_PATH, 'patronictl.yaml')
 LOGLEVEL = 'WARNING'
 DCS_DEFAULTS = {'zookeeper': {'port': 2181, 'template': "zookeeper:\n hosts: ['{host}:{port}']"},
-                'exhibitor': {'port': 8181, 'template': "zookeeper:\n exhibitor:\n  hosts: [{host}]\n  port: {port}"},
+                'exhibitor': {'port': 8181, 'template': "exhibitor:\n hosts: [{host}]\n port: {port}"},
                 'consul': {'port': 8500, 'template': "consul:\n host: '{host}:{port}'"},
                 'etcd': {'port': 4001, 'template': "etcd:\n host: '{host}:{port}'"}}
 

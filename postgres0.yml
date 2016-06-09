@@ -53,6 +53,7 @@ bootstrap:
       options:
         - createrole
         - createdb
+
 postgresql:
   listen: 127.0.0.1:5432
   connect_address: 127.0.0.1:5432

@@ -63,6 +63,7 @@ class Postgresql(object):
         self.config = config
         self.name = config['name']
         self.scope = config['scope']
+        self._database = config.get('database', 'postgres')
         self._data_dir = config['data_dir']
         self._pending_restart = False
         self._server_parameters = self.get_server_parameters(config)
@@ -74,13 +75,15 @@ class Postgresql(object):
 
         self._use_pg_rewind = config.get('use_pg_rewind', False)
         self._use_slots = config.get('use_slots', True)
+        self._version_file = os.path.join(self._data_dir, 'PG_VERSION')
         self._major_version = self.get_major_version()
         self._schedule_load_slots = self.use_slots
 
         self._pgpass = config.get('pgpass') or os.path.join(os.path.expanduser('~'), 'pgpass')
         self.callback = config.get('callbacks') or {}
-        self._postgresql_conf = os.path.join(self._data_dir, 'postgresql.conf')
-        self._postgresql_base_conf_name = 'postgresql.base.conf'
+        config_base_name = config.get('config_base_name', 'postgresql')
+        self._postgresql_conf = os.path.join(self._data_dir, config_base_name + '.conf')
+        self._postgresql_base_conf_name = config_base_name + '.base.conf'
         self._postgresql_base_conf = os.path.join(self._data_dir, self._postgresql_base_conf_name)
         self._recovery_conf = os.path.join(self._data_dir, 'recovery.conf')
         self._configuration_to_save = (self._postgresql_conf, self._postgresql_base_conf,
@@ -112,10 +115,13 @@ class Postgresql(object):
     def use_slots(self):
         return self._use_slots and self._major_version >= 9.4
 
+    def _version_file_exists(self):
+        return not self.data_directory_empty() and os.path.isfile(self._version_file)
+
     def get_major_version(self):
-        if not self.data_directory_empty():
+        if self._version_file_exists():
             try:
-                with open(os.path.join(self._data_dir, 'PG_VERSION')) as f:
+                with open(self._version_file) as f:
                     return float(f.read())
             except Exception:
                 logger.exception('Failed to read PG_VERSION from %s', self._data_dir)
@@ -130,8 +136,8 @@ class Postgresql(object):
 
     def resolve_connection_addresses(self):
         self._local_address = self.get_local_address()
-        self.connection_string = 'postgres://{username}:{password}@{connect_address}/postgres'.format(
-            connect_address=self._connect_address or self._local_address, **self._replication)
+        self.connection_string = 'postgres://{username}:{password}@{connect_address}/{database}'.format(
+            connect_address=self._connect_address or self._local_address, database=self._database, **self._replication)
 
     def reload_config(self, config):
         server_parameters = self.get_server_parameters(config)
@@ -244,7 +250,7 @@ class Postgresql(object):
 
     @property
     def _connect_kwargs(self):
-        r = parseurl('postgres://{0}/postgres'.format(self._local_address))
+        r = parseurl('postgres://{0}/{1}'.format(self._local_address, self._database))
         if 'username' in self._superuser:
             r['user'] = self._superuser['username']
         if 'password' in self._superuser:
@@ -428,7 +434,16 @@ class Postgresql(object):
         return not self.query('SELECT pg_is_in_recovery()').fetchone()[0]
 
     def is_running(self):
-        return subprocess.call(' '.join(self._pg_ctl) + ' status > /dev/null 2>&1', shell=True) == 0
+        if not (self._version_file_exists() and os.path.isfile(self._postmaster_pid)):
+            return False
+        try:
+            with open(self._postmaster_pid) as f:
+                pid = int(f.readline())
+                if pid < 0:
+                    pid = -pid
+                return pid > 0 and pid != os.getpid() and pid != os.getppid() and (os.kill(pid, 0) or True)
+        except Exception:
+            return False
 
     def call_nowait(self, cb_name):
         """ pick a callback command and call it without waiting for it to finish """
@@ -613,8 +628,9 @@ class Postgresql(object):
         r = parseurl(leader.conn_url)
         r.update(self._superuser)
         r['user'] = r.pop('username')
+        r['database'] = self._database
         env = self.write_pgpass(r)
-        pc = "user={user} host={host} port={port} dbname=postgres sslmode=prefer sslcompression=1".format(**r)
+        pc = "user={user} host={host} port={port} dbname={database} sslmode=prefer sslcompression=1".format(**r)
         # first run a checkpoint on a promoted master in order
         # to make it store the new timeline (5540277D.8020309@iki.fi)
         self.checkpoint(r)
@@ -660,7 +676,7 @@ class Postgresql(object):
         for opt, val in sorted((options or {}).items()):
             cmd.extend(['-c', '{0}={1}'.format(opt, val)])
         # need a database name to connect
-        cmd.append('postgres')
+        cmd.append(self._database)
         p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=open(os.devnull, 'w'), stderr=subprocess.STDOUT)
         if p:
             if command:
