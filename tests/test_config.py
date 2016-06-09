@@ -36,6 +36,8 @@ class TestConfig(unittest.TestCase):
             'PATRONI_ETCD_HOST': '127.0.0.1:2379',
             'PATRONI_CONSUL_HOST': '127.0.0.1:8500',
             'PATRONI_ZOOKEEPER_HOSTS': 'host1,host2',
+            'PATRONI_EXHIBITOR_HOSTS': 'host1,host2',
+            'PATRONI_EXHIBITOR_PORT': '8181',
             'PATRONI_foo_HOSTS': '[host1,host2',  # Exception in parse_list
             'PATRONI_SUPERUSER_USERNAME': 'postgres',
             'PATRONI_SUPERUSER_PASSWORD': 'zalando',

@@ -31,6 +31,7 @@ Etcd
 Exhibitor
 ---------
 -  **PATRONI\_EXHIBITOR\_HOSTS**: initial list of Exhibitor (ZooKeeper) nodes in format: ['host1', 'host2', 'etc...' ]. This list updates automatically whenever the Exhibitor (ZooKeeper) cluster topology changes.
+-  **PATRONI\_EXHIBITOR\_PORT**: Exhibitor port.
 
 PostgreSQL
 ----------

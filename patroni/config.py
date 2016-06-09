@@ -8,7 +8,7 @@ from collections import defaultdict
 from copy import deepcopy
 from patroni.dcs import ClusterConfig
 from patroni.postgresql import Postgresql
-from patroni.utils import deep_compare, patch_config
+from patroni.utils import deep_compare, parse_int, patch_config
 
 logger = logging.getLogger(__name__)
 
@@ -219,10 +219,13 @@ class Config(object):
             if param.startswith('PATRONI_'):
                 name, suffix = (param[8:].rsplit('_', 1) + [''])[:2]
                 if name and suffix:
-                    # PATRONI_(ETCD|CONSUL|ZOOKEEPER|...)_HOSTS?
-                    if suffix in ('HOST', 'HOSTS') and '_' not in name:
+                    # PATRONI_(ETCD|CONSUL|ZOOKEEPER|EXHIBITOR|...)_(HOSTS?|PORT)
+                    if suffix in ('HOST', 'HOSTS', 'PORT') and '_' not in name:
                         value = os.environ.pop(param)
-                        value = value if suffix == 'HOST' else value and _parse_list(value)
+                        if suffix == 'PORT':
+                            value = value and parse_int(value)
+                        elif suffix == 'HOSTS':
+                            value = value and _parse_list(value)
                         if value:
                             ret[name.lower()][suffix.lower()] = value
                     # PATRONI_<username>_PASSWORD=<password>, PATRONI_<username>_OPTIONS=<option1,option2,...>
@@ -252,7 +255,6 @@ class Config(object):
             elif name not in config:
                 config[name] = deepcopy(value) if value else {}
 
-        
         # restapi server expects to get restapi.auth = 'username:password'
         if 'authentication' in config['restapi']:
             restapi = config['restapi']
