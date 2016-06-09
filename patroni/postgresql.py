@@ -63,6 +63,7 @@ class Postgresql(object):
         self.config = config
         self.name = config['name']
         self.scope = config['scope']
+        self._database = config.get('database', 'postgres')
         self._data_dir = config['data_dir']
         self._pending_restart = False
         self._server_parameters = self.get_server_parameters(config)
@@ -79,8 +80,9 @@ class Postgresql(object):
 
         self._pgpass = config.get('pgpass') or os.path.join(os.path.expanduser('~'), 'pgpass')
         self.callback = config.get('callbacks') or {}
-        self._postgresql_conf = os.path.join(self._data_dir, 'postgresql.conf')
-        self._postgresql_base_conf_name = 'postgresql.base.conf'
+        config_base_name = config.get('config_base_name', 'postgresql')
+        self._postgresql_conf = os.path.join(self._data_dir, config_base_name + '.conf')
+        self._postgresql_base_conf_name = config_base_name + '.base.conf'
         self._postgresql_base_conf = os.path.join(self._data_dir, self._postgresql_base_conf_name)
         self._recovery_conf = os.path.join(self._data_dir, 'recovery.conf')
         self._configuration_to_save = (self._postgresql_conf, self._postgresql_base_conf,
@@ -130,8 +132,8 @@ class Postgresql(object):
 
     def resolve_connection_addresses(self):
         self._local_address = self.get_local_address()
-        self.connection_string = 'postgres://{username}:{password}@{connect_address}/postgres'.format(
-            connect_address=self._connect_address or self._local_address, **self._replication)
+        self.connection_string = 'postgres://{username}:{password}@{connect_address}/{database}'.format(
+            connect_address=self._connect_address or self._local_address, database=self._database, **self._replication)
 
     def reload_config(self, config):
         server_parameters = self.get_server_parameters(config)
@@ -244,7 +246,7 @@ class Postgresql(object):
 
     @property
     def _connect_kwargs(self):
-        r = parseurl('postgres://{0}/postgres'.format(self._local_address))
+        r = parseurl('postgres://{0}/{1}'.format(self._local_address, self._database))
         if 'username' in self._superuser:
             r['user'] = self._superuser['username']
         if 'password' in self._superuser:
@@ -613,8 +615,9 @@ class Postgresql(object):
         r = parseurl(leader.conn_url)
         r.update(self._superuser)
         r['user'] = r.pop('username')
+        r['database'] = self._database
         env = self.write_pgpass(r)
-        pc = "user={user} host={host} port={port} dbname=postgres sslmode=prefer sslcompression=1".format(**r)
+        pc = "user={user} host={host} port={port} dbname={database} sslmode=prefer sslcompression=1".format(**r)
         # first run a checkpoint on a promoted master in order
         # to make it store the new timeline (5540277D.8020309@iki.fi)
         self.checkpoint(r)
@@ -660,7 +663,7 @@ class Postgresql(object):
         for opt, val in sorted((options or {}).items()):
             cmd.extend(['-c', '{0}={1}'.format(opt, val)])
         # need a database name to connect
-        cmd.append('postgres')
+        cmd.append(self._database)
         p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=open(os.devnull, 'w'), stderr=subprocess.STDOUT)
         if p:
             if command:
