@@ -74,6 +74,7 @@ class Postgresql(object):
 
         self._use_pg_rewind = config.get('use_pg_rewind', False)
         self._use_slots = config.get('use_slots', True)
+        self._version_file = os.path.join(self._data_dir, 'PG_VERSION')
         self._major_version = self.get_major_version()
         self._schedule_load_slots = self.use_slots
 
@@ -112,10 +113,13 @@ class Postgresql(object):
     def use_slots(self):
         return self._use_slots and self._major_version >= 9.4
 
+    def _version_file_exists(self):
+        return not self.data_directory_empty() and os.path.isfile(self._version_file)
+
     def get_major_version(self):
-        if not self.data_directory_empty():
+        if self._version_file_exists():
             try:
-                with open(os.path.join(self._data_dir, 'PG_VERSION')) as f:
+                with open(self._version_file) as f:
                     return float(f.read())
             except Exception:
                 logger.exception('Failed to read PG_VERSION from %s', self._data_dir)
@@ -428,7 +432,16 @@ class Postgresql(object):
         return not self.query('SELECT pg_is_in_recovery()').fetchone()[0]
 
     def is_running(self):
-        return subprocess.call(' '.join(self._pg_ctl) + ' status > /dev/null 2>&1', shell=True) == 0
+        if not (self._version_file_exists() and os.path.isfile(self._postmaster_pid)):
+            return False
+        try:
+            with open(self._postmaster_pid) as f:
+                pid = int(f.readline())
+                if pid < 0:
+                    pid = -pid
+                return pid > 0 and pid != os.getpid() and pid != os.getppid() and (os.kill(pid, 0) or True)
+        except Exception:
+            return False
 
     def call_nowait(self, cb_name):
         """ pick a callback command and call it without waiting for it to finish """
