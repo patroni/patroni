@@ -1,5 +1,6 @@
 import os
 import unittest
+import sys
 
 from mock import MagicMock, Mock, patch
 from patroni.config import Config
@@ -12,7 +13,12 @@ class TestConfig(unittest.TestCase):
     @patch('json.load', Mock(side_effect=Exception))
     @patch.object(builtins, 'open', MagicMock())
     def setUp(self):
-        self.config = Config(config_env='restapi: {}\npostgresql: {data_dir: foo}')
+        sys.argv = ['patroni.py']
+        os.environ[Config.PATRONI_CONFIG_VARIABLE] = 'restapi: {}\npostgresql: {data_dir: foo}'
+        self.config = Config()
+
+    def test_no_config(self):
+        self.assertRaises(SystemExit, Config)
 
     @patch.object(Config, '_build_effective_configuration', Mock(side_effect=Exception))
     def test_set_dynamic_configuration(self):
@@ -46,7 +52,8 @@ class TestConfig(unittest.TestCase):
             'PATRONI_admin_PASSWORD': 'admin',
             'PATRONI_admin_OPTIONS': 'createrole,createdb'
         })
-        config = Config(config_file='postgres0.yml')
+        sys.argv = ['patroni.py', 'postgres0.yml']
+        config = Config()
         with patch.object(Config, '_load_config_file', Mock(return_value={'restapi': {}})):
             with patch.object(Config, '_build_effective_configuration', Mock(side_effect=Exception)):
                 self.assertRaises(Exception, config.reload_local_configuration, True)

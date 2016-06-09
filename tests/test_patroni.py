@@ -1,5 +1,4 @@
 import etcd
-import os
 import sys
 import time
 import unittest
@@ -34,7 +33,8 @@ class TestPatroni(unittest.TestCase):
         RestApiServer.socket = 0
         with patch.object(etcd.Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
-            self.p = Patroni('postgres0.yml')
+            sys.argv = ['patroni.py', 'postgres0.yml']
+            self.p = Patroni()
 
     @patch('patroni.dcs.AbstractDCS.get_cluster', Mock(side_effect=[None, DCSError('foo'), None]))
     def test_load_dynamic_configuration(self):
@@ -47,7 +47,6 @@ class TestPatroni(unittest.TestCase):
     @patch.object(etcd.Client, 'machines')
     def test_patroni_main(self, mock_machines):
         with patch('subprocess.call', Mock(return_value=1)):
-            _main()
             sys.argv = ['patroni.py', 'postgres0.yml']
 
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
@@ -55,13 +54,6 @@ class TestPatroni(unittest.TestCase):
                 self.assertRaises(SleepException, _main)
             with patch.object(Patroni, 'run', Mock(side_effect=KeyboardInterrupt())):
                 _main()
-            sys.argv = ['patroni.py']
-            # read the content of the yaml configuration file into the environment variable
-            # in order to test how does patroni handle the configuration passed from the environment.
-            with open('postgres0.yml', 'r') as f:
-                os.environ[Patroni.PATRONI_CONFIG_VARIABLE] = f.read()
-            with patch.object(Patroni, 'run', Mock(side_effect=SleepException())):
-                self.assertRaises(SleepException, _main)
 
     @patch('patroni.config.Config.save_cache', Mock())
     @patch('patroni.config.Config.reload_local_configuration', Mock(return_value=True))

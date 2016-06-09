@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import sys
 import tempfile
 import yaml
 
@@ -33,6 +34,9 @@ class Config(object):
          to work with it as with the old `config` object.
     """
 
+    PATRONI_ENV_PREFIX = 'PATRONI_'
+    PATRONI_CONFIG_VARIABLE = PATRONI_ENV_PREFIX + 'CONFIGURATION'
+
     __CACHE_FILENAME = 'patroni.dynamic.json'
     __DEFAULT_CONFIG = {
         'ttl': 30, 'loop_wait': 10, 'retry_timeout': 10,
@@ -42,15 +46,25 @@ class Config(object):
         }
     }
 
-    def __init__(self, config_file=None, config_env=None):
-        self._config_file = None if config_env else config_file
+    def __init__(self):
         self._modify_index = -1
         self._dynamic_configuration = {}
-        if config_env:
-            self._local_configuration = yaml.safe_load(config_env)
-        else:
-            self.__environment_configuration = self._build_environment_configuration()
+
+        self.__environment_configuration = self._build_environment_configuration()
+
+        # Patroni reads the configuration from the command-line argument if it exists, otherwise from the environment
+        self._config_file = len(sys.argv) >= 2 and os.path.isfile(sys.argv[1]) and sys.argv[1]
+        if self._config_file:
             self._local_configuration = self._load_config_file()
+        else:
+            config_env = os.environ.pop(self.PATRONI_CONFIG_VARIABLE, None)
+            self._local_configuration = config_env and yaml.safe_load(config_env) or self.__environment_configuration
+            if not self._local_configuration:
+                print('Usage: {0} config.yml'.format(sys.argv[0]))
+                print('\tPatroni may also read the configuration from the {0} environment variable'.
+                      format(self.PATRONI_CONFIG_VARIABLE))
+                exit(1)
+
         self.__effective_configuration = self._build_effective_configuration(self._dynamic_configuration,
                                                                              self._local_configuration)
         self._data_dir = self.__effective_configuration['postgresql']['data_dir']
@@ -168,7 +182,7 @@ class Config(object):
         ret = defaultdict(dict)
 
         def _popenv(name):
-            return os.environ.pop('PATRONI_' + name.upper(), None)
+            return os.environ.pop(Config.PATRONI_ENV_PREFIX + name.upper(), None)
 
         for param in ('name', 'namespace', 'scope'):
             value = _popenv(param)
@@ -216,7 +230,7 @@ class Config(object):
                 return None
 
         for param in list(os.environ.keys()):
-            if param.startswith('PATRONI_'):
+            if param.startswith(Config.PATRONI_ENV_PREFIX):
                 name, suffix = (param[8:].rsplit('_', 1) + [''])[:2]
                 if name and suffix:
                     # PATRONI_(ETCD|CONSUL|ZOOKEEPER|EXHIBITOR|...)_(HOSTS?|PORT)
