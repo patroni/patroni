@@ -252,21 +252,30 @@ class Config(object):
             elif name not in config:
                 config[name] = deepcopy(value) if value else {}
 
+        
+        # restapi server expects to get restapi.auth = 'username:password'
         if 'authentication' in config['restapi']:
             restapi = config['restapi']
             auth = restapi['authentication']
             restapi['auth'] = '{0}:{1}'.format(auth['username'], auth['password'])
 
-        pg_config = config['postgresql']
-
         # special treatment for old config
+
+        # 'exhibitor' inside 'zookeeper':
+        if 'zookeeper' in config and 'exhibitor' in config['zookeeper']:
+            config['exhibitor'] = config['zookeeper'].pop('exhibitor')
+            config.pop('zookeeper')
+
+        pg_config = config['postgresql']
+        # no 'authentication' in 'postgresql', but 'replication' and 'superuser'
         if 'authentication' not in pg_config:
             pg_config['use_pg_rewind'] = 'pg_rewind' in pg_config
             pg_config['authentication'] = {u: pg_config[u] for u in ('replication', 'superuser') if u in pg_config}
-
+        # no 'superuser' in 'postgresql'.'authentication'
         if 'superuser' not in pg_config['authentication'] and 'pg_rewind' in pg_config:
             pg_config['authentication']['superuser'] = pg_config['pg_rewind']
 
+        # no 'name' in config
         if 'name' not in config and 'name' in pg_config:
             config['name'] = pg_config['name']
 

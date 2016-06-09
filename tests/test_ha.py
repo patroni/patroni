@@ -64,6 +64,10 @@ postgresql:
   pg_rewind:
     username: postgres
     password: postgres
+zookeeper:
+  exhibitor:
+    hosts: [localhost]
+    port: 8181
 """)
         self.postgresql = p
         self.dcs = d
