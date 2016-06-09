@@ -70,7 +70,7 @@ class TestCtl(unittest.TestCase):
         assert parse_dcs('') == {'etcd': {'host': 'localhost:4001'}}
         assert parse_dcs('localhost:8500') == {'consul': {'host': 'localhost:8500'}}
         assert parse_dcs('zookeeper://localhost') == {'zookeeper': {'hosts': ['localhost:2181']}}
-        assert parse_dcs('exhibitor://dummy') == {'zookeeper': {'exhibitor': {'hosts': ['dummy'], 'port': 8181}}}
+        assert parse_dcs('exhibitor://dummy') == {'exhibitor': {'hosts': ['dummy'], 'port': 8181}}
         assert parse_dcs('consul://localhost') == {'consul': {'host': 'localhost:8500'}}
         self.assertRaises(PatroniCtlException, parse_dcs, 'invalid://test')
 

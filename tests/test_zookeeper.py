@@ -5,8 +5,7 @@ from kazoo.client import KazooState
 from kazoo.exceptions import NoNodeError, NodeExistsError
 from kazoo.protocol.states import ZnodeStat
 from mock import Mock, patch
-from patroni.dcs.zookeeper import Leader, ExhibitorEnsembleProvider, ZooKeeper, ZooKeeperError
-from test_etcd import SleepException, requests_get
+from patroni.dcs.zookeeper import Leader, ZooKeeper, ZooKeeperError
 
 
 class MockKazooClient(Mock):
@@ -90,20 +89,11 @@ class MockKazooClient(Mock):
             raise NoNodeError
 
 
-@patch('requests.get', requests_get)
-@patch('time.sleep', Mock(side_effect=SleepException))
-class TestExhibitorEnsembleProvider(unittest.TestCase):
-
-    def test_init(self):
-        self.assertRaises(SleepException, ExhibitorEnsembleProvider, ['localhost'], 8181)
-
-
 class TestZooKeeper(unittest.TestCase):
 
-    @patch('requests.get', requests_get)
     @patch('patroni.dcs.zookeeper.KazooClient', MockKazooClient)
     def setUp(self):
-        self.zk = ZooKeeper('foo', {'exhibitor': {'hosts': ['localhost', 'exhibitor'], 'port': 8181}, 'scope': 'test'})
+        self.zk = ZooKeeper('foo', {'hosts': ['localhost:2181'], 'scope': 'test'})
 
     def test_session_listener(self):
         self.zk.session_listener(KazooState.SUSPENDED)
@@ -122,11 +112,12 @@ class TestZooKeeper(unittest.TestCase):
 
     def test_get_cluster(self):
         self.assertRaises(ZooKeeperError, self.zk.get_cluster)
-        self.zk.exhibitor.poll = lambda: True
         cluster = self.zk.get_cluster()
         self.assertIsInstance(cluster.leader, Leader)
         self.zk.touch_member('foo')
-        self.zk.delete_leader()
+
+    def test_delete_leader(self):
+        self.assertTrue(self.zk.delete_leader())
 
     def test_set_failover_value(self):
         self.zk.set_failover_value('')

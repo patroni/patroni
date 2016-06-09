@@ -13,14 +13,20 @@ Consul
 -  **scope**: the relative path used on Consul's HTTP API for this deployment; makes it possible to run multiple HA deployments from a single Consul cluster.
 -  **ttl**: the TTL to acquire the leader lock. Think of it as the length of time before initiation of the automatic failover process.
 
-etcd
+Etcd
 ----
 -  **host**: the host:port for the etcd endpoint.
 -  **scope**: the relative path used on etcd's HTTP API for this deployment. Makes it possible to run multiple HA deployments from a single etcd cluster.
 -  **ttl**: the TTL to acquire the leader lock. Think of it as the length of time before initiation of the automatic failover process.
 
+Exhibitor
+---------
+-  **hosts**: initial list of Exhibitor (ZooKeeper) nodes in format: ['host1', 'host2', 'etc...' ]. This list updates automatically whenever the Exhibitor (ZooKeeper) cluster topology changes.
+-  **poll\_interval**: how often the list of ZooKeeper and Exhibitor nodes should be updated from Exhibitor
+-  **port**: Exhibitor port.
+
 PostgreSQL
----------------
+----------
 -  **admin**:
         -  **password**: admin password; user is created during initialization.
         -  **username**: admin username; user is created during initialization. It will have CREATEDB and CREATEROLE privileges.
@@ -69,7 +75,3 @@ ZooKeeper
 -  **scope**: the relative path used on ZooKeeper for this deployment. Makes it possible to run multiple HA deployments from a single ZooKeeper cluster.
 -  **session\_timeout**: the TTL to acquire the leader lock. Think of it as the length of time before initiation of the automatic failover process.
 
--  **exhibitor**:  If you are running a ZooKeeper cluster under the Exhibitor supervisory, this section might interest you:
-        -  **hosts**: initial list of Exhibitor (ZooKeeper) nodes in format: ['host1', 'host2', 'etc...' ]. This list updates automatically whenever the Exhibitor (ZooKeeper) cluster topology changes.
-        -  **poll\_interval**: how often the list of ZooKeeper and Exhibitor nodes should be updated from Exhibitor
-        -  **port**: Exhibitor port.
