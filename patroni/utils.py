@@ -75,17 +75,51 @@ def parse_bool(value):
         return False
 
 
-def split_int_unit(value, strict=True):
-    value = str(value)
-    l = len(value) - 1
-    while l >= 0 and not value[l].isdigit():
-        l -= 1
-    unit = value[l + 1:].strip()
-    try:
-        value = int(value[:l + 1], 0) if six.PY3 else long(value[:l + 1], 0)
-    except ValueError:
-        value = None if strict else 1
-    return (value, unit)
+def strtol(value, strict=True):
+    """As most as possible close equivalent of strtol(3) function (with base=0),
+       used by postgres to parse parameter values.
+    >>> strtol(1) == (1, '')
+    True
+    >>> strtol(' +0x400MB') == (1024, 'MB')
+    True
+    >>> strtol(' -070d') == (-56, 'd')
+    True
+    >>> strtol(' d ') == (None, 'd')
+    True
+    >>> strtol(' s ', False) == (1, 's')
+    True
+    """
+    value = str(value).strip()
+    l = len(value)
+    i = 0
+    # skip sign:
+    if i < l and value[i] in ('-', '+'):
+        i += 1
+
+    # we always expect to get digit in the beginning
+    if i < l and value[i].isdigit():
+        if value[i] == '0':
+            i += 1
+            if i < l and value[i] == 'x':  # '0' followed by 'x': HEX
+                base = 16
+                i += 1
+            else:  # just starts with '0': OCT
+                base = 8
+        else:  # any other digit: DEC
+            base = 10
+
+        ret = None
+        while i < l:
+            try:  # try to find maximally long number
+                i += 1  # by giving to `int` longer and longer strings
+                ret = int(value[:i], base) if six.PY3 else long(value[:i], base)
+            except ValueError:  # until we will not get an exception or end of the string
+                i -= 1
+                break
+        if ret is not None:  # yay! there is a number in the beginning of the string
+            return ret, value[i:].strip()  # return the number and the "rest"
+
+    return (None if strict else 1), value.strip()
 
 
 def parse_int(value, base_unit=None):
@@ -109,13 +143,13 @@ def parse_int(value, base_unit=None):
         'min': {'ms': -1000 * 60, 's': -60, 'min': 1, 'h': 60, 'd': 60 * 24}
     }
 
-    value, unit = split_int_unit(value)
+    value, unit = strtol(value)
     if value is not None:
         if not unit:
             return value
 
         if base_unit and base_unit not in convert:
-            base_value, base_unit = split_int_unit(base_unit, False)
+            base_value, base_unit = strtol(base_unit, False)
         else:
             base_value = 1
         if base_unit in convert and unit in convert[base_unit]:
