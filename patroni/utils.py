@@ -70,7 +70,11 @@ def patch_config(config, data):
                 is_changed = True
         elif name in config:
             if isinstance(value, dict):
-                if patch_config(config[name], value):
+                if isinstance(config[name], dict):
+                    if patch_config(config[name], value):
+                        is_changed = True
+                else:
+                    config[name] = value
                     is_changed = True
             elif str(config[name]) != str(value):
                 config[name] = value

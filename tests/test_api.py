@@ -118,9 +118,11 @@ class TestRestApiHandler(unittest.TestCase):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'POST /restart HTTP/1.0'))
         MockRestApiServer(RestApiHandler, 'POST /restart HTTP/1.0\nAuthorization:')
 
-    @patch.object(MockPatroni, 'config')
-    def test_do_GET_config(self, mock_config):
-        mock_config.dynamic_configuration = {}
+    @patch.object(MockHa, 'dcs')
+    def test_do_GET_config(self, mock_dcs):
+        mock_dcs.cluster.config.data = {}
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /config'))
+        mock_dcs.cluster.config = None
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /config'))
 
     @patch.object(MockHa, 'dcs')
@@ -132,7 +134,7 @@ class TestRestApiHandler(unittest.TestCase):
         request += '\nContent-Length: '
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, request + '34\n\n{"postgresql":{"use_slots":false}}'))
         config['ttl'] = 5
-        config['postgresql'].update({'use_slots': True, "parameters": None})
+        config['postgresql'].update({'use_slots': {'foo': True}, "parameters": None})
         config = json.dumps(config)
         request += str(len(config)) + '\n\n' + config
         MockRestApiServer(RestApiHandler, request)

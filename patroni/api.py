@@ -106,7 +106,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self._write_status_response(200, response)
 
     def do_GET_config(self):
-        self._write_json_response(200, self.server.patroni.config.dynamic_configuration)
+        cluster = self.server.patroni.ha.dcs.cluster or self.server.patroni.ha.dcs.get_cluster()
+        if cluster.config:
+            self._write_json_response(200, cluster.config.data)
+        else:
+            self.send_error(502)
 
     def _read_json_content(self):
         if 'content-length' not in self.headers:
