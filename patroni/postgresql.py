@@ -503,9 +503,8 @@ class Postgresql(object):
         self._pending_restart = False
 
         self.set_state('running' if ret else 'start failed')
-        if ret:
-            self._schedule_load_slots = self.use_slots
 
+        self._schedule_load_slots = ret and self.use_slots
         self.save_configuration_files()
         # block_callbacks is used during restart to avoid
         # running start/stop callbacks in addition to restart ones
