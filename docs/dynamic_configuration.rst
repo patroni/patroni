@@ -18,7 +18,7 @@ Patroni configuration is stored in the DCS (Distributed Configuration Store). Th
 	It is possible to set/override some of the "Local" configuration parameters with environment variables.
 	Environment configuration is very useful when you are running in a dynamic environment and you don't know some of the parameters in advance (for example it's not possible to know you external IP address when you are running inside ``docker``).
 
-Some of the Postgres parameters must be set to the same value on master and replicas and therefore are only controlled via "Dynamic configuration". Any attemt to change them via "Local configuration" are ignored:
+Some of the PostgreSQL parameters must hold the same values on the master and the replicas. For those, values set either in the local patroni configuration files or via the environment variables take no effect. To alter or set their values one must change the shared configuration in the DCS. Below is the actual list of such parameters together with the default values:
 
 - max_connections: 100
 - max_locks_per_transaction: 64
@@ -28,7 +28,7 @@ Some of the Postgres parameters must be set to the same value on master and repl
 - wal_log_hints: on
 - track_commit_timestamp: off
 
-For the following parameters it is not essential for them to be equal on the master and the replica, it is preferred to configure the uniformly. Therefore they are also controlled by Patroni and can be set only via Dynamic configuration.
+For the parameters below, PostgreSQL does not require equal values among the master and all the replicas. However, considering the possibility of a replica to become the master at any time, it doesn't really make sense to set them differently; therefore, Patroni restricts setting their values to the Dynamic configuration
 
 - max_wal_senders: 5
 - max_replication_slots: 5
@@ -43,7 +43,7 @@ There are some other Postgres parameters controlled by Patroni:
 - cluster_name - is set either from ``scope`` or from ``PATRRONI_SCOPE`` environment variable
 - hot_standby: on
 
-To be on the safe side parameters from the above lists are not written into ``postgresql.conf``, but passed as a list of arguments to the ``pg_ctl start`` which gives the the highest precedence, even above `ALTER SYSTEM <https://www.postgresql.org/docs/current/static/sql-altersystem.html>`__
+To be on the safe side parameters from the above lists are not written into ``postgresql.conf``, but passed as a list of arguments to the ``pg_ctl start`` which gives them the highest precedence, even above `ALTER SYSTEM <https://www.postgresql.org/docs/current/static/sql-altersystem.html>`__
 
 
 When applying the local or dynamic configuration options, the following actions are taken:
@@ -114,7 +114,7 @@ Get current version of dynamic configuration.
 
 PATCH /config
 -------------
-Patch existing configuration.
+Change existing configuration.
 
 .. code-block:: bash
 
