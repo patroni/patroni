@@ -130,7 +130,8 @@ class Config(object):
                 if dry_run:
                     raise
 
-    def _process_postgresql_parameters(self, parameters, is_local=False):
+    @staticmethod
+    def _process_postgresql_parameters(parameters, is_local=False):
         ret = {}
         for name, value in (parameters or {}).items():
             if name not in Postgresql.CMDLINE_OPTIONS or not is_local and Postgresql.CMDLINE_OPTIONS[name][1](value):
