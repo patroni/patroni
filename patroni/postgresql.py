@@ -8,7 +8,7 @@ import tempfile
 import time
 
 from patroni.exceptions import PostgresConnectionException, PostgresException
-from patroni.utils import compare_values, parse_int, Retry, RetryFailedError
+from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError
 from six import string_types
 from six.moves.urllib_parse import urlparse
 from threading import Lock
@@ -48,15 +48,28 @@ class Postgresql(object):
     # These parameters could be changed only globally, i.e. via DCS.
     # P.S. 'listen_addresses' and 'port' are added here just for convenience, to mark them
     # as a parameters which should always be passed through command line.
+    #
+    # Format:
+    #  key - parameter name
+    #  value - tuple(default_value, check_function, min_version)
+    #    default_value -- some sane default value
+    #    check_function -- if the new value is not correct must return `!False`
+    #    min_version -- major version of PostgreSQL when parameter was introduced
     CMDLINE_OPTIONS = {
-        'listen_addresses': None,
-        'port': None,
-        'wal_level': 'hot_standby',
-        'hot_standby': 'on',
-        'max_wal_senders': 5,
-        'wal_keep_segments': 8,
-        'max_replication_slots': 5,
-        'wal_log_hints': 'on'
+        'listen_addresses': (None, lambda _: False, 9.1),
+        'port': (None, lambda _: False, 9.1),
+        'cluster_name': (None, lambda _: False, 9.5),
+        'wal_level': ('hot_standby', lambda v: v.lower() in ('hot_standby', 'logical'), 9.1),
+        'hot_standby': ('on', lambda _: False, 9.1),
+        'max_connections': (100, lambda v: int(v) >= 100, 9.1),
+        'max_wal_senders': (5, lambda v: int(v) >= 5, 9.1),
+        'wal_keep_segments': (8, lambda v: int(v) >= 8, 9.1),
+        'max_prepared_transactions': (0, lambda v: int(v) >= 0, 9.1),
+        'max_locks_per_transaction': (64, lambda v: int(v) >= 64, 9.1),
+        'track_commit_timestamp': ('off', lambda v: parse_bool(v) is not None, 9.5),
+        'max_replication_slots': (5, lambda v: int(v) >= 5, 9.4),
+        'max_worker_processes': (8, lambda v: int(v) >= 8, 9.4),
+        'wal_log_hints': ('on', lambda _: False, 9.4)
     }
 
     def __init__(self, config):
@@ -127,11 +140,10 @@ class Postgresql(object):
                 logger.exception('Failed to read PG_VERSION from %s', self._data_dir)
         return 0.0
 
-    @staticmethod
-    def get_server_parameters(config):
+    def get_server_parameters(self, config):
         parameters = config['parameters'].copy()
         listen_addresses, port = (config['listen'] + ':5432').split(':')[:2]
-        parameters.update({'listen_addresses': listen_addresses, 'port': port})
+        parameters.update({'cluster_name': self.scope, 'listen_addresses': listen_addresses, 'port': port})
         return parameters
 
     def resolve_connection_addresses(self):
@@ -496,8 +508,8 @@ class Postgresql(object):
         self._write_postgresql_conf()
         self.resolve_connection_addresses()
 
-        options = ' '.join("--{0}='{1}'".format(p, self._server_parameters[p]) for p in self.CMDLINE_OPTIONS
-                           if not (self._major_version < 9.4 and p in ('max_replication_slots', 'wal_log_hints')))
+        options = ' '.join("--{0}='{1}'".format(p, self._server_parameters[p]) for p, v in self.CMDLINE_OPTIONS.items()
+                           if self._major_version >= v[2])
 
         ret = subprocess.call(self._pg_ctl + ['start', '-o', options], env=env, preexec_fn=os.setsid) == 0
         self._pending_restart = False

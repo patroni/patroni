@@ -37,7 +37,7 @@ class Config(object):
         'ttl': 30, 'loop_wait': 10, 'retry_timeout': 10,
         'maximum_lag_on_failover': 1048576,
         'postgresql': {
-            'parameters': Postgresql.CMDLINE_OPTIONS
+            'parameters': {p: v[0] for p, v in Postgresql.CMDLINE_OPTIONS.items()}
         }
     }
 
@@ -133,11 +133,7 @@ class Config(object):
     def _process_postgresql_parameters(self, parameters, is_local=False):
         ret = {}
         for name, value in (parameters or {}).items():
-            if (is_local and name not in self.__DEFAULT_CONFIG['postgresql']['parameters']) \
-                or not ((name == 'wal_level' and value not in ('hot_standby', 'logical')) or
-                        (name in ('max_replication_slots', 'max_wal_senders', 'wal_keep_segments') and
-                         int(value) < self.__DEFAULT_CONFIG['postgresql']['parameters'][name]) or
-                        name in ('hot_standby', 'wal_log_hints')):
+            if name not in Postgresql.CMDLINE_OPTIONS or not is_local and Postgresql.CMDLINE_OPTIONS[name][1](value):
                 ret[name] = value
         return ret
 

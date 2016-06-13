@@ -153,8 +153,10 @@ def fake_listdir(path):
 @patch('subprocess.call', Mock(return_value=0))
 @patch('psycopg2.connect', psycopg2_connect)
 class TestPostgresql(unittest.TestCase):
-    _PARAMETERS = {'wal_level': 'hot_standby', 'max_replication_slots': 5, 'f.oo': 'bar', 'search_path': 'public',
-                   'hot_standby': 'on', 'max_wal_senders': 5, 'wal_keep_segments': 8, 'wal_log_hints': 'on'}
+    _PARAMETERS = {'wal_level': 'hot_standby', 'max_replication_slots': 5, 'f.oo': 'bar',
+                   'search_path': 'public', 'hot_standby': 'on', 'max_wal_senders': 5,
+                   'wal_keep_segments': 8, 'wal_log_hints': 'on', 'max_locks_per_transaction': 64,
+                   'max_worker_processes': 8, 'max_connections': 100, 'max_prepared_transactions': 0}
 
     @patch('subprocess.call', Mock(return_value=0))
     @patch('psycopg2.connect', psycopg2_connect)
