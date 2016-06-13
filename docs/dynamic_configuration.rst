@@ -18,7 +18,7 @@ Patroni configuration is stored in the DCS (Distributed Configuration Store). Th
 	It is possible to set/override some of the "Local" configuration parameters with environment variables.
 	Environment configuration is very useful when you are running in a dynamic environment and you don't know some of the parameters in advance (for example it's not possible to know you external IP address when you are running inside ``docker``).
 
-Some of the PostgreSQL parameters must be set to the same value on master and replicas and therefore are only controlled via "Dynamic configuration". Any attemt to change them via "Local configuration" are ignored:
+Some of the Postgres parameters must be set to the same value on master and replicas and therefore are only controlled via "Dynamic configuration". Any attemt to change them via "Local configuration" are ignored:
 
 - max_connections: 100
 - max_locks_per_transaction: 64
@@ -36,7 +36,7 @@ For the following parameters it is not essential for them to be equal on the mas
 
 These parameters are validated to ensure they are sane, or meet a minimum value.
 
-There are some other PostgreSQL parameters controlled by Patroni:
+There are some other Postgres parameters controlled by Patroni:
 
 - listen_addresses - is set either from ``postgresql.listen`` or from ``PATRONI_POSTGRESQL_LISTEN`` environment variable
 - port - is set either from ``postgresql.listen`` or from ``PATRONI_POSTGRESQL_LISTEN`` environment variable
@@ -67,7 +67,7 @@ The parameters would be applied in the following order (run-time are given the h
 This allows configuration for all the nodes (2), configuration for a specific node using `ALTER SYSTEM` (3) and ensures that parameters essential to the running of Patroni are enforced. (4)
 
 
-Also, the following patroni configuration options can be changed only dynamically:
+Also, the following Patroni configuration options can be changed only dynamically:
 
 - ttl: 30
 - loop_wait: 10
@@ -78,7 +78,7 @@ Also, the following patroni configuration options can be changed only dynamicall
 Upon changing these options, Patroni will read the relevant section of the configuration stored in DCS and change its
 run-time values.
 
-Patroni nodes are dumping the state of the DCS options to disk upon for every change of the configuration into the file ``patroni.dynamic.json`` located in the postgres data directory. Only the master is allowed to restore these options from the on-disk dump if these are completely absent from the DCS or if they are invalid.
+Patroni nodes are dumping the state of the DCS options to disk upon for every change of the configuration into the file ``patroni.dynamic.json`` located in the Postgres data directory. Only the master is allowed to restore these options from the on-disk dump if these are completely absent from the DCS or if they are invalid.
 
 REST API
 ========
