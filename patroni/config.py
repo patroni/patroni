@@ -37,6 +37,7 @@ class Config(object):
         'ttl': 30, 'loop_wait': 10, 'retry_timeout': 10,
         'maximum_lag_on_failover': 1048576,
         'postgresql': {
+            'use_slots': True,
             'parameters': {p: v[0] for p, v in Postgresql.CMDLINE_OPTIONS.items()}
         }
     }
@@ -159,7 +160,7 @@ class Config(object):
                 for name, value in (value or {}).items():
                     if name == 'parameters':
                         config['postgresql'][name].update(self._process_postgresql_parameters(value, True))
-                    else:
+                    elif name != 'use_slots':  # replication slots must be enabled/disabled globally
                         config['postgresql'][name] = deepcopy(value)
             elif name not in config:
                 config[name] = deepcopy(value) if value else {}
