@@ -100,7 +100,7 @@ def strtol(value, strict=True):
     if i < l and value[i].isdigit():
         if value[i] == '0':
             i += 1
-            if i < l and value[i] == 'x':  # '0' followed by 'x': HEX
+            if i < l and value[i] in ('x', 'X'):  # '0' followed by 'x': HEX
                 base = 16
                 i += 1
             else:  # just starts with '0': OCT
