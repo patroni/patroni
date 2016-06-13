@@ -154,7 +154,7 @@ class Postgresql(object):
     def reload_config(self, config):
         server_parameters = self.get_server_parameters(config)
 
-        listen_address_changed = pending_reload = False
+        listen_address_changed = pending_reload = pending_restart = False
         if self.is_healthy():
             changes = {p: v for p, v in server_parameters.items() if '.' not in p}
             changes.update({p: None for p, v in self._server_parameters.items() if not ('.' in p or p in changes)})
@@ -177,7 +177,7 @@ class Postgresql(object):
                         new_value = changes.pop(r[0])
                         if new_value is None or not compare_values(r[3], unit, r[1], new_value):
                             if r[4] == 'postmaster':
-                                self._pending_restart = True
+                                pending_restart = True
                                 if r[0] in ('listen_addresses', 'port'):
                                     listen_address_changed = True
                             else:
@@ -200,6 +200,7 @@ class Postgresql(object):
                             break
 
         self.config = config
+        self._pending_restart = pending_restart
         self._server_parameters = server_parameters
         self._connect_address = config.get('connect_address')
 
@@ -718,7 +719,7 @@ class Postgresql(object):
         need_rewind = change_role and self.can_rewind
         if need_rewind:
             logger.info("set the rewind flag after demote")
-        if leader and need_rewind:  # we have a leader and need to rewind
+        if leader and leader.name != self.name and need_rewind:  # we have a leader and need to rewind
             if self.is_running():
                 self.stop()
             # at present, pg_rewind only runs when the cluster is shut down cleanly
