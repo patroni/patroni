@@ -1,7 +1,8 @@
-import etcd
-import unittest
 import datetime
+import etcd
+import os
 import pytz
+import unittest
 
 from mock import Mock, MagicMock, patch
 from patroni.config import Config
@@ -49,7 +50,9 @@ def get_cluster_initialized_with_only_leader(failover=None):
 class MockPatroni(object):
 
     def __init__(self, p, d):
-        self.config = Config(config_env="""
+        os.environ[Config.PATRONI_CONFIG_VARIABLE] = """
+restapi:
+  listen: 0.0.0.0:8008
 bootstrap:
   users:
     replicator:
@@ -66,7 +69,8 @@ zookeeper:
   exhibitor:
     hosts: [localhost]
     port: 8181
-""")
+"""
+        self.config = Config()
         self.postgresql = p
         self.dcs = d
         self.api = Mock()

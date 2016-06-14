@@ -1,7 +1,5 @@
 import logging
-import os
 import signal
-import sys
 import time
 
 from patroni.api import RestApiServer
@@ -17,11 +15,10 @@ logger = logging.getLogger(__name__)
 
 
 class Patroni(object):
-    PATRONI_CONFIG_VARIABLE = 'PATRONI_CONFIGURATION'
 
-    def __init__(self, config_file=None, config_env=None):
+    def __init__(self):
         self.version = __version__
-        self.config = Config(config_file=config_file, config_env=config_env)
+        self.config = Config()
         self.dcs = get_dcs(self.config)
         self.load_dynamic_configuration()
 
@@ -116,18 +113,7 @@ def main():
     logging.getLogger('requests').setLevel(logging.WARNING)
     setup_signal_handlers()
 
-    # Patroni reads the configuration from the command-line argument if it exists, and from the environment otherwise.
-    config_env = False
-    config_file = len(sys.argv) >= 2 and os.path.isfile(sys.argv[1]) and sys.argv[1]
-    if not config_file:
-        config_env = os.environ.get(Patroni.PATRONI_CONFIG_VARIABLE)
-        if config_env is None:
-            print('Usage: {0} config.yml'.format(sys.argv[0]))
-            print('\tPatroni may also read the configuration from the {} environment variable'.
-                  format(Patroni.PATRONI_CONFIG_VARIABLE))
-            return
-
-    patroni = Patroni(config_file, config_env)
+    patroni = Patroni()
     try:
         patroni.run()
     except KeyboardInterrupt:

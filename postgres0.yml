@@ -4,6 +4,9 @@ name: postgresql0
 
 restapi:
   listen: 127.0.0.1:8008
+#  authentication:
+#    username: username
+#    password: password
   connect_address: 127.0.0.1:8008
 
 etcd:

@@ -1,13 +1,15 @@
 import json
 import logging
 import os
+import sys
 import tempfile
 import yaml
 
+from collections import defaultdict
 from copy import deepcopy
 from patroni.dcs import ClusterConfig
 from patroni.postgresql import Postgresql
-from patroni.utils import deep_compare
+from patroni.utils import deep_compare, parse_int, patch_config
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,9 @@ class Config(object):
          to work with it as with the old `config` object.
     """
 
+    PATRONI_ENV_PREFIX = 'PATRONI_'
+    PATRONI_CONFIG_VARIABLE = PATRONI_ENV_PREFIX + 'CONFIGURATION'
+
     __CACHE_FILENAME = 'patroni.dynamic.json'
     __DEFAULT_CONFIG = {
         'ttl': 30, 'loop_wait': 10, 'retry_timeout': 10,
@@ -42,11 +47,25 @@ class Config(object):
         }
     }
 
-    def __init__(self, config_file=None, config_env=None):
-        self._config_file = None if config_env else config_file
+    def __init__(self):
         self._modify_index = -1
         self._dynamic_configuration = {}
-        self._local_configuration = yaml.safe_load(config_env) if config_env else self._load_config_file()
+
+        self.__environment_configuration = self._build_environment_configuration()
+
+        # Patroni reads the configuration from the command-line argument if it exists, otherwise from the environment
+        self._config_file = len(sys.argv) >= 2 and os.path.isfile(sys.argv[1]) and sys.argv[1]
+        if self._config_file:
+            self._local_configuration = self._load_config_file()
+        else:
+            config_env = os.environ.pop(self.PATRONI_CONFIG_VARIABLE, None)
+            self._local_configuration = config_env and yaml.safe_load(config_env) or self.__environment_configuration
+            if not self._local_configuration:
+                print('Usage: {0} config.yml'.format(sys.argv[0]))
+                print('\tPatroni may also read the configuration from the {0} environment variable'.
+                      format(self.PATRONI_CONFIG_VARIABLE))
+                exit(1)
+
         self.__effective_configuration = self._build_effective_configuration(self._dynamic_configuration,
                                                                              self._local_configuration)
         self._data_dir = self.__effective_configuration['postgresql']['data_dir']
@@ -63,8 +82,11 @@ class Config(object):
         return deepcopy(self._dynamic_configuration)
 
     def _load_config_file(self):
+        """Loads config.yaml from filesystem and applies some values which were set via ENV"""
         with open(self._config_file) as f:
-            return yaml.safe_load(f)
+            config = yaml.safe_load(f)
+            patch_config(config, self.__environment_configuration)
+            return config
 
     def _load_cache(self):
         if os.path.isfile(self._cache_file):
@@ -149,9 +171,89 @@ class Config(object):
                         config['postgresql'][name].update(self._process_postgresql_parameters(value))
                     elif name not in ('connect_address', 'listen', 'data_dir', 'pgpass', 'authentication'):
                         config['postgresql'][name] = deepcopy(value)
-            elif name in config:
+            elif name in config:  # only variables present in __DEFAULT_CONFIG allowed to be overriden from DCS
                 config[name] = int(value)
         return config
+
+    @staticmethod
+    def _build_environment_configuration():
+        ret = defaultdict(dict)
+
+        def _popenv(name):
+            return os.environ.pop(Config.PATRONI_ENV_PREFIX + name.upper(), None)
+
+        for param in ('name', 'namespace', 'scope'):
+            value = _popenv(param)
+            if value:
+                ret[param] = value
+
+        def _set_section_values(section, params):
+            for param in params:
+                value = _popenv(section + '_' + param)
+                if value:
+                    ret[section][param] = value
+
+        _set_section_values('restapi', ['listen', 'connect_address', 'certfile', 'keyfile'])
+        _set_section_values('postgresql', ['listen', 'connect_address', 'data_dir', 'pgpass'])
+
+        def _get_auth(name):
+            ret = {}
+            for param in ('username', 'password'):
+                value = _popenv(name + '_' + param)
+                if value:
+                    ret[param] = value
+            return len(ret) == 2 and ret or None
+
+        restapi_auth = _get_auth('restapi')
+        if restapi_auth:
+            ret['restapi']['authentication'] = restapi_auth
+
+        authentication = {}
+        for user_type in ('replication', 'superuser'):
+            entry = _get_auth(user_type)
+            if entry:
+                authentication[user_type] = entry
+
+        if authentication:
+            ret['postgresql']['authentication'] = authentication
+
+        users = {}
+
+        def _parse_list(value):
+            if not (value.strip().startswith('-') or '[' in value):
+                value = '[{0}]'.format(value)
+            try:
+                return yaml.safe_load(value)
+            except Exception:
+                return None
+
+        for param in list(os.environ.keys()):
+            if param.startswith(Config.PATRONI_ENV_PREFIX):
+                name, suffix = (param[8:].rsplit('_', 1) + [''])[:2]
+                if name and suffix:
+                    # PATRONI_(ETCD|CONSUL|ZOOKEEPER|EXHIBITOR|...)_(HOSTS?|PORT)
+                    if suffix in ('HOST', 'HOSTS', 'PORT') and '_' not in name:
+                        value = os.environ.pop(param)
+                        if suffix == 'PORT':
+                            value = value and parse_int(value)
+                        elif suffix == 'HOSTS':
+                            value = value and _parse_list(value)
+                        if value:
+                            ret[name.lower()][suffix.lower()] = value
+                    # PATRONI_<username>_PASSWORD=<password>, PATRONI_<username>_OPTIONS=<option1,option2,...>
+                    # CREATE USER "<username>" WITH <OPTIONS> PASSWORD '<password>'
+                    elif suffix == 'PASSWORD':
+                        password = os.environ.pop(param)
+                        if password:
+                            users[name] = {'password': password}
+                            options = os.environ.pop(param[:-9] + '_OPTIONS', None)
+                            options = options and _parse_list(options)
+                            if options:
+                                users[name]['options'] = options
+        if users:
+            ret['bootstrap']['users'] = users
+
+        return ret
 
     def _build_effective_configuration(self, dynamic_configuration, local_configuration):
         config = self._safe_copy_dynamic_configuration(dynamic_configuration)
@@ -164,6 +266,12 @@ class Config(object):
                         config['postgresql'][name] = deepcopy(value)
             elif name not in config:
                 config[name] = deepcopy(value) if value else {}
+
+        # restapi server expects to get restapi.auth = 'username:password'
+        if 'authentication' in config['restapi']:
+            restapi = config['restapi']
+            auth = restapi['authentication']
+            restapi['auth'] = '{0}:{1}'.format(auth['username'], auth['password'])
 
         # special treatment for old config
 

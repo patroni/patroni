@@ -9,7 +9,7 @@ import datetime
 import pytz
 
 from patroni.exceptions import PostgresConnectionException
-from patroni.utils import deep_compare, Retry, RetryFailedError
+from patroni.utils import deep_compare, patch_config, Retry, RetryFailedError
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from six.moves.socketserver import ThreadingMixIn
 from threading import Thread
@@ -106,26 +106,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self._write_status_response(200, response)
 
     def do_GET_config(self):
-        self._write_json_response(200, self.server.patroni.config.dynamic_configuration)
-
-    @staticmethod
-    def _patch_config(config, data):
-        is_changed = False
-        for name, value in data.items():
-            if value is None:
-                if config.pop(name, None) is not None:
-                    is_changed = True
-            elif name in config:
-                if isinstance(value, dict):
-                    if RestApiHandler._patch_config(config[name], value):
-                        is_changed = True
-                elif str(config[name]) != str(value):
-                    config[name] = value
-                    is_changed = True
-            else:
-                config[name] = value
-                is_changed = True
-        return is_changed
+        cluster = self.server.patroni.ha.dcs.cluster or self.server.patroni.ha.dcs.get_cluster()
+        if cluster.config:
+            self._write_json_response(200, cluster.config.data)
+        else:
+            self.send_error(502)
 
     def _read_json_content(self):
         if 'content-length' not in self.headers:
@@ -145,7 +130,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         if request:
             cluster = self.server.patroni.ha.dcs.get_cluster()
             data = cluster.config.data.copy()
-            if RestApiHandler._patch_config(data, request):
+            if patch_config(data, request):
                 value = json.dumps(data, separators=(',', ':'))
                 if not self.server.patroni.ha.dcs.set_config_value(value, cluster.config.index):
                     return self.send_error(409)
