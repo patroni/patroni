@@ -43,7 +43,7 @@ Etcd
 
 Exhibitor
 ---------
--  **hosts**: initial list of Exhibitor (ZooKeeper) nodes in format: ['host1', 'host2', 'etc...' ]. This list updates automatically whenever the Exhibitor (ZooKeeper) cluster topology changes.
+-  **hosts**: initial list of Exhibitor (ZooKeeper) nodes in format: 'host1,host2,etc...'. This list updates automatically whenever the Exhibitor (ZooKeeper) cluster topology changes.
 -  **poll\_interval**: how often the list of ZooKeeper and Exhibitor nodes should be updated from Exhibitor
 -  **port**: Exhibitor port.
 
