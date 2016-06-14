@@ -8,6 +8,8 @@ Patroni is a template for you to create your own customized, high-availability s
 
 We call Patroni a "template" because it is far from being a one-size-fits-all or plug-and-play replication system. It will have its own caveats. Use wisely.
 
+**Note to Kubernetes users**: We're currently developing Patroni to be as useful as possible for teams running Kubernetes on top of Google Compute Engine; Patroni can be the HA solution for Postgres in such an environment. Please contact us via our Issues Tracker if this describes your team's current setup, and we'll follow up.
+
 .. contents::
     :local:
     :depth: 1
