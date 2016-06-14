@@ -5,7 +5,7 @@ import shutil
 import subprocess
 import unittest
 
-from mock import Mock, MagicMock, PropertyMock, patch
+from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.dcs import Cluster, Leader, Member
 from patroni.exceptions import PostgresException, PostgresConnectionException
 from patroni.postgresql import Postgresql
@@ -34,19 +34,14 @@ class MockCursor(object):
             self.results = [(False, )]
         elif sql.startswith('SELECT to_char(pg_postmaster_start_time'):
             self.results = [('', True, '', '', '', '', False)]
+        elif sql.startswith('SELECT name, setting'):
+            self.results = [('wal_segment_size', '2048', '8kB', 'integer', 'internal'),
+                            ('search_path', 'public', None, 'string', 'user'),
+                            ('port', '5433', None, 'integer', 'postmaster'),
+                            ('listen_addresses', '*', None, 'string', 'postmaster'),
+                            ('autovacuum', 'on', None, 'bool', 'sighup')]
         else:
-            self.results = [(
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )]
+            self.results = [(None, None, None, None, None, None, None, None, None, None)]
 
     def fetchone(self):
         return self.results[0]
@@ -140,6 +135,13 @@ Data page checksum version:           0
 """
 
 
+def postmaster_opts_string(*args, **kwargs):
+    return '/usr/local/pgsql/bin/postgres "-D" "data/postgresql0" "--listen_addresses=127.0.0.1" \
+"--port=5432" "--hot_standby=on" "--wal_keep_segments=8" "--wal_level=hot_standby" \
+"--archive_command=mkdir -p ../wal_archive && cp %p ../wal_archive/%f" "--wal_log_hints=on" \
+"--max_wal_senders=5" "--archive_timeout=1800s" "--archive_mode=on" "--max_replication_slots=5"\n'
+
+
 def psycopg2_connect(*args, **kwargs):
     return MockConnect()
 
@@ -151,25 +153,27 @@ def fake_listdir(path):
 @patch('subprocess.call', Mock(return_value=0))
 @patch('psycopg2.connect', psycopg2_connect)
 class TestPostgresql(unittest.TestCase):
+    _PARAMETERS = {'wal_level': 'hot_standby', 'max_replication_slots': 5, 'f.oo': 'bar',
+                   'search_path': 'public', 'hot_standby': 'on', 'max_wal_senders': 5,
+                   'wal_keep_segments': 8, 'wal_log_hints': 'on', 'max_locks_per_transaction': 64,
+                   'max_worker_processes': 8, 'max_connections': 100, 'max_prepared_transactions': 0}
 
     @patch('subprocess.call', Mock(return_value=0))
     @patch('psycopg2.connect', psycopg2_connect)
     @patch('os.rename', Mock())
+    @patch.object(Postgresql, 'get_major_version', Mock(return_value=9.4))
+    @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def setUp(self):
         self.data_dir = 'data/test0'
         if not os.path.exists(self.data_dir):
             os.makedirs(self.data_dir)
-        self.p = Postgresql({'name': 'test0', 'scope': 'batman', 'data_dir': self.data_dir,
+        self.p = Postgresql({'name': 'test0', 'scope': 'batman', 'data_dir': self.data_dir, 'retry_timeout': 10,
                              'listen': '127.0.0.1, *:5432', 'connect_address': '127.0.0.2:5432',
-                             'pg_hba': ['host replication replicator 127.0.0.1/32 md5',
-                                        'hostssl all all 0.0.0.0/0 md5',
-                                        'host all all 0.0.0.0/0 md5'],
-                             'superuser': {'username': 'test', 'password': 'test'},
-                             'admin': {'username': 'admin', 'password': 'admin'},
-                             'pg_rewind': {'username': 'admin', 'password': 'admin'},
-                             'replication': {'username': 'replicator',
-                                             'password': 'rep-pass'},
-                             'parameters': {'foo': 'bar'}, 'recovery_conf': {'foo': 'bar'},
+                             'authentication': {'superuser': {'username': 'test', 'password': 'test'},
+                                                'replication': {'username': 'replicator', 'password': 'rep-pass'}},
+                             'use_pg_rewind': True,
+                             'parameters': self._PARAMETERS,
+                             'recovery_conf': {'foo': 'bar'},
                              'callbacks': {'on_start': 'true', 'on_stop': 'true',
                                            'on_restart': 'true', 'on_role_change': 'true',
                                            'on_reload': 'true'
@@ -185,49 +189,40 @@ class TestPostgresql(unittest.TestCase):
         shutil.rmtree('data')
 
     def test_get_initdb_options(self):
-        self.p.initdb_options = [{'encoding': 'UTF8'}, 'data-checksums']
-        self.assertEquals(self.p.get_initdb_options(), ['--encoding=UTF8', '--data-checksums'])
-        self.p.initdb_options = [{'pgdata': 'bar'}]
-        self.assertRaises(Exception, self.p.get_initdb_options)
-        self.p.initdb_options = [{'foo': 'bar', 1: 2}]
-        self.assertRaises(Exception, self.p.get_initdb_options)
-        self.p.initdb_options = [1]
-        self.assertRaises(Exception, self.p.get_initdb_options)
-
-    def test_initialize(self):
-        self.assertTrue(self.p.initialize())
-
-        with open(os.path.join(self.data_dir, 'pg_hba.conf')) as f:
-            lines = f.readlines()
-            assert 'host replication replicator 127.0.0.1/32 md5\n' in lines
-            assert 'host all all 0.0.0.0/0 md5\n' in lines
+        self.assertEquals(self.p.get_initdb_options([{'encoding': 'UTF8'}, 'data-checksums']),
+                          ['--encoding=UTF8', '--data-checksums'])
+        self.assertRaises(Exception, self.p.get_initdb_options, [{'pgdata': 'bar'}])
+        self.assertRaises(Exception, self.p.get_initdb_options, [{'foo': 'bar', 1: 2}])
+        self.assertRaises(Exception, self.p.get_initdb_options, [1])
 
     @patch('os.path.exists', Mock(return_value=True))
     @patch('os.unlink', Mock())
     def test_delete_trigger_file(self):
         self.p.delete_trigger_file()
 
-    def test_start(self):
+    @patch.object(Postgresql, 'is_running')
+    def test_start(self, mock_is_running):
+        mock_is_running.return_value = True
         self.assertTrue(self.p.start())
-        self.p.is_running = false
+        mock_is_running.return_value = False
         open(os.path.join(self.data_dir, 'postmaster.pid'), 'w').close()
         pg_conf = os.path.join(self.data_dir, 'postgresql.conf')
         open(pg_conf, 'w').close()
         self.assertTrue(self.p.start())
         with open(pg_conf) as f:
             lines = f.readlines()
-            self.assertTrue("foo = 'bar'\n" in lines)
+            self.assertTrue("f.oo = 'bar'\n" in lines)
 
-    def test_stop(self):
+    @patch.object(Postgresql, 'is_running')
+    def test_stop(self, mock_is_running):
+        mock_is_running.return_value = True
         self.assertTrue(self.p.stop())
         with patch('subprocess.call', Mock(return_value=1)):
+            mock_is_running.return_value = False
             self.assertTrue(self.p.stop())
-            self.p.is_running = Mock(return_value=True)
-            self.assertFalse(self.p.stop())
 
     def test_restart(self):
         self.p.start = false
-        self.p.is_running = false
         self.assertFalse(self.p.restart())
         self.assertEquals(self.p.state, 'restart failed (restarting)')
 
@@ -247,6 +242,7 @@ class TestPostgresql(unittest.TestCase):
     @patch('patroni.postgresql.Postgresql.single_user_mode', MagicMock(return_value=1))
     @patch('patroni.postgresql.Postgresql.write_pgpass', MagicMock(return_value=dict()))
     @patch('subprocess.check_output', Mock(return_value=0, side_effect=pg_controldata_string))
+    @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def test_follow(self, mock_pg_rewind):
         self.p.follow(None, None)
         self.p.follow(self.leader, self.leader)
@@ -267,10 +263,6 @@ class TestPostgresql(unittest.TestCase):
 
     @patch('subprocess.check_output', Mock(return_value=0, side_effect=pg_controldata_string))
     def test_can_rewind(self):
-        tmp = self.p.pg_rewind
-        self.p.pg_rewind = None
-        self.assertFalse(self.p.can_rewind)
-        self.p.pg_rewind = tmp
         with mock.patch('subprocess.call', MagicMock(return_value=1)):
             self.assertFalse(self.p.can_rewind)
         with mock.patch('subprocess.call', side_effect=OSError):
@@ -298,9 +290,10 @@ class TestPostgresql(unittest.TestCase):
         with patch('subprocess.call', Mock(side_effect=Exception("foo"))):
             self.assertEquals(self.p.create_replica(self.leader), 1)
 
+    @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def test_sync_replication_slots(self):
         self.p.start()
-        cluster = Cluster(True, self.leader, 0, [self.me, self.other, self.leadermem], None)
+        cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None)
         self.p.sync_replication_slots(cluster)
         self.p.query = Mock(side_effect=psycopg2.OperationalError)
         self.p.schedule_load_slots = True
@@ -326,9 +319,11 @@ class TestPostgresql(unittest.TestCase):
     def test_reload(self):
         self.assertTrue(self.p.reload())
 
-    def test_is_healthy(self):
+    @patch.object(Postgresql, 'is_running')
+    def test_is_healthy(self, mock_is_running):
+        mock_is_running.return_value = True
         self.assertTrue(self.p.is_healthy())
-        self.p.is_running = false
+        mock_is_running.return_value = False
         self.assertFalse(self.p.is_healthy())
 
     def test_promote(self):
@@ -339,6 +334,13 @@ class TestPostgresql(unittest.TestCase):
     def test_last_operation(self):
         self.assertEquals(self.p.last_operation(), '0')
 
+    @patch('os.path.isfile', Mock(return_value=True))
+    @patch('os.kill', Mock(side_effect=Exception))
+    @patch.object(builtins, 'open', mock_open(read_data='-999999999999999'))
+    @patch.object(Postgresql, '_version_file_exists', Mock(return_value=True))
+    def test_is_running(self):
+        self.assertFalse(self.p.is_running())
+
     @patch('subprocess.Popen', Mock(side_effect=OSError))
     def test_call_nowait(self):
         self.assertFalse(self.p.call_nowait('on_start'))
@@ -346,6 +348,7 @@ class TestPostgresql(unittest.TestCase):
     def test_non_existing_callback(self):
         self.assertFalse(self.p.call_nowait('foobar'))
 
+    @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def test_is_leader_exception(self):
         self.p.start()
         self.p.query = Mock(side_effect=psycopg2.OperationalError("not supported"))
@@ -357,15 +360,23 @@ class TestPostgresql(unittest.TestCase):
     @patch('os.rename', Mock())
     @patch('os.path.isdir', Mock(return_value=True))
     def test_move_data_directory(self):
-        self.p.is_running = false
         self.p.move_data_directory()
         with patch('os.rename', Mock(side_effect=OSError)):
             self.p.move_data_directory()
 
+    @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def test_bootstrap(self):
         with patch('subprocess.call', Mock(return_value=1)):
-            self.assertRaises(PostgresException, self.p.bootstrap)
-        self.p.bootstrap()
+            self.assertRaises(PostgresException, self.p.bootstrap, {})
+
+        self.p.bootstrap({'users': {'replicator': {'password': 'rep-pass', 'options': ['replication']}},
+                          'pg_hba': ['host replication replicator 127.0.0.1/32 md5',
+                                     'hostssl all all 0.0.0.0/0 md5',
+                                     'host all all 0.0.0.0/0 md5']})
+        with open(os.path.join(self.data_dir, 'pg_hba.conf')) as f:
+            lines = f.readlines()
+            assert 'host replication replicator 127.0.0.1/32 md5\n' in lines
+            assert 'host all all 0.0.0.0/0 md5\n' in lines
 
     @patch('patroni.postgresql.Postgresql.create_replica', Mock(return_value=0))
     def test_clone(self):
@@ -395,6 +406,18 @@ class TestPostgresql(unittest.TestCase):
 
         with patch('subprocess.check_output', Mock(side_effect=subprocess.CalledProcessError(1, ''))):
             self.assertEquals(self.p.controldata(), {})
+
+    def test_read_postmaster_opts(self):
+        m = mock_open(read_data=postmaster_opts_string())
+        with patch.object(builtins, 'open', m):
+            data = self.p.read_postmaster_opts()
+            self.assertEquals(data['wal_level'], 'hot_standby')
+            self.assertEquals(int(data['max_replication_slots']), 5)
+            self.assertEqual(data.get('D'), None)
+
+            m.side_effect = IOError
+            data = self.p.read_postmaster_opts()
+            self.assertEqual(data, dict())
 
     @patch('subprocess.Popen')
     @patch.object(builtins, 'open', MagicMock(return_value=42))
@@ -471,3 +494,23 @@ class TestPostgresql(unittest.TestCase):
         self.assertTrue(self.p.replica_method_can_work_without_replication_connection('foo'))
         self.p.config['foo'] = {'command': 'bar'}
         self.assertFalse(self.p.replica_method_can_work_without_replication_connection('foo'))
+
+    @patch.object(Postgresql, 'is_running', Mock(return_value=True))
+    def test_reload_config(self):
+        parameters = self._PARAMETERS.copy()
+        parameters.pop('f.oo')
+        self.p.reload_config({'retry_timeout': 10, 'listen': '*', 'parameters': parameters})
+        parameters['b.ar'] = 'bar'
+        self.p.reload_config({'retry_timeout': 10, 'listen': '*', 'parameters': parameters})
+        parameters['autovacuum'] = 'on'
+        self.p.reload_config({'retry_timeout': 10, 'listen': '*', 'parameters': parameters})
+        parameters['autovacuum'] = 'off'
+        parameters.pop('search_path')
+        self.p.reload_config({'retry_timeout': 10, 'listen': '*:5433', 'parameters': parameters})
+
+    @patch.object(Postgresql, '_version_file_exists', Mock(return_value=True))
+    def test_get_major_version(self):
+        with patch.object(builtins, 'open', mock_open(read_data='9.4')):
+            self.assertEquals(self.p.get_major_version(), 9.4)
+        with patch.object(builtins, 'open', Mock(side_effect=Exception)):
+            self.assertEquals(self.p.get_major_version(), 0.0)

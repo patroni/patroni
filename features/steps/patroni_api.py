@@ -1,7 +1,9 @@
+import json
 import parse
 import pytz
 import requests
 import time
+import yaml
 
 from behave import register_type, step, then
 from datetime import datetime, timedelta
@@ -12,12 +14,7 @@ def parse_url(text):
     return text
 
 
-@parse.with_pattern(r'(?:\w+=(?:\w|\.|:|-|\+|\s)+,?)+')
-def parse_data(text):
-    return text
-
-
-register_type(url=parse_url, data=parse_data)
+register_type(url=parse_url)
 
 
 # there is no way we can find out if the node has already
@@ -39,6 +36,23 @@ def sleep_for_n_seconds(context, value):
     time.sleep(int(value))
 
 
+def _set_response(context, response):
+    context.status_code = response.status_code
+    data = response.content.decode('utf-8')
+    ct = response.headers.get('content-type', '')
+    if ct.startswith('application/json') or\
+            ct.startswith('text/yaml') or\
+            ct.startswith('text/x-yaml') or\
+            ct.startswith('application/yaml') or\
+            ct.startswith('application/x-yaml'):
+        try:
+            context.response = yaml.safe_load(data)
+        except ValueError:
+            context.response = data
+    else:
+        context.response = data
+
+
 @step('I issue a GET request to {url:url}')
 def do_get(context, url):
     try:
@@ -47,38 +61,27 @@ def do_get(context, url):
         context.status_code = None
         context.response = None
     else:
-        context.status_code = r.status_code
-        try:
-            context.response = r.json()
-        except ValueError:
-            context.response = r.content.decode('utf-8')
+        _set_response(context, r)
 
 
 @step('I issue an empty POST request to {url:url}')
 def do_post_empty(context, url):
-    do_post(context, url, None)
+    do_request(context, 'POST', url, None)
 
 
-@step('I issue a POST request to {url:url} with {data:data}')
-def do_post(context, url, data):
-    post_data = {}
-    if data:
-        post_components = data.split(',')
-        for pc in post_components:
-            if '=' in pc:
-                k, v = pc.split('=', 2)
-                post_data[k.strip()] = v.strip()
+@step('I issue a {request_method:w} request to {url:url} with {data}')
+def do_request(context, request_method, url, data):
+    data = data and json.loads(data) or {}
     try:
-        r = requests.post(url, json=post_data)
+        if request_method == 'PATCH':
+            r = requests.patch(url, json=data)
+        else:
+            r = requests.post(url, json=data)
     except requests.exceptions.RequestException:
         context.status_code = None
         context.response = None
     else:
-        context.status_code = r.status_code
-        try:
-            context.response = r.json()
-        except ValueError:
-            context.response = r.content.decode('utf-8')
+        _set_response(context, r)
 
 
 @then('I receive a response {component:w} {data}')
@@ -90,11 +93,28 @@ def check_response(context, component, data):
         assert context.response == data.strip('"'), "response {0} does not contain {1}".format(context.response, data)
     else:
         assert component in context.response, "{0} is not part of the response".format(component)
-        assert context.response[component] == data, "{0} does not contain {1}".format(component, data)
+        assert str(context.response[component]) == str(data), "{0} does not contain {1}".format(component, data)
 
 
 @step('I issue a scheduled failover at {at_url:url} from {from_host:w} to {to_host:w} in {in_seconds:d} seconds')
 def scheduled_failover(context, at_url, from_host, to_host, in_seconds):
     context.execute_steps(u"""
-        Given I issue a POST request to {0}/failover with leader={1},candidate={2},scheduled_at={3}
+        Given I issue a POST request to {0}/failover with {{"leader": "{1}", "candidate": "{2}", "scheduled_at": "{3}"}}
     """.format(at_url, from_host, to_host, datetime.now(pytz.utc) + timedelta(seconds=int(in_seconds))))
+
+
+@step('I add tag {tag:w} {value:w} to {pg_name:w} config')
+def add_tag_to_config(context, tag, value, pg_name):
+    context.pctl.add_tag_to_config(pg_name, tag, value)
+
+
+@then('Response on GET {url} contains {value} after {timeout:d} seconds')
+def check_http_response(context, url, value, timeout):
+    for _ in range(int(timeout)):
+        r = requests.get(url)
+        if value in r.content.decode('utf-8'):
+            break
+        time.sleep(1)
+    else:
+        assert False,\
+            "Value {0} is not present in response after {1} seconds".format(value, timeout)

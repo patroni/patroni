@@ -3,14 +3,13 @@ import fcntl
 import json
 import logging
 import psycopg2
-import socket
 import time
 import dateutil
 import datetime
 import pytz
 
 from patroni.exceptions import PostgresConnectionException
-from patroni.utils import Retry, RetryFailedError
+from patroni.utils import deep_compare, patch_config, Retry, RetryFailedError
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from six.moves.socketserver import ThreadingMixIn
 from threading import Thread
@@ -34,48 +33,39 @@ def check_auth(func):
 
 class RestApiHandler(BaseHTTPRequestHandler):
 
-    def _write_response(self, status_code, body, headers=None):
+    def _write_response(self, status_code, body, content_type='text/html', headers=None):
         self.send_response(status_code)
-        if body is not None:
-            headers = headers or {}
-            if 'Content-Type' not in headers:
-                headers['Content-Type'] = 'text/html'
-            for name, value in (headers or {}).items():
-                self.send_header(name, value)
-            self.end_headers()
-            self.wfile.write(body.encode('utf-8'))
+        headers = headers or {}
+        if content_type:
+            headers['Content-Type'] = content_type
+        for name, value in headers.items():
+            self.send_header(name, value)
+        self.end_headers()
+        self.wfile.write(body.encode('utf-8'))
+
+    def _write_json_response(self, status_code, response):
+        self._write_response(status_code, json.dumps(response), content_type='application/json')
 
     def send_auth_request(self, body):
         headers = {'WWW-Authenticate': 'Basic realm="' + self.server.patroni.__class__.__name__ + '"'}
-        self._write_response(401, body, headers)
-
-    def finish(self):
-        try:
-            if not self.wfile.closed:
-                self.wfile.flush()
-                self.wfile.close()
-        except socket.error:
-            pass
-        self.rfile.close()
+        self._write_response(401, body, headers=headers)
 
     def check_auth_header(self):
         auth_header = self.headers.get('Authorization')
         status = self.server.check_auth_header(auth_header)
         return not status or self.send_auth_request(status)
 
-    def _write_status_response(self, status_code, response, options=False):
-        if options:
-            body = None
-        else:
-            patroni = self.server.patroni
-            response.update({'tags': patroni.tags} if patroni.tags else {})
-            if patroni.postgresql.sysid:
-                response['database_system_identifier'] = patroni.postgresql.sysid
-            response['patroni'] = {'version': patroni.version, 'scope': patroni.postgresql.scope}
-            body = json.dumps(response)
-        self._write_response(status_code, body, {'Content-Type': 'application/json'})
+    def _write_status_response(self, status_code, response):
+        patroni = self.server.patroni
+        response.update({'tags': patroni.tags} if patroni.tags else {})
+        if patroni.postgresql.sysid:
+            response['database_system_identifier'] = patroni.postgresql.sysid
+        if patroni.postgresql.pending_restart:
+            response['pending_restart'] = True
+        response['patroni'] = {'version': patroni.version, 'scope': patroni.postgresql.scope}
+        self._write_json_response(status_code, response)
 
-    def do_GET(self, options=False):
+    def do_GET(self, write_status_code_only=False):
         """Default method for processing all GET requests which can not be routed to other methods"""
 
         path = '/master' if self.path == '/' else self.path
@@ -101,14 +91,76 @@ class RestApiHandler(BaseHTTPRequestHandler):
             status_code = 200
         else:
             status_code = 503
-        self._write_status_response(status_code, response, options)
+
+        if write_status_code_only:  # when haproxy sends OPTIONS request it reads only status code and nothing more
+            message = self.responses[status_code][0]
+            self.wfile.write('{0} {1} {2}\r\n'.format(self.protocol_version, status_code, message).encode('utf-8'))
+        else:
+            self._write_status_response(status_code, response)
 
     def do_OPTIONS(self):
-        self.do_GET(options=True)
+        self.do_GET(write_status_code_only=True)
 
     def do_GET_patroni(self):
         response = self.get_postgresql_status(True)
         self._write_status_response(200, response)
+
+    def do_GET_config(self):
+        cluster = self.server.patroni.ha.dcs.cluster or self.server.patroni.ha.dcs.get_cluster()
+        if cluster.config:
+            self._write_json_response(200, cluster.config.data)
+        else:
+            self.send_error(502)
+
+    def _read_json_content(self):
+        if 'content-length' not in self.headers:
+            return self.send_error(411)
+        try:
+            content_length = int(self.headers.get('content-length'))
+            request = json.loads(self.rfile.read(content_length).decode('utf-8'))
+            if isinstance(request, dict) and request:
+                return request
+        except Exception:
+            logger.exception('Bad request')
+        self.send_error(400)
+
+    @check_auth
+    def do_PATCH_config(self):
+        request = self._read_json_content()
+        if request:
+            cluster = self.server.patroni.ha.dcs.get_cluster()
+            data = cluster.config.data.copy()
+            if patch_config(data, request):
+                value = json.dumps(data, separators=(',', ':'))
+                if not self.server.patroni.ha.dcs.set_config_value(value, cluster.config.index):
+                    return self.send_error(409)
+            self._write_json_response(200, data)
+
+    @check_auth
+    def do_PUT_config(self):
+        request = self._read_json_content()
+        if request:
+            cluster = self.server.patroni.ha.dcs.get_cluster()
+            if not deep_compare(request, cluster.config.data):
+                value = json.dumps(request, separators=(',', ':'))
+                if not self.server.patroni.ha.dcs.set_config_value(value):
+                    return self.send_error(502)
+            self._write_json_response(200, request)
+
+    @check_auth
+    def do_POST_reload(self):
+        try:
+            if self.server.patroni.config.reload_local_configuration(True):
+                status_code = 202
+                response = 'reload scheduled'
+                self.server.patroni.sighup_handler()
+            else:
+                status_code = 200
+                response = 'nothing changed'
+        except Exception as e:
+            status_code = 500
+            response = str(e)
+        self._write_response(status_code, response)
 
     @check_auth
     def do_POST_restart(self):
@@ -142,7 +194,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self._write_response(status_code, data)
 
     def poll_failover_result(self, leader, candidate):
-        for _ in range(0, 15):
+        timeout = 10 if self.server.patroni.nap_time < 10 else self.server.patroni.nap_time
+        for _ in range(0, timeout*2):
             time.sleep(1)
             try:
                 cluster = self.server.patroni.dcs.get_cluster()
@@ -175,11 +228,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     @check_auth
     def do_POST_failover(self):
-        content_length = int(self.headers.get('content-length', 0))
-        try:
-            request = json.loads(self.rfile.read(content_length).decode('utf-8'))
-        except ValueError:
-            request = {}
+        request = self._read_json_content()
+        if not request:
+            return
+
         leader = request.get('leader')
         candidate = request.get('candidate') or request.get('member')
         scheduled_at = request.get('scheduled_at')
@@ -203,7 +255,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     elif self.server.patroni.dcs.manual_failover(leader, candidate, scheduled_at=scheduled_at):
                         self.server.patroni.dcs.event.set()
                         data = 'Failover scheduled'
-                        status_code = 200
+                        status_code = 202
                     else:
                         data = 'failed to write failover key into DCS'
                         status_code = 503
@@ -242,12 +294,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
             if hasattr(self, 'do_' + mname):
                 self.command = mname
         return ret
-
-    def handle_one_request(self):
-        try:
-            BaseHTTPRequestHandler.handle_one_request(self)
-        except socket.error:
-            pass
 
     def query(self, sql, *params, **kwargs):
         if not kwargs.get('retry', False):
@@ -294,25 +340,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
 class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
     def __init__(self, patroni, config):
-        self._auth_key = base64.b64encode(config['auth'].encode('utf-8')).decode('utf-8') if 'auth' in config else None
-        host, port = config['listen'].split(':')
-        HTTPServer.__init__(self, (host, int(port)), RestApiHandler)
-        Thread.__init__(self, target=self.serve_forever)
-        self._set_fd_cloexec(self.socket)
-
-        protocol = 'http'
-
-        # wrap socket with ssl if 'certfile' is defined in a config.yaml
-        # Sometime it's also needed to pass reference to a 'keyfile'.
-        options = {option: config[option] for option in ['certfile', 'keyfile'] if option in config}
-        if options.get('certfile'):
-            import ssl
-            self.socket = ssl.wrap_socket(self.socket, server_side=True, **options)
-            protocol = 'https'
-
-        self.connection_string = '{0}://{1}/patroni'.format(protocol, config.get('connect_address', config['listen']))
-
         self.patroni = patroni
+        self.__initialize(config)
+        self.__set_config_parameters(config)
         self.daemon = True
 
     def query(self, sql, *params):
@@ -332,11 +362,47 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         fcntl.fcntl(fd, fcntl.F_SETFD, flags | fcntl.FD_CLOEXEC)
 
     def check_basic_auth_key(self, key):
-        return self._auth_key == key
+        return self.__auth_key == key
 
     def check_auth_header(self, auth_header):
-        if self._auth_key:
+        if self.__auth_key:
             if auth_header is None:
                 return 'no auth header received'
             if not auth_header.startswith('Basic ') or not self.check_basic_auth_key(auth_header[6:]):
                 return 'not authenticated'
+
+    @staticmethod
+    def __get_ssl_options(config):
+        return {option: config[option] for option in ['certfile', 'keyfile'] if option in config}
+
+    def __set_connection_string(self, connect_address):
+        self.connection_string = '{0}://{1}/patroni'.format(self.__protocol, connect_address or self.__listen)
+
+    def __set_config_parameters(self, config):
+        self.__auth_key = base64.b64encode(config['auth'].encode('utf-8')).decode('utf-8') if 'auth' in config else None
+        self.__set_connection_string(config.get('connect_address'))
+
+    def __initialize(self, config):
+        self.__ssl_options = self.__get_ssl_options(config)
+        self.__listen = config['listen']
+        host, port = config['listen'].split(':')
+        HTTPServer.__init__(self, (host, int(port)), RestApiHandler)
+        Thread.__init__(self, target=self.serve_forever)
+        self._set_fd_cloexec(self.socket)
+
+        self.__protocol = 'http'
+
+        # wrap socket with ssl if 'certfile' is defined in a config.yaml
+        # Sometime it's also needed to pass reference to a 'keyfile'.
+        if self.__ssl_options.get('certfile'):
+            import ssl
+            self.socket = ssl.wrap_socket(self.socket, server_side=True, **self.__ssl_options)
+            self.__protocol = 'https'
+        self.__set_connection_string(config.get('connect_address'))
+
+    def reload_config(self, config):
+        self.__set_config_parameters(config)
+        if self.__listen != config['listen'] or self.__ssl_options != self.__get_ssl_options(config):
+            self.shutdown()
+            self.__initialize(config)
+            self.start()

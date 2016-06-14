@@ -95,8 +95,9 @@ def ctl(ctx):
 
 def get_dcs(config, scope):
     config.setdefault('scope', scope)
+    config.setdefault('name', scope)
     try:
-        return _get_dcs(scope, config)
+        return _get_dcs(config)
     except PatroniException as e:
         raise PatroniCtlException(str(e))
 
@@ -533,7 +534,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
     r = None
     try:
         r = post_patroni(cluster.leader.member, 'failover', failover_value)
-        if r.status_code == 200:
+        if r.status_code in (200, 202):
             logging.debug(r)
             cluster = dcs.get_cluster()
             logging.debug(cluster)

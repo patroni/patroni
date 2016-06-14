@@ -13,12 +13,34 @@ Scenario: check API requests on a stand-alone server
 	When I issue an empty POST request to http://127.0.0.1:8008/reinitialize
 	Then I receive a response code 503
 	And I receive a response text "I am the leader, can not reinitialize"
-	When I issue a POST request to http://127.0.0.1:8008/failover with leader=postgres0
+	When I issue a POST request to http://127.0.0.1:8008/failover with {"leader": "postgres0"}
 	Then I receive a response code 500
-	And I receive a response text "failover is not possible: cluster does not have members except leader"
+	And I receive a response text failover is not possible: cluster does not have members except leader
 	When I issue an empty POST request to http://127.0.0.1:8008/failover
 	Then I receive a response code 400
+	When I issue a POST request to http://127.0.0.1:8008/failover with {"foo": "bar"}
+	Then I receive a response code 400
 	And I receive a response text "No values given for required parameters leader and candidate"
+
+Scenario: check local configuration reload
+        Given I issue an empty POST request to http://127.0.0.1:8008/reload
+        Then I receive a response code 200
+        And I receive a response text nothing changed
+        When I add tag new_tag new_value to postgres0 config
+        And I issue an empty POST request to http://127.0.0.1:8008/reload
+        Then I receive a response code 202
+
+Scenario: check dynamic configuration change via DCS
+        Given I issue a PATCH request to http://127.0.0.1:8008/config with {"ttl": 20, "loop_wait": 1, "postgresql": {"parameters": {"max_connections": 101}}}
+        Then I receive a response code 200
+        And I receive a response loop_wait 1
+        And Response on GET http://127.0.0.1:8008/patroni contains pending_restart after 11 seconds
+        When I issue a GET request to http://127.0.0.1:8008/config
+        Then I receive a response code 200
+        And I receive a response loop_wait 1
+        When I issue a GET request to http://127.0.0.1:8008/patroni
+        Then I receive a response code 200
+        And I receive a response tags {'tag': 'new_value'}
 
 Scenario: check API requests for the primary-replica pair
 	Given I start postgres1
@@ -36,7 +58,7 @@ Scenario: check API requests for the primary-replica pair
         Then postgres1 role is the secondary after 15 seconds
 
 Scenario: check the failover via the API
-	Given I issue a POST request to http://127.0.0.1:8008/failover with leader=postgres0,candidate=postgres1
+	Given I issue a POST request to http://127.0.0.1:8008/failover with {"leader": "postgres0", "candidate": "postgres1"}
 	Then I receive a response code 200
 	And postgres1 is a leader after 5 seconds
         And postgres1 role is the primary after 5 seconds
@@ -45,9 +67,8 @@ Scenario: check the failover via the API
 
 Scenario: check the scheduled failover
 	Given I issue a scheduled failover at http://127.0.0.1:8009 from postgres1 to postgres0 in 1 seconds
-	Then I receive a response code 200
+	Then I receive a response code 202
 	And postgres0 is a leader after 20 seconds
         And postgres0 role is the primary after 5 seconds
         And postgres1 role is the secondary after 10 seconds
 	And replication works from postgres0 to postgres1 after 25 seconds
-

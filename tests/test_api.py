@@ -1,13 +1,12 @@
+import json
 import psycopg2
 import unittest
 
 from mock import Mock, patch
 from patroni.api import RestApiHandler, RestApiServer
-from patroni.dcs import Member
+from patroni.dcs import ClusterConfig, Member
 from six import BytesIO as IO
 from six.moves import BaseHTTPServer
-from six.moves.BaseHTTPServer import BaseHTTPRequestHandler
-import socket
 from test_postgresql import psycopg2_connect, MockCursor
 
 
@@ -19,6 +18,7 @@ class MockPostgresql(object):
     server_version = '999999'
     sysid = 'dummysysid'
     scope = 'dummy'
+    pending_restart = True
 
     @staticmethod
     def connection():
@@ -49,12 +49,18 @@ class MockHa(object):
 
 class MockPatroni(object):
 
+    nap_time = 10
+    config = Mock()
     postgresql = MockPostgresql()
     ha = MockHa()
     dcs = Mock()
     tags = {}
     version = '0.00'
     noloadbalance = Mock(return_value=False)
+
+    @staticmethod
+    def sighup_handler():
+        pass
 
 
 class MockRequest(object):
@@ -70,16 +76,21 @@ class MockRestApiServer(RestApiServer):
 
     def __init__(self, Handler, request):
         self.socket = 0
+        self.serve_forever = Mock()
         BaseHTTPServer.HTTPServer.__init__ = Mock()
         MockRestApiServer._BaseServer__is_shut_down = Mock()
         MockRestApiServer._BaseServer__shutdown_request = True
-        config = {'listen': '127.0.0.1:8008', 'auth': 'test:test', 'certfile': 'dumb'}
+        config = {'listen': '127.0.0.1:8008', 'auth': 'test:test'}
         super(MockRestApiServer, self).__init__(MockPatroni(), config)
+        config['certfile'] = 'dumb'
+        self.reload_config(config)
         Handler(MockRequest(request), ('0.0.0.0', 8080), self)
 
 
 @patch('ssl.wrap_socket', Mock(return_value=0))
 class TestRestApiHandler(unittest.TestCase):
+
+    _authorization = '\nAuthorization: Basic dGVzdDp0ZXN0'
 
     def test_do_GET(self):
         MockRestApiServer(RestApiHandler, 'GET /replica')
@@ -100,17 +111,6 @@ class TestRestApiHandler(unittest.TestCase):
     def test_do_OPTIONS(self):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'OPTIONS / HTTP/1.0'))
 
-        with patch.object(BaseHTTPRequestHandler, 'handle_one_request') as mock_handle_request:
-            mock_handle_request.side_effect = socket.error("foo")
-            MockRestApiServer(RestApiHandler, 'OPTIONS / HTTP/1.0')
-
-        # make sure socket.error gets propagated via wfile object in finalize()
-        with patch.object(MockRequest, 'makefile') as makefile:
-            makefile.return_value.closed = False
-            makefile.return_value.readline = Mock(return_value=b'foo')
-            makefile.return_value.flush = Mock(side_effect=socket.error('foo'))
-            MockRestApiServer(RestApiHandler, 'OPTIONS / HTTP/1.0')
-
     def test_do_GET_patroni(self):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /patroni'))
 
@@ -118,8 +118,51 @@ class TestRestApiHandler(unittest.TestCase):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'POST /restart HTTP/1.0'))
         MockRestApiServer(RestApiHandler, 'POST /restart HTTP/1.0\nAuthorization:')
 
+    @patch.object(MockHa, 'dcs')
+    def test_do_GET_config(self, mock_dcs):
+        mock_dcs.cluster.config.data = {}
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /config'))
+        mock_dcs.cluster.config = None
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /config'))
+
+    @patch.object(MockHa, 'dcs')
+    def test_do_PATCH_config(self, mock_dcs):
+        config = {'postgresql': {'use_slots': False, 'use_pg_rewind': True, 'parameters': {'wal_level': 'logical'}}}
+        mock_dcs.get_cluster.return_value.config = ClusterConfig.from_node(1, json.dumps(config))
+        request = 'PATCH /config HTTP/1.0' + self._authorization
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
+        request += '\nContent-Length: '
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, request + '34\n\n{"postgresql":{"use_slots":false}}'))
+        config['ttl'] = 5
+        config['postgresql'].update({'use_slots': {'foo': True}, "parameters": None})
+        config = json.dumps(config)
+        request += str(len(config)) + '\n\n' + config
+        MockRestApiServer(RestApiHandler, request)
+        mock_dcs.set_config_value.return_value = False
+        MockRestApiServer(RestApiHandler, request)
+
+    @patch.object(MockHa, 'dcs')
+    def test_do_PUT_config(self, mock_dcs):
+        mock_dcs.get_cluster.return_value.config = ClusterConfig.from_node(1, '{}')
+        request = 'PUT /config HTTP/1.0' + self._authorization + '\nContent-Length: '
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, request + '2\n\n{}'))
+        config = '{"foo": "bar"}'
+        request += str(len(config)) + '\n\n' + config
+        MockRestApiServer(RestApiHandler, request)
+        mock_dcs.set_config_value.return_value = False
+        MockRestApiServer(RestApiHandler, request)
+        mock_dcs.get_cluster.return_value.config = ClusterConfig.from_node(1, config)
+        MockRestApiServer(RestApiHandler, request)
+
+    @patch.object(MockPatroni, 'sighup_handler', Mock(side_effect=Exception))
+    def test_do_POST_reload(self):
+        with patch.object(MockPatroni, 'config') as mock_config:
+            mock_config.reload_local_configuration.return_value = False
+            MockRestApiServer(RestApiHandler, 'POST /reload HTTP/1.0' + self._authorization)
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'POST /reload HTTP/1.0' + self._authorization))
+
     def test_do_POST_restart(self):
-        request = 'POST /restart HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0'
+        request = 'POST /restart HTTP/1.0' + self._authorization
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
         with patch.object(MockHa, 'restart', Mock(side_effect=Exception)):
             MockRestApiServer(RestApiHandler, request)
@@ -127,7 +170,7 @@ class TestRestApiHandler(unittest.TestCase):
     @patch.object(MockHa, 'dcs')
     def test_do_POST_reinitialize(self, dcs):
         cluster = dcs.get_cluster.return_value
-        request = 'POST /reinitialize HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0'
+        request = 'POST /reinitialize HTTP/1.0' + self._authorization
         MockRestApiServer(RestApiHandler, request)
         cluster.is_unlocked.return_value = False
         MockRestApiServer(RestApiHandler, request)
@@ -148,19 +191,20 @@ class TestRestApiHandler(unittest.TestCase):
     def test_do_POST_failover(self, dcs):
         cluster = dcs.get_cluster.return_value
 
-        request = 'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\nContent-Length: 0\n\n'
+        post = 'POST /failover HTTP/1.0' + self._authorization + '\nContent-Length: '
+
+        MockRestApiServer(RestApiHandler, post + '7\n\n{"1":2}')
+
+        request = post + '0\n\n'
         MockRestApiServer(RestApiHandler, request)
 
         cluster.leader.name = 'postgresql1'
         MockRestApiServer(RestApiHandler, request)
 
-        request = 'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\n' +\
-                  'Content-Length: 25\n\n{"leader": "postgresql1"}'
-        MockRestApiServer(RestApiHandler, request)
+        MockRestApiServer(RestApiHandler, post + '25\n\n{"leader": "postgresql1"}')
 
         cluster.leader.name = 'postgresql2'
-        request = 'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\n' +\
-                  'Content-Length: 53\n\n{"leader": "postgresql1", "candidate": "postgresql2"}'
+        request = post + '53\n\n{"leader": "postgresql1", "candidate": "postgresql2"}'
         MockRestApiServer(RestApiHandler, request)
 
         cluster.leader.name = 'postgresql1'
@@ -186,24 +230,21 @@ class TestRestApiHandler(unittest.TestCase):
             MockRestApiServer(RestApiHandler, request)
 
         # Valid future date
-        request = 'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\nContent-Length: 103\n\n{"leader": ' +\
-                  '"postgresql1", "member": "postgresql2", "scheduled_at": "6016-02-15T18:13:30.568224+01:00"}'
+        request = post + '103\n\n{"leader": "postgresql1", "member": "postgresql2",' +\
+                         ' "scheduled_at": "6016-02-15T18:13:30.568224+01:00"}'
         MockRestApiServer(RestApiHandler, request)
         with patch.object(MockPatroni, 'dcs') as d:
             d.manual_failover.return_value = False
             MockRestApiServer(RestApiHandler, request)
 
         # Exception: No timezone specified
-        request = 'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\nContent-Length: 97\n\n{"leader": ' +\
-                  '"postgresql1", "member": "postgresql2", "scheduled_at": "6016-02-15T18:13:30.568224"}'
+        request = post + '97\n\n{"leader": "postgresql1", "member": "postgresql2",' +\
+                         ' "scheduled_at": "6016-02-15T18:13:30.568224"}'
         MockRestApiServer(RestApiHandler, request)
 
         # Exception: Scheduled in the past
-        request = 'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\nContent-Length: 103\n\n{"leader": ' +\
-                  '"postgresql1", "member": "postgresql2", "scheduled_at": "1016-02-15T18:13:30.568224+01:00"}'
-        MockRestApiServer(RestApiHandler, request)
+        request = post + '103\n\n{"leader": "postgresql1", "member": "postgresql2", "scheduled_at": "'
+        MockRestApiServer(RestApiHandler, request + '1016-02-15T18:13:30.568224+01:00"}')
 
         # Invalid date
-        request = 'POST /failover HTTP/1.0\nAuthorization: Basic dGVzdDp0ZXN0\nContent-Length: 103\n\n{"leader": ' +\
-                  '"postgresql1", "member": "postgresql2", "scheduled_at": "2010-02-29T18:13:30.568224+01:00"}'
-        self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, request + '2010-02-29T18:13:30.568224+01:00"}'))

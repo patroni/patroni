@@ -23,7 +23,8 @@ class TestExhibitor(unittest.TestCase):
     @patch('requests.get', requests_get)
     @patch('patroni.dcs.zookeeper.KazooClient', MockKazooClient)
     def setUp(self):
-        self.e = Exhibitor('foo', {'hosts': ['localhost', 'exhibitor'], 'port': 8181, 'scope': 'test'})
+        self.e = Exhibitor({'hosts': ['localhost', 'exhibitor'], 'port': 8181, 'scope': 'test',
+                            'name': 'foo', 'ttl': 30, 'retry_timeout': 10})
 
     @patch.object(ExhibitorEnsembleProvider, 'poll', Mock(return_value=True))
     def test_get_cluster(self):

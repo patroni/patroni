@@ -51,14 +51,15 @@ class TestConsul(unittest.TestCase):
     @patch.object(consul.Consul.KV, 'get', kv_get)
     @patch.object(consul.Consul.KV, 'delete', Mock())
     def setUp(self):
-        self.c = Consul('postgresql1', {'ttl': 30, 'scope': 'test', 'host': 'localhost:1'})
+        self.c = Consul({'ttl': 30, 'scope': 'test', 'name': 'postgresql1', 'host': 'localhost:1', 'retry_timeout': 10})
         self.c._base_path = '/service/good'
         self.c._load_cluster()
 
     @patch('time.sleep', Mock(side_effect=SleepException))
-    def test_create_or_restore_session(self):
+    @patch.object(consul.Consul.Session, 'create', Mock(side_effect=ConsulException))
+    def test_create_session(self):
         self.c._session = None
-        self.assertRaises(SleepException, self.c.create_or_restore_session)
+        self.assertRaises(SleepException, self.c.create_session)
 
     @patch.object(consul.Consul.Session, 'renew', Mock(side_effect=NotFound))
     @patch.object(consul.Consul.Session, 'create', Mock(side_effect=ConsulException))
@@ -96,6 +97,10 @@ class TestConsul(unittest.TestCase):
     def test_set_failover_value(self):
         self.c.set_failover_value('')
 
+    @patch.object(consul.Consul.KV, 'put', Mock(return_value=True))
+    def test_set_config_value(self):
+        self.c.set_config_value('')
+
     @patch.object(consul.Consul.KV, 'put', Mock(side_effect=ConsulException))
     def test_write_leader_optime(self):
         self.c.write_leader_optime('')
@@ -125,3 +130,11 @@ class TestConsul(unittest.TestCase):
         self.c.watch(1)
         with patch.object(consul.Consul.KV, 'get', Mock(side_effect=ConsulException)):
             self.c.watch(1)
+
+    @patch.object(consul.Consul.Session, 'destroy', Mock(side_effect=ConsulException))
+    def test_set_ttl(self):
+        self.c.set_ttl(20)
+        self.assertTrue(self.c.watch(1))
+
+    def test_set_retry_timeout(self):
+        self.c.set_retry_timeout(10)

@@ -2,7 +2,7 @@ import logging
 
 from kazoo.client import KazooClient, KazooState
 from kazoo.exceptions import NoNodeError, NodeExistsError
-from patroni.dcs import AbstractDCS, Cluster, Failover, Leader, Member
+from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member
 from patroni.exceptions import DCSError
 
 logger = logging.getLogger(__name__)
@@ -14,17 +14,15 @@ class ZooKeeperError(DCSError):
 
 class ZooKeeper(AbstractDCS):
 
-    def __init__(self, name, config):
-        super(ZooKeeper, self).__init__(name, config)
+    def __init__(self, config):
+        super(ZooKeeper, self).__init__(config)
 
         hosts = config.get('hosts', [])
         if isinstance(hosts, list):
             hosts = ','.join(hosts)
 
-        self._client = KazooClient(hosts=hosts, timeout=(config.get('session_timeout') or 30),
-                                   command_retry={'deadline': (config.get('reconnect_timeout') or 10),
-                                                  'max_delay': 1, 'max_tries': -1},
-                                   connection_retry={'max_delay': 1, 'max_tries': -1})
+        self._client = KazooClient(hosts, timeout=config['ttl'], connection_retry={'max_delay': 1, 'max_tries': -1},
+                                   command_retry={'deadline': config['retry_timeout'], 'max_delay': 1, 'max_tries': -1})
         self._client.add_listener(self.session_listener)
 
         self._my_member_data = None
@@ -40,6 +38,16 @@ class ZooKeeper(AbstractDCS):
     def cluster_watcher(self, event):
         self._fetch_cluster = True
         self.event.set()
+
+    def set_ttl(self, ttl):
+        ttl = int(ttl * 1000)
+        # I know, it's weird to access private attributes
+        if self._client._session_timeout != ttl:
+            self._client._session_timeout = ttl
+            self._client.restart()
+
+    def set_retry_timeout(self, retry_timeout):
+        self._client._retry.deadline = retry_timeout
 
     def get_node(self, key, watch=None):
         try:
@@ -76,6 +84,10 @@ class ZooKeeper(AbstractDCS):
         # get initialize flag
         initialize = (self.get_node(self.initialize_path) or [None])[0] if self._INITIALIZE in nodes else None
 
+        # get global dynamic configuration
+        config = self.get_node(self.config_path, watch=self.cluster_watcher) if self._CONFIG in nodes else None
+        config = config and ClusterConfig.from_node(config[1].version, config[0], config[1].mzxid)
+
         # get list of members
         members = self.load_members() if self._MEMBERS[:-1] in nodes else []
 
@@ -96,13 +108,12 @@ class ZooKeeper(AbstractDCS):
 
         # failover key
         failover = self.get_node(self.failover_path, watch=self.cluster_watcher) if self._FAILOVER in nodes else None
-        if failover:
-            failover = Failover.from_node(failover[1].version, failover[0])
+        failover = failover and Failover.from_node(failover[1].version, failover[0])
 
         # get last leader operation
         optime = self.get_node(self.leader_optime_path) if self._OPTIME in nodes and self._fetch_cluster else None
         self._last_leader_operation = 0 if optime is None else int(optime[0])
-        self._cluster = Cluster(initialize, leader, self._last_leader_operation, members, failover)
+        self._cluster = Cluster(initialize, config, leader, self._last_leader_operation, members, failover)
 
     def _load_cluster(self):
         if self._fetch_cluster or self._cluster is None:
@@ -110,7 +121,7 @@ class ZooKeeper(AbstractDCS):
                 self._client.retry(self._inner_load_cluster)
             except:
                 logger.exception('get_cluster')
-                self.session_listener(KazooState.LOST)
+                self.cluster_watcher(None)
                 raise ZooKeeperError('ZooKeeper in not responding properly')
 
     def _create(self, path, value, **kwargs):
@@ -131,9 +142,19 @@ class ZooKeeper(AbstractDCS):
             self._client.retry(self._client.set, self.failover_path, value.encode('utf-8'), version=index or -1)
             return True
         except NoNodeError:
-            return value == '' or (not index and self._create(self.failover_path, value))
+            return value == '' or (index is None and self._create(self.failover_path, value))
         except:
             logging.exception('set_failover_value')
+            return False
+
+    def set_config_value(self, value, index=None):
+        try:
+            self._client.retry(self._client.set, self.config_path, value.encode('utf-8'), version=index or -1)
+            return True
+        except NoNodeError:
+            return index is None and self._create(self.config_path, value)
+        except Exception:
+            logging.exception('set_config_value')
             return False
 
     def initialize(self, create_new=True, sysid=""):

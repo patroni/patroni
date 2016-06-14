@@ -78,6 +78,8 @@ def etcd_read(self, key, **kwargs):
         raise etcd.EtcdKeyNotFound
 
     response = {"action": "get", "node": {"key": "/service/batman5", "dir": True, "nodes": [
+                {"key": "/service/batman5/config", "value": '{"foo": "bar"}',
+                 "modifiedIndex": 1582, "createdIndex": 1582},
                 {"key": "/service/batman5/failover", "value": "",
                  "modifiedIndex": 1582, "createdIndex": 1582},
                 {"key": "/service/batman5/initialize", "value": "postgresql0",
@@ -191,7 +193,8 @@ class TestEtcd(unittest.TestCase):
     def setUp(self):
         with patch.object(Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://localhost:2379', 'http://localhost:4001'])
-            self.etcd = Etcd('foo', {'namespace': '/patroni/', 'ttl': 30, 'host': 'localhost:2379', 'scope': 'test'})
+            self.etcd = Etcd({'namespace': '/patroni/', 'ttl': 30, 'retry_timeout': 10,
+                              'host': 'localhost:2379', 'scope': 'test', 'name': 'foo'})
 
     def test_base_path(self):
         self.assertEquals(self.etcd._base_path, '/patroni/test')
@@ -254,3 +257,7 @@ class TestEtcd(unittest.TestCase):
     def test_other_exceptions(self):
         self.etcd.retry = Mock(side_effect=AttributeError('foo'))
         self.assertRaises(EtcdError, self.etcd.cancel_initialization)
+
+    def test_set_ttl(self):
+        self.etcd.set_ttl(20)
+        self.assertTrue(self.etcd.watch(1))

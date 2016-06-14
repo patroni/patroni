@@ -98,6 +98,13 @@ class PatroniController(AbstractController):
         except IOError:
             return None
 
+    def add_tag_to_config(self, tag, value):
+        with open(self._config) as r:
+            config = yaml.safe_load(r)
+            config['tags']['tag'] = value
+            with open(self._config, 'w') as w:
+                yaml.safe_dump(config, w, default_flow_style=False)
+
     def _start(self):
         return subprocess.Popen(['coverage', 'run', '--source=patroni', '-p', 'patroni.py', self._config],
                                 stdout=self._log, stderr=subprocess.STDOUT, cwd=self._work_directory)
@@ -110,20 +117,24 @@ class PatroniController(AbstractController):
         patroni_config_path = os.path.join(self._output_dir, patroni_config_name)
 
         with open(patroni_config_name) as f:
-            config = yaml.load(f)
+            config = yaml.safe_load(f)
 
         host = config['postgresql']['listen'].split(':')[0]
 
         config['postgresql']['listen'] = config['postgresql']['connect_address'] = '{0}:{1}'.format(host, self.__PORT)
 
-        user = config['postgresql'].get('superuser', {})
+        user = config['postgresql'].get('authentication', config['postgresql']).get('superuser', {})
         self._connkwargs = {k: user[n] for n, k in [('username', 'user'), ('password', 'password')] if n in user}
         self._connkwargs.update({'host': host, 'port': self.__PORT, 'database': 'postgres'})
 
-        config['postgresql'].update({'name': name, 'data_dir': self._data_dir})
+        config['name'] = name
+        config['postgresql']['data_dir'] = self._data_dir
         config['postgresql']['parameters'].update({
             'logging_collector': 'on', 'log_destination': 'csvlog', 'log_directory': self._output_dir,
             'log_filename': name + '.log', 'log_statement': 'all', 'log_min_messages': 'debug1'})
+
+        if 'bootstrap' in config and 'initdb' in config['bootstrap']:
+            config['bootstrap']['initdb'].extend([{'auth': 'md5'}, {'auth-host': 'md5'}])
 
         if tags:
             config['tags'] = tags
@@ -132,16 +143,14 @@ class PatroniController(AbstractController):
             dcs_config = config.pop('etcd')
             dcs_config.pop('host')
 
-            if dcs != 'consul':
-                dcs_config.update({'session_timeout': dcs_config.pop('ttl'), 'reconnect_timeout': config['loop_wait']})
-                if dcs == 'exhibitor':
-                    dcs_config.update({'hosts': ['127.0.0.1'], 'port': 8181})
-                else:
-                    dcs_config['hosts'] = ['127.0.0.1:2181']
+            if dcs == 'exhibitor':
+                dcs_config.update({'hosts': ['127.0.0.1'], 'port': 8181})
+            elif dcs == 'zookeeper':
+                dcs_config['hosts'] = ['127.0.0.1:2181']
             config[dcs] = dcs_config
 
         with open(patroni_config_path, 'w') as f:
-            yaml.dump(config, f, default_flow_style=False)
+            yaml.safe_dump(config, f, default_flow_style=False)
 
         return patroni_config_path
 
@@ -180,7 +189,7 @@ class PatroniController(AbstractController):
 
 class AbstractDcsController(AbstractController):
 
-    _CLUSTER_NODE = 'service/batman'
+    _CLUSTER_NODE = '/service/batman'
 
     def _is_accessible(self):
         return self._is_running()
@@ -191,9 +200,16 @@ class AbstractDcsController(AbstractController):
         if self._work_directory:
             shutil.rmtree(self._work_directory)
 
+    def path(self, key=None):
+        return self._CLUSTER_NODE + (key and '/' + key or '')
+
     @abc.abstractmethod
     def query(self, key):
         """ query for a value of a given key """
+
+    @abc.abstractmethod
+    def set(self, key, value):
+        """ set a value to a given key """
 
     @abc.abstractmethod
     def cleanup_service_tree(self):
@@ -216,12 +232,18 @@ class ConsulController(AbstractDcsController):
         except Exception:
             return False
 
+    def path(self, key=None):
+        return super(ConsulController, self).path(key)[1:]
+
     def query(self, key):
-        _, value = self._client.kv.get('{0}/{1}'.format(self._CLUSTER_NODE, key))
+        _, value = self._client.kv.get(self.path(key))
         return value and value['Value'].decode('utf-8')
 
+    def set(self, key, value):
+        self._client.kv.put(self.path(key), value)
+
     def cleanup_service_tree(self):
-        self._client.kv.delete(self._CLUSTER_NODE, recurse=True)
+        self._client.kv.delete(self.path(), recurse=True)
 
 
 class EtcdController(AbstractDcsController):
@@ -238,13 +260,16 @@ class EtcdController(AbstractDcsController):
 
     def query(self, key):
         try:
-            return self._client.get('/{0}/{1}'.format(self._CLUSTER_NODE, key)).value
+            return self._client.get(self.path(key)).value
         except etcd.EtcdKeyNotFound:
             return None
 
+    def set(self, key, value):
+        self._client.set(self.path(key), value)
+
     def cleanup_service_tree(self):
         try:
-            self._client.delete('/' + self._CLUSTER_NODE, recursive=True)
+            self._client.delete(self.path(), recursive=True)
         except (etcd.EtcdKeyNotFound, etcd.EtcdConnectionFailed):
             return
         except Exception as e:
@@ -271,13 +296,16 @@ class ZooKeeperController(AbstractDcsController):
 
     def query(self, key):
         try:
-            return self._client.get('/{0}/{1}'.format(self._CLUSTER_NODE, key))[0].decode('utf-8')
+            return self._client.get(self.path(key))[0].decode('utf-8')
         except kazoo.exceptions.NoNodeError:
             return None
 
+    def set(self, key, value):
+        self._client.set(self.path(key), value.encode('utf-8'))
+
     def cleanup_service_tree(self):
         try:
-            self._client.delete('/' + self._CLUSTER_NODE, recursive=True)
+            self._client.delete(self.path(), recursive=True)
         except (kazoo.exceptions.NoNodeError):
             return
         except Exception as e:
@@ -326,7 +354,7 @@ class PatroniPoolController(object):
         self._processes[pg_name].start(max_wait_limit)
 
     def __getattr__(self, func):
-        if func not in ['stop', 'query', 'write_label', 'read_label', 'check_role_has_changed_to']:
+        if func not in ['stop', 'query', 'write_label', 'read_label', 'check_role_has_changed_to', 'add_tag_to_config']:
             raise AttributeError("PatroniPoolController instance has no attribute '{0}'".format(func))
 
         def wrapper(pg_name, *args, **kwargs):

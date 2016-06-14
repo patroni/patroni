@@ -1,9 +1,11 @@
-import etcd
-import unittest
 import datetime
+import etcd
+import os
 import pytz
+import unittest
 
 from mock import Mock, MagicMock, patch
+from patroni.config import Config
 from patroni.dcs import Cluster, Failover, Leader, Member, get_dcs
 from patroni.exceptions import DCSError, PostgresException
 from patroni.ha import Ha
@@ -20,7 +22,7 @@ def false(*args, **kwargs):
 
 
 def get_cluster(initialize, leader, members, failover):
-    return Cluster(initialize, leader, 10, members, failover)
+    return Cluster(initialize, None, leader, 10, members, failover)
 
 
 def get_cluster_not_initialized_without_leader():
@@ -48,6 +50,27 @@ def get_cluster_initialized_with_only_leader(failover=None):
 class MockPatroni(object):
 
     def __init__(self, p, d):
+        os.environ[Config.PATRONI_CONFIG_VARIABLE] = """
+restapi:
+  listen: 0.0.0.0:8008
+bootstrap:
+  users:
+    replicator:
+      password: rep-pass
+      options:
+        - replication
+postgresql:
+  name: foo
+  data_dir: data/postgresql0
+  pg_rewind:
+    username: postgres
+    password: postgres
+zookeeper:
+  exhibitor:
+    hosts: [localhost]
+    port: 8181
+"""
+        self.config = Config()
         self.postgresql = p
         self.dcs = d
         self.api = Mock()
@@ -87,13 +110,17 @@ class TestHa(unittest.TestCase):
         with patch.object(etcd.Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
             self.p = Postgresql({'name': 'postgresql0', 'scope': 'dummy', 'listen': '127.0.0.1:5432',
-                                 'data_dir': 'data/postgresql0', 'superuser': {}, 'admin': {},
-                                 'replication': {'username': '', 'password': '', 'network': ''}})
+                                 'data_dir': 'data/postgresql0', 'retry_timeout': 10,
+                                 'authentication': {'superuser': {'username': 'foo', 'password': 'bar'},
+                                                    'replication': {'username': '', 'password': ''}},
+                                 'parameters': {'wal_level': 'hot_standby', 'max_replication_slots': 5, 'foo': 'bar',
+                                                'hot_standby': 'on', 'max_wal_senders': 5, 'wal_keep_segments': 8}})
             self.p.set_state('running')
             self.p.set_role('replica')
             self.p.check_replication_lag = true
             self.p.can_create_replica_without_replication_connection = MagicMock(return_value=False)
-            self.e = get_dcs('foo', {'etcd': {'ttl': 30, 'host': 'ok:2379', 'scope': 'test'}})
+            self.e = get_dcs({'etcd': {'ttl': 30, 'host': 'ok:2379', 'scope': 'test',
+                                       'name': 'foo', 'retry_timeout': 10}})
             self.ha = Ha(MockPatroni(self.p, self.e))
             self.ha._async_executor.run_async = run_async
             self.ha.old_cluster = self.e.get_cluster()

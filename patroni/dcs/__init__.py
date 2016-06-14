@@ -30,7 +30,7 @@ def parse_connection_string(value):
     return conn_url, api_url
 
 
-def get_dcs(node_name, config):
+def get_dcs(config):
     available_implementations = []
     for name in os.listdir(os.path.dirname(__file__)):
         if name.endswith('.py') and not name.startswith('__'):  # find module
@@ -44,8 +44,9 @@ def get_dcs(node_name, config):
                         available_implementations.append(name)
                         if name in config:  # which has configuration section in the config file
                             # propagate some parameters
-                            config[name].update({p: config[p] for p in ('namespace', 'scope', 'ttl') if p in config})
-                            return value(node_name, config[name])
+                            config[name].update({p: config[p] for p in ('namespace', 'name',
+                                                 'scope', 'ttl', 'retry_timeout') if p in config})
+                            return value(config[name])
     raise PatroniException("""Can not find suitable configuration of distributed configuration store
 Available implementations: """ + ', '.join(available_implementations))
 
@@ -163,11 +164,28 @@ class Failover(namedtuple('Failover', 'index,leader,candidate,scheduled_at')):
         return Failover(index, data.get('leader'), data.get('member'), data.get('scheduled_at'))
 
 
-class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,members,failover')):
+class ClusterConfig(namedtuple('ClusterConfig', 'index,data,modify_index')):
+
+    @staticmethod
+    def from_node(index, data, modify_index=None):
+        """
+        >>> ClusterConfig.from_node(1, '{') is None
+        True
+        """
+
+        try:
+            data = json.loads(data)
+        except (TypeError, ValueError):
+            return None
+        return ClusterConfig(index, data, modify_index or index)
+
+
+class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operation,members,failover')):
 
     """Immutable object (namedtuple) which represents PostgreSQL cluster.
     Consists of the following fields:
     :param initialize: boolean, shows whether this cluster has initialization key stored in DC or not.
+    :param config: global dynamic configuration, reference to `ClusterConfig` object
     :param leader: `Leader` object which represents current leader of the cluster
     :param last_leader_operation: int or long object containing position of last known leader operation.
         This value is stored in `/optime/leader` key
@@ -192,19 +210,19 @@ class Cluster(namedtuple('Cluster', 'initialize,leader,last_leader_operation,mem
 class AbstractDCS(object):
 
     _INITIALIZE = 'initialize'
+    _CONFIG = 'config'
     _LEADER = 'leader'
     _FAILOVER = 'failover'
     _MEMBERS = 'members/'
     _OPTIME = 'optime'
     _LEADER_OPTIME = _OPTIME + '/' + _LEADER
 
-    def __init__(self, name, config):
+    def __init__(self, config):
         """
-        :param name: name of current instance (the same value as `~Postgresql.name`)
         :param config: dict, reference to config section of selected DCS.
             i.e.: `zookeeper` for zookeeper, `etcd` for etcd, etc...
         """
-        self._name = name
+        self._name = config['name']
         self._namespace = '/{0}'.format(config.get('namespace', '/service/').strip('/'))
         self._base_path = '/'.join([self._namespace, config['scope']])
 
@@ -218,6 +236,10 @@ class AbstractDCS(object):
     @property
     def initialize_path(self):
         return self.client_path(self._INITIALIZE)
+
+    @property
+    def config_path(self):
+        return self.client_path(self._CONFIG)
 
     @property
     def members_path(self):
@@ -238,6 +260,14 @@ class AbstractDCS(object):
     @property
     def leader_optime_path(self):
         return self.client_path(self._LEADER_OPTIME)
+
+    @abc.abstractmethod
+    def set_ttl(self, ttl):
+        """Set the new ttl value for leader key"""
+
+    @abc.abstractmethod
+    def set_retry_timeout(self, retry_timeout):
+        """Set the new value for retry_timeout"""
 
     @abc.abstractmethod
     def _load_cluster(self):
@@ -306,15 +336,19 @@ class AbstractDCS(object):
         if scheduled_at:
             failover_value['scheduled_at'] = scheduled_at.isoformat()
 
-        return self.set_failover_value(json.dumps(failover_value), index)
+        return self.set_failover_value(json.dumps(failover_value, separators=(',', ':')), index)
 
     @abc.abstractmethod
-    def touch_member(self, connection_string, ttl=None):
+    def set_config_value(self, value, index=None):
+        """Create or update `/config` key"""
+
+    @abc.abstractmethod
+    def touch_member(self, data, ttl=None):
         """Update member key in DCS.
         This method should create or update key with the name = '/members/' + `~self._name`
-        and value = connection_string in a given DCS.
+        and value = data in a given DCS.
 
-        :param connection_string: how this instance can be accessed by other instances
+        :param data: json serialized information about instance (including connection strings)
         :param ttl: ttl for member key, optional parameter. If it is None `~self.member_ttl will be used`
         :returns: `!True` on success otherwise `!False`
         """

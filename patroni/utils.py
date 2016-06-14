@@ -2,6 +2,7 @@ import datetime
 import os
 import random
 import signal
+import six
 import sys
 import time
 import pytz
@@ -31,6 +32,180 @@ def calculate_ttl(expiration):
         return None
     now = datetime.datetime.now(pytz.utc)
     return int((expiration - now).total_seconds())
+
+
+def deep_compare(obj1, obj2):
+    """
+    >>> deep_compare({'1': None}, {})
+    False
+    >>> deep_compare({'1': {}}, {'1': None})
+    False
+    >>> deep_compare({'1': [1]}, {'1': [2]})
+    False
+    >>> deep_compare({'1': 2}, {'1': '2'})
+    True
+    >>> deep_compare({'1': {'2': [3, 4]}}, {'1': {'2': [3, 4]}})
+    True
+    """
+
+    if set(list(obj1.keys())) != set(list(obj2.keys())):  # Objects have different sets of keys
+        return False
+
+    for key, value in obj1.items():
+        if isinstance(value, dict):
+            if not (isinstance(obj2[key], dict) and deep_compare(value, obj2[key])):
+                return False
+        elif str(value) != str(obj2[key]):
+            return False
+    return True
+
+
+def patch_config(config, data):
+    """recursively 'patch' `config` with `data`
+    :returns: `!True` if the `config` was changed"""
+    is_changed = False
+    for name, value in data.items():
+        if value is None:
+            if config.pop(name, None) is not None:
+                is_changed = True
+        elif name in config:
+            if isinstance(value, dict):
+                if isinstance(config[name], dict):
+                    if patch_config(config[name], value):
+                        is_changed = True
+                else:
+                    config[name] = value
+                    is_changed = True
+            elif str(config[name]) != str(value):
+                config[name] = value
+                is_changed = True
+        else:
+            config[name] = value
+            is_changed = True
+    return is_changed
+
+
+def parse_bool(value):
+    """
+    >>> parse_bool(1)
+    True
+    >>> parse_bool('off')
+    False
+    >>> parse_bool('foo')
+    """
+    value = str(value).lower()
+    if value in ('on', 'true', 'yes', '1'):
+        return True
+    if value in ('off', 'false', 'no', '0'):
+        return False
+
+
+def strtol(value, strict=True):
+    """As most as possible close equivalent of strtol(3) function (with base=0),
+       used by postgres to parse parameter values.
+    >>> strtol(1) == (1, '')
+    True
+    >>> strtol(' +0x400MB') == (1024, 'MB')
+    True
+    >>> strtol(' -070d') == (-56, 'd')
+    True
+    >>> strtol(' d ') == (None, 'd')
+    True
+    >>> strtol(' s ', False) == (1, 's')
+    True
+    """
+    value = str(value).strip()
+    l = len(value)
+    i = 0
+    # skip sign:
+    if i < l and value[i] in ('-', '+'):
+        i += 1
+
+    # we always expect to get digit in the beginning
+    if i < l and value[i].isdigit():
+        if value[i] == '0':
+            i += 1
+            if i < l and value[i] in ('x', 'X'):  # '0' followed by 'x': HEX
+                base = 16
+                i += 1
+            else:  # just starts with '0': OCT
+                base = 8
+        else:  # any other digit: DEC
+            base = 10
+
+        ret = None
+        while i < l:
+            try:  # try to find maximally long number
+                i += 1  # by giving to `int` longer and longer strings
+                ret = int(value[:i], base) if six.PY3 else long(value[:i], base)
+            except ValueError:  # until we will not get an exception or end of the string
+                i -= 1
+                break
+        if ret is not None:  # yay! there is a number in the beginning of the string
+            return ret, value[i:].strip()  # return the number and the "rest"
+
+    return (None if strict else 1), value.strip()
+
+
+def parse_int(value, base_unit=None):
+    """
+    >>> parse_int('1') == 1
+    True
+    >>> parse_int(' 0x400 MB ', '16384kB') == 64
+    True
+    >>> parse_int('1MB', 'kB') == 1024
+    True
+    >>> parse_int('1000 ms', 's') == 1
+    True
+    >>> parse_int('1GB', 'MB') is None
+    True
+    """
+
+    convert = {
+        'kB': {'kB': 1, 'MB': 1024, 'GB': 1024 * 1024, 'TB': 1024 * 1024 * 1024},
+        'ms': {'ms': 1, 's': 1000, 'min': 1000 * 60, 'h': 1000 * 60 * 60, 'd': 1000 * 60 * 60 * 24},
+        's': {'ms': -1000, 's': 1, 'min': 60, 'h': 60 * 60, 'd': 60 * 60 * 24},
+        'min': {'ms': -1000 * 60, 's': -60, 'min': 1, 'h': 60, 'd': 60 * 24}
+    }
+
+    value, unit = strtol(value)
+    if value is not None:
+        if not unit:
+            return value
+
+        if base_unit and base_unit not in convert:
+            base_value, base_unit = strtol(base_unit, False)
+        else:
+            base_value = 1
+        if base_unit in convert and unit in convert[base_unit]:
+            multiplier = convert[base_unit][unit]
+            if multiplier < 0:
+                value /= -multiplier
+            else:
+                value *= multiplier
+            return int(value/base_value)
+
+
+def compare_values(vartype, unit, old_value, new_value):
+    """
+    >>> compare_values('enum', None, 'remote_write', 'REMOTE_WRITE')
+    True
+    >>> compare_values('real', None, '1.23', 1.23)
+    True
+    """
+
+    # if the integer or bool new_value is not correct this function will return False
+    if vartype == 'bool':
+        old_value = parse_bool(old_value)
+        new_value = parse_bool(new_value)
+    elif vartype == 'integer':
+        old_value = parse_int(old_value)
+        new_value = parse_int(new_value, unit)
+    elif vartype == 'enum':
+        return str(old_value).lower() == str(new_value).lower()
+    else:  # ('string', 'real')
+        return str(old_value) == str(new_value)
+    return old_value is not None and new_value is not None and old_value == new_value
 
 
 def set_ignore_sigterm(value=True):
