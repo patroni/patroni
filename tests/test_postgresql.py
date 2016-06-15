@@ -396,6 +396,7 @@ class TestPostgresql(unittest.TestCase):
             self.p.remove_data_directory()
         self.p.remove_data_directory()
 
+    @patch('patroni.postgresql.Postgresql._version_file_exists', Mock(return_value=True))
     def test_controldata(self):
         with patch('subprocess.check_output', Mock(return_value=0, side_effect=pg_controldata_string)):
             data = self.p.controldata()
@@ -466,6 +467,7 @@ class TestPostgresql(unittest.TestCase):
         mock_unlink.assert_not_called()
         mock_remove.assert_not_called()
 
+    @patch('patroni.postgresql.Postgresql._version_file_exists', Mock(return_value=True))
     @patch('subprocess.check_output', MagicMock(return_value=0, side_effect=pg_controldata_string))
     def test_sysid(self):
         self.assertEqual(self.p.sysid, "6200971513092291716")

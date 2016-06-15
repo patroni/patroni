@@ -18,7 +18,7 @@ import yaml
 from click import ClickException
 from patroni.dcs import get_dcs as _get_dcs
 from patroni.exceptions import PatroniException
-from patroni.postgresql import parseurl
+from patroni.postgresql import get_conn_kwargs
 from prettytable import PrettyTable
 from six.moves.urllib_parse import urlparse
 
@@ -165,14 +165,13 @@ def watching(w, watch, max_count=None, clear=True):
         yield 0
 
 
-def build_connect_parameters(conn_url, connect_parameters=None):
-    params = (connect_parameters or {}).copy()
-    parsed = parseurl(conn_url)
-    params['host'] = parsed['host']
-    params['port'] = parsed['port']
-    params['fallback_application_name'] = 'Patroni ctl'
-    params['connect_timeout'] = '5'
-
+def build_connect_parameters(conn_url, connect_parameters):
+    params = get_conn_kwargs(conn_url, connect_parameters)
+    params.update({'fallback_application_name': 'Patroni ctl', 'connect_timeout': '5'})
+    if 'database' in connect_parameters:
+        params['database'] = connect_parameters['database']
+    else:
+        params.pop('database')
     return params
 
 
@@ -195,7 +194,7 @@ def get_any_member(cluster, role='master', member=None):
             return m
 
 
-def get_cursor(cluster, role='master', member=None, connect_parameters=None):
+def get_cursor(cluster, connect_parameters, role='master', member=None):
     member = get_any_member(cluster, role=role, member=member)
     if member is None:
         return None
@@ -237,7 +236,7 @@ def dsn(cluster_name, config_file, dcs, role, member):
     if m is None:
         raise PatroniCtlException('Can not find a suitable member')
 
-    params = build_connect_parameters(m.conn_url)
+    params = get_conn_kwargs(m.conn_url)
     click.echo('host={host} port={port}'.format(**params))
 
 
@@ -287,7 +286,7 @@ def query(
 
     connect_parameters = dict()
     if username:
-        connect_parameters['user'] = username
+        connect_parameters['username'] = username
     if password:
         connect_parameters['password'] = click.prompt('Password', hide_input=True, type=str)
     if dbname:
@@ -308,10 +307,10 @@ def query(
             cluster = dcs.get_cluster()
 
 
-def query_member(cluster, cursor, member, role, command, connect_parameters=None):
+def query_member(cluster, cursor, member, role, command, connect_parameters):
     try:
         if cursor is None:
-            cursor = get_cursor(cluster, role=role, member=member, connect_parameters=connect_parameters)
+            cursor = get_cursor(cluster, connect_parameters, role=role, member=member)
 
         if cursor is None:
             if role is None:
@@ -570,7 +569,7 @@ def output_members(cluster, name, fmt='pretty'):
         if m.name == leader_name:
             leader = '*'
 
-        host = build_connect_parameters(m.conn_url)['host']
+        host = get_conn_kwargs(m.conn_url)['host']
 
         xlog_location = m.data.get('xlog_location') or 0
         lag = ''
