@@ -70,6 +70,7 @@ while getopts "$optspec" optchar; do
     esac
 done
 
+## We start an etcd
 if [ -z ${ETCD_CLUSTER} ]
 then
     etcd --data-dir /tmp/etcd.data \
@@ -79,60 +80,32 @@ then
     ETCD_CLUSTER="127.0.0.1:4001"
 fi
 
-mkdir -p ~postgres/.config/patroni
-cat > ~postgres/.config/patroni/patronictl.yaml <<__EOF__
-{dcs_api: 'etcd://${ETCD_CLUSTER}', namespace: /service/}
-__EOF__
+export PATRONI_SCOPE
+export PATRONI_NAME="${HOSTNAME}"
+export PATRONI_ETCD_HOST="$ETCD_CLUSTER"
+export PATRONI_RESTAPI_CONNECT_ADDRESS="${DOCKER_IP}:8008"
+export PATRONI_RESTAPI_LISTEN="0.0.0.0:8008"
+export PATRONI_admin_PASSWORD="admin"
+export PATRONI_admin_OPTIONS="createdb, createrole"
+export PATRONI_POSTGRESQL_CONNECT_ADDRESS="${DOCKER_IP}:5432"
+export PATRONI_POSTGRESQL_LISTEN="0.0.0.0:5432"
+export PATRONI_POSTGRESQL_DATA_DIR="data/${PATRONI_SCOPE}"
+export PATRONI_REPLICATION_USERNAME="replicator"
+export PATRONI_REPLICATION_PASSWORD="abcd"
+export PATRONI_SUPERUSER_USERNAME="postgres"
+export PATRONI_SUPERUSER_PASSWORD="postgres"
+export PATRONI_POSTGRESQL_PGPASS="$HOME/.pgpass"
 
 cat > /patroni/postgres.yaml <<__EOF__
+bootstrap:
+  dcs:
+    postgresql:
+      use_pg_rewind: true
 
-ttl: &ttl 30
-loop_wait: &loop_wait 10
-scope: &scope '${PATRONI_SCOPE}'
-namespace: 'patroni'
-restapi:
-  listen: 0.0.0.0:8008
-  connect_address: ${DOCKER_IP}:8008
-etcd:
-  scope: *scope
-  ttl: *ttl
-  host: ${ETCD_CLUSTER}
-postgresql:
-  name: ${HOSTNAME}
-  scope: *scope
-  listen: 0.0.0.0:5432
-  connect_address: ${DOCKER_IP}:5432
-  data_dir: data/postgresql0
-  maximum_lag_on_failover: 1048576 # 1 megabyte in bytes
   pg_hba:
   - host all all 0.0.0.0/0 md5
-  - hostssl all all 0.0.0.0/0 md5
   - host replication replicator ${DOCKER_IP}/16    md5
-  replication:
-    username: replicator
-    password: rep-pass
-    network:  127.0.0.1/32
-  superuser:
-    password: zalando
-  restore: patroni/scripts/restore.py
-  admin:
-    username: admin
-    password: admin
-  parameters:
-    archive_mode: "on"
-    wal_level: hot_standby
-    archive_command: 'true'
-    max_wal_senders: 20
-    listen_addresses: 0.0.0.0
-    max_wal_size: 1GB
-    min_wal_size: 128MB
-    wal_keep_segments: 64
-    archive_timeout: 1800s
-    max_replication_slots: 20
-    hot_standby: "on"
 __EOF__
-
-cat /patroni/postgres.yaml
 
 if [ ! -z $CHEAT ]
 then
