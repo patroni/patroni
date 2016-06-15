@@ -3,11 +3,9 @@
 FROM ubuntu:16.04
 MAINTAINER Feike Steenbergen <feike.steenbergen@zalando.de>
 
-# We need curl
 RUN echo 'APT::Install-Recommends "0";' > /etc/apt/apt.conf.d/01norecommend
 RUN echo 'APT::Install-Suggests "0";' >> /etc/apt/apt.conf.d/01norecommend
 
-# Add PGDG repositories
 ENV PGVERSION 9.5
 RUN apt-get update -y \
     && apt-get upgrade -y \

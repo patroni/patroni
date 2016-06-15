@@ -107,6 +107,9 @@ bootstrap:
   - host replication replicator ${DOCKER_IP}/16    md5
 __EOF__
 
+mkdir -p "$HOME/.config/patroni"
+ln -s /patroni/postgres.yaml "$HOME/.config/patroni/patronictl.yaml"
+
 if [ ! -z $CHEAT ]
 then
     while :
