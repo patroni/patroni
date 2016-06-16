@@ -22,7 +22,7 @@ ACTION_ON_RELOAD = "on_reload"
 ACTION_ON_ROLE_CHANGE = "on_role_change"
 
 
-def parseurl(url):
+def get_conn_kwargs(url, auth=None):
     r = urlparse(url)
     ret = {
         'host': r.hostname,
@@ -32,10 +32,11 @@ def parseurl(url):
         'connect_timeout': 3,
         'options': '-c statement_timeout=2000',
     }
-    if r.username:
-        ret['user'] = r.username
-    if r.password:
-        ret['password'] = r.password
+    if auth and isinstance(auth, dict):
+        if 'username' in auth:
+            ret['user'] = auth['username']
+        if 'password' in auth:
+            ret['password'] = auth['password']
     return ret
 
 
@@ -148,8 +149,8 @@ class Postgresql(object):
 
     def resolve_connection_addresses(self):
         self._local_address = self.get_local_address()
-        self.connection_string = 'postgres://{username}:{password}@{connect_address}/{database}'.format(
-            connect_address=self._connect_address or self._local_address, database=self._database, **self._replication)
+        self.connection_string = 'postgres://{connect_address}/{database}'.format(
+            connect_address=self._connect_address or self._local_address, database=self._database)
 
     def reload_config(self, config):
         server_parameters = self.get_server_parameters(config)
@@ -248,7 +249,7 @@ class Postgresql(object):
         local_address = listen_addresses[0].strip()  # take first address from listen_addresses
 
         for la in listen_addresses:
-            if la.strip() in ('*', '0.0.0.0', '127.0.0.1', 'localhost'):  # we are listening on '*' or localhost
+            if la.strip().lower() in ('*', '0.0.0.0', '127.0.0.1', 'localhost'):  # we are listening on '*' or localhost
                 local_address = 'localhost'  # connection via localhost is preferred
                 break
         return local_address + ':' + self._server_parameters['port']
@@ -263,12 +264,7 @@ class Postgresql(object):
 
     @property
     def _connect_kwargs(self):
-        r = parseurl('postgres://{0}/{1}'.format(self._local_address, self._database))
-        if 'username' in self._superuser:
-            r['user'] = self._superuser['username']
-        if 'password' in self._superuser:
-            r['password'] = self._superuser['password']
-        return r
+        return get_conn_kwargs('postgres://{0}/{1}'.format(self._local_address, self._database), self._superuser)
 
     def connection(self):
         if not self._connection or self._connection.closed != 0:
@@ -392,7 +388,7 @@ class Postgresql(object):
         replica_methods = self.config.get('create_replica_method') or ['basebackup']
 
         if clone_member:
-            r = parseurl(clone_member.conn_url)
+            r = get_conn_kwargs(clone_member.conn_url, self._replication)
             connstring = 'postgres://{user}@{host}:{port}/{database}'.format(**r)
             # add the credentials to connect to the replica origin to pgpass.
             env = self.write_pgpass(r)
@@ -606,17 +602,17 @@ class Postgresql(object):
         with open(os.path.join(self._data_dir, 'pg_hba.conf'), 'a') as f:
             f.write('\n{}\n'.format('\n'.join(config)))
 
-    def primary_conninfo(self, leader_url):
-        r = parseurl(leader_url)
+    def primary_conninfo(self, node_to_follow_url):
+        r = get_conn_kwargs(node_to_follow_url, self._replication)
         r.update({'application_name': self.name, 'sslmode': 'prefer', 'sslcompression': '1'})
         keywords = 'user password host port sslmode sslcompression application_name'.split()
         return ' '.join('{0}={{{0}}}'.format(kw) for kw in keywords).format(**r)
 
-    def check_recovery_conf(self, leader):
+    def check_recovery_conf(self, node_to_follow):
         if not os.path.isfile(self._recovery_conf):
             return False
 
-        pattern = leader and leader.conn_url and self.primary_conninfo(leader.conn_url)
+        pattern = node_to_follow and node_to_follow.conn_url and self.primary_conninfo(node_to_follow.conn_url)
 
         with open(self._recovery_conf, 'r') as f:
             for line in f:
@@ -624,11 +620,11 @@ class Postgresql(object):
                     return pattern and (pattern in line)
         return not pattern
 
-    def write_recovery_conf(self, leader):
+    def write_recovery_conf(self, node_to_follow):
         with open(self._recovery_conf, 'w') as f:
             f.write("standby_mode = 'on'\nrecovery_target_timeline = 'latest'\n")
-            if leader and leader.conn_url:
-                f.write("primary_conninfo = '{0}'\n".format(self.primary_conninfo(leader.conn_url)))
+            if node_to_follow and node_to_follow.conn_url:
+                f.write("primary_conninfo = '{0}'\n".format(self.primary_conninfo(node_to_follow.conn_url)))
                 if self.use_slots:
                     f.write("primary_slot_name = '{0}'\n".format(self.name))
             for name, value in self.config.get('recovery_conf', {}).items():
@@ -637,10 +633,7 @@ class Postgresql(object):
 
     def rewind(self, leader):
         # prepare pg_rewind connection
-        r = parseurl(leader.conn_url)
-        r.update(self._superuser)
-        r['user'] = r.pop('username')
-        r['database'] = self._database
+        r = get_conn_kwargs(leader.conn_url, self._superuser)
         env = self.write_pgpass(r)
         pc = "user={user} host={host} port={port} dbname={database} sslmode=prefer sslcompression=1".format(**r)
         # first run a checkpoint on a promoted master in order
@@ -656,7 +649,8 @@ class Postgresql(object):
     def controldata(self):
         """ return the contents of pg_controldata, or non-True value if pg_controldata call failed """
         result = {}
-        if self.state != 'creating replica':  # Don't try to call pg_controldata during backup restore
+        # Don't try to call pg_controldata during backup restore
+        if self._version_file_exists() and self.state != 'creating replica':
             try:
                 data = subprocess.check_output(['pg_controldata', self._data_dir])
                 if data:
