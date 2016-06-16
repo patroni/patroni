@@ -11,11 +11,13 @@ import os
 import psycopg2
 import random
 import requests
+import sys
 import time
 import tzlocal
 import yaml
 
 from click import ClickException
+from patroni.config import Config
 from patroni.dcs import get_dcs as _get_dcs
 from patroni.exceptions import PatroniException
 from patroni.postgresql import get_conn_kwargs
@@ -56,14 +58,23 @@ def parse_dcs(dcs):
 
 def load_config(path, dcs):
     logging.debug('Loading configuration from file %s', path)
-    config = dict()
+    config = {}
+    old_argv = list(sys.argv)
     try:
-        with open(path, 'rb') as fd:
-            config = yaml.safe_load(fd)
-    except (IOError, yaml.YAMLError):
-        logging.exception('Could not load configuration file')
+        sys.argv[1] = path
+        if Config.PATRONI_CONFIG_VARIABLE not in os.environ:
+            for p in ('PATRONI_RESTAPI_LISTEN', 'PATRONI_POSTGRESQL_DATA_DIR'):
+                if p not in os.environ:
+                    os.environ[p] = '.'
+        config = Config().copy()
+    finally:
+        sys.argv = old_argv
 
-    config.update(parse_dcs(dcs) or parse_dcs(config.get('dcs_api')) or {})
+    dcs = parse_dcs(dcs) or parse_dcs(config.get('dcs_api')) or {}
+    if dcs:
+        for d in DCS_DEFAULTS:
+            config.pop(d, None)
+        config.update(dcs)
 
     return config
 

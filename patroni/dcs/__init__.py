@@ -31,22 +31,22 @@ def parse_connection_string(value):
 
 
 def get_dcs(config):
-    available_implementations = []
-    for name in os.listdir(os.path.dirname(__file__)):
-        if name.endswith('.py') and not name.startswith('__'):  # find module
-            module = importlib.import_module(__package__ + '.' + name[:-3])
-            for name in dir(module):  # iterate through module content
-                if not name.startswith('__'):  # skip internal stuff
-                    value = getattr(module, name)
-                    name = name.lower()
-                    # try to find implementation of AbstractDCS interface
-                    if inspect.isclass(value) and issubclass(value, AbstractDCS):
-                        available_implementations.append(name)
-                        if name in config:  # which has configuration section in the config file
-                            # propagate some parameters
-                            config[name].update({p: config[p] for p in ('namespace', 'name',
-                                                 'scope', 'ttl', 'retry_timeout') if p in config})
-                            return value(config[name])
+    available_implementations = set()
+    for module in os.listdir(os.path.dirname(__file__)):
+        if module.endswith('.py') and not module.startswith('__'):  # find module
+            module_name = module[:-3].lower()
+            module = importlib.import_module(__package__ + '.' + module[:-3])
+            for name in filter(lambda name: not name.startswith('__'), dir(module)):  # iterate through module content
+                value = getattr(module, name)
+                name = name.lower()
+                # try to find implementation of AbstractDCS interface, class name must match with module_name
+                if inspect.isclass(value) and issubclass(value, AbstractDCS) and name == module_name:
+                    available_implementations.add(name)
+                    if name in config:  # which has configuration section in the config file
+                        # propagate some parameters
+                        config[name].update({p: config[p] for p in ('namespace', 'name',
+                                             'scope', 'ttl', 'retry_timeout') if p in config})
+                        return value(config[name])
     raise PatroniException("""Can not find suitable configuration of distributed configuration store
 Available implementations: """ + ', '.join(available_implementations))
 
