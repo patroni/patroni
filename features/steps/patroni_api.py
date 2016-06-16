@@ -95,7 +95,7 @@ def do_run(context, cmd):
     except subprocess.CalledProcessError as e:
         response = e.output
         context.status_code = e.returncode
-    context.response = response.strip()
+    context.response = response.decode('utf-8').strip()
 
 
 @then('I receive a response {component:w} {data}')
