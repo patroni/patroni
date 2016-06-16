@@ -118,6 +118,7 @@ class PatroniController(AbstractController):
 
         with open(patroni_config_name) as f:
             config = yaml.safe_load(f)
+            config.pop('etcd')
 
         host = config['postgresql']['listen'].split(':')[0]
 
@@ -138,16 +139,6 @@ class PatroniController(AbstractController):
 
         if tags:
             config['tags'] = tags
-
-        if dcs != 'etcd':
-            dcs_config = config.pop('etcd')
-            dcs_config.pop('host')
-
-            if dcs == 'exhibitor':
-                dcs_config.update({'hosts': ['127.0.0.1'], 'port': 8181})
-            elif dcs == 'zookeeper':
-                dcs_config['hosts'] = ['127.0.0.1:2181']
-            config[dcs] = dcs_config
 
         with open(patroni_config_path, 'w') as f:
             yaml.safe_dump(config, f, default_flow_style=False)
@@ -220,6 +211,7 @@ class ConsulController(AbstractDcsController):
 
     def __init__(self, output_dir):
         super(ConsulController, self).__init__('consul', tempfile.mkdtemp(), output_dir)
+        os.environ['PATRONI_CONSUL_HOST'] = 'localhost:8500'
         self._client = consul.Consul()
 
     def _start(self):
@@ -252,6 +244,7 @@ class EtcdController(AbstractDcsController):
 
     def __init__(self, output_dir):
         super(EtcdController, self).__init__('etcd', tempfile.mkdtemp(), output_dir)
+        os.environ['PATRONI_ETCD_HOST'] = 'localhost:4001'
         self._client = etcd.Client()
 
     def _start(self):
@@ -287,8 +280,10 @@ class ZooKeeperController(AbstractDcsController):
 
     """ handles all zookeeper related tasks, used for the tests setup and cleanup """
 
-    def __init__(self, output_dir):
+    def __init__(self, output_dir, export_env=True):
         super(ZooKeeperController, self).__init__('zookeeper', None, output_dir)
+        if export_env:
+            os.environ['PATRONI_ZOOKEEPER_HOSTS'] = 'localhost:2181'
         self._client = kazoo.client.KazooClient()
 
     def _start(self):
@@ -321,10 +316,17 @@ class ZooKeeperController(AbstractDcsController):
             return False
 
 
+class ExhibitorController(ZooKeeperController):
+
+    def __init__(self, output_dir):
+        super(ExhibitorController, self).__init__(output_dir, False)
+        os.environ.update({'PATRONI_EXHIBITOR_HOSTS': 'localhost', 'PATRONI_EXHIBITOR_PORT': '8181'})
+
+
 class PatroniPoolController(object):
 
     KNOWN_DCS = {'consul': ConsulController, 'etcd': EtcdController,
-                 'zookeeper': ZooKeeperController, 'exhibitor': ZooKeeperController}
+                 'zookeeper': ZooKeeperController, 'exhibitor': ExhibitorController}
 
     def __init__(self):
         self._dcs = None
@@ -376,8 +378,8 @@ class PatroniPoolController(object):
     @property
     def dcs(self):
         if self._dcs is None:
-            self._dcs = os.environ.get('DCS', 'etcd')
-            assert self._dcs in self.KNOWN_DCS, 'Unsupported dcs: ' + self.dcs
+            self._dcs = os.environ.pop('DCS', 'etcd')
+            assert self._dcs in self.KNOWN_DCS, 'Unsupported dcs: ' + self._dcs
         return self._dcs
 
 
