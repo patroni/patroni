@@ -1,7 +1,7 @@
 import etcd
 import os
-import pytest
-import requests.exceptions
+import requests
+import sys
 import unittest
 
 from click.testing import CliRunner
@@ -19,28 +19,13 @@ CONFIG_FILE_PATH = './test-ctl.yaml'
 
 def test_rw_config():
     runner = CliRunner()
-    config = {'a': 'b'}
     with runner.isolated_filesystem():
-        store_config(config, CONFIG_FILE_PATH + '/dummy')
+        store_config({'etcd': {'host': 'localhost:2379'}}, CONFIG_FILE_PATH + '/dummy')
+        sys.argv = ['patronictl.py', '']
+        load_config(CONFIG_FILE_PATH + '/dummy', None)
+        load_config(CONFIG_FILE_PATH + '/dummy', '0.0.0.0')
         os.remove(CONFIG_FILE_PATH + '/dummy')
         os.rmdir(CONFIG_FILE_PATH)
-
-        with pytest.raises(Exception):
-            result = load_config(CONFIG_FILE_PATH, None)
-            assert 'Could not load configuration file' in result.output
-
-        os.mkdir(CONFIG_FILE_PATH)
-        with pytest.raises(Exception):
-            store_config(config, CONFIG_FILE_PATH)
-
-        os.rmdir(CONFIG_FILE_PATH)
-
-    store_config(config, CONFIG_FILE_PATH)
-    load_config(CONFIG_FILE_PATH, None)
-    load_config(CONFIG_FILE_PATH, '0.0.0.0')
-
-    store_config({'dcs_api': None}, CONFIG_FILE_PATH)
-    load_config(CONFIG_FILE_PATH, None)
 
 
 @patch('patroni.ctl.load_config', Mock(return_value={'etcd': {'host': 'localhost:4001'}}))
