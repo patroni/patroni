@@ -8,7 +8,7 @@ from patroni.dcs import get_dcs
 from patroni.exceptions import DCSError
 from patroni.ha import Ha
 from patroni.postgresql import Postgresql
-from patroni.utils import reap_children, set_ignore_sigterm, setup_signal_handlers
+from patroni.utils import reap_children, sigchld_handler
 from patroni.version import __version__
 
 logger = logging.getLogger(__name__)
@@ -32,6 +32,7 @@ class Patroni(object):
 
         self._reload_config_scheduled = False
         self._received_sighup = False
+        self._received_sigterm = False
 
     def load_dynamic_configuration(self):
         while True:
@@ -63,6 +64,9 @@ class Patroni(object):
     def sighup_handler(self, *args):
         self._received_sighup = True
 
+    def sigterm_handler(self, *args):
+        self._received_sigterm = True
+
     @property
     def noloadbalance(self):
         return self.tags.get('noloadbalance', False)
@@ -86,10 +90,9 @@ class Patroni(object):
 
     def run(self):
         self.api.start()
-        signal.signal(signal.SIGHUP, self.sighup_handler)
         self.next_run = time.time()
 
-        while True:
+        while not self._received_sigterm:
             if self._received_sighup:
                 self._received_sighup = False
                 if self.config.reload_local_configuration():
@@ -107,17 +110,22 @@ class Patroni(object):
             reap_children()
             self.schedule_next_run()
 
+    def setup_signal_handlers(self):
+        signal.signal(signal.SIGHUP, self.sighup_handler)
+        signal.signal(signal.SIGHUP, self.sigterm_handler)
+        signal.signal(signal.SIGCHLD, sigchld_handler)
+
 
 def main():
     logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
     logging.getLogger('requests').setLevel(logging.WARNING)
-    setup_signal_handlers()
 
     patroni = Patroni()
+    patroni.setup_signal_handlers()
     try:
         patroni.run()
     except KeyboardInterrupt:
-        set_ignore_sigterm()
+        pass
     finally:
         patroni.api.shutdown()
         patroni.postgresql.stop(checkpoint=False)

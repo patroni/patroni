@@ -1,16 +1,13 @@
 import datetime
 import os
 import random
-import signal
 import six
-import sys
 import time
 import pytz
 import dateutil.parser
 
 from patroni.exceptions import PatroniException
 
-__ignore_sigterm = False
 __interrupted_sleep = False
 __reap_children = False
 
@@ -208,17 +205,6 @@ def compare_values(vartype, unit, old_value, new_value):
     return old_value is not None and new_value is not None and old_value == new_value
 
 
-def set_ignore_sigterm(value=True):
-    global __ignore_sigterm
-    __ignore_sigterm = value
-
-
-def sigterm_handler(signo, stack_frame):
-    if not __ignore_sigterm:
-        set_ignore_sigterm()
-        sys.exit()
-
-
 def sigchld_handler(signo, stack_frame):
     global __interrupted_sleep, __reap_children
     __reap_children = __interrupted_sleep = True
@@ -235,11 +221,6 @@ def sleep(interval):
             break
         current_time = time.time()
     __interrupted_sleep = False
-
-
-def setup_signal_handlers():
-    signal.signal(signal.SIGTERM, sigterm_handler)
-    signal.signal(signal.SIGCHLD, sigchld_handler)
 
 
 def reap_children():
