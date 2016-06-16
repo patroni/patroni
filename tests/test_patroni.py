@@ -69,7 +69,7 @@ class TestPatroni(unittest.TestCase):
             self.assertRaises(SleepException, self.p.run)
 
     def test_sigterm_handler(self):
-        self.p.sigterm_handler()
+        self.assertRaises(SystemExit, self.p.sigterm_handler)
 
     def test_schedule_next_run(self):
         self.p.ha.dcs.watch = Mock(return_value=True)

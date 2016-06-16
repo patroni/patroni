@@ -1,5 +1,6 @@
 import logging
 import signal
+import sys
 import time
 
 from patroni.api import RestApiServer
@@ -65,7 +66,9 @@ class Patroni(object):
         self._received_sighup = True
 
     def sigterm_handler(self, *args):
-        self._received_sigterm = True
+        if not self._received_sigterm:
+            self._received_sigterm = True
+            sys.exit()
 
     @property
     def noloadbalance(self):
@@ -112,7 +115,7 @@ class Patroni(object):
 
     def setup_signal_handlers(self):
         signal.signal(signal.SIGHUP, self.sighup_handler)
-        signal.signal(signal.SIGHUP, self.sigterm_handler)
+        signal.signal(signal.SIGTERM, self.sigterm_handler)
         signal.signal(signal.SIGCHLD, sigchld_handler)
 
 
