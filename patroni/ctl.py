@@ -2,6 +2,7 @@
 Patroni Control
 '''
 
+import base64
 import click
 import datetime
 import dateutil
@@ -102,11 +103,19 @@ def get_dcs(config, scope):
         raise PatroniCtlException(str(e))
 
 
+def auth_header(config):
+    if config.get('restapi', {}).get('auth', ''):
+        return {'Authorization': 'Basic ' + base64.b64encode(config['restapi']['auth'].encode('utf-8')).decode('utf-8')}
+
+
 def post_patroni(member, endpoint, content, headers=None):
+    headers = headers or {}
     url = urlparse(member.api_url)
     logging.debug(url)
+    if 'Content-Type' not in headers:
+        headers['Content-Type'] = 'application/json'
     return requests.post('{0}://{1}/{2}'.format(url.scheme, url.netloc, endpoint),
-                         headers=headers or {'Content-Type': 'application/json'},
+                         headers=headers,
                          data=json.dumps(content), timeout=60)
 
 
@@ -122,10 +131,7 @@ def print_output(columns, rows=None, alignment=None, fmt='pretty', header=True, 
         return
 
     if fmt == 'json':
-        elements = list()
-        for r in rows:
-            elements.append(dict(zip(columns, r)))
-
+        elements = [dict(zip(columns, r)) for r in rows]
         click.echo(json.dumps(elements))
 
     if fmt == 'tsv':
@@ -382,17 +388,15 @@ def wait_for_leader(dcs, timeout=30):
     raise PatroniCtlException('Timeout occured')
 
 
-def empty_post_to_members(cluster, member_names, force, endpoint):
-    candidates = dict()
-    for m in cluster.members:
-        candidates[m.name] = m
+def empty_post_to_members(cluster, member_names, force, endpoint, headers=None):
+    candidates = {m.name: m for m in cluster.members}
 
     if not member_names:
         member_names = [click.prompt('Which member do you want to {0} [{1}]?'.format(endpoint,
                         ', '.join(candidates.keys())), type=str, default='')]
 
     for mn in member_names:
-        if mn not in candidates.keys():
+        if mn not in candidates:
             raise PatroniCtlException('{0} is not a member of cluster'.format(mn))
 
     if not force:
@@ -401,7 +405,7 @@ def empty_post_to_members(cluster, member_names, force, endpoint):
             raise PatroniCtlException('Aborted {0}'.format(endpoint))
 
     for mn in member_names:
-        r = post_patroni(candidates[mn], endpoint, '')
+        r = post_patroni(candidates[mn], endpoint, '', headers)
         if r.status_code != 200:
             click.echo('{0} failed for member {1}, status code={2}, ({3})'.format(endpoint, mn, r.status_code, r.text))
         else:
@@ -426,7 +430,7 @@ def ctl_load_config(cluster_name, config_file, dcs):
 @option_force
 @option_dcs
 def restart(cluster_name, member_names, config_file, dcs, force, role, p_any):
-    _, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
     role_names = [m.name for m in get_all_members(cluster, role)]
 
@@ -440,7 +444,7 @@ def restart(cluster_name, member_names, config_file, dcs, force, role, p_any):
         member_names = member_names[:1]
 
     output_members(cluster, cluster_name)
-    empty_post_to_members(cluster, member_names, force, 'restart')
+    empty_post_to_members(cluster, member_names, force, 'restart', auth_header(config))
 
 
 @ctl.command('reinit', help='Reinitialize cluster member')
@@ -450,8 +454,8 @@ def restart(cluster_name, member_names, config_file, dcs, force, role, p_any):
 @option_force
 @option_dcs
 def reinit(cluster_name, member_names, config_file, dcs, force):
-    _, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
-    empty_post_to_members(cluster, member_names, force, 'reinitialize')
+    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+    empty_post_to_members(cluster, member_names, force, 'reinitialize', auth_header(config))
 
 
 @ctl.command('failover', help='Failover to a replica')
@@ -471,7 +475,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
         If so, we trigger a failover and keep the client up to date.
     """
 
-    _, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
     if cluster.leader is None:
         raise PatroniCtlException('This cluster has no master')
@@ -533,7 +537,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
 
     r = None
     try:
-        r = post_patroni(cluster.leader.member, 'failover', failover_value)
+        r = post_patroni(cluster.leader.member, 'failover', failover_value, auth_header(config))
         if r.status_code in (200, 202):
             logging.debug(r)
             cluster = dcs.get_cluster()

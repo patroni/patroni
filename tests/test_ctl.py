@@ -43,7 +43,7 @@ def test_rw_config():
     load_config(CONFIG_FILE_PATH, None)
 
 
-@patch('patroni.ctl.load_config', Mock(return_value={'etcd': {'host': 'localhost:4001'}}))
+@patch('patroni.ctl.load_config', Mock(return_value={'restapi': {'auth': 'u:p'}, 'etcd': {'host': 'localhost:4001'}}))
 class TestCtl(unittest.TestCase):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
