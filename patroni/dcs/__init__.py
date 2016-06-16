@@ -31,7 +31,7 @@ def parse_connection_string(value):
 
 
 def get_dcs(config):
-    available_implementations = []
+    available_implementations = set()
     for name in os.listdir(os.path.dirname(__file__)):
         if name.endswith('.py') and not name.startswith('__'):  # find module
             module = importlib.import_module(__package__ + '.' + name[:-3])
@@ -40,8 +40,8 @@ def get_dcs(config):
                     value = getattr(module, name)
                     name = name.lower()
                     # try to find implementation of AbstractDCS interface
-                    if inspect.isclass(value) and issubclass(value, AbstractDCS):
-                        available_implementations.append(name)
+                    if inspect.isclass(value) and issubclass(value, AbstractDCS) and value != AbstractDCS:
+                        available_implementations.add(name)
                         if name in config:  # which has configuration section in the config file
                             # propagate some parameters
                             config[name].update({p: config[p] for p in ('namespace', 'name',
