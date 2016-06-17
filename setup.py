@@ -33,7 +33,7 @@ LICENSE = 'The MIT License'
 URL = 'https://github.com/zalando/patroni'
 AUTHOR = 'Alexander Kukushkin, Oleksii Kliukin, Feike Steenbergen'
 AUTHOR_EMAIL = 'alexander.kukushkin@zalando.de, oleksii.kliukin@zalando.de, feike.steenbergen@zalando.de'
-KEYWORDS = 'etcd governor patroni postgresql postgres ha zookeeper streaming replication'
+KEYWORDS = 'etcd governor patroni postgresql postgres ha haproxy confd zookeeper exhibitor consul streaming replication'
 
 COVERAGE_XML = True
 COVERAGE_HTML = False
