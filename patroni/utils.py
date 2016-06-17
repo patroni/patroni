@@ -1,34 +1,15 @@
-import datetime
 import os
 import random
-import six
+import sys
 import time
-import pytz
-import dateutil.parser
 
 from patroni.exceptions import PatroniException
 
+if sys.hexversion >= 0x0300000:
+    long = int
+
 __interrupted_sleep = False
 __reap_children = False
-
-
-def calculate_ttl(expiration):
-    """
-    >>> calculate_ttl(None)
-    >>> calculate_ttl('2015-06-10 12:56:30.552539016Z') < 0
-    True
-    >>> calculate_ttl('2015-06-10T12:56:30.552539016Z') < 0
-    True
-    >>> calculate_ttl('fail-06-10T12:56:30.552539016Z')
-    """
-    if not expiration:
-        return None
-    try:
-        expiration = dateutil.parser.parse(expiration)
-    except (ValueError, TypeError):
-        return None
-    now = datetime.datetime.now(pytz.utc)
-    return int((expiration - now).total_seconds())
 
 
 def deep_compare(obj1, obj2):
@@ -134,7 +115,7 @@ def strtol(value, strict=True):
         while i < l:
             try:  # try to find maximally long number
                 i += 1  # by giving to `int` longer and longer strings
-                ret = int(value[:i], base) if six.PY3 else long(value[:i], base)
+                ret = long(value[:i], base)
             except ValueError:  # until we will not get an exception or end of the string
                 i -= 1
                 break

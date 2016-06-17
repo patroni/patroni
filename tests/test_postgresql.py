@@ -336,7 +336,9 @@ class TestPostgresql(unittest.TestCase):
 
     @patch('os.path.isfile', Mock(return_value=True))
     @patch('os.kill', Mock(side_effect=Exception))
-    @patch.object(builtins, 'open', mock_open(read_data='-999999999999999'))
+    @patch('os.getpid', Mock(return_value=2))
+    @patch('os.getppid', Mock(return_value=2))
+    @patch.object(builtins, 'open', mock_open(read_data='-1'))
     @patch.object(Postgresql, '_version_file_exists', Mock(return_value=True))
     def test_is_running(self):
         self.assertFalse(self.p.is_running())

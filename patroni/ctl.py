@@ -5,7 +5,7 @@ Patroni Control
 import base64
 import click
 import datetime
-import dateutil
+import dateutil.parser
 import json
 import logging
 import os
