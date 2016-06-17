@@ -1,12 +1,15 @@
 import datetime
 import os
 import random
-import six
+import sys
 import time
 import pytz
 import dateutil.parser
 
 from patroni.exceptions import PatroniException
+
+if sys.hexversion >= 0x03000000:
+    long = int
 
 __interrupted_sleep = False
 __reap_children = False
@@ -134,7 +137,7 @@ def strtol(value, strict=True):
         while i < l:
             try:  # try to find maximally long number
                 i += 1  # by giving to `int` longer and longer strings
-                ret = int(value[:i], base) if six.PY3 else long(value[:i], base)
+                ret = long(value[:i], base)
             except ValueError:  # until we will not get an exception or end of the string
                 i -= 1
                 break
