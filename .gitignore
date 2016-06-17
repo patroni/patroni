@@ -9,3 +9,4 @@ build/
 coverage.xml
 junit.xml
 pgpass
+scm-source.json
