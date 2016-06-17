@@ -83,7 +83,7 @@ echo "The etcd container is ${etcd_container}, ip=${etcd_container_ip}"
 
 for i in $(seq 1 "${MEMBERS}")
 do
-    container_name=$(random_name)
+    container_name=postgres${i}
     patroni_container=$(docker run -P -d -e "PATRONI_NAME=${container_name}" -e "PATRONI_ETCD_HOST=${etcd_container_ip}:4001" --name="${PATRONI_SCOPE}_${container_name}" "${DOCKER_IMAGE}" --etcd="${etcd_container_ip}:4001" --name="${PATRONI_SCOPE}")
     patroni_container_ip=$(docker inspect --format '{{ .NetworkSettings.IPAddress }}' ${patroni_container})
     echo "Started Patroni container ${patroni_container}, ip=${patroni_container_ip}"
