@@ -29,6 +29,10 @@ while getopts "$optspec" optchar; do
         -)
             case "${OPTARG}" in
                 etcd-only)
+                    (while sleep 1; do
+                        confd -prefix=/service/$PATRONI_SCOPE -backend etcd -node 127.0.0.1:4001 \
+                            -interval=10 >> /var/log/confd.log 2>> /var/log/confd.err
+                    done) &
                     exec etcd --data-dir /tmp/etcd.data \
                         -advertise-client-urls=http://${DOCKER_IP}:4001 \
                         -listen-client-urls=http://0.0.0.0:4001 \
@@ -81,7 +85,7 @@ then
 fi
 
 export PATRONI_SCOPE
-export PATRONI_NAME="${HOSTNAME}"
+export PATRONI_NAME="${PATRONI_NAME:-${HOSTNAME}}"
 export PATRONI_ETCD_HOST="$ETCD_CLUSTER"
 export PATRONI_RESTAPI_CONNECT_ADDRESS="${DOCKER_IP}:8008"
 export PATRONI_RESTAPI_LISTEN="0.0.0.0:8008"
