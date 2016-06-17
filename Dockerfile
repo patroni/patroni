@@ -31,8 +31,7 @@ RUN curl -L https://github.com/kelseyhightower/confd/releases/download/v${CONFDV
 ADD patronictl.py patroni.py docker/entrypoint.sh /
 ADD patroni /patroni/
 ADD extras/confd /etc/confd
-RUN    ln -s /ppatroni.py /usr/local/bin/patroni \
-    && ln -s /patronictl.py /usr/local/bin/patronictl
+RUN ln -s /patronictl.py /usr/local/bin/patronictl
 
 ### Setting up a simple script that will serve as an entrypoint
 RUN mkdir /data/ && touch /pgpass /patroni/postgres.yml /var/run/haproxy.pid \
