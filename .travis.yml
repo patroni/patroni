@@ -51,7 +51,7 @@ install:
     for pv in "2.7" "3.4" "3.5"; do
         source ~/virtualenv/python${pv}/bin/activate
         # explicitly install all needed python modules to cache them
-        for p in '-r requirements.txt' 'behave codacy-coverage coverage coveralls flake8 mock pytest-cov pytest'; do
+        for p in '-r requirements.txt' 'behave codacy-coverage coverage coveralls flake8 mock>=2.0.0 pytest-cov pytest'; do
             pip install $p
         done
     done
