@@ -66,8 +66,7 @@ class Config(object):
                       format(self.PATRONI_CONFIG_VARIABLE))
                 exit(1)
 
-        self.__effective_configuration = self._build_effective_configuration(self._dynamic_configuration,
-                                                                             self._local_configuration)
+        self.__effective_configuration = self._build_effective_configuration({}, self._local_configuration)
         self._data_dir = self.__effective_configuration['postgresql']['data_dir']
         self._cache_file = os.path.join(self._data_dir, self.__CACHE_FILENAME)
         self._load_cache()
@@ -202,7 +201,7 @@ class Config(object):
                 value = _popenv(name + '_' + param)
                 if value:
                     ret[param] = value
-            return len(ret) == 2 and ret or None
+            return ret
 
         restapi_auth = _get_auth('restapi')
         if restapi_auth:
@@ -306,3 +305,6 @@ class Config(object):
 
     def __getitem__(self, key):
         return self.__effective_configuration[key]
+
+    def copy(self):
+        return deepcopy(self.__effective_configuration)

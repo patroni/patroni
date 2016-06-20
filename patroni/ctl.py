@@ -2,23 +2,26 @@
 Patroni Control
 '''
 
+import base64
 import click
 import datetime
-import dateutil
+import dateutil.parser
 import json
 import logging
 import os
 import psycopg2
 import random
 import requests
+import sys
 import time
 import tzlocal
 import yaml
 
 from click import ClickException
+from patroni.config import Config
 from patroni.dcs import get_dcs as _get_dcs
 from patroni.exceptions import PatroniException
-from patroni.postgresql import parseurl
+from patroni.postgresql import get_conn_kwargs
 from prettytable import PrettyTable
 from six.moves.urllib_parse import urlparse
 
@@ -56,14 +59,23 @@ def parse_dcs(dcs):
 
 def load_config(path, dcs):
     logging.debug('Loading configuration from file %s', path)
-    config = dict()
+    config = {}
+    old_argv = list(sys.argv)
     try:
-        with open(path, 'rb') as fd:
-            config = yaml.safe_load(fd)
-    except (IOError, yaml.YAMLError):
-        logging.exception('Could not load configuration file')
+        sys.argv[1] = path
+        if Config.PATRONI_CONFIG_VARIABLE not in os.environ:
+            for p in ('PATRONI_RESTAPI_LISTEN', 'PATRONI_POSTGRESQL_DATA_DIR'):
+                if p not in os.environ:
+                    os.environ[p] = '.'
+        config = Config().copy()
+    finally:
+        sys.argv = old_argv
 
-    config.update(parse_dcs(dcs) or parse_dcs(config.get('dcs_api')) or {})
+    dcs = parse_dcs(dcs) or parse_dcs(config.get('dcs_api')) or {}
+    if dcs:
+        for d in DCS_DEFAULTS:
+            config.pop(d, None)
+        config.update(dcs)
 
     return config
 
@@ -102,11 +114,19 @@ def get_dcs(config, scope):
         raise PatroniCtlException(str(e))
 
 
+def auth_header(config):
+    if config.get('restapi', {}).get('auth', ''):
+        return {'Authorization': 'Basic ' + base64.b64encode(config['restapi']['auth'].encode('utf-8')).decode('utf-8')}
+
+
 def post_patroni(member, endpoint, content, headers=None):
+    headers = headers or {}
     url = urlparse(member.api_url)
     logging.debug(url)
+    if 'Content-Type' not in headers:
+        headers['Content-Type'] = 'application/json'
     return requests.post('{0}://{1}/{2}'.format(url.scheme, url.netloc, endpoint),
-                         headers=headers or {'Content-Type': 'application/json'},
+                         headers=headers,
                          data=json.dumps(content), timeout=60)
 
 
@@ -122,10 +142,7 @@ def print_output(columns, rows=None, alignment=None, fmt='pretty', header=True, 
         return
 
     if fmt == 'json':
-        elements = list()
-        for r in rows:
-            elements.append(dict(zip(columns, r)))
-
+        elements = [dict(zip(columns, r)) for r in rows]
         click.echo(json.dumps(elements))
 
     if fmt == 'tsv':
@@ -165,14 +182,13 @@ def watching(w, watch, max_count=None, clear=True):
         yield 0
 
 
-def build_connect_parameters(conn_url, connect_parameters=None):
-    params = (connect_parameters or {}).copy()
-    parsed = parseurl(conn_url)
-    params['host'] = parsed['host']
-    params['port'] = parsed['port']
-    params['fallback_application_name'] = 'Patroni ctl'
-    params['connect_timeout'] = '5'
-
+def build_connect_parameters(conn_url, connect_parameters):
+    params = get_conn_kwargs(conn_url, connect_parameters)
+    params.update({'fallback_application_name': 'Patroni ctl', 'connect_timeout': '5'})
+    if 'database' in connect_parameters:
+        params['database'] = connect_parameters['database']
+    else:
+        params.pop('database')
     return params
 
 
@@ -195,7 +211,7 @@ def get_any_member(cluster, role='master', member=None):
             return m
 
 
-def get_cursor(cluster, role='master', member=None, connect_parameters=None):
+def get_cursor(cluster, connect_parameters, role='master', member=None):
     member = get_any_member(cluster, role=role, member=member)
     if member is None:
         return None
@@ -237,7 +253,7 @@ def dsn(cluster_name, config_file, dcs, role, member):
     if m is None:
         raise PatroniCtlException('Can not find a suitable member')
 
-    params = build_connect_parameters(m.conn_url)
+    params = get_conn_kwargs(m.conn_url)
     click.echo('host={host} port={port}'.format(**params))
 
 
@@ -287,7 +303,7 @@ def query(
 
     connect_parameters = dict()
     if username:
-        connect_parameters['user'] = username
+        connect_parameters['username'] = username
     if password:
         connect_parameters['password'] = click.prompt('Password', hide_input=True, type=str)
     if dbname:
@@ -308,10 +324,10 @@ def query(
             cluster = dcs.get_cluster()
 
 
-def query_member(cluster, cursor, member, role, command, connect_parameters=None):
+def query_member(cluster, cursor, member, role, command, connect_parameters):
     try:
         if cursor is None:
-            cursor = get_cursor(cluster, role=role, member=member, connect_parameters=connect_parameters)
+            cursor = get_cursor(cluster, connect_parameters, role=role, member=member)
 
         if cursor is None:
             if role is None:
@@ -382,17 +398,15 @@ def wait_for_leader(dcs, timeout=30):
     raise PatroniCtlException('Timeout occured')
 
 
-def empty_post_to_members(cluster, member_names, force, endpoint):
-    candidates = dict()
-    for m in cluster.members:
-        candidates[m.name] = m
+def empty_post_to_members(cluster, member_names, force, endpoint, headers=None):
+    candidates = {m.name: m for m in cluster.members}
 
     if not member_names:
         member_names = [click.prompt('Which member do you want to {0} [{1}]?'.format(endpoint,
                         ', '.join(candidates.keys())), type=str, default='')]
 
     for mn in member_names:
-        if mn not in candidates.keys():
+        if mn not in candidates:
             raise PatroniCtlException('{0} is not a member of cluster'.format(mn))
 
     if not force:
@@ -401,7 +415,7 @@ def empty_post_to_members(cluster, member_names, force, endpoint):
             raise PatroniCtlException('Aborted {0}'.format(endpoint))
 
     for mn in member_names:
-        r = post_patroni(candidates[mn], endpoint, '')
+        r = post_patroni(candidates[mn], endpoint, '', headers)
         if r.status_code != 200:
             click.echo('{0} failed for member {1}, status code={2}, ({3})'.format(endpoint, mn, r.status_code, r.text))
         else:
@@ -426,7 +440,7 @@ def ctl_load_config(cluster_name, config_file, dcs):
 @option_force
 @option_dcs
 def restart(cluster_name, member_names, config_file, dcs, force, role, p_any):
-    _, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
     role_names = [m.name for m in get_all_members(cluster, role)]
 
@@ -440,7 +454,7 @@ def restart(cluster_name, member_names, config_file, dcs, force, role, p_any):
         member_names = member_names[:1]
 
     output_members(cluster, cluster_name)
-    empty_post_to_members(cluster, member_names, force, 'restart')
+    empty_post_to_members(cluster, member_names, force, 'restart', auth_header(config))
 
 
 @ctl.command('reinit', help='Reinitialize cluster member')
@@ -450,8 +464,8 @@ def restart(cluster_name, member_names, config_file, dcs, force, role, p_any):
 @option_force
 @option_dcs
 def reinit(cluster_name, member_names, config_file, dcs, force):
-    _, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
-    empty_post_to_members(cluster, member_names, force, 'reinitialize')
+    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+    empty_post_to_members(cluster, member_names, force, 'reinitialize', auth_header(config))
 
 
 @ctl.command('failover', help='Failover to a replica')
@@ -471,7 +485,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
         If so, we trigger a failover and keep the client up to date.
     """
 
-    _, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
     if cluster.leader is None:
         raise PatroniCtlException('This cluster has no master')
@@ -533,7 +547,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
 
     r = None
     try:
-        r = post_patroni(cluster.leader.member, 'failover', failover_value)
+        r = post_patroni(cluster.leader.member, 'failover', failover_value, auth_header(config))
         if r.status_code in (200, 202):
             logging.debug(r)
             cluster = dcs.get_cluster()
@@ -570,7 +584,7 @@ def output_members(cluster, name, fmt='pretty'):
         if m.name == leader_name:
             leader = '*'
 
-        host = build_connect_parameters(m.conn_url)['host']
+        host = get_conn_kwargs(m.conn_url)['host']
 
         xlog_location = m.data.get('xlog_location') or 0
         lag = ''

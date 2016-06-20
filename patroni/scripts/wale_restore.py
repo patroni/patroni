@@ -33,7 +33,7 @@ import sys
 import argparse
 
 
-if sys.hexversion >= 0x03000000:
+if sys.hexversion >= 0x0300000:
     long = int
 
 logger = logging.getLogger(__name__)

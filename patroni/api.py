@@ -4,7 +4,7 @@ import json
 import logging
 import psycopg2
 import time
-import dateutil
+import dateutil.parser
 import datetime
 import pytz
 import re

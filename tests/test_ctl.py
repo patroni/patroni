@@ -1,7 +1,7 @@
 import etcd
 import os
-import pytest
-import requests.exceptions
+import requests
+import sys
 import unittest
 
 from click.testing import CliRunner
@@ -19,31 +19,16 @@ CONFIG_FILE_PATH = './test-ctl.yaml'
 
 def test_rw_config():
     runner = CliRunner()
-    config = {'a': 'b'}
     with runner.isolated_filesystem():
-        store_config(config, CONFIG_FILE_PATH + '/dummy')
+        store_config({'etcd': {'host': 'localhost:2379'}}, CONFIG_FILE_PATH + '/dummy')
+        sys.argv = ['patronictl.py', '']
+        load_config(CONFIG_FILE_PATH + '/dummy', None)
+        load_config(CONFIG_FILE_PATH + '/dummy', '0.0.0.0')
         os.remove(CONFIG_FILE_PATH + '/dummy')
         os.rmdir(CONFIG_FILE_PATH)
 
-        with pytest.raises(Exception):
-            result = load_config(CONFIG_FILE_PATH, None)
-            assert 'Could not load configuration file' in result.output
 
-        os.mkdir(CONFIG_FILE_PATH)
-        with pytest.raises(Exception):
-            store_config(config, CONFIG_FILE_PATH)
-
-        os.rmdir(CONFIG_FILE_PATH)
-
-    store_config(config, CONFIG_FILE_PATH)
-    load_config(CONFIG_FILE_PATH, None)
-    load_config(CONFIG_FILE_PATH, '0.0.0.0')
-
-    store_config({'dcs_api': None}, CONFIG_FILE_PATH)
-    load_config(CONFIG_FILE_PATH, None)
-
-
-@patch('patroni.ctl.load_config', Mock(return_value={'etcd': {'host': 'localhost:4001'}}))
+@patch('patroni.ctl.load_config', Mock(return_value={'restapi': {'auth': 'u:p'}, 'etcd': {'host': 'localhost:4001'}}))
 class TestCtl(unittest.TestCase):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
@@ -55,14 +40,14 @@ class TestCtl(unittest.TestCase):
 
     @patch('psycopg2.connect', psycopg2_connect)
     def test_get_cursor(self):
-        self.assertIsNone(get_cursor(get_cluster_initialized_without_leader(), role='master'))
+        self.assertIsNone(get_cursor(get_cluster_initialized_without_leader(), {}, role='master'))
 
-        self.assertIsNotNone(get_cursor(get_cluster_initialized_with_leader(), role='master'))
+        self.assertIsNotNone(get_cursor(get_cluster_initialized_with_leader(), {}, role='master'))
 
         # MockCursor returns pg_is_in_recovery as false
-        self.assertIsNone(get_cursor(get_cluster_initialized_with_leader(), role='replica'))
+        self.assertIsNone(get_cursor(get_cluster_initialized_with_leader(), {}, role='replica'))
 
-        self.assertIsNotNone(get_cursor(get_cluster_initialized_with_leader(), role='any'))
+        self.assertIsNotNone(get_cursor(get_cluster_initialized_with_leader(), {'database': 'foo'}, role='any'))
 
     def test_parse_dcs(self):
         assert parse_dcs(None) is None
@@ -183,24 +168,24 @@ class TestCtl(unittest.TestCase):
 
     def test_query_member(self):
         with patch('patroni.ctl.get_cursor', Mock(return_value=MockConnect().cursor())):
-            rows = query_member(None, None, None, 'master', 'SELECT pg_is_in_recovery()')
+            rows = query_member(None, None, None, 'master', 'SELECT pg_is_in_recovery()', {})
             self.assertTrue('False' in str(rows))
 
-            rows = query_member(None, None, None, 'replica', 'SELECT pg_is_in_recovery()')
+            rows = query_member(None, None, None, 'replica', 'SELECT pg_is_in_recovery()', {})
             self.assertEquals(rows, (None, None))
 
             with patch('test_postgresql.MockCursor.execute', Mock(side_effect=OperationalError('bla'))):
-                rows = query_member(None, None, None, 'replica', 'SELECT pg_is_in_recovery()')
+                rows = query_member(None, None, None, 'replica', 'SELECT pg_is_in_recovery()', {})
 
         with patch('patroni.ctl.get_cursor', Mock(return_value=None)):
-            rows = query_member(None, None, None, None, 'SELECT pg_is_in_recovery()')
+            rows = query_member(None, None, None, None, 'SELECT pg_is_in_recovery()', {})
             self.assertTrue('No connection to' in str(rows))
 
-            rows = query_member(None, None, None, 'replica', 'SELECT pg_is_in_recovery()')
+            rows = query_member(None, None, None, 'replica', 'SELECT pg_is_in_recovery()', {})
             self.assertTrue('No connection to' in str(rows))
 
         with patch('patroni.ctl.get_cursor', Mock(side_effect=OperationalError('bla'))):
-            rows = query_member(None, None, None, 'replica', 'SELECT pg_is_in_recovery()')
+            rows = query_member(None, None, None, 'replica', 'SELECT pg_is_in_recovery()', {})
 
     @patch('patroni.ctl.get_dcs')
     def test_dsn(self, mock_get_dcs):
