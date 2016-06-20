@@ -66,6 +66,11 @@ class Ha(object):
                 data['xlog_location'] = self.state_handler.xlog_position()
             except:
                 pass
+        if self.patroni.scheduled_restart:
+            scheduled_restart_data = self.patroni.scheduled_restart.copy()
+            scheduled_restart_data['schedule'] = scheduled_restart_data['schedule'].isoformat()
+            data['scheduled_restart'] = scheduled_restart_data
+
         self.dcs.touch_member(json.dumps(data, separators=(',', ':')))
 
     def clone(self, clone_member=None, msg='(without leader)'):
@@ -372,7 +377,19 @@ class Ha(object):
         with self._async_executor:
             return self._async_executor.schedule(action)
 
-    def restart_scheduled(self):
+    def schedule_future_restart(self, restart_data):
+        if isinstance(restart_data, dict):
+            with self._async_executor:
+                if not self.patroni.scheduled_restart:
+                    self.patroni.scheduled_restart = restart_data
+                    return True
+        return False
+
+    def delete_future_restart(self):
+        with self._async_executor:
+            self.patroni.scheduled_restart = {}
+
+    def immediate_restart_scheduled(self):
         return self._async_executor.scheduled_action == 'restart'
 
     def schedule_reinitialize(self):

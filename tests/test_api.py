@@ -1,3 +1,4 @@
+
 import json
 import psycopg2
 import unittest
@@ -39,12 +40,20 @@ class MockHa(object):
         return (True, '')
 
     @staticmethod
-    def restart_scheduled():
+    def immediate_restart_scheduled():
         return False
+
+    @staticmethod
+    def delete_future_restart():
+        return True
 
     @staticmethod
     def fetch_nodes_statuses(members):
         return [[None, True, None, None, {}]]
+
+    @staticmethod
+    def schedule_future_restart(data):
+        return True
 
 
 class MockPatroni(object):
@@ -57,6 +66,7 @@ class MockPatroni(object):
     tags = {}
     version = '0.00'
     noloadbalance = Mock(return_value=False)
+    scheduled_restart = {'schedule': '2016-08-29 12:45TZ+1'}
 
     @staticmethod
     def sighup_handler():
@@ -104,7 +114,7 @@ class TestRestApiHandler(unittest.TestCase):
         MockPatroni.dcs.cluster = None
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'master'})):
             MockRestApiServer(RestApiHandler, 'GET /master')
-        with patch.object(MockHa, 'restart_scheduled', Mock(return_value=True)):
+        with patch.object(MockHa, 'immediate_restart_scheduled', Mock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /master')
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /master'))
 
@@ -166,6 +176,33 @@ class TestRestApiHandler(unittest.TestCase):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
         with patch.object(MockHa, 'restart', Mock(side_effect=Exception)):
             MockRestApiServer(RestApiHandler, request)
+
+        post = request + '\nContent-Length: '
+        # wrong version
+        request = post + '84\n\n{"schedule": "2016-08-20 12:45TZ+1", "role": "unknown", "postgres_version": "9.5.3"}'
+        MockRestApiServer(RestApiHandler, request)
+        # wrong role
+        request = post + '85\n\n{"schedule": "2016-08-20 12:45TZ+1", "role": "master", "postgres_version": "9.5.3.1"}'
+        MockRestApiServer(RestApiHandler, request)
+        # unknown filter
+        request = post + '55\n\n{"schedule": "2016-08-29 12:45TZ+1", "batman": "lives"}'
+        MockRestApiServer(RestApiHandler, request)
+        # incorrect schedule
+        request = post + '55\n\n{"schedule": "2016-08-42 12:45TZ+1", "role": "master"}'
+        MockRestApiServer(RestApiHandler, request)
+        # everything fine, but the schedule is missing
+        request = post + '47\n\n{"role": "master", "postgres_version": "9.5.2"}'
+        MockRestApiServer(RestApiHandler, request)
+        for retval in (True, False):
+            with patch.object(MockHa, 'schedule_future_restart', Mock(return_value=retval)):
+                request = post + '36\n\n{"schedule": "2016-08-29 12:45TZ+1"}'
+                MockRestApiServer(RestApiHandler, request)
+
+    def test_do_DELETE_restart(self):
+        for retval in (True, False):
+            with patch.object(MockHa, 'delete_future_restart', Mock(return_value=retval)):
+                request = 'DELETE /restart HTTP/1.0' + self._authorization
+                self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
 
     @patch.object(MockHa, 'dcs')
     def test_do_POST_reinitialize(self, dcs):

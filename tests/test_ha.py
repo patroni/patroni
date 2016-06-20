@@ -1,4 +1,5 @@
 import datetime
+import dateutil
 import etcd
 import os
 import pytz
@@ -80,6 +81,7 @@ zookeeper:
         self.replicatefrom = None
         self.api.connection_string = 'http://127.0.0.1:8008'
         self.clonefrom = None
+        self.scheduled_restart = {'schedule': dateutil.parser.parse('2016-08-29 12:45TZ+1')}
 
 
 def run_async(func, args=()):
@@ -282,7 +284,7 @@ class TestHa(unittest.TestCase):
 
     def test_restart_in_progress(self):
         self.ha._async_executor.schedule('restart', True)
-        self.assertTrue(self.ha.restart_scheduled())
+        self.assertTrue(self.ha.immediate_restart_scheduled())
         self.assertEquals(self.ha.run_cycle(), 'not healthy enough for leader race')
 
         self.ha.cluster = get_cluster_initialized_with_leader()
@@ -395,3 +397,11 @@ class TestHa(unittest.TestCase):
         self.assertEqual(self.ha.post_recover(), 'failed to start postgres')
         self.p.is_running = true
         self.assertIsNone(self.ha.post_recover())
+
+    def test_schedule_future_restart(self):
+        self.ha.patroni.scheduled_restart = {}
+        self.ha.schedule_future_restart({'schedule': '2016-08-30 12:45TZ+1"'})
+        self.ha.schedule_future_restart({'schedule': '2016-08-30 12:45TZ+1"'})
+
+    def test_delete_future_restarts(self):
+        self.ha.delete_future_restart()

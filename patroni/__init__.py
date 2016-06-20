@@ -29,6 +29,7 @@ class Patroni(object):
         self.tags = self.get_tags()
         self.nap_time = self.config['loop_wait']
         self.next_run = time.time()
+        self.scheduled_restart = {}
 
         self._reload_config_scheduled = False
         self._received_sighup = False
