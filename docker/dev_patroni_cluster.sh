@@ -67,24 +67,37 @@ while getopts "$optspec" optchar; do
     esac
 done
 
-function random_name()
-{
-    cat /dev/urandom | LC_ALL=C tr -dc 'a-zA-Z0-9' | head -c 8
-}
-
-if [ -z ${PATRONI_SCOPE} ]
-then
-    PATRONI_SCOPE=$(random_name)
+if [ -z ${PATRONI_SCOPE} ]; then
+    PATRONI_SCOPE=$(cat /dev/urandom | LC_ALL=C tr -dc 'a-z0-9' | head -c 8)
 fi
 
-etcd_container=$(docker run -P -d --name="${PATRONI_SCOPE}_etcd" "${DOCKER_IMAGE}" --name="${PATRONI_SCOPE}" --etcd-only)
-etcd_container_ip=$(docker inspect --format '{{ .NetworkSettings.IPAddress }}' ${etcd_container})
-echo "The etcd container is ${etcd_container}, ip=${etcd_container_ip}"
+function docker_run()
+{
+    local name=$1
+    shift
+    container=$(docker run -d --name=$name $*)
+    container_ip=$(docker inspect --format '{{ .NetworkSettings.IPAddress }}' ${container})
+    echo "Started container ${name}, ip=${container_ip}"
+}
 
-for i in $(seq 1 "${MEMBERS}")
-do
+
+ETCD_CONTAINER="${PATRONI_SCOPE}_etcd"
+docker_run ${ETCD_CONTAINER} ${DOCKER_IMAGE} --etcd
+
+DOCKER_ARGS="--link=${ETCD_CONTAINER}:${ETCD_CONTAINER} -e PATRONI_SCOPE=${PATRONI_SCOPE} -e PATRONI_ETCD_HOST=${ETCD_CONTAINER}:2379"
+PATRONI_ENV=$(sed 's/#.*//g' docker/patroni-secrets.env | sed -n 's/^PATRONI_.*$/-e &/p' | tr '\n' ' ')
+
+for i in $(seq 1 "${MEMBERS}"); do
     container_name=postgres${i}
-    patroni_container=$(docker run -P -d -e "PATRONI_NAME=${container_name}" -e "PATRONI_ETCD_HOST=${etcd_container_ip}:4001" --name="${PATRONI_SCOPE}_${container_name}" "${DOCKER_IMAGE}" --etcd="${etcd_container_ip}:4001" --name="${PATRONI_SCOPE}")
-    patroni_container_ip=$(docker inspect --format '{{ .NetworkSettings.IPAddress }}' ${patroni_container})
-    echo "Started Patroni container ${patroni_container}, ip=${patroni_container_ip}"
+    docker_run "${PATRONI_SCOPE}_${container_name}" \
+        -v patroni:/patroni \
+        $DOCKER_ARGS \
+        $PATRONI_ENV \
+        -e PATRONI_NAME=${container_name} \
+        ${DOCKER_IMAGE}
 done
+
+docker_run "${PATRONI_SCOPE}_haproxy" \
+    -p=5000 -p=5001 \
+    $DOCKER_ARGS \
+    ${DOCKER_IMAGE} --confd

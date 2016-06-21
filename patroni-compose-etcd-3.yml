@@ -1,0 +1,58 @@
+# docker compose file for running a 3-node PostgreSQL cluster
+# with etcd as the SIS
+
+patroni_etcd:
+    container_name: patroni_etcd
+    image: patroni
+    command: --etcd
+
+dbnode1:
+    image: patroni
+    hostname: dbnode1
+    links:
+        - patroni_etcd:patroni_etcd
+    volumes:
+        - patroni:/patroni
+    env_file: docker/patroni-secrets.env
+    environment:
+        PATRONI_ETCD_HOST: patroni_etcd:2379
+        PATRONI_NAME: dbnode1
+        PATRONI_SCOPE: testcluster
+
+dbnode2:
+    image: patroni
+    hostname: dbnode2
+    links:
+        - patroni_etcd:patroni_etcd
+    volumes:
+        - patroni:/patroni
+    env_file: docker/patroni-secrets.env
+    environment:
+        PATRONI_ETCD_HOST: patroni_etcd:2379
+        PATRONI_NAME: dbnode2
+        PATRONI_SCOPE: testcluster
+
+dbnode3:
+    image: patroni
+    hostname: dbnode3
+    links:
+        - patroni_etcd:patroni_etcd
+    volumes:
+        - patroni:/patroni
+    env_file: docker/patroni-secrets.env
+    environment:
+        PATRONI_ETCD_HOST: patroni_etcd:2379
+        PATRONI_NAME: dbnode3
+        PATRONI_SCOPE: testcluster
+
+haproxy:
+    image: patroni
+    links:
+        - patroni_etcd:patroni_etcd
+    ports:
+        - "5000"
+        - "5001"
+    environment:
+        PATRONI_ETCD_HOST: patroni_etcd:2379
+        PATRONI_SCOPE: testcluster
+    command: --confd

@@ -13,7 +13,7 @@ RUN apt-get update -y \
     && apt-get install -y curl jq haproxy postgresql-${PGVERSION} python-psycopg2 python-yaml \
         python-requests python-six python-click python-dateutil python-tzlocal python-urllib3 \
         python-dnspython python-pip python-setuptools python-kazoo python-prettytable python \
-    && pip install python-etcd==0.4.3 python-consul \
+    && pip install python-etcd==0.4.3 python-consul==0.6.0 --upgrade \
     && apt-get remove -y python-pip python-setuptools \
     && apt-get autoremove -y \
         # Clean up
@@ -34,16 +34,16 @@ ADD extras/confd /etc/confd
 RUN ln -s /patronictl.py /usr/local/bin/patronictl
 
 ### Setting up a simple script that will serve as an entrypoint
-RUN mkdir /data/ && touch /pgpass /patroni/postgres.yml /var/run/haproxy.pid \
-    && chown postgres:postgres -R /patroni/ /data/ /pgpass /etc/haproxy /var/run/haproxy.pid \
-    && for name in confd etcd haproxy; do \
+RUN mkdir /data/ && touch /pgpass /patroni.yml /var/run/haproxy.pid \
+    && chown postgres:postgres -R /patroni/ /data/ /pgpass /patroni.yml /etc/haproxy /var/run/haproxy.pid \
+    && for name in etcd haproxy; do \
         for ext in log err; do \
             touch /var/log/$name.$ext \
             && chown postgres:postgres /var/log/$name.$ext; \
         done; \
     done
 
-EXPOSE 4001 5432 8008
+EXPOSE 2379 5432 8008
 
 ENTRYPOINT ["/bin/bash", "/entrypoint.sh"]
 USER postgres
