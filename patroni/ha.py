@@ -291,31 +291,41 @@ class Ha(object):
         else:
             self.state_handler.follow(None, None)
 
-    def process_manual_failover_from_leader(self):
-        failover = self.cluster.failover
-
-        if failover.scheduled_at:
-            # If the failover is in the far future, we shouldn't do anything and just return.
+    def should_run_scheduled_action(self, action_name, scheduled_at, cleanup_fn):
+        if scheduled_at:
+            # If the faildover is in the far future, we shouldn't do anything and just return.
             # If the failover is in the past, we consider the value to be stale and we remove
             # the value.
             # If the value is close to now, we initiate the failover
             now = datetime.datetime.now(pytz.utc)
             try:
-                delta = (failover.scheduled_at - now).total_seconds()
+                delta = (scheduled_at - now).total_seconds()
 
                 if delta > self.patroni.nap_time:
-                    logging.info('Awaiting failover at %s (in %.0f seconds)', failover.scheduled_at.isoformat(), delta)
-                    return
+                    logging.info('Awaiting {0} at %s (in %.0f seconds)'.format(action_name), scheduled_at.isoformat(), delta)
+                    return False
                 elif delta < - int(self.patroni.nap_time * 1.5):
-                    logger.warning('Found a stale failover value, cleaning up: %s', failover.scheduled_at)
+                    logger.warning('Found a stale {0} value, cleaning up: %s'.format(action_name), scheduled_at.isoformat())
+                    cleanup_fn()
                     self.dcs.manual_failover('', '', index=self.cluster.failover.index)
-                    return
+                    return None
 
                 # The value is very close to now
                 sleep(max(delta, 0))
-                logger.info('Manual scheduled failover at {}'.format(failover.scheduled_at.isoformat()))
+                logger.info('Manual scheduled {0} at %s'.format(action_name), scheduled_at.isoformat())
+                return True
             except TypeError:
-                logger.warning('Incorrect value in of scheduled_at: %s', failover.scheduled_at)
+                logger.warning('Incorrect value in of scheduled_at: %s', scheduled_at)
+                cleanup_fn()
+        return None
+
+    def process_manual_failover_from_leader(self):
+        failover = self.cluster.failover
+
+        if (failover.scheduled_at and not
+            self.should_run_scheduled_action("failover", failover.scheduled_at, lambda:
+                                             self.dcs.manual_failover('', '', index=self.cluster.failover.index))):
+            return
 
         if not failover.leader or failover.leader == self.state_handler.name:
             if not failover.candidate or failover.candidate != self.state_handler.name:
