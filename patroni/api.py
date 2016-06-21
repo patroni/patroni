@@ -120,8 +120,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
             return self.send_error(411) if body_is_optional else None
         try:
             content_length = int(self.headers.get('content-length'))
+            if content_length == 0 and body_is_optional:
+                return {}
             request = json.loads(self.rfile.read(content_length).decode('utf-8'))
-            if isinstance(request, dict) and request:
+            if isinstance(request, dict) and (request or body_is_optional):
                 return request
         except Exception:
             logger.exception('Bad request')
@@ -190,7 +192,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_POST_restart(self):
         status_code = 500
         data = 'restart failed'
-        request = self._read_json_content()
+        request = self._read_json_content(body_is_optional=True)
         if not request:  # unconditional restart
             try:
                 status, data = self.server.patroni.ha.restart()
