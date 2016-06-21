@@ -302,10 +302,12 @@ class Ha(object):
                 delta = (scheduled_at - now).total_seconds()
 
                 if delta > self.patroni.nap_time:
-                    logging.info('Awaiting {0} at %s (in %.0f seconds)'.format(action_name), scheduled_at.isoformat(), delta)
+                    logging.info('Awaiting {0} at %s (in %.0f seconds)'.format(action_name),
+                                 scheduled_at.isoformat(), delta)
                     return False
                 elif delta < - int(self.patroni.nap_time * 1.5):
-                    logger.warning('Found a stale {0} value, cleaning up: %s'.format(action_name), scheduled_at.isoformat())
+                    logger.warning('Found a stale {0} value, cleaning up: %s'.format(action_name),
+                                   scheduled_at.isoformat())
                     cleanup_fn()
                     self.dcs.manual_failover('', '', index=self.cluster.failover.index)
                     return None
