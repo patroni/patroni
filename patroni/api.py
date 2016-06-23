@@ -65,7 +65,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
             response['pending_restart'] = True
         response['patroni'] = {'version': patroni.version, 'scope': patroni.postgresql.scope}
         if patroni.scheduled_restart and isinstance(patroni.scheduled_restart, dict):
-            response['scheduled_restart'] = patroni.scheduled_restart
+            response['scheduled_restart'] = patroni.scheduled_restart.copy()
+            response['scheduled_restart']['schedule'] = (response['scheduled_restart']['schedule']).isoformat()
         self._write_json_response(status_code, response)
 
     def do_GET(self, write_status_code_only=False):
@@ -236,7 +237,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     @check_auth
     def do_DELETE_restart(self):
-        self.server.patroni.ha.delete_future_restart()
+        self.server.patroni.ha.delete_future_restart(take_lock=True)
         data = "scheduled restart deleted"
         code = 200
         self._write_response(code, data)

@@ -3,6 +3,7 @@ import json
 import psycopg2
 import unittest
 
+import dateutil.parser
 from mock import Mock, patch
 from patroni.api import RestApiHandler, RestApiServer
 from patroni.dcs import ClusterConfig, Member
@@ -66,7 +67,7 @@ class MockPatroni(object):
     tags = {}
     version = '0.00'
     noloadbalance = Mock(return_value=False)
-    scheduled_restart = {'schedule': '2016-08-29 12:45TZ+1'}
+    scheduled_restart = {'schedule': dateutil.parser.parse('2016-08-29 12:45TZ+1')}
 
     @staticmethod
     def sighup_handler():

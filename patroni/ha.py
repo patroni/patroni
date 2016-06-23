@@ -385,6 +385,36 @@ class Ha(object):
         return self.follow('demoting self because i do not have the lock and i was a leader',
                            'no action.  i am a secondary and i am following a leader', False)
 
+    def evaluate_scheduled_restart(self):
+        # restart if we need to
+        restart_data = self.future_restart_scheduled()
+        if (restart_data and
+           self.should_run_scheduled_action('restart', restart_data['schedule'], self.delete_future_restart)):
+            try:
+                reason_to_cancel = ""
+                # checking the restart filters here seem to be less ugly than moving them into the
+                # run_scheduled_action.
+                if restart_data.get('role') and restart_data['role'] != self.state_handler.role:
+                    reason_to_cancel = "host role mismatch"
+
+                if (restart_data.get('postgres_version') and
+                   self.state_hander.postgres_version_to_int(restart_data['postgres_version']) <=
+                   int(self.state_hander.server_version)):
+                    reason_to_cancel = "postgres version mismatch"
+
+                if 'with_pending_restart_flag' in restart_data and not self.state_handler.pending_restart:
+                    reason_to_cancel = "pending restart flag is not set"
+
+                if not reason_to_cancel:
+                    if self.state_handler.restart():
+                        logger.info("Scheduled restart successfull")
+                    else:
+                        logger.warning("Scheduled restart failed")
+                else:
+                    logger.info("not proceeding with the scheduled restart: {0}".format(reason_to_cancel))
+            finally:
+                self.delete_future_restart()
+
     def schedule(self, action):
         with self._async_executor:
             return self._async_executor.schedule(action)
@@ -397,12 +427,19 @@ class Ha(object):
                     return True
         return False
 
-    def delete_future_restart(self):
-        with self._async_executor:
+    def delete_future_restart(self, take_lock=False):
+        if take_lock:
+            with self._async_executor:
+                self.patroni.scheduled_restart = {}
+        else:
             self.patroni.scheduled_restart = {}
 
     def immediate_restart_scheduled(self):
         return self._async_executor.scheduled_action == 'restart'
+
+    def future_restart_scheduled(self):
+        return self.patroni.scheduled_restart.copy() if (self.patroni.scheduled_restart and
+                                                         isinstance(self.patroni.scheduled_restart, dict)) else None
 
     def schedule_reinitialize(self):
         return self.schedule('reinitialize')
@@ -517,6 +554,7 @@ class Ha(object):
                 if self.cluster.is_unlocked():
                     return self.process_unhealthy_cluster()
                 else:
+                    self.evaluate_scheduled_restart()
                     return self.process_healthy_cluster()
             finally:
                 # we might not have a valid PostgreSQL connection here if another thread
