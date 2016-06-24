@@ -81,7 +81,8 @@ zookeeper:
         self.replicatefrom = None
         self.api.connection_string = 'http://127.0.0.1:8008'
         self.clonefrom = None
-        self.scheduled_restart = {'schedule': dateutil.parser.parse('2016-08-29 12:45TZ+1')}
+        self.scheduled_restart = {'schedule': dateutil.parser.parse('2016-08-29 12:45TZ+1'),
+                                  'postmaster_start_time': '2016-08-20 12:00TZ+1'}
 
 
 def run_async(func, args=()):
@@ -119,6 +120,7 @@ class TestHa(unittest.TestCase):
                                                 'hot_standby': 'on', 'max_wal_senders': 5, 'wal_keep_segments': 8}})
             self.p.set_state('running')
             self.p.set_role('replica')
+            self.p.postmaster_start_time = MagicMock(return_value="2016-08-20 12:00TZ+1")
             self.p.check_replication_lag = true
             self.p.can_create_replica_without_replication_connection = MagicMock(return_value=False)
             self.e = get_dcs({'etcd': {'ttl': 30, 'host': 'ok:2379', 'scope': 'test',
@@ -128,6 +130,7 @@ class TestHa(unittest.TestCase):
             self.ha.old_cluster = self.e.get_cluster()
             self.ha.cluster = get_cluster_not_initialized_without_leader()
             self.ha.load_cluster_from_dcs = Mock()
+            #self.ha.evaluate_scheduled_restart = true
 
     def test_update_lock(self):
         self.p.last_operation = Mock(side_effect=PostgresException(''))

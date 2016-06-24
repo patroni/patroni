@@ -806,6 +806,13 @@ $$""".format(name, ' '.join(options)), name, password, password)
             self._replication_slots = [r[0] for r in cursor]
             self._schedule_load_slots = False
 
+    def postmaster_start_time(self):
+        try:
+            cursor = self.query("""SELECT to_char(pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ')""")
+            return cursor.fetchone()[0]
+        except psycopg2.Error:
+            return None
+
     def sync_replication_slots(self, cluster):
         if self.use_slots:
             try:

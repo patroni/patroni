@@ -66,6 +66,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         response['patroni'] = {'version': patroni.version, 'scope': patroni.postgresql.scope}
         if patroni.scheduled_restart and isinstance(patroni.scheduled_restart, dict):
             response['scheduled_restart'] = patroni.scheduled_restart.copy()
+            del response['scheduled_restart']['postmaster_start_time']
             response['scheduled_restart']['schedule'] = (response['scheduled_restart']['schedule']).isoformat()
         self._write_json_response(status_code, response)
 
@@ -227,6 +228,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     data = "Schedule required for the scheduled restart"
                     status_code = 400
                 else:
+                    request['postmaster_start_time'] = self.server.patroni.ha.state_handler.postmaster_start_time()
                     if self.server.patroni.ha.schedule_future_restart(request):
                         data = "Restart scheduled"
                         status_code = 202

@@ -26,6 +26,10 @@ class MockPostgresql(object):
     def connection():
         return psycopg2_connect()
 
+    @staticmethod
+    def postmaster_start_time():
+        return '2016-08-20 12:00TZ+1'
+
 
 class MockHa(object):
 
@@ -67,7 +71,8 @@ class MockPatroni(object):
     tags = {}
     version = '0.00'
     noloadbalance = Mock(return_value=False)
-    scheduled_restart = {'schedule': dateutil.parser.parse('2016-08-29 12:45TZ+1')}
+    scheduled_restart = {'schedule': dateutil.parser.parse('2016-08-29 12:45TZ+1'),
+                         'postmaster_start_time': '2016-08-20 12:00TZ+1'}
 
     @staticmethod
     def sighup_handler():

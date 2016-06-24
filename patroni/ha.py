@@ -388,32 +388,48 @@ class Ha(object):
     def evaluate_scheduled_restart(self):
         # restart if we need to
         restart_data = self.future_restart_scheduled()
+        if restart_data:
+            recent_time = self.state_handler.postmaster_start_time()
+            request_time = restart_data['postmaster_start_time']
+            # check if postmaster start time has changed since the last restart
+            if recent_time and request_time and recent_time != request_time:
+                logger.info("Cancelling scheduled restart: postgres restart has already happened at {0}".
+                            format(recent_time))
+                self.delete_future_restart()
+                return
+
         if (restart_data and
            self.should_run_scheduled_action('restart', restart_data['schedule'], self.delete_future_restart)):
             try:
-                reason_to_cancel = ""
-                # checking the restart filters here seem to be less ugly than moving them into the
-                # run_scheduled_action.
-                if restart_data.get('role') and restart_data['role'] != self.state_handler.role:
-                    reason_to_cancel = "host role mismatch"
-
-                if (restart_data.get('postgres_version') and
-                   self.state_hander.postgres_version_to_int(restart_data['postgres_version']) <=
-                   int(self.state_hander.server_version)):
-                    reason_to_cancel = "postgres version mismatch"
-
-                if 'with_pending_restart_flag' in restart_data and not self.state_handler.pending_restart:
-                    reason_to_cancel = "pending restart flag is not set"
-
-                if not reason_to_cancel:
+                if self.scheduled_restart_matches(restart_data.get('role'),
+                                                  restart_data.get('postgres_version'),
+                                                  ('with_pending_restart_flag' in restart_data)):
                     if self.state_handler.restart():
                         logger.info("Scheduled restart successfull")
                     else:
                         logger.warning("Scheduled restart failed")
-                else:
-                    logger.info("not proceeding with the scheduled restart: {0}".format(reason_to_cancel))
             finally:
                 self.delete_future_restart()
+
+    def scheduled_restart_matches(self, role, postgres_version, pending_restart):
+        reason_to_cancel = ""
+        # checking the restart filters here seem to be less ugly than moving them into the
+        # run_scheduled_action.
+        if role and role != self.state_handler.role:
+            reason_to_cancel = "host role mismatch"
+
+        if (postgres_version and
+           self.state_hander.postgres_version_to_int(postgres_version) <= int(self.state_hander.server_version)):
+            reason_to_cancel = "postgres version mismatch"
+
+        if pending_restart and not self.state_handler.pending_restart:
+            reason_to_cancel = "pending restart flag is not set"
+
+        if not reason_to_cancel:
+            return True
+        else:
+            logger.info("not proceeding with the scheduled restart: {0}".format(reason_to_cancel))
+        return False
 
     def schedule(self, action):
         with self._async_executor:
