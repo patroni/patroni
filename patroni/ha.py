@@ -401,17 +401,15 @@ class Ha(object):
         if (restart_data and
            self.should_run_scheduled_action('restart', restart_data['schedule'], self.delete_future_restart)):
             try:
-                if self.scheduled_restart_matches(restart_data.get('role'),
-                                                  restart_data.get('postgres_version'),
-                                                  ('with_pending_restart_flag' in restart_data)):
-                    if self.state_handler.restart():
+                    ret, message = self.restart(restart_data)
+                    if ret:
                         logger.info("Scheduled restart successfull")
                     else:
-                        logger.warning("Scheduled restart failed")
+                        logger.warning("Scheduled restart: {0}".format(message))
             finally:
                 self.delete_future_restart()
 
-    def scheduled_restart_matches(self, role, postgres_version, pending_restart):
+    def restart_matches(self, role, postgres_version, pending_restart):
         reason_to_cancel = ""
         # checking the restart filters here seem to be less ugly than moving them into the
         # run_scheduled_action.
@@ -428,7 +426,7 @@ class Ha(object):
         if not reason_to_cancel:
             return True
         else:
-            logger.info("not proceeding with the scheduled restart: {0}".format(reason_to_cancel))
+            logger.info("not proceeding with the restart: {0}".format(reason_to_cancel))
         return False
 
     def schedule(self, action):
@@ -443,11 +441,8 @@ class Ha(object):
                     return True
         return False
 
-    def delete_future_restart(self, take_lock=False):
-        if take_lock:
-            with self._async_executor:
-                self.patroni.scheduled_restart = {}
-        else:
+    def delete_future_restart(self):
+        with self._async_executor:
             self.patroni.scheduled_restart = {}
 
     def immediate_restart_scheduled(self):
@@ -463,7 +458,14 @@ class Ha(object):
     def reinitialize_scheduled(self):
         return self._async_executor.scheduled_action == 'reinitialize'
 
-    def restart(self):
+    def restart(self, restart_data=None):
+        """ conditional and unconditional restart """
+        if (restart_data and isinstance(restart_data, dict) and
+            not self.restart_matches(restart_data.get('role'),
+                                     restart_data.get('postgres_version'),
+                                     ('with_pending_restart_flag' in restart_data))):
+            return (False, "restart conditions are not satisfied")
+
         with self._async_executor:
             prev = self._async_executor.schedule('restart', True)
             if prev is not None:

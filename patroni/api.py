@@ -195,51 +195,51 @@ class RestApiHandler(BaseHTTPRequestHandler):
         status_code = 500
         data = 'restart failed'
         request = self._read_json_content(body_is_optional=True)
-        if not request:  # unconditional restart
-            try:
-                status, data = self.server.patroni.ha.restart()
-                status_code = 200 if status else 503
-            except Exception:
-                logger.exception('Exception during restart')
-        else:
-            logger.info("received scheduled restart request: {0}".format(request))
-            for k in request:
-                if k == 'schedule':
-                    (_, data, request[k]) = self.parse_schedule(request[k], "restart")
-                    if _:
-                        status_code = _
-                        break
-                elif k == 'role':
-                    if request[k] not in ('master', 'replica'):
-                        status_code = 400
-                        data = "PostgreSQL role should be either master or replica"
-                        break
-                elif k == 'postgres_version':
-                    if not re.match(r'([1-9][0-9]?\.){2}[1-9][0-9]?$', request[k]):
-                        status_code = 400
-                        data = "PostgreSQL version should be in the first.major.minor format"
-                        break
-                elif k != 'with_pending_restart_flag':
-                    status_code = 400
-                    data = "Unknown filter for the scheduled restart: {0}".format(k)
+        request = request or {}
+        if request:
+            logger.debug("received restart request: {0}".format(request))
+        for k in request:
+            if k == 'schedule':
+                (_, data, request[k]) = self.parse_schedule(request[k], "restart")
+                if _:
+                    status_code = _
                     break
-            else:
-                if 'schedule' not in request:
+            elif k == 'role':
+                if request[k] not in ('master', 'replica'):
+                    status_code = 400
+                    data = "PostgreSQL role should be either master or replica"
+                    break
+            elif k == 'postgres_version':
+                if not re.match(r'([1-9][0-9]?\.){2}[1-9][0-9]?$', request[k]):
+                    status_code = 400
+                    data = "PostgreSQL version should be in the first.major.minor format"
+                    break
+            elif k != 'with_pending_restart_flag':
+                status_code = 400
+                data = "Unknown filter for the scheduled restart: {0}".format(k)
+                break
+        else:
+            if 'schedule' not in request:
+                try:
+                    status, data = self.server.patroni.ha.restart()
+                    status_code = 200 if status else 503
+                except Exception:
+                    logger.exception('Exception during restart')
                     data = "Schedule required for the scheduled restart"
                     status_code = 400
+            else:
+                request['postmaster_start_time'] = self.server.patroni.ha.state_handler.postmaster_start_time()
+                if self.server.patroni.ha.schedule_future_restart(request):
+                    data = "Restart scheduled"
+                    status_code = 202
                 else:
-                    request['postmaster_start_time'] = self.server.patroni.ha.state_handler.postmaster_start_time()
-                    if self.server.patroni.ha.schedule_future_restart(request):
-                        data = "Restart scheduled"
-                        status_code = 202
-                    else:
-                        data = "Another restart is already scheduled"
-                        status_code = 409
+                    data = "Another restart is already scheduled"
+                    status_code = 409
         self._write_response(status_code, data)
 
     @check_auth
     def do_DELETE_restart(self):
-        self.server.patroni.ha.delete_future_restart(take_lock=True)
+        self.server.patroni.ha.delete_future_restart()
         data = "scheduled restart deleted"
         code = 200
         self._write_response(code, data)
