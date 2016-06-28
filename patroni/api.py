@@ -119,7 +119,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     def _read_json_content(self, body_is_optional=False):
         if 'content-length' not in self.headers:
-            return self.send_error(411) if body_is_optional else None
+            return self.send_error(411) if not body_is_optional else {}
         try:
             content_length = int(self.headers.get('content-length'))
             if content_length == 0 and body_is_optional:
@@ -195,7 +195,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
         status_code = 500
         data = 'restart failed'
         request = self._read_json_content(body_is_optional=True)
-        request = request or {}
+        if request is None:
+            # failed to parse the json
+            return
         if request:
             logger.debug("received restart request: {0}".format(request))
         for k in request:
@@ -225,7 +227,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     status_code = 200 if status else 503
                 except Exception:
                     logger.exception('Exception during restart')
-                    data = "Schedule required for the scheduled restart"
                     status_code = 400
             else:
                 request['postmaster_start_time'] = self.server.patroni.ha.state_handler.postmaster_start_time()
@@ -239,9 +240,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     @check_auth
     def do_DELETE_restart(self):
-        self.server.patroni.ha.delete_future_restart()
-        data = "scheduled restart deleted"
-        code = 200
+        if self.server.patroni.ha.delete_future_restart():
+            data = "scheduled restart deleted"
+            code = 200
+        else:
+            data = "no restarts are scheduled"
+            code = 404
         self._write_response(code, data)
 
     @check_auth

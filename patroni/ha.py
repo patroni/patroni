@@ -174,7 +174,7 @@ class Ha(object):
             tags = json.get('tags', dict())
             return (member, True, not is_master, xlog_location, tags)
         except:
-            logging.exception('request failed: GET %s', member.api_url)
+            logger.exception('request failed: GET %s', member.api_url)
         return (member, False, None, 0, {})
 
     def fetch_nodes_statuses(self, members):
@@ -293,33 +293,35 @@ class Ha(object):
 
     def should_run_scheduled_action(self, action_name, scheduled_at, cleanup_fn):
         if scheduled_at:
-            # If the faildover is in the far future, we shouldn't do anything and just return.
-            # If the failover is in the past, we consider the value to be stale and we remove
+            # If the scheduled action is in the far future, we shouldn't do anything and just return.
+            # If the scheduled action is in the past, we consider the value to be stale and we remove
             # the value.
-            # If the value is close to now, we initiate the failover
+            # If the value is close to now, we initiate the scheduled action
+            # Additionally, if the scheduled action cannot be executed altogether, i.e. there is an error
+            # or the action is in the past - we take care of cleaning it up.
             now = datetime.datetime.now(pytz.utc)
             try:
                 delta = (scheduled_at - now).total_seconds()
 
                 if delta > self.patroni.nap_time:
-                    logging.info('Awaiting {0} at %s (in %.0f seconds)'.format(action_name),
-                                 scheduled_at.isoformat(), delta)
+                    logger.info('Awaiting %s at %s (in %.0f seconds)',
+                                action_name, scheduled_at.isoformat(), delta)
                     return False
                 elif delta < - int(self.patroni.nap_time * 1.5):
-                    logger.warning('Found a stale {0} value, cleaning up: %s'.format(action_name),
-                                   scheduled_at.isoformat())
+                    logger.warning('Found a stale %s value, cleaning up: %s',
+                                   action_name, scheduled_at.isoformat())
                     cleanup_fn()
                     self.dcs.manual_failover('', '', index=self.cluster.failover.index)
-                    return None
+                    return False
 
                 # The value is very close to now
                 sleep(max(delta, 0))
                 logger.info('Manual scheduled {0} at %s'.format(action_name), scheduled_at.isoformat())
                 return True
             except TypeError:
-                logger.warning('Incorrect value in of scheduled_at: %s', scheduled_at)
+                logger.warning('Incorrect value of scheduled_at: %s', scheduled_at)
                 cleanup_fn()
-        return None
+        return False
 
     def process_manual_failover_from_leader(self):
         failover = self.cluster.failover
@@ -401,11 +403,11 @@ class Ha(object):
         if (restart_data and
            self.should_run_scheduled_action('restart', restart_data['schedule'], self.delete_future_restart)):
             try:
-                    ret, message = self.restart(restart_data)
-                    if ret:
-                        logger.info("Scheduled restart successfull")
-                    else:
-                        logger.warning("Scheduled restart: {0}".format(message))
+                ret, message = self.restart(restart_data)
+                if ret:
+                    logger.info("Scheduled restart successful")
+                else:
+                    logger.warning("Scheduled restart: {0}".format(message))
             finally:
                 self.delete_future_restart()
 
@@ -442,8 +444,12 @@ class Ha(object):
         return False
 
     def delete_future_restart(self):
+        ret = False
         with self._async_executor:
-            self.patroni.scheduled_restart = {}
+            if self.patroni.scheduled_restart:
+                self.patroni.scheduled_restart = {}
+                ret = True
+        return ret
 
     def immediate_restart_scheduled(self):
         return self._async_executor.scheduled_action == 'restart'

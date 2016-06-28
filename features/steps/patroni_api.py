@@ -106,13 +106,8 @@ def scheduled_failover(context, at_url, from_host, to_host, in_seconds):
 @step('I issue a scheduled restart at {url:url} in {in_seconds:d} seconds with {data}')
 def scheduled_restart(context, url, in_seconds, data):
     data = data and json.loads(data) or {}
-    restart_options = ['"schedule": "{0}"'.format((datetime.now(pytz.utc) + timedelta(seconds=int(in_seconds))).isoformat())]
-    for key in data:
-        if key == 'schedule':
-            continue
-        restart_options.append('"{0}": "{1}"'.format(key, data[key]))
-    context.execute_steps(u"""Given I issue a POST request to {0}/restart with {{{1}}}""".
-                          format(url, ','.join(restart_options)))
+    data.update(schedule='{0}'.format((datetime.now(pytz.utc) + timedelta(seconds=int(in_seconds))).isoformat()))
+    context.execute_steps(u"""Given I issue a POST request to {0}/restart with {1}""".format(url, json.dumps(data)))
 
 
 @step('I add tag {tag:w} {value:w} to {pg_name:w} config')
