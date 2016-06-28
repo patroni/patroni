@@ -331,7 +331,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             if state == 'running':
                 logger.exception('get_postgresql_status')
                 state = 'unknown'
-            return {'state': state}
+            return {'state': state, 'role': self.server.patroni.postgresql.role}
 
     def log_message(self, fmt, *args):
         logger.debug("API thread: %s - - [%s] %s", self.client_address[0], self.log_date_time_string(), fmt % args)

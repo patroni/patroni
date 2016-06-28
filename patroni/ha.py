@@ -165,9 +165,8 @@ class Ha(object):
             logger.info('Got response from %s %s: %s', member.name, member.api_url, response.content)
             json = response.json()
             is_master = json['role'] == 'master'
-            xlog_location = json['xlog']['location' if is_master else 'replayed_location']
-            tags = json.get('tags', dict())
-            return (member, True, not is_master, xlog_location, tags)
+            xlog_location = None if is_master else json['xlog']['replayed_location']
+            return (member, True, not is_master, xlog_location, json.get('tags', {}))
         except:
             logging.exception('request failed: GET %s', member.api_url)
         return (member, False, None, 0, {})
@@ -181,12 +180,6 @@ class Ha(object):
 
     def _is_healthiest_node(self, members, check_replication_lag=True):
         """This method tries to determine whether I am healthy enough to became a new leader candidate or not."""
-
-        if self.state_handler.is_leader():
-            return True
-
-        if self.patroni.nofailover is True:
-            return False
 
         if check_replication_lag and not self.state_handler.check_replication_lag(self.cluster.last_leader_operation):
             return False  # Too far behind last reported xlog location on master
@@ -259,7 +252,6 @@ class Ha(object):
         return self._is_healthiest_node(members, check_replication_lag=False)
 
     def is_healthiest_node(self):
-
         if self.state_handler.is_leader():  # leader is always the healthiest
             return True
 
@@ -276,6 +268,7 @@ class Ha(object):
     def demote(self, delete_leader=True):
         if delete_leader:
             self.state_handler.stop()
+            self.state_handler.set_role('unknown')
             self.dcs.delete_leader()
             self.touch_member()
             self.dcs.reset_cluster()
