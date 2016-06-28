@@ -124,7 +124,7 @@ def check_http_response(context, url, value, timeout, negate=False):
         time.sleep(1)
     else:
         assert False,\
-            "Value {0} is {0} present in response after {1} seconds".format("not" if not negate else "", value, timeout)
+            "Value {0} is {1} present in response after {2} seconds".format(value, "not" if not negate else "", timeout)
 
 
 @then('Response on GET {url} does not contain {value} after {timeout:d} seconds')
