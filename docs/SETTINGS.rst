@@ -69,6 +69,7 @@ PostgreSQL
 -  **pgpass**: path to the `.pgpass <https://www.postgresql.org/docs/current/static/libpq-pgpass.html>`__ password file. Patroni creates this file before executing pg\_basebackup and under some other circumstances. The location must be writable by Patroni.
 -  **recovery\_conf**: additional configuration settings written to recovery.conf when configuring follower.
 -  **parameters**: list of configuration settings for Postgres. Many of these are required for replication to work.
+-  **pg\_ctl\_timeout**: How long should pg_ctl wait when doing ``start``, ``stop`` or ``restart``. Default value is 60 seconds.
 -  **replica\_method** for each create_replica_method other than basebackup, you would add a configuration section of the same name. At a minimum, this should include "command" with a full path to the actual script to be executed.  Other configuration parameters will be passed along to the script in the form "parameter=value".
 
 REST API

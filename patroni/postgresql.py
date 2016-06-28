@@ -106,8 +106,6 @@ class Postgresql(object):
         self._trigger_file = config.get('recovery_conf', {}).get('trigger_file') or 'promote'
         self._trigger_file = os.path.abspath(os.path.join(self._data_dir, self._trigger_file))
 
-        self._pg_ctl = ['pg_ctl', '-w', '-D', self._data_dir]
-
         self._connection = None
         self._cursor_holder = None
         self._sysid = None
@@ -151,6 +149,22 @@ class Postgresql(object):
         self._local_address = self.get_local_address()
         self.connection_string = 'postgres://{connect_address}/{database}'.format(
             connect_address=self._connect_address or self._local_address, database=self._database)
+
+    def pg_ctl(self, cmd, *args, **kwargs):
+        """Builds and executes pg_ctl command
+
+        :returns: `!True` when return_code == 0, otherwise `!False`"""
+
+        pg_ctl = ['pg_ctl', cmd]
+        if cmd in ('start', 'stop', 'restart'):
+            pg_ctl += ['-w']
+            timeout = self.config.get('pg_ctl_timeout')
+            if timeout:
+                try:
+                    pg_ctl += ['-t', str(int(timeout))]
+                except Exception:
+                    logger.error('Bad value of pg_ctl_timeout: %s', timeout)
+        return subprocess.call(pg_ctl + ['-D', self._data_dir] + list(args), **kwargs) == 0
 
     def reload_config(self, config):
         server_parameters = self.get_server_parameters(config)
@@ -339,8 +353,9 @@ class Postgresql(object):
                 os.write(fd, self._superuser['password'].encode('utf-8'))
                 os.close(fd)
                 options.append('--pwfile={0}'.format(pwfile))
+        options = ['-o', ' '.join(options)] if options else []
 
-        ret = subprocess.call(self._pg_ctl + ['initdb'] + (['-o', ' '.join(options)] if options else [])) == 0
+        ret = self.pg_ctl('initdb', *options)
         if pwfile:
             os.remove(pwfile)
         if ret:
@@ -508,7 +523,7 @@ class Postgresql(object):
         options = ' '.join("--{0}='{1}'".format(p, self._server_parameters[p]) for p, v in self.CMDLINE_OPTIONS.items()
                            if self._major_version >= v[2])
 
-        ret = subprocess.call(self._pg_ctl + ['start', '-o', options], env=env, preexec_fn=os.setsid) == 0
+        ret = self.pg_ctl('start', '-o', options, env=env, preexec_fn=os.setsid)
         self._pending_restart = False
 
         self.set_state('running' if ret else 'start failed')
@@ -552,7 +567,7 @@ class Postgresql(object):
         if not block_callbacks:
             self.set_state('stopping')
 
-        ret = subprocess.call(self._pg_ctl + ['stop', '-m', mode]) == 0
+        ret = self.pg_ctl('stop', '-m', mode)
         # block_callbacks is used during restart to avoid
         # running start/stop callbacks in addition to restart ones
         if not ret:
@@ -563,7 +578,7 @@ class Postgresql(object):
         return ret
 
     def reload(self):
-        ret = subprocess.call(self._pg_ctl + ['reload']) == 0
+        ret = self.pg_ctl('reload')
         if ret:
             self.call_nowait(ACTION_ON_RELOAD)
         return ret
@@ -716,6 +731,7 @@ class Postgresql(object):
         if leader and leader.name != self.name and need_rewind:  # we have a leader and need to rewind
             if self.is_running():
                 self.stop()
+                self.set_role('unknown')
             # at present, pg_rewind only runs when the cluster is shut down cleanly
             # and not shutdown in recovery. We have to remove the recovery.conf if present
             # and start/shutdown in a single user mode to emulate this.
@@ -741,7 +757,8 @@ class Postgresql(object):
         else:  # do not rewind until the leader becomes available
             self.write_recovery_conf(member)
             ret = self.restart()
-        if change_role and ret:
+            self.set_role('replica')
+        if change_role:
             self.call_nowait(ACTION_ON_ROLE_CHANGE)
         return ret
 
@@ -770,7 +787,7 @@ class Postgresql(object):
     def promote(self):
         if self.role == 'master':
             return True
-        ret = subprocess.call(self._pg_ctl + ['promote']) == 0
+        ret = self.pg_ctl('promote')
         if ret:
             self.set_role('master')
             logger.info("cleared rewind flag after becoming the leader")

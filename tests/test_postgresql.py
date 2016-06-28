@@ -171,7 +171,7 @@ class TestPostgresql(unittest.TestCase):
                              'listen': '127.0.0.1, *:5432', 'connect_address': '127.0.0.2:5432',
                              'authentication': {'superuser': {'username': 'test', 'password': 'test'},
                                                 'replication': {'username': 'replicator', 'password': 'rep-pass'}},
-                             'use_pg_rewind': True,
+                             'use_pg_rewind': True, 'pg_ctl_timeout': 'bla',
                              'parameters': self._PARAMETERS,
                              'recovery_conf': {'foo': 'bar'},
                              'callbacks': {'on_start': 'true', 'on_stop': 'true',
@@ -244,18 +244,23 @@ class TestPostgresql(unittest.TestCase):
     @patch('subprocess.check_output', Mock(return_value=0, side_effect=pg_controldata_string))
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def test_follow(self, mock_pg_rewind):
-        self.p.follow(None, None)
+        with patch('patroni.postgresql.Postgresql.restart', Mock(return_value=False)):
+            self.p.follow(None, None)
+            self.p.set_role('master')
         self.p.follow(self.leader, self.leader)
         self.p.follow(Leader(-1, 28, self.other), self.leader)
         self.p.rewind = mock_pg_rewind
         self.p.follow(self.leader, self.leader)
+        self.p.set_role('master')
         with mock.patch('os.path.islink', MagicMock(return_value=True)):
             with mock.patch('patroni.postgresql.Postgresql.can_rewind', new_callable=PropertyMock(return_value=True)):
                 with mock.patch('os.unlink', MagicMock(return_value=True)):
                     self.p.follow(self.leader, self.leader, recovery=True)
+                    self.p.set_role('master')
         with mock.patch('patroni.postgresql.Postgresql.can_rewind', new_callable=PropertyMock(return_value=True)):
             self.p.rewind.return_value = True
             self.p.follow(self.leader, self.leader, recovery=True)
+            self.p.set_role('master')
             self.p.rewind.return_value = False
             self.p.follow(self.leader, self.leader, recovery=True)
         with mock.patch('patroni.postgresql.Postgresql.check_recovery_conf', MagicMock(return_value=True)):
