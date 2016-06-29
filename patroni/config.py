@@ -224,6 +224,7 @@ class Config(object):
             try:
                 return yaml.safe_load(value)
             except Exception:
+                logger.exception('Exception when parsing list %s', value)
                 return None
 
         for param in list(os.environ.keys()):
