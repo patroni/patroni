@@ -89,10 +89,10 @@ class Client(etcd.Client):
             self._load_machines_cache()
 
         if timeout is None:
+            # calculate the number of retries and timeout *per node*
+            # actual number of retries depends on the number of nodes
             kwargs['retries'] = 0 if len(self._machines_cache) > 3 else (1 if len(self._machines_cache) > 1 else 2)
-            kwargs['timeout'] = float(self.read_timeout)/(kwargs['retries'] + 1)
-            if kwargs['timeout'] < 1:
-                kwargs['timeout'] = 1
+            kwargs['timeout'] = max(1.0, float(self.read_timeout)/(kwargs['retries'] + 1))
         else:
             kwargs.update({'retries': 0, 'timeout': timeout})
 
