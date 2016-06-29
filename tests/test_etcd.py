@@ -147,7 +147,7 @@ class TestClient(unittest.TestCase):
     def setUp(self):
         with patch.object(etcd.Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://localhost:2379', 'http://localhost:4001'])
-            self.client = Client({'discovery_srv': 'test'})
+            self.client = Client({'discovery_srv': 'test', 'retry_timeout': 3})
             self.client.http.request = http_request
             self.client.http.request_encode_body = http_request
 
@@ -204,7 +204,8 @@ class TestEtcd(unittest.TestCase):
         with patch.object(etcd.Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(side_effect=etcd.EtcdException)
             with patch('time.sleep', Mock(side_effect=SleepException())):
-                self.assertRaises(SleepException, self.etcd.get_etcd_client, {'discovery_srv': 'test'})
+                self.assertRaises(SleepException, self.etcd.get_etcd_client,
+                                  {'discovery_srv': 'test', 'retry_timeout': 10})
 
     def test_get_cluster(self):
         self.assertIsInstance(self.etcd.get_cluster(), Cluster)
