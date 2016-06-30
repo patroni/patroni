@@ -283,7 +283,7 @@ class ZooKeeperController(AbstractDcsController):
     def __init__(self, output_dir, export_env=True):
         super(ZooKeeperController, self).__init__('zookeeper', None, output_dir)
         if export_env:
-            os.environ['PATRONI_ZOOKEEPER_HOSTS'] = 'localhost:2181'
+            os.environ['PATRONI_ZOOKEEPER_HOSTS'] = "'localhost:2181'"
         self._client = kazoo.client.KazooClient()
 
     def _start(self):
