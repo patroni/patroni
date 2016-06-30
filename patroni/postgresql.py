@@ -550,11 +550,11 @@ class Postgresql(object):
                     if check_not_is_in_recovery:
                         cur.execute('SELECT pg_is_in_recovery()')
                         if cur.fetchone()[0]:
-                            return False
-                    cur.execute('CHECKPOINT')
-                    return True
+                            return 'is_in_recovery=true'
+                    return cur.execute('CHECKPOINT')
         except psycopg2.Error:
             logging.exception('Exception during CHECKPOINT')
+            return 'not accessible or not healty'
 
     def stop(self, mode='fast', block_callbacks=False, checkpoint=True):
         # make sure we close all connections established against
@@ -741,7 +741,7 @@ class Postgresql(object):
                 stopped = self.stop()
                 self.set_role('unknown')
                 if not stopped:
-                    return logger.warning('Can not run pg_rewind because posgres is still running')
+                    return logger.warning('Can not run pg_rewind because postgres is still running')
 
             if not (leader and leader.conn_url):
                 return logger.info('Leader unknown, can not rewind')
@@ -753,18 +753,15 @@ class Postgresql(object):
             # from the master and run a checkpoint on a t in order to
             # make it store the new timeline (5540277D.8020309@iki.fi)
             leader_status = self.checkpoint(r)
-            if not leader_status:
-                return logger.warning('Can not use %s for rewind: %s', leader.name,
-                                      'is_in_recovery=true' if leader_status is False else 'not accessible')
+            if leader_status:
+                return logger.warning('Can not use %s for rewind: %s', leader.name, leader_status)
 
             # at present, pg_rewind only runs when the cluster is shut down cleanly
             # and not shutdown in recovery. We have to remove the recovery.conf if present
             # and start/shutdown in a single user mode to emulate this.
             # XXX: if recovery.conf is linked, it will be written anew as a normal file.
-            if os.path.islink(self._recovery_conf):
+            if os.path.isfile(self._recovery_conf) or os.path.islink(self._recovery_conf):
                 os.unlink(self._recovery_conf)
-            elif os.path.isfile(self._recovery_conf):
-                os.remove(self._recovery_conf)
 
             # Archived segments might be useful to pg_rewind,
             # clean the flags that tell we should remove them.

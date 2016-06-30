@@ -232,9 +232,10 @@ class TestPostgresql(unittest.TestCase):
 
     def test_checkpoint(self):
         with patch.object(MockCursor, 'fetchone', Mock(return_value=(True, ))):
-            self.assertFalse(self.p.checkpoint({'user': 'postgres'}))
-        with patch.object(MockCursor, 'execute', Mock()):
-            self.assertTrue(self.p.checkpoint())
+            self.assertEquals(self.p.checkpoint({'user': 'postgres'}), 'is_in_recovery=true')
+        with patch.object(MockCursor, 'execute', Mock(return_value=None)):
+            self.assertIsNone(self.p.checkpoint())
+        self.assertEquals(self.p.checkpoint(), 'not accessible or not healty')
 
     @patch('subprocess.call', side_effect=OSError)
     @patch('patroni.postgresql.Postgresql.write_pgpass', MagicMock(return_value=dict()))
@@ -270,10 +271,9 @@ class TestPostgresql(unittest.TestCase):
 
         self.p.follow(self.leader, self.leader)  # "leader" is not accessible or is_in_recovery
 
-        with patch.object(Postgresql, 'checkpoint', Mock(return_value=True)):
-            with patch('os.path.islink', Mock(return_value=True)):
-                self.p.follow(self.leader, self.leader)
-                self.p.set_role('master')
+        with patch.object(Postgresql, 'checkpoint', Mock(return_value=None)):
+            self.p.follow(self.leader, self.leader)
+            self.p.set_role('master')
             mock_pg_rewind.return_value = True
             self.p.follow(self.leader, self.leader)
 
