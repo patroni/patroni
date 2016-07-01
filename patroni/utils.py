@@ -81,13 +81,19 @@ def parse_bool(value):
 def strtol(value, strict=True):
     """As most as possible close equivalent of strtol(3) function (with base=0),
        used by postgres to parse parameter values.
+    >>> strtol(0) == (0, '')
+    True
     >>> strtol(1) == (1, '')
+    True
+    >>> strtol(9) == (9, '')
     True
     >>> strtol(' +0x400MB') == (1024, 'MB')
     True
     >>> strtol(' -070d') == (-56, 'd')
     True
     >>> strtol(' d ') == (None, 'd')
+    True
+    >>> strtol('9s', False) == (9, 's')
     True
     >>> strtol(' s ', False) == (1, 's')
     True
@@ -112,7 +118,7 @@ def strtol(value, strict=True):
             base = 10
 
         ret = None
-        while i < l:
+        while i <= l:
             try:  # try to find maximally long number
                 i += 1  # by giving to `int` longer and longer strings
                 ret = long(value[:i], base)
@@ -136,6 +142,8 @@ def parse_int(value, base_unit=None):
     >>> parse_int('1000 ms', 's') == 1
     True
     >>> parse_int('1GB', 'MB') is None
+    True
+    >>> parse_int(0) == 0
     True
     """
 
