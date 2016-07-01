@@ -262,8 +262,6 @@ class TestPostgresql(unittest.TestCase):
             self.p.follow(None, None)  # restart without rewind
             self.p.set_role('master')
 
-        self.p.follow(self.leader, self.me)  # Can not rewind from myself
-
         with patch.object(Postgresql, 'stop', Mock(return_value=False)):
             self.p.follow(self.leader, self.leader)  # failed to stop postgres
 
