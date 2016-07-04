@@ -26,7 +26,7 @@ class EtcdError(DCSError):
 class Client(etcd.Client):
 
     def __init__(self, config):
-        super(Client, self).__init__(read_timeout=5)
+        super(Client, self).__init__(read_timeout=config['retry_timeout']/2.0)
         self._config = config
         self._load_machines_cache()
         self._allow_reconnect = True
@@ -50,6 +50,9 @@ class Client(etcd.Client):
             self._update_machines_cache = True
             return [self._base_uri]
 
+    def set_read_timeout(self, timeout):
+        self._read_timeout = timeout/2.0
+
     def _do_http_request(self, request_executor, method, url, fields=None, **kwargs):
         try:
             response = request_executor(method, url, fields=fields, **kwargs)
@@ -70,13 +73,7 @@ class Client(etcd.Client):
         if not path.startswith('/'):
             raise ValueError('Path does not start with /')
 
-        if timeout is None:
-            timeout = self.read_timeout
-
-        if timeout == 0:
-            timeout = None
-
-        kwargs = {'timeout': timeout, 'fields': params, 'redirect': self.allow_redirect,
+        kwargs = {'fields': params, 'redirect': self.allow_redirect,
                   'headers': self._get_headers(), 'preload_content': False}
 
         if method in [self._MGET, self._MDELETE]:
@@ -90,6 +87,14 @@ class Client(etcd.Client):
         # Update machines_cache if previous attempt of update has failed
         if self._update_machines_cache:
             self._load_machines_cache()
+
+        if timeout is None:
+            # calculate the number of retries and timeout *per node*
+            # actual number of retries depends on the number of nodes
+            kwargs['retries'] = 0 if len(self._machines_cache) > 3 else (1 if len(self._machines_cache) > 1 else 2)
+            kwargs['timeout'] = max(1.0, float(self.read_timeout)/(kwargs['retries'] + 1))
+        else:
+            kwargs.update({'retries': 0, 'timeout': timeout})
 
         response = False
 
@@ -122,7 +127,7 @@ class Client(etcd.Client):
         for host, port in self.get_srv_record(discovery_srv):
             url = '{0}://{1}:{2}/members'.format(self._protocol, host, port)
             try:
-                response = requests.get(url, timeout=5)
+                response = requests.get(url, timeout=self.read_timeout)
                 if response.ok:
                     for member in response.json():
                         ret.extend(member['clientURLs'])
@@ -195,8 +200,7 @@ class Etcd(AbstractDCS):
         super(Etcd, self).__init__(config)
         self._ttl = int(config.get('ttl') or 30)
         self._retry = Retry(deadline=config['retry_timeout'], max_delay=1, max_tries=-1,
-                            retry_exceptions=(etcd.EtcdConnectionFailed,
-                                              etcd.EtcdLeaderElectionInProgress,
+                            retry_exceptions=(etcd.EtcdLeaderElectionInProgress,
                                               etcd.EtcdWatcherCleared,
                                               etcd.EtcdEventIndexCleared))
         self._client = self.get_etcd_client(config)
@@ -223,6 +227,7 @@ class Etcd(AbstractDCS):
 
     def set_retry_timeout(self, retry_timeout):
         self._retry.deadline = retry_timeout
+        self._client.set_read_timeout(retry_timeout)
 
     @staticmethod
     def member(node):
