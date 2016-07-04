@@ -12,7 +12,7 @@ dbnode1:
     links:
         - patroni_etcd:patroni_etcd
     volumes:
-        - patroni:/patroni
+        - ./patroni:/patroni
     env_file: docker/patroni-secrets.env
     environment:
         PATRONI_ETCD_HOST: patroni_etcd:2379
@@ -25,7 +25,7 @@ dbnode2:
     links:
         - patroni_etcd:patroni_etcd
     volumes:
-        - patroni:/patroni
+        - ./patroni:/patroni
     env_file: docker/patroni-secrets.env
     environment:
         PATRONI_ETCD_HOST: patroni_etcd:2379
@@ -38,7 +38,7 @@ dbnode3:
     links:
         - patroni_etcd:patroni_etcd
     volumes:
-        - patroni:/patroni
+        - ./patroni:/patroni
     env_file: docker/patroni-secrets.env
     environment:
         PATRONI_ETCD_HOST: patroni_etcd:2379

@@ -86,11 +86,12 @@ docker_run ${ETCD_CONTAINER} ${DOCKER_IMAGE} --etcd
 
 DOCKER_ARGS="--link=${ETCD_CONTAINER}:${ETCD_CONTAINER} -e PATRONI_SCOPE=${PATRONI_SCOPE} -e PATRONI_ETCD_HOST=${ETCD_CONTAINER}:2379"
 PATRONI_ENV=$(sed 's/#.*//g' docker/patroni-secrets.env | sed -n 's/^PATRONI_.*$/-e &/p' | tr '\n' ' ')
+PATRONI_VOLUME="-v $(dirname $(dirname $(realpath $0)))/patroni:/patroni"
 
 for i in $(seq 1 "${MEMBERS}"); do
     container_name=postgres${i}
     docker_run "${PATRONI_SCOPE}_${container_name}" \
-        -v patroni:/patroni \
+        $PATRONI_VOLUME \
         $DOCKER_ARGS \
         $PATRONI_ENV \
         -e PATRONI_NAME=${container_name} \

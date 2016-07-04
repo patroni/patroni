@@ -9,11 +9,13 @@ Options:
 
     --etcd      Do not run Patroni, run a standalone etcd
     --confd     Do not run Patroni, run a standalone confd
+    --zookeeper Do not run Patroni, run a standalone zookeeper
 
 Examples:
 
     $0 --etcd
     $0 --confd
+    $0 --zookeeper
     $0
 __EOF__
 }
@@ -28,14 +30,25 @@ while getopts "$optspec" optchar; do
         -)
             case "${OPTARG}" in
                 confd)
-                    while ! curl -s ${PATRONI_ETCD_HOST}/v2/members | jq -r '.members[0].clientURLs[0]' | grep -q http; do
-                        sleep 1
-                    done
                     haproxy -f /etc/haproxy/haproxy.cfg -p /var/run/haproxy.pid -D
-                    exec confd -prefix=${PATRONI_NAMESPACE:-/service}/$PATRONI_SCOPE -backend etcd -node $PATRONI_ETCD_HOST -interval=10
+                    CONFD="confd -prefix=${PATRONI_NAMESPACE:-/service}/$PATRONI_SCOPE -interval=10 -backend"
+                    if [ ! -z ${PATRONI_ZOOKEEPER_HOSTS} ]; then
+                        while ! /usr/share/zookeeper/bin/zkCli.sh -server ${PATRONI_ZOOKEEPER_HOSTS} ls /; do
+                            sleep 1
+                        done
+                        exec $CONFD zookeeper -node ${PATRONI_ZOOKEEPER_HOSTS}
+                    else
+                        while ! curl -s ${PATRONI_ETCD_HOST}/v2/members | jq -r '.members[0].clientURLs[0]' | grep -q http; do
+                            sleep 1
+                        done
+                        exec $CONFD etcd -node $PATRONI_ETCD_HOST
+                    fi
                     ;;
                 etcd)
                     exec etcd $ETCD_ARGS
+                    ;;
+                zookeeper)
+                    exec /usr/share/zookeeper/bin/zkServer.sh start-foreground
                     ;;
                 cheat)
                     CHEAT=1
@@ -61,7 +74,7 @@ while getopts "$optspec" optchar; do
 done
 
 ## We start an etcd
-if [ -z ${PATRONI_ETCD_HOST} ]; then
+if [[ -z ${PATRONI_ETCD_HOST} && -z ${PATRONI_ZOOKEEPER_HOSTS} ]]; then
     etcd $ETCD_ARGS > /var/log/etcd.log 2> /var/log/etcd.err &
     export PATRONI_ETCD_HOST="127.0.0.1:2379"
 fi
@@ -71,7 +84,7 @@ export PATRONI_NAME="${PATRONI_NAME:-${HOSTNAME}}"
 export PATRONI_RESTAPI_CONNECT_ADDRESS="${DOCKER_IP}:8008"
 export PATRONI_RESTAPI_LISTEN="0.0.0.0:8008"
 export PATRONI_admin_PASSWORD="${PATRONI_admin_PASSWORD:=admin}"
-export PATRONI_admin_OPTIONS="$PATRONI_admin_OPTIONS:-createdb, createrole}"
+export PATRONI_admin_OPTIONS="${PATRONI_admin_OPTIONS:-createdb, createrole}"
 export PATRONI_POSTGRESQL_CONNECT_ADDRESS="${DOCKER_IP}:5432"
 export PATRONI_POSTGRESQL_LISTEN="0.0.0.0:5432"
 export PATRONI_POSTGRESQL_DATA_DIR="data/${PATRONI_SCOPE}"
@@ -93,7 +106,7 @@ bootstrap:
 __EOF__
 
 mkdir -p "$HOME/.config/patroni"
-ln -s /patroni.yml "$HOME/.config/patroni/patronictl.yaml"
+[ -h "$HOME/.config/patroni/patronictl.yaml" ] || ln -s /patroni.yml "$HOME/.config/patroni/patronictl.yaml"
 
 [ -z $CHEAT ] && exec python /patroni.py /patroni.yml
 
