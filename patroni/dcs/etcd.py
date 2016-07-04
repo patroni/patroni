@@ -26,7 +26,7 @@ class EtcdError(DCSError):
 class Client(etcd.Client):
 
     def __init__(self, config):
-        super(Client, self).__init__(read_timeout=config['retry_timeout']/2.0)
+        super(Client, self).__init__(read_timeout=config['retry_timeout'])
         self._config = config
         self._load_machines_cache()
         self._allow_reconnect = True
@@ -51,7 +51,7 @@ class Client(etcd.Client):
             return [self._base_uri]
 
     def set_read_timeout(self, timeout):
-        self._read_timeout = timeout/2.0
+        self._read_timeout = timeout
 
     def _do_http_request(self, request_executor, method, url, fields=None, **kwargs):
         try:
@@ -91,8 +91,16 @@ class Client(etcd.Client):
         if timeout is None:
             # calculate the number of retries and timeout *per node*
             # actual number of retries depends on the number of nodes
-            kwargs['retries'] = 0 if len(self._machines_cache) > 3 else (1 if len(self._machines_cache) > 1 else 2)
-            kwargs['timeout'] = max(1.0, float(self.read_timeout)/(kwargs['retries'] + 1))
+            etcd_nodes = len(self._machines_cache) + 1
+            kwargs['retries'] = 0 if etcd_nodes > 3 else (1 if etcd_nodes > 1 else 2)
+
+            # if etcd_nodes > 3:
+            #     kwargs.update({'retries': 0, 'timeout': float(self.read_timeout)/etcd_nodes})
+            # elif etcd_nodes > 1:
+            #     kwargs.update({'retries': 1, 'timeout': self.read_timeout/2.0/etcd_nodes})
+            # else:
+            #     kwargs.update({'retries': 2, 'timeout': self.read_timeout/3.0})
+            kwargs['timeout'] = self.read_timeout/float(kwargs['retries'] + 1)/etcd_nodes
         else:
             kwargs.update({'retries': 0, 'timeout': timeout})
 
