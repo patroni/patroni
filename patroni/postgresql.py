@@ -732,6 +732,7 @@ class Postgresql(object):
 
         if leader and leader.name == self.name:
             self._need_rewind = False
+            member = None
             if self.is_running():
                 return
         else:
