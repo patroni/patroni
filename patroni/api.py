@@ -223,7 +223,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         else:
             if 'schedule' not in request:
                 try:
-                    status, data = self.server.patroni.ha.restart()
+                    status, data = self.server.patroni.ha.restart(request)
                     status_code = 200 if status else 503
                 except Exception:
                     logger.exception('Exception during restart')

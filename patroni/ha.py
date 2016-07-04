@@ -419,7 +419,7 @@ class Ha(object):
             reason_to_cancel = "host role mismatch"
 
         if (postgres_version and
-           self.state_hander.postgres_version_to_int(postgres_version) <= int(self.state_hander.server_version)):
+           self.state_handler.postgres_version_to_int(postgres_version) <= int(self.state_handler.server_version)):
             reason_to_cancel = "postgres version mismatch"
 
         if pending_restart and not self.state_handler.pending_restart:
