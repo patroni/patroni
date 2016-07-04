@@ -730,8 +730,12 @@ class Postgresql(object):
 
         change_role = self.role == 'master'
 
-        self._need_rewind = (not leader or leader.name != self.name) \
-            and (self._need_rewind or change_role and self.can_rewind)
+        if leader and leader.name == self.name:
+            self._need_rewind = False
+            if self.is_running():
+                return
+        else:
+            self._need_rewind = self._need_rewind or change_role and self.can_rewind
 
         if self._need_rewind:
             logger.info("set the rewind flag after demote")
