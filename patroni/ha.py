@@ -87,7 +87,7 @@ class Ha(object):
             self._async_executor.run_async(self.clone, args=(clone_member, msg))
             return 'trying to bootstrap {0}'.format(msg)
         # no initialize key and node is allowed to be master and has 'bootstrap' section in a configuration file
-        elif not (self.cluster.initialize or self.patroni.nofailover) and 'bootstrap' in self.patroni.config:
+        elif self.cluster.initialize is None and not self.patroni.nofailover and 'bootstrap' in self.patroni.config:
             if self.dcs.initialize(create_new=True):  # race for initialization
                 try:
                     self.state_handler.bootstrap(self.patroni.config['bootstrap'])
@@ -419,7 +419,8 @@ class Ha(object):
     def sysid_valid(sysid):
         # sysid does tv_sec << 32, where tv_sec is the number of seconds sine 1970,
         # so even 1 << 32 would have 10 digits.
-        return str(sysid) and len(str(sysid)) >= 10 and str(sysid).isdigit()
+        sysid = str(sysid)
+        return len(sysid) >= 10 and sysid.isdigit()
 
     def post_recover(self):
         if not self.state_handler.is_running():
