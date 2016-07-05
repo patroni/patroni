@@ -187,6 +187,13 @@ class TestRestApiHandler(unittest.TestCase):
 
         def make_request(request):
             return '{0}{1}\n\n{2}'.format(post, len(request), request)
+
+        # empty request
+        request = make_request('')
+        MockRestApiServer(RestApiHandler, request)
+        # invalid request
+        request = make_request('foobar=baz')
+        MockRestApiServer(RestApiHandler, request)
         # wrong role
         request = make_request('{"schedule": "2016-08-20 12:45TZ+1", "role": "unknown", "postgres_version": "9.5.3"}')
         MockRestApiServer(RestApiHandler, request)
@@ -205,6 +212,9 @@ class TestRestApiHandler(unittest.TestCase):
         for retval in (True, False):
             with patch.object(MockHa, 'schedule_future_restart', Mock(return_value=retval)):
                 request = make_request('{"schedule": "2016-08-29 12:45TZ+1"}')
+                MockRestApiServer(RestApiHandler, request)
+            with patch.object(MockHa, 'restart', Mock(return_value=(retval, "foo"))):
+                request = make_request('{"role": "master", "postgres_version": "9.5.2"}')
                 MockRestApiServer(RestApiHandler, request)
 
     def test_do_DELETE_restart(self):

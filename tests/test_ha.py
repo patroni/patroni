@@ -130,7 +130,6 @@ class TestHa(unittest.TestCase):
             self.ha.old_cluster = self.e.get_cluster()
             self.ha.cluster = get_cluster_not_initialized_without_leader()
             self.ha.load_cluster_from_dcs = Mock()
-            #self.ha.evaluate_scheduled_restart = true
 
     def test_update_lock(self):
         self.p.last_operation = Mock(side_effect=PostgresException(''))
@@ -403,8 +402,22 @@ class TestHa(unittest.TestCase):
 
     def test_schedule_future_restart(self):
         self.ha.patroni.scheduled_restart = {}
-        self.ha.schedule_future_restart({'schedule': '2016-08-30 12:45TZ+1"'})
-        self.ha.schedule_future_restart({'schedule': '2016-08-30 12:45TZ+1"'})
+        # do the restart 2 times. The first one should succeed, the second one should fail
+        self.assertTrue(self.ha.schedule_future_restart({'schedule': '2016-08-30 12:45TZ+1"'}))
+        self.assertFalse(self.ha.schedule_future_restart({'schedule': '2016-08-30 12:45TZ+1"'}))
 
     def test_delete_future_restarts(self):
         self.ha.delete_future_restart()
+
+    def test_evaluate_scheduled_restart(self):
+        self.p.postmaster_start_time = Mock(return_value='2016-08-31 12:45TZ+1')
+        with patch.object(self.ha,
+                          'future_restart_scheduled', Mock(return_value={'postmaster_start_time': '2016-08-30 12:45TZ+1',
+                                                                         'schedule': '2016-08-31 12:45TZ+1'})):
+            self.ha.evaluate_scheduled_restart()
+        with patch.object(self.ha,
+                          'future_restart_scheduled', Mock(return_value={'postmaster_start_time': '2016-08-31 12:45TZ+1',
+                                                                         'schedule': '2016-08-31 12:45TZ+1'})):
+            with patch.object(self.ha,
+                              'should_run_scheduled_action', Mock(return_value=True)):
+                self.ha.evaluate_scheduled_restart()

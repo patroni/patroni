@@ -930,6 +930,14 @@ $$""".format(name, ' '.join(options)), name, password, password)
         90313
         >>> Postgresql.postgres_version_to_int('10.1')
         100100
+        >>> Postgresql.postgres_version_to_int('10')
+        Traceback (most recent call last):
+            ...
+        Exception: Invalid PostgreSQL format: X.Y or X.Y.Z is accepted: 10
+        >>> Postgresql.postgres_version_to_int('a.b.c')
+        Traceback (most recent call last):
+            ...
+        Exception: Invalid PostgreSQL version: a.b.c
         """
         components = pg_version.split('.')
 
@@ -943,5 +951,5 @@ $$""".format(name, ' '.join(options)), name, password, password)
             result = [c if int(c) > 10 else '0{0}'.format(c) for c in components]
             result = int(''.join(result))
         except ValueError:
-            raise Exception("Exception when parsing PostgreSQL version: {0}".format(pg_version))
+            raise Exception("Invalid PostgreSQL version: {0}".format(pg_version))
         return result
