@@ -87,7 +87,6 @@ class Postgresql(object):
         self._replication = config['authentication']['replication']
         self.resolve_connection_addresses()
 
-        self._use_pg_rewind = config.get('use_pg_rewind', False)
         self._need_rewind = False
         self._use_slots = config.get('use_slots', True)
         self._version_file = os.path.join(self._data_dir, 'PG_VERSION')
@@ -238,7 +237,7 @@ class Postgresql(object):
             we have either wal_log_hints or checksums turned on
         """
         # low-hanging fruit: check if pg_rewind configuration is there
-        if not (self._use_pg_rewind and all(self._superuser.get(n) for n in ('username', 'password'))):
+        if not (self.config.get('use_pg_rewind') and all(self._superuser.get(n) for n in ('username', 'password'))):
             return False
 
         cmd = ['pg_rewind', '--help']
@@ -730,22 +729,25 @@ class Postgresql(object):
 
         change_role = self.role == 'master'
 
-        if leader and leader.name == self.name:
-            self._need_rewind = False
-            member = None
-            if self.is_running():
-                return
-        else:
-            self._need_rewind = self._need_rewind or change_role and self.can_rewind
+        if change_role:
+            if leader:
+                if leader.name == self.name:
+                    self._need_rewind = False
+                    member = None
+                    if self.is_running():
+                        return
+                else:
+                    self._need_rewind = bool(leader.conn_url) and self.can_rewind
+            else:
+                self._need_rewind = False
+                member = None
 
         if self._need_rewind:
             logger.info("set the rewind flag after demote")
 
-            if self.is_running():
-                stopped = self.stop()
-                self.set_role('unknown')
-                if not stopped:
-                    return logger.warning('Can not run pg_rewind because postgres is still running')
+            self.set_role('unknown')
+            if self.is_running() and not self.stop():
+                return logger.warning('Can not run pg_rewind because postgres is still running')
 
             if not (leader and leader.conn_url):
                 return logger.info('Leader unknown, can not rewind')
@@ -776,7 +778,7 @@ class Postgresql(object):
             opts.update({'archive_mode': 'on', 'archive_command': 'false'})
             self.single_user_mode(options=opts)
 
-            if self.rewind(r):
+            if self.rewind(r) or not self.config.get('remove_data_directory_on_rewind_failure', False):
                 self.write_recovery_conf(member)
                 ret = self.start()
             else:

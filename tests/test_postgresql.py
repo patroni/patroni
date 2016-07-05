@@ -171,6 +171,7 @@ class TestPostgresql(unittest.TestCase):
                              'listen': '127.0.0.1, *:5432', 'connect_address': '127.0.0.2:5432',
                              'authentication': {'superuser': {'username': 'test', 'password': 'test'},
                                                 'replication': {'username': 'replicator', 'password': 'rep-pass'}},
+                             'remove_data_directory_on_rewind_failure': True,
                              'use_pg_rewind': True, 'pg_ctl_timeout': 'bla',
                              'parameters': self._PARAMETERS,
                              'recovery_conf': {'foo': 'bar'},
@@ -281,14 +282,14 @@ class TestPostgresql(unittest.TestCase):
 
     @patch('subprocess.check_output', Mock(return_value=0, side_effect=pg_controldata_string))
     def test_can_rewind(self):
-        with mock.patch('subprocess.call', MagicMock(return_value=1)):
+        with patch('subprocess.call', MagicMock(return_value=1)):
             self.assertFalse(self.p.can_rewind)
-        with mock.patch('subprocess.call', side_effect=OSError):
+        with patch('subprocess.call', side_effect=OSError):
             self.assertFalse(self.p.can_rewind)
-        tmp = self.p.controldata
-        self.p.controldata = lambda: {'wal_log_hints setting': 'on'}
-        self.assertTrue(self.p.can_rewind)
-        self.p.controldata = tmp
+        with patch.object(Postgresql, 'controldata', Mock(return_value={'wal_log_hints setting': 'on'})):
+            self.assertTrue(self.p.can_rewind)
+        self.p.config['use_pg_rewind'] = False
+        self.assertFalse(self.p.can_rewind)
 
     @patch('time.sleep', Mock())
     def test_create_replica(self):
