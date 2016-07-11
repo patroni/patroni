@@ -79,7 +79,7 @@ Scenario: check the scheduled failover
 	And replication works from postgres0 to postgres1 after 25 seconds
 
 Scenario: check the scheduled restart
-	Given I issue a PATCH request to http://127.0.0.1:8008/config with {"postgresql": {"parameters": {"checkpoint_warning": "60s"}}}
+	Given I issue a PATCH request to http://127.0.0.1:8008/config with {"postgresql": {"parameters": {"superuser_reserved_connections": "6"}}}
 	Then I receive a response code 200
 		And Response on GET http://127.0.0.1:8008/patroni contains pending_restart after 5 seconds
 	Given I issue a scheduled restart at http://127.0.0.1:8008 in 1 seconds with {"role": "replica"}
