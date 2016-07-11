@@ -283,6 +283,8 @@ class TestHa(unittest.TestCase):
         self.assertEquals(self.ha.restart(), (False, 'restart failed'))
         self.ha.schedule_reinitialize()
         self.assertEquals(self.ha.restart(), (False, 'reinitialize already in progress'))
+        with patch.object(self.ha, "restart_matches", return_value=False):
+            self.assertEquals(self.ha.restart({'foo': 'bar'}), (False, "restart conditions are not satisfied"))
 
     def test_restart_in_progress(self):
         self.ha._async_executor.schedule('restart', True)
@@ -421,3 +423,15 @@ class TestHa(unittest.TestCase):
             with patch.object(self.ha,
                               'should_run_scheduled_action', Mock(return_value=True)):
                 self.ha.evaluate_scheduled_restart()
+                with patch.object(self.ha, 'restart', Mock(return_value=(False, "Test"))):
+                    self.ha.evaluate_scheduled_restart()
+
+    def test_restart_matches(self):
+        self.p._role = 'replica'
+        self.p.server_version = 90500
+        self.p._pending_restart = True
+        self.assertFalse(self.ha.restart_matches("master", "9.5.2", True))
+        self.assertFalse(self.ha.restart_matches("replica", "9.4.3", True))
+        self.p._pending_restart = False
+        self.assertFalse(self.ha.restart_matches("replica", "9.5.2", True))
+        self.assertTrue(self.ha.restart_matches("replica", "9.5.2", False))
