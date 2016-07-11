@@ -87,7 +87,7 @@ class Postgresql(object):
         self._replication = config['authentication']['replication']
         self.resolve_connection_addresses()
 
-        self._use_pg_rewind = config.get('use_pg_rewind', False)
+        self._need_rewind = False
         self._use_slots = config.get('use_slots', True)
         self._version_file = os.path.join(self._data_dir, 'PG_VERSION')
         self._major_version = self.get_major_version()
@@ -105,8 +105,6 @@ class Postgresql(object):
         self._postmaster_pid = os.path.join(self._data_dir, 'postmaster.pid')
         self._trigger_file = config.get('recovery_conf', {}).get('trigger_file') or 'promote'
         self._trigger_file = os.path.abspath(os.path.join(self._data_dir, self._trigger_file))
-
-        self._pg_ctl = ['pg_ctl', '-w', '-D', self._data_dir]
 
         self._connection = None
         self._cursor_holder = None
@@ -151,6 +149,22 @@ class Postgresql(object):
         self._local_address = self.get_local_address()
         self.connection_string = 'postgres://{connect_address}/{database}'.format(
             connect_address=self._connect_address or self._local_address, database=self._database)
+
+    def pg_ctl(self, cmd, *args, **kwargs):
+        """Builds and executes pg_ctl command
+
+        :returns: `!True` when return_code == 0, otherwise `!False`"""
+
+        pg_ctl = ['pg_ctl', cmd]
+        if cmd in ('start', 'stop', 'restart'):
+            pg_ctl += ['-w']
+            timeout = self.config.get('pg_ctl_timeout')
+            if timeout:
+                try:
+                    pg_ctl += ['-t', str(int(timeout))]
+                except Exception:
+                    logger.error('Bad value of pg_ctl_timeout: %s', timeout)
+        return subprocess.call(pg_ctl + ['-D', self._data_dir] + list(args), **kwargs) == 0
 
     def reload_config(self, config):
         server_parameters = self.get_server_parameters(config)
@@ -223,7 +237,7 @@ class Postgresql(object):
             we have either wal_log_hints or checksums turned on
         """
         # low-hanging fruit: check if pg_rewind configuration is there
-        if not (self._use_pg_rewind and all(self._superuser.get(n) for n in ('username', 'password'))):
+        if not (self.config.get('use_pg_rewind') and all(self._superuser.get(n) for n in ('username', 'password'))):
             return False
 
         cmd = ['pg_rewind', '--help']
@@ -339,8 +353,9 @@ class Postgresql(object):
                 os.write(fd, self._superuser['password'].encode('utf-8'))
                 os.close(fd)
                 options.append('--pwfile={0}'.format(pwfile))
+        options = ['-o', ' '.join(options)] if options else []
 
-        ret = subprocess.call(self._pg_ctl + ['initdb'] + (['-o', ' '.join(options)] if options else [])) == 0
+        ret = self.pg_ctl('initdb', *options)
         if pwfile:
             os.remove(pwfile)
         if ret:
@@ -508,7 +523,7 @@ class Postgresql(object):
         options = ' '.join("--{0}='{1}'".format(p, self._server_parameters[p]) for p, v in self.CMDLINE_OPTIONS.items()
                            if self._major_version >= v[2])
 
-        ret = subprocess.call(self._pg_ctl + ['start', '-o', options], env=env, preexec_fn=os.setsid) == 0
+        ret = self.pg_ctl('start', '-o', options, env=env, preexec_fn=os.setsid)
         self._pending_restart = False
 
         self.set_state('running' if ret else 'start failed')
@@ -522,6 +537,7 @@ class Postgresql(object):
         return ret
 
     def checkpoint(self, connect_kwargs=None):
+        check_not_is_in_recovery = connect_kwargs is not None
         connect_kwargs = connect_kwargs or self._connect_kwargs
         for p in ['connect_timeout', 'options']:
             connect_kwargs.pop(p, None)
@@ -530,9 +546,14 @@ class Postgresql(object):
                 conn.autocommit = True
                 with conn.cursor() as cur:
                     cur.execute("SET statement_timeout = 0")
-                    cur.execute('CHECKPOINT')
+                    if check_not_is_in_recovery:
+                        cur.execute('SELECT pg_is_in_recovery()')
+                        if cur.fetchone()[0]:
+                            return 'is_in_recovery=true'
+                    return cur.execute('CHECKPOINT')
         except psycopg2.Error:
             logging.exception('Exception during CHECKPOINT')
+            return 'not accessible or not healty'
 
     def stop(self, mode='fast', block_callbacks=False, checkpoint=True):
         # make sure we close all connections established against
@@ -552,10 +573,11 @@ class Postgresql(object):
         if not block_callbacks:
             self.set_state('stopping')
 
-        ret = subprocess.call(self._pg_ctl + ['stop', '-m', mode]) == 0
+        ret = self.pg_ctl('stop', '-m', mode)
         # block_callbacks is used during restart to avoid
         # running start/stop callbacks in addition to restart ones
         if not ret:
+            logger.warning('pg_ctl stop failed')
             self.set_state('stop failed')
         elif not block_callbacks:
             self.set_state('stopped')
@@ -563,7 +585,7 @@ class Postgresql(object):
         return ret
 
     def reload(self):
-        ret = subprocess.call(self._pg_ctl + ['reload']) == 0
+        ret = self.pg_ctl('reload')
         if ret:
             self.call_nowait(ACTION_ON_RELOAD)
         return ret
@@ -631,18 +653,13 @@ class Postgresql(object):
                 if name not in ('standby_mode', 'recovery_target_timeline', 'primary_conninfo', 'primary_slot_name'):
                     f.write("{0} = '{1}'\n".format(name, value))
 
-    def rewind(self, leader):
+    def rewind(self, r):
         # prepare pg_rewind connection
-        r = get_conn_kwargs(leader.conn_url, self._superuser)
         env = self.write_pgpass(r)
-        pc = "user={user} host={host} port={port} dbname={database} sslmode=prefer sslcompression=1".format(**r)
-        # first run a checkpoint on a promoted master in order
-        # to make it store the new timeline (5540277D.8020309@iki.fi)
-        self.checkpoint(r)
-        logger.info("running pg_rewind from %s", pc)
-        pg_rewind = ['pg_rewind', '-D', self._data_dir, '--source-server', pc]
+        dsn = 'user={user} host={host} port={port} dbname={database} sslmode=prefer sslcompression=1'.format(**r)
+        logger.info('running pg_rewind from %s', dsn)
         try:
-            return subprocess.call(pg_rewind, env=env) == 0
+            return subprocess.call(['pg_rewind', '-D', self._data_dir, '--source-server', dsn], env=env) == 0
         except OSError:
             return False
 
@@ -709,39 +726,73 @@ class Postgresql(object):
     def follow(self, member, leader, recovery=False):
         if self.check_recovery_conf(member) and not recovery:
             return True
+
         change_role = self.role == 'master'
-        need_rewind = change_role and self.can_rewind
-        if need_rewind:
+
+        if change_role:
+            if leader:
+                if leader.name == self.name:
+                    self._need_rewind = False
+                    member = None
+                    if self.is_running():
+                        return
+                else:
+                    self._need_rewind = bool(leader.conn_url) and self.can_rewind
+            else:
+                self._need_rewind = False
+                member = None
+
+        if self._need_rewind:
             logger.info("set the rewind flag after demote")
-        if leader and leader.name != self.name and need_rewind:  # we have a leader and need to rewind
-            if self.is_running():
-                self.stop()
+
+            self.set_role('unknown')
+            if self.is_running() and not self.stop():
+                return logger.warning('Can not run pg_rewind because postgres is still running')
+
+            if not (leader and leader.conn_url):
+                return logger.info('Leader unknown, can not rewind')
+
+            # prepare pg_rewind connection
+            r = get_conn_kwargs(leader.conn_url, self._superuser)
+
+            # first make sure that we are really trying to rewind
+            # from the master and run a checkpoint on a t in order to
+            # make it store the new timeline (5540277D.8020309@iki.fi)
+            leader_status = self.checkpoint(r)
+            if leader_status:
+                return logger.warning('Can not use %s for rewind: %s', leader.name, leader_status)
+
             # at present, pg_rewind only runs when the cluster is shut down cleanly
             # and not shutdown in recovery. We have to remove the recovery.conf if present
             # and start/shutdown in a single user mode to emulate this.
             # XXX: if recovery.conf is linked, it will be written anew as a normal file.
-            if os.path.islink(self._recovery_conf):
+            if os.path.isfile(self._recovery_conf) or os.path.islink(self._recovery_conf):
                 os.unlink(self._recovery_conf)
-            elif os.path.isfile(self._recovery_conf):
-                os.remove(self._recovery_conf)
+
             # Archived segments might be useful to pg_rewind,
             # clean the flags that tell we should remove them.
             self.cleanup_archive_status()
+
             # Start in a single user mode and stop to produce a clean shutdown
             opts = self.read_postmaster_opts()
             opts.update({'archive_mode': 'on', 'archive_command': 'false'})
             self.single_user_mode(options=opts)
-            if self.rewind(leader):
+
+            if self.rewind(r) or not self.config.get('remove_data_directory_on_rewind_failure', False):
                 self.write_recovery_conf(member)
                 ret = self.start()
             else:
-                logger.error("unable to rewind the former master")
+                logger.error('unable to rewind the former master')
                 self.remove_data_directory()
+                self.set_role('uninitialized')
                 ret = True
-        else:  # do not rewind until the leader becomes available
+            self._need_rewind = False
+        else:
             self.write_recovery_conf(member)
             ret = self.restart()
-        if change_role and ret:
+            self.set_role('replica')
+
+        if change_role:
             self.call_nowait(ACTION_ON_ROLE_CHANGE)
         return ret
 
@@ -770,10 +821,11 @@ class Postgresql(object):
     def promote(self):
         if self.role == 'master':
             return True
-        ret = subprocess.call(self._pg_ctl + ['promote']) == 0
+        ret = self.pg_ctl('promote')
         if ret:
             self.set_role('master')
             logger.info("cleared rewind flag after becoming the leader")
+            self._need_rewind = False
             self.call_nowait(ACTION_ON_ROLE_CHANGE)
         return ret
 

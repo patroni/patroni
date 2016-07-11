@@ -92,7 +92,7 @@ class Ha(object):
             self._async_executor.run_async(self.clone, args=(clone_member, msg))
             return 'trying to bootstrap {0}'.format(msg)
         # no initialize key and node is allowed to be master and has 'bootstrap' section in a configuration file
-        elif not (self.cluster.initialize or self.patroni.nofailover) and 'bootstrap' in self.patroni.config:
+        elif self.cluster.initialize is None and not self.patroni.nofailover and 'bootstrap' in self.patroni.config:
             if self.dcs.initialize(create_new=True):  # race for initialization
                 try:
                     self.state_handler.bootstrap(self.patroni.config['bootstrap'])
@@ -170,9 +170,8 @@ class Ha(object):
             logger.info('Got response from %s %s: %s', member.name, member.api_url, response.content)
             json = response.json()
             is_master = json['role'] == 'master'
-            xlog_location = json['xlog']['location' if is_master else 'replayed_location']
-            tags = json.get('tags', dict())
-            return (member, True, not is_master, xlog_location, tags)
+            xlog_location = None if is_master else json['xlog']['replayed_location']
+            return (member, True, not is_master, xlog_location, json.get('tags', {}))
         except:
             logger.exception('request failed: GET %s', member.api_url)
         return (member, False, None, 0, {})
@@ -186,12 +185,6 @@ class Ha(object):
 
     def _is_healthiest_node(self, members, check_replication_lag=True):
         """This method tries to determine whether I am healthy enough to became a new leader candidate or not."""
-
-        if self.state_handler.is_leader():
-            return True
-
-        if self.patroni.nofailover is True:
-            return False
 
         if check_replication_lag and not self.state_handler.check_replication_lag(self.cluster.last_leader_operation):
             return False  # Too far behind last reported xlog location on master
@@ -264,7 +257,6 @@ class Ha(object):
         return self._is_healthiest_node(members, check_replication_lag=False)
 
     def is_healthiest_node(self):
-
         if self.state_handler.is_leader():  # leader is always the healthiest
             return True
 
@@ -281,6 +273,7 @@ class Ha(object):
     def demote(self, delete_leader=True):
         if delete_leader:
             self.state_handler.stop()
+            self.state_handler.set_role('unknown')
             self.dcs.delete_leader()
             self.touch_member()
             self.dcs.reset_cluster()
@@ -516,7 +509,8 @@ class Ha(object):
     def sysid_valid(sysid):
         # sysid does tv_sec << 32, where tv_sec is the number of seconds sine 1970,
         # so even 1 << 32 would have 10 digits.
-        return str(sysid) and len(str(sysid)) >= 10 and str(sysid).isdigit()
+        sysid = str(sysid)
+        return len(sysid) >= 10 and sysid.isdigit()
 
     def post_recover(self):
         if not self.state_handler.is_running():

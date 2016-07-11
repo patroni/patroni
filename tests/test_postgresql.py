@@ -171,7 +171,8 @@ class TestPostgresql(unittest.TestCase):
                              'listen': '127.0.0.1, *:5432', 'connect_address': '127.0.0.2:5432',
                              'authentication': {'superuser': {'username': 'test', 'password': 'test'},
                                                 'replication': {'username': 'replicator', 'password': 'rep-pass'}},
-                             'use_pg_rewind': True,
+                             'remove_data_directory_on_rewind_failure': True,
+                             'use_pg_rewind': True, 'pg_ctl_timeout': 'bla',
                              'parameters': self._PARAMETERS,
                              'recovery_conf': {'foo': 'bar'},
                              'callbacks': {'on_start': 'true', 'on_stop': 'true',
@@ -230,47 +231,65 @@ class TestPostgresql(unittest.TestCase):
     def test_write_pgpass(self):
         self.p.write_pgpass({'host': 'localhost', 'port': '5432', 'user': 'foo', 'password': 'bar'})
 
+    def test_checkpoint(self):
+        with patch.object(MockCursor, 'fetchone', Mock(return_value=(True, ))):
+            self.assertEquals(self.p.checkpoint({'user': 'postgres'}), 'is_in_recovery=true')
+        with patch.object(MockCursor, 'execute', Mock(return_value=None)):
+            self.assertIsNone(self.p.checkpoint())
+        self.assertEquals(self.p.checkpoint(), 'not accessible or not healty')
+
     @patch('subprocess.call', side_effect=OSError)
     @patch('patroni.postgresql.Postgresql.write_pgpass', MagicMock(return_value=dict()))
     def test_pg_rewind(self, mock_call):
-        self.assertTrue(self.p.rewind(self.leader))
+        r = {'user': '', 'host': '', 'port': '', 'database': '', 'password': ''}
+        self.assertTrue(self.p.rewind(r))
         subprocess.call = mock_call
-        self.assertFalse(self.p.rewind(self.leader))
+        self.assertFalse(self.p.rewind(r))
 
-    @patch('patroni.postgresql.Postgresql.rewind', return_value=False)
-    @patch('patroni.postgresql.Postgresql.remove_data_directory', MagicMock(return_value=True))
-    @patch('patroni.postgresql.Postgresql.single_user_mode', MagicMock(return_value=1))
-    @patch('patroni.postgresql.Postgresql.write_pgpass', MagicMock(return_value=dict()))
+    @patch('os.unlink', Mock(return_value=True))
     @patch('subprocess.check_output', Mock(return_value=0, side_effect=pg_controldata_string))
+    @patch.object(Postgresql, 'remove_data_directory', Mock(return_value=True))
+    @patch.object(Postgresql, 'single_user_mode', Mock(return_value=1))
+    @patch.object(Postgresql, 'write_pgpass', Mock(return_value={}))
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
+    @patch.object(Postgresql, 'can_rewind', PropertyMock(return_value=True))
+    @patch.object(Postgresql, 'rewind', return_value=False)
     def test_follow(self, mock_pg_rewind):
-        self.p.follow(None, None)
-        self.p.follow(self.leader, self.leader)
-        self.p.follow(Leader(-1, 28, self.other), self.leader)
-        self.p.rewind = mock_pg_rewind
-        self.p.follow(self.leader, self.leader)
-        with mock.patch('os.path.islink', MagicMock(return_value=True)):
-            with mock.patch('patroni.postgresql.Postgresql.can_rewind', new_callable=PropertyMock(return_value=True)):
-                with mock.patch('os.unlink', MagicMock(return_value=True)):
-                    self.p.follow(self.leader, self.leader, recovery=True)
-        with mock.patch('patroni.postgresql.Postgresql.can_rewind', new_callable=PropertyMock(return_value=True)):
-            self.p.rewind.return_value = True
-            self.p.follow(self.leader, self.leader, recovery=True)
-            self.p.rewind.return_value = False
-            self.p.follow(self.leader, self.leader, recovery=True)
-        with mock.patch('patroni.postgresql.Postgresql.check_recovery_conf', MagicMock(return_value=True)):
-            self.assertTrue(self.p.follow(None, None))
+        with patch.object(Postgresql, 'check_recovery_conf', Mock(return_value=True)):
+            self.assertTrue(self.p.follow(None, None))  # nothing to do, recovery.conf has good primary_conninfo
+
+        self.p.follow(self.me, self.me)  # follow is called when the node is holding leader lock
+
+        with patch.object(Postgresql, 'restart', Mock(return_value=False)):
+            self.p.set_role('replica')
+            self.p.follow(None, None)  # restart without rewind
+            self.p.set_role('master')
+
+        with patch.object(Postgresql, 'stop', Mock(return_value=False)):
+            self.p.follow(self.leader, self.leader)  # failed to stop postgres
+
+        self.p.follow(self.leader, None)  # Leader unknown, can not rewind
+
+        self.p.follow(self.leader, self.leader)  # "leader" is not accessible or is_in_recovery
+
+        with patch.object(Postgresql, 'checkpoint', Mock(return_value=None)):
+            self.p.follow(self.leader, self.leader)
+            self.p.set_role('master')
+            mock_pg_rewind.return_value = True
+            self.p.follow(self.leader, self.leader)
+
+        self.assertTrue(self.p.follow(None, None))  # check_recovery_conf...
 
     @patch('subprocess.check_output', Mock(return_value=0, side_effect=pg_controldata_string))
     def test_can_rewind(self):
-        with mock.patch('subprocess.call', MagicMock(return_value=1)):
+        with patch('subprocess.call', MagicMock(return_value=1)):
             self.assertFalse(self.p.can_rewind)
-        with mock.patch('subprocess.call', side_effect=OSError):
+        with patch('subprocess.call', side_effect=OSError):
             self.assertFalse(self.p.can_rewind)
-        tmp = self.p.controldata
-        self.p.controldata = lambda: {'wal_log_hints setting': 'on'}
-        self.assertTrue(self.p.can_rewind)
-        self.p.controldata = tmp
+        with patch.object(Postgresql, 'controldata', Mock(return_value={'wal_log_hints setting': 'on'})):
+            self.assertTrue(self.p.can_rewind)
+        self.p.config['use_pg_rewind'] = False
+        self.assertFalse(self.p.can_rewind)
 
     @patch('time.sleep', Mock())
     def test_create_replica(self):

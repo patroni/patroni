@@ -184,7 +184,7 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
 
     """Immutable object (namedtuple) which represents PostgreSQL cluster.
     Consists of the following fields:
-    :param initialize: boolean, shows whether this cluster has initialization key stored in DC or not.
+    :param initialize: shows whether this cluster has initialization key stored in DC or not.
     :param config: global dynamic configuration, reference to `ClusterConfig` object
     :param leader: `Leader` object which represents current leader of the cluster
     :param last_leader_operation: int or long object containing position of last known leader operation.

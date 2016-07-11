@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 class Patroni(object):
 
     def __init__(self):
+        self.setup_signal_handlers()
+
         self.version = __version__
         self.config = Config()
         self.dcs = get_dcs(self.config)
@@ -31,10 +33,6 @@ class Patroni(object):
         self.nap_time = self.config['loop_wait']
         self.next_run = time.time()
         self.scheduled_restart = {}
-
-        self._reload_config_scheduled = False
-        self._received_sighup = False
-        self._received_sigterm = False
 
     def load_dynamic_configuration(self):
         while True:
@@ -52,6 +50,10 @@ class Patroni(object):
         return {tag: value for tag, value in self.config.get('tags', {}).items()
                 if tag not in ('clonefrom', 'nofailover', 'noloadbalance') or value}
 
+    @property
+    def nofailover(self):
+        return self.tags.get('nofailover', False)
+
     def reload_config(self):
         try:
             self.tags = self.get_tags()
@@ -62,6 +64,10 @@ class Patroni(object):
             self.postgresql.reload_config(self.config['postgresql'])
         except Exception:
             logger.exception('Failed to reload config_file=%s', self.config.config_file)
+
+    @property
+    def replicatefrom(self):
+        return self.tags.get('replicatefrom')
 
     def sighup_handler(self, *args):
         self._received_sighup = True
@@ -74,14 +80,6 @@ class Patroni(object):
     @property
     def noloadbalance(self):
         return self.tags.get('noloadbalance', False)
-
-    @property
-    def nofailover(self):
-        return self.tags.get('nofailover', False)
-
-    @property
-    def replicatefrom(self):
-        return self.tags.get('replicatefrom')
 
     def schedule_next_run(self):
         self.next_run += self.nap_time
@@ -115,6 +113,8 @@ class Patroni(object):
             self.schedule_next_run()
 
     def setup_signal_handlers(self):
+        self._received_sighup = False
+        self._received_sigterm = False
         signal.signal(signal.SIGHUP, self.sighup_handler)
         signal.signal(signal.SIGTERM, self.sigterm_handler)
         signal.signal(signal.SIGCHLD, sigchld_handler)
@@ -125,7 +125,6 @@ def main():
     logging.getLogger('requests').setLevel(logging.WARNING)
 
     patroni = Patroni()
-    patroni.setup_signal_handlers()
     try:
         patroni.run()
     except KeyboardInterrupt:

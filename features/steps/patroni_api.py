@@ -2,6 +2,8 @@ import json
 import parse
 import pytz
 import requests
+import shlex
+import subprocess
 import time
 import yaml
 
@@ -84,23 +86,39 @@ def do_request(context, request_method, url, data):
         _set_response(context, r)
 
 
+@step('I run {cmd}')
+def do_run(context, cmd):
+    cmd = ['coverage', 'run', '--source=patroni', '-p'] + shlex.split(cmd)
+    try:
+        response = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+        context.status_code = 0
+    except subprocess.CalledProcessError as e:
+        response = e.output
+        context.status_code = e.returncode
+    context.response = response.decode('utf-8').strip()
+
+
 @then('I receive a response {component:w} {data}')
 def check_response(context, component, data):
     if component == 'code':
         assert context.status_code == int(data),\
-            "status code {0} != {1}, response: {2}".format(context.status_code, int(data), context.response)
+            "status code {0} != {1}, response: {2}".format(context.status_code, data, context.response)
+    elif component == 'returncode':
+        assert context.status_code == int(data), "return code {0} != {1}".format(context.status_code, data)
     elif component == 'text':
         assert context.response == data.strip('"'), "response {0} does not contain {1}".format(context.response, data)
+    elif component == 'output':
+        assert data.strip('"') in context.response, "response {0} does not contain {1}".format(context.response, data)
     else:
         assert component in context.response, "{0} is not part of the response".format(component)
         assert str(context.response[component]) == str(data), "{0} does not contain {1}".format(component, data)
 
 
-@step('I issue a scheduled failover at {at_url:url} from {from_host:w} to {to_host:w} in {in_seconds:d} seconds')
-def scheduled_failover(context, at_url, from_host, to_host, in_seconds):
+@step('I issue a scheduled failover from {from_host:w} to {to_host:w} in {in_seconds:d} seconds')
+def scheduled_failover(context, from_host, to_host, in_seconds):
     context.execute_steps(u"""
-        Given I issue a POST request to {0}/failover with {{"leader": "{1}", "candidate": "{2}", "scheduled_at": "{3}"}}
-    """.format(at_url, from_host, to_host, datetime.now(pytz.utc) + timedelta(seconds=int(in_seconds))))
+        Given I run patronictl.py failover batman --master {0} --candidate {1} --scheduled "{2}" --force
+    """.format(from_host, to_host, datetime.now(pytz.utc) + timedelta(seconds=int(in_seconds))))
 
 
 @step('I issue a scheduled restart at {url:url} in {in_seconds:d} seconds with {data}')

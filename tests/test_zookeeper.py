@@ -3,9 +3,10 @@ import unittest
 
 from kazoo.client import KazooState
 from kazoo.exceptions import NoNodeError, NodeExistsError
+from kazoo.handlers.threading import SequentialThreadingHandler
 from kazoo.protocol.states import ZnodeStat
 from mock import Mock, patch
-from patroni.dcs.zookeeper import Leader, ZooKeeper, ZooKeeperError
+from patroni.dcs.zookeeper import Leader, PatroniSequentialThreadingHandler, ZooKeeper, ZooKeeperError
 
 
 class MockKazooClient(Mock):
@@ -90,6 +91,17 @@ class MockKazooClient(Mock):
             raise Exception
         elif path.endswith('/') or path.endswith('/initialize') or path == '/service/test/members/bar':
             raise NoNodeError
+
+
+class TestPatroniSequentialThreadingHandler(unittest.TestCase):
+
+    def setUp(self):
+        self.handler = PatroniSequentialThreadingHandler(10)
+
+    @patch.object(SequentialThreadingHandler, 'create_connection', Mock())
+    def test_create_connection(self):
+        self.assertIsNotNone(self.handler.create_connection(()))
+        self.assertIsNotNone(self.handler.create_connection((), 40))
 
 
 class TestZooKeeper(unittest.TestCase):

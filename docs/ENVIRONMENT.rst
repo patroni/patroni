@@ -55,4 +55,4 @@ REST API
 
 ZooKeeper
 ---------
--  **PATRONI\_ZOOKEEPER\_HOSTS**: comma separated list of ZooKeeper cluster members: 'host1:port1,host2:port2,etc...'
+-  **PATRONI\_ZOOKEEPER\_HOSTS**: comma separated list of ZooKeeper cluster members: "'host1:port1','host2:port2','etc...'". It is important to quote every single entity!
