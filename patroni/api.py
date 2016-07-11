@@ -212,7 +212,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     data = "PostgreSQL role should be either master or replica"
                     break
             elif k == 'postgres_version':
-                if not re.match(r'([1-9][0-9]?\.){2}[1-9][0-9]?$', request[k]):
+                if not re.match(r'[1-9][0-9]?(\.(0|([1-9][0-9]?))){2}$', request[k]):
                     status_code = 400
                     data = "PostgreSQL version should be in the first.major.minor format"
                     break

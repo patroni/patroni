@@ -430,7 +430,7 @@ class TestHa(unittest.TestCase):
         self.p._role = 'replica'
         self.p.server_version = 90500
         self.p._pending_restart = True
-        self.assertFalse(self.ha.restart_matches("master", "9.5.2", True))
+        self.assertFalse(self.ha.restart_matches("master", "9.5.0", True))
         self.assertFalse(self.ha.restart_matches("replica", "9.4.3", True))
         self.p._pending_restart = False
         self.assertFalse(self.ha.restart_matches("replica", "9.5.2", True))
