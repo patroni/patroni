@@ -275,7 +275,7 @@ class Etcd(AbstractDCS):
 
             self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover)
         except etcd.EtcdKeyNotFound:
-            self._cluster = Cluster(False, None, None, None, [], None)
+            self._cluster = Cluster(None, None, None, None, [], None)
         except:
             logger.exception('get_cluster')
             raise EtcdError('Etcd is not responding properly')
