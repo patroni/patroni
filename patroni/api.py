@@ -91,7 +91,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 status_code = 503
         elif 'role' in response and response['role'] in path:
             status_code = 503 if response['role'] != 'master' and patroni.noloadbalance else 200
-        elif patroni.ha.immediate_restart_scheduled() and patroni.postgresql.role == 'master' and 'master' in path:
+        elif patroni.ha.restart_scheduled() and patroni.postgresql.role == 'master' and 'master' in path:
             # exceptional case for master node when the postgres is being restarted via API
             status_code = 200
         else:

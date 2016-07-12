@@ -388,19 +388,18 @@ class Ha(object):
             request_time = restart_data['postmaster_start_time']
             # check if postmaster start time has changed since the last restart
             if recent_time and request_time and recent_time != request_time:
-                logger.info("Cancelling scheduled restart: postgres restart has already happened at {0}".
-                            format(recent_time))
+                logger.info("Cancelling scheduled restart: postgres restart has already happened at %s", recent_time)
                 self.delete_future_restart()
-                return
+                return None
 
         if (restart_data and
            self.should_run_scheduled_action('restart', restart_data['schedule'], self.delete_future_restart)):
             try:
-                ret, message = self.restart(restart_data)
-                if ret:
-                    logger.info("Scheduled restart successful")
-                else:
-                    logger.warning("Scheduled restart: {0}".format(message))
+                ret, message = self.restart(restart_data, run_async=True)
+                if not ret:
+                    logger.warning("Scheduled restart: %s", message)
+                    return None
+                return message
             finally:
                 self.delete_future_restart()
 
@@ -421,12 +420,12 @@ class Ha(object):
         if not reason_to_cancel:
             return True
         else:
-            logger.info("not proceeding with the restart: {0}".format(reason_to_cancel))
+            logger.info("not proceeding with the restart: %s", reason_to_cancel)
         return False
 
-    def schedule(self, action):
+    def schedule(self, action, immediate=False):
         with self._async_executor:
-            return self._async_executor.schedule(action)
+            return self._async_executor.schedule(action, immediate)
 
     def schedule_future_restart(self, restart_data):
         if isinstance(restart_data, dict):
@@ -444,9 +443,6 @@ class Ha(object):
                 ret = True
         return ret
 
-    def immediate_restart_scheduled(self):
-        return self._async_executor.scheduled_action == 'restart'
-
     def future_restart_scheduled(self):
         return self.patroni.scheduled_restart.copy() if (self.patroni.scheduled_restart and
                                                          isinstance(self.patroni.scheduled_restart, dict)) else None
@@ -457,7 +453,13 @@ class Ha(object):
     def reinitialize_scheduled(self):
         return self._async_executor.scheduled_action == 'reinitialize'
 
-    def restart(self, restart_data=None):
+    def schedule_restart(self, immediate=False):
+        return self.schedule('restart', immediate)
+
+    def restart_scheduled(self):
+        return self._async_executor.scheduled_action == 'restart'
+
+    def restart(self, restart_data=None, run_async=False):
         """ conditional and unconditional restart """
         if (restart_data and isinstance(restart_data, dict) and
             not self.restart_matches(restart_data.get('role'),
@@ -466,13 +468,17 @@ class Ha(object):
             return (False, "restart conditions are not satisfied")
 
         with self._async_executor:
-            prev = self._async_executor.schedule('restart', True)
+            prev = self.schedule_restart(immediate=(not run_async))
             if prev is not None:
                 return (False, prev + ' already in progress')
-        if self._async_executor.run(self.state_handler.restart):
-            return (True, 'restarted successfully')
-        else:
-            return (False, 'restart failed')
+            if not run_async:
+                if self._async_executor.run(self.state_handler.restart):
+                    return (True, 'restarted successfully')
+                else:
+                    return (False, 'restart failed')
+            else:
+                self._async_executor.run_async(self.state_handler.restart)
+                return (True, "restart initiated")
 
     def reinitialize(self, cluster):
         self.state_handler.stop('immediate')
@@ -572,7 +578,9 @@ class Ha(object):
                 if self.cluster.is_unlocked():
                     return self.process_unhealthy_cluster()
                 else:
-                    self.evaluate_scheduled_restart()
+                    msg = self.evaluate_scheduled_restart()
+                    if msg is not None:
+                        return msg
                     return self.process_healthy_cluster()
             finally:
                 # we might not have a valid PostgreSQL connection here if another thread

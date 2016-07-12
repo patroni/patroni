@@ -288,7 +288,7 @@ class TestHa(unittest.TestCase):
 
     def test_restart_in_progress(self):
         self.ha._async_executor.schedule('restart', True)
-        self.assertTrue(self.ha.immediate_restart_scheduled())
+        self.assertTrue(self.ha.restart_scheduled())
         self.assertEquals(self.ha.run_cycle(), 'not healthy enough for leader race')
 
         self.ha.cluster = get_cluster_initialized_with_leader()
@@ -416,15 +416,20 @@ class TestHa(unittest.TestCase):
         with patch.object(self.ha,
                           'future_restart_scheduled', Mock(return_value={'postmaster_start_time': '2016-08-30 12:45TZ+1',
                                                                          'schedule': '2016-08-31 12:45TZ+1'})):
-            self.ha.evaluate_scheduled_restart()
+            self.assertIsNone(self.ha.evaluate_scheduled_restart())
         with patch.object(self.ha,
                           'future_restart_scheduled', Mock(return_value={'postmaster_start_time': '2016-08-31 12:45TZ+1',
                                                                          'schedule': '2016-08-31 12:45TZ+1'})):
             with patch.object(self.ha,
                               'should_run_scheduled_action', Mock(return_value=True)):
-                self.ha.evaluate_scheduled_restart()
+                self.assertIsNotNone(self.ha.evaluate_scheduled_restart())
                 with patch.object(self.ha, 'restart', Mock(return_value=(False, "Test"))):
-                    self.ha.evaluate_scheduled_restart()
+                    self.assertIsNone(self.ha.evaluate_scheduled_restart())
+
+    def test_scheduled_restart(self):
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        with patch.object(self.ha, "evaluate_scheduled_restart", Mock(return_value="restart scheduled")):
+            self.assertEquals(self.ha.run_cycle(), "restart scheduled")
 
     def test_restart_matches(self):
         self.p._role = 'replica'

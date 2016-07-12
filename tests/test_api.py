@@ -45,7 +45,7 @@ class MockHa(object):
         return (True, '')
 
     @staticmethod
-    def immediate_restart_scheduled():
+    def restart_scheduled():
         return False
 
     @staticmethod
@@ -120,7 +120,7 @@ class TestRestApiHandler(unittest.TestCase):
         MockPatroni.dcs.cluster = None
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'master'})):
             MockRestApiServer(RestApiHandler, 'GET /master')
-        with patch.object(MockHa, 'immediate_restart_scheduled', Mock(return_value=True)):
+        with patch.object(MockHa, 'restart_scheduled', Mock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /master')
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /master'))
 
