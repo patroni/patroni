@@ -291,10 +291,10 @@ class Ha(object):
             try:
                 delta = (failover.scheduled_at - now).total_seconds()
 
-                if delta > self.patroni.nap_time:
+                if delta > self.dcs.loop_wait:
                     logging.info('Awaiting failover at %s (in %.0f seconds)', failover.scheduled_at.isoformat(), delta)
                     return
-                elif delta < - int(self.patroni.nap_time * 1.5):
+                elif delta < - int(self.dcs.loop_wait * 1.5):
                     logger.warning('Found a stale failover value, cleaning up: %s', failover.scheduled_at)
                     self.dcs.manual_failover('', '', index=self.cluster.failover.index)
                     return

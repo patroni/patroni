@@ -63,6 +63,9 @@ class MockKazooClient(Mock):
         elif value == b'retry' or (value == b'exists' and self.exists):
             raise NodeExistsError
 
+    def create_async(self, path, value=b"", acl=None, ephemeral=False, sequence=False, makepath=False):
+        return self.create(path, value, acl, ephemeral, sequence, makepath) or Mock()
+
     @staticmethod
     def set(path, value, version=-1):
         if not isinstance(path, six.string_types):
@@ -80,6 +83,9 @@ class MockKazooClient(Mock):
                 return
         raise NoNodeError
 
+    def set_async(self, path, value, version=-1):
+        return self.set(path, value, version) or Mock()
+
     def delete(self, path, version=-1, recursive=False):
         if not isinstance(path, six.string_types):
             raise TypeError("Invalid type for 'path' (string expected)")
@@ -91,6 +97,9 @@ class MockKazooClient(Mock):
             raise Exception
         elif path.endswith('/') or path.endswith('/initialize') or path == '/service/test/members/bar':
             raise NoNodeError
+
+    def delete_async(self, path, version=-1, recursive=False):
+        return self.delete(path, version, recursive) or Mock()
 
 
 class TestPatroniSequentialThreadingHandler(unittest.TestCase):
@@ -109,16 +118,14 @@ class TestZooKeeper(unittest.TestCase):
     @patch('patroni.dcs.zookeeper.KazooClient', MockKazooClient)
     def setUp(self):
         self.zk = ZooKeeper({'hosts': ['localhost:2181'], 'scope': 'test',
-                             'name': 'foo', 'ttl': 30, 'retry_timeout': 10})
+                             'name': 'foo', 'ttl': 30, 'retry_timeout': 10, 'loop_wait': 10})
 
     def test_session_listener(self):
         self.zk.session_listener(KazooState.SUSPENDED)
 
-    def test_set_ttl(self):
-        self.zk.set_ttl(20)
-
-    def test_set_retry_timeout(self):
-        self.zk.set_retry_timeout(10)
+    def test_reload_config(self):
+        self.zk.reload_config({'ttl': 20, 'retry_timeout': 10, 'loop_wait': 10})
+        self.zk.reload_config({'ttl': 20, 'retry_timeout': 10, 'loop_wait': 5})
 
     def test_get_node(self):
         self.assertIsNone(self.zk.get_node('/no_node'))
@@ -183,8 +190,12 @@ class TestZooKeeper(unittest.TestCase):
     def test_write_leader_optime(self):
         self.zk.last_leader_operation = '0'
         self.zk.write_leader_optime('1')
+        with patch.object(MockKazooClient, 'create_async', Mock()):
+            self.zk.write_leader_optime('1')
+        with patch.object(MockKazooClient, 'set_async', Mock()):
+            self.zk.write_leader_optime('2')
         self.zk._base_path = self.zk._base_path.replace('test', 'bla')
-        self.zk.write_leader_optime('2')
+        self.zk.write_leader_optime('3')
 
     def test_delete_cluster(self):
         self.assertTrue(self.zk.delete_cluster())
@@ -193,3 +204,8 @@ class TestZooKeeper(unittest.TestCase):
         self.zk.watch(0)
         self.zk.event.isSet = lambda: True
         self.zk.watch(0)
+
+    def test__kazoo_connect(self):
+        self.zk._client._retry.deadline = 1
+        self.zk._orig_kazoo_connect = Mock(return_value=(0, 0))
+        self.zk._kazoo_connect(None, None)

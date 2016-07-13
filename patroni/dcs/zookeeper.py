@@ -20,7 +20,7 @@ class PatroniSequentialThreadingHandler(SequentialThreadingHandler):
         self.set_connect_timeout(connect_timeout)
 
     def set_connect_timeout(self, connect_timeout):
-        self._connect_timeout = max(1.0, connect_timeout/4.0)
+        self._connect_timeout = max(1.0, connect_timeout/2.0)  # try to connect to zookeeper node during loop_wait/2
 
     def create_connection(self, *args, **kwargs):
         """This method is trying to establish connection with one of the zookeeper nodes.
@@ -59,7 +59,26 @@ class ZooKeeper(AbstractDCS):
         self._fetch_cluster = True
         self._last_leader_operation = 0
 
+        self._orig_kazoo_connect = self._client._connection._connect
+        self._client._connection._connect = self._kazoo_connect
+
         self._client.start()
+
+    def _kazoo_connect(self, host, port):
+
+        """Kazoo is using Ping's to determine health of connection to zookeeper. If there is no
+        response on Ping after Ping interval (1/2 from read_timeout) it will consider current
+        connection dead and try to connect to another node. Without this "magic" it was taking
+        up to 2/3 from session timeout (ttl) to figure out that connection was dead and we had
+        only small time for reconnect and retry.
+
+        This method is needed to return different value of read_timeout, which is not calculated
+        from negotiated session timeout but from value of `loop_wait`. And it is 2 sec smaller
+        than loop_wait, because we can spend up to 2 seconds when calling `touch_member()` and
+        `write_leader_optime()` methods, which also may hang..."""
+
+        ret = self._orig_kazoo_connect(host, port)
+        return max(self.loop_wait - 2, 2)*1000, ret[1]
 
     def session_listener(self, state):
         if state in [KazooState.SUSPENDED, KazooState.LOST]:
@@ -69,15 +88,25 @@ class ZooKeeper(AbstractDCS):
         self._fetch_cluster = True
         self.event.set()
 
+    def reload_config(self, config):
+        self.set_retry_timeout(config['retry_timeout'])
+
+        loop_wait = config['loop_wait']
+
+        loop_wait_changed = self._loop_wait != loop_wait
+        self._loop_wait = loop_wait
+        self._client.handler.set_connect_timeout(loop_wait)
+
+        if not self.set_ttl(int(config['ttl'] * 1000)) and loop_wait_changed:
+            self._client._connection._socket.close()
+
     def set_ttl(self, ttl):
-        ttl = int(ttl * 1000)
-        # I know, it's weird to access private attributes
         if self._client._session_timeout != ttl:
             self._client._session_timeout = ttl
             self._client.restart()
+            return True
 
     def set_retry_timeout(self, retry_timeout):
-        self._client.handler.set_connect_timeout(retry_timeout)
         self._client._retry.deadline = retry_timeout
 
     def get_node(self, key, watch=None):
@@ -150,7 +179,7 @@ class ZooKeeper(AbstractDCS):
         if self._fetch_cluster or self._cluster is None:
             try:
                 self._client.retry(self._inner_load_cluster)
-            except:
+            except Exception:
                 logger.exception('get_cluster')
                 self.cluster_watcher(None)
                 raise ZooKeeperError('ZooKeeper in not responding properly')
@@ -195,11 +224,10 @@ class ZooKeeper(AbstractDCS):
     def touch_member(self, data, ttl=None):
         cluster = self.cluster
         member = cluster and ([m for m in cluster.members if m.name == self._name] or [None])[0]
-        path = self.member_path
         data = data.encode('utf-8')
         if member and self._client.client_id is not None and member.session != self._client.client_id[0]:
             try:
-                self._client.retry(self._client.delete, path)
+                self._client.delete_async(self.member_path).get(timeout=1)
             except NoNodeError:
                 pass
             except:
@@ -211,14 +239,14 @@ class ZooKeeper(AbstractDCS):
 
         try:
             if member:
-                self._client.retry(self._client.set, path, data)
+                self._client.set_async(self.member_path, data).get(timeout=1)
             else:
-                self._client.retry(self._client.create, path, data, makepath=True, ephemeral=True)
+                self._client.create_async(self.member_path, data, makepath=True, ephemeral=True).get(timeout=1)
             self._my_member_data = data
             return True
         except NodeExistsError:
             try:
-                self._client.retry(self._client.set, path, data)
+                self._client.set_async(self.member_path, data).get(timeout=1)
                 self._my_member_data = data
                 return True
             except:
@@ -233,17 +261,17 @@ class ZooKeeper(AbstractDCS):
     def write_leader_optime(self, last_operation):
         last_operation = last_operation.encode('utf-8')
         if last_operation != self._last_leader_operation:
-            self._last_leader_operation = last_operation
-            path = self.leader_optime_path
             try:
-                self._client.retry(self._client.set, path, last_operation)
+                self._client.set_async(self.leader_optime_path, last_operation).get(timeout=1)
+                self._last_leader_operation = last_operation
             except NoNodeError:
                 try:
-                    self._client.retry(self._client.create, path, last_operation, makepath=True)
+                    self._client.create_async(self.leader_optime_path, last_operation, makepath=True).get(timeout=1)
+                    self._last_leader_operation = last_operation
                 except:
-                    logger.exception('Failed to create %s', path)
+                    logger.exception('Failed to create %s', self.leader_optime_path)
             except:
-                logger.exception('Failed to update %s', path)
+                logger.exception('Failed to update %s', self.leader_optime_path)
 
     def update_leader(self):
         return True

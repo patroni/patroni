@@ -44,8 +44,8 @@ def get_dcs(config):
                     available_implementations.add(name)
                     if name in config:  # which has configuration section in the config file
                         # propagate some parameters
-                        config[name].update({p: config[p] for p in ('namespace', 'name',
-                                             'scope', 'ttl', 'retry_timeout') if p in config})
+                        config[name].update({p: config[p] for p in ('namespace', 'name', 'scope',
+                                             'loop_wait', 'ttl', 'retry_timeout') if p in config})
                         return value(config[name])
     raise PatroniException("""Can not find suitable configuration of distributed configuration store
 Available implementations: """ + ', '.join(available_implementations))
@@ -225,6 +225,7 @@ class AbstractDCS(object):
         self._name = config['name']
         self._namespace = '/{0}'.format(config.get('namespace', '/service/').strip('/'))
         self._base_path = '/'.join([self._namespace, config['scope']])
+        self.set_loop_wait(config.get('loop_wait', 10))
 
         self._cluster = None
         self._cluster_thread_lock = Lock()
@@ -268,6 +269,18 @@ class AbstractDCS(object):
     @abc.abstractmethod
     def set_retry_timeout(self, retry_timeout):
         """Set the new value for retry_timeout"""
+
+    def set_loop_wait(self, loop_wait):
+        self._loop_wait = loop_wait
+
+    def reload_config(self, config):
+        self.set_loop_wait(config['loop_wait'])
+        self.set_ttl(config['ttl'])
+        self.set_retry_timeout(config['retry_timeout'])
+
+    @property
+    def loop_wait(self):
+        return self._loop_wait
 
     @abc.abstractmethod
     def _load_cluster(self):

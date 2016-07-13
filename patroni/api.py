@@ -194,7 +194,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self._write_response(status_code, data)
 
     def poll_failover_result(self, leader, candidate):
-        timeout = 10 if self.server.patroni.nap_time < 10 else self.server.patroni.nap_time
+        timeout = 10 if self.server.patroni.ha.dcs.loop_wait < 10 else self.server.patroni.ha.dcs.loop_wait
         for _ in range(0, timeout*2):
             time.sleep(1)
             try:

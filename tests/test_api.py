@@ -49,7 +49,6 @@ class MockHa(object):
 
 class MockPatroni(object):
 
-    nap_time = 10
     config = Mock()
     postgresql = MockPostgresql()
     ha = MockHa()
@@ -189,6 +188,7 @@ class TestRestApiHandler(unittest.TestCase):
     @patch('time.sleep', Mock())
     @patch.object(MockHa, 'dcs')
     def test_do_POST_failover(self, dcs):
+        dcs.loop_wait = 10
         cluster = dcs.get_cluster.return_value
 
         post = 'POST /failover HTTP/1.0' + self._authorization + '\nContent-Length: '
