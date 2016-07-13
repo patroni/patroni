@@ -216,7 +216,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     status_code = 400
                     data = "PostgreSQL version should be in the first.major.minor format"
                     break
-            elif k != 'with_pending_restart_flag':
+            elif k != 'restart_pending':
                 status_code = 400
                 data = "Unknown filter for the scheduled restart: {0}".format(k)
                 break

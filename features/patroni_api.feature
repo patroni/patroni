@@ -86,7 +86,7 @@ Scenario: check the scheduled restart
 	Then I receive a response code 202
 		And I sleep for 10 seconds
 		And Response on GET http://127.0.0.1:8008/patroni contains pending_restart after 10 seconds
-	Given I issue a scheduled restart at http://127.0.0.1:8008 in 1 seconds with {"with_pending_restart_flag": "True"}
+	Given I issue a scheduled restart at http://127.0.0.1:8008 in 1 seconds with {"restart_pending": "True"}
 	Then I receive a response code 202
 		And Response on GET http://127.0.0.1:8008/patroni does not contain pending_restart after 10 seconds
 

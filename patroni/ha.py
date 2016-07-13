@@ -464,7 +464,7 @@ class Ha(object):
         if (restart_data and isinstance(restart_data, dict) and
             not self.restart_matches(restart_data.get('role'),
                                      restart_data.get('postgres_version'),
-                                     ('with_pending_restart_flag' in restart_data))):
+                                     ('restart_pending' in restart_data))):
             return (False, "restart conditions are not satisfied")
 
         with self._async_executor:
