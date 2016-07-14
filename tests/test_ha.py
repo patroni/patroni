@@ -1,5 +1,4 @@
 import datetime
-import dateutil
 import etcd
 import os
 import pytz
@@ -47,6 +46,9 @@ def get_cluster_initialized_with_only_leader(failover=None):
     l = get_cluster_initialized_without_leader(leader=True, failover=failover).leader
     return get_cluster(True, l, [l], failover)
 
+future_restart_time = datetime.datetime.now(pytz.utc) + datetime.timedelta(days=5)
+postmaster_start_time = datetime.datetime.now(pytz.utc)
+
 
 class MockPatroni(object):
 
@@ -81,8 +83,8 @@ zookeeper:
         self.replicatefrom = None
         self.api.connection_string = 'http://127.0.0.1:8008'
         self.clonefrom = None
-        self.scheduled_restart = {'schedule': dateutil.parser.parse('2016-08-29 12:45TZ+1'),
-                                  'postmaster_start_time': '2016-08-20 12:00TZ+1'}
+        self.scheduled_restart = {'schedule': future_restart_time,
+                                  'postmaster_start_time': str(postmaster_start_time)}
 
 
 def run_async(func, args=()):
@@ -120,7 +122,7 @@ class TestHa(unittest.TestCase):
                                                 'hot_standby': 'on', 'max_wal_senders': 5, 'wal_keep_segments': 8}})
             self.p.set_state('running')
             self.p.set_role('replica')
-            self.p.postmaster_start_time = MagicMock(return_value="2016-08-20 12:00TZ+1")
+            self.p.postmaster_start_time = MagicMock(return_value=str(postmaster_start_time))
             self.p.check_replication_lag = true
             self.p.can_create_replica_without_replication_connection = MagicMock(return_value=False)
             self.e = get_dcs({'etcd': {'ttl': 30, 'host': 'ok:2379', 'scope': 'test',
@@ -405,25 +407,31 @@ class TestHa(unittest.TestCase):
     def test_schedule_future_restart(self):
         self.ha.patroni.scheduled_restart = {}
         # do the restart 2 times. The first one should succeed, the second one should fail
-        self.assertTrue(self.ha.schedule_future_restart({'schedule': '2016-08-30 12:45TZ+1"'}))
-        self.assertFalse(self.ha.schedule_future_restart({'schedule': '2016-08-30 12:45TZ+1"'}))
+        self.assertTrue(self.ha.schedule_future_restart({'schedule': str(future_restart_time)}))
+        self.assertFalse(self.ha.schedule_future_restart({'schedule': str(future_restart_time)}))
 
     def test_delete_future_restarts(self):
         self.ha.delete_future_restart()
 
     def test_evaluate_scheduled_restart(self):
-        self.p.postmaster_start_time = Mock(return_value='2016-08-31 12:45TZ+1')
+        self.p.postmaster_start_time = Mock(return_value=str(postmaster_start_time))
+        # restart while the postmaster has been already restarted, fails
         with patch.object(self.ha,
-                          'future_restart_scheduled', Mock(return_value={'postmaster_start_time': '2016-08-30 12:45TZ+1',
-                                                                         'schedule': '2016-08-31 12:45TZ+1'})):
+                          'future_restart_scheduled',
+                          Mock(return_value={'postmaster_start_time':
+                                             str(postmaster_start_time - datetime.timedelta(days=1)),
+                                             'schedule': str(future_restart_time)})):
             self.assertIsNone(self.ha.evaluate_scheduled_restart())
         with patch.object(self.ha,
-                          'future_restart_scheduled', Mock(return_value={'postmaster_start_time': '2016-08-31 12:45TZ+1',
-                                                                         'schedule': '2016-08-31 12:45TZ+1'})):
+                          'future_restart_scheduled',
+                          Mock(return_value={'postmaster_start_time': str(postmaster_start_time),
+                                             'schedule': str(future_restart_time)})):
             with patch.object(self.ha,
                               'should_run_scheduled_action', Mock(return_value=True)):
+                # restart in the future, ok
                 self.assertIsNotNone(self.ha.evaluate_scheduled_restart())
                 with patch.object(self.ha, 'restart', Mock(return_value=(False, "Test"))):
+                    # restart in the future, bit the actual restart failed
                     self.assertIsNone(self.ha.evaluate_scheduled_restart())
 
     def test_scheduled_restart(self):

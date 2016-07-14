@@ -428,11 +428,10 @@ class Ha(object):
             return self._async_executor.schedule(action, immediate)
 
     def schedule_future_restart(self, restart_data):
-        if isinstance(restart_data, dict):
-            with self._async_executor:
-                if not self.patroni.scheduled_restart:
-                    self.patroni.scheduled_restart = restart_data
-                    return True
+        with self._async_executor:
+            if not self.patroni.scheduled_restart:
+                self.patroni.scheduled_restart = restart_data
+                return True
         return False
 
     def delete_future_restart(self):
