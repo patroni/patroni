@@ -225,7 +225,7 @@ class AbstractDCS(object):
         self._name = config['name']
         self._namespace = '/{0}'.format(config.get('namespace', '/service/').strip('/'))
         self._base_path = '/'.join([self._namespace, config['scope']])
-        self.set_loop_wait(config.get('loop_wait', 10))
+        self._set_loop_wait(config.get('loop_wait', 10))
 
         self._cluster = None
         self._cluster_thread_lock = Lock()
@@ -270,11 +270,11 @@ class AbstractDCS(object):
     def set_retry_timeout(self, retry_timeout):
         """Set the new value for retry_timeout"""
 
-    def set_loop_wait(self, loop_wait):
+    def _set_loop_wait(self, loop_wait):
         self._loop_wait = loop_wait
 
     def reload_config(self, config):
-        self.set_loop_wait(config['loop_wait'])
+        self._set_loop_wait(config['loop_wait'])
         self.set_ttl(config['ttl'])
         self.set_retry_timeout(config['retry_timeout'])
 

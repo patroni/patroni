@@ -27,7 +27,6 @@ class MockPostgresql(object):
 
 class MockHa(object):
 
-    dcs = Mock()
     state_handler = MockPostgresql()
 
     @staticmethod
@@ -49,9 +48,9 @@ class MockHa(object):
 
 class MockPatroni(object):
 
-    config = Mock()
-    postgresql = MockPostgresql()
     ha = MockHa()
+    config = Mock()
+    postgresql = ha.state_handler
     dcs = Mock()
     tags = {}
     version = '0.00'
@@ -117,14 +116,14 @@ class TestRestApiHandler(unittest.TestCase):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'POST /restart HTTP/1.0'))
         MockRestApiServer(RestApiHandler, 'POST /restart HTTP/1.0\nAuthorization:')
 
-    @patch.object(MockHa, 'dcs')
+    @patch.object(MockPatroni, 'dcs')
     def test_do_GET_config(self, mock_dcs):
         mock_dcs.cluster.config.data = {}
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /config'))
         mock_dcs.cluster.config = None
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /config'))
 
-    @patch.object(MockHa, 'dcs')
+    @patch.object(MockPatroni, 'dcs')
     def test_do_PATCH_config(self, mock_dcs):
         config = {'postgresql': {'use_slots': False, 'use_pg_rewind': True, 'parameters': {'wal_level': 'logical'}}}
         mock_dcs.get_cluster.return_value.config = ClusterConfig.from_node(1, json.dumps(config))
@@ -140,7 +139,7 @@ class TestRestApiHandler(unittest.TestCase):
         mock_dcs.set_config_value.return_value = False
         MockRestApiServer(RestApiHandler, request)
 
-    @patch.object(MockHa, 'dcs')
+    @patch.object(MockPatroni, 'dcs')
     def test_do_PUT_config(self, mock_dcs):
         mock_dcs.get_cluster.return_value.config = ClusterConfig.from_node(1, '{}')
         request = 'PUT /config HTTP/1.0' + self._authorization + '\nContent-Length: '
@@ -166,7 +165,7 @@ class TestRestApiHandler(unittest.TestCase):
         with patch.object(MockHa, 'restart', Mock(side_effect=Exception)):
             MockRestApiServer(RestApiHandler, request)
 
-    @patch.object(MockHa, 'dcs')
+    @patch.object(MockPatroni, 'dcs')
     def test_do_POST_reinitialize(self, dcs):
         cluster = dcs.get_cluster.return_value
         request = 'POST /reinitialize HTTP/1.0' + self._authorization
@@ -186,7 +185,7 @@ class TestRestApiHandler(unittest.TestCase):
             self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /patroni'))
 
     @patch('time.sleep', Mock())
-    @patch.object(MockHa, 'dcs')
+    @patch.object(MockPatroni, 'dcs')
     def test_do_POST_failover(self, dcs):
         dcs.loop_wait = 10
         cluster = dcs.get_cluster.return_value
@@ -213,19 +212,27 @@ class TestRestApiHandler(unittest.TestCase):
         cluster.members = [Member(0, 'postgresql0', 30, {'api_url': 'http'}),
                            Member(0, 'postgresql2', 30, {'api_url': 'http'})]
         MockRestApiServer(RestApiHandler, request)
-        with patch.object(MockPatroni, 'dcs') as d:
-            cluster = d.get_cluster.return_value
-            cluster.leader.name = 'postgresql0'
-            MockRestApiServer(RestApiHandler, request)
-            cluster.leader.name = 'postgresql2'
-            MockRestApiServer(RestApiHandler, request)
-            cluster.leader.name = 'postgresql1'
-            cluster.failover = None
-            MockRestApiServer(RestApiHandler, request)
-            d.get_cluster = Mock(side_effect=Exception)
-            MockRestApiServer(RestApiHandler, request)
-            d.manual_failover.return_value = False
-            MockRestApiServer(RestApiHandler, request)
+
+        cluster.failover = None
+        MockRestApiServer(RestApiHandler, request)
+
+        dcs.get_cluster.side_effect = [cluster]
+        MockRestApiServer(RestApiHandler, request)
+
+        cluster2 = cluster.copy()
+        cluster2.leader.name = 'postgresql0'
+        dcs.get_cluster.side_effect = [cluster, cluster2]
+        MockRestApiServer(RestApiHandler, request)
+
+        cluster2.leader.name = 'postgresql2'
+        dcs.get_cluster.side_effect = [cluster, cluster2]
+        MockRestApiServer(RestApiHandler, request)
+
+        dcs.get_cluster.side_effect = None
+        dcs.manual_failover.return_value = False
+        MockRestApiServer(RestApiHandler, request)
+        dcs.manual_failover.return_value = True
+
         with patch.object(MockHa, 'fetch_nodes_statuses', Mock(return_value=[])):
             MockRestApiServer(RestApiHandler, request)
 

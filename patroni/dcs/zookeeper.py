@@ -97,10 +97,19 @@ class ZooKeeper(AbstractDCS):
         self._loop_wait = loop_wait
         self._client.handler.set_connect_timeout(loop_wait)
 
+        # We need to reestablish connection to zookeeper if we want to change
+        # read_timeout (and Ping interval respectively), because read_timeout
+        # is calculated in `_kazoo_connect` method. If we are changing ttl at
+        # the same time, set_ttl method will reestablish connection and return
+        # `!True`, otherwise we will close existing connection and let kazoo
+        # open the new one.
         if not self.set_ttl(int(config['ttl'] * 1000)) and loop_wait_changed:
             self._client._connection._socket.close()
 
     def set_ttl(self, ttl):
+        """It is not possible to change ttl (session_timeout) in zookeeper without
+        destroying old session and creating the new one. This method returns `!True`
+        if session_timeout has been changed (`restart()` has been called)."""
         if self._client._session_timeout != ttl:
             self._client._session_timeout = ttl
             self._client.restart()
@@ -234,25 +243,25 @@ class ZooKeeper(AbstractDCS):
                 return False
             member = None
 
-        if member and data == self._my_member_data:
-            return True
-
-        try:
-            if member:
-                self._client.set_async(self.member_path, data).get(timeout=1)
-            else:
-                self._client.create_async(self.member_path, data, makepath=True, ephemeral=True).get(timeout=1)
-            self._my_member_data = data
-            return True
-        except NodeExistsError:
+        if member:
+            if data == self._my_member_data:
+                return True
+        else:
             try:
-                self._client.set_async(self.member_path, data).get(timeout=1)
+                self._client.create_async(self.member_path, data, makepath=True, ephemeral=True).get(timeout=1)
                 self._my_member_data = data
                 return True
-            except:
-                logger.exception('touch_member')
+            except Exception as e:
+                if not isinstance(e, NodeExistsError):
+                    logger.exception('touch_member')
+                    return False
+        try:
+            self._client.set_async(self.member_path, data).get(timeout=1)
+            self._my_member_data = data
+            return True
         except:
             logger.exception('touch_member')
+
         return False
 
     def take_leader(self):

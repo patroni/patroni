@@ -58,6 +58,8 @@ class MockKazooClient(Mock):
             raise TypeError("Invalid type for 'path' (string expected)")
         if not isinstance(value, (six.binary_type,)):
             raise TypeError("Invalid type for 'value' (must be a byte string)")
+        if value == b'Exception':
+            raise Exception
         if path.endswith('/initialize') or path == '/service/test/optime/leader':
             raise Exception
         elif value == b'retry' or (value == b'exists' and self.exists):
@@ -172,7 +174,7 @@ class TestZooKeeper(unittest.TestCase):
         self.zk.touch_member('new')
         self.zk._name = 'na'
         self.zk._client.exists = 1
-        self.zk.touch_member('exists')
+        self.zk.touch_member('Exception')
         self.zk._name = 'bar'
         self.zk.touch_member('retry')
         self.zk._fetch_cluster = True
