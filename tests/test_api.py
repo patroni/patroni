@@ -1,15 +1,19 @@
-
+import datetime
 import json
 import psycopg2
+import pytz
 import unittest
 
-import dateutil.parser
 from mock import Mock, patch
 from patroni.api import RestApiHandler, RestApiServer
 from patroni.dcs import ClusterConfig, Member
 from six import BytesIO as IO
 from six.moves import BaseHTTPServer
 from test_postgresql import psycopg2_connect, MockCursor
+
+
+future_restart_time = datetime.datetime.now(pytz.utc) + datetime.timedelta(days=5)
+postmaster_start_time = datetime.datetime.now(pytz.utc)
 
 
 class MockPostgresql(object):
@@ -28,7 +32,7 @@ class MockPostgresql(object):
 
     @staticmethod
     def postmaster_start_time():
-        return '2016-08-20 12:00TZ+1'
+        return str(postmaster_start_time)
 
 
 class MockHa(object):
@@ -71,7 +75,7 @@ class MockPatroni(object):
     tags = {}
     version = '0.00'
     noloadbalance = Mock(return_value=False)
-    scheduled_restart = {'schedule': dateutil.parser.parse('2016-08-29 12:45TZ+1'),
+    scheduled_restart = {'schedule': future_restart_time,
                          'postmaster_start_time': postgresql.postmaster_start_time()}
 
     @staticmethod
