@@ -7,6 +7,7 @@ import time
 import dateutil.parser
 import datetime
 import pytz
+import re
 
 from patroni.exceptions import PostgresConnectionException
 from patroni.utils import deep_compare, patch_config, Retry, RetryFailedError
@@ -63,6 +64,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
         if patroni.postgresql.pending_restart:
             response['pending_restart'] = True
         response['patroni'] = {'version': patroni.version, 'scope': patroni.postgresql.scope}
+        if patroni.scheduled_restart and isinstance(patroni.scheduled_restart, dict):
+            response['scheduled_restart'] = patroni.scheduled_restart.copy()
+            del response['scheduled_restart']['postmaster_start_time']
+            response['scheduled_restart']['schedule'] = (response['scheduled_restart']['schedule']).isoformat()
         self._write_json_response(status_code, response)
 
     def do_GET(self, write_status_code_only=False):
@@ -112,13 +117,15 @@ class RestApiHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(502)
 
-    def _read_json_content(self):
+    def _read_json_content(self, body_is_optional=False):
         if 'content-length' not in self.headers:
-            return self.send_error(411)
+            return self.send_error(411) if not body_is_optional else {}
         try:
             content_length = int(self.headers.get('content-length'))
+            if content_length == 0 and body_is_optional:
+                return {}
             request = json.loads(self.rfile.read(content_length).decode('utf-8'))
-            if isinstance(request, dict) and request:
+            if isinstance(request, dict) and (request or body_is_optional):
                 return request
         except Exception:
             logger.exception('Bad request')
@@ -162,16 +169,84 @@ class RestApiHandler(BaseHTTPRequestHandler):
             response = str(e)
         self._write_response(status_code, response)
 
+    @staticmethod
+    def parse_schedule(schedule, action):
+        """ parses the given schedule and validates at """
+        error = None
+        scheduled_at = None
+        try:
+            scheduled_at = dateutil.parser.parse(schedule)
+            if scheduled_at.tzinfo is None:
+                error = 'Timezone information is mandatory for the scheduled {0}'.format(action)
+                status_code = 400
+            elif scheduled_at < datetime.datetime.now(pytz.utc):
+                error = 'Cannot schedule {0} in the past'.format(action)
+                status_code = 422
+            else:
+                status_code = None
+        except (ValueError, TypeError):
+            logger.exception('Invalid scheduled %s time: %s', action, schedule)
+            error = 'Unable to parse scheduled timestamp. It should be in an unambiguous format, e.g. ISO 8601'
+            status_code = 422
+        return (status_code, error, scheduled_at)
+
     @check_auth
     def do_POST_restart(self):
         status_code = 500
         data = 'restart failed'
-        try:
-            status, data = self.server.patroni.ha.restart()
-            status_code = 200 if status else 503
-        except Exception:
-            logger.exception('Exception during restart')
+        request = self._read_json_content(body_is_optional=True)
+        if request is None:
+            # failed to parse the json
+            return
+        if request:
+            logger.debug("received restart request: {0}".format(request))
+        for k in request:
+            if k == 'schedule':
+                (_, data, request[k]) = self.parse_schedule(request[k], "restart")
+                if _:
+                    status_code = _
+                    break
+            elif k == 'role':
+                if request[k] not in ('master', 'replica'):
+                    status_code = 400
+                    data = "PostgreSQL role should be either master or replica"
+                    break
+            elif k == 'postgres_version':
+                if not re.match(r'[1-9][0-9]?(\.(0|([1-9][0-9]?))){2}$', request[k]):
+                    status_code = 400
+                    data = "PostgreSQL version should be in the first.major.minor format"
+                    break
+            elif k != 'restart_pending':
+                status_code = 400
+                data = "Unknown filter for the scheduled restart: {0}".format(k)
+                break
+        else:
+            if 'schedule' not in request:
+                try:
+                    status, data = self.server.patroni.ha.restart(request)
+                    status_code = 200 if status else 503
+                except Exception:
+                    logger.exception('Exception during restart')
+                    status_code = 400
+            else:
+                request['postmaster_start_time'] = self.server.patroni.ha.state_handler.postmaster_start_time()
+                if self.server.patroni.ha.schedule_future_restart(request):
+                    data = "Restart scheduled"
+                    status_code = 202
+                else:
+                    data = "Another restart is already scheduled"
+                    status_code = 409
         self._write_response(status_code, data)
+
+    @check_auth
+    def do_DELETE_restart(self):
+        if self.server.patroni.ha.delete_future_restart():
+            data = "scheduled restart deleted"
+            code = 200
+        else:
+            data = "no restarts are scheduled"
+            code = 404
+        self._write_response(code, data)
 
     @check_auth
     def do_POST_reinitialize(self):
@@ -244,25 +319,16 @@ class RestApiHandler(BaseHTTPRequestHandler):
         data = ''
         if leader or candidate:
             if scheduled_at:
-                try:
-                    scheduled_at = dateutil.parser.parse(scheduled_at)
-                    if scheduled_at.tzinfo is None:
-                        data = 'Timezone information is mandatory for scheduled_at'
-                        status_code = 400
-                    elif scheduled_at < datetime.datetime.now(pytz.utc):
-                        data = 'Cannot schedule failover in the past'
-                        status_code = 422
-                    elif self.server.patroni.dcs.manual_failover(leader, candidate, scheduled_at=scheduled_at):
-                        self.server.patroni.dcs.event.set()
-                        data = 'Failover scheduled'
-                        status_code = 202
-                    else:
-                        data = 'failed to write failover key into DCS'
-                        status_code = 503
-                except (ValueError, TypeError):
-                    logger.exception('Invalid scheduled failover time: %s', request['scheduled_at'])
-                    data = 'Unable to parse scheduled timestamp. It should be in an unambiguous format, e.g. ISO 8601'
-                    status_code = 422
+                (_, data, scheduled_at) = self.parse_schedule(scheduled_at, "failover")
+                if _:
+                    status_code = _
+                elif self.server.patroni.dcs.manual_failover(leader, candidate, scheduled_at=scheduled_at):
+                    self.server.patroni.dcs.event.set()
+                    data = 'Failover scheduled'
+                    status_code = 202
+                else:
+                    data = 'failed to write failover key into DCS'
+                    status_code = 503
             else:
                 data = self.is_failover_possible(cluster, leader, candidate)
                 if not data:

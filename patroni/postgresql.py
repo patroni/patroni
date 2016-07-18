@@ -858,6 +858,13 @@ $$""".format(name, ' '.join(options)), name, password, password)
             self._replication_slots = [r[0] for r in cursor]
             self._schedule_load_slots = False
 
+    def postmaster_start_time(self):
+        try:
+            cursor = self.query("""SELECT to_char(pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ')""")
+            return cursor.fetchone()[0]
+        except psycopg2.Error:
+            return None
+
     def sync_replication_slots(self, cluster):
         if self.use_slots:
             try:
@@ -964,3 +971,37 @@ $$""".format(name, ' '.join(options)), name, password, password)
                 time.sleep(5)
 
         return ret
+
+    @staticmethod
+    def postgres_version_to_int(pg_version):
+        """ Convert the server_version to integer
+
+        >>> Postgresql.postgres_version_to_int('9.5.3')
+        90503
+        >>> Postgresql.postgres_version_to_int('9.3.13')
+        90313
+        >>> Postgresql.postgres_version_to_int('10.1')
+        100001
+        >>> Postgresql.postgres_version_to_int('10')
+        Traceback (most recent call last):
+            ...
+        Exception: Invalid PostgreSQL format: X.Y or X.Y.Z is accepted: 10
+        >>> Postgresql.postgres_version_to_int('a.b.c')
+        Traceback (most recent call last):
+            ...
+        Exception: Invalid PostgreSQL version: a.b.c
+        """
+        components = pg_version.split('.')
+
+        result = []
+        if len(components) < 2 or len(components) > 3:
+            raise Exception("Invalid PostgreSQL format: X.Y or X.Y.Z is accepted: {0}".format(pg_version))
+        if len(components) == 2:
+            # new style verion numbers, i.e. 10.1 becomes 100001
+            components.insert(1, '0')
+        try:
+            result = [c if int(c) > 10 else '0{0}'.format(c) for c in components]
+            result = int(''.join(result))
+        except ValueError:
+            raise Exception("Invalid PostgreSQL version: {0}".format(pg_version))
+        return result
