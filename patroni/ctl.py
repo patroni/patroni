@@ -245,7 +245,7 @@ def get_cursor(cluster, connect_parameters, role='master', member=None):
 def get_members(cluster, cluster_name, member_names, role, force, action):
     candidates = {m.name: m for m in cluster.members}
 
-    if not force and role:
+    if not force or role:
         output_members(cluster, cluster_name)
 
     if role:
