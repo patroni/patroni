@@ -455,6 +455,20 @@ def check_response(response, member_name, action_name, silent_success=False):
         click.echo('Success: {0} for member {1}'.format(action_name, member_name))
 
 
+def parse_scheduled(scheduled):
+    if (scheduled or 'now') != 'now':
+        try:
+            scheduled_at = dateutil.parser.parse(scheduled)
+            if scheduled_at.tzinfo is None:
+                scheduled_at = tzlocal.get_localzone().localize(scheduled_at)
+        except (ValueError, TypeError):
+            message = 'Unable to parse scheduled timestamp ({0}). It should be in an unambiguous format (e.g. ISO 8601)'
+            raise PatroniCtlException(message.format(scheduled))
+        return scheduled_at
+
+    return None
+
+
 @ctl.command('restart', help='Restart cluster member')
 @click.argument('cluster_name')
 @click.argument('member_names', nargs=-1)
@@ -492,14 +506,8 @@ def restart(cluster_name, member_names, config_file, dcs, force, role, p_any, sc
     if scheduled is None and not force:
         scheduled = click.prompt('When should the restart take place (e.g. 2015-10-01T14:30) ', type=str, default='now')
 
-    if (scheduled or 'now') != 'now':
-        try:
-            scheduled_at = dateutil.parser.parse(scheduled)
-            if scheduled_at.tzinfo is None:
-                scheduled_at = tzlocal.get_localzone().localize(scheduled_at)
-        except (ValueError, TypeError):
-            message = 'Unable to parse scheduled timestamp ({0}). It should be in an unambiguous format (e.g. ISO 8601)'
-            raise PatroniCtlException(message.format(scheduled))
+    scheduled_at = parse_scheduled(scheduled)
+    if scheduled_at:
         content['schedule'] = scheduled_at.isoformat()
 
     for mn, member in members.items():
@@ -585,17 +593,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
         scheduled = click.prompt('When should the failover take place (e.g. 2015-10-01T14:30) ', type=str,
                                  default='now')
 
-    if (scheduled or 'now') == 'now':
-        scheduled_at = None
-    else:
-        try:
-            scheduled_at = dateutil.parser.parse(scheduled)
-            if scheduled_at.tzinfo is None:
-                scheduled_at = tzlocal.get_localzone().localize(scheduled_at)
-        except (ValueError, TypeError):
-            message = 'Unable to parse scheduled timestamp ({0}). It should be in an unambiguous format (e.g. ISO 8601)'
-            raise PatroniCtlException(message.format(scheduled))
-        scheduled_at = scheduled_at.isoformat()
+    scheduled_at = parse_scheduled(scheduled)
 
     failover_value = {'leader': master, 'candidate': candidate, 'scheduled_at': scheduled_at}
     logging.debug(failover_value)
