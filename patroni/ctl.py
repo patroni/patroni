@@ -446,6 +446,15 @@ def ctl_load_config(cluster_name, config_file, dcs):
     return config, dcs, cluster
 
 
+def check_response(response, member_name, action_name, silent_success=False):
+    if response.status_code != 200:
+        click.echo('Failed: {0} for member {1}, status code={2}, ({3})'.format(
+            action_name, member_name, response.status_code, response.text
+        ))
+    elif not silent_success:
+        click.echo('Success: {0} for member {1}'.format(action_name, member_name))
+
+
 @ctl.command('restart', help='Restart cluster member')
 @click.argument('cluster_name')
 @click.argument('member_names', nargs=-1)
@@ -466,7 +475,7 @@ def restart(cluster_name, member_names, config_file, dcs, force, role, p_any, sc
 
     if p_any:
         k = random.choice(list(members))
-        members = {k:members[k]}
+        members = {k: members[k]}
 
     if version is None and not force:
         version = click.prompt('Restart if the PostgreSQL version is less than provided (e.g. 9.5.2) ',
@@ -496,8 +505,7 @@ def restart(cluster_name, member_names, config_file, dcs, force, role, p_any, sc
     for mn, member in members.items():
         if 'schedule' in content:
             r = request_patroni('get', member, '')
-            if r.status_code != 200:
-                click.echo('Failed to get status about member {0}'.format(mn))
+            check_response(r, mn, 'get status', True)
             status = json.loads(r.text)
             if force and 'scheduled_restart' in status:
                 request_patroni('delete', member, 'restart')
@@ -523,13 +531,7 @@ def reinit(cluster_name, member_names, config_file, dcs, force):
 
     for mn, member in members.items():
         r = request_patroni('post', member, 'reinitialize')
-
-        if r.status_code != 200:
-            click.echo('Failed to reinitialize for member {0}, status code={1}, ({2})'.format(
-                mn, r.status_code, r.text
-            ))
-        else:
-            click.echo('Successfully reinitialize on member {0}'.format(mn))
+        check_response(r, mn, 'reinitialize')
 
 
 @ctl.command('failover', help='Failover to a replica')
@@ -730,18 +732,12 @@ def flush(cluster_name, member_names, config_file, dcs, force, role, p_restart):
     members = get_members(cluster, cluster_name, member_names, role, force, 'flush')
     for mn, member in members.items():
         r = request_patroni('get', member, '')
-        if r.status_code != 200:
-            click.echo('Failed to get status for {0}, status code={1}, ({2})'.format(mn, r.status_code, r.text))
+        check_response(r, mn, 'get status', True)
         status = json.loads(r.text)
 
         if p_restart:
             if 'scheduled_restart' in status:
                 r = request_patroni('delete', member, 'restart')
-                if r.status_code != 200:
-                    click.echo('Failed to flush scheduled restart for {0}, status code={1}, ({2})'.format(
-                        mn, r.status_code, r.text
-                    ))
-                else:
-                    click.echo('Scheduled restart is successfully flushed for member {0}'.format(mn))
+                check_response(r, mn, 'flush scheduled restart')
             else:
                 click.echo('No scheduled restart for member {0}'.format(mn))
