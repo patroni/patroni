@@ -474,18 +474,11 @@ def ctl_load_config(cluster_name, config_file, dcs):
 def restart(cluster_name, member_names, config_file, dcs, force, role, p_any, scheduled, version):
     config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
-    role_names = [m.name for m in get_all_members(cluster, role)]
-
-    if member_names:
-        member_names = list(set(member_names) & set(role_names))
-    else:
-        member_names = role_names
+    members = get_members(cluster, cluster_name, member_names, role, force, 'restart')
 
     if p_any:
-        random.shuffle(member_names)
-        member_names = member_names[:1]
-
-    members = get_members(cluster, cluster_name, member_names, role, force, 'restart')
+        k = random.choice(list(members))
+        members = {k:members[k]}
 
     if version is None and not force:
         version = click.prompt('Restart if the PostgreSQL version is less than provided (e.g. 9.5.2) ',
