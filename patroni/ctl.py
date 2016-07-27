@@ -120,33 +120,21 @@ def auth_header(config):
         return {'Authorization': 'Basic ' + base64.b64encode(config['restapi']['auth'].encode('utf-8')).decode('utf-8')}
 
 
-def delete_patroni(member, endpoint, headers=None):
+def request_patroni(request_type, member, endpoint, content=None, headers=None):
     headers = headers or {}
     url = urlparse(member.api_url)
     logging.debug(url)
     if 'Content-Type' not in headers:
         headers['Content-Type'] = 'application/json'
-    return requests.delete('{0}://{1}/{2}'.format(url.scheme, url.netloc, endpoint), headers=headers, timeout=60)
 
-
-def get_patroni(member, endpoint='', headers=None):
-    headers = headers or {}
-    url = urlparse(member.api_url)
-    logging.debug(url)
-    if 'Content-Type' not in headers:
-        headers['Content-Type'] = 'application/json'
-    return requests.get('{0}://{1}/{2}'.format(url.scheme, url.netloc, endpoint), headers=headers, timeout=60)
-
-
-def post_patroni(member, endpoint, content=None, headers=None):
-    headers = headers or {}
-    url = urlparse(member.api_url)
-    logging.debug(url)
-    if 'Content-Type' not in headers:
-        headers['Content-Type'] = 'application/json'
-    return requests.post('{0}://{1}/{2}'.format(url.scheme, url.netloc, endpoint),
-                         headers=headers,
-                         data=json.dumps(content) if content else None, timeout=60)
+    if request_type == 'get':
+        return requests.delete('{0}://{1}/{2}'.format(url.scheme, url.netloc, endpoint), headers=headers, timeout=60)
+    elif request_type == 'post':
+        return requests.post('{0}://{1}/{2}'.format(url.scheme, url.netloc, endpoint),
+                             headers=headers,
+                             data=json.dumps(content) if content else None, timeout=60)
+    elif request_type == 'delete':
+        return requests.delete('{0}://{1}/{2}'.format(url.scheme, url.netloc, endpoint), headers=headers, timeout=60)
 
 
 def print_output(columns, rows=None, alignment=None, fmt='pretty', header=True, delimiter='\t'):
@@ -507,14 +495,14 @@ def restart(cluster_name, member_names, config_file, dcs, force, role, p_any, sc
 
     for mn, member in members.items():
         if 'schedule' in content:
-            r = get_patroni(member)
+            r = request_patroni('get', member, '')
             if r.status_code != 200:
                 click.echo('Failed to get status about member {0}'.format(mn))
             status = json.loads(r.text)
             if force and 'scheduled_restart' in status:
-                delete_patroni(member, 'restart')
+                request_patroni('delete', member, 'restart')
 
-        r = post_patroni(member, 'restart', content)
+        r = request_patroni('post', member, 'restart', content)
         if r.status_code == 200:
             click.echo('Successful restart on member {0}'.format(mn))
         elif 200 < r.status_code < 300:
@@ -534,14 +522,15 @@ def reinit(cluster_name, member_names, config_file, dcs, force):
     members = get_members(cluster, cluster_name, member_names, None, force, 'reinitialize')
 
     for mn, member in members.items():
-        r = post_patroni(member, 'reinitialize')
+        r = request_patroni('post', member, 'reinitialize')
 
         if r.status_code != 200:
             click.echo('Failed to reinitialize for member {0}, status code={1}, ({2})'.format(
                 mn, r.status_code, r.text
             ))
         else:
-            click.echo('Succesfully reinitialize on member {0}'.format(mn))
+            click.echo('Successfully reinitialize on member {0}'.format(mn))
+
 
 @ctl.command('failover', help='Failover to a replica')
 @click.argument('cluster_name')
@@ -622,7 +611,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
 
     r = None
     try:
-        r = post_patroni(cluster.leader.member, 'failover', failover_value, auth_header(config))
+        r = request_patroni('post', cluster.leader.member, 'failover', failover_value, auth_header(config))
         if r.status_code in (200, 202):
             logging.debug(r)
             cluster = dcs.get_cluster()
@@ -740,14 +729,14 @@ def flush(cluster_name, member_names, config_file, dcs, force, role, p_restart):
 
     members = get_members(cluster, cluster_name, member_names, role, force, 'flush')
     for mn, member in members.items():
-        r = get_patroni(member, '')
+        r = request_patroni('get', member, '')
         if r.status_code != 200:
             click.echo('Failed to get status for {0}, status code={1}, ({2})'.format(mn, r.status_code, r.text))
         status = json.loads(r.text)
 
         if p_restart:
             if 'scheduled_restart' in status:
-                r = delete_patroni(member, 'restart')
+                r = request_patroni('delete', member, 'restart')
                 if r.status_code != 200:
                     click.echo('Failed to flush scheduled restart for {0}, status code={1}, ({2})'.format(
                         mn, r.status_code, r.text
