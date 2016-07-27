@@ -205,7 +205,7 @@ class TestCtl(unittest.TestCase):
     @patch('patroni.ctl.get_dcs')
     def test_restart_reinit(self, mock_get_dcs):
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
-        result = self.runner.invoke(ctl, ['restart', 'alpha'], input='y\nnow')
+        result = self.runner.invoke(ctl, ['restart', 'alpha'], input='y\n\nnow')
         assert 'restart failed for' in result.output
         assert result.exit_code == 0
 
