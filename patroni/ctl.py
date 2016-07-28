@@ -245,15 +245,15 @@ def get_cursor(cluster, connect_parameters, role='master', member=None):
 def get_members(cluster, cluster_name, member_names, role, force, action):
     candidates = {m.name: m for m in cluster.members}
 
-    if not force:
+    if not force and role:
         output_members(cluster, cluster_name)
 
-    role_names = [m.name for m in get_all_members(cluster, role)]
-
-    if member_names:
-        member_names = list(set(member_names) & set(role_names))
-    else:
-        member_names = role_names
+    if role:
+        role_names = [m.name for m in get_all_members(cluster, role)]
+        if member_names:
+            member_names = list(set(member_names) & set(role_names))
+        else:
+            member_names = role_names
 
     if not member_names:
         member_names = [click.prompt('Which member do you want to {0} [{1}]?'.format(action,
@@ -538,7 +538,7 @@ def reinit(cluster_name, member_names, config_file, dcs, force):
     members = get_members(cluster, cluster_name, member_names, None, force, 'reinitialize')
 
     for mn, member in members.items():
-        r = request_patroni('post', member, 'reinitialize')
+        r = request_patroni('post', member, 'reinitialize', None, auth_header(config))
         check_response(r, mn, 'reinitialize')
 
 
