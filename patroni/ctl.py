@@ -514,13 +514,13 @@ def restart(cluster_name, member_names, config_file, dcs, force, role, p_any, sc
 
     for mn, member in members.items():
         if 'schedule' in content:
-            r = request_patroni('get', member, '')
+            r = request_patroni('get', member, '', None, auth_header(config))
             check_response(r, mn, 'get status', True)
             status = json.loads(r.text)
             if force and 'scheduled_restart' in status:
-                request_patroni('delete', member, 'restart')
+                request_patroni('delete', member, 'restart', None, auth_header(config))
 
-        r = request_patroni('post', member, 'restart', content)
+        r = request_patroni('post', member, 'restart', content, auth_header(config))
         if r.status_code == 200:
             click.echo('Successful restart on member {0}'.format(mn))
         elif 200 < r.status_code < 300:
@@ -731,13 +731,13 @@ def flush(cluster_name, member_names, config_file, dcs, force, role, p_restart):
 
     members = get_members(cluster, cluster_name, member_names, role, force, 'flush')
     for mn, member in members.items():
-        r = request_patroni('get', member, '')
+        r = request_patroni('get', member, '', None, auth_header(config))
         check_response(r, mn, 'get status', True)
         status = json.loads(r.text)
 
         if p_restart:
             if 'scheduled_restart' in status:
-                r = request_patroni('delete', member, 'restart')
+                r = request_patroni('delete', member, 'restart', None, auth_header(config))
                 check_response(r, mn, 'flush scheduled restart')
             else:
                 click.echo('No scheduled restart for member {0}'.format(mn))
