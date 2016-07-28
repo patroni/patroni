@@ -122,19 +122,19 @@ def auth_header(config):
 
 def request_patroni(request_type, member, endpoint, content=None, headers=None):
     headers = headers or {}
-    url = urlparse(member.api_url)
-    logging.debug(url)
+    url_parts = urlparse(member.api_url)
+    logging.debug(url_parts)
     if 'Content-Type' not in headers:
         headers['Content-Type'] = 'application/json'
 
+    url = '{0}://{1}/{2}'.format(url_parts.scheme, url_parts.netloc, endpoint)
+
     if request_type == 'get':
-        return requests.delete('{0}://{1}/{2}'.format(url.scheme, url.netloc, endpoint), headers=headers, timeout=60)
+        return requests.get(url, headers=headers, timeout=60)
     elif request_type == 'post':
-        return requests.post('{0}://{1}/{2}'.format(url.scheme, url.netloc, endpoint),
-                             headers=headers,
-                             data=json.dumps(content) if content else None, timeout=60)
+        return requests.post(url, headers=headers, data=json.dumps(content) if content else None, timeout=60)
     elif request_type == 'delete':
-        return requests.delete('{0}://{1}/{2}'.format(url.scheme, url.netloc, endpoint), headers=headers, timeout=60)
+        return requests.delete(url, headers=headers, timeout=60)
 
 
 def print_output(columns, rows=None, alignment=None, fmt='pretty', header=True, delimiter='\t'):
