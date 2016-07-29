@@ -405,7 +405,7 @@ def query_member(cluster, cursor, member, role, command, connect_parameters):
 def remove(config_file, cluster_name, fmt, dcs):
     _, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
-    output_members(cluster, cluster_name, fmt)
+    output_members(cluster, cluster_name, None, fmt)
 
     confirm = click.prompt('Please confirm the cluster name to remove', type=str)
     if confirm != cluster_name:
@@ -446,6 +446,13 @@ def ctl_load_config(cluster_name, config_file, dcs):
     cluster = dcs.get_cluster()
 
     return config, dcs, cluster
+
+
+def patroni_status(member, headers):
+    r = request_patroni('get', member, 'patroni', None, headers)
+    check_response(r, member.name, 'get status', True)
+
+    return json.loads(r.text)
 
 
 def check_response(response, member_name, action_name, silent_success=False):
@@ -514,10 +521,7 @@ def restart(cluster_name, member_names, config_file, dcs, force, role, p_any, sc
 
     for mn, member in members.items():
         if 'schedule' in content:
-            r = request_patroni('get', member, '', None, auth_header(config))
-            check_response(r, mn, 'get status', True)
-            status = json.loads(r.text)
-            if force and 'scheduled_restart' in status:
+            if force and 'scheduled_restart' in patroni_status(member, auth_header(config)):
                 request_patroni('delete', member, 'restart', None, auth_header(config))
 
         r = request_patroni('post', member, 'restart', content, auth_header(config))
@@ -595,7 +599,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
         scheduled = click.prompt('When should the failover take place (e.g. 2015-10-01T14:30) ', type=str,
                                  default='now')
 
-    scheduled_at = parse_scheduled(scheduled)
+    scheduled_at = parse_scheduled(scheduled).isoformat()
 
     failover_value = {'leader': master, 'candidate': candidate, 'scheduled_at': scheduled_at}
     logging.debug(failover_value)
@@ -632,7 +636,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
     output_members(cluster, cluster_name)
 
 
-def output_members(cluster, name, fmt='pretty'):
+def output_members(cluster, name, extra=None, fmt='pretty'):
     rows = []
     logging.debug(cluster)
     leader_name = None
@@ -640,6 +644,8 @@ def output_members(cluster, name, fmt='pretty'):
         leader_name = cluster.leader.member.name
 
     xlog_location_cluster = cluster.last_leader_operation or 0
+
+    extra_columns = extra.keys() if extra else []
 
     # Mainly for consistent pretty printing and watching we sort the output
     cluster.members.sort(key=lambda x: x.name)
@@ -654,17 +660,22 @@ def output_members(cluster, name, fmt='pretty'):
 
         xlog_location = m.data.get('xlog_location') or 0
         lag = ''
-        if (xlog_location_cluster >= xlog_location):
+        if xlog_location_cluster >= xlog_location:
             lag = round((xlog_location_cluster - xlog_location)/1024/1024)
 
-        rows.append([
+        row = [
             name,
             m.name,
             host,
             leader,
             m.data.get('state', ''),
-            lag
-        ])
+            lag,
+        ]
+        if extra:
+            for extra_col in extra_columns:
+                row.append(extra[extra_col][m.name])
+
+        rows.append(row)
 
     columns = [
         'Cluster',
@@ -674,19 +685,23 @@ def output_members(cluster, name, fmt='pretty'):
         'State',
         'Lag in MB',
     ]
+    columns += extra_columns
+
     alignment = {'Cluster': 'l', 'Member': 'l', 'Host': 'l', 'Lag in MB': 'r'}
+    alignment.update(dict([(col, 'l') for col in extra_columns]))
 
     print_output(columns, rows, alignment, fmt)
 
 
 @ctl.command('list', help='List the Patroni members for a given Patroni')
 @click.argument('cluster_names', nargs=-1)
+@click.option('--extended', '-e', help='Show some extra information', is_flag=True)
 @option_config_file
 @option_format
 @option_watch
 @option_watchrefresh
 @option_dcs
-def members(config_file, cluster_names, fmt, watch, w, dcs):
+def members(config_file, cluster_names, fmt, watch, w, dcs, extended):
     if not cluster_names:
         logging.warning('Listing members: No cluster names were provided')
         return
@@ -696,7 +711,23 @@ def members(config_file, cluster_names, fmt, watch, w, dcs):
         dcs = get_dcs(config, cluster_name)
 
         for _ in watching(w, watch):
-            output_members(dcs.get_cluster(), cluster_name, fmt)
+            extra = dict()
+            cluster = dcs.get_cluster()
+            if extended:
+                extra = {
+                    'Scheduled restart': dict()
+                }
+                for member in cluster.members:
+                    value = ''
+                    status = patroni_status(member, auth_header(config))
+                    if 'scheduled_restart' in status:
+                        value = status['scheduled_restart']['schedule']
+                        if 'postgres_version' in status['scheduled_restart']:
+                            value += ' if version < {0}'.format(status['scheduled_restart']['postgres_version'])
+
+                    extra['Scheduled restart'][member.name] = value
+
+            output_members(cluster, cluster_name, extra, fmt)
 
 
 def timestamp(precision=6):
@@ -717,25 +748,22 @@ def configure(config_file, dcs, namespace):
 @ctl.command('flush', help='Flush scheduled events')
 @click.argument('cluster_name')
 @click.argument('member_names', nargs=-1)
-@click.option('--restart', 'p_restart', help='Flush scheduled restart', is_flag=True)
+@click.argument('target', type=click.Choice(['restart']))
 @click.option('--role', '-r', help='Flush only members with this role', default='any',
               type=click.Choice(['master', 'replica', 'any']))
 @option_config_file
 @option_force
 @option_dcs
-def flush(cluster_name, member_names, config_file, dcs, force, role, p_restart):
-    if not p_restart:
+def flush(cluster_name, member_names, config_file, dcs, force, role, target):
+    if not target:
         raise PatroniCtlException('Flush target is not specified')
 
     config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
     members = get_members(cluster, cluster_name, member_names, role, force, 'flush')
     for mn, member in members.items():
-        r = request_patroni('get', member, '', None, auth_header(config))
-        check_response(r, mn, 'get status', True)
-        status = json.loads(r.text)
-
-        if p_restart:
+        status = patroni_status(member, auth_header(config))
+        if target == 'restart':
             if 'scheduled_restart' in status:
                 r = request_patroni('delete', member, 'restart', None, auth_header(config))
                 check_response(r, mn, 'flush scheduled restart')
