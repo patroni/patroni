@@ -537,3 +537,9 @@ class TestPostgresql(unittest.TestCase):
             self.assertEquals(self.p.get_major_version(), 9.4)
         with patch.object(builtins, 'open', Mock(side_effect=Exception)):
             self.assertEquals(self.p.get_major_version(), 0.0)
+
+    def test_postmaster_start_time(self):
+        with patch.object(MockCursor, "fetchone", Mock(return_value=('foo', True, '', '', '', '', False))):
+            self.assertEqual(self.p.postmaster_start_time(), 'foo')
+        with patch.object(MockCursor, "execute", side_effect=psycopg2.Error):
+            self.assertIsNone(self.p.postmaster_start_time())

@@ -31,6 +31,7 @@ class Patroni(object):
 
         self.tags = self.get_tags()
         self.next_run = time.time()
+        self.scheduled_restart = {}
 
     def load_dynamic_configuration(self):
         while True:

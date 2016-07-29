@@ -127,7 +127,7 @@ def post_patroni(member, endpoint, content, headers=None):
         headers['Content-Type'] = 'application/json'
     return requests.post('{0}://{1}/{2}'.format(url.scheme, url.netloc, endpoint),
                          headers=headers,
-                         data=json.dumps(content), timeout=60)
+                         data=json.dumps(content) if content else None, timeout=60)
 
 
 def print_output(columns, rows=None, alignment=None, fmt='pretty', header=True, delimiter='\t'):
