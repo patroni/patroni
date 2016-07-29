@@ -599,7 +599,10 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
         scheduled = click.prompt('When should the failover take place (e.g. 2015-10-01T14:30) ', type=str,
                                  default='now')
 
-    scheduled_at = parse_scheduled(scheduled).isoformat()
+    scheduled_at = parse_scheduled(scheduled)
+
+    if scheduled_at:
+        scheduled_at = scheduled_at.isoformat()
 
     failover_value = {'leader': master, 'candidate': candidate, 'scheduled_at': scheduled_at}
     logging.debug(failover_value)
