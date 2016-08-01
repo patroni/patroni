@@ -343,13 +343,14 @@ class AbstractDCS(object):
         """Create or update `/config` key"""
 
     @abc.abstractmethod
-    def touch_member(self, data, ttl=None):
+    def touch_member(self, data, ttl=None, permanent=False):
         """Update member key in DCS.
         This method should create or update key with the name = '/members/' + `~self._name`
         and value = data in a given DCS.
 
         :param data: json serialized information about instance (including connection strings)
         :param ttl: ttl for member key, optional parameter. If it is None `~self.member_ttl will be used`
+        :permanent: if set to `!True`, the member key will never expire. Used in patronictl for the external master.
         :returns: `!True` on success otherwise `!False`
         """
 

@@ -20,8 +20,9 @@ import yaml
 from click import ClickException
 from patroni.config import Config
 from patroni.dcs import get_dcs as _get_dcs
-from patroni.exceptions import PatroniException
-from patroni.postgresql import get_conn_kwargs
+from patroni.exceptions import PatroniException, DCSError
+from patroni.postgresql import Postgresql, get_conn_kwargs
+from patroni.api import RestApiServer
 from prettytable import PrettyTable
 from six.moves.urllib_parse import urlparse
 
@@ -76,7 +77,6 @@ def load_config(path, dcs):
         for d in DCS_DEFAULTS:
             config.pop(d, None)
         config.update(dcs)
-
     return config
 
 
@@ -646,3 +646,54 @@ def configure(config_file, dcs, namespace):
     config['dcs_api'] = str(dcs)
     config['namespace'] = str(namespace)
     store_config(config, config_file)
+
+
+def touch_member(config, dcs):
+    ''' Rip of the ha.touch_member without inter-class dependencies '''
+    p = Postgresql(config['postgresql'])
+    p.set_state('running')
+    p.set_role('master')
+
+    api = RestApiServer(None, config['restapi'])
+    data = {
+        'conn_url': p.connection_string,
+        'api_url': api.connection_string,
+        'state': p.state,
+        'role': p.role
+    }
+    try:
+        dcs.touch_member(json.dumps(data, separators=(',', ':')), permanent=True)
+    except DCSError:
+        return False
+    return True
+
+
+def set_defaults(config, cluster_name):
+    ''' fill-in some basic configuration parameters if config file is not set '''
+    config['postgresql']['name'] = config['postgresql'].get('name') or cluster_name
+    config['postgresql']['scope'] = config['postgresql'].get('scope') or cluster_name
+    config['postgresql']['listen'] = config['postgresql'].get('listen') or "127.0.0.1"
+    config['postgresql']['authentication'] = {'replication': None}
+    config['restapi']['listen'] = ':' in config['restapi'].get('listen', ".") or '127.0.0.1:5432'
+
+
+@ctl.command('scaffold', help='Create a structure for the cluster in DCS')
+@click.argument('cluster_name')
+@click.option('--sysid', '-s', help='System ID of the cluster to put into the initialize key', default="")
+@option_config_file
+@option_dcs
+def scaffold(cluster_name, config_file, dcs, sysid):
+    logging.debug("config_file = %s, cluster_name = %s, dcs = %s, sysid = %s", config_file, cluster_name, dcs, sysid)
+    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+    if cluster and cluster.initialize:
+        raise PatroniCtlException("This cluster is already initialized")
+    dcs.initialize(create_new=True, sysid=sysid)
+
+    set_defaults(config, cluster_name)
+
+    # make sure the leader key will never expire
+    if not (touch_member(config, dcs) and dcs.attempt_to_acquire_leader(permanent=True)):
+        dcs.delete_leader()
+        dcs.cancel_initialization()
+        return 1
+    return 0
