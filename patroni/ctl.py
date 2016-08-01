@@ -758,9 +758,6 @@ def configure(config_file, dcs, namespace):
 @option_force
 @option_dcs
 def flush(cluster_name, member_names, config_file, dcs, force, role, target):
-    if not target:
-        raise PatroniCtlException('Flush target is not specified')
-
     config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
     members = get_members(cluster, cluster_name, member_names, role, force, 'flush')

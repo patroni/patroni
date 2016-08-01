@@ -220,6 +220,11 @@ class TestCtl(unittest.TestCase):
         result = self.runner.invoke(ctl, ['restart', 'alpha', 'dummy', '--any'], input='y')
         assert result.exit_code == 1
 
+        # Wrong pg version
+        result = self.runner.invoke(ctl, ['restart', 'alpha', '--any', '--pg-version', '9.1'], input='y')
+        assert 'Error: PostgreSQL version' in result.output
+        assert result.exit_code == 1
+
         with patch('requests.post', Mock(return_value=MockResponse())):
             result = self.runner.invoke(ctl, ['restart', 'alpha'], input='y')
             assert result.exit_code == 0
@@ -292,3 +297,34 @@ class TestCtl(unittest.TestCase):
     def test_configure(self):
         result = self.runner.invoke(configure, ['--dcs', 'abc', '-c', 'dummy', '-n', 'bla'])
         assert result.exit_code == 0
+
+    @patch('patroni.ctl.get_dcs')
+    @patch('requests.get')
+    def test_list_extended(self, mock_get, mock_get_dcs):
+        mock_get_dcs.return_value = self.e
+        mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
+
+        mock_get.return_value = MockResponse()
+        mock_get.return_value.text = '{"scheduled_restart": ' \
+                                     '  {"schedule": "2100-07-29 14:48:21.341 UTC", "postgres_version": "99.0.0"}' \
+                                     '}'
+
+        result = self.runner.invoke(ctl, ['list', 'dummy', '--extended'])
+        assert 'Scheduled restart' in result.output
+
+    @patch('patroni.ctl.get_dcs')
+    @patch('requests.delete', Mock(return_value=MockResponse()))
+    @patch('requests.get')
+    def test_flush(self, mock_get, mock_get_dcs):
+        mock_get_dcs.return_value = self.e
+        mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
+
+        mock_get.return_value = MockResponse()
+        mock_get.return_value.text = '{}'
+
+        result = self.runner.invoke(ctl, ['flush', 'dummy', 'restart', '-r', 'master'], input='y')
+        assert 'No scheduled restart' in result.output
+
+        mock_get.return_value.text = '{"scheduled_restart": {"schedule": "2100-07-29 14:48:21.341 UTC"}}'
+        result = self.runner.invoke(ctl, ['flush', 'dummy', 'restart', '--force'])
+        assert 'flush scheduled restart' in result.output
