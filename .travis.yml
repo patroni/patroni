@@ -19,7 +19,7 @@ cache:
   directories:
   - $HOME/virtualenv/python2.7.9
   - $HOME/virtualenv/python3.4.2
-  - $HOME/virtualenv/python3.5.0
+  - $HOME/virtualenv/python3.5.2
 install:
   - |
     set -e
@@ -51,7 +51,7 @@ install:
     for pv in "2.7" "3.4" "3.5"; do
         source ~/virtualenv/python${pv}/bin/activate
         # explicitly install all needed python modules to cache them
-        for p in '-r requirements.txt' 'behave codacy-coverage coverage coveralls flake8 mock>=2.0.0 pytest-cov pytest'; do
+        for p in '-r requirements.txt' 'behave codacy-coverage coverage coveralls flake8==2.6.0 mock>=2.0.0 pytest-cov pytest'; do
             pip install $p
         done
     done
