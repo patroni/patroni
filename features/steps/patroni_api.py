@@ -121,18 +121,30 @@ def scheduled_failover(context, from_host, to_host, in_seconds):
     """.format(from_host, to_host, datetime.now(pytz.utc) + timedelta(seconds=int(in_seconds))))
 
 
+@step('I issue a scheduled restart at {url:url} in {in_seconds:d} seconds with {data}')
+def scheduled_restart(context, url, in_seconds, data):
+    data = data and json.loads(data) or {}
+    data.update(schedule='{0}'.format((datetime.now(pytz.utc) + timedelta(seconds=int(in_seconds))).isoformat()))
+    context.execute_steps(u"""Given I issue a POST request to {0}/restart with {1}""".format(url, json.dumps(data)))
+
+
 @step('I add tag {tag:w} {value:w} to {pg_name:w} config')
 def add_tag_to_config(context, tag, value, pg_name):
     context.pctl.add_tag_to_config(pg_name, tag, value)
 
 
 @then('Response on GET {url} contains {value} after {timeout:d} seconds')
-def check_http_response(context, url, value, timeout):
+def check_http_response(context, url, value, timeout, negate=False):
     for _ in range(int(timeout)):
         r = requests.get(url)
-        if value in r.content.decode('utf-8'):
+        if (value in r.content.decode('utf-8')) != negate:
             break
         time.sleep(1)
     else:
         assert False,\
-            "Value {0} is not present in response after {1} seconds".format(value, timeout)
+            "Value {0} is {1} present in response after {2} seconds".format(value, "not" if not negate else "", timeout)
+
+
+@then('Response on GET {url} does not contain {value} after {timeout:d} seconds')
+def check_not_in_http_response(context, url, value, timeout):
+    check_http_response(context, url, value, timeout, negate=True)
