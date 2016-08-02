@@ -4,6 +4,7 @@ import importlib
 import inspect
 import json
 import os
+import pkgutil
 import six
 
 from collections import namedtuple
@@ -32,10 +33,9 @@ def parse_connection_string(value):
 
 def get_dcs(config):
     available_implementations = set()
-    for module in os.listdir(os.path.dirname(__file__)):
-        if module.endswith('.py') and not module.startswith('__'):  # find module
-            module_name = module[:-3].lower()
-            module = importlib.import_module(__package__ + '.' + module[:-3])
+    for _, module_name, is_pkg in pkgutil.iter_modules([os.path.dirname(__file__)]):
+        if not is_pkg:
+            module = importlib.import_module(__package__ + '.' + module_name)
             for name in filter(lambda name: not name.startswith('__'), dir(module)):  # iterate through module content
                 value = getattr(module, name)
                 name = name.lower()
