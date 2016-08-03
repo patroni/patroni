@@ -7,6 +7,7 @@ import unittest
 from mock import Mock, MagicMock, patch
 from patroni.config import Config
 from patroni.dcs import Cluster, Failover, Leader, Member, get_dcs
+from patroni.dcs.etcd import Client
 from patroni.exceptions import DCSError, PostgresException
 from patroni.ha import Ha
 from patroni.postgresql import Postgresql
@@ -112,7 +113,7 @@ class TestHa(unittest.TestCase):
     @patch('socket.getaddrinfo', socket_getaddrinfo)
     @patch.object(etcd.Client, 'read', etcd_read)
     def setUp(self):
-        with patch.object(etcd.Client, 'machines') as mock_machines:
+        with patch.object(Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
             self.p = Postgresql({'name': 'postgresql0', 'scope': 'dummy', 'listen': '127.0.0.1:5432',
                                  'data_dir': 'data/postgresql0', 'retry_timeout': 10,
