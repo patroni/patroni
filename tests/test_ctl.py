@@ -212,6 +212,10 @@ class TestCtl(unittest.TestCase):
         result = self.runner.invoke(ctl, ['reinit', 'alpha'], input='y')
         assert result.exit_code == 1
 
+        # successful reinit
+        result = self.runner.invoke(ctl, ['reinit', 'alpha', 'other'], input='y')
+        assert result.exit_code == 0
+
         # Aborted restart
         result = self.runner.invoke(ctl, ['restart', 'alpha'], input='N')
         assert result.exit_code == 1
@@ -226,7 +230,21 @@ class TestCtl(unittest.TestCase):
         assert result.exit_code == 1
 
         with patch('requests.post', Mock(return_value=MockResponse())):
-            result = self.runner.invoke(ctl, ['restart', 'alpha'], input='y')
+            # normal restart, the schedule is actually parsed, but not validated in patronictl
+            result = self.runner.invoke(ctl, ['restart', 'alpha', '--pg-version', '42.0.0',
+                                        '--scheduled', '2300-10-01T14:30'], input='y')
+            assert result.exit_code == 0
+
+        with patch('requests.post', Mock(return_value=MockResponse(204))):
+            # get retart with the non-200 return code
+            # normal restart, the schedule is actually parsed, but not validated in patronictl
+            result = self.runner.invoke(ctl, ['restart', 'alpha', '--pg-version', '42.0.0',
+                                        '--scheduled', '2300-10-01T14:30'], input='y')
+            assert result.exit_code == 0
+
+        # force restart with restart already present
+        with patch('patroni.ctl.patroni_status', return_value='scheduled_restart'):
+            self.runner.invoke(ctl, ['restart', 'alpha', '--force', '--scheduled', '2300-10-01T14:30'])
             assert result.exit_code == 0
 
     @patch('patroni.ctl.get_dcs')
@@ -327,4 +345,7 @@ class TestCtl(unittest.TestCase):
 
         mock_get.return_value.text = '{"scheduled_restart": {"schedule": "2100-07-29 14:48:21.341 UTC"}}'
         result = self.runner.invoke(ctl, ['flush', 'dummy', 'restart', '--force'])
-        assert 'flush scheduled restart' in result.output
+        assert 'Success: flush scheduled restart' in result.output
+        with patch.object(requests, 'delete', return_value=MockResponse(404)):
+            result = self.runner.invoke(ctl, ['flush', 'dummy', 'restart', '--force'])
+            assert 'Failed: flush scheduled restart' in result.output
