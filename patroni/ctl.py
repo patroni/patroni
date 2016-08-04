@@ -488,10 +488,11 @@ def parse_scheduled(scheduled):
               default=None)
 @click.option('--pg-version', 'version', help='Restart if the PostgreSQL version is less than provided (e.g. 9.5.2)',
               default=None)
+@click.option('--pending', help='Restart if pending', is_flag=True)
 @option_config_file
 @option_force
 @option_dcs
-def restart(cluster_name, member_names, config_file, dcs, force, role, p_any, scheduled, version):
+def restart(cluster_name, member_names, config_file, dcs, force, role, p_any, scheduled, version, pending):
     config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
     members = get_members(cluster, cluster_name, member_names, role, force, 'restart')
@@ -505,6 +506,9 @@ def restart(cluster_name, member_names, config_file, dcs, force, role, p_any, sc
                                type=str, default='')
 
     content = {}
+    if pending:
+        content['restart_pending'] = True
+
     if version:
         if not re.match(r'[1-9][0-9]?(\.(0|([1-9][0-9]?))){2}$', version):
             message = 'PostgreSQL version should be in the first.major.minor format'
@@ -522,7 +526,8 @@ def restart(cluster_name, member_names, config_file, dcs, force, role, p_any, sc
     for mn, member in members.items():
         if 'schedule' in content:
             if force and 'scheduled_restart' in patroni_status(member, auth_header(config)):
-                request_patroni('delete', member, 'restart', None, auth_header(config))
+                r = request_patroni('delete', member, 'restart', None, auth_header(config))
+                check_response(r, mn, 'flush scheduled restart')
 
         r = request_patroni('post', member, 'restart', content, auth_header(config))
         if r.status_code == 200:
