@@ -687,13 +687,19 @@ def scaffold(cluster_name, config_file, dcs, sysid):
     config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
     if cluster and cluster.initialize:
         raise PatroniCtlException("This cluster is already initialized")
-    dcs.initialize(create_new=True, sysid=sysid)
+
+    if not dcs.initialize(create_new=True, sysid=sysid):
+        # initialize key already exists, don't touch this cluster
+        raise PatroniCtlException("Initialize key for cluster {0} already exists".format(cluster_name))
 
     set_defaults(config, cluster_name)
 
-    # make sure the leader key will never expire
-    if not (touch_member(config, dcs) and dcs.attempt_to_acquire_leader(permanent=True)):
-        dcs.delete_leader()
-        dcs.cancel_initialization()
-        return 1
-    return 0
+    try:
+        # make sure the leader keys will never expire
+        if not (touch_member(config, dcs) and dcs.attempt_to_acquire_leader(permanent=True)):
+            # we did initialize this cluster, but failed to write the leader or member keys, wipe it down completely.
+            raise PatroniCtlException("Unable to install permanent leader for cluster {0}".format(cluster_name))
+    except:
+        dcs.delete_cluster()
+        raise
+    click.echo("Cluster {0} has been created successfully".format(cluster_name, sysid))

@@ -313,9 +313,10 @@ class AbstractDCS(object):
         for example for etcd `prevValue` parameter must be used."""
 
     @abc.abstractmethod
-    def attempt_to_acquire_leader(self):
+    def attempt_to_acquire_leader(self, permanent=False):
         """Attempt to acquire leader lock
         This method should create `/leader` key with value=`~self._name`
+        :param permanent: if set to `!True`, the leader key will never expie. Used in patronictl for the external master
         :returns: `!True` if key has been created successfully.
 
         Key must be created atomically. In case if key already exists it should not be
