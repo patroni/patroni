@@ -66,6 +66,11 @@ class Ha(object):
                 data['xlog_location'] = self.state_handler.xlog_position()
             except:
                 pass
+        if self.patroni.scheduled_restart:
+            scheduled_restart_data = self.patroni.scheduled_restart.copy()
+            scheduled_restart_data['schedule'] = scheduled_restart_data['schedule'].isoformat()
+            data['scheduled_restart'] = scheduled_restart_data
+
         self.dcs.touch_member(json.dumps(data, separators=(',', ':')))
 
     def clone(self, clone_member=None, msg='(without leader)'):
@@ -168,7 +173,7 @@ class Ha(object):
             xlog_location = None if is_master else json['xlog']['replayed_location']
             return (member, True, not is_master, xlog_location, json.get('tags', {}))
         except:
-            logging.exception('request failed: GET %s', member.api_url)
+            logger.exception('request failed: GET %s', member.api_url)
         return (member, False, None, 0, {})
 
     def fetch_nodes_statuses(self, members):
@@ -279,31 +284,45 @@ class Ha(object):
         else:
             self.state_handler.follow(None, None)
 
-    def process_manual_failover_from_leader(self):
-        failover = self.cluster.failover
-
-        if failover.scheduled_at:
-            # If the failover is in the far future, we shouldn't do anything and just return.
-            # If the failover is in the past, we consider the value to be stale and we remove
+    def should_run_scheduled_action(self, action_name, scheduled_at, cleanup_fn):
+        if scheduled_at:
+            # If the scheduled action is in the far future, we shouldn't do anything and just return.
+            # If the scheduled action is in the past, we consider the value to be stale and we remove
             # the value.
-            # If the value is close to now, we initiate the failover
+            # If the value is close to now, we initiate the scheduled action
+            # Additionally, if the scheduled action cannot be executed altogether, i.e. there is an error
+            # or the action is in the past - we take care of cleaning it up.
             now = datetime.datetime.now(pytz.utc)
             try:
-                delta = (failover.scheduled_at - now).total_seconds()
+                delta = (scheduled_at - now).total_seconds()
 
                 if delta > self.patroni.nap_time:
-                    logging.info('Awaiting failover at %s (in %.0f seconds)', failover.scheduled_at.isoformat(), delta)
-                    return
+                    logger.info('Awaiting %s at %s (in %.0f seconds)',
+                                action_name, scheduled_at.isoformat(), delta)
+                    return False
                 elif delta < - int(self.patroni.nap_time * 1.5):
-                    logger.warning('Found a stale failover value, cleaning up: %s', failover.scheduled_at)
+                    logger.warning('Found a stale %s value, cleaning up: %s',
+                                   action_name, scheduled_at.isoformat())
+                    cleanup_fn()
                     self.dcs.manual_failover('', '', index=self.cluster.failover.index)
-                    return
+                    return False
 
                 # The value is very close to now
                 sleep(max(delta, 0))
-                logger.info('Manual scheduled failover at {}'.format(failover.scheduled_at.isoformat()))
+                logger.info('Manual scheduled {0} at %s'.format(action_name), scheduled_at.isoformat())
+                return True
             except TypeError:
-                logger.warning('Incorrect value in of scheduled_at: %s', failover.scheduled_at)
+                logger.warning('Incorrect value of scheduled_at: %s', scheduled_at)
+                cleanup_fn()
+        return False
+
+    def process_manual_failover_from_leader(self):
+        failover = self.cluster.failover
+
+        if (failover.scheduled_at and not
+            self.should_run_scheduled_action("failover", failover.scheduled_at, lambda:
+                                             self.dcs.manual_failover('', '', index=self.cluster.failover.index))):
+            return
 
         if not failover.leader or failover.leader == self.state_handler.name:
             if not failover.candidate or failover.candidate != self.state_handler.name:
@@ -361,12 +380,71 @@ class Ha(object):
         return self.follow('demoting self because i do not have the lock and i was a leader',
                            'no action.  i am a secondary and i am following a leader', False)
 
-    def schedule(self, action):
-        with self._async_executor:
-            return self._async_executor.schedule(action)
+    def evaluate_scheduled_restart(self):
+        # restart if we need to
+        restart_data = self.future_restart_scheduled()
+        if restart_data:
+            recent_time = self.state_handler.postmaster_start_time()
+            request_time = restart_data['postmaster_start_time']
+            # check if postmaster start time has changed since the last restart
+            if recent_time and request_time and recent_time != request_time:
+                logger.info("Cancelling scheduled restart: postgres restart has already happened at %s", recent_time)
+                self.delete_future_restart()
+                return None
 
-    def restart_scheduled(self):
-        return self._async_executor.scheduled_action == 'restart'
+        if (restart_data and
+           self.should_run_scheduled_action('restart', restart_data['schedule'], self.delete_future_restart)):
+            try:
+                ret, message = self.restart(restart_data, run_async=True)
+                if not ret:
+                    logger.warning("Scheduled restart: %s", message)
+                    return None
+                return message
+            finally:
+                self.delete_future_restart()
+
+    def restart_matches(self, role, postgres_version, pending_restart):
+        reason_to_cancel = ""
+        # checking the restart filters here seem to be less ugly than moving them into the
+        # run_scheduled_action.
+        if role and role != self.state_handler.role:
+            reason_to_cancel = "host role mismatch"
+
+        if (postgres_version and
+           self.state_handler.postgres_version_to_int(postgres_version) <= int(self.state_handler.server_version)):
+            reason_to_cancel = "postgres version mismatch"
+
+        if pending_restart and not self.state_handler.pending_restart:
+            reason_to_cancel = "pending restart flag is not set"
+
+        if not reason_to_cancel:
+            return True
+        else:
+            logger.info("not proceeding with the restart: %s", reason_to_cancel)
+        return False
+
+    def schedule(self, action, immediate=False):
+        with self._async_executor:
+            return self._async_executor.schedule(action, immediate)
+
+    def schedule_future_restart(self, restart_data):
+        with self._async_executor:
+            if not self.patroni.scheduled_restart:
+                self.patroni.scheduled_restart = restart_data
+                return True
+        return False
+
+    def delete_future_restart(self):
+        ret = False
+        with self._async_executor:
+            if self.patroni.scheduled_restart:
+                self.patroni.scheduled_restart = {}
+                ret = True
+        return ret
+
+    def future_restart_scheduled(self):
+        return self.patroni.scheduled_restart.copy() if (self.patroni.scheduled_restart and
+                                                         isinstance(self.patroni.scheduled_restart, dict)) else None
 
     def schedule_reinitialize(self):
         return self.schedule('reinitialize')
@@ -374,15 +452,32 @@ class Ha(object):
     def reinitialize_scheduled(self):
         return self._async_executor.scheduled_action == 'reinitialize'
 
-    def restart(self):
+    def schedule_restart(self, immediate=False):
+        return self.schedule('restart', immediate)
+
+    def restart_scheduled(self):
+        return self._async_executor.scheduled_action == 'restart'
+
+    def restart(self, restart_data=None, run_async=False):
+        """ conditional and unconditional restart """
+        if (restart_data and isinstance(restart_data, dict) and
+            not self.restart_matches(restart_data.get('role'),
+                                     restart_data.get('postgres_version'),
+                                     ('restart_pending' in restart_data))):
+            return (False, "restart conditions are not satisfied")
+
         with self._async_executor:
-            prev = self._async_executor.schedule('restart', True)
+            prev = self.schedule_restart(immediate=(not run_async))
             if prev is not None:
                 return (False, prev + ' already in progress')
-        if self._async_executor.run(self.state_handler.restart):
-            return (True, 'restarted successfully')
-        else:
-            return (False, 'restart failed')
+            if not run_async:
+                if self._async_executor.run(self.state_handler.restart):
+                    return (True, 'restarted successfully')
+                else:
+                    return (False, 'restart failed')
+            else:
+                self._async_executor.run_async(self.state_handler.restart)
+                return (True, "restart initiated")
 
     def reinitialize(self, cluster):
         self.state_handler.stop('immediate')
@@ -482,6 +577,9 @@ class Ha(object):
                 if self.cluster.is_unlocked():
                     return self.process_unhealthy_cluster()
                 else:
+                    msg = self.evaluate_scheduled_restart()
+                    if msg is not None:
+                        return msg
                     return self.process_healthy_cluster()
             finally:
                 # we might not have a valid PostgreSQL connection here if another thread

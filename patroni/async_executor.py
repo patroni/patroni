@@ -1,5 +1,5 @@
 import logging
-from threading import Lock, Thread
+from threading import RLock, Thread
 
 logger = logging.getLogger(__name__)
 
@@ -8,9 +8,9 @@ class AsyncExecutor(object):
 
     def __init__(self):
         self._busy = False
-        self._thread_lock = Lock()
+        self._thread_lock = RLock()
         self._scheduled_action = None
-        self._scheduled_action_lock = Lock()
+        self._scheduled_action_lock = RLock()
 
     @property
     def busy(self):
@@ -32,6 +32,7 @@ class AsyncExecutor(object):
     def reset_scheduled_action(self):
         with self._scheduled_action_lock:
             self._scheduled_action = None
+            self._busy = False
 
     def run(self, func, args=()):
         try:
