@@ -7,10 +7,9 @@ import time
 import dateutil.parser
 import datetime
 import pytz
-import re
 
 from patroni.exceptions import PostgresConnectionException
-from patroni.utils import deep_compare, patch_config, Retry, RetryFailedError
+from patroni.utils import deep_compare, patch_config, Retry, RetryFailedError, is_valid_pg_version
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from six.moves.socketserver import ThreadingMixIn
 from threading import Thread
@@ -212,7 +211,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     data = "PostgreSQL role should be either master or replica"
                     break
             elif k == 'postgres_version':
-                if not re.match(r'[1-9][0-9]?(\.(0|([1-9][0-9]?))){2}$', request[k]):
+                if not is_valid_pg_version(request[k]):
                     status_code = 400
                     data = "PostgreSQL version should be in the first.major.minor format"
                     break

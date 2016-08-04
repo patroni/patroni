@@ -34,7 +34,10 @@ def get_cluster_initialized_without_leader(leader=False, failover=None):
                                   'api_url': 'http://127.0.0.1:8008/patroni', 'xlog_location': 4})
     l = Leader(0, 0, m1) if leader else None
     m2 = Member(0, 'other', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
-                                 'api_url': 'http://127.0.0.1:8011/patroni', 'tags': {'clonefrom': True}})
+                                 'api_url': 'http://127.0.0.1:8011/patroni',
+                                 'tags': {'clonefrom': True},
+                                 'scheduled_restart': {'schedule': "2100-01-01 10:53:07.560445+00:00",
+                                                       'postgres_version': '99.0.0'}})
     return get_cluster(True, l, [m1, m2], failover)
 
 
@@ -407,8 +410,8 @@ class TestHa(unittest.TestCase):
     def test_schedule_future_restart(self):
         self.ha.patroni.scheduled_restart = {}
         # do the restart 2 times. The first one should succeed, the second one should fail
-        self.assertTrue(self.ha.schedule_future_restart({'schedule': str(future_restart_time)}))
-        self.assertFalse(self.ha.schedule_future_restart({'schedule': str(future_restart_time)}))
+        self.assertTrue(self.ha.schedule_future_restart({'schedule': future_restart_time}))
+        self.assertFalse(self.ha.schedule_future_restart({'schedule': future_restart_time}))
 
     def test_delete_future_restarts(self):
         self.ha.delete_future_restart()

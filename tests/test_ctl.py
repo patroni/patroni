@@ -206,7 +206,7 @@ class TestCtl(unittest.TestCase):
     def test_restart_reinit(self, mock_get_dcs):
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
         result = self.runner.invoke(ctl, ['restart', 'alpha'], input='y\n\nnow')
-        assert 'Restart failed for' in result.output
+        assert 'Failed: restart for' in result.output
         assert result.exit_code == 0
 
         result = self.runner.invoke(ctl, ['reinit', 'alpha'], input='y')
@@ -220,6 +220,9 @@ class TestCtl(unittest.TestCase):
         result = self.runner.invoke(ctl, ['restart', 'alpha'], input='N')
         assert result.exit_code == 1
 
+        result = self.runner.invoke(ctl, ['restart', 'alpha', '--pending', '--force'])
+        assert result.exit_code == 0
+
         # Not a member
         result = self.runner.invoke(ctl, ['restart', 'alpha', 'dummy', '--any'], input='y')
         assert result.exit_code == 1
@@ -229,6 +232,11 @@ class TestCtl(unittest.TestCase):
         assert 'Error: PostgreSQL version' in result.output
         assert result.exit_code == 1
 
+        with patch('requests.delete', Mock(return_value=MockResponse(500))):
+            # normal restart, the schedule is actually parsed, but not validated in patronictl
+            result = self.runner.invoke(ctl, ['restart', 'alpha', 'other', '--force', '--scheduled', '2300-10-01T14:30'])
+            assert 'Failed: flush scheduled restart' in result.output
+
         with patch('requests.post', Mock(return_value=MockResponse())):
             # normal restart, the schedule is actually parsed, but not validated in patronictl
             result = self.runner.invoke(ctl, ['restart', 'alpha', '--pg-version', '42.0.0',
@@ -236,15 +244,33 @@ class TestCtl(unittest.TestCase):
             assert result.exit_code == 0
 
         with patch('requests.post', Mock(return_value=MockResponse(204))):
-            # get retart with the non-200 return code
+            # get restart with the non-200 return code
             # normal restart, the schedule is actually parsed, but not validated in patronictl
             result = self.runner.invoke(ctl, ['restart', 'alpha', '--pg-version', '42.0.0',
                                         '--scheduled', '2300-10-01T14:30'], input='y')
             assert result.exit_code == 0
 
         # force restart with restart already present
-        with patch('patroni.ctl.patroni_status', return_value='scheduled_restart'):
-            self.runner.invoke(ctl, ['restart', 'alpha', '--force', '--scheduled', '2300-10-01T14:30'])
+        with patch('patroni.ctl.request_patroni', Mock(return_value=MockResponse(204))):
+            result = self.runner.invoke(ctl, ['restart', 'alpha', 'other', '--force', '--scheduled', '2300-10-01T14:30'])
+            assert result.exit_code == 0
+
+        with patch('requests.post', Mock(return_value=MockResponse(202))):
+            # get restart with the non-200 return code
+            # normal restart, the schedule is actually parsed, but not validated in patronictl
+            result = self.runner.invoke(
+                ctl, ['restart', 'alpha', '--pg-version', '99.0.0', '--scheduled', '2300-10-01T14:30'], input='y'
+            )
+            assert 'Success: restart scheduled' in result.output
+            assert result.exit_code == 0
+
+        with patch('requests.post', Mock(return_value=MockResponse(409))):
+            # get restart with the non-200 return code
+            # normal restart, the schedule is actually parsed, but not validated in patronictl
+            result = self.runner.invoke(
+                ctl, ['restart', 'alpha', '--pg-version', '99.0.0', '--scheduled', '2300-10-01T14:30'], input='y'
+            )
+            assert 'Failed: another restart is already' in result.output
             assert result.exit_code == 0
 
     @patch('patroni.ctl.get_dcs')
@@ -278,7 +304,7 @@ class TestCtl(unittest.TestCase):
     @patch('requests.post', Mock(side_effect=requests.exceptions.ConnectionError('foo')))
     def test_request_patroni(self):
         member = get_cluster_initialized_with_leader().leader.member
-        self.assertRaises(requests.exceptions.ConnectionError, request_patroni, 'post', member, 'dummy', {})
+        self.assertRaises(requests.exceptions.ConnectionError, request_patroni, member, 'post', 'dummy', {})
 
     def test_ctl(self):
         self.runner.invoke(ctl, ['list'])
@@ -317,33 +343,23 @@ class TestCtl(unittest.TestCase):
         assert result.exit_code == 0
 
     @patch('patroni.ctl.get_dcs')
-    @patch('requests.get')
-    def test_list_extended(self, mock_get, mock_get_dcs):
+    def test_list_extended(self, mock_get_dcs):
         mock_get_dcs.return_value = self.e
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
 
-        mock_get.return_value = MockResponse()
-        mock_get.return_value.text = '{"scheduled_restart": ' \
-                                     '  {"schedule": "2100-07-29 14:48:21.341 UTC", "postgres_version": "99.0.0"}' \
-                                     '}'
-
         result = self.runner.invoke(ctl, ['list', 'dummy', '--extended'])
+        assert '2100' in result.output
         assert 'Scheduled restart' in result.output
 
     @patch('patroni.ctl.get_dcs')
     @patch('requests.delete', Mock(return_value=MockResponse()))
-    @patch('requests.get')
-    def test_flush(self, mock_get, mock_get_dcs):
+    def test_flush(self, mock_get_dcs):
         mock_get_dcs.return_value = self.e
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
-
-        mock_get.return_value = MockResponse()
-        mock_get.return_value.text = '{}'
 
         result = self.runner.invoke(ctl, ['flush', 'dummy', 'restart', '-r', 'master'], input='y')
         assert 'No scheduled restart' in result.output
 
-        mock_get.return_value.text = '{"scheduled_restart": {"schedule": "2100-07-29 14:48:21.341 UTC"}}'
         result = self.runner.invoke(ctl, ['flush', 'dummy', 'restart', '--force'])
         assert 'Success: flush scheduled restart' in result.output
         with patch.object(requests, 'delete', return_value=MockResponse(404)):

@@ -57,7 +57,7 @@ Scenario: check API requests for the primary-replica pair
 	And I receive a response output "Success: reinitialize for member postgres1"
 	When I run patronictl.py restart batman postgres0 --force
 	Then I receive a response returncode 0
-	And I receive a response output "Successful restart on member postgres0"
+	And I receive a response output "Success: restart on member postgres0"
 	And postgres0 role is the primary after 5 seconds
 	When I sleep for 10 seconds
 	Then postgres1 role is the secondary after 15 seconds
