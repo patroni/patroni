@@ -21,7 +21,6 @@ from click import ClickException
 from patroni.config import Config
 from patroni.dcs import get_dcs as _get_dcs
 from patroni.exceptions import PatroniException
-from patroni.postgresql import get_conn_kwargs
 from prettytable import PrettyTable
 from six.moves.urllib_parse import urlparse
 
@@ -182,16 +181,6 @@ def watching(w, watch, max_count=None, clear=True):
         yield 0
 
 
-def build_connect_parameters(conn_url, connect_parameters):
-    params = get_conn_kwargs(conn_url, connect_parameters)
-    params.update({'fallback_application_name': 'Patroni ctl', 'connect_timeout': '5'})
-    if 'database' in connect_parameters:
-        params['database'] = connect_parameters['database']
-    else:
-        params.pop('database')
-    return params
-
-
 def get_all_members(cluster, role='master'):
     if role == 'master':
         if cluster.leader is not None:
@@ -216,7 +205,12 @@ def get_cursor(cluster, connect_parameters, role='master', member=None):
     if member is None:
         return None
 
-    params = build_connect_parameters(member.conn_url, connect_parameters)
+    params = member.conn_kwargs(connect_parameters)
+    params.update({'fallback_application_name': 'Patroni ctl', 'connect_timeout': '5'})
+    if 'database' in connect_parameters:
+        params['database'] = connect_parameters['database']
+    else:
+        params.pop('database')
 
     conn = psycopg2.connect(**params)
     conn.autocommit = True
@@ -253,7 +247,7 @@ def dsn(cluster_name, config_file, dcs, role, member):
     if m is None:
         raise PatroniCtlException('Can not find a suitable member')
 
-    params = get_conn_kwargs(m.conn_url)
+    params = m.conn_kwargs()
     click.echo('host={host} port={port}'.format(**params))
 
 
@@ -584,7 +578,7 @@ def output_members(cluster, name, fmt='pretty'):
         if m.name == leader_name:
             leader = '*'
 
-        host = get_conn_kwargs(m.conn_url)['host']
+        host = m.conn_kwargs()['host']
 
         xlog_location = m.data.get('xlog_location') or 0
         lag = ''
