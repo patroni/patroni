@@ -670,9 +670,9 @@ def touch_member(config, dcs):
 
 def set_defaults(config, cluster_name):
     ''' fill-in some basic configuration parameters if config file is not set '''
-    config['postgresql']['name'] = config['postgresql'].get('name') or cluster_name
-    config['postgresql']['scope'] = config['postgresql'].get('scope') or cluster_name
-    config['postgresql']['listen'] = config['postgresql'].get('listen') or "127.0.0.1"
+    config['postgresql'].setdefault('name', cluster_name)
+    config['postgresql'].setdefault('scope', cluster_name)
+    config['postgresql'].setdefault('listen', '127.0.0.1')
     config['postgresql']['authentication'] = {'replication': None}
     config['restapi']['listen'] = ':' in config['restapi'].get('listen', ".") or '127.0.0.1:5432'
 
@@ -702,4 +702,4 @@ def scaffold(cluster_name, config_file, dcs, sysid):
     except:
         dcs.delete_cluster()
         raise
-    click.echo("Cluster {0} has been created successfully".format(cluster_name, sysid))
+    click.echo("Cluster {0} has been created successfully".format(cluster_name))

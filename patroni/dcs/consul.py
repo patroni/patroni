@@ -191,8 +191,8 @@ class Consul(AbstractDCS):
             return True
 
         try:
-            args = {'cas': None} if kwargs.get('permanent') else {}
-            self._client.kv.put(self.member_path, data, acquire=self._session, **args)
+            args = {} if kwargs.get('permanent') else {'acquire': self._session}
+            self._client.kv.put(self.member_path, data, **args)
             self._my_member_data = data
             return True
         except Exception:
@@ -201,8 +201,8 @@ class Consul(AbstractDCS):
 
     @catch_consul_errors
     def attempt_to_acquire_leader(self, permanent=False):
-        args = {'cas': None} if permanent else {}
-        ret = self._client.kv.put(self.leader_path, self._name, acquire=self._session, **args)
+        args = {} if permanent else {'acquire': self._session}
+        ret = self._client.kv.put(self.leader_path, self._name, **args)
         if not ret:
             logger.info('Could not take out TTL lock')
         return ret

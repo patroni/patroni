@@ -282,7 +282,7 @@ class Etcd(AbstractDCS):
 
     @catch_etcd_errors
     def touch_member(self, data, ttl=None, permanent=False):
-        return self.retry(self._client.set, self.member_path, data, (ttl or self._ttl) if not permanent else None)
+        return self.retry(self._client.set, self.member_path, data, None if permanent else ttl or self._ttl)
 
     @catch_etcd_errors
     def take_leader(self):
@@ -293,7 +293,7 @@ class Etcd(AbstractDCS):
             return bool(self.retry(self._client.write,
                                    self.leader_path,
                                    self._name,
-                                   ttl=self._ttl if permanent else None,
+                                   ttl=None if permanent else self._ttl,
                                    prevExist=False))
         except etcd.EtcdAlreadyExist:
             logger.info('Could not take out TTL lock')
