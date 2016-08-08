@@ -10,8 +10,7 @@ from six.moves import BaseHTTPServer
 from click.testing import CliRunner
 from mock import patch, Mock
 from patroni.ctl import ctl, members, store_config, load_config, output_members, post_patroni, get_dcs, parse_dcs, \
-    wait_for_leader, get_all_members, get_any_member, get_cursor, query_member, configure, touch_member, set_defaults,\
-    PatroniCtlException
+    wait_for_leader, get_all_members, get_any_member, get_cursor, query_member, configure, PatroniCtlException
 
 from patroni.exceptions import DCSError
 from psycopg2 import OperationalError
@@ -316,9 +315,9 @@ class TestCtl(unittest.TestCase):
 
         with patch.object(self.e, 'initialize', return_value=False):
             result = self.runner.invoke(ctl, ['scaffold', 'alpha'])
-            assert result.exit_code == 1
+            assert result.exception
 
-        with patch.object(mock_get_dcs.return_value, 'touch_member', Mock(side_effect=DCSError("foo"))):
+        with patch.object(mock_get_dcs.return_value, 'touch_member', Mock(return_value=False)):
             result = self.runner.invoke(ctl, ['scaffold', 'alpha'])
             assert result.exception
 
@@ -327,4 +326,4 @@ class TestCtl(unittest.TestCase):
 
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
         result = self.runner.invoke(ctl, ['scaffold', 'alpha'])
-        assert result.exit_code == 1
+        assert result.exception

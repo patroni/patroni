@@ -661,11 +661,8 @@ def touch_member(config, dcs):
         'state': p.state,
         'role': p.role
     }
-    try:
-        dcs.touch_member(json.dumps(data, separators=(',', ':')), permanent=True)
-    except DCSError:
-        return False
-    return True
+
+    return dcs.touch_member(json.dumps(data, separators=(',', ':')), permanent=True)
 
 
 def set_defaults(config, cluster_name):
@@ -694,11 +691,9 @@ def scaffold(cluster_name, config_file, dcs, sysid):
 
     set_defaults(config, cluster_name)
 
-    try:
-        # make sure the leader keys will never expire
-        if not (touch_member(config, dcs) and dcs.attempt_to_acquire_leader(permanent=True)):
-            # we did initialize this cluster, but failed to write the leader or member keys, wipe it down completely.
-            raise PatroniCtlException("Unable to install permanent leader for cluster {0}".format(cluster_name))
-    except:
-        raise
+    # make sure the leader keys will never expire
+    if not (touch_member(config, dcs) and dcs.attempt_to_acquire_leader(permanent=True)):
+        # we did initialize this cluster, but failed to write the leader or member keys, wipe it down completely.
+        dcs.delete_cluster()
+        raise PatroniCtlException("Unable to install permanent leader for cluster {0}".format(cluster_name))
     click.echo("Cluster {0} has been created successfully".format(cluster_name))
