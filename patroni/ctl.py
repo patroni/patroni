@@ -649,7 +649,7 @@ def configure(config_file, dcs, namespace):
 
 
 def touch_member(config, dcs):
-    ''' Rip of the ha.touch_member without inter-class dependencies '''
+    ''' Rip-off of the ha.touch_member without inter-class dependencies '''
     p = Postgresql(config['postgresql'])
     p.set_state('running')
     p.set_role('master')
@@ -674,7 +674,8 @@ def set_defaults(config, cluster_name):
     config['postgresql'].setdefault('scope', cluster_name)
     config['postgresql'].setdefault('listen', '127.0.0.1')
     config['postgresql']['authentication'] = {'replication': None}
-    config['restapi']['listen'] = ':' in config['restapi'].get('listen', ".") or '127.0.0.1:5432'
+    config['restapi']['listen'] = (config['restapi']['listen']
+                                   if ':' in config['restapi'].get('listen', ".") else '127.0.0.1:5432')
 
 
 @ctl.command('scaffold', help='Create a structure for the cluster in DCS')
@@ -683,9 +684,8 @@ def set_defaults(config, cluster_name):
 @option_config_file
 @option_dcs
 def scaffold(cluster_name, config_file, dcs, sysid):
-    logging.debug("config_file = %s, cluster_name = %s, dcs = %s, sysid = %s", config_file, cluster_name, dcs, sysid)
     config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
-    if cluster and cluster.initialize:
+    if cluster and cluster.initialize is not None:
         raise PatroniCtlException("This cluster is already initialized")
 
     if not dcs.initialize(create_new=True, sysid=sysid):
@@ -700,6 +700,5 @@ def scaffold(cluster_name, config_file, dcs, sysid):
             # we did initialize this cluster, but failed to write the leader or member keys, wipe it down completely.
             raise PatroniCtlException("Unable to install permanent leader for cluster {0}".format(cluster_name))
     except:
-        dcs.delete_cluster()
         raise
     click.echo("Cluster {0} has been created successfully".format(cluster_name))

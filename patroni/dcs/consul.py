@@ -191,7 +191,7 @@ class Consul(AbstractDCS):
             return True
 
         try:
-            args = {} if kwargs.get('permanent') else {'acquire': self._session}
+            args = {} if kwargs.get('permanent', False) else {'acquire': self._session}
             self._client.kv.put(self.member_path, data, **args)
             self._my_member_data = data
             return True
