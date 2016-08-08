@@ -309,10 +309,6 @@ class TestCtl(unittest.TestCase):
         mock_get_dcs.return_value.touch_member = Mock(return_value=True)
         mock_get_dcs.return_value.attempt_to_acquire_leader = Mock(return_value=True)
 
-        RestApiServer._BaseServer__is_shut_down = Mock()
-        RestApiServer._BaseServer__shutdown_request = True
-        RestApiServer.socket = 0
-
         with patch.object(self.e, 'initialize', return_value=False):
             result = self.runner.invoke(ctl, ['scaffold', 'alpha'])
             assert result.exception

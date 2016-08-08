@@ -20,7 +20,7 @@ import yaml
 from click import ClickException
 from patroni.config import Config
 from patroni.dcs import get_dcs as _get_dcs
-from patroni.exceptions import PatroniException, DCSError
+from patroni.exceptions import PatroniException
 from patroni.postgresql import Postgresql, get_conn_kwargs
 from patroni.api import RestApiServer
 from prettytable import PrettyTable
@@ -106,7 +106,7 @@ def ctl(ctx):
 
 
 def get_dcs(config, scope):
-    config.setdefault('scope', scope)
+    config['scope'] = scope
     config.setdefault('name', scope)
     try:
         return _get_dcs(config)
@@ -654,10 +654,15 @@ def touch_member(config, dcs):
     p.set_state('running')
     p.set_role('master')
 
-    api = RestApiServer(None, config['restapi'])
+    def restapi_connection_string(config):
+        protocol = 'https' if config.get('certfile') else 'http'
+        connect_address = config.get('connect_address')
+        listen = config['listen']
+        return '{0}://{1}/patroni'.format(protocol, connect_address or listen)
+
     data = {
         'conn_url': p.connection_string,
-        'api_url': api.connection_string,
+        'api_url': restapi_connection_string(config['restapi']),
         'state': p.state,
         'role': p.role
     }
@@ -671,8 +676,7 @@ def set_defaults(config, cluster_name):
     config['postgresql'].setdefault('scope', cluster_name)
     config['postgresql'].setdefault('listen', '127.0.0.1')
     config['postgresql']['authentication'] = {'replication': None}
-    config['restapi']['listen'] = (config['restapi']['listen']
-                                   if ':' in config['restapi'].get('listen', ".") else '127.0.0.1:5432')
+    config['restapi']['listen'] = ':' in config['restapi']['listen'] and config['restapi']['listen'] or '127.0.0.1:8008'
 
 
 @ctl.command('scaffold', help='Create a structure for the cluster in DCS')
