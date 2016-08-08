@@ -4,7 +4,6 @@ import requests
 import sys
 import unittest
 
-from patroni.api import RestApiServer
 from six.moves import BaseHTTPServer
 
 from click.testing import CliRunner
@@ -12,7 +11,6 @@ from mock import patch, Mock
 from patroni.ctl import ctl, members, store_config, load_config, output_members, post_patroni, get_dcs, parse_dcs, \
     wait_for_leader, get_all_members, get_any_member, get_cursor, query_member, configure, PatroniCtlException
 
-from patroni.exceptions import DCSError
 from psycopg2 import OperationalError
 from test_etcd import etcd_read, requests_get, socket_getaddrinfo, MockResponse
 from test_ha import get_cluster_initialized_without_leader, get_cluster_initialized_with_leader, \
