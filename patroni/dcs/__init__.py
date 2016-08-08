@@ -316,7 +316,8 @@ class AbstractDCS(object):
     def attempt_to_acquire_leader(self, permanent=False):
         """Attempt to acquire leader lock
         This method should create `/leader` key with value=`~self._name`
-        :param permanent: if set to `!True`, the leader key will never expire. Used in patronictl for the external master
+        :param permanent: if set to `!True`, the leader key will never expire.
+         Used in patronictl for the external master
         :returns: `!True` if key has been created successfully.
 
         Key must be created atomically. In case if key already exists it should not be
