@@ -22,7 +22,6 @@ from patroni.config import Config
 from patroni.dcs import get_dcs as _get_dcs
 from patroni.exceptions import PatroniException
 from patroni.postgresql import Postgresql, get_conn_kwargs
-from patroni.api import RestApiServer
 from prettytable import PrettyTable
 from six.moves.urllib_parse import urlparse
 
