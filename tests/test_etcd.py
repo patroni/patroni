@@ -13,8 +13,8 @@ from urllib3.exceptions import ReadTimeoutError
 
 class MockResponse(object):
 
-    def __init__(self):
-        self.status_code = 200
+    def __init__(self, status_code=200):
+        self.status_code = status_code
         self.content = '{}'
         self.ok = True
         self.text = ''
