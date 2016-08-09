@@ -352,7 +352,8 @@ class AbstractDCS(object):
 
         :param data: json serialized information about instance (including connection strings)
         :param ttl: ttl for member key, optional parameter. If it is None `~self.member_ttl will be used`
-        :permanent: if set to `!True`, the member key will never expire. Used in patronictl for the external master.
+        :param permanent: if set to `!True`, the member key will never expire.
+         Used in patronictl for the external master.
         :returns: `!True` on success otherwise `!False`
         """
 

@@ -4,8 +4,6 @@ import requests
 import sys
 import unittest
 
-from six.moves import BaseHTTPServer
-
 from click.testing import CliRunner
 from mock import patch, Mock
 from patroni.ctl import ctl, members, store_config, load_config, output_members, post_patroni, get_dcs, parse_dcs, \
@@ -299,7 +297,6 @@ class TestCtl(unittest.TestCase):
         assert result.exit_code == 0
 
     @patch('patroni.ctl.get_dcs')
-    @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
     def test_scaffold(self, mock_get_dcs):
         mock_get_dcs.return_value = self.e
         mock_get_dcs.return_value.get_cluster = get_cluster_not_initialized_without_leader

@@ -163,10 +163,7 @@ class ZooKeeper(AbstractDCS):
             return False
 
     def attempt_to_acquire_leader(self, permanent=False):
-        ret = self._create(self.leader_path,
-                           self._name,
-                           makepath=True,
-                           ephemeral=not permanent)
+        ret = self._create(self.leader_path, self._name, makepath=True, ephemeral=not permanent)
         if not ret:
             logger.info('Could not take out TTL lock')
         return ret
