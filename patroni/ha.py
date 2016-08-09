@@ -430,6 +430,7 @@ class Ha(object):
         with self._async_executor:
             if not self.patroni.scheduled_restart:
                 self.patroni.scheduled_restart = restart_data
+                self.touch_member()
                 return True
         return False
 
@@ -438,6 +439,7 @@ class Ha(object):
         with self._async_executor:
             if self.patroni.scheduled_restart:
                 self.patroni.scheduled_restart = {}
+                self.touch_member()
                 ret = True
         return ret
 
