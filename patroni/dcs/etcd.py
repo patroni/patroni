@@ -31,24 +31,57 @@ class Client(etcd.Client):
         self._load_machines_cache()
         self._allow_reconnect = True
 
+    def _build_request_parameters(self):
+        kwargs = {'headers': self._get_headers(), 'redirect': self.allow_redirect}
+
+        # calculate the number of retries and timeout *per node*
+        # actual number of retries depends on the number of nodes
+        etcd_nodes = len(self._machines_cache) + 1
+        kwargs['retries'] = 0 if etcd_nodes > 3 else (1 if etcd_nodes > 1 else 2)
+
+        # if etcd_nodes > 3:
+        #     kwargs.update({'retries': 0, 'timeout': float(self.read_timeout)/etcd_nodes})
+        # elif etcd_nodes > 1:
+        #     kwargs.update({'retries': 1, 'timeout': self.read_timeout/2.0/etcd_nodes})
+        # else:
+        #     kwargs.update({'retries': 2, 'timeout': self.read_timeout/3.0})
+        kwargs['timeout'] = self.read_timeout/float(kwargs['retries'] + 1)/etcd_nodes
+        return kwargs
+
     @property
     def machines(self):
         """Original `machines` method(property) of `etcd.Client` class raise exception
         when it failed to get list of etcd cluster members. This method is being called
         only when request failed on one of the etcd members during `api_execute` call.
-        For us it's more important to execute original request rather then get new
-        topology of etcd cluster. So we will catch this exception and return valid list
-        of machines with setting flag `self._update_machines_cache` to `!True`.
-        Later, during next `api_execute` call we will forcefully update machines_cache"""
-        try:
-            ret = super(Client, self).machines
-            random.shuffle(ret)
-            return ret
-        except etcd.EtcdException:
-            if self._update_machines_cache:  # We are updating machines_cache
-                raise  # This exception is fatal, we should re-raise it.
-            self._update_machines_cache = True
-            return [self._base_uri]
+        For us it's more important to execute original request rather then get new topology
+        of etcd cluster. So we will catch this exception and return empty list of machines.
+        Later, during next `api_execute` call we will forcefully update machines_cache.
+
+        Also this method implements the same timeout-retry logic as `api_execute`, because
+        the original method was retrying 2 times with the `read_timeout` on each node."""
+
+        kwargs = self._build_request_parameters()
+
+        while True:
+            try:
+                response = self.http.request(self._MGET, self._base_uri + self.version_prefix + '/machines', **kwargs)
+                machines = [n.strip() for n in self._handle_server_response(response).data.decode('utf-8').split(',')]
+                logger.debug("Retrieved list of machines: %s", machines)
+                random.shuffle(machines)
+                return machines
+            except Exception as e:
+                # We can't get the list of machines, if one server is in the
+                # machines cache, try on it
+                logger.error("Failed to get list of machines from %s%s: %r", self._base_uri, self.version_prefix, e)
+                if self._machines_cache:
+                    self._base_uri = self._machines_cache.pop(0)
+                    logger.info("Retrying on %s", self._base_uri)
+                elif self._update_machines_cache:
+                    raise etcd.EtcdException("Could not get the list of servers, "
+                                             "maybe you provided the wrong "
+                                             "host(s) to connect to?")
+                else:
+                    return []
 
     def set_read_timeout(self, timeout):
         self._read_timeout = timeout
@@ -73,8 +106,7 @@ class Client(etcd.Client):
         if not path.startswith('/'):
             raise ValueError('Path does not start with /')
 
-        kwargs = {'fields': params, 'redirect': self.allow_redirect,
-                  'headers': self._get_headers(), 'preload_content': False}
+        kwargs = {'fields': params, 'preload_content': False}
 
         if method in [self._MGET, self._MDELETE]:
             request_executor = self.http.request
@@ -88,35 +120,29 @@ class Client(etcd.Client):
         if self._update_machines_cache:
             self._load_machines_cache()
 
-        if timeout is None:
-            # calculate the number of retries and timeout *per node*
-            # actual number of retries depends on the number of nodes
-            etcd_nodes = len(self._machines_cache) + 1
-            kwargs['retries'] = 0 if etcd_nodes > 3 else (1 if etcd_nodes > 1 else 2)
+        kwargs.update(self._build_request_parameters())
 
-            # if etcd_nodes > 3:
-            #     kwargs.update({'retries': 0, 'timeout': float(self.read_timeout)/etcd_nodes})
-            # elif etcd_nodes > 1:
-            #     kwargs.update({'retries': 1, 'timeout': self.read_timeout/2.0/etcd_nodes})
-            # else:
-            #     kwargs.update({'retries': 2, 'timeout': self.read_timeout/3.0})
-            kwargs['timeout'] = self.read_timeout/float(kwargs['retries'] + 1)/etcd_nodes
-        else:
+        if timeout is not None:
             kwargs.update({'retries': 0, 'timeout': timeout})
 
         response = False
 
         try:
+            some_request_failed = False
             while not response:
                 response = self._do_http_request(request_executor, method, self._base_uri + path, **kwargs)
 
-                if response is False and not self._use_proxies:
-                    self._machines_cache = self.machines
+                if response is False:
+                    some_request_failed = True
+            if some_request_failed and not self._use_proxies:
+                self._machines_cache = self.machines
+                if self._base_uri in self._machines_cache:
                     self._machines_cache.remove(self._base_uri)
-            return self._handle_server_response(response)
         except etcd.EtcdConnectionFailed:
             self._update_machines_cache = True
-            raise
+            if not response:
+                raise
+        return self._handle_server_response(response)
 
     @staticmethod
     def get_srv_record(host):

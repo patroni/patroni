@@ -141,9 +141,8 @@ class Ha(object):
 
         node_to_follow = self._get_node_to_follow(self.cluster)
 
-        if not self.state_handler.check_recovery_conf(node_to_follow) or recovery:
-            self._async_executor.schedule('changing primary_conninfo and restarting')
-            self._async_executor.run_async(self.state_handler.follow, (node_to_follow, self.cluster.leader, recovery))
+        self.state_handler.follow(node_to_follow, self.cluster.leader, recovery, self._async_executor)
+
         return ret
 
     def enforce_master_role(self, message, promote_message):
@@ -296,11 +295,11 @@ class Ha(object):
             try:
                 delta = (scheduled_at - now).total_seconds()
 
-                if delta > self.patroni.nap_time:
+                if delta > self.dcs.loop_wait:
                     logger.info('Awaiting %s at %s (in %.0f seconds)',
                                 action_name, scheduled_at.isoformat(), delta)
                     return False
-                elif delta < - int(self.patroni.nap_time * 1.5):
+                elif delta < - int(self.dcs.loop_wait * 1.5):
                     logger.warning('Found a stale %s value, cleaning up: %s',
                                    action_name, scheduled_at.isoformat())
                     cleanup_fn()
@@ -431,6 +430,7 @@ class Ha(object):
         with self._async_executor:
             if not self.patroni.scheduled_restart:
                 self.patroni.scheduled_restart = restart_data
+                self.touch_member()
                 return True
         return False
 
@@ -439,6 +439,7 @@ class Ha(object):
         with self._async_executor:
             if self.patroni.scheduled_restart:
                 self.patroni.scheduled_restart = {}
+                self.touch_member()
                 ret = True
         return ret
 

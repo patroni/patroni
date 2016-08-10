@@ -4,6 +4,7 @@ import importlib
 import inspect
 import json
 import os
+import pkgutil
 import six
 
 from collections import namedtuple
@@ -32,10 +33,9 @@ def parse_connection_string(value):
 
 def get_dcs(config):
     available_implementations = set()
-    for module in os.listdir(os.path.dirname(__file__)):
-        if module.endswith('.py') and not module.startswith('__'):  # find module
-            module_name = module[:-3].lower()
-            module = importlib.import_module(__package__ + '.' + module[:-3])
+    for _, module_name, is_pkg in pkgutil.iter_modules([os.path.dirname(__file__)]):
+        if not is_pkg:
+            module = importlib.import_module(__package__ + '.' + module_name)
             for name in filter(lambda name: not name.startswith('__'), dir(module)):  # iterate through module content
                 value = getattr(module, name)
                 name = name.lower()
@@ -44,8 +44,8 @@ def get_dcs(config):
                     available_implementations.add(name)
                     if name in config:  # which has configuration section in the config file
                         # propagate some parameters
-                        config[name].update({p: config[p] for p in ('namespace', 'name',
-                                             'scope', 'ttl', 'retry_timeout') if p in config})
+                        config[name].update({p: config[p] for p in ('namespace', 'name', 'scope',
+                                             'loop_wait', 'ttl', 'retry_timeout') if p in config})
                         return value(config[name])
     raise PatroniException("""Can not find suitable configuration of distributed configuration store
 Available implementations: """ + ', '.join(available_implementations))
@@ -86,6 +86,26 @@ class Member(namedtuple('Member', 'index,name,session,data')):
     def conn_url(self):
         return self.data.get('conn_url')
 
+    def conn_kwargs(self, auth=None):
+        ret = self.data.get('conn_kwargs')
+        if ret:
+            ret = ret.copy()
+        else:
+            r = urlparse(self.conn_url)
+            ret = {
+                'host': r.hostname,
+                'port': r.port or 5432,
+                'database': r.path[1:]
+            }
+            self.data['conn_kwargs'] = ret.copy()
+
+        if auth and isinstance(auth, dict):
+            if 'username' in auth:
+                ret['user'] = auth['username']
+            if 'password' in auth:
+                ret['password'] = auth['password']
+        return ret
+
     @property
     def api_url(self):
         return self.data.get('api_url')
@@ -104,7 +124,7 @@ class Member(namedtuple('Member', 'index,name,session,data')):
 
     @property
     def clonefrom(self):
-        return self.tags.get('clonefrom', False)
+        return self.tags.get('clonefrom', False) and bool(self.conn_url)
 
 
 class Leader(namedtuple('Leader', 'index,session,member')):
@@ -118,6 +138,9 @@ class Leader(namedtuple('Leader', 'index,session,member')):
     @property
     def name(self):
         return self.member.name
+
+    def conn_kwargs(self, auth=None):
+        return self.member.conn_kwargs(auth)
 
     @property
     def conn_url(self):
@@ -225,6 +248,7 @@ class AbstractDCS(object):
         self._name = config['name']
         self._namespace = '/{0}'.format(config.get('namespace', '/service/').strip('/'))
         self._base_path = '/'.join([self._namespace, config['scope']])
+        self._set_loop_wait(config.get('loop_wait', 10))
 
         self._cluster = None
         self._cluster_thread_lock = Lock()
@@ -268,6 +292,18 @@ class AbstractDCS(object):
     @abc.abstractmethod
     def set_retry_timeout(self, retry_timeout):
         """Set the new value for retry_timeout"""
+
+    def _set_loop_wait(self, loop_wait):
+        self._loop_wait = loop_wait
+
+    def reload_config(self, config):
+        self._set_loop_wait(config['loop_wait'])
+        self.set_ttl(config['ttl'])
+        self.set_retry_timeout(config['retry_timeout'])
+
+    @property
+    def loop_wait(self):
+        return self._loop_wait
 
     @abc.abstractmethod
     def _load_cluster(self):

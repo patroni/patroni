@@ -21,7 +21,8 @@ from click import ClickException
 from patroni.config import Config
 from patroni.dcs import get_dcs as _get_dcs
 from patroni.exceptions import PatroniException
-from patroni.postgresql import Postgresql, get_conn_kwargs
+from patroni.postgresql import Postgresql
+from patroni.utils import is_valid_pg_version
 from prettytable import PrettyTable
 from six.moves.urllib_parse import urlparse
 
@@ -118,15 +119,17 @@ def auth_header(config):
         return {'Authorization': 'Basic ' + base64.b64encode(config['restapi']['auth'].encode('utf-8')).decode('utf-8')}
 
 
-def post_patroni(member, endpoint, content, headers=None):
+def request_patroni(member, request_type, endpoint, content=None, headers=None):
     headers = headers or {}
-    url = urlparse(member.api_url)
-    logging.debug(url)
+    url_parts = urlparse(member.api_url)
+    logging.debug(url_parts)
     if 'Content-Type' not in headers:
         headers['Content-Type'] = 'application/json'
-    return requests.post('{0}://{1}/{2}'.format(url.scheme, url.netloc, endpoint),
-                         headers=headers,
-                         data=json.dumps(content) if content else None, timeout=60)
+
+    url = '{0}://{1}/{2}'.format(url_parts.scheme, url_parts.netloc, endpoint)
+
+    return getattr(requests, request_type)(url, headers=headers,
+                                           data=json.dumps(content) if content else None, timeout=60)
 
 
 def print_output(columns, rows=None, alignment=None, fmt='pretty', header=True, delimiter='\t'):
@@ -181,16 +184,6 @@ def watching(w, watch, max_count=None, clear=True):
         yield 0
 
 
-def build_connect_parameters(conn_url, connect_parameters):
-    params = get_conn_kwargs(conn_url, connect_parameters)
-    params.update({'fallback_application_name': 'Patroni ctl', 'connect_timeout': '5'})
-    if 'database' in connect_parameters:
-        params['database'] = connect_parameters['database']
-    else:
-        params.pop('database')
-    return params
-
-
 def get_all_members(cluster, role='master'):
     if role == 'master':
         if cluster.leader is not None:
@@ -215,7 +208,12 @@ def get_cursor(cluster, connect_parameters, role='master', member=None):
     if member is None:
         return None
 
-    params = build_connect_parameters(member.conn_url, connect_parameters)
+    params = member.conn_kwargs(connect_parameters)
+    params.update({'fallback_application_name': 'Patroni ctl', 'connect_timeout': '5'})
+    if 'database' in connect_parameters:
+        params['database'] = connect_parameters['database']
+    else:
+        params.pop('database')
 
     conn = psycopg2.connect(**params)
     conn.autocommit = True
@@ -232,6 +230,37 @@ def get_cursor(cluster, connect_parameters, role='master', member=None):
     conn.close()
 
     return None
+
+
+def get_members(cluster, cluster_name, member_names, role, force, action):
+    candidates = {m.name: m for m in cluster.members}
+
+    if not force or role:
+        output_members(cluster, cluster_name)
+
+    if role:
+        role_names = [m.name for m in get_all_members(cluster, role)]
+        if member_names:
+            member_names = list(set(member_names) & set(role_names))
+            if not member_names:
+                raise PatroniCtlException('No {0} among provided members'.format(role))
+        else:
+            member_names = role_names
+
+    if not member_names and not force:
+        member_names = [click.prompt('Which member do you want to {0} [{1}]?'.format(action,
+                        ', '.join(candidates.keys())), type=str, default='')]
+
+    for mn in member_names:
+        if mn not in candidates:
+            raise PatroniCtlException('{0} is not a member of cluster'.format(mn))
+
+    if not force:
+        confirm = click.confirm('Are you sure you want to {0} members {1}?'.format(action, ', '.join(member_names)))
+        if not confirm:
+            raise PatroniCtlException('Aborted {0}'.format(action))
+
+    return [candidates[n] for n in member_names]
 
 
 @ctl.command('dsn', help='Generate a dsn for the provided member, defaults to a dsn of the master')
@@ -252,7 +281,7 @@ def dsn(cluster_name, config_file, dcs, role, member):
     if m is None:
         raise PatroniCtlException('Can not find a suitable member')
 
-    params = get_conn_kwargs(m.conn_url)
+    params = m.conn_kwargs()
     click.echo('host={host} port={port}'.format(**params))
 
 
@@ -362,7 +391,7 @@ def query_member(cluster, cursor, member, role, command, connect_parameters):
 def remove(config_file, cluster_name, fmt, dcs):
     _, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
-    output_members(cluster, cluster_name, fmt)
+    output_members(cluster, cluster_name, fmt=fmt)
 
     confirm = click.prompt('Please confirm the cluster name to remove', type=str)
     if confirm != cluster_name:
@@ -397,30 +426,6 @@ def wait_for_leader(dcs, timeout=30):
     raise PatroniCtlException('Timeout occured')
 
 
-def empty_post_to_members(cluster, member_names, force, endpoint, headers=None):
-    candidates = {m.name: m for m in cluster.members}
-
-    if not member_names:
-        member_names = [click.prompt('Which member do you want to {0} [{1}]?'.format(endpoint,
-                        ', '.join(candidates.keys())), type=str, default='')]
-
-    for mn in member_names:
-        if mn not in candidates:
-            raise PatroniCtlException('{0} is not a member of cluster'.format(mn))
-
-    if not force:
-        confirm = click.confirm('Are you sure you want to {0} members {1}?'.format(endpoint, ', '.join(member_names)))
-        if not confirm:
-            raise PatroniCtlException('Aborted {0}'.format(endpoint))
-
-    for mn in member_names:
-        r = post_patroni(candidates[mn], endpoint, '', headers)
-        if r.status_code != 200:
-            click.echo('{0} failed for member {1}, status code={2}, ({3})'.format(endpoint, mn, r.status_code, r.text))
-        else:
-            click.echo('Succesful {0} on member {1}'.format(endpoint, mn))
-
-
 def ctl_load_config(cluster_name, config_file, dcs):
     config = load_config(config_file, dcs)
     dcs = get_dcs(config, cluster_name)
@@ -429,31 +434,90 @@ def ctl_load_config(cluster_name, config_file, dcs):
     return config, dcs, cluster
 
 
+def check_response(response, member_name, action_name, silent_success=False):
+    if response.status_code >= 400:
+        click.echo('Failed: {0} for member {1}, status code={2}, ({3})'.format(
+            action_name, member_name, response.status_code, response.text
+        ))
+    elif not silent_success:
+        click.echo('Success: {0} for member {1}'.format(action_name, member_name))
+
+
+def parse_scheduled(scheduled):
+    if (scheduled or 'now') != 'now':
+        try:
+            scheduled_at = dateutil.parser.parse(scheduled)
+            if scheduled_at.tzinfo is None:
+                scheduled_at = tzlocal.get_localzone().localize(scheduled_at)
+        except (ValueError, TypeError):
+            message = 'Unable to parse scheduled timestamp ({0}). It should be in an unambiguous format (e.g. ISO 8601)'
+            raise PatroniCtlException(message.format(scheduled))
+        return scheduled_at
+
+    return None
+
+
 @ctl.command('restart', help='Restart cluster member')
 @click.argument('cluster_name')
 @click.argument('member_names', nargs=-1)
 @click.option('--role', '-r', help='Restart only members with this role', default='any',
               type=click.Choice(['master', 'replica', 'any']))
 @click.option('--any', 'p_any', help='Restart a single member only', is_flag=True)
+@click.option('--scheduled', help='Timestamp of a scheduled restart in unambiguous format (e.g. ISO 8601)',
+              default=None)
+@click.option('--pg-version', 'version', help='Restart if the PostgreSQL version is less than provided (e.g. 9.5.2)',
+              default=None)
+@click.option('--pending', help='Restart if pending', is_flag=True)
 @option_config_file
 @option_force
 @option_dcs
-def restart(cluster_name, member_names, config_file, dcs, force, role, p_any):
+def restart(cluster_name, member_names, config_file, dcs, force, role, p_any, scheduled, version, pending):
     config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
-    role_names = [m.name for m in get_all_members(cluster, role)]
-
-    if member_names:
-        member_names = list(set(member_names) & set(role_names))
-    else:
-        member_names = role_names
-
+    members = get_members(cluster, cluster_name, member_names, role, force, 'restart')
     if p_any:
-        random.shuffle(member_names)
-        member_names = member_names[:1]
+        random.shuffle(members)
+        members = members[:1]
 
-    output_members(cluster, cluster_name)
-    empty_post_to_members(cluster, member_names, force, 'restart', auth_header(config))
+    if version is None and not force:
+        version = click.prompt('Restart if the PostgreSQL version is less than provided (e.g. 9.5.2) ',
+                               type=str, default='')
+
+    content = {}
+    if pending:
+        content['restart_pending'] = True
+
+    if version:
+        if not is_valid_pg_version(version):
+            message = 'PostgreSQL version should be in the first.major.minor format'
+            raise PatroniCtlException(message)
+        else:
+            content['postgres_version'] = version
+
+    if scheduled is None and not force:
+        scheduled = click.prompt('When should the restart take place (e.g. 2015-10-01T14:30) ', type=str, default='now')
+
+    scheduled_at = parse_scheduled(scheduled)
+    if scheduled_at:
+        content['schedule'] = scheduled_at.isoformat()
+
+    for member in members:
+        if 'schedule' in content:
+            if force and member.data.get('scheduled_restart'):
+                r = request_patroni(member, 'delete', 'restart', headers=auth_header(config))
+                check_response(r, member.name, 'flush scheduled restart', True)
+
+        r = request_patroni(member, 'post', 'restart', content, auth_header(config))
+        if r.status_code == 200:
+            click.echo('Success: restart on member {0}'.format(member.name))
+        elif r.status_code == 202:
+            click.echo('Success: restart scheduled on member {0}'.format(member.name))
+        elif r.status_code == 409:
+            click.echo('Failed: another restart is already scheduled on member {0}'.format(member.name))
+        else:
+            click.echo('Failed: restart for member {0}, status code={1}, ({2})'.format(
+                member.name, r.status_code, r.text)
+            )
 
 
 @ctl.command('reinit', help='Reinitialize cluster member')
@@ -464,7 +528,11 @@ def restart(cluster_name, member_names, config_file, dcs, force, role, p_any):
 @option_dcs
 def reinit(cluster_name, member_names, config_file, dcs, force):
     config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
-    empty_post_to_members(cluster, member_names, force, 'reinitialize', auth_header(config))
+    members = get_members(cluster, cluster_name, member_names, None, force, 'reinitialize')
+
+    for member in members:
+        r = request_patroni(member, 'post', 'reinitialize', headers=auth_header(config))
+        check_response(r, member.name, 'reinitialize')
 
 
 @ctl.command('failover', help='Failover to a replica')
@@ -473,7 +541,7 @@ def reinit(cluster_name, member_names, config_file, dcs, force):
 @click.option('--candidate', help='The name of the candidate', default=None)
 @click.option('--scheduled', help='Timestamp of a scheduled failover in unambiguous format (e.g. ISO 8601)',
               default=None)
-@click.option('--force', is_flag=True)
+@option_force
 @option_config_file
 @option_dcs
 def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled):
@@ -518,16 +586,9 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
         scheduled = click.prompt('When should the failover take place (e.g. 2015-10-01T14:30) ', type=str,
                                  default='now')
 
-    if (scheduled or 'now') == 'now':
-        scheduled_at = None
-    else:
-        try:
-            scheduled_at = dateutil.parser.parse(scheduled)
-            if scheduled_at.tzinfo is None:
-                scheduled_at = tzlocal.get_localzone().localize(scheduled_at)
-        except (ValueError, TypeError):
-            message = 'Unable to parse scheduled timestamp ({0}). It should be in an unambiguous format (e.g. ISO 8601)'
-            raise PatroniCtlException(message.format(scheduled))
+    scheduled_at = parse_scheduled(scheduled)
+
+    if scheduled_at:
         scheduled_at = scheduled_at.isoformat()
 
     failover_value = {'leader': master, 'candidate': candidate, 'scheduled_at': scheduled_at}
@@ -546,7 +607,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
 
     r = None
     try:
-        r = post_patroni(cluster.leader.member, 'failover', failover_value, auth_header(config))
+        r = request_patroni(cluster.leader.member, 'post', 'failover', failover_value, auth_header(config))
         if r.status_code in (200, 202):
             logging.debug(r)
             cluster = dcs.get_cluster()
@@ -565,7 +626,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
     output_members(cluster, cluster_name)
 
 
-def output_members(cluster, name, fmt='pretty'):
+def output_members(cluster, name, extended=False, fmt='pretty'):
     rows = []
     logging.debug(cluster)
     leader_name = None
@@ -583,21 +644,32 @@ def output_members(cluster, name, fmt='pretty'):
         if m.name == leader_name:
             leader = '*'
 
-        host = get_conn_kwargs(m.conn_url)['host']
+        host = m.conn_kwargs()['host']
 
         xlog_location = m.data.get('xlog_location') or 0
         lag = ''
-        if (xlog_location_cluster >= xlog_location):
+        if xlog_location_cluster >= xlog_location:
             lag = round((xlog_location_cluster - xlog_location)/1024/1024)
 
-        rows.append([
+        row = [
             name,
             m.name,
             host,
             leader,
             m.data.get('state', ''),
-            lag
-        ])
+            lag,
+        ]
+        if extended:
+            value = ''
+            scheduled_restart = m.data.get('scheduled_restart')
+            if scheduled_restart:
+                value = scheduled_restart['schedule']
+                if 'postgres_version' in scheduled_restart:
+                    value += ' if version < {0}'.format(scheduled_restart['postgres_version'])
+
+            row.append(value)
+
+        rows.append(row)
 
     columns = [
         'Cluster',
@@ -609,17 +681,22 @@ def output_members(cluster, name, fmt='pretty'):
     ]
     alignment = {'Cluster': 'l', 'Member': 'l', 'Host': 'l', 'Lag in MB': 'r'}
 
+    if extended:
+        columns.append('Scheduled restart')
+        alignment['Scheduled restart'] = 'l'
+
     print_output(columns, rows, alignment, fmt)
 
 
 @ctl.command('list', help='List the Patroni members for a given Patroni')
 @click.argument('cluster_names', nargs=-1)
+@click.option('--extended', '-e', help='Show some extra information', is_flag=True)
 @option_config_file
 @option_format
 @option_watch
 @option_watchrefresh
 @option_dcs
-def members(config_file, cluster_names, fmt, watch, w, dcs):
+def members(config_file, cluster_names, fmt, watch, w, dcs, extended):
     if not cluster_names:
         logging.warning('Listing members: No cluster names were provided')
         return
@@ -629,7 +706,8 @@ def members(config_file, cluster_names, fmt, watch, w, dcs):
         dcs = get_dcs(config, cluster_name)
 
         for _ in watching(w, watch):
-            output_members(dcs.get_cluster(), cluster_name, fmt)
+            cluster = dcs.get_cluster()
+            output_members(cluster, cluster_name, extended, fmt)
 
 
 def timestamp(precision=6):
@@ -700,3 +778,25 @@ def scaffold(cluster_name, config_file, dcs, sysid):
         dcs.delete_cluster()
         raise PatroniCtlException("Unable to install permanent leader for cluster {0}".format(cluster_name))
     click.echo("Cluster {0} has been created successfully".format(cluster_name))
+
+
+@ctl.command('flush', help='Flush scheduled events')
+@click.argument('cluster_name')
+@click.argument('member_names', nargs=-1)
+@click.argument('target', type=click.Choice(['restart']))
+@click.option('--role', '-r', help='Flush only members with this role', default='any',
+              type=click.Choice(['master', 'replica', 'any']))
+@option_config_file
+@option_force
+@option_dcs
+def flush(cluster_name, member_names, config_file, dcs, force, role, target):
+    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+
+    members = get_members(cluster, cluster_name, member_names, role, force, 'flush')
+    for member in members:
+        if target == 'restart':
+            if member.data.get('scheduled_restart'):
+                r = request_patroni(member, 'delete', 'restart', None, auth_header(config))
+                check_response(r, member.name, 'flush scheduled restart')
+            else:
+                click.echo('No scheduled restart for member {0}'.format(member.name))
