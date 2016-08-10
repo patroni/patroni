@@ -8,6 +8,7 @@ from click.testing import CliRunner
 from mock import patch, Mock
 from patroni.ctl import ctl, members, store_config, load_config, output_members, request_patroni, get_dcs, parse_dcs, \
     wait_for_leader, get_all_members, get_any_member, get_cursor, query_member, configure, PatroniCtlException
+from patroni.dcs.etcd import Client
 from psycopg2 import OperationalError
 from test_etcd import etcd_read, requests_get, socket_getaddrinfo, MockResponse
 from test_ha import get_cluster_initialized_without_leader, get_cluster_initialized_with_leader, \
@@ -33,9 +34,9 @@ class TestCtl(unittest.TestCase):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
     def setUp(self):
-        self.runner = CliRunner()
-        with patch.object(etcd.Client, 'machines') as mock_machines:
+        with patch.object(Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
+            self.runner = CliRunner()
             self.e = get_dcs({'etcd': {'ttl': 30, 'host': 'ok:2379', 'retry_timeout': 10}}, 'foo')
 
     @patch('psycopg2.connect', psycopg2_connect)
