@@ -6,7 +6,7 @@ import unittest
 
 from click.testing import CliRunner
 from mock import patch, Mock
-from patroni.ctl import ctl, members, store_config, load_config, output_members, post_patroni, get_dcs, parse_dcs, \
+from patroni.ctl import ctl, members, store_config, load_config, output_members, request_patroni, get_dcs, parse_dcs, \
     wait_for_leader, get_all_members, get_any_member, get_cursor, query_member, configure, PatroniCtlException
 from patroni.dcs.etcd import Client
 from psycopg2 import OperationalError
@@ -67,7 +67,7 @@ class TestCtl(unittest.TestCase):
         self.assertIsNone(output_members(cluster, name='abc', fmt='tsv'))
 
     @patch('patroni.ctl.get_dcs')
-    @patch('patroni.ctl.post_patroni', Mock(return_value=MockResponse()))
+    @patch('patroni.ctl.request_patroni', Mock(return_value=MockResponse()))
     def test_failover(self, mock_get_dcs):
         mock_get_dcs.return_value = self.e
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
@@ -110,12 +110,12 @@ class TestCtl(unittest.TestCase):
         result = self.runner.invoke(ctl, ['failover', 'dummy'], input='dummy')
         assert result.exit_code == 1
 
-        with patch('patroni.ctl.post_patroni', Mock(side_effect=Exception)):
+        with patch('patroni.ctl.request_patroni', Mock(side_effect=Exception)):
             # Non-responding patroni
             result = self.runner.invoke(ctl, ['failover', 'dummy'], input='leader\nother\n\ny')
             assert 'falling back to DCS' in result.output
 
-        with patch('patroni.ctl.post_patroni') as mocked:
+        with patch('patroni.ctl.request_patroni') as mocked:
             mocked.return_value.status_code = 500
             result = self.runner.invoke(ctl, ['failover', 'dummy'], input='leader\nother\n\ny')
             assert 'Failover failed' in result.output
@@ -206,23 +206,72 @@ class TestCtl(unittest.TestCase):
     @patch('patroni.ctl.get_dcs')
     def test_restart_reinit(self, mock_get_dcs):
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
-        result = self.runner.invoke(ctl, ['restart', 'alpha'], input='y')
-        assert 'restart failed for' in result.output
+        result = self.runner.invoke(ctl, ['restart', 'alpha'], input='y\n\nnow')
+        assert 'Failed: restart for' in result.output
         assert result.exit_code == 0
 
         result = self.runner.invoke(ctl, ['reinit', 'alpha'], input='y')
         assert result.exit_code == 1
 
+        # successful reinit
+        result = self.runner.invoke(ctl, ['reinit', 'alpha', 'other'], input='y')
+        assert result.exit_code == 0
+
         # Aborted restart
         result = self.runner.invoke(ctl, ['restart', 'alpha'], input='N')
         assert result.exit_code == 1
+
+        result = self.runner.invoke(ctl, ['restart', 'alpha', '--pending', '--force'])
+        assert result.exit_code == 0
 
         # Not a member
         result = self.runner.invoke(ctl, ['restart', 'alpha', 'dummy', '--any'], input='y')
         assert result.exit_code == 1
 
+        # Wrong pg version
+        result = self.runner.invoke(ctl, ['restart', 'alpha', '--any', '--pg-version', '9.1'], input='y')
+        assert 'Error: PostgreSQL version' in result.output
+        assert result.exit_code == 1
+
+        with patch('requests.delete', Mock(return_value=MockResponse(500))):
+            # normal restart, the schedule is actually parsed, but not validated in patronictl
+            result = self.runner.invoke(ctl, ['restart', 'alpha', 'other', '--force', '--scheduled', '2300-10-01T14:30'])
+            assert 'Failed: flush scheduled restart' in result.output
+
         with patch('requests.post', Mock(return_value=MockResponse())):
-            result = self.runner.invoke(ctl, ['restart', 'alpha'], input='y')
+            # normal restart, the schedule is actually parsed, but not validated in patronictl
+            result = self.runner.invoke(ctl, ['restart', 'alpha', '--pg-version', '42.0.0',
+                                        '--scheduled', '2300-10-01T14:30'], input='y')
+            assert result.exit_code == 0
+
+        with patch('requests.post', Mock(return_value=MockResponse(204))):
+            # get restart with the non-200 return code
+            # normal restart, the schedule is actually parsed, but not validated in patronictl
+            result = self.runner.invoke(ctl, ['restart', 'alpha', '--pg-version', '42.0.0',
+                                        '--scheduled', '2300-10-01T14:30'], input='y')
+            assert result.exit_code == 0
+
+        # force restart with restart already present
+        with patch('patroni.ctl.request_patroni', Mock(return_value=MockResponse(204))):
+            result = self.runner.invoke(ctl, ['restart', 'alpha', 'other', '--force', '--scheduled', '2300-10-01T14:30'])
+            assert result.exit_code == 0
+
+        with patch('requests.post', Mock(return_value=MockResponse(202))):
+            # get restart with the non-200 return code
+            # normal restart, the schedule is actually parsed, but not validated in patronictl
+            result = self.runner.invoke(
+                ctl, ['restart', 'alpha', '--pg-version', '99.0.0', '--scheduled', '2300-10-01T14:30'], input='y'
+            )
+            assert 'Success: restart scheduled' in result.output
+            assert result.exit_code == 0
+
+        with patch('requests.post', Mock(return_value=MockResponse(409))):
+            # get restart with the non-200 return code
+            # normal restart, the schedule is actually parsed, but not validated in patronictl
+            result = self.runner.invoke(
+                ctl, ['restart', 'alpha', '--pg-version', '99.0.0', '--scheduled', '2300-10-01T14:30'], input='y'
+            )
+            assert 'Failed: another restart is already' in result.output
             assert result.exit_code == 0
 
     @patch('patroni.ctl.get_dcs')
@@ -254,9 +303,9 @@ class TestCtl(unittest.TestCase):
         assert cluster.leader.member.name == 'leader'
 
     @patch('requests.post', Mock(side_effect=requests.exceptions.ConnectionError('foo')))
-    def test_post_patroni(self):
+    def test_request_patroni(self):
         member = get_cluster_initialized_with_leader().leader.member
-        self.assertRaises(requests.exceptions.ConnectionError, post_patroni, member, 'dummy', {})
+        self.assertRaises(requests.exceptions.ConnectionError, request_patroni, member, 'post', 'dummy', {})
 
     def test_ctl(self):
         self.runner.invoke(ctl, ['list'])
@@ -293,3 +342,27 @@ class TestCtl(unittest.TestCase):
     def test_configure(self):
         result = self.runner.invoke(configure, ['--dcs', 'abc', '-c', 'dummy', '-n', 'bla'])
         assert result.exit_code == 0
+
+    @patch('patroni.ctl.get_dcs')
+    def test_list_extended(self, mock_get_dcs):
+        mock_get_dcs.return_value = self.e
+        mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
+
+        result = self.runner.invoke(ctl, ['list', 'dummy', '--extended'])
+        assert '2100' in result.output
+        assert 'Scheduled restart' in result.output
+
+    @patch('patroni.ctl.get_dcs')
+    @patch('requests.delete', Mock(return_value=MockResponse()))
+    def test_flush(self, mock_get_dcs):
+        mock_get_dcs.return_value = self.e
+        mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
+
+        result = self.runner.invoke(ctl, ['flush', 'dummy', 'restart', '-r', 'master'], input='y')
+        assert 'No scheduled restart' in result.output
+
+        result = self.runner.invoke(ctl, ['flush', 'dummy', 'restart', '--force'])
+        assert 'Success: flush scheduled restart' in result.output
+        with patch.object(requests, 'delete', return_value=MockResponse(404)):
+            result = self.runner.invoke(ctl, ['flush', 'dummy', 'restart', '--force'])
+            assert 'Failed: flush scheduled restart' in result.output

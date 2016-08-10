@@ -30,7 +30,6 @@ class Patroni(object):
         self.ha = Ha(self)
 
         self.tags = self.get_tags()
-        self.nap_time = self.config['loop_wait']
         self.next_run = time.time()
         self.scheduled_restart = {}
 
@@ -57,9 +56,7 @@ class Patroni(object):
     def reload_config(self):
         try:
             self.tags = self.get_tags()
-            self.nap_time = self.config['loop_wait']
-            self.dcs.set_ttl(self.config.get('ttl') or 30)
-            self.dcs.set_retry_timeout(self.config.get('retry_timeout') or self.nap_time)
+            self.dcs.reload_config(self.config)
             self.api.reload_config(self.config['restapi'])
             self.postgresql.reload_config(self.config['postgresql'])
         except Exception:
@@ -82,7 +79,7 @@ class Patroni(object):
         return self.tags.get('noloadbalance', False)
 
     def schedule_next_run(self):
-        self.next_run += self.nap_time
+        self.next_run += self.dcs.loop_wait
         current_time = time.time()
         nap_time = self.next_run - current_time
         if nap_time <= 0:
