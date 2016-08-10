@@ -82,7 +82,6 @@ zookeeper:
         self.api = Mock()
         self.tags = {'foo': 'bar'}
         self.nofailover = None
-        self.nap_time = 10
         self.replicatefrom = None
         self.api.connection_string = 'http://127.0.0.1:8008'
         self.clonefrom = None

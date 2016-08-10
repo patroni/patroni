@@ -74,7 +74,7 @@ class TestPatroni(unittest.TestCase):
     def test_schedule_next_run(self):
         self.p.ha.dcs.watch = Mock(return_value=True)
         self.p.schedule_next_run()
-        self.p.next_run = time.time() - self.p.nap_time - 1
+        self.p.next_run = time.time() - self.p.dcs.loop_wait - 1
         self.p.schedule_next_run()
 
     def test_noloadbalance(self):
