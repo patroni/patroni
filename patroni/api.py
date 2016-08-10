@@ -110,7 +110,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self._write_status_response(200, response)
 
     def do_GET_config(self):
-        cluster = self.server.patroni.ha.dcs.cluster or self.server.patroni.ha.dcs.get_cluster()
+        cluster = self.server.patroni.dcs.cluster or self.server.patroni.dcs.get_cluster()
         if cluster.config:
             self._write_json_response(200, cluster.config.data)
         else:
@@ -134,11 +134,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_PATCH_config(self):
         request = self._read_json_content()
         if request:
-            cluster = self.server.patroni.ha.dcs.get_cluster()
+            cluster = self.server.patroni.dcs.get_cluster()
             data = cluster.config.data.copy()
             if patch_config(data, request):
                 value = json.dumps(data, separators=(',', ':'))
-                if not self.server.patroni.ha.dcs.set_config_value(value, cluster.config.index):
+                if not self.server.patroni.dcs.set_config_value(value, cluster.config.index):
                     return self.send_error(409)
             self._write_json_response(200, data)
 
@@ -146,10 +146,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_PUT_config(self):
         request = self._read_json_content()
         if request:
-            cluster = self.server.patroni.ha.dcs.get_cluster()
+            cluster = self.server.patroni.dcs.get_cluster()
             if not deep_compare(request, cluster.config.data):
                 value = json.dumps(request, separators=(',', ':'))
-                if not self.server.patroni.ha.dcs.set_config_value(value):
+                if not self.server.patroni.dcs.set_config_value(value):
                     return self.send_error(502)
             self._write_json_response(200, request)
 
@@ -249,16 +249,16 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     @check_auth
     def do_POST_reinitialize(self):
-        ha = self.server.patroni.ha
-        cluster = ha.dcs.get_cluster()
+        patroni = self.server.patroni
+        cluster = patroni.dcs.get_cluster()
         if cluster.is_unlocked():
             status_code = 503
             data = 'Cluster has no leader, can not reinitialize'
-        elif cluster.leader.name == ha.state_handler.name:
+        elif cluster.leader.name == patroni.ha.state_handler.name:
             status_code = 503
             data = 'I am the leader, can not reinitialize'
         else:
-            action = ha.schedule_reinitialize()
+            action = patroni.ha.schedule_reinitialize()
             if action is not None:
                 status_code = 503
                 data = action + ' already in progress'
@@ -268,7 +268,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self._write_response(status_code, data)
 
     def poll_failover_result(self, leader, candidate):
-        timeout = 10 if self.server.patroni.nap_time < 10 else self.server.patroni.nap_time
+        timeout = max(10, self.server.patroni.dcs.loop_wait)
         for _ in range(0, timeout*2):
             time.sleep(1)
             try:
@@ -309,7 +309,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         leader = request.get('leader')
         candidate = request.get('candidate') or request.get('member')
         scheduled_at = request.get('scheduled_at')
-        cluster = self.server.patroni.ha.dcs.get_cluster()
+        cluster = self.server.patroni.dcs.get_cluster()
         status_code = 500
 
         logger.info("received failover request with leader=%s candidate=%s scheduled_at=%s",

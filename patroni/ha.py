@@ -295,11 +295,11 @@ class Ha(object):
             try:
                 delta = (scheduled_at - now).total_seconds()
 
-                if delta > self.patroni.nap_time:
+                if delta > self.dcs.loop_wait:
                     logger.info('Awaiting %s at %s (in %.0f seconds)',
                                 action_name, scheduled_at.isoformat(), delta)
                     return False
-                elif delta < - int(self.patroni.nap_time * 1.5):
+                elif delta < - int(self.dcs.loop_wait * 1.5):
                     logger.warning('Found a stale %s value, cleaning up: %s',
                                    action_name, scheduled_at.isoformat())
                     cleanup_fn()

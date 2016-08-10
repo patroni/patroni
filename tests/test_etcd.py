@@ -132,6 +132,10 @@ def socket_getaddrinfo(*args):
 def http_request(method, url, **kwargs):
     if url == 'http://localhost:2379/timeout':
         raise ReadTimeoutError(None, None, None)
+    if url == 'http://localhost:2379/v2/machines':
+        ret = MockResponse()
+        ret.content = 'http://localhost:2379,http://localhost:4001'
+        return ret
     if url == 'http://localhost:2379/':
         return MockResponse()
     raise socket.error
@@ -145,26 +149,39 @@ class TestClient(unittest.TestCase):
     @patch('dns.resolver.query', dns_query)
     @patch('requests.get', requests_get)
     def setUp(self):
-        with patch.object(etcd.Client, 'machines') as mock_machines:
+        with patch.object(Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://localhost:2379', 'http://localhost:4001'])
             self.client = Client({'discovery_srv': 'test', 'retry_timeout': 3})
             self.client.http.request = http_request
             self.client.http.request_encode_body = http_request
 
-    def test_api_execute(self):
+    def test_machines(self):
         self.client._base_uri = 'http://localhost:4001'
         self.client._machines_cache = ['http://localhost:2379']
-        self.assertRaises(etcd.EtcdWatchTimedOut, self.client.api_execute, '/timeout', 'POST', params={'wait': 'true'})
-        self.client._update_machines_cache = False
-        self.client.api_execute('/', 'POST', timeout=0)
-        self.client._update_machines_cache = False
+        self.assertIsNotNone(self.client.machines)
         self.client._base_uri = 'http://localhost:4001'
         self.client._machines_cache = []
-        self.assertRaises(etcd.EtcdConnectionFailed, self.client.api_execute, '/', 'GET')
-        self.assertTrue(self.client._update_machines_cache)
-        self.assertRaises(etcd.EtcdException, self.client.api_execute, '/', 'GET')
-        self.assertRaises(etcd.EtcdException, self.client.api_execute, '/', '')
+        self.assertIsNotNone(self.client.machines)
+        self.client._update_machines_cache = True
+        machines = None
+        try:
+            machines = self.client.machines
+            self.assertFail()
+        except Exception:
+            self.assertIsNone(machines)
+
+    @patch.object(Client, 'machines')
+    def test_api_execute(self, mock_machines):
+        mock_machines.__get__ = Mock(return_value=['http://localhost:2379'])
         self.assertRaises(ValueError, self.client.api_execute, '', '')
+        self.client._base_uri = 'http://localhost:4001'
+        self.client._machines_cache = ['http://localhost:2379']
+        self.client.api_execute('/', 'POST', timeout=0)
+        self.assertRaises(etcd.EtcdWatchTimedOut, self.client.api_execute, '/timeout', 'POST', params={'wait': 'true'})
+        self.assertRaises(etcd.EtcdException, self.client.api_execute, '/', '')
+        self.client._update_machines_cache = True
+        with patch.object(Client, '_load_machines_cache', Mock(side_effect=etcd.EtcdException)):
+            self.assertRaises(etcd.EtcdException, self.client.api_execute, '/', 'GET')
 
     def test_get_srv_record(self):
         self.assertEquals(self.client.get_srv_record('blabla'), [])
@@ -177,7 +194,9 @@ class TestClient(unittest.TestCase):
     def test__get_machines_cache_from_dns(self):
         self.client._get_machines_cache_from_dns('error:2379')
 
-    def test__load_machines_cache(self):
+    @patch.object(Client, 'machines')
+    def test__load_machines_cache(self, mock_machines):
+        mock_machines.__get__ = Mock(return_value=['http://localhost:2379'])
         self.client._config = {}
         self.assertRaises(Exception, self.client._load_machines_cache)
         self.client._config = {'discovery_srv': 'blabla'}
@@ -201,9 +220,9 @@ class TestEtcd(unittest.TestCase):
 
     @patch('dns.resolver.query', dns_query)
     def test_get_etcd_client(self):
-        with patch.object(etcd.Client, 'machines') as mock_machines:
+        with patch.object(Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(side_effect=etcd.EtcdException)
-            with patch('time.sleep', Mock(side_effect=SleepException())):
+            with patch('time.sleep', Mock(side_effect=SleepException)):
                 self.assertRaises(SleepException, self.etcd.get_etcd_client,
                                   {'discovery_srv': 'test', 'retry_timeout': 10})
 

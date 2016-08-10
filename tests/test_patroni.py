@@ -6,6 +6,7 @@ import unittest
 from mock import Mock, patch
 from patroni.api import RestApiServer
 from patroni.async_executor import AsyncExecutor
+from patroni.dcs.etcd import Client
 from patroni.exceptions import DCSError
 from patroni import Patroni, main as _main
 from six.moves import BaseHTTPServer
@@ -31,7 +32,7 @@ class TestPatroni(unittest.TestCase):
         RestApiServer._BaseServer__is_shut_down = Mock()
         RestApiServer._BaseServer__shutdown_request = True
         RestApiServer.socket = 0
-        with patch.object(etcd.Client, 'machines') as mock_machines:
+        with patch.object(Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
             sys.argv = ['patroni.py', 'postgres0.yml']
             self.p = Patroni()
@@ -44,7 +45,7 @@ class TestPatroni(unittest.TestCase):
 
     @patch('time.sleep', Mock(side_effect=SleepException))
     @patch.object(etcd.Client, 'delete', Mock())
-    @patch.object(etcd.Client, 'machines')
+    @patch.object(Client, 'machines')
     def test_patroni_main(self, mock_machines):
         with patch('subprocess.call', Mock(return_value=1)):
             sys.argv = ['patroni.py', 'postgres0.yml']
@@ -74,7 +75,7 @@ class TestPatroni(unittest.TestCase):
     def test_schedule_next_run(self):
         self.p.ha.dcs.watch = Mock(return_value=True)
         self.p.schedule_next_run()
-        self.p.next_run = time.time() - self.p.nap_time - 1
+        self.p.next_run = time.time() - self.p.dcs.loop_wait - 1
         self.p.schedule_next_run()
 
     def test_noloadbalance(self):
