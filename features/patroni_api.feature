@@ -12,7 +12,7 @@ Scenario: check API requests on a stand-alone server
 	Then I receive a response code 503
 	When I run patronictl.py reinit batman postgres0 --force
 	Then I receive a response returncode 0
-	And I receive a response output "reinitialize failed for member postgres0, status code=503, (I am the leader, can not reinitialize)"
+	And I receive a response output "Failed: reinitialize for member postgres0, status code=503, (I am the leader, can not reinitialize)"
 	When I run patronictl.py failover batman --master postgres0 --force
 	Then I receive a response returncode 1
 	And I receive a response output "Error: No candidates found to failover to"
@@ -54,10 +54,10 @@ Scenario: check API requests for the primary-replica pair
 	And I receive a response role replica
 	When I run patronictl.py reinit batman postgres1 --force
 	Then I receive a response returncode 0
-	And I receive a response output "Succesful reinitialize on member postgres1"
+	And I receive a response output "Success: reinitialize for member postgres1"
 	When I run patronictl.py restart batman postgres0 --force
 	Then I receive a response returncode 0
-	And I receive a response output "Succesful restart on member postgres0"
+	And I receive a response output "Success: restart on member postgres0"
 	And postgres0 role is the primary after 5 seconds
 	When I sleep for 10 seconds
 	Then postgres1 role is the secondary after 15 seconds

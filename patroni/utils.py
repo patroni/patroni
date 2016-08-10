@@ -2,6 +2,7 @@ import os
 import random
 import sys
 import time
+import re
 
 from patroni.exceptions import PatroniException
 
@@ -224,6 +225,10 @@ def reap_children():
             pass
         finally:
             __reap_children = False
+
+
+def is_valid_pg_version(version):
+    return re.match(r'[1-9][0-9]?(\.(0|([1-9][0-9]?))){2}$', version)
 
 
 class RetryFailedError(PatroniException):
