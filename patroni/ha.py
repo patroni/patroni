@@ -172,7 +172,7 @@ class Ha(object):
             xlog_location = None if is_master else json['xlog']['replayed_location']
             return (member, True, not is_master, xlog_location, json.get('tags', {}))
         except:
-            logger.exception('request failed: GET %s', member.api_url)
+            logger.error("request failed: GET %s", member.api_url)
         return (member, False, None, 0, {})
 
     def fetch_nodes_statuses(self, members):
