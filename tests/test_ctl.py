@@ -235,7 +235,8 @@ class TestCtl(unittest.TestCase):
 
         with patch('requests.delete', Mock(return_value=MockResponse(500))):
             # normal restart, the schedule is actually parsed, but not validated in patronictl
-            result = self.runner.invoke(ctl, ['restart', 'alpha', 'other', '--force', '--scheduled', '2300-10-01T14:30'])
+            result = self.runner.invoke(ctl, ['restart', 'alpha', 'other', '--force',
+                                              '--scheduled', '2300-10-01T14:30'])
             assert 'Failed: flush scheduled restart' in result.output
 
         with patch('requests.post', Mock(return_value=MockResponse())):
@@ -253,7 +254,8 @@ class TestCtl(unittest.TestCase):
 
         # force restart with restart already present
         with patch('patroni.ctl.request_patroni', Mock(return_value=MockResponse(204))):
-            result = self.runner.invoke(ctl, ['restart', 'alpha', 'other', '--force', '--scheduled', '2300-10-01T14:30'])
+            result = self.runner.invoke(ctl, ['restart', 'alpha', 'other', '--force',
+                                              '--scheduled', '2300-10-01T14:30'])
             assert result.exit_code == 0
 
         with patch('requests.post', Mock(return_value=MockResponse(202))):

@@ -278,7 +278,7 @@ class TestPostgresql(unittest.TestCase):
             mock_pg_rewind.return_value = True
             self.p.follow(self.leader, self.leader)
 
-        self.assertTrue(self.p.follow(None, None))  # check_recovery_conf...
+        self.p.follow(None, None)  # check_recovery_conf...
 
     @patch('subprocess.check_output', Mock(return_value=0, side_effect=pg_controldata_string))
     def test_can_rewind(self):

@@ -86,6 +86,26 @@ class Member(namedtuple('Member', 'index,name,session,data')):
     def conn_url(self):
         return self.data.get('conn_url')
 
+    def conn_kwargs(self, auth=None):
+        ret = self.data.get('conn_kwargs')
+        if ret:
+            ret = ret.copy()
+        else:
+            r = urlparse(self.conn_url)
+            ret = {
+                'host': r.hostname,
+                'port': r.port or 5432,
+                'database': r.path[1:]
+            }
+            self.data['conn_kwargs'] = ret.copy()
+
+        if auth and isinstance(auth, dict):
+            if 'username' in auth:
+                ret['user'] = auth['username']
+            if 'password' in auth:
+                ret['password'] = auth['password']
+        return ret
+
     @property
     def api_url(self):
         return self.data.get('api_url')
@@ -104,7 +124,7 @@ class Member(namedtuple('Member', 'index,name,session,data')):
 
     @property
     def clonefrom(self):
-        return self.tags.get('clonefrom', False)
+        return self.tags.get('clonefrom', False) and bool(self.conn_url)
 
 
 class Leader(namedtuple('Leader', 'index,session,member')):
@@ -118,6 +138,9 @@ class Leader(namedtuple('Leader', 'index,session,member')):
     @property
     def name(self):
         return self.member.name
+
+    def conn_kwargs(self, auth=None):
+        return self.member.conn_kwargs(auth)
 
     @property
     def conn_url(self):

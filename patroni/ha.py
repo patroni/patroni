@@ -141,9 +141,8 @@ class Ha(object):
 
         node_to_follow = self._get_node_to_follow(self.cluster)
 
-        if not self.state_handler.check_recovery_conf(node_to_follow) or recovery:
-            self._async_executor.schedule('changing primary_conninfo and restarting')
-            self._async_executor.run_async(self.state_handler.follow, (node_to_follow, self.cluster.leader, recovery))
+        self.state_handler.follow(node_to_follow, self.cluster.leader, recovery, self._async_executor)
+
         return ret
 
     def enforce_master_role(self, message, promote_message):
