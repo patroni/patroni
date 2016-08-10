@@ -12,7 +12,7 @@ from patroni.dcs.etcd import Client
 from psycopg2 import OperationalError
 from test_etcd import etcd_read, requests_get, socket_getaddrinfo, MockResponse
 from test_ha import get_cluster_initialized_without_leader, get_cluster_initialized_with_leader, \
-    get_cluster_initialized_with_only_leader
+    get_cluster_initialized_with_only_leader, get_cluster_not_initialized_without_leader
 from test_postgresql import MockConnect, psycopg2_connect
 
 CONFIG_FILE_PATH = './test-ctl.yaml'
@@ -29,7 +29,9 @@ def test_rw_config():
         os.rmdir(CONFIG_FILE_PATH)
 
 
-@patch('patroni.ctl.load_config', Mock(return_value={'restapi': {'auth': 'u:p'}, 'etcd': {'host': 'localhost:4001'}}))
+@patch('patroni.ctl.load_config', Mock(return_value={'postgresql': {'data_dir': '.', 'parameters': {}, 'retry_timeout': 5},
+                                                     'restapi': {'auth': 'u:p', 'listen': ''},
+                                                     'etcd': {'host': 'localhost:4001'}}))
 class TestCtl(unittest.TestCase):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
@@ -344,6 +346,29 @@ class TestCtl(unittest.TestCase):
     def test_configure(self):
         result = self.runner.invoke(configure, ['--dcs', 'abc', '-c', 'dummy', '-n', 'bla'])
         assert result.exit_code == 0
+
+    @patch('patroni.ctl.get_dcs')
+    def test_scaffold(self, mock_get_dcs):
+        mock_get_dcs.return_value = self.e
+        mock_get_dcs.return_value.get_cluster = get_cluster_not_initialized_without_leader
+        mock_get_dcs.return_value.initialize = Mock(return_value=True)
+        mock_get_dcs.return_value.touch_member = Mock(return_value=True)
+        mock_get_dcs.return_value.attempt_to_acquire_leader = Mock(return_value=True)
+
+        with patch.object(self.e, 'initialize', return_value=False):
+            result = self.runner.invoke(ctl, ['scaffold', 'alpha'])
+            assert result.exception
+
+        with patch.object(mock_get_dcs.return_value, 'touch_member', Mock(return_value=False)):
+            result = self.runner.invoke(ctl, ['scaffold', 'alpha'])
+            assert result.exception
+
+        result = self.runner.invoke(ctl, ['scaffold', 'alpha'])
+        assert result.exit_code == 0
+
+        mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
+        result = self.runner.invoke(ctl, ['scaffold', 'alpha'])
+        assert result.exception
 
     @patch('patroni.ctl.get_dcs')
     def test_list_extended(self, mock_get_dcs):

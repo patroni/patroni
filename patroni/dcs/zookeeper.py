@@ -200,8 +200,8 @@ class ZooKeeper(AbstractDCS):
         except:
             return False
 
-    def attempt_to_acquire_leader(self):
-        ret = self._create(self.leader_path, self._name, makepath=True, ephemeral=True)
+    def attempt_to_acquire_leader(self, permanent=False):
+        ret = self._create(self.leader_path, self._name, makepath=True, ephemeral=not permanent)
         if not ret:
             logger.info('Could not take out TTL lock')
         return ret
@@ -230,7 +230,7 @@ class ZooKeeper(AbstractDCS):
         return self._create(self.initialize_path, sysid, makepath=True) if create_new \
             else self._client.retry(self._client.set, self.initialize_path,  sysid.encode("utf-8"))
 
-    def touch_member(self, data, ttl=None):
+    def touch_member(self, data, ttl=None, permanent=False):
         cluster = self.cluster
         member = cluster and ([m for m in cluster.members if m.name == self._name] or [None])[0]
         data = data.encode('utf-8')
@@ -248,7 +248,7 @@ class ZooKeeper(AbstractDCS):
                 return True
         else:
             try:
-                self._client.create_async(self.member_path, data, makepath=True, ephemeral=True).get(timeout=1)
+                self._client.create_async(self.member_path, data, makepath=True, ephemeral=not permanent).get(timeout=1)
                 self._my_member_data = data
                 return True
             except Exception as e:

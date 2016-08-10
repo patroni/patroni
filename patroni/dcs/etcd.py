@@ -307,16 +307,20 @@ class Etcd(AbstractDCS):
             raise EtcdError('Etcd is not responding properly')
 
     @catch_etcd_errors
-    def touch_member(self, data, ttl=None):
-        return self.retry(self._client.set, self.member_path, data, ttl or self._ttl)
+    def touch_member(self, data, ttl=None, permanent=False):
+        return self.retry(self._client.set, self.member_path, data, None if permanent else ttl or self._ttl)
 
     @catch_etcd_errors
     def take_leader(self):
         return self.retry(self._client.set, self.leader_path, self._name, self._ttl)
 
-    def attempt_to_acquire_leader(self):
+    def attempt_to_acquire_leader(self, permanent=False):
         try:
-            return bool(self.retry(self._client.write, self.leader_path, self._name, ttl=self._ttl, prevExist=False))
+            return bool(self.retry(self._client.write,
+                                   self.leader_path,
+                                   self._name,
+                                   ttl=None if permanent else self._ttl,
+                                   prevExist=False))
         except etcd.EtcdAlreadyExist:
             logger.info('Could not take out TTL lock')
         except (RetryFailedError, etcd.EtcdException):
