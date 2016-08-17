@@ -76,6 +76,7 @@ class Postgresql(object):
 
         self._pgpass = config.get('pgpass') or os.path.join(os.path.expanduser('~'), 'pgpass')
         self.callback = config.get('callbacks') or {}
+        self.__cb_called = False
         config_base_name = config.get('config_base_name', 'postgresql')
         self._postgresql_conf = os.path.join(self._data_dir, config_base_name + '.conf')
         self._postgresql_base_conf_name = config_base_name + '.base.conf'
@@ -459,8 +460,15 @@ class Postgresql(object):
         except Exception:
             return False
 
+    @property
+    def cb_called(self):
+        return self.__cb_called
+
     def call_nowait(self, cb_name):
         """ pick a callback command and call it without waiting for it to finish """
+        if cb_name in (ACTION_ON_START, ACTION_ON_STOP, ACTION_ON_RESTART, ACTION_ON_ROLE_CHANGE):
+            self.__cb_called = True
+
         if not self.callback or cb_name not in self.callback:
             return False
         cmd = self.callback[cb_name]
@@ -788,7 +796,7 @@ class Postgresql(object):
             self._need_rewind = False
         else:
             self.write_recovery_conf(primary_conninfo)
-            ret = self.restart()
+            ret = self.start() if recovery else self.restart()
             self.set_role('replica')
 
         if change_role:

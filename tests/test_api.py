@@ -179,7 +179,6 @@ class TestRestApiHandler(unittest.TestCase):
             MockRestApiServer(RestApiHandler, 'POST /reload HTTP/1.0' + self._authorization)
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'POST /reload HTTP/1.0' + self._authorization))
 
-    #@patch.object(MockPatroni, 'dcs')
     def test_do_POST_restart(self):
         request = 'POST /restart HTTP/1.0' + self._authorization
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
@@ -221,7 +220,6 @@ class TestRestApiHandler(unittest.TestCase):
                 request = make_request('{"role": "master", "postgres_version": "9.5.2"}')
                 MockRestApiServer(RestApiHandler, request)
 
-    #@patch.object(MockPatroni, 'dcs')
     def test_do_DELETE_restart(self):
         for retval in (True, False):
             with patch.object(MockHa, 'delete_future_restart', Mock(return_value=retval)):
