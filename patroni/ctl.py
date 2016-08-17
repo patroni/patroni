@@ -696,8 +696,11 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
 @click.pass_obj
 def members(obj, cluster_names, fmt, watch, w, extended):
     if not cluster_names:
-        logging.warning('Listing members: No cluster names were provided')
-        return
+        if 'scope' not in obj:
+            logging.warning('Listing members: No cluster names were provided')
+            return
+        else:
+            cluster_names = [obj['scope']]
 
     for cluster_name in cluster_names:
         dcs = get_dcs(obj, cluster_name)
