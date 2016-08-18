@@ -747,8 +747,13 @@ def touch_member(config, dcs):
     return dcs.touch_member(json.dumps(data, separators=(',', ':')), permanent=True)
 
 
+def is_paused(cluster):
+    """Check if cluster management is paused"""
+    return 'pause' in cluster.config.data and cluster.config.data['pause']
+
+
 def set_defaults(config, cluster_name):
-    ''' fill-in some basic configuration parameters if config file is not set '''
+    """fill-in some basic configuration parameters if config file is not set """
     config['postgresql'].setdefault('name', cluster_name)
     config['postgresql'].setdefault('scope', cluster_name)
     config['postgresql'].setdefault('listen', '127.0.0.1')
@@ -800,3 +805,42 @@ def flush(cluster_name, member_names, config_file, dcs, force, role, target):
                 check_response(r, member.name, 'flush scheduled restart')
             else:
                 click.echo('No scheduled restart for member {0}'.format(member.name))
+
+
+@ctl.command('disable', help='Disable auto failover')
+@click.argument('cluster_name')
+@option_config_file
+@option_dcs
+def disable(config_file, cluster_name, dcs):
+    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+
+    if is_paused(cluster):
+        raise PatroniCtlException("Cluster is already paused")
+
+    r = request_patroni(cluster.leader.member, 'patch', 'config', {'pause': True}, auth_header(config))
+    if r.status_code == 200:
+        click.echo('Success: cluster management is paused.')
+    else:
+        click.echo('Failed: pause cluster management status code={0}, ({1})'.format(r.status_code, r.text))
+
+    return
+
+
+@ctl.command('resume', help='Resume auto failover')
+@click.argument('cluster_name')
+@option_config_file
+@option_dcs
+def resume(config_file, cluster_name, dcs):
+    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+
+    if not is_paused(cluster):
+        raise PatroniCtlException("Cluster is not paused")
+
+    r = request_patroni(cluster.leader.member, 'patch', 'config', {'pause': False}, auth_header(config))
+    if r.status_code == 200:
+        click.echo('Success: cluster management is resumed')
+    else:
+        click.echo('Failed: resume cluster management, status code={0}, ({1})'.format(r.status_code, r.text))
+
+    return
+

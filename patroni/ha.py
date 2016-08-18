@@ -150,6 +150,8 @@ class Ha(object):
         if self.state_handler.is_leader() or self.state_handler.role == 'master':
             return message
         else:
+            if 'pause' in self.cluster.config.data and self.cluster.config.data['pause']:
+                return "Not promoted due to paused state."
             self.state_handler.promote()
             self.touch_member()
             return promote_message
