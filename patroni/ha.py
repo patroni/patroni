@@ -9,6 +9,7 @@ import pytz
 from multiprocessing.pool import ThreadPool
 from patroni.async_executor import AsyncExecutor
 from patroni.exceptions import DCSError, PostgresConnectionException
+from patroni.postgresql import ACTION_ON_START
 from patroni.utils import sleep
 
 logger = logging.getLogger(__name__)
@@ -587,6 +588,8 @@ class Ha(object):
                 # stops PostgreSQL, therefore, we only reload replication slots if no
                 # asynchronous processes are running (should be always the case for the master)
                 if not self._async_executor.busy:
+                    if not self.state_handler.cb_called:
+                        self.state_handler.call_nowait(ACTION_ON_START)
                     self.state_handler.sync_replication_slots(self.cluster)
         except DCSError:
             logger.error('Error communicating with DCS')
