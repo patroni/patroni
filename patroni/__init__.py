@@ -128,5 +128,8 @@ def main():
         pass
     finally:
         patroni.api.shutdown()
-        patroni.postgresql.stop(checkpoint=False)
+        if patroni.ha.is_paused():
+            logger.info('Postgres is not stopped due paused state')
+        else:
+            patroni.postgresql.stop(checkpoint=False)
         patroni.dcs.delete_leader()
