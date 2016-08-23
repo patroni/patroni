@@ -4,10 +4,12 @@ name: postgresql0
 
 restapi:
   listen: 127.0.0.1:8008
+  connect_address: 127.0.0.1:8008
+#  certfile: /etc/ssl/certs/ssl-cert-snakeoil.pem
+#  keyfile: /etc/ssl/private/ssl-cert-snakeoil.key
 #  authentication:
 #    username: username
 #    password: password
-  connect_address: 127.0.0.1:8008
 
 etcd:
   host: 127.0.0.1:4001
@@ -30,11 +32,11 @@ bootstrap:
 #        max_wal_senders: 5
 #        max_replication_slots: 5
 #        wal_log_hints: "on"
-        archive_mode: "on"
-        archive_timeout: 1800s
-        archive_command: mkdir -p ../wal_archive && test ! -f ../wal_archive/%f && cp %p ../wal_archive/%f
-      recovery_conf:
-        restore_command: cp ../wal_archive/%f %p
+#        archive_mode: "on"
+#        archive_timeout: 1800s
+#        archive_command: mkdir -p ../wal_archive && test ! -f ../wal_archive/%f && cp %p ../wal_archive/%f
+#      recovery_conf:
+#        restore_command: cp ../wal_archive/%f %p
 
   # some desired options for 'initdb'
   initdb:  # Note: It needs to be a list (some options need values, others are switches)
@@ -58,6 +60,7 @@ postgresql:
   listen: 127.0.0.1:5432
   connect_address: 127.0.0.1:5432
   data_dir: data/postgresql0
+#  bin_dir:
   pgpass: /tmp/pgpass0
   authentication:
     replication:
