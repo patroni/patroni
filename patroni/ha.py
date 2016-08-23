@@ -346,6 +346,9 @@ class Ha(object):
         self.dcs.manual_failover('', '', index=self.cluster.failover.index)
 
     def process_unhealthy_cluster(self):
+        if self.is_paused():
+            return "No action due to paused state"
+
         if self.is_healthiest_node():
             if self.acquire_lock():
                 if self.cluster.failover:
