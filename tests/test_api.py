@@ -188,7 +188,8 @@ class TestRestApiHandler(unittest.TestCase):
 
         post = request + '\nContent-Length: '
 
-        def make_request(request):
+        def make_request(request=None, **kwargs):
+            request = json.dumps(kwargs) if request is None else request
             return '{0}{1}\n\n{2}'.format(post, len(request), request)
 
         # empty request
@@ -198,26 +199,26 @@ class TestRestApiHandler(unittest.TestCase):
         request = make_request('foobar=baz')
         MockRestApiServer(RestApiHandler, request)
         # wrong role
-        request = make_request('{"schedule": "2016-08-20 12:45TZ+1", "role": "unknown", "postgres_version": "9.5.3"}')
+        request = make_request(schedule=future_restart_time.isoformat(), role='unknown', postgres_version='9.5.3')
         MockRestApiServer(RestApiHandler, request)
         # wrong version
-        request = make_request('{"schedule": "2016-08-20 12:45TZ+1", "role": "master", "postgres_version": "9.5.3.1"}')
+        request = make_request(schedule=future_restart_time.isoformat(), role='master', postgres_version='9.5.3.1')
         MockRestApiServer(RestApiHandler, request)
         # unknown filter
-        request = make_request('{"schedule": "2016-08-29 12:45TZ+1", "batman": "lives"}')
+        request = make_request(schedule=future_restart_time.isoformat(), batman='lives')
         MockRestApiServer(RestApiHandler, request)
         # incorrect schedule
-        request = make_request('{"schedule": "2016-08-42 12:45TZ+1", "role": "master"}')
+        request = make_request(schedule='2016-08-42 12:45TZ+1', role='master')
         MockRestApiServer(RestApiHandler, request)
         # everything fine, but the schedule is missing
-        request = make_request('{"role": "master", "postgres_version": "9.5.2"}')
+        request = make_request(role='master', postgres_version='9.5.2')
         MockRestApiServer(RestApiHandler, request)
         for retval in (True, False):
             with patch.object(MockHa, 'schedule_future_restart', Mock(return_value=retval)):
-                request = make_request('{"schedule": "2016-08-29 12:45TZ+1"}')
+                request = make_request(schedule=future_restart_time.isoformat())
                 MockRestApiServer(RestApiHandler, request)
             with patch.object(MockHa, 'restart', Mock(return_value=(retval, "foo"))):
-                request = make_request('{"role": "master", "postgres_version": "9.5.2"}')
+                request = make_request(role='master', postgres_version='9.5.2')
                 MockRestApiServer(RestApiHandler, request)
 
     def test_do_DELETE_restart(self):
