@@ -27,7 +27,8 @@ class Ha(object):
         self._async_executor = AsyncExecutor()
 
     def is_paused(self):
-        return self.cluster.config and 'pause' in self.cluster.config.data and self.cluster.config.data['pause']
+        return self.cluster and self.cluster.config and 'pause' in self.cluster.config.data \
+               and self.cluster.config.data['pause']
 
     def load_cluster_from_dcs(self):
         cluster = self.dcs.get_cluster()
@@ -346,9 +347,7 @@ class Ha(object):
         self.dcs.manual_failover('', '', index=self.cluster.failover.index)
 
     def process_unhealthy_cluster(self):
-        if self.is_paused():
-            return "No action due to paused state"
-
+        """Cluster has no leader key"""
         if self.is_healthiest_node():
             if self.acquire_lock():
                 if self.cluster.failover:
@@ -534,6 +533,24 @@ class Ha(object):
             return 'failed to start postgres'
         return None
 
+    def pause_action(self):
+        if not self.state_handler.is_healthy():
+            return "Postgresql is not running"
+
+        if not (self.state_handler.is_leader() or self.state_handler.role == 'master'):
+            return "I'm secondary"
+
+        if self.has_lock():
+            if not self.update_lock():
+                # Either there is no connection to DCS or someone else acquired the lock
+                logger.error('failed to update leader lock')
+                self.load_cluster_from_dcs()
+        else:
+            if not self.acquire_lock():
+                raise Exception("Someone already acquired the lock")
+
+        return "I'm the leader"
+
     def _run_cycle(self):
         try:
             self.load_cluster_from_dcs()
@@ -549,6 +566,9 @@ class Ha(object):
 
             if self._async_executor.busy:
                 return self.handle_long_action_in_progress()
+
+            if self.is_paused():
+                return self.pause_action() + ". No action due to paused state"
 
             # we've got here, so any async action has finished. Check if we tried to recover and failed
             if self.recovering:
