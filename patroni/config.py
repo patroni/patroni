@@ -42,6 +42,7 @@ class Config(object):
         'ttl': 30, 'loop_wait': 10, 'retry_timeout': 10,
         'maximum_lag_on_failover': 1048576,
         'postgresql': {
+            'bin_dir': '',
             'use_slots': True,
             'parameters': {p: v[0] for p, v in Postgresql.CMDLINE_OPTIONS.items()}
         }
@@ -193,7 +194,7 @@ class Config(object):
                     ret[section][param] = value
 
         _set_section_values('restapi', ['listen', 'connect_address', 'certfile', 'keyfile'])
-        _set_section_values('postgresql', ['listen', 'connect_address', 'data_dir', 'pgpass'])
+        _set_section_values('postgresql', ['listen', 'connect_address', 'data_dir', 'pgpass', 'bin_dir'])
 
         def _get_auth(name):
             ret = {}

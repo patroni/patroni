@@ -58,6 +58,7 @@ class Postgresql(object):
         self.config = config
         self.name = config['name']
         self.scope = config['scope']
+        self._bin_dir = config.get('bin_dir') or ''
         self._database = config.get('database', 'postgres')
         self._data_dir = config['data_dir']
         self._pending_restart = False
@@ -76,6 +77,7 @@ class Postgresql(object):
 
         self._pgpass = config.get('pgpass') or os.path.join(os.path.expanduser('~'), 'pgpass')
         self.callback = config.get('callbacks') or {}
+        self.__cb_called = False
         config_base_name = config.get('config_base_name', 'postgresql')
         self._postgresql_conf = os.path.join(self._data_dir, config_base_name + '.conf')
         self._postgresql_base_conf_name = config_base_name + '.base.conf'
@@ -131,12 +133,16 @@ class Postgresql(object):
         self.connection_string = 'postgres://{0}/{1}'.format(
             self._connect_address or self._local_address['host'] + ':' + self._local_address['port'], self._database)
 
+    def _pgcommand(self, cmd):
+        """Returns path to the specified PostgreSQL command"""
+        return os.path.join(self._bin_dir, cmd)
+
     def pg_ctl(self, cmd, *args, **kwargs):
         """Builds and executes pg_ctl command
 
         :returns: `!True` when return_code == 0, otherwise `!False`"""
 
-        pg_ctl = ['pg_ctl', cmd]
+        pg_ctl = [self._pgcommand('pg_ctl'), cmd]
         if cmd in ('start', 'stop', 'restart'):
             pg_ctl += ['-w']
             timeout = self.config.get('pg_ctl_timeout')
@@ -221,7 +227,7 @@ class Postgresql(object):
         if not (self.config.get('use_pg_rewind') and all(self._superuser.get(n) for n in ('username', 'password'))):
             return False
 
-        cmd = ['pg_rewind', '--help']
+        cmd = [self._pgcommand('pg_rewind'), '--help']
         try:
             ret = subprocess.call(cmd, stdout=open(os.devnull, 'w'), stderr=subprocess.STDOUT)
             if ret != 0:  # pg_rewind is not there, close up the shop and go home
@@ -459,8 +465,15 @@ class Postgresql(object):
         except Exception:
             return False
 
+    @property
+    def cb_called(self):
+        return self.__cb_called
+
     def call_nowait(self, cb_name):
         """ pick a callback command and call it without waiting for it to finish """
+        if cb_name in (ACTION_ON_START, ACTION_ON_STOP, ACTION_ON_RESTART, ACTION_ON_ROLE_CHANGE):
+            self.__cb_called = True
+
         if not self.callback or cb_name not in self.callback:
             return False
         cmd = self.callback[cb_name]
@@ -649,7 +662,10 @@ class Postgresql(object):
         dsn = 'user={user} host={host} port={port} dbname={database} sslmode=prefer sslcompression=1'.format(**r)
         logger.info('running pg_rewind from %s', dsn)
         try:
-            return subprocess.call(['pg_rewind', '-D', self._data_dir, '--source-server', dsn], env=env) == 0
+            return subprocess.call([self._pgcommand('pg_rewind'),
+                                    '-D', self._data_dir,
+                                    '--source-server', dsn,
+                                    ], env=env) == 0
         except OSError:
             return False
 
@@ -659,7 +675,7 @@ class Postgresql(object):
         # Don't try to call pg_controldata during backup restore
         if self._version_file_exists() and self.state != 'creating replica':
             try:
-                data = subprocess.check_output(['pg_controldata', self._data_dir])
+                data = subprocess.check_output([self._pgcommand('pg_controldata'), self._data_dir])
                 if data:
                     data = data.decode('utf-8').splitlines()
                     result = {l.split(':')[0].replace('Current ', '', 1): l.split(':')[1].strip() for l in data if l}
@@ -685,7 +701,7 @@ class Postgresql(object):
 
     def single_user_mode(self, command=None, options=None):
         """ run a given command in a single-user mode. If the command is empty - then just start and stop """
-        cmd = ['postgres', '--single', '-D', self._data_dir]
+        cmd = [self._pgcommand('postgres'), '--single', '-D', self._data_dir]
         for opt, val in sorted((options or {}).items()):
             cmd.extend(['-c', '{0}={1}'.format(opt, val)])
         # need a database name to connect
@@ -788,7 +804,7 @@ class Postgresql(object):
             self._need_rewind = False
         else:
             self.write_recovery_conf(primary_conninfo)
-            ret = self.restart()
+            ret = self.start() if recovery else self.restart()
             self.set_role('replica')
 
         if change_role:
@@ -957,7 +973,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
         ret = 1
         for bbfailures in range(0, maxfailures):
             try:
-                ret = subprocess.call(['pg_basebackup', '--pgdata=' + self._data_dir,
+                ret = subprocess.call([self._pgcommand('pg_basebackup'), '--pgdata=' + self._data_dir,
                                        '--xlog-method=stream', "--dbname=" + conn_url], env=env)
                 if ret == 0:
                     break
