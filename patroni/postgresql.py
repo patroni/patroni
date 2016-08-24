@@ -900,7 +900,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
                 for slot in set(self._replication_slots) - set(slots):
                     self.query("""SELECT pg_drop_replication_slot(%s)
                                    WHERE EXISTS(SELECT 1 FROM pg_replication_slots
-                                   WHERE slot_name = %s)""", slot, slot)
+                                   WHERE slot_name = %s AND NOT active)""", slot, slot)
 
                 # create new slots
                 for slot in set(slots) - set(self._replication_slots):
