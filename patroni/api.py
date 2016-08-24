@@ -387,8 +387,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 'state': self.server.patroni.postgresql.state,
                 'postmaster_start_time': row[0],
                 'role': 'replica' if row[1] else 'master',
-                'server_version': self.server.patroni.postgresql.server_version,
-                'replication': row[7]}
+                'server_version': self.server.patroni.postgresql.server_version}
             if result['role'] == 'replica':
                 result['xlog'] = {
                     'received_location': row[3],
@@ -397,8 +396,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     'paused': row[6]}
             else:
                 result['xlog'] = {'location': row[2]}
-            if not result['replication']:
-                del result['replication']
+            if row[7]:
+                result['replication'] = row[7]
 
             return result
         except (psycopg2.Error, RetryFailedError, PostgresConnectionException):
