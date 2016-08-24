@@ -749,7 +749,7 @@ def touch_member(config, dcs):
 
 def is_paused(cluster):
     """Check if cluster management is paused"""
-    return 'pause' in cluster.config.data and cluster.config.data['pause']
+    return cluster.config and 'pause' in cluster.config.data and cluster.config.data['pause']
 
 
 def set_defaults(config, cluster_name):

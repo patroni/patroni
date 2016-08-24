@@ -393,3 +393,40 @@ class TestCtl(unittest.TestCase):
         with patch.object(requests, 'delete', return_value=MockResponse(404)):
             result = self.runner.invoke(ctl, ['flush', 'dummy', 'restart', '--force'])
             assert 'Failed: flush scheduled restart' in result.output
+
+    @patch('patroni.ctl.get_dcs')
+    def test_disable_cluster(self, mock_get_dcs):
+        mock_get_dcs.return_value = self.e
+        mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
+
+        with patch('requests.patch', Mock(return_value=MockResponse(200))):
+            result = self.runner.invoke(ctl, ['disable', 'dummy'])
+            assert 'Success' in result.output
+
+        with patch('requests.patch', Mock(return_value=MockResponse(500))):
+            result = self.runner.invoke(ctl, ['disable', 'dummy'])
+            assert 'Failed' in result.output
+
+        with patch('requests.patch', Mock(return_value=MockResponse(200))),\
+                patch('patroni.ctl.is_paused', Mock(return_value=True)):
+            result = self.runner.invoke(ctl, ['disable', 'dummy'])
+            assert 'Cluster is already paused' in result.output
+
+    @patch('patroni.ctl.get_dcs')
+    def test_resume_cluster(self, mock_get_dcs):
+        mock_get_dcs.return_value = self.e
+        mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
+
+        with patch('patroni.ctl.is_paused', Mock(return_value=True)):
+            with patch('requests.patch', Mock(return_value=MockResponse(200))):
+                result = self.runner.invoke(ctl, ['resume', 'dummy'])
+                assert 'Success' in result.output
+
+            with patch('requests.patch', Mock(return_value=MockResponse(500))):
+                result = self.runner.invoke(ctl, ['resume', 'dummy'])
+                assert 'Failed' in result.output
+
+            with patch('requests.patch', Mock(return_value=MockResponse(200))),\
+                    patch('patroni.ctl.is_paused', Mock(return_value=False)):
+                result = self.runner.invoke(ctl, ['resume', 'dummy'])
+                assert 'Cluster is not paused' in result.output
