@@ -10,4 +10,3 @@ click>=4.1
 prettytable>=0.7
 tzlocal
 python-dateutil
-coverage

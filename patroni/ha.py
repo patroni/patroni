@@ -535,21 +535,23 @@ class Ha(object):
 
     def pause_action(self):
         if not self.state_handler.is_healthy():
-            return "Postgresql is not running"
+            return "Postgresql is not running. No action due to paused state"
 
-        if not (self.state_handler.is_leader() or self.state_handler.role == 'master'):
-            return "I'm secondary"
+        if not self.state_handler.is_leader():
+            if self.has_lock():
+                self.dcs.delete_leader()
+            return "I'm secondary. No action due to paused state"
 
         if self.has_lock():
             if not self.update_lock():
                 # Either there is no connection to DCS or someone else acquired the lock
                 logger.error('failed to update leader lock')
                 self.load_cluster_from_dcs()
-        else:
+            return "I'm the leader. Updating leader key"
+        elif self.cluster.is_unlocked():
             if not self.acquire_lock():
-                raise Exception("Someone already acquired the lock")
-
-        return "I'm the leader"
+                return "Can't acquire the lock. No action due to paused state"
+            return "Cluster has no leader. Acquiring leader key"
 
     def _run_cycle(self):
         try:
@@ -568,7 +570,7 @@ class Ha(object):
                 return self.handle_long_action_in_progress()
 
             if self.is_paused():
-                return self.pause_action() + ". No action due to paused state"
+                return self.pause_action()
 
             # we've got here, so any async action has finished. Check if we tried to recover and failed
             if self.recovering:
