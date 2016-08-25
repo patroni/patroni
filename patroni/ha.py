@@ -540,6 +540,7 @@ class Ha(object):
         if not self.state_handler.is_leader():
             if self.has_lock():
                 self.dcs.delete_leader()
+                return "I'm the lock owner and secondary. Deleting the leader key."
             return "I'm secondary. No action due to paused state"
 
         if self.has_lock():
@@ -547,11 +548,13 @@ class Ha(object):
                 # Either there is no connection to DCS or someone else acquired the lock
                 logger.error('failed to update leader lock')
                 self.load_cluster_from_dcs()
-            return "I'm the leader. Updating leader key"
+            return "I'm the leader. Updating the leader key"
         elif self.cluster.is_unlocked():
             if not self.acquire_lock():
                 return "Can't acquire the lock. No action due to paused state"
-            return "Cluster has no leader. Acquiring leader key"
+            return "Cluster has no lock. Acquiring leader key"
+        else:
+            return "I'm not the lock owner. No action due to paused state"
 
     def _run_cycle(self):
         try:
