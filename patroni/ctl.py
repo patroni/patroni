@@ -753,7 +753,7 @@ def is_paused(cluster):
 
 
 def set_defaults(config, cluster_name):
-    '''fill-in some basic configuration parameters if config file is not set '''
+    ''' fill-in some basic configuration parameters if config file is not set '''
     config['postgresql'].setdefault('name', cluster_name)
     config['postgresql'].setdefault('scope', cluster_name)
     config['postgresql'].setdefault('listen', '127.0.0.1')
