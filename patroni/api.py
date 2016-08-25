@@ -383,19 +383,21 @@ class RestApiHandler(BaseHTTPRequestHandler):
                                        to_char(pg_last_xact_replay_timestamp(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),
                                        pg_is_in_recovery() AND pg_is_xlog_replay_paused(),
                                        (SELECT json_agg(row_to_json(ri)) FROM replication_info ri)""", retry=retry)[0]
+
             result = {
                 'state': self.server.patroni.postgresql.state,
                 'postmaster_start_time': row[0],
                 'role': 'replica' if row[1] else 'master',
-                'server_version': self.server.patroni.postgresql.server_version}
-            if result['role'] == 'replica':
-                result['xlog'] = {
+                'server_version': self.server.patroni.postgresql.server_version,
+                'xlog': ({
                     'received_location': row[3],
                     'replayed_location': row[4],
                     'replayed_timestamp': row[5],
-                    'paused': row[6]}
-            else:
-                result['xlog'] = {'location': row[2]}
+                    'paused': row[6]} if row[1] else {
+                    'location': row[2]
+                })
+            }
+
             if row[7]:
                 result['replication'] = row[7]
 
