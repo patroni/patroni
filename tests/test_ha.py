@@ -451,3 +451,10 @@ class TestHa(unittest.TestCase):
         self.p._pending_restart = False
         self.assertFalse(self.ha.restart_matches("replica", "9.5.2", True))
         self.assertTrue(self.ha.restart_matches("replica", "9.5.2", False))
+
+    def test_disable(self):
+        self.ha.is_paused = Mock(return_value=True)
+        self.assertEquals(self.ha.run_cycle(), "Cluster has no leader. Acquiring leader key")
+
+        self.p.is_running = false
+        self.assertEquals(self.ha.run_cycle(), "Postgresql is not running. No action due to paused state")

@@ -401,6 +401,7 @@ class TestCtl(unittest.TestCase):
 
         with patch('requests.patch', Mock(return_value=MockResponse(200))):
             result = self.runner.invoke(ctl, ['disable', 'dummy'])
+            print(result.output)
             assert 'Success' in result.output
 
         with patch('requests.patch', Mock(return_value=MockResponse(500))):
