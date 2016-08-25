@@ -535,6 +535,9 @@ class Ha(object):
 
     def pause_action(self):
         if not self.state_handler.is_healthy():
+            if self.has_lock():
+                self.dcs.delete_leader()
+                return "Postgresql is not running. Deleting the leader key"
             return "Postgresql is not running. No action due to paused state"
 
         if not self.state_handler.is_leader():
