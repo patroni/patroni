@@ -285,7 +285,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         return 503, 'Failover status unknown'
 
     def is_failover_possible(self, cluster, leader, candidate):
-        if leader and not cluster.leader or cluster.leader.name != leader:
+        if leader and (not cluster.leader or cluster.leader.name != leader):
             return 'leader name does not match'
         if candidate:
             members = [m for m in cluster.members if m.name == candidate]
