@@ -503,6 +503,12 @@ class Postgresql(object):
             self._state = value
 
     def start(self, block_callbacks=False):
+        # make sure we close all connections established against
+        # the former node, otherwise, we might get a stalled one
+        # after kill -9, which would report incorrect data to
+        # patroni.
+        self.close_connection()
+
         if self.is_running():
             logger.error('Cannot start PostgreSQL because one is already running.')
             return True
@@ -559,12 +565,6 @@ class Postgresql(object):
             return 'not accessible or not healty'
 
     def stop(self, mode='fast', block_callbacks=False, checkpoint=True):
-        # make sure we close all connections established against
-        # the former node, otherwise, we might get a stalled one
-        # after kill -9, which would report incorrect data to
-        # patroni.
-
-        self.close_connection()
         if not self.is_running():
             if not block_callbacks:
                 self.set_state('stopped')
