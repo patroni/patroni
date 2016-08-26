@@ -27,8 +27,7 @@ class Ha(object):
         self._async_executor = AsyncExecutor()
 
     def is_paused(self):
-        return self.cluster and self.cluster.config and 'pause' in self.cluster.config.data \
-               and self.cluster.config.data['pause']
+        return self.cluster and self.cluster.config and self.cluster.config.data.get('pause', False)
 
     def load_cluster_from_dcs(self):
         cluster = self.dcs.get_cluster()
@@ -142,9 +141,16 @@ class Ha(object):
         if recovery:
             ret = demote_reason if self.has_lock() else follow_reason
         else:
-            ret = demote_reason if self.state_handler.is_leader() else follow_reason
+            is_leader = self.state_handler.is_leader()
+            ret = demote_reason if is_leader else follow_reason
 
         node_to_follow = self._get_node_to_follow(self.cluster)
+
+        if self.is_paused():
+            if is_leader:
+                return 'continue to run as master without lock'
+            elif not node_to_follow:
+                return 'no action'
 
         self.state_handler.follow(node_to_follow, self.cluster.leader, recovery, self._async_executor)
 
@@ -227,6 +233,8 @@ class Ha(object):
         if failover.candidate:  # manual failover to specific member
             if failover.candidate == self.state_handler.name:  # manual failover to me
                 return True
+            elif self.is_paused():
+                return False
 
             # find specific node and check that it is healthy
             member = self.cluster.get_member(failover.candidate, fallback_to_leader=False)
@@ -243,6 +251,8 @@ class Ha(object):
 
             # at this point we should consider all members as a candidates for failover
             # i.e. we assume that failover.candidate is None
+        elif self.is_paused():
+            return False
 
         # try to pick some other members to failover and check that they are healthy
         if failover.leader:
@@ -261,8 +271,14 @@ class Ha(object):
         return self._is_healthiest_node(members, check_replication_lag=False)
 
     def is_healthiest_node(self):
+        if self.is_paused() and self.cluster.failover and not self.cluster.failover.scheduled_at:
+            return self.manual_failover_process_no_leader()
+
         if self.state_handler.is_leader():  # leader is always the healthiest
             return True
+
+        if self.is_paused():
+            return False
 
         if self.patroni.nofailover:  # nofailover tag makes node always unhealthy
             return False
@@ -323,28 +339,35 @@ class Ha(object):
     def process_manual_failover_from_leader(self):
         failover = self.cluster.failover
 
+        if failover.scheduled_at and self.is_paused():
+            return
+
         if (failover.scheduled_at and not
             self.should_run_scheduled_action("failover", failover.scheduled_at, lambda:
-                                             self.dcs.manual_failover('', '', index=self.cluster.failover.index))):
+                                             self.dcs.manual_failover('', '', index=failover.index))):
             return
 
         if not failover.leader or failover.leader == self.state_handler.name:
             if not failover.candidate or failover.candidate != self.state_handler.name:
-                members = [m for m in self.cluster.members if not failover.candidate or m.name == failover.candidate]
-                if self.is_failover_possible(members):  # check that there are healthy members
-                    self._async_executor.schedule('manual failover: demote')
-                    self._async_executor.run_async(self.demote)
-                    return 'manual failover: demoting myself'
+                if not failover.candidate and self.is_paused():
+                    logger.warning('Failover is possible only to a specific candidate in a paused state')
                 else:
-                    logger.warning('manual failover: no healthy members found, failover is not possible')
+                    members = [m for m in self.cluster.members
+                               if not failover.candidate or m.name == failover.candidate]
+                    if self.is_failover_possible(members):  # check that there are healthy members
+                        self._async_executor.schedule('manual failover: demote')
+                        self._async_executor.run_async(self.demote)
+                        return 'manual failover: demoting myself'
+                    else:
+                        logger.warning('manual failover: no healthy members found, failover is not possible')
             else:
                 logger.warning('manual failover: I am already the leader, no need to failover')
         else:
             logger.warning('manual failover: leader name does not match: %s != %s',
-                           self.cluster.failover.leader, self.state_handler.name)
+                           failover.leader, self.state_handler.name)
 
         logger.info('Trying to clean up failover key')
-        self.dcs.manual_failover('', '', index=self.cluster.failover.index)
+        self.dcs.manual_failover('', '', index=failover.index)
 
     def process_unhealthy_cluster(self):
         """Cluster has no leader key"""
@@ -363,7 +386,7 @@ class Ha(object):
             if self.patroni.nofailover:
                 return self.follow('demoting self because I am not allowed to become master',
                                    'following a different leader because I am not allowed to promote')
-            return self.follow('demoting self because i am not the healthiest node',
+            return self.follow('demoting self because i am not the healthiest node',  # should not happen in real life
                                'following a different leader because i am not the healthiest node')
 
     def process_healthy_cluster(self):
@@ -372,6 +395,11 @@ class Ha(object):
                 msg = self.process_manual_failover_from_leader()
                 if msg is not None:
                     return msg
+
+            if self.is_paused() and not self.state_handler.is_leader():
+                self.dcs.delete_leader()
+                self.dcs.reset_cluster()
+                return 'removed leader lock because postgres is not running as master'
 
             if self.update_lock():
                 return self.enforce_master_role('no action.  i am the leader with the lock',
@@ -386,6 +414,8 @@ class Ha(object):
                            'no action.  i am a secondary and i am following a leader', False)
 
     def evaluate_scheduled_restart(self):
+        if self.is_paused():
+            return None
         # restart if we need to
         restart_data = self.future_restart_scheduled()
         if restart_data:
@@ -496,7 +526,10 @@ class Ha(object):
 
     def process_scheduled_action(self):
         if self.reinitialize_scheduled():
-            if self.cluster.is_unlocked():
+            if self.is_paused():
+                logger.warning('Cluster is in a pause state, can not reinitialize')
+                self._async_executor.reset_scheduled_action()
+            elif self.cluster.is_unlocked():
                 logger.error('Cluster has no leader, can not reinitialize')
                 self._async_executor.reset_scheduled_action()
             elif self.has_lock():
@@ -533,26 +566,6 @@ class Ha(object):
             return 'failed to start postgres'
         return None
 
-    def pause_action(self):
-        if not self.state_handler.is_healthy():
-            return "Postgresql is not running. No action due to paused state"
-
-        if not self.state_handler.is_leader():
-            if self.has_lock():
-                self.dcs.delete_leader()
-            return "I'm secondary. No action due to paused state"
-
-        if self.has_lock():
-            if not self.update_lock():
-                # Either there is no connection to DCS or someone else acquired the lock
-                logger.error('failed to update leader lock')
-                self.load_cluster_from_dcs()
-            return "I'm the leader. Updating leader key"
-        elif self.cluster.is_unlocked():
-            if not self.acquire_lock():
-                return "Can't acquire the lock. No action due to paused state"
-            return "Cluster has no leader. Acquiring leader key"
-
     def _run_cycle(self):
         try:
             self.load_cluster_from_dcs()
@@ -568,9 +581,6 @@ class Ha(object):
 
             if self._async_executor.busy:
                 return self.handle_long_action_in_progress()
-
-            if self.is_paused():
-                return self.pause_action()
 
             # we've got here, so any async action has finished. Check if we tried to recover and failed
             if self.recovering:
@@ -588,7 +598,7 @@ class Ha(object):
             if self.state_handler.data_directory_empty():
                 return self.bootstrap()  # new node
             # "bootstrap", but data directory is not empty
-            elif not self.sysid_valid(self.cluster.initialize) and self.cluster.is_unlocked():
+            elif not self.sysid_valid(self.cluster.initialize) and self.cluster.is_unlocked() and not self.is_paused():
                 self.dcs.initialize(create_new=(self.cluster.initialize is None), sysid=self.state_handler.sysid)
             else:
                 # check if we are allowed to join
@@ -599,6 +609,13 @@ class Ha(object):
 
             # try to start dead postgres
             if not self.state_handler.is_healthy():
+                if self.is_paused():
+                    if self.has_lock():
+                        self.dcs.delete_leader()
+                        self.dcs.reset_cluster()
+                        return 'removed leader lock because postgres is not running'
+                    else:
+                        return 'postgres is not running'
                 msg = self.recover()
                 if msg is not None:
                     return msg
@@ -621,12 +638,13 @@ class Ha(object):
                     self.state_handler.sync_replication_slots(self.cluster)
         except DCSError:
             logger.error('Error communicating with DCS')
-            if self.state_handler.is_running() and self.state_handler.is_leader():
+            if not self.is_paused() and self.state_handler.is_running() and self.state_handler.is_leader():
                 self.demote(delete_leader=False)
                 return 'demoted self because DCS is not accessible and i was a leader'
+            return 'DCS is not accessible'
         except (psycopg2.Error, PostgresConnectionException):
             logger.exception('Error communicating with PostgreSQL. Will try again later')
 
     def run_cycle(self):
         with self._async_executor:
-            return self._run_cycle()
+            return (self.is_paused() and 'PAUSE: ' or '') + self._run_cycle()

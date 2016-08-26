@@ -166,6 +166,9 @@ class TestHa(unittest.TestCase):
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.assertEquals(self.ha.run_cycle(), 'starting as readonly because i had the session lock')
 
+    def test_do_not_recover_in_pause(self):
+        pass
+
     @patch('sys.exit', return_value=1)
     @patch('patroni.ha.Ha.sysid_valid', MagicMock(return_value=True))
     def test_sysid_no_match(self, exit_mock):
@@ -234,6 +237,13 @@ class TestHa(unittest.TestCase):
         self.ha.patroni.replicatefrom = "foo"
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am a secondary and i am following a leader')
 
+    def test_follow_in_pause(self):
+        self.ha.cluster.is_unlocked = false
+        self.ha.is_paused = true
+        self.assertEquals(self.ha.run_cycle(), 'PAUSE: continue to run as master without lock')
+        self.p.is_leader = false
+        self.assertEquals(self.ha.run_cycle(), 'PAUSE: no action')
+
     def test_no_etcd_connection_master_demote(self):
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
         self.assertEquals(self.ha.run_cycle(), 'demoted self because DCS is not accessible and i was a leader')
@@ -271,6 +281,11 @@ class TestHa(unittest.TestCase):
         self.ha.schedule_reinitialize()
         self.ha.run_cycle()
         self.assertIsNone(self.ha._async_executor.scheduled_action)
+
+        with patch.object(Ha, 'is_paused', true):
+            self.ha.schedule_reinitialize()
+            self.ha.run_cycle()
+            self.assertIsNone(self.ha._async_executor.scheduled_action)
 
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.ha.has_lock = true
@@ -346,6 +361,16 @@ class TestHa(unittest.TestCase):
         self.assertEquals('no action.  i am the leader with the lock', self.ha.run_cycle())
 
     @patch('requests.get', requests_get)
+    def test_manual_failover_from_leader_in_pause(self):
+        self.ha.has_lock = true
+        self.ha.is_paused = true
+        scheduled = datetime.datetime.now()
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', self.p.name, scheduled))
+        self.assertEquals('PAUSE: no action.  i am the leader with the lock', self.ha.run_cycle())
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, self.p.name, '', None))
+        self.assertEquals('PAUSE: no action.  i am the leader with the lock', self.ha.run_cycle())
+
+    @patch('requests.get', requests_get)
     def test_manual_failover_process_no_leader(self):
         self.p.is_leader = false
         self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', self.p.name, None))
@@ -370,11 +395,20 @@ class TestHa(unittest.TestCase):
         self.ha.patroni.nofailover = True
         self.assertEquals(self.ha.run_cycle(), 'following a different leader because I am not allowed to promote')
 
+    def test_manual_failover_process_no_leader_in_pause(self):
+        self.ha.is_paused = true
+        self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', 'other', None))
+        self.assertEquals(self.ha.run_cycle(), 'PAUSE: continue to run as master without lock')
+        self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, 'leader', '', None))
+        self.assertEquals(self.ha.run_cycle(), 'PAUSE: continue to run as master without lock')
+
     def test_is_healthiest_node(self):
         self.ha.state_handler.is_leader = false
         self.ha.patroni.nofailover = False
         self.ha.fetch_node_status = lambda e: (e, True, True, 0, {})
         self.assertTrue(self.ha.is_healthiest_node())
+        self.ha.is_paused = true
+        self.assertFalse(self.ha.is_healthiest_node())
 
     def test__is_healthiest_node(self):
         self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
@@ -451,3 +485,17 @@ class TestHa(unittest.TestCase):
         self.p._pending_restart = False
         self.assertFalse(self.ha.restart_matches("replica", "9.5.2", True))
         self.assertTrue(self.ha.restart_matches("replica", "9.5.2", False))
+
+    def test_process_healthy_cluster_in_pause(self):
+        self.p.is_leader = false
+        self.ha.is_paused = true
+        self.p.name = 'leader'
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.assertEquals(self.ha.run_cycle(), 'PAUSE: removed leader lock because postgres is not running as master')
+
+    def test_postgres_unhealthy_in_pause(self):
+        self.ha.is_paused = true
+        self.p.is_healthy = false
+        self.assertEquals(self.ha.run_cycle(), 'PAUSE: postgres is not running')
+        self.ha.has_lock = true
+        self.assertEquals(self.ha.run_cycle(), 'PAUSE: removed leader lock because postgres is not running')
