@@ -843,4 +843,3 @@ def resume(config_file, cluster_name, dcs):
         click.echo('Failed: resume cluster management, status code={0}, ({1})'.format(r.status_code, r.text))
 
     return
-
