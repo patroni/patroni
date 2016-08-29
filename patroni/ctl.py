@@ -565,7 +565,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
         else:
             master = click.prompt('Master', type=str, default=cluster.leader.member.name)
 
-    if master is None or not cluster.leader or cluster.leader.member.name != master:
+    if master is not None and cluster.leader and cluster.leader.member.name != master:
         raise PatroniCtlException('Member {0} is not the leader of cluster {1}'.format(master, cluster_name))
 
     candidate_names = [str(m.name) for m in cluster.members if m.name != master]
