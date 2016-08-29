@@ -33,7 +33,7 @@ def slot_name_from_member_name(member_name):
 
     def replace_char(match):
         c = match.group(0)
-        return '_' if c in '-.' else "u%04d" % ord(c)
+        return '_' if c in '-.' else "u{:04d}".format(ord(c))
 
     slot_name = re.sub('[^a-z0-9_]', replace_char, member_name.lower())
     return slot_name[0:64]
@@ -922,7 +922,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
                     for name in slot_members:
                         slot_conflicts[slot_name_from_member_name(name)].append(name)
                     logger.error("Following cluster members share a replication slot name: %s",
-                                 "; ".join("%s map to %s" % (", ".join(v), k)
+                                 "; ".join("{} map to {}".format(", ".join(v), k)
                                            for k, v in slot_conflicts.items() if len(v) > 1))
 
                 # drop unused slots

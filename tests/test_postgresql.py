@@ -327,7 +327,8 @@ class TestPostgresql(unittest.TestCase):
             cluster.members.extend([alias1, alias2])
             self.p.sync_replication_slots(cluster)
             errorlog_mock.assert_called_once()
-            assert "test-3" in errorlog_mock.call_args[0][1] and "test.3" in errorlog_mock.call_args[0][1]
+            assert "test-3" in errorlog_mock.call_args[0][1]
+            assert "test.3" in errorlog_mock.call_args[0][1]
 
     @patch.object(MockConnect, 'closed', 2)
     def test__query(self):
