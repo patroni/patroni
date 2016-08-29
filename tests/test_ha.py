@@ -499,3 +499,8 @@ class TestHa(unittest.TestCase):
         self.assertEquals(self.ha.run_cycle(), 'PAUSE: postgres is not running')
         self.ha.has_lock = true
         self.assertEquals(self.ha.run_cycle(), 'PAUSE: removed leader lock because postgres is not running')
+
+    def test_no_etcd_connection_in_pause(self):
+        self.ha.is_paused = true
+        self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
+        self.assertEquals(self.ha.run_cycle(), 'PAUSE: DCS is not accessible')

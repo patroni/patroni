@@ -40,6 +40,10 @@ class MockHa(object):
     state_handler = MockPostgresql()
 
     @staticmethod
+    def is_paused():
+        return False
+
+    @staticmethod
     def schedule_reinitialize():
         return 'reinitialize'
 
@@ -221,11 +225,18 @@ class TestRestApiHandler(unittest.TestCase):
                 request = make_request(role='master', postgres_version='9.5.2')
                 MockRestApiServer(RestApiHandler, request)
 
+        with patch.object(MockHa, 'is_paused', Mock(return_value=True)):
+            request = make_request(schedule='2016-08-42 12:45TZ+1', role='master')
+            MockRestApiServer(RestApiHandler, request)
+
     def test_do_DELETE_restart(self):
         for retval in (True, False):
             with patch.object(MockHa, 'delete_future_restart', Mock(return_value=retval)):
                 request = 'DELETE /restart HTTP/1.0' + self._authorization
                 self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
+                with patch.object(MockHa, 'is_paused', Mock(return_value=True)):
+                    request = 'DELETE /restart HTTP/1.0' + self._authorization
+                    self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
 
     @patch.object(MockPatroni, 'dcs')
     def test_do_POST_reinitialize(self, dcs):
@@ -238,6 +249,9 @@ class TestRestApiHandler(unittest.TestCase):
             MockRestApiServer(RestApiHandler, request)
         cluster.leader.name = 'test'
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
+
+        with patch.object(MockHa, 'is_paused', Mock(return_value=True)):
+            self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
 
     @patch('time.sleep', Mock())
     def test_RestApiServer_query(self):
@@ -304,6 +318,9 @@ class TestRestApiHandler(unittest.TestCase):
         MockRestApiServer(RestApiHandler, request)
         with patch.object(MockPatroni, 'dcs') as d:
             d.manual_failover.return_value = False
+            MockRestApiServer(RestApiHandler, request)
+
+        with patch.object(MockHa, 'is_paused', Mock(return_value=True)):
             MockRestApiServer(RestApiHandler, request)
 
         # Exception: No timezone specified
