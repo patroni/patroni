@@ -271,7 +271,8 @@ class Ha(object):
         return self._is_healthiest_node(members, check_replication_lag=False)
 
     def is_healthiest_node(self):
-        if self.is_paused() and self.cluster.failover and not self.cluster.failover.scheduled_at:
+        if self.is_paused() and not self.patroni.nofailover and \
+                self.cluster.failover and not self.cluster.failover.scheduled_at:
             return self.manual_failover_process_no_leader()
 
         if self.state_handler.is_leader():  # leader is always the healthiest
@@ -305,7 +306,7 @@ class Ha(object):
             self.state_handler.follow(None, None)
 
     def should_run_scheduled_action(self, action_name, scheduled_at, cleanup_fn):
-        if scheduled_at:
+        if scheduled_at and not self.is_paused():
             # If the scheduled action is in the far future, we shouldn't do anything and just return.
             # If the scheduled action is in the past, we consider the value to be stale and we remove
             # the value.
@@ -338,9 +339,6 @@ class Ha(object):
 
     def process_manual_failover_from_leader(self):
         failover = self.cluster.failover
-
-        if failover.scheduled_at and self.is_paused():
-            return
 
         if (failover.scheduled_at and not
             self.should_run_scheduled_action("failover", failover.scheduled_at, lambda:
@@ -414,8 +412,6 @@ class Ha(object):
                            'no action.  i am a secondary and i am following a leader', False)
 
     def evaluate_scheduled_restart(self):
-        if self.is_paused():
-            return None
         # restart if we need to
         restart_data = self.future_restart_scheduled()
         if restart_data:
