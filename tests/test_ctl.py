@@ -82,6 +82,11 @@ class TestCtl(unittest.TestCase):
         result = self.runner.invoke(ctl, ['failover', 'dummy'], input='leader\nother\n2030-01-01T12:23:00\ny')
         assert result.exit_code == 0
 
+        with patch('patroni.dcs.Cluster.is_paused', Mock(return_value=True)):
+            result = self.runner.invoke(ctl,
+                                        ['failover', 'dummy', '--force', '--scheduled', '2015-01-01T12:00:00+01:00'])
+            assert result.exit_code == 1
+
         # Aborting failover,as we anser NO to the confirmation
         result = self.runner.invoke(ctl, ['failover', 'dummy'], input='leader\nother\n\nN')
         assert result.exit_code == 1
@@ -400,21 +405,21 @@ class TestCtl(unittest.TestCase):
             assert 'Failed: flush scheduled restart' in result.output
 
     @patch('patroni.ctl.get_dcs')
-    def test_disable_cluster(self, mock_get_dcs):
+    def test_pause_cluster(self, mock_get_dcs):
         mock_get_dcs.return_value = self.e
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
 
         with patch('requests.patch', Mock(return_value=MockResponse(200))):
-            result = self.runner.invoke(ctl, ['disable', 'dummy'])
+            result = self.runner.invoke(ctl, ['pause', 'dummy'])
             assert 'Success' in result.output
 
         with patch('requests.patch', Mock(return_value=MockResponse(500))):
-            result = self.runner.invoke(ctl, ['disable', 'dummy'])
+            result = self.runner.invoke(ctl, ['pause', 'dummy'])
             assert 'Failed' in result.output
 
         with patch('requests.patch', Mock(return_value=MockResponse(200))),\
                 patch('patroni.dcs.Cluster.is_paused', Mock(return_value=True)):
-            result = self.runner.invoke(ctl, ['disable', 'dummy'])
+            result = self.runner.invoke(ctl, ['pause', 'dummy'])
             assert 'Cluster is already paused' in result.output
 
     @patch('patroni.ctl.get_dcs')
