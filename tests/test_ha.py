@@ -277,31 +277,24 @@ class TestHa(unittest.TestCase):
         self.assertRaises(PostgresException, self.ha.bootstrap)
 
     def test_reinitialize(self):
-        self.ha.schedule_reinitialize()
-        self.ha.schedule_reinitialize()
-        self.ha.run_cycle()
+        self.assertIsNotNone(self.ha.reinitialize())
         self.assertIsNone(self.ha._async_executor.scheduled_action)
-
-        with patch.object(Ha, 'is_paused', true):
-            self.ha.schedule_reinitialize()
-            self.ha.run_cycle()
-            self.assertIsNone(self.ha._async_executor.scheduled_action)
 
         self.ha.cluster = get_cluster_initialized_with_leader()
-        self.ha.has_lock = true
-        self.ha.schedule_reinitialize()
-        self.ha.run_cycle()
-        self.assertIsNone(self.ha._async_executor.scheduled_action)
+        self.assertIsNone(self.ha.reinitialize())
+        self.assertIsNotNone(self.ha._async_executor.scheduled_action)
 
-        self.ha.has_lock = false
-        self.ha.schedule_reinitialize()
-        self.ha.run_cycle()
+        self.assertIsNotNone(self.ha.reinitialize())
+
+        self.ha.state_handler.name = self.ha.cluster.leader.name
+        self.assertIsNotNone(self.ha.reinitialize())
 
     def test_restart(self):
         self.assertEquals(self.ha.restart(), (True, 'restarted successfully'))
         self.p.restart = false
         self.assertEquals(self.ha.restart(), (False, 'restart failed'))
-        self.ha.schedule_reinitialize()
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.ha.reinitialize()
         self.assertEquals(self.ha.restart(), (False, 'reinitialize already in progress'))
         with patch.object(self.ha, "restart_matches", return_value=False):
             self.assertEquals(self.ha.restart({'foo': 'bar'}), (False, "restart conditions are not satisfied"))

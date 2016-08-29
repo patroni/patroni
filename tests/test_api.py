@@ -40,7 +40,7 @@ class MockHa(object):
     state_handler = MockPostgresql()
 
     @staticmethod
-    def schedule_reinitialize():
+    def reinitialize():
         return 'reinitialize'
 
     @staticmethod
@@ -238,15 +238,8 @@ class TestRestApiHandler(unittest.TestCase):
         cluster.is_paused.return_value = False
         request = 'POST /reinitialize HTTP/1.0' + self._authorization
         MockRestApiServer(RestApiHandler, request)
-        cluster.is_unlocked.return_value = False
-        MockRestApiServer(RestApiHandler, request)
-        with patch.object(MockHa, 'schedule_reinitialize', Mock(return_value=None)):
+        with patch.object(MockHa, 'reinitialize', Mock(return_value=None)):
             MockRestApiServer(RestApiHandler, request)
-        cluster.leader.name = 'test'
-        self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
-
-        cluster.is_paused.return_value = True
-        self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
 
     @patch('time.sleep', Mock())
     def test_RestApiServer_query(self):

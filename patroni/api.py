@@ -255,27 +255,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     @check_auth
     def do_POST_reinitialize(self):
-        patroni = self.server.patroni
-        cluster = patroni.dcs.get_cluster()
-        status_code = 500
-        if cluster.is_paused():
-            self._write_response(status_code, "Can't do reinitialize in the paused state")
-            return
-
-        if cluster.is_unlocked():
-            status_code = 503
-            data = 'Cluster has no leader, can not reinitialize'
-        elif cluster.leader.name == patroni.ha.state_handler.name:
-            status_code = 503
-            data = 'I am the leader, can not reinitialize'
+        data = self.server.patroni.ha.reinitialize()
+        if data is None:
+            status_code = 200
+            data = 'reinitialize started'
         else:
-            action = patroni.ha.schedule_reinitialize()
-            if action is not None:
-                status_code = 503
-                data = action + ' already in progress'
-            else:
-                status_code = 200
-                data = 'reinitialize scheduled'
+            status_code = 503
         self._write_response(status_code, data)
 
     def poll_failover_result(self, leader, candidate):

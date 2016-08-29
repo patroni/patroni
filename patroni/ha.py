@@ -454,10 +454,6 @@ class Ha(object):
             logger.info("not proceeding with the restart: %s", reason_to_cancel)
         return False
 
-    def schedule(self, action, immediate=False):
-        with self._async_executor:
-            return self._async_executor.schedule(action, immediate)
-
     def schedule_future_restart(self, restart_data):
         with self._async_executor:
             if not self.patroni.scheduled_restart:
@@ -479,15 +475,6 @@ class Ha(object):
         return self.patroni.scheduled_restart.copy() if (self.patroni.scheduled_restart and
                                                          isinstance(self.patroni.scheduled_restart, dict)) else None
 
-    def schedule_reinitialize(self):
-        return self.schedule('reinitialize')
-
-    def reinitialize_scheduled(self):
-        return self._async_executor.scheduled_action == 'reinitialize'
-
-    def schedule_restart(self, immediate=False):
-        return self.schedule('restart', immediate)
-
     def restart_scheduled(self):
         return self._async_executor.scheduled_action == 'restart'
 
@@ -500,7 +487,7 @@ class Ha(object):
             return (False, "restart conditions are not satisfied")
 
         with self._async_executor:
-            prev = self.schedule_restart(immediate=(not run_async))
+            prev = self._async_executor.schedule('restart', not run_async)
             if prev is not None:
                 return (False, prev + ' already in progress')
             if not run_async:
@@ -512,28 +499,29 @@ class Ha(object):
                 self._async_executor.run_async(self.state_handler.restart)
                 return (True, "restart initiated")
 
-    def reinitialize(self, cluster):
+    def _do_reinitialize(self, cluster):
         self.state_handler.stop('immediate')
         self.state_handler.remove_data_directory()
 
-        clone_member = cluster.get_clone_member()
-        member_role = 'leader' if clone_member == cluster.leader else 'replica'
+        clone_member = self.cluster.get_clone_member()
+        member_role = 'leader' if clone_member == self.cluster.leader else 'replica'
         self.clone(clone_member, "from {0} '{1}'".format(member_role, clone_member.name))
 
-    def process_scheduled_action(self):
-        if self.reinitialize_scheduled():
-            if self.is_paused():
-                logger.warning('Cluster is in a pause state, can not reinitialize')
-                self._async_executor.reset_scheduled_action()
-            elif self.cluster.is_unlocked():
-                logger.error('Cluster has no leader, can not reinitialize')
-                self._async_executor.reset_scheduled_action()
-            elif self.has_lock():
-                logger.error('I am the leader, can not reinitialize')
-                self._async_executor.reset_scheduled_action()
-            else:
-                self._async_executor.run_async(self.reinitialize, args=(self.cluster, ))
-                return 'reinitialize started'
+    def reinitialize(self):
+        with self._async_executor:
+            self.load_cluster_from_dcs()
+
+            if self.cluster.is_unlocked():
+                return 'Cluster has no leader, can not reinitialize'
+
+            if self.cluster.leader.name == self.state_handler.name:
+                return 'I am the leader, can not reinitialize'
+
+            action = self._async_executor.schedule('reinitialize', immediately=True)
+            if action is not None:
+                return '{0} already in progress'.format(action)
+
+            self._async_executor.run_async(self._do_reinitialize, args=(self.cluster, ))
 
     def handle_long_action_in_progress(self):
         if self.has_lock():
@@ -584,11 +572,6 @@ class Ha(object):
                 msg = self.post_recover()
                 if msg is not None:
                     return msg
-
-            # currently it can trigger only reinitialize
-            msg = self.process_scheduled_action()
-            if msg is not None:
-                return msg
 
             # is data directory empty?
             if self.state_handler.data_directory_empty():
