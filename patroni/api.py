@@ -194,13 +194,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
         status_code = 500
         data = 'restart failed'
         request = self._read_json_content(body_is_optional=True)
+        cluster = self.server.patroni.dcs.get_cluster()
         if request is None:
             # failed to parse the json
             return
         if request:
             logger.debug("received restart request: {0}".format(request))
 
-        if self.server.patroni.ha.is_paused() and 'schedule' in request and self:
+        if cluster.is_paused() and 'schedule' in request:
             self._write_response(status_code, "Can't schedule restart in the paused state")
             return
 
@@ -244,16 +245,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     @check_auth
     def do_DELETE_restart(self):
-        if self.server.patroni.ha.is_paused():
-            data = "Can't delete scheduled restart in the paused state"
-            code = 500
+        if self.server.patroni.ha.delete_future_restart():
+            data = "scheduled restart deleted"
+            code = 200
         else:
-            if self.server.patroni.ha.delete_future_restart():
-                data = "scheduled restart deleted"
-                code = 200
-            else:
-                data = "no restarts are scheduled"
-                code = 404
+            data = "no restarts are scheduled"
+            code = 404
         self._write_response(code, data)
 
     @check_auth
@@ -261,7 +258,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         patroni = self.server.patroni
         cluster = patroni.dcs.get_cluster()
         status_code = 500
-        if self.server.patroni.ha.is_paused():
+        if cluster.is_paused():
             self._write_response(status_code, "Can't do reinitialize in the paused state")
             return
 
@@ -324,10 +321,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
         leader = request.get('leader')
         candidate = request.get('candidate') or request.get('member')
         scheduled_at = request.get('scheduled_at')
-        if scheduled_at and self.server.patroni.ha.is_paused():
-            self._write_response(status_code, "Can't schedule failover in the paused state")
-
         cluster = self.server.patroni.dcs.get_cluster()
+
+        if scheduled_at and cluster.is_paused():
+            self._write_response(status_code, "Can't schedule failover in the paused state")
 
         logger.info("received failover request with leader=%s candidate=%s scheduled_at=%s",
                     leader, candidate, scheduled_at)

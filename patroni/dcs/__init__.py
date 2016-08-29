@@ -228,6 +228,9 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
         candidates = [m for m in self.members if m.clonefrom and (not self.leader or m.name != self.leader.name)]
         return candidates[randint(0, len(candidates) - 1)] if candidates else self.leader
 
+    def is_paused(self):
+        return self.config and self.config.data.get('pause', False)
+
 
 @six.add_metaclass(abc.ABCMeta)
 class AbstractDCS(object):

@@ -234,9 +234,6 @@ class TestRestApiHandler(unittest.TestCase):
             with patch.object(MockHa, 'delete_future_restart', Mock(return_value=retval)):
                 request = 'DELETE /restart HTTP/1.0' + self._authorization
                 self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
-                with patch.object(MockHa, 'is_paused', Mock(return_value=True)):
-                    request = 'DELETE /restart HTTP/1.0' + self._authorization
-                    self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
 
     @patch.object(MockPatroni, 'dcs')
     def test_do_POST_reinitialize(self, dcs):

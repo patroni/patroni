@@ -499,7 +499,7 @@ def restart(cluster_name, member_names, config_file, dcs, force, role, p_any, sc
 
     scheduled_at = parse_scheduled(scheduled)
     if scheduled_at:
-        if is_paused(cluster):
+        if cluster.is_paused():
             raise PatroniCtlException("Can't schedule restart in the paused state")
         content['schedule'] = scheduled_at.isoformat()
 
@@ -556,17 +556,17 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
 
     config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
-    if cluster.leader is None and not is_paused(cluster):
+    if cluster.leader is None and not cluster.is_paused():
         raise PatroniCtlException('This cluster has no master')
 
-    if master is None and (not is_paused(cluster) or cluster.leader):
+    if master is None and (not cluster.is_paused() or cluster.leader):
         if force:
             master = cluster.leader.member.name
         else:
             master = click.prompt('Master', type=str, default=cluster.leader.member.name)
 
-        if not is_paused(cluster) and cluster.leader.member.name != master:
-            raise PatroniCtlException('Member {0} is not the leader of cluster {1}'.format(master, cluster_name))
+    if not (master is not None and cluster.leader and cluster.leader.member.name == master):
+        raise PatroniCtlException('Member {0} is not the leader of cluster {1}'.format(master, cluster_name))
 
     candidate_names = [str(m.name) for m in cluster.members if m.name != master]
     # We sort the names for consistent output to the client
@@ -591,13 +591,11 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
     scheduled_at = parse_scheduled(scheduled)
 
     if scheduled_at:
-        if is_paused(cluster):
+        if cluster.is_paused():
             raise PatroniCtlException("Can't schedule failover in the paused state")
         scheduled_at = scheduled_at.isoformat()
 
-    failover_value = {'candidate': candidate, 'scheduled_at': scheduled_at}
-    if master:
-        failover_value['leader'] = master
+    failover_value = {'leader': master, 'candidate': candidate, 'scheduled_at': scheduled_at}
 
     logging.debug(failover_value)
 
@@ -754,11 +752,6 @@ def touch_member(config, dcs):
     return dcs.touch_member(json.dumps(data, separators=(',', ':')), permanent=True)
 
 
-def is_paused(cluster):
-    """Check if cluster management is paused"""
-    return cluster.config and 'pause' in cluster.config.data and cluster.config.data['pause']
-
-
 def set_defaults(config, cluster_name):
     """fill-in some basic configuration parameters if config file is not set """
     config['postgresql'].setdefault('name', cluster_name)
@@ -821,7 +814,7 @@ def flush(cluster_name, member_names, config_file, dcs, force, role, target):
 def disable(config_file, cluster_name, dcs):
     config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
-    if is_paused(cluster):
+    if cluster.is_paused():
         raise PatroniCtlException("Cluster is already paused")
 
     r = request_patroni(cluster.leader.member, 'patch', 'config', {'pause': True}, auth_header(config))
@@ -840,7 +833,7 @@ def disable(config_file, cluster_name, dcs):
 def resume(config_file, cluster_name, dcs):
     config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
-    if not is_paused(cluster):
+    if not cluster.is_paused():
         raise PatroniCtlException("Cluster is not paused")
 
     r = request_patroni(cluster.leader.member, 'patch', 'config', {'pause': False}, auth_header(config))

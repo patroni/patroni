@@ -27,7 +27,7 @@ class Ha(object):
         self._async_executor = AsyncExecutor()
 
     def is_paused(self):
-        return self.cluster and self.cluster.config and self.cluster.config.data.get('pause', False)
+        return self.cluster and self.cluster.is_paused()
 
     def load_cluster_from_dcs(self):
         cluster = self.dcs.get_cluster()
