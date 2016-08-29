@@ -82,11 +82,6 @@ class TestCtl(unittest.TestCase):
         result = self.runner.invoke(ctl, ['failover', 'dummy'], input='leader\nother\n2030-01-01T12:23:00\ny')
         assert result.exit_code == 0
 
-        with patch('patroni.dcs.Cluster.is_paused', Mock(return_value=True)):
-            result = self.runner.invoke(ctl,
-                                        ['failover', 'dummy', '--force', '--scheduled', '2015-01-01T12:00:00+01:00'])
-            assert result.exit_code == 1
-
         # Aborting failover,as we anser NO to the confirmation
         result = self.runner.invoke(ctl, ['failover', 'dummy'], input='leader\nother\n\nN')
         assert result.exit_code == 1
