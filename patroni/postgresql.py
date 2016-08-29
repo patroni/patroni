@@ -1,6 +1,8 @@
+from collections import defaultdict
 import logging
 import os
 import psycopg2
+import re
 import shlex
 import shutil
 import subprocess
@@ -19,6 +21,22 @@ ACTION_ON_STOP = "on_stop"
 ACTION_ON_RESTART = "on_restart"
 ACTION_ON_RELOAD = "on_reload"
 ACTION_ON_ROLE_CHANGE = "on_role_change"
+
+
+def slot_name_from_member_name(member_name):
+    """Translate member name to valid PostgreSQL slot name.
+
+    PostgreSQL replication slot names must be valid PostgreSQL names. This function maps the wider space of
+    member names to valid PostgreSQL names. Names are lowercased, dashes and periods common in hostnames
+    are replaced with underscores, other characters are encoded as their unicode codepoint. Name is truncated
+    to 64 characters. Multiple different member names may map to a single slot name."""
+
+    def replace_char(match):
+        c = match.group(0)
+        return '_' if c in '-.' else "u%04d" % ord(c)
+
+    slot_name = re.sub('[^a-z0-9_]', replace_char, member_name.lower())
+    return slot_name[0:64]
 
 
 class Postgresql(object):
@@ -651,7 +669,7 @@ class Postgresql(object):
             if primary_conninfo:
                 f.write("primary_conninfo = '{0}'\n".format(primary_conninfo))
                 if self.use_slots:
-                    f.write("primary_slot_name = '{0}'\n".format(self.name))
+                    f.write("primary_slot_name = '{0}'\n".format(slot_name_from_member_name(self.name)))
             for name, value in self.config.get('recovery_conf', {}).items():
                 if name not in ('standby_mode', 'recovery_target_timeline', 'primary_conninfo', 'primary_slot_name'):
                     f.write("{0} = '{1}'\n".format(name, value))
@@ -889,21 +907,32 @@ $$""".format(name, ' '.join(options)), name, password, password)
                 # the replicatefrom destination member is currently not a member of the cluster (fallback to the
                 # master), or if replicatefrom destination member happens to be the current master
                 if self.role == 'master':
-                    slots = [m.name for m in cluster.members if m.name != self.name and
-                             (m.replicatefrom is None or m.replicatefrom == self.name or
-                              not cluster.has_member(m.replicatefrom))]
+                    slot_members = [m.name for m in cluster.members if m.name != self.name and
+                                    (m.replicatefrom is None or m.replicatefrom == self.name or
+                                     not cluster.has_member(m.replicatefrom))]
                 else:
                     # only manage slots for replicas that replicate from this one, except for the leader among them
-                    slots = [m.name for m in cluster.members if m.replicatefrom == self.name and
-                             m.name != cluster.leader.name]
+                    slot_members = [m.name for m in cluster.members if m.replicatefrom == self.name and
+                                    m.name != cluster.leader.name]
+                slots = set(slot_name_from_member_name(name) for name in slot_members)
+
+                if len(slots) < len(slot_members):
+                    # Find which names are conflicting for a nicer error message
+                    slot_conflicts = defaultdict(list)
+                    for name in slot_members:
+                        slot_conflicts[slot_name_from_member_name(name)].append(name)
+                    logger.error("Following cluster members share a replication slot name: %s",
+                                 "; ".join("%s map to %s" % (", ".join(v), k)
+                                           for k, v in slot_conflicts.items() if len(v) > 1))
+
                 # drop unused slots
-                for slot in set(self._replication_slots) - set(slots):
+                for slot in set(self._replication_slots) - slots:
                     self.query("""SELECT pg_drop_replication_slot(%s)
                                    WHERE EXISTS(SELECT 1 FROM pg_replication_slots
                                    WHERE slot_name = %s AND NOT active)""", slot, slot)
 
                 # create new slots
-                for slot in set(slots) - set(self._replication_slots):
+                for slot in slots - set(self._replication_slots):
                     self.query("""SELECT pg_create_physical_replication_slot(%s)
                                    WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots
                                    WHERE slot_name = %s)""", slot, slot)
