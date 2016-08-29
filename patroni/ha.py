@@ -158,6 +158,9 @@ class Ha(object):
 
     def enforce_master_role(self, message, promote_message):
         if self.state_handler.is_leader() or self.state_handler.role == 'master':
+            # Inform the state handler about its master role.
+            # It may be unaware of it if postgres is promoted manually.
+            self.state_handler.set_role('master')
             return message
         else:
             self.state_handler.promote()
