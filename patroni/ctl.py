@@ -812,15 +812,15 @@ def flush(cluster_name, member_names, config_file, dcs, force, role, target):
 def toggle_pause(config_file, cluster_name, dcs, paused):
     config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
     if cluster.is_paused() == paused:
-        raise PatroniCtlException("Cluster " + ("is already" if paused else "is not") + " paused")
+        raise PatroniCtlException('Cluster is {0} paused'.format(paused and 'already' or 'not'))
 
-    r = request_patroni(cluster.leader.member, 'patch', 'config', {'pause': paused}, auth_header(config))
+    r = request_patroni(cluster.leader.member, 'patch', 'config', {'pause': paused or None}, auth_header(config))
 
     if r.status_code == 200:
-        click.echo("Success: cluster management is " + ("paused" if paused else "resumed"))
+        click.echo('Success: cluster management is {0}'.format(paused and 'paused' or 'resumed'))
     else:
-        click.echo("Failed: " + ("pause" if paused else "resume")
-                   + " cluster management status code={0}, ({1})".format(r.status_code, r.text))
+        click.echo('Failed: {0} cluster management status code={1}, ({2})'.format(
+                   paused and 'pause' or 'resume', r.status_code, r.text))
 
 
 @ctl.command('pause', help='Disable auto failover')

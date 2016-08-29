@@ -229,7 +229,7 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
         return candidates[randint(0, len(candidates) - 1)] if candidates else self.leader
 
     def is_paused(self):
-        return self.config and self.config.data.get('pause', False)
+        return self.config and self.config.data.get('pause', False) or False
 
 
 @six.add_metaclass(abc.ABCMeta)

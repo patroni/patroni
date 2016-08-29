@@ -66,7 +66,7 @@ Scenario: check the failover via the API
 	Given I run patronictl.py failover batman --master postgres0 --candidate postgres1 --force
 	Then I receive a response returncode 0
 	And postgres1 is a leader after 5 seconds
-	And postgres1 role is the primary after 5 seconds
+	And postgres1 role is the primary after 10 seconds
 	And postgres0 role is the secondary after 10 seconds
 	And replication works from postgres1 to postgres0 after 20 seconds
 
@@ -74,7 +74,7 @@ Scenario: check the scheduled failover
 	Given I issue a scheduled failover from postgres1 to postgres0 in 1 seconds
 	Then I receive a response returncode 0
 	And postgres0 is a leader after 20 seconds
-	And postgres0 role is the primary after 5 seconds
+	And postgres0 role is the primary after 10 seconds
 	And postgres1 role is the secondary after 10 seconds
 	And replication works from postgres0 to postgres1 after 25 seconds
 
