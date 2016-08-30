@@ -15,11 +15,9 @@ When Patroni runs in a paused mode, it does not change the state of PostgreSQL, 
 
 - For each node, the member key in DCS is updated with the current information about the cluster. This causes Patroni to run read-only queries on a member node if the member is running.
 
-- For the leader node, Patroni maintains the leader key and promotes the node holding the leader key if it is not the master.
+- For the Postgres master with the leader lock Patroni updates the lock. If the node with the leader lock stops being the master (i.e. is demoted manually), Patroni will release the lock instead of promoting the node back.
 
-- Manual unscheduled restart and manual failover are allowed. Manual failover is only allowed if the node to failover to is specified. In the paused mode, manual failover does not require a running master node.
-
-- Replica reinitialize is allowed.
+- Manual unscheduled restart, reinitialize and manual failover are allowed. Manual failover is only allowed if the node to failover to is specified. In the paused mode, manual failover does not require a running master node.
 
 - If 'parallel' masters are detected by Patroni, it emits a warning, but does not demote the masters without the leader lock.
 
@@ -32,4 +30,4 @@ User guide
 
 ``patronictl`` supports ``pause`` and ``resume`` commands.
 
-One can also issue a ``PATCH`` request to the ``{namespace}/{cluster}/config`` key with ``{'pause': True/False}``
+One can also issue a ``PATCH`` request to the ``{namespace}/{cluster}/config`` key with ``{"pause": true/false/null}``
