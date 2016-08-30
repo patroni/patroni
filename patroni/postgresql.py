@@ -799,7 +799,6 @@ class Postgresql(object):
             else:
                 logger.error('unable to rewind the former master')
                 self.remove_data_directory()
-                self.set_role('uninitialized')
                 ret = True
             self._need_rewind = False
         else:
@@ -950,6 +949,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
                 logger.exception("Could not rename data directory %s", self._data_dir)
 
     def remove_data_directory(self):
+        self.set_role('uninitialized')
         logger.info('Removing data directory: %s', self._data_dir)
         try:
             if os.path.islink(self._data_dir):
