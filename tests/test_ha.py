@@ -394,6 +394,8 @@ class TestHa(unittest.TestCase):
         self.assertEquals(self.ha.run_cycle(), 'PAUSE: continue to run as master without lock')
         self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, 'leader', '', None))
         self.assertEquals(self.ha.run_cycle(), 'PAUSE: continue to run as master without lock')
+        self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, 'leader', 'blabla', None))
+        self.assertEquals('PAUSE: acquired session lock as a leader', self.ha.run_cycle())
         self.p.is_leader = false
         self.p.set_role('replica')
         self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, 'leader', self.p.name, None))

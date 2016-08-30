@@ -238,6 +238,13 @@ class Ha(object):
             if failover.candidate == self.state_handler.name:  # manual failover to me
                 return True
             elif self.is_paused():
+                # Remove failover key if the node to failover has terminated to avoid waiting for it indefinitely
+                # In order to avoid attempts to delete this key from all nodes only the master is allowed to do it.
+                if (not self.cluster.get_member(failover.candidate, fallback_to_leader=False) and
+                   self.state_handler.is_leader()):
+                    logger.warning("manual failover: removing failover key because failover candidate is not running")
+                    self.dcs.manual_failover('', '', index=self.cluster.failover.index)
+                    return None
                 return False
 
             # find specific node and check that it is healthy
@@ -277,7 +284,9 @@ class Ha(object):
     def is_healthiest_node(self):
         if self.is_paused() and not self.patroni.nofailover and \
                 self.cluster.failover and not self.cluster.failover.scheduled_at:
-            return self.manual_failover_process_no_leader()
+            ret = self.manual_failover_process_no_leader()
+            if ret is not None:  # continue if we just deleted the stale failover key as a master
+                return ret
 
         if self.state_handler.is_leader():  # leader is always the healthiest
             return True
@@ -372,6 +381,7 @@ class Ha(object):
 
     def process_unhealthy_cluster(self):
         """Cluster has no leader key"""
+
         if self.is_healthiest_node():
             if self.acquire_lock():
                 failover = self.cluster.failover
