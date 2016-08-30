@@ -394,6 +394,9 @@ class TestHa(unittest.TestCase):
         self.assertEquals(self.ha.run_cycle(), 'PAUSE: continue to run as master without lock')
         self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, 'leader', '', None))
         self.assertEquals(self.ha.run_cycle(), 'PAUSE: continue to run as master without lock')
+        self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, 'leader', 'blabla', None))
+        self.p.is_leader = true
+        self.assertEquals('PAUSE: acquired session lock as a leader', self.ha.run_cycle())
 
     def test_is_healthiest_node(self):
         self.ha.state_handler.is_leader = false
