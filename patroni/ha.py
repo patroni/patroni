@@ -237,6 +237,11 @@ class Ha(object):
             if failover.candidate == self.state_handler.name:  # manual failover to me
                 return True
             elif self.is_paused():
+                # Remove failover key if the node to failover has terminated to avoid waiting for it indefinitely
+                # In order to avoid race conditions only the master is allowed to do so.
+                if (not self.cluster.get_member(failover.candidate, fallback_to_leader=False) and
+                   (self.state_handler.is_leader() or self.state_handler.role == 'master')):
+                    self.dcs.manual_failover('', '', index=self.cluster.failover.index)
                 return False
 
             # find specific node and check that it is healthy
