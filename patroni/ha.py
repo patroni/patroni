@@ -147,6 +147,7 @@ class Ha(object):
         node_to_follow = self._get_node_to_follow(self.cluster)
 
         if self.is_paused():
+            self.state_handler.set_role('master' if is_leader else 'replica')
             if is_leader:
                 return 'continue to run as master without lock'
             elif not node_to_follow:
@@ -328,7 +329,6 @@ class Ha(object):
                     logger.warning('Found a stale %s value, cleaning up: %s',
                                    action_name, scheduled_at.isoformat())
                     cleanup_fn()
-                    self.dcs.manual_failover('', '', index=self.cluster.failover.index)
                     return False
 
                 # The value is very close to now
@@ -367,16 +367,21 @@ class Ha(object):
             logger.warning('manual failover: leader name does not match: %s != %s',
                            failover.leader, self.state_handler.name)
 
-        logger.info('Trying to clean up failover key')
+        logger.info('Cleaning up failover key')
         self.dcs.manual_failover('', '', index=failover.index)
 
     def process_unhealthy_cluster(self):
         """Cluster has no leader key"""
         if self.is_healthiest_node():
             if self.acquire_lock():
-                if self.cluster.failover:
-                    logger.info('Cleaning up failover key after acquiring leader lock...')
-                    self.dcs.manual_failover('', '')
+                failover = self.cluster.failover
+                if failover:
+                    if self.is_paused() and failover.leader and failover.candidate:
+                        logger.info('Updating failover key after acquiring leader lock...')
+                        self.dcs.manual_failover('', failover.candidate, failover.scheduled_at, failover.index)
+                    else:
+                        logger.info('Cleaning up failover key after acquiring leader lock...')
+                        self.dcs.manual_failover('', '')
                 self.load_cluster_from_dcs()
                 return self.enforce_master_role('acquired session lock as a leader',
                                                 'promoted self to leader by acquiring session lock')
@@ -392,7 +397,7 @@ class Ha(object):
 
     def process_healthy_cluster(self):
         if self.has_lock():
-            if self.cluster.failover:
+            if self.cluster.failover and (not self.is_paused() or self.state_handler.is_leader()):
                 msg = self.process_manual_failover_from_leader()
                 if msg is not None:
                     return msg
@@ -589,7 +594,6 @@ class Ha(object):
                                  self.state_handler.name, self.cluster.initialize, self.state_handler.sysid)
                     sys.exit(1)
 
-            # try to start dead postgres
             if not self.state_handler.is_healthy():
                 if self.is_paused():
                     if self.has_lock():
@@ -598,6 +602,8 @@ class Ha(object):
                         return 'removed leader lock because postgres is not running'
                     else:
                         return 'postgres is not running'
+
+                # try to start dead postgres
                 msg = self.recover()
                 if msg is not None:
                     return msg
@@ -625,8 +631,9 @@ class Ha(object):
                 return 'demoted self because DCS is not accessible and i was a leader'
             return 'DCS is not accessible'
         except (psycopg2.Error, PostgresConnectionException):
-            logger.exception('Error communicating with PostgreSQL. Will try again later')
+            return 'Error communicating with PostgreSQL. Will try again later'
 
     def run_cycle(self):
         with self._async_executor:
-            return (self.is_paused() and 'PAUSE: ' or '') + self._run_cycle()
+            info = self._run_cycle()
+            return (self.is_paused() and 'PAUSE: ' or '') + info
