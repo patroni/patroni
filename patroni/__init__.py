@@ -38,9 +38,11 @@ class Patroni(object):
             try:
                 cluster = self.dcs.get_cluster()
                 if cluster and cluster.config:
-                    self.config.set_dynamic_configuration(cluster.config)
+                    if self.config.set_dynamic_configuration(cluster.config):
+                        self.dcs.reload_config(self.config)
                 elif not self.config.dynamic_configuration and 'bootstrap' in self.config:
-                    self.config.set_dynamic_configuration(self.config['bootstrap']['dcs'])
+                    if self.config.set_dynamic_configuration(self.config['bootstrap']['dcs']):
+                        self.dcs.reload_config(self.config)
                 break
             except DCSError:
                 logger.warning('Can not get cluster from dcs')
