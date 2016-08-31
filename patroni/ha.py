@@ -505,17 +505,17 @@ class Ha(object):
             return (False, "restart conditions are not satisfied")
 
         with self._async_executor:
-            prev = self._async_executor.schedule('restart', not run_async)
+            prev = self._async_executor.schedule('restart')
             if prev is not None:
                 return (False, prev + ' already in progress')
-            if not run_async:
-                if self._async_executor.run(self.state_handler.restart):
-                    return (True, 'restarted successfully')
-                else:
-                    return (False, 'restart failed')
-            else:
-                self._async_executor.run_async(self.state_handler.restart)
-                return (True, "restart initiated")
+
+        if run_async:
+            self._async_executor.run_async(self.state_handler.restart)
+            return (True, 'restart initiated')
+        elif self._async_executor.run(self.state_handler.restart):
+            return (True, 'restarted successfully')
+        else:
+            return (False, 'restart failed')
 
     def _do_reinitialize(self, cluster):
         self.state_handler.stop('immediate')
@@ -539,7 +539,7 @@ class Ha(object):
             if action is not None:
                 return '{0} already in progress'.format(action)
 
-            self._async_executor.run_async(self._do_reinitialize, args=(self.cluster, ))
+        self._async_executor.run_async(self._do_reinitialize, args=(self.cluster, ))
 
     def handle_long_action_in_progress(self):
         if self.has_lock():

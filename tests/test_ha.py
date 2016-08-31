@@ -4,7 +4,7 @@ import os
 import pytz
 import unittest
 
-from mock import Mock, MagicMock, patch
+from mock import Mock, MagicMock, PropertyMock, patch
 from patroni.config import Config
 from patroni.dcs import Cluster, Failover, Leader, Member, get_dcs
 from patroni.dcs.etcd import Client
@@ -90,7 +90,7 @@ zookeeper:
                                   'postmaster_start_time': str(postmaster_start_time)}
 
 
-def run_async(func, args=()):
+def run_async(self, func, args=()):
     return func(*args) if args else func()
 
 
@@ -109,6 +109,8 @@ def run_async(func, args=()):
 @patch.object(etcd.Client, 'write', etcd_write)
 @patch.object(etcd.Client, 'read', etcd_read)
 @patch.object(etcd.Client, 'delete', Mock(side_effect=etcd.EtcdException))
+@patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=False))
+@patch('patroni.async_executor.AsyncExecutor.run_async', run_async)
 @patch('subprocess.call', Mock(return_value=0))
 class TestHa(unittest.TestCase):
 
@@ -131,7 +133,6 @@ class TestHa(unittest.TestCase):
             self.e = get_dcs({'etcd': {'ttl': 30, 'host': 'ok:2379', 'scope': 'test',
                                        'name': 'foo', 'retry_timeout': 10}})
             self.ha = Ha(MockPatroni(self.p, self.e))
-            self.ha._async_executor.run_async = run_async
             self.ha.old_cluster = self.e.get_cluster()
             self.ha.cluster = get_cluster_not_initialized_without_leader()
             self.ha.load_cluster_from_dcs = Mock()
@@ -278,11 +279,9 @@ class TestHa(unittest.TestCase):
 
     def test_reinitialize(self):
         self.assertIsNotNone(self.ha.reinitialize())
-        self.assertIsNone(self.ha._async_executor.scheduled_action)
 
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.assertIsNone(self.ha.reinitialize())
-        self.assertIsNotNone(self.ha._async_executor.scheduled_action)
 
         self.assertIsNotNone(self.ha.reinitialize())
 
@@ -300,18 +299,19 @@ class TestHa(unittest.TestCase):
             self.assertEquals(self.ha.restart({'foo': 'bar'}), (False, "restart conditions are not satisfied"))
 
     def test_restart_in_progress(self):
-        self.ha._async_executor.schedule('restart', True)
-        self.assertTrue(self.ha.restart_scheduled())
-        self.assertEquals(self.ha.run_cycle(), 'not healthy enough for leader race')
+        with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)):
+            self.ha.restart(run_async=True)
+            self.assertTrue(self.ha.restart_scheduled())
+            self.assertEquals(self.ha.run_cycle(), 'not healthy enough for leader race')
 
-        self.ha.cluster = get_cluster_initialized_with_leader()
-        self.assertEquals(self.ha.run_cycle(), 'restart in progress')
+            self.ha.cluster = get_cluster_initialized_with_leader()
+            self.assertEquals(self.ha.run_cycle(), 'restart in progress')
 
-        self.ha.has_lock = true
-        self.assertEquals(self.ha.run_cycle(), 'updated leader lock during restart')
+            self.ha.has_lock = true
+            self.assertEquals(self.ha.run_cycle(), 'updated leader lock during restart')
 
-        self.ha.update_lock = false
-        self.assertEquals(self.ha.run_cycle(), 'failed to update leader lock during restart')
+            self.ha.update_lock = false
+            self.assertEquals(self.ha.run_cycle(), 'failed to update leader lock during restart')
 
     @patch('requests.get', requests_get)
     @patch('time.sleep', Mock())
