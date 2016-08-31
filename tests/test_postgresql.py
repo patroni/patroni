@@ -32,8 +32,10 @@ class MockCursor(object):
             self.results = [(0,)]
         elif sql == 'SELECT pg_is_in_recovery()':
             self.results = [(False, )]
-        elif sql.startswith('SELECT to_char(pg_postmaster_start_time'):
-            self.results = [('', True, '', '', '', '', False)]
+        elif sql.startswith('WITH replication_info AS ('):
+            replication_info = '[{"application_name":"walreceiver","client_addr":"1.2.3.4",' +\
+                               '"state":"streaming","sync_state":"async","sync_priority":0}]'
+            self.results = [('', True, '', '', '', '', False, replication_info)]
         elif sql.startswith('SELECT name, setting'):
             self.results = [('wal_segment_size', '2048', '8kB', 'integer', 'internal'),
                             ('search_path', 'public', None, 'string', 'user'),
