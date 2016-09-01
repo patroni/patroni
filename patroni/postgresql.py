@@ -887,7 +887,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
     def load_replication_slots(self):
         if self.use_slots and self._schedule_load_slots:
-            cursor = self.query("SELECT slot_name FROM pg_replication_slots WHERE slot_type='physical'")
+            cursor = self._query("SELECT slot_name FROM pg_replication_slots WHERE slot_type='physical'")
             self._replication_slots = [r[0] for r in cursor]
             self._schedule_load_slots = False
 
@@ -927,19 +927,20 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
                 # drop unused slots
                 for slot in set(self._replication_slots) - slots:
-                    self.query("""SELECT pg_drop_replication_slot(%s)
-                                   WHERE EXISTS(SELECT 1 FROM pg_replication_slots
-                                   WHERE slot_name = %s AND NOT active)""", slot, slot)
+                    self._query("""SELECT pg_drop_replication_slot(%s)
+                                    WHERE EXISTS(SELECT 1 FROM pg_replication_slots
+                                    WHERE slot_name = %s AND NOT active)""", slot, slot)
 
                 # create new slots
                 for slot in slots - set(self._replication_slots):
-                    self.query("""SELECT pg_create_physical_replication_slot(%s)
-                                   WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots
-                                   WHERE slot_name = %s)""", slot, slot)
+                    self._query("""SELECT pg_create_physical_replication_slot(%s)
+                                    WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots
+                                    WHERE slot_name = %s)""", slot, slot)
 
                 self._replication_slots = slots
-            except psycopg2.Error:
+            except Exception:
                 logger.exception('Exception when changing replication slots')
+                self._schedule_load_slots = True
 
     def last_operation(self):
         return str(self.xlog_position())
