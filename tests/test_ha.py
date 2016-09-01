@@ -364,6 +364,7 @@ class TestHa(unittest.TestCase):
         self.assertEquals('PAUSE: no action.  i am the leader with the lock', self.ha.run_cycle())
 
     @patch('requests.get', requests_get)
+    @patch('time.sleep', Mock())
     def test_manual_failover_process_no_leader(self):
         self.p.is_leader = false
         self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', self.p.name, None))
@@ -388,6 +389,7 @@ class TestHa(unittest.TestCase):
         self.ha.patroni.nofailover = True
         self.assertEquals(self.ha.run_cycle(), 'following a different leader because I am not allowed to promote')
 
+    @patch('time.sleep', Mock())
     def test_manual_failover_process_no_leader_in_pause(self):
         self.ha.is_paused = true
         self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', 'other', None))
@@ -491,6 +493,8 @@ class TestHa(unittest.TestCase):
         self.p.name = 'leader'
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.assertEquals(self.ha.run_cycle(), 'PAUSE: removed leader lock because postgres is not running as master')
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, '', self.p.name, None))
+        self.assertEquals(self.ha.run_cycle(), 'PAUSE: waiting to become master after promote...')
 
     def test_postgres_unhealthy_in_pause(self):
         self.ha.is_paused = true

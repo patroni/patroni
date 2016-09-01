@@ -134,7 +134,7 @@ class Ha(object):
 
         return node_to_follow if node_to_follow and node_to_follow.name != self.state_handler.name else None
 
-    def follow(self, demote_reason, follow_reason, refresh=True, recovery=False):
+    def follow(self, demote_reason, follow_reason, refresh=True, recovery=False, need_rewind=None):
         if refresh:
             self.load_cluster_from_dcs()
 
@@ -146,14 +146,14 @@ class Ha(object):
 
         node_to_follow = self._get_node_to_follow(self.cluster)
 
-        if self.is_paused():
+        if self.is_paused() and not self.state_handler.need_rewind:
             self.state_handler.set_role('master' if is_leader else 'replica')
             if is_leader:
                 return 'continue to run as master without lock'
             elif not node_to_follow:
                 return 'no action'
 
-        self.state_handler.follow(node_to_follow, self.cluster.leader, recovery, self._async_executor)
+        self.state_handler.follow(node_to_follow, self.cluster.leader, recovery, self._async_executor, need_rewind)
 
         return ret
 
@@ -307,14 +307,14 @@ class Ha(object):
     def demote(self, delete_leader=True):
         if delete_leader:
             self.state_handler.stop()
-            self.state_handler.set_role('unknown')
+            self.state_handler.set_role('demoted')
             self.dcs.delete_leader()
             self.touch_member()
             self.dcs.reset_cluster()
-            sleep(2)  # Give a time to somebody to promote
+            sleep(2)  # Give a time to somebody to take the leader lock
             cluster = self.dcs.get_cluster()
             node_to_follow = self._get_node_to_follow(cluster)
-            self.state_handler.follow(node_to_follow, cluster.leader, True)
+            self.state_handler.follow(node_to_follow, cluster.leader, recovery=True, need_rewind=True)
         else:
             self.state_handler.follow(None, None)
 
@@ -399,11 +399,18 @@ class Ha(object):
                 return self.follow('demoted self after trying and failing to obtain lock',
                                    'following new leader after trying and failing to obtain lock')
         else:
+            # when we are doing manual failover there is no guaranty that new leader is ahead of any other node
+            need_rewind = bool(self.cluster.failover) or self.patroni.nofailover
+            if need_rewind:
+                sleep(2)  # Give a time to somebody to take the leader lock
+
             if self.patroni.nofailover:
                 return self.follow('demoting self because I am not allowed to become master',
-                                   'following a different leader because I am not allowed to promote')
-            return self.follow('demoting self because i am not the healthiest node',  # should not happen in real life
-                               'following a different leader because i am not the healthiest node')
+                                   'following a different leader because I am not allowed to promote',
+                                   need_rewind=need_rewind)
+            return self.follow('demoting self because i am not the healthiest node',
+                               'following a different leader because i am not the healthiest node',
+                               need_rewind=need_rewind)
 
     def process_healthy_cluster(self):
         if self.has_lock():
@@ -413,6 +420,9 @@ class Ha(object):
                     return msg
 
             if self.is_paused() and not self.state_handler.is_leader():
+                if self.cluster.failover and self.cluster.failover.candidate == self.state_handler.name:
+                    return 'waiting to become master after promote...'
+
                 self.dcs.delete_leader()
                 self.dcs.reset_cluster()
                 return 'removed leader lock because postgres is not running as master'
@@ -585,7 +595,7 @@ class Ha(object):
                 return self.handle_long_action_in_progress()
 
             # we've got here, so any async action has finished. Check if we tried to recover and failed
-            if self.recovering:
+            if self.recovering and not self.state_handler.need_rewind:
                 self.recovering = False
                 msg = self.post_recover()
                 if msg is not None:
@@ -610,7 +620,7 @@ class Ha(object):
                         self.dcs.delete_leader()
                         self.dcs.reset_cluster()
                         return 'removed leader lock because postgres is not running'
-                    else:
+                    elif not self.state_handler.need_rewind:
                         return 'postgres is not running'
 
                 # try to start dead postgres

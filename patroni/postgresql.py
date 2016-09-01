@@ -729,7 +729,14 @@ class Postgresql(object):
         except OSError:
             logger.exception("Unable to list %s", status_dir)
 
-    def follow(self, member, leader, recovery=False, async_executor=None):
+    @property
+    def need_rewind(self):
+        return self._need_rewind
+
+    def follow(self, member, leader, recovery=False, async_executor=None, need_rewind=None):
+        if need_rewind is not None:
+            self._need_rewind = need_rewind
+
         primary_conninfo = self.primary_conninfo(member)
 
         if self.check_recovery_conf(primary_conninfo) and not recovery:
@@ -742,30 +749,22 @@ class Postgresql(object):
             self._do_follow(primary_conninfo, leader, recovery)
 
     def _do_follow(self, primary_conninfo, leader, recovery=False):
-        change_role = self.role == 'master'
+        change_role = self.role in ('master', 'demoted')
 
-        if change_role:
-            if leader:
-                if leader.name == self.name:
-                    self._need_rewind = False
-                    primary_conninfo = None
-                    if self.is_running():
-                        return
-                else:
-                    self._need_rewind = bool(leader.conn_url) and self.can_rewind
-            else:
-                self._need_rewind = False
-                primary_conninfo = None
+        if leader and leader.name == self.name:
+            primary_conninfo = None
+            self._need_rewind = False
+            if self.is_running():
+                return
+
+        self._need_rewind &= bool(leader and leader.conn_url) and self.can_rewind
 
         if self._need_rewind:
-            logger.info("set the rewind flag after demote")
+            logger.info("rewind flag is set")
 
             self.set_role('unknown')
             if self.is_running() and not self.stop():
                 return logger.warning('Can not run pg_rewind because postgres is still running')
-
-            if not (leader and leader.conn_url):
-                return logger.info('Leader unknown, can not rewind')
 
             # prepare pg_rewind connection
             r = leader.conn_kwargs(self._superuser)

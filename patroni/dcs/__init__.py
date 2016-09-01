@@ -186,6 +186,9 @@ class Failover(namedtuple('Failover', 'index,leader,candidate,scheduled_at')):
 
         return Failover(index, data.get('leader'), data.get('member'), data.get('scheduled_at'))
 
+    def __len__(self):
+        return int(bool(self.leader)) + int(bool(self.candidate))
+
 
 class ClusterConfig(namedtuple('ClusterConfig', 'index,data,modify_index')):
 

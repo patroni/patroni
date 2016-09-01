@@ -53,7 +53,7 @@ class Patroni(object):
 
     @property
     def nofailover(self):
-        return self.tags.get('nofailover', False)
+        return bool(self.tags.get('nofailover', False))
 
     def reload_config(self):
         try:
@@ -78,7 +78,7 @@ class Patroni(object):
 
     @property
     def noloadbalance(self):
-        return self.tags.get('noloadbalance', False)
+        return bool(self.tags.get('noloadbalance', False))
 
     def schedule_next_run(self):
         self.next_run += self.dcs.loop_wait
