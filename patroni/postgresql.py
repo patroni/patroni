@@ -102,11 +102,6 @@ class Postgresql(object):
         self._postgresql_base_conf = os.path.join(self._data_dir, self._postgresql_base_conf_name)
         self._postgresql_custom_conf = config.get('custom_conf')
         self._recovery_conf = os.path.join(self._data_dir, 'recovery.conf')
-        self._configuration_to_save = [self._postgresql_conf]
-        if not self._postgresql_custom_conf:
-            self._configuration_to_save.append(self._postgresql_base_conf)
-        if not config['parameters'].get('hba_file'):
-            self._configuration_to_save.append(os.path.join(self._data_dir, 'pg_hba.conf'))
         self._postmaster_pid = os.path.join(self._data_dir, 'postmaster.pid')
         self._trigger_file = config.get('recovery_conf', {}).get('trigger_file') or 'promote'
         self._trigger_file = os.path.abspath(os.path.join(self._data_dir, self._trigger_file))
@@ -127,6 +122,15 @@ class Postgresql(object):
             self.set_state('running')
             self.set_role('master' if self.is_leader() else 'replica')
             self._write_postgresql_conf()  # we are "joining" already running postgres
+
+    @property
+    def _configuration_to_save(self):
+        configuration = [self._postgresql_conf]
+        if not self._postgresql_custom_conf:
+            configuration.append(self._postgresql_base_conf)
+        if not self.config['parameters'].get('hba_file'):
+            configuration.append(os.path.join(self._data_dir, 'pg_hba.conf'))
+        return configuration
 
     @property
     def use_slots(self):
