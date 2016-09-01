@@ -367,7 +367,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     def get_postgresql_status(self, retry=False):
         try:
-            row = self.query("""SELECT to_char(pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),
+            row = self.query("""WITH replication_info AS (
+                                    SELECT usename, application_name, client_addr, state, sync_state, sync_priority
+                                      FROM pg_stat_replication
+                                )
+                                SELECT to_char(pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),
                                        pg_is_in_recovery(),
                                        CASE WHEN pg_is_in_recovery()
                                             THEN 0
@@ -376,8 +380,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
                                        pg_xlog_location_diff(pg_last_xlog_receive_location(), '0/0')::bigint,
                                        pg_xlog_location_diff(pg_last_xlog_replay_location(), '0/0')::bigint,
                                        to_char(pg_last_xact_replay_timestamp(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),
-                                       pg_is_in_recovery() AND pg_is_xlog_replay_paused()""", retry=retry)[0]
-            return {
+                                       pg_is_in_recovery() AND pg_is_xlog_replay_paused(),
+                                       (SELECT json_agg(row_to_json(ri)) FROM replication_info ri)""", retry=retry)[0]
+
+            result = {
                 'state': self.server.patroni.postgresql.state,
                 'postmaster_start_time': row[0],
                 'role': 'replica' if row[1] else 'master',
@@ -390,6 +396,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     'location': row[2]
                 })
             }
+
+            if row[7]:
+                result['replication'] = row[7]
+
+            return result
         except (psycopg2.Error, RetryFailedError, PostgresConnectionException):
             state = self.server.patroni.postgresql.state
             if state == 'running':

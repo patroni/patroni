@@ -32,8 +32,10 @@ class MockCursor(object):
             self.results = [(0,)]
         elif sql == 'SELECT pg_is_in_recovery()':
             self.results = [(False, )]
-        elif sql.startswith('SELECT to_char(pg_postmaster_start_time'):
-            self.results = [('', True, '', '', '', '', False)]
+        elif sql.startswith('WITH replication_info AS ('):
+            replication_info = '[{"application_name":"walreceiver","client_addr":"1.2.3.4",' +\
+                               '"state":"streaming","sync_state":"async","sync_priority":0}]'
+            self.results = [('', True, '', '', '', '', False, replication_info)]
         elif sql.startswith('SELECT name, setting'):
             self.results = [('wal_segment_size', '2048', '8kB', 'integer', 'internal'),
                             ('search_path', 'public', None, 'string', 'user'),
@@ -182,7 +184,7 @@ class TestPostgresql(unittest.TestCase):
                              'restore': 'true'})
         self.leadermem = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres'})
         self.leader = Leader(-1, 28, self.leadermem)
-        self.other = Member(0, 'test1', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
+        self.other = Member(0, 'test-1', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
                             'tags': {'replicatefrom': 'leader'}})
         self.me = Member(0, 'test0', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres'})
 
@@ -316,6 +318,15 @@ class TestPostgresql(unittest.TestCase):
         self.p.schedule_load_slots = False
         with mock.patch('patroni.postgresql.Postgresql.role', new_callable=PropertyMock(return_value='replica')):
             self.p.sync_replication_slots(cluster)
+        with mock.patch('patroni.postgresql.logger.error', new_callable=Mock()) as errorlog_mock:
+            self.p.query = Mock()
+            alias1 = Member(0, 'test-3', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres'})
+            alias2 = Member(0, 'test.3', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres'})
+            cluster.members.extend([alias1, alias2])
+            self.p.sync_replication_slots(cluster)
+            errorlog_mock.assert_called_once()
+            assert "test-3" in errorlog_mock.call_args[0][1]
+            assert "test.3" in errorlog_mock.call_args[0][1]
 
     @patch.object(MockConnect, 'closed', 2)
     def test__query(self):
