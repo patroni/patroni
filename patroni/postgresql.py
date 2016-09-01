@@ -774,6 +774,8 @@ class Postgresql(object):
             self._need_rewind = False
             if self.is_running():
                 return
+        elif change_role:
+            self._need_rewind = True
 
         self._need_rewind &= bool(leader and leader.conn_url) and self.can_rewind
 

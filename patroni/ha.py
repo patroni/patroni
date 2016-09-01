@@ -400,6 +400,7 @@ class Ha(object):
                                    'following new leader after trying and failing to obtain lock')
         else:
             # when we are doing manual failover there is no guaranty that new leader is ahead of any other node
+            # node tagged as nofailover can be ahead of the new leader either, but it is always excluded from elections
             need_rewind = bool(self.cluster.failover) or self.patroni.nofailover
             if need_rewind:
                 sleep(2)  # Give a time to somebody to take the leader lock
