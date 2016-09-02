@@ -782,7 +782,6 @@ class Postgresql(object):
         if self._need_rewind:
             logger.info("rewind flag is set")
 
-            self.set_role('unknown')
             if self.is_running() and not self.stop():
                 return logger.warning('Can not run pg_rewind because postgres is still running')
 
