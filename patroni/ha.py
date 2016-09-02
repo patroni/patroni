@@ -571,9 +571,7 @@ class Ha(object):
 
             # try to start dead postgres
             if not self.state_handler.is_healthy():
-                msg = self.recover()
-                if msg is not None:
-                    return msg
+                return self.recover()
 
             try:
                 if self.cluster.is_unlocked():
