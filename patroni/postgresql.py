@@ -416,7 +416,7 @@ class Postgresql(object):
         # If there is no configuration key, or no value is specified, use basebackup
         replica_methods = self.config.get('create_replica_method') or ['basebackup']
 
-        if clone_member:
+        if clone_member and clone_member.conn_url:
             r = clone_member.conn_kwargs(self._replication)
             connstring = 'postgres://{user}@{host}:{port}/{database}'.format(**r)
             # add the credentials to connect to the replica origin to pgpass.
