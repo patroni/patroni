@@ -292,7 +292,8 @@ class Etcd(AbstractDCS):
             if leader:
                 member = Member(-1, leader.value, None, {})
                 member = ([m for m in members if m.name == leader.value] or [member])[0]
-                leader = Leader(leader.modifiedIndex, leader.ttl, member)
+                index = result.etcd_index if result.etcd_index > leader.modifiedIndex else leader.modifiedIndex + 1
+                leader = Leader(index, leader.ttl, member)
 
             # failover key
             failover = nodes.get(self._FAILOVER)
@@ -371,7 +372,7 @@ class Etcd(AbstractDCS):
 
             while timeout >= 1:  # when timeout is too small urllib3 doesn't have enough time to connect
                 try:
-                    self._client.watch(self.leader_path, index=cluster.leader.index + 1, timeout=timeout + 0.5)
+                    self._client.watch(self.leader_path, index=cluster.leader.index, timeout=timeout + 0.5)
                     # Synchronous work of all cluster members with etcd is less expensive
                     # than reestablishing http connection every time from every replica.
                     return True
