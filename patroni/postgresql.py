@@ -94,7 +94,6 @@ class Postgresql(object):
         self._schedule_load_slots = self.use_slots
 
         self._pgpass = config.get('pgpass') or os.path.join(os.path.expanduser('~'), 'pgpass')
-        self.callback = config.get('callbacks') or {}
         self.__cb_called = False
         config_base_name = config.get('config_base_name', 'postgresql')
         self._postgresql_conf = os.path.join(self._data_dir, config_base_name + '.conf')
@@ -127,6 +126,10 @@ class Postgresql(object):
     @property
     def use_slots(self):
         return self._use_slots and self._major_version >= 9.4
+
+    @property
+    def callback(self):
+        return self.config.get('callbacks') or {}
 
     def _version_file_exists(self):
         return not self.data_directory_empty() and os.path.isfile(self._version_file)
