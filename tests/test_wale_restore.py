@@ -10,26 +10,25 @@ def fake_backup_data(self, *args, **kwargs):
     """ return the fake result of WAL-E backup-list"""
     return """name    last_modified   expanded_size_bytes wal_segment_backup_start    wal_segment_offset_backup_start wal_segment_backup_stop wal_segment_offset_backup_stop
 base_00000001000000000000007F_00000040  2015-05-18T10:13:25.000Z 167772160   00000001000000000000007F    00000040 00000001000000000000007F    00000240
-"""
-
+""".encode('utf-8')
 
 def fake_backup_data_2(self, *args, **kwargs):
     """ return the fake result of WAL-E backup-list"""
-    return """name    last_modified   expanded_size_bytes wal_segment_backup_start    wal_segment_offset_backup_start wal_segment_backup_stop wal_segment_offset_backup_stop """
+    return """name    last_modified   expanded_size_bytes wal_segment_backup_start    wal_segment_offset_backup_start wal_segment_backup_stop wal_segment_offset_backup_stop """.encode('utf-8')
 
 
 def fake_backup_data_3(self, *args, **kwargs):
     """ return the fake result of WAL-E backup-list"""
     return """name    last_modified   expanded_size_bytes wal_segment_backup_start    wal_segment_offset_backup_start wal_segment_backup_stop
 base_00000001000000000000007F_00000040  2015-05-18T10:13:25.000Z 167772160   00000001000000000000007F    00000040 00000001000000000000007F    00000240
-"""
+""".encode('utf-8')
 
 
 def fake_backup_data_4(self, *args, **kwargs):
     """ return the fake result of WAL-E backup-list"""
     return """name    last_modified   expanded_size_foo wal_segment_backup_start    wal_segment_offset_backup_start wal_segment_backup_stop wal_segment_offset_backup_stop
 base_00000001000000000000007F_00000040  2015-05-18T10:13:25.000Z 167772160   00000001000000000000007F    00000040 00000001000000000000007F    00000240
-"""
+""".encode('utf-8')
 
 
 @patch('os.access', MagicMock(return_value=True))
