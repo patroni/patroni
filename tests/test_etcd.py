@@ -103,7 +103,9 @@ def etcd_read(self, key, **kwargs):
                      "expiration": "2015-05-15T09:11:09.611860899Z", "ttl": 30,
                      "modifiedIndex": 20730, "createdIndex": 20730}],
                  "modifiedIndex": 1581, "createdIndex": 1581}], "modifiedIndex": 1581, "createdIndex": 1581}}
-    return etcd.EtcdResult(**response)
+    result = etcd.EtcdResult(**response)
+    result.etcd_index = 0
+    return result
 
 
 class SleepException(Exception):
