@@ -125,7 +125,7 @@ class Postgresql(object):
     @property
     def _configuration_to_save(self):
         configuration = [self._postgresql_conf]
-        if not self.config.get('custom_conf'):
+        if 'custom_conf' not in self.config:
             configuration.append(self._postgresql_base_conf)
         if not self.config['parameters'].get('hba_file'):
             configuration.append(os.path.join(self._data_dir, 'pg_hba.conf'))
@@ -629,7 +629,7 @@ class Postgresql(object):
 
     def _write_postgresql_conf(self):
         # rename the original configuration if it is necessary
-        if not self.config.get('custom_conf') and not os.path.exists(self._postgresql_base_conf):
+        if 'custom_conf' not in self.config and not os.path.exists(self._postgresql_base_conf):
             os.rename(self._postgresql_conf, self._postgresql_base_conf)
 
         with open(self._postgresql_conf, 'w') as f:
