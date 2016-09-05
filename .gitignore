@@ -6,6 +6,7 @@ data/*
 .coverage
 .eggs/
 build/
+dist/
 coverage.xml
 junit.xml
 pgpass

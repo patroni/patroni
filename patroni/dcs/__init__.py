@@ -6,6 +6,7 @@ import json
 import os
 import pkgutil
 import six
+import sys
 
 from collections import namedtuple
 from patroni.exceptions import PatroniException
@@ -31,22 +32,34 @@ def parse_connection_string(value):
     return conn_url, api_url
 
 
+def dcs_modules():
+    """Get names of DCS modules, depending on execution environment. If being packaged with PyInstaller,
+    modules aren't discoverable dynamically by scanning source directory. Thus, when running in bundle,
+    a predefined list of dcs modules is returned. See:
+    https://pyinstaller.readthedocs.io/en/stable/runtime-information.html#run-time-information"""
+
+    if getattr(sys, 'frozen', False):
+        return ['consul', 'etcd', 'zookeeper', 'exhibitor']
+    else:
+        module_names = (name for _, name, is_pkg in pkgutil.iter_modules([os.path.dirname(__file__)]) if not is_pkg)
+        return module_names
+
+
 def get_dcs(config):
     available_implementations = set()
-    for _, module_name, is_pkg in pkgutil.iter_modules([os.path.dirname(__file__)]):
-        if not is_pkg:
-            module = importlib.import_module(__package__ + '.' + module_name)
-            for name in filter(lambda name: not name.startswith('__'), dir(module)):  # iterate through module content
-                value = getattr(module, name)
-                name = name.lower()
-                # try to find implementation of AbstractDCS interface, class name must match with module_name
-                if inspect.isclass(value) and issubclass(value, AbstractDCS) and name == module_name:
-                    available_implementations.add(name)
-                    if name in config:  # which has configuration section in the config file
-                        # propagate some parameters
-                        config[name].update({p: config[p] for p in ('namespace', 'name', 'scope',
-                                             'loop_wait', 'ttl', 'retry_timeout') if p in config})
-                        return value(config[name])
+    for module_name in dcs_modules():
+        module = importlib.import_module(__package__ + '.' + module_name)
+        for name in filter(lambda name: not name.startswith('__'), dir(module)):  # iterate through module content
+            value = getattr(module, name)
+            name = name.lower()
+            # try to find implementation of AbstractDCS interface, class name must match with module_name
+            if inspect.isclass(value) and issubclass(value, AbstractDCS) and name == module_name:
+                available_implementations.add(name)
+                if name in config:  # which has configuration section in the config file
+                    # propagate some parameters
+                    config[name].update({p: config[p] for p in ('namespace', 'name', 'scope',
+                                         'loop_wait', 'ttl', 'retry_timeout') if p in config})
+                    return value(config[name])
     raise PatroniException("""Can not find suitable configuration of distributed configuration store
 Available implementations: """ + ', '.join(available_implementations))
 
