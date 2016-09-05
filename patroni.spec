@@ -3,11 +3,21 @@
 block_cipher = None
 
 
-a = Analysis(['patroni/__main__.py', 'patroni/dcs/consul.py', 'patroni/dcs/etcd.py', 'patroni/dcs/exhibitor.py', 'patroni/dcs/zookeeper.py'],
+def hiddenimports():
+    import sys
+    sys.path.insert(0, '.')
+    try:
+        import patroni.dcs
+        return patroni.dcs.dcs_modules()
+    finally:
+        sys.path.pop(0)
+
+
+a = Analysis(['patroni/__main__.py'],
              pathex=[],
              binaries=None,
              datas=None,
-             hiddenimports=['patroni.dcs.consul', 'patroni.dcs.etcd', 'patroni.dcs.exhibitor', 'patroni.dcs.zookeeper'],
+             hiddenimports=hiddenimports(),
              hookspath=[],
              runtime_hooks=[],
              excludes=[],

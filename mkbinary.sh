@@ -1,5 +1,5 @@
 #!/bin/sh
 set -e
 
-pip install --ignore-installed -r requirements-bin.txt
+pip install --ignore-installed setuptools==19.2 pyinstaller
 pyinstaller --clean --onefile patroni.spec

@@ -1,2 +1,0 @@
-setuptools==19.2
-pyinstaller
