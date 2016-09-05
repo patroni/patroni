@@ -6,29 +6,10 @@ from mock import MagicMock, patch, PropertyMock
 from patroni.scripts.wale_restore import WALERestore, main as _main
 
 
-def fake_backup_data(self, *args, **kwargs):
-    """ return the fake result of WAL-E backup-list"""
-    return """name    last_modified   expanded_size_bytes wal_segment_backup_start    wal_segment_offset_backup_start wal_segment_backup_stop wal_segment_offset_backup_stop
-base_00000001000000000000007F_00000040  2015-05-18T10:13:25.000Z 167772160   00000001000000000000007F    00000040 00000001000000000000007F    00000240
-""".encode('utf-8')
-
-def fake_backup_data_2(self, *args, **kwargs):
-    """ return the fake result of WAL-E backup-list"""
-    return """name    last_modified   expanded_size_bytes wal_segment_backup_start    wal_segment_offset_backup_start wal_segment_backup_stop wal_segment_offset_backup_stop """.encode('utf-8')
-
-
-def fake_backup_data_3(self, *args, **kwargs):
-    """ return the fake result of WAL-E backup-list"""
-    return """name    last_modified   expanded_size_bytes wal_segment_backup_start    wal_segment_offset_backup_start wal_segment_backup_stop
-base_00000001000000000000007F_00000040  2015-05-18T10:13:25.000Z 167772160   00000001000000000000007F    00000040 00000001000000000000007F    00000240
-""".encode('utf-8')
-
-
-def fake_backup_data_4(self, *args, **kwargs):
-    """ return the fake result of WAL-E backup-list"""
-    return """name    last_modified   expanded_size_foo wal_segment_backup_start    wal_segment_offset_backup_start wal_segment_backup_stop wal_segment_offset_backup_stop
-base_00000001000000000000007F_00000040  2015-05-18T10:13:25.000Z 167772160   00000001000000000000007F    00000040 00000001000000000000007F    00000240
-""".encode('utf-8')
+wale_output = b'name last_modified expanded_size_bytes wal_segment_backup_start ' +\
+              b'wal_segment_offset_backup_start wal_segment_backup_stop wal_segment_offset_backup_stop\n' +\
+              b'base_00000001000000000000007F_00000040 2015-05-18T10:13:25.000Z 167772160 ' +\
+              b'00000001000000000000007F 00000040 00000001000000000000007F 00000240\n'
 
 
 @patch('os.access', MagicMock(return_value=True))
@@ -38,7 +19,7 @@ base_00000001000000000000007F_00000040  2015-05-18T10:13:25.000Z 167772160   000
 @patch('psycopg2.extensions.cursor', MagicMock(autospec=True))
 @patch('psycopg2.extensions.connection', MagicMock(autospec=True))
 @patch('psycopg2.connect', MagicMock(autospec=True))
-@patch('subprocess.check_output', MagicMock(side_effect=fake_backup_data))
+@patch('subprocess.check_output', MagicMock(return_value=wale_output))
 class TestWALERestore(unittest.TestCase):
 
     def setUp(self):
@@ -49,11 +30,13 @@ class TestWALERestore(unittest.TestCase):
             self.assertFalse(self.wale_restore.should_use_s3_to_create_replica())
         with patch('subprocess.check_output', MagicMock(side_effect=subprocess.CalledProcessError(1, "cmd", "foo"))):
             self.assertFalse(self.wale_restore.should_use_s3_to_create_replica())
-        with patch('subprocess.check_output', MagicMock(side_effect=fake_backup_data_2)):
+        with patch('subprocess.check_output', MagicMock(return_value=wale_output.split(b'\n')[0])):
             self.assertFalse(self.wale_restore.should_use_s3_to_create_replica())
-        with patch('subprocess.check_output', MagicMock(side_effect=fake_backup_data_3)):
+        with patch('subprocess.check_output',
+                   MagicMock(return_value=wale_output.replace(b' wal_segment_offset_backup_stop', b''))):
             self.assertFalse(self.wale_restore.should_use_s3_to_create_replica())
-        with patch('subprocess.check_output', MagicMock(side_effect=fake_backup_data_4)):
+        with patch('subprocess.check_output',
+                   MagicMock(return_value=wale_output.replace(b'expanded_size_bytes', b'expanded_size_foo'))):
             self.assertFalse(self.wale_restore.should_use_s3_to_create_replica())
 
         self.wale_restore.should_use_s3_to_create_replica()
