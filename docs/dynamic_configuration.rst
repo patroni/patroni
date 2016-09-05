@@ -48,23 +48,24 @@ To be on the safe side parameters from the above lists are not written into ``po
 
 When applying the local or dynamic configuration options, the following actions are taken:
 
-- The node first checks if there is a postgresql.base.conf.
-- If it exists, it contains the renamed "original" configuration.
-- If it doesn't, the original postgresql.conf is taken and renamed to postgresql.base.conf.
+- The node first checks if there is a postgresql.base.conf or if the ``custom_conf`` parameter is set.
+- If the `custom_conf` parameter is set, it will take the file specified on it as a base configuration, ignoring `postgresql.base.conf` and `postgresql.conf`.
+- If the `custom_conf` parameter is not set and `postgresql.base.conf` exists, it contains the renamed "original" configuration and it will be used as a base configuration.
+- If there is no `custom_conf` nor `postgresql.base.conf`, the original postgresql.conf is taken and renamed to postgresql.base.conf.
 - The dynamic options (with the exceptions above) are dumped into the postgresql.conf and an include is set in
-  postgresql.conf to postgresql.base.conf. Therefore, we would be able to apply new options without re-reading the configuration file to check if the include is present not.
+  postgresql.conf to the used base configuration (either postgresql.base.conf or what is on ``custom_conf``). Therefore, we would be able to apply new options without re-reading the configuration file to check if the include is present not.
 - Some parameters that are essential for Patroni to manage the cluster are overridden using the command line.
 - If some of the options that require restart are changed (we should look at the context in pg_settings and at the actual
   values of those options), a pending_restart flag of a given node is set. This flag is reset on any restart.
 
 The parameters would be applied in the following order (run-time are given the highest priority):
 
-1. load parameters from file `postgresql.base.conf`
+1. load parameters from file `postgresql.base.conf` (or from a `custom_conf` file, if set)
 2. load parameters from file `postgresql.conf`
 3. load parameters from file `postgresql.auto.conf`
 4. run-time parameter using `-o --name=value`
 
-This allows configuration for all the nodes (2), configuration for a specific node using `ALTER SYSTEM` (3) and ensures that parameters essential to the running of Patroni are enforced. (4)
+This allows configuration for all the nodes (2), configuration for a specific node using `ALTER SYSTEM` (3) and ensures that parameters essential to the running of Patroni are enforced (4), as well as leaves room for configuration tools that manage `postgresql.conf` directly without involving Patroni (1).
 
 
 Also, the following Patroni configuration options can be changed only dynamically:
