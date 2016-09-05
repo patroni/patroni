@@ -311,11 +311,9 @@ class TestPostgresql(unittest.TestCase):
     def test_sync_replication_slots(self):
         self.p.start()
         cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None)
+        with mock.patch('patroni.postgresql.Postgresql._query', Mock(side_effect=psycopg2.OperationalError)):
+            self.p.sync_replication_slots(cluster)
         self.p.sync_replication_slots(cluster)
-        self.p.query = Mock(side_effect=psycopg2.OperationalError)
-        self.p.schedule_load_slots = True
-        self.p.sync_replication_slots(cluster)
-        self.p.schedule_load_slots = False
         with mock.patch('patroni.postgresql.Postgresql.role', new_callable=PropertyMock(return_value='replica')):
             self.p.sync_replication_slots(cluster)
         with mock.patch('patroni.postgresql.logger.error', new_callable=Mock()) as errorlog_mock:

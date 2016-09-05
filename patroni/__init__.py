@@ -86,6 +86,10 @@ class Patroni(object):
         nap_time = self.next_run - current_time
         if nap_time <= 0:
             self.next_run = current_time
+            # Release the GIL so we don't starve anyone waiting on async_executor lock
+            time.sleep(0.001)
+            # Warn user that Patroni is not keeping up
+            logger.warning("Loop time exceeded, rescheduling immediately.")
         elif self.dcs.watch(nap_time):
             self.next_run = time.time()
 
