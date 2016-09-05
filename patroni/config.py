@@ -65,7 +65,7 @@ class Config(object):
                 print('Usage: {0} config.yml'.format(sys.argv[0]))
                 print('\tPatroni may also read the configuration from the {0} environment variable'.
                       format(self.PATRONI_CONFIG_VARIABLE))
-                exit(1)
+                sys.exit(1)
 
         self.__effective_configuration = self._build_effective_configuration({}, self._local_configuration)
         self._data_dir = self.__effective_configuration['postgresql']['data_dir']

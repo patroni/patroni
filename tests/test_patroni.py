@@ -14,6 +14,11 @@ from test_etcd import SleepException, etcd_read, etcd_write
 from test_postgresql import Postgresql, psycopg2_connect
 
 
+class MockFrozenImporter(object):
+
+    toc = set(['patroni.dcs.etcd'])
+
+
 @patch('time.sleep', Mock())
 @patch('subprocess.call', Mock(return_value=0))
 @patch('psycopg2.connect', psycopg2_connect)
@@ -27,6 +32,8 @@ from test_postgresql import Postgresql, psycopg2_connect
 @patch.object(etcd.Client, 'read', etcd_read)
 class TestPatroni(unittest.TestCase):
 
+    @patch('pkgutil.get_importer', Mock(return_value=MockFrozenImporter()))
+    @patch('sys.frozen', Mock(return_value=True), create=True)
     @patch.object(etcd.Client, 'read', etcd_read)
     def setUp(self):
         RestApiServer._BaseServer__is_shut_down = Mock()
