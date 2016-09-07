@@ -4,7 +4,7 @@ Patroni: A Template for PostgreSQL HA with ZooKeeper, etcd or Consul
 ------------------------------------------------------------
 There are many ways to run high availability with PostgreSQL; for a list, see the `PostgreSQL Documentation <https://wiki.postgresql.org/wiki/Replication,_Clustering,_and_Connection_Pooling>`__.
 
-Patroni is a template for you to create your own customized, high-availability solution using Python and — for maximum accessibility — a distributed configuration store like `ZooKeeper <https://zookeeper.apache.org/>`__, `etcd <https://github.com/coreos/etcd>`__ or `Consul <https://github.com/hashicorp/consul>`__. Database engineers, DBAs, DevOps engineers, and SREs who are looking to quickly deploy HA PostgreSQL in the datacenter—or anywhere else—will hopefully find it useful.
+Patroni is a template for you to create your own customized, high-availability solution using Python and - for maximum accessibility - a distributed configuration store like `ZooKeeper <https://zookeeper.apache.org/>`__, `etcd <https://github.com/coreos/etcd>`__ or `Consul <https://github.com/hashicorp/consul>`__. Database engineers, DBAs, DevOps engineers, and SREs who are looking to quickly deploy HA PostgreSQL in the datacenter-or anywhere else-will hopefully find it useful.
 
 We call Patroni a "template" because it is far from being a one-size-fits-all or plug-and-play replication system. It will have its own caveats. Use wisely.
 
@@ -58,7 +58,7 @@ To get started, do the following from different terminals:
     > ./patroni.py postgres0.yml
     > ./patroni.py postgres1.yml
 
-You will then see a high-availability cluster start up. Test different settings in the YAML files to see how the cluster’s behavior changes. Kill some of the components to see how the system behaves.
+You will then see a high-availability cluster start up. Test different settings in the YAML files to see how the cluster's behavior changes. Kill some of the components to see how the system behaves.
 
 Add more ``postgres*.yml`` files to create an even larger cluster.
 
@@ -120,7 +120,7 @@ Contributing
 Patroni accepts contributions from the open-source community; see the `Issues Tracker <https://github.com/zalando/patroni/issues>`__ for current needs. 
 
 Before making a contribution, please let us know by posting a comment to the relevant issue. 
-If you would like to propose a new feature, please first file a new issue explaining the feature you’d like to create.
+If you would like to propose a new feature, please first file a new issue explaining the feature you'd like to create.
 
 .. |Build Status| image:: https://travis-ci.org/zalando/patroni.svg?branch=master
    :target: https://travis-ci.org/zalando/patroni
