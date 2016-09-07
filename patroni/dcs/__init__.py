@@ -202,6 +202,9 @@ class Failover(namedtuple('Failover', 'index,leader,candidate,scheduled_at')):
 
         return Failover(index, data.get('leader'), data.get('member'), data.get('scheduled_at'))
 
+    def __len__(self):
+        return int(bool(self.leader)) + int(bool(self.candidate))
+
 
 class ClusterConfig(namedtuple('ClusterConfig', 'index,data,modify_index')):
 
@@ -243,6 +246,9 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
     def get_clone_member(self):
         candidates = [m for m in self.members if m.clonefrom and (not self.leader or m.name != self.leader.name)]
         return candidates[randint(0, len(candidates) - 1)] if candidates else self.leader
+
+    def is_paused(self):
+        return self.config and self.config.data.get('pause', False) or False
 
 
 @six.add_metaclass(abc.ABCMeta)

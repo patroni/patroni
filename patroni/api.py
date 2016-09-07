@@ -194,11 +194,17 @@ class RestApiHandler(BaseHTTPRequestHandler):
         status_code = 500
         data = 'restart failed'
         request = self._read_json_content(body_is_optional=True)
+        cluster = self.server.patroni.dcs.get_cluster()
         if request is None:
             # failed to parse the json
             return
         if request:
             logger.debug("received restart request: {0}".format(request))
+
+        if cluster.is_paused() and 'schedule' in request:
+            self._write_response(status_code, "Can't schedule restart in the paused state")
+            return
+
         for k in request:
             if k == 'schedule':
                 (_, data, request[k]) = self.parse_schedule(request[k], "restart")
@@ -249,22 +255,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     @check_auth
     def do_POST_reinitialize(self):
-        patroni = self.server.patroni
-        cluster = patroni.dcs.get_cluster()
-        if cluster.is_unlocked():
-            status_code = 503
-            data = 'Cluster has no leader, can not reinitialize'
-        elif cluster.leader.name == patroni.ha.state_handler.name:
-            status_code = 503
-            data = 'I am the leader, can not reinitialize'
+        data = self.server.patroni.ha.reinitialize()
+        if data is None:
+            status_code = 200
+            data = 'reinitialize started'
         else:
-            action = patroni.ha.schedule_reinitialize()
-            if action is not None:
-                status_code = 503
-                data = action + ' already in progress'
-            else:
-                status_code = 200
-                data = 'reinitialize scheduled'
+            status_code = 503
         self._write_response(status_code, data)
 
     def poll_failover_result(self, leader, candidate):
@@ -285,7 +281,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         return 503, 'Failover status unknown'
 
     def is_failover_possible(self, cluster, leader, candidate):
-        if leader and not cluster.leader or cluster.leader.name != leader:
+        if leader and (not cluster.leader or cluster.leader.name != leader):
             return 'leader name does not match'
         if candidate:
             members = [m for m in cluster.members if m.name == candidate]
@@ -303,6 +299,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
     @check_auth
     def do_POST_failover(self):
         request = self._read_json_content()
+        status_code = 500
         if not request:
             return
 
@@ -310,7 +307,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
         candidate = request.get('candidate') or request.get('member')
         scheduled_at = request.get('scheduled_at')
         cluster = self.server.patroni.dcs.get_cluster()
-        status_code = 500
+
+        if scheduled_at and cluster.is_paused():
+            self._write_response(status_code, "Can't schedule failover in the paused state")
 
         logger.info("received failover request with leader=%s candidate=%s scheduled_at=%s",
                     leader, candidate, scheduled_at)

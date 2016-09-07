@@ -499,6 +499,8 @@ def restart(cluster_name, member_names, config_file, dcs, force, role, p_any, sc
 
     scheduled_at = parse_scheduled(scheduled)
     if scheduled_at:
+        if cluster.is_paused():
+            raise PatroniCtlException("Can't schedule restart in the paused state")
         content['schedule'] = scheduled_at.isoformat()
 
     for member in members:
@@ -554,16 +556,16 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
 
     config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
 
-    if cluster.leader is None:
+    if cluster.leader is None and not cluster.is_paused():
         raise PatroniCtlException('This cluster has no master')
 
-    if master is None:
+    if master is None and (not cluster.is_paused() or cluster.leader):
         if force:
             master = cluster.leader.member.name
         else:
             master = click.prompt('Master', type=str, default=cluster.leader.member.name)
 
-    if cluster.leader.member.name != master:
+    if master is not None and cluster.leader and cluster.leader.member.name != master:
         raise PatroniCtlException('Member {0} is not the leader of cluster {1}'.format(master, cluster_name))
 
     candidate_names = [str(m.name) for m in cluster.members if m.name != master]
@@ -589,9 +591,12 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
     scheduled_at = parse_scheduled(scheduled)
 
     if scheduled_at:
+        if cluster.is_paused():
+            raise PatroniCtlException("Can't schedule failover in the paused state")
         scheduled_at = scheduled_at.isoformat()
 
     failover_value = {'leader': master, 'candidate': candidate, 'scheduled_at': scheduled_at}
+
     logging.debug(failover_value)
 
     # By now we have established that the leader exists and the candidate exists
@@ -607,7 +612,9 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
 
     r = None
     try:
-        r = request_patroni(cluster.leader.member, 'post', 'failover', failover_value, auth_header(config))
+        member = cluster.leader.member if cluster.leader else [m for m in cluster.members if m.name == candidate][0]
+
+        r = request_patroni(member, 'post', 'failover', failover_value, auth_header(config))
         if r.status_code in (200, 202):
             logging.debug(r)
             cluster = dcs.get_cluster()
@@ -748,7 +755,7 @@ def touch_member(config, dcs):
 
 
 def set_defaults(config, cluster_name):
-    ''' fill-in some basic configuration parameters if config file is not set '''
+    """fill-in some basic configuration parameters if config file is not set """
     config['postgresql'].setdefault('name', cluster_name)
     config['postgresql'].setdefault('scope', cluster_name)
     config['postgresql'].setdefault('listen', '127.0.0.1')
@@ -800,3 +807,33 @@ def flush(cluster_name, member_names, config_file, dcs, force, role, target):
                 check_response(r, member.name, 'flush scheduled restart')
             else:
                 click.echo('No scheduled restart for member {0}'.format(member.name))
+
+
+def toggle_pause(config_file, cluster_name, dcs, paused):
+    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+    if cluster.is_paused() == paused:
+        raise PatroniCtlException('Cluster is {0} paused'.format(paused and 'already' or 'not'))
+
+    r = request_patroni(cluster.leader.member, 'patch', 'config', {'pause': paused or None}, auth_header(config))
+
+    if r.status_code == 200:
+        click.echo('Success: cluster management is {0}'.format(paused and 'paused' or 'resumed'))
+    else:
+        click.echo('Failed: {0} cluster management status code={1}, ({2})'.format(
+                   paused and 'pause' or 'resume', r.status_code, r.text))
+
+
+@ctl.command('pause', help='Disable auto failover')
+@click.argument('cluster_name')
+@option_config_file
+@option_dcs
+def pause(config_file, cluster_name, dcs):
+    return toggle_pause(config_file, cluster_name, dcs, True)
+
+
+@ctl.command('resume', help='Resume auto failover')
+@click.argument('cluster_name')
+@option_config_file
+@option_dcs
+def resume(config_file, cluster_name, dcs):
+    return toggle_pause(config_file, cluster_name, dcs, False)

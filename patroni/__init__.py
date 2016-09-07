@@ -38,9 +38,11 @@ class Patroni(object):
             try:
                 cluster = self.dcs.get_cluster()
                 if cluster and cluster.config:
-                    self.config.set_dynamic_configuration(cluster.config)
+                    if self.config.set_dynamic_configuration(cluster.config):
+                        self.dcs.reload_config(self.config)
                 elif not self.config.dynamic_configuration and 'bootstrap' in self.config:
-                    self.config.set_dynamic_configuration(self.config['bootstrap']['dcs'])
+                    if self.config.set_dynamic_configuration(self.config['bootstrap']['dcs']):
+                        self.dcs.reload_config(self.config)
                 break
             except DCSError:
                 logger.warning('Can not get cluster from dcs')
@@ -51,7 +53,7 @@ class Patroni(object):
 
     @property
     def nofailover(self):
-        return self.tags.get('nofailover', False)
+        return bool(self.tags.get('nofailover', False))
 
     def reload_config(self):
         try:
@@ -76,7 +78,7 @@ class Patroni(object):
 
     @property
     def noloadbalance(self):
-        return self.tags.get('noloadbalance', False)
+        return bool(self.tags.get('noloadbalance', False))
 
     def schedule_next_run(self):
         self.next_run += self.dcs.loop_wait
@@ -132,5 +134,8 @@ def main():
         pass
     finally:
         patroni.api.shutdown()
-        patroni.postgresql.stop(checkpoint=False)
-        patroni.dcs.delete_leader()
+        if patroni.ha.is_paused():
+            logger.info('Leader key is not deleted and Postgresql is not stopped due paused state')
+        else:
+            patroni.postgresql.stop(checkpoint=False)
+            patroni.dcs.delete_leader()

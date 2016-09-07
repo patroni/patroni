@@ -26,6 +26,9 @@ class Ha(object):
         self.recovering = False
         self._async_executor = AsyncExecutor()
 
+    def is_paused(self):
+        return self.cluster and self.cluster.is_paused()
+
     def load_cluster_from_dcs(self):
         cluster = self.dcs.get_cluster()
 
@@ -131,23 +134,34 @@ class Ha(object):
 
         return node_to_follow if node_to_follow and node_to_follow.name != self.state_handler.name else None
 
-    def follow(self, demote_reason, follow_reason, refresh=True, recovery=False):
+    def follow(self, demote_reason, follow_reason, refresh=True, recovery=False, need_rewind=None):
         if refresh:
             self.load_cluster_from_dcs()
 
         if recovery:
             ret = demote_reason if self.has_lock() else follow_reason
         else:
-            ret = demote_reason if self.state_handler.is_leader() else follow_reason
+            is_leader = self.state_handler.is_leader()
+            ret = demote_reason if is_leader else follow_reason
 
         node_to_follow = self._get_node_to_follow(self.cluster)
 
-        self.state_handler.follow(node_to_follow, self.cluster.leader, recovery, self._async_executor)
+        if self.is_paused() and not self.state_handler.need_rewind:
+            self.state_handler.set_role('master' if is_leader else 'replica')
+            if is_leader:
+                return 'continue to run as master without lock'
+            elif not node_to_follow:
+                return 'no action'
+
+        self.state_handler.follow(node_to_follow, self.cluster.leader, recovery, self._async_executor, need_rewind)
 
         return ret
 
     def enforce_master_role(self, message, promote_message):
         if self.state_handler.is_leader() or self.state_handler.role == 'master':
+            # Inform the state handler about its master role.
+            # It may be unaware of it if postgres is promoted manually.
+            self.state_handler.set_role('master')
             return message
         else:
             self.state_handler.promote()
@@ -223,6 +237,15 @@ class Ha(object):
         if failover.candidate:  # manual failover to specific member
             if failover.candidate == self.state_handler.name:  # manual failover to me
                 return True
+            elif self.is_paused():
+                # Remove failover key if the node to failover has terminated to avoid waiting for it indefinitely
+                # In order to avoid attempts to delete this key from all nodes only the master is allowed to do it.
+                if (not self.cluster.get_member(failover.candidate, fallback_to_leader=False) and
+                   self.state_handler.is_leader()):
+                    logger.warning("manual failover: removing failover key because failover candidate is not running")
+                    self.dcs.manual_failover('', '', index=self.cluster.failover.index)
+                    return None
+                return False
 
             # find specific node and check that it is healthy
             member = self.cluster.get_member(failover.candidate, fallback_to_leader=False)
@@ -239,6 +262,8 @@ class Ha(object):
 
             # at this point we should consider all members as a candidates for failover
             # i.e. we assume that failover.candidate is None
+        elif self.is_paused():
+            return False
 
         # try to pick some other members to failover and check that they are healthy
         if failover.leader:
@@ -257,8 +282,17 @@ class Ha(object):
         return self._is_healthiest_node(members, check_replication_lag=False)
 
     def is_healthiest_node(self):
+        if self.is_paused() and not self.patroni.nofailover and \
+                self.cluster.failover and not self.cluster.failover.scheduled_at:
+            ret = self.manual_failover_process_no_leader()
+            if ret is not None:  # continue if we just deleted the stale failover key as a master
+                return ret
+
         if self.state_handler.is_leader():  # leader is always the healthiest
             return True
+
+        if self.is_paused():
+            return False
 
         if self.patroni.nofailover:  # nofailover tag makes node always unhealthy
             return False
@@ -273,19 +307,19 @@ class Ha(object):
     def demote(self, delete_leader=True):
         if delete_leader:
             self.state_handler.stop()
-            self.state_handler.set_role('unknown')
+            self.state_handler.set_role('demoted')
             self.dcs.delete_leader()
             self.touch_member()
             self.dcs.reset_cluster()
-            sleep(2)  # Give a time to somebody to promote
+            sleep(2)  # Give a time to somebody to take the leader lock
             cluster = self.dcs.get_cluster()
             node_to_follow = self._get_node_to_follow(cluster)
-            self.state_handler.follow(node_to_follow, cluster.leader, True)
+            self.state_handler.follow(node_to_follow, cluster.leader, recovery=True, need_rewind=True)
         else:
             self.state_handler.follow(None, None)
 
     def should_run_scheduled_action(self, action_name, scheduled_at, cleanup_fn):
-        if scheduled_at:
+        if scheduled_at and not self.is_paused():
             # If the scheduled action is in the far future, we shouldn't do anything and just return.
             # If the scheduled action is in the past, we consider the value to be stale and we remove
             # the value.
@@ -304,7 +338,6 @@ class Ha(object):
                     logger.warning('Found a stale %s value, cleaning up: %s',
                                    action_name, scheduled_at.isoformat())
                     cleanup_fn()
-                    self.dcs.manual_failover('', '', index=self.cluster.failover.index)
                     return False
 
                 # The value is very close to now
@@ -321,33 +354,44 @@ class Ha(object):
 
         if (failover.scheduled_at and not
             self.should_run_scheduled_action("failover", failover.scheduled_at, lambda:
-                                             self.dcs.manual_failover('', '', index=self.cluster.failover.index))):
+                                             self.dcs.manual_failover('', '', index=failover.index))):
             return
 
         if not failover.leader or failover.leader == self.state_handler.name:
             if not failover.candidate or failover.candidate != self.state_handler.name:
-                members = [m for m in self.cluster.members if not failover.candidate or m.name == failover.candidate]
-                if self.is_failover_possible(members):  # check that there are healthy members
-                    self._async_executor.schedule('manual failover: demote')
-                    self._async_executor.run_async(self.demote)
-                    return 'manual failover: demoting myself'
+                if not failover.candidate and self.is_paused():
+                    logger.warning('Failover is possible only to a specific candidate in a paused state')
                 else:
-                    logger.warning('manual failover: no healthy members found, failover is not possible')
+                    members = [m for m in self.cluster.members
+                               if not failover.candidate or m.name == failover.candidate]
+                    if self.is_failover_possible(members):  # check that there are healthy members
+                        self._async_executor.schedule('manual failover: demote')
+                        self._async_executor.run_async(self.demote)
+                        return 'manual failover: demoting myself'
+                    else:
+                        logger.warning('manual failover: no healthy members found, failover is not possible')
             else:
                 logger.warning('manual failover: I am already the leader, no need to failover')
         else:
             logger.warning('manual failover: leader name does not match: %s != %s',
-                           self.cluster.failover.leader, self.state_handler.name)
+                           failover.leader, self.state_handler.name)
 
-        logger.info('Trying to clean up failover key')
-        self.dcs.manual_failover('', '', index=self.cluster.failover.index)
+        logger.info('Cleaning up failover key')
+        self.dcs.manual_failover('', '', index=failover.index)
 
     def process_unhealthy_cluster(self):
+        """Cluster has no leader key"""
+
         if self.is_healthiest_node():
             if self.acquire_lock():
-                if self.cluster.failover:
-                    logger.info('Cleaning up failover key after acquiring leader lock...')
-                    self.dcs.manual_failover('', '')
+                failover = self.cluster.failover
+                if failover:
+                    if self.is_paused() and failover.leader and failover.candidate:
+                        logger.info('Updating failover key after acquiring leader lock...')
+                        self.dcs.manual_failover('', failover.candidate, failover.scheduled_at, failover.index)
+                    else:
+                        logger.info('Cleaning up failover key after acquiring leader lock...')
+                        self.dcs.manual_failover('', '')
                 self.load_cluster_from_dcs()
                 return self.enforce_master_role('acquired session lock as a leader',
                                                 'promoted self to leader by acquiring session lock')
@@ -355,18 +399,34 @@ class Ha(object):
                 return self.follow('demoted self after trying and failing to obtain lock',
                                    'following new leader after trying and failing to obtain lock')
         else:
+            # when we are doing manual failover there is no guaranty that new leader is ahead of any other node
+            # node tagged as nofailover can be ahead of the new leader either, but it is always excluded from elections
+            need_rewind = bool(self.cluster.failover) or self.patroni.nofailover
+            if need_rewind:
+                sleep(2)  # Give a time to somebody to take the leader lock
+
             if self.patroni.nofailover:
                 return self.follow('demoting self because I am not allowed to become master',
-                                   'following a different leader because I am not allowed to promote')
+                                   'following a different leader because I am not allowed to promote',
+                                   need_rewind=need_rewind)
             return self.follow('demoting self because i am not the healthiest node',
-                               'following a different leader because i am not the healthiest node')
+                               'following a different leader because i am not the healthiest node',
+                               need_rewind=need_rewind)
 
     def process_healthy_cluster(self):
         if self.has_lock():
-            if self.cluster.failover:
+            if self.cluster.failover and (not self.is_paused() or self.state_handler.is_leader()):
                 msg = self.process_manual_failover_from_leader()
                 if msg is not None:
                     return msg
+
+            if self.is_paused() and not self.state_handler.is_leader():
+                if self.cluster.failover and self.cluster.failover.candidate == self.state_handler.name:
+                    return 'waiting to become master after promote...'
+
+                self.dcs.delete_leader()
+                self.dcs.reset_cluster()
+                return 'removed leader lock because postgres is not running as master'
 
             if self.update_lock():
                 return self.enforce_master_role('no action.  i am the leader with the lock',
@@ -423,10 +483,6 @@ class Ha(object):
             logger.info("not proceeding with the restart: %s", reason_to_cancel)
         return False
 
-    def schedule(self, action, immediate=False):
-        with self._async_executor:
-            return self._async_executor.schedule(action, immediate)
-
     def schedule_future_restart(self, restart_data):
         with self._async_executor:
             if not self.patroni.scheduled_restart:
@@ -448,15 +504,6 @@ class Ha(object):
         return self.patroni.scheduled_restart.copy() if (self.patroni.scheduled_restart and
                                                          isinstance(self.patroni.scheduled_restart, dict)) else None
 
-    def schedule_reinitialize(self):
-        return self.schedule('reinitialize')
-
-    def reinitialize_scheduled(self):
-        return self._async_executor.scheduled_action == 'reinitialize'
-
-    def schedule_restart(self, immediate=False):
-        return self.schedule('restart', immediate)
-
     def restart_scheduled(self):
         return self._async_executor.scheduled_action == 'restart'
 
@@ -469,37 +516,41 @@ class Ha(object):
             return (False, "restart conditions are not satisfied")
 
         with self._async_executor:
-            prev = self.schedule_restart(immediate=(not run_async))
+            prev = self._async_executor.schedule('restart')
             if prev is not None:
                 return (False, prev + ' already in progress')
-            if not run_async:
-                if self._async_executor.run(self.state_handler.restart):
-                    return (True, 'restarted successfully')
-                else:
-                    return (False, 'restart failed')
-            else:
-                self._async_executor.run_async(self.state_handler.restart)
-                return (True, "restart initiated")
 
-    def reinitialize(self, cluster):
+        if run_async:
+            self._async_executor.run_async(self.state_handler.restart)
+            return (True, 'restart initiated')
+        elif self._async_executor.run(self.state_handler.restart):
+            return (True, 'restarted successfully')
+        else:
+            return (False, 'restart failed')
+
+    def _do_reinitialize(self, cluster):
         self.state_handler.stop('immediate')
         self.state_handler.remove_data_directory()
 
-        clone_member = cluster.get_clone_member()
-        member_role = 'leader' if clone_member == cluster.leader else 'replica'
+        clone_member = self.cluster.get_clone_member()
+        member_role = 'leader' if clone_member == self.cluster.leader else 'replica'
         self.clone(clone_member, "from {0} '{1}'".format(member_role, clone_member.name))
 
-    def process_scheduled_action(self):
-        if self.reinitialize_scheduled():
+    def reinitialize(self):
+        with self._async_executor:
+            self.load_cluster_from_dcs()
+
             if self.cluster.is_unlocked():
-                logger.error('Cluster has no leader, can not reinitialize')
-                self._async_executor.reset_scheduled_action()
-            elif self.has_lock():
-                logger.error('I am the leader, can not reinitialize')
-                self._async_executor.reset_scheduled_action()
-            else:
-                self._async_executor.run_async(self.reinitialize, args=(self.cluster, ))
-                return 'reinitialize started'
+                return 'Cluster has no leader, can not reinitialize'
+
+            if self.cluster.leader.name == self.state_handler.name:
+                return 'I am the leader, can not reinitialize'
+
+            action = self._async_executor.schedule('reinitialize', immediately=True)
+            if action is not None:
+                return '{0} already in progress'.format(action)
+
+        self._async_executor.run_async(self._do_reinitialize, args=(self.cluster, ))
 
     def handle_long_action_in_progress(self):
         if self.has_lock():
@@ -545,22 +596,17 @@ class Ha(object):
                 return self.handle_long_action_in_progress()
 
             # we've got here, so any async action has finished. Check if we tried to recover and failed
-            if self.recovering:
+            if self.recovering and not self.state_handler.need_rewind:
                 self.recovering = False
                 msg = self.post_recover()
                 if msg is not None:
                     return msg
 
-            # currently it can trigger only reinitialize
-            msg = self.process_scheduled_action()
-            if msg is not None:
-                return msg
-
             # is data directory empty?
             if self.state_handler.data_directory_empty():
                 return self.bootstrap()  # new node
             # "bootstrap", but data directory is not empty
-            elif not self.sysid_valid(self.cluster.initialize) and self.cluster.is_unlocked():
+            elif not self.sysid_valid(self.cluster.initialize) and self.cluster.is_unlocked() and not self.is_paused():
                 self.dcs.initialize(create_new=(self.cluster.initialize is None), sysid=self.state_handler.sysid)
             else:
                 # check if we are allowed to join
@@ -569,8 +615,16 @@ class Ha(object):
                                  self.state_handler.name, self.cluster.initialize, self.state_handler.sysid)
                     sys.exit(1)
 
-            # try to start dead postgres
             if not self.state_handler.is_healthy():
+                if self.is_paused():
+                    if self.has_lock():
+                        self.dcs.delete_leader()
+                        self.dcs.reset_cluster()
+                        return 'removed leader lock because postgres is not running'
+                    elif not self.state_handler.need_rewind:
+                        return 'postgres is not running'
+
+                # try to start dead postgres
                 return self.recover()
 
             try:
@@ -591,12 +645,14 @@ class Ha(object):
                     self.state_handler.sync_replication_slots(self.cluster)
         except DCSError:
             logger.error('Error communicating with DCS')
-            if self.state_handler.is_running() and self.state_handler.is_leader():
+            if not self.is_paused() and self.state_handler.is_running() and self.state_handler.is_leader():
                 self.demote(delete_leader=False)
                 return 'demoted self because DCS is not accessible and i was a leader'
+            return 'DCS is not accessible'
         except (psycopg2.Error, PostgresConnectionException):
-            logger.exception('Error communicating with PostgreSQL. Will try again later')
+            return 'Error communicating with PostgreSQL. Will try again later'
 
     def run_cycle(self):
         with self._async_executor:
-            return self._run_cycle()
+            info = self._run_cycle()
+            return (self.is_paused() and 'PAUSE: ' or '') + info

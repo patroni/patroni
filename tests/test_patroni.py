@@ -61,7 +61,8 @@ class TestPatroni(unittest.TestCase):
             with patch.object(Patroni, 'run', Mock(side_effect=SleepException)):
                 self.assertRaises(SleepException, _main)
             with patch.object(Patroni, 'run', Mock(side_effect=KeyboardInterrupt())):
-                _main()
+                with patch('patroni.ha.Ha.is_paused', Mock(return_value=True)):
+                    _main()
 
     @patch('patroni.config.Config.save_cache', Mock())
     @patch('patroni.config.Config.reload_local_configuration', Mock(return_value=True))

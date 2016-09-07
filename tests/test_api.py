@@ -40,7 +40,7 @@ class MockHa(object):
     state_handler = MockPostgresql()
 
     @staticmethod
-    def schedule_reinitialize():
+    def reinitialize():
         return 'reinitialize'
 
     @staticmethod
@@ -179,7 +179,9 @@ class TestRestApiHandler(unittest.TestCase):
             MockRestApiServer(RestApiHandler, 'POST /reload HTTP/1.0' + self._authorization)
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'POST /reload HTTP/1.0' + self._authorization))
 
-    def test_do_POST_restart(self):
+    @patch.object(MockPatroni, 'dcs')
+    def test_do_POST_restart(self, mock_dcs):
+        mock_dcs.get_cluster.return_value.is_paused.return_value = False
         request = 'POST /restart HTTP/1.0' + self._authorization
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
 
@@ -221,6 +223,9 @@ class TestRestApiHandler(unittest.TestCase):
                 request = make_request(role='master', postgres_version='9.5.2')
                 MockRestApiServer(RestApiHandler, request)
 
+        mock_dcs.get_cluster.return_value.is_paused.return_value = True
+        MockRestApiServer(RestApiHandler, make_request(schedule='2016-08-42 12:45TZ+1', role='master'))
+
     def test_do_DELETE_restart(self):
         for retval in (True, False):
             with patch.object(MockHa, 'delete_future_restart', Mock(return_value=retval)):
@@ -228,16 +233,13 @@ class TestRestApiHandler(unittest.TestCase):
                 self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
 
     @patch.object(MockPatroni, 'dcs')
-    def test_do_POST_reinitialize(self, dcs):
-        cluster = dcs.get_cluster.return_value
+    def test_do_POST_reinitialize(self, mock_dcs):
+        cluster = mock_dcs.get_cluster.return_value
+        cluster.is_paused.return_value = False
         request = 'POST /reinitialize HTTP/1.0' + self._authorization
         MockRestApiServer(RestApiHandler, request)
-        cluster.is_unlocked.return_value = False
-        MockRestApiServer(RestApiHandler, request)
-        with patch.object(MockHa, 'schedule_reinitialize', Mock(return_value=None)):
+        with patch.object(MockHa, 'reinitialize', Mock(return_value=None)):
             MockRestApiServer(RestApiHandler, request)
-        cluster.leader.name = 'test'
-        self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
 
     @patch('time.sleep', Mock())
     def test_RestApiServer_query(self):

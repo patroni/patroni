@@ -34,20 +34,22 @@ Scenario: check local configuration reload
 	Then I receive a response code 202
 
 Scenario: check dynamic configuration change via DCS
-	Given I issue a PATCH request to http://127.0.0.1:8008/config with {"ttl": 20, "loop_wait": 1, "postgresql": {"parameters": {"max_connections": 101}}}
+	Given I issue a PATCH request to http://127.0.0.1:8008/config with {"ttl": 20, "loop_wait": 2, "postgresql": {"parameters": {"max_connections": 101}}}
 	Then I receive a response code 200
-	And I receive a response loop_wait 1
+	And I receive a response loop_wait 2
 	And Response on GET http://127.0.0.1:8008/patroni contains pending_restart after 11 seconds
 	When I issue a GET request to http://127.0.0.1:8008/config
 	Then I receive a response code 200
-	And I receive a response loop_wait 1
+	And I receive a response loop_wait 2
 	When I issue a GET request to http://127.0.0.1:8008/patroni
 	Then I receive a response code 200
 	And I receive a response tags {'tag': 'new_value'}
 
-Scenario: check API requests for the primary-replica pair
-	Given I start postgres1
-	And replication works from postgres0 to postgres1 after 20 seconds
+Scenario: check API requests for the primary-replica pair in the pause mode
+	Given I run patronictl.py pause batman
+	Then I receive a response returncode 0
+	When I start postgres1
+	Then replication works from postgres0 to postgres1 after 20 seconds
 	When I issue a GET request to http://127.0.0.1:8009/replica
 	Then I receive a response code 200
 	And I receive a response state running
@@ -62,19 +64,24 @@ Scenario: check API requests for the primary-replica pair
 	When I sleep for 10 seconds
 	Then postgres1 role is the secondary after 15 seconds
 
-Scenario: check the failover via the API
+Scenario: check the failover via the API in the pause mode
 	Given I run patronictl.py failover batman --master postgres0 --candidate postgres1 --force
 	Then I receive a response returncode 0
 	And postgres1 is a leader after 5 seconds
-	And postgres1 role is the primary after 5 seconds
+	And postgres1 role is the primary after 10 seconds
 	And postgres0 role is the secondary after 10 seconds
 	And replication works from postgres1 to postgres0 after 20 seconds
 
 Scenario: check the scheduled failover
 	Given I issue a scheduled failover from postgres1 to postgres0 in 1 seconds
+	Then I receive a response returncode 1
+	And I receive a response output "Can't schedule failover in the paused state"
+	When I run patronictl.py resume batman
+	Then I receive a response returncode 0
+	Given I issue a scheduled failover from postgres1 to postgres0 in 1 seconds
 	Then I receive a response returncode 0
 	And postgres0 is a leader after 20 seconds
-	And postgres0 role is the primary after 5 seconds
+	And postgres0 role is the primary after 10 seconds
 	And postgres1 role is the secondary after 10 seconds
 	And replication works from postgres0 to postgres1 after 25 seconds
 
@@ -84,7 +91,7 @@ Scenario: check the scheduled restart
 		And Response on GET http://127.0.0.1:8008/patroni contains pending_restart after 5 seconds
 	Given I issue a scheduled restart at http://127.0.0.1:8008 in 1 seconds with {"role": "replica"}
 	Then I receive a response code 202
-		And I sleep for 10 seconds
+		And I sleep for 2 seconds
 		And Response on GET http://127.0.0.1:8008/patroni contains pending_restart after 10 seconds
 	Given I issue a scheduled restart at http://127.0.0.1:8008 in 1 seconds with {"restart_pending": "True"}
 	Then I receive a response code 202
