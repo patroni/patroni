@@ -122,6 +122,14 @@ class Ha(object):
 
     def recover(self):
         self.recovering = True
+        if self.has_lock():
+            if self.patroni.config['master_start_timeout'] == 0:
+                # We are requested to prefer failing over to restarting master. But see first if there
+                # is anyone to fail over to.
+                if self.is_failover_possible(self.cluster.members):
+                    logger.info("Master crashed. Failing over.")
+                    return self.demote_asap()
+
         return self.follow("starting as readonly because i had the session lock", "starting as a secondary", True, True)
 
     def _get_node_to_follow(self, cluster):
@@ -288,6 +296,9 @@ class Ha(object):
             if ret is not None:  # continue if we just deleted the stale failover key as a master
                 return ret
 
+        if self.state_handler.is_starting:  # postgresql still starting up is unhealthy
+            return False
+
         if self.state_handler.is_leader():  # leader is always the healthiest
             return True
 
@@ -304,19 +315,51 @@ class Ha(object):
         members = {m.name: m for m in self.cluster.members + self.old_cluster.members}
         return self._is_healthiest_node(members.values())
 
+    def release_leader_key_voluntarily(self):
+        self.dcs.delete_leader()
+        self.touch_member()
+        self.dcs.reset_cluster()
+        logger.info("Leader key released")
+
     def demote(self, delete_leader=True):
         if delete_leader:
             self.state_handler.stop()
             self.state_handler.set_role('demoted')
-            self.dcs.delete_leader()
-            self.touch_member()
-            self.dcs.reset_cluster()
+            self.release_leader_key_voluntarily()
             sleep(2)  # Give a time to somebody to take the leader lock
             cluster = self.dcs.get_cluster()
             node_to_follow = self._get_node_to_follow(cluster)
             self.state_handler.follow(node_to_follow, cluster.leader, recovery=True, need_rewind=True)
         else:
             self.state_handler.follow(None, None)
+
+    def demote_asap(self):
+        """We are master, but we want to relinquish control ASAP.
+
+        We don't bother to shut down properly because we will need to rewind anyway."""
+        self.state_handler.stop('immediate', checkpoint=False)
+        # Don't set role to unknown to ensure we get rewound
+        self.release_leader_key_voluntarily()
+        self._async_executor.schedule('waiting for failover to complete')
+        self._async_executor.run_async(self.wait_for_failover)
+
+    def wait_for_failover(self):
+        """After forcefully demoting ourselves as unhealthy we want to wait for someone
+        else to take over. However, if no one does we will continue ourselves.
+        """
+        cycles_no_failover_candidates = 0
+        while cycles_no_failover_candidates < 2:
+            sleep(self.dcs.loop_wait)
+            cluster = self.dcs.get_cluster()
+            if cluster.leader:
+                logger.info("New leader detected, proceeding with recovery.")
+                return
+            if self.is_failover_possible(cluster.members):
+                cycles_no_failover_candidates = 0
+            else:
+                cycles_no_failover_candidates += 1
+        logger.info("Nobody else available to failover to, will retry starting.")
+        self.state_handler.follow(None, None, recovery=True)
 
     def should_run_scheduled_action(self, action_name, scheduled_at, cleanup_fn):
         if scheduled_at and not self.is_paused():
@@ -335,6 +378,9 @@ class Ha(object):
                                 action_name, scheduled_at.isoformat(), delta)
                     return False
                 elif delta < - int(self.dcs.loop_wait * 1.5):
+                    # This means that if run_cycle gets delayed for 2.5x loop_wait we skip the
+                    # scheduled action. Probably not a problem, if things are that bad we don't
+                    # want to be restarting or failing over anyway.
                     logger.warning('Found a stale %s value, cleaning up: %s',
                                    action_name, scheduled_at.isoformat())
                     cleanup_fn()
@@ -351,6 +397,8 @@ class Ha(object):
 
     def process_manual_failover_from_leader(self):
         failover = self.cluster.failover
+        if not failover or (self.is_paused() and not self.state_handler.is_leader()):
+            return
 
         if (failover.scheduled_at and not
             self.should_run_scheduled_action("failover", failover.scheduled_at, lambda:
@@ -415,10 +463,9 @@ class Ha(object):
 
     def process_healthy_cluster(self):
         if self.has_lock():
-            if self.cluster.failover and (not self.is_paused() or self.state_handler.is_leader()):
-                msg = self.process_manual_failover_from_leader()
-                if msg is not None:
-                    return msg
+            msg = self.process_manual_failover_from_leader()
+            if msg is not None:
+                return msg
 
             if self.is_paused() and not self.state_handler.is_leader():
                 if self.cluster.failover and self.cluster.failover.candidate == self.state_handler.name:
@@ -579,6 +626,30 @@ class Ha(object):
             return 'failed to start postgres'
         return None
 
+    def handle_starting_instance(self):
+        """Starting up PostgreSQL may take a long time. In case we are the leader we may want to
+        fail over to."""
+        # state_handler.state == 'starting' here
+        if self.has_lock():
+            time_left = self.patroni.config['master_start_timeout'] - self.state_handler.time_in_state()
+            if time_left <= 0:
+                if self.is_failover_possible(self.cluster.members):
+                    logger.info("Demoting self because master startup is taking too long")
+                    self.demote_asap()
+                    return 'stopped PostgreSQL because of startup timeout'
+                else:
+                    return 'master start has timed out, but continuing to wait because failover is not possible'
+            else:
+                msg = self.process_manual_failover_from_leader()
+                if msg is not None:
+                    return msg
+
+                return 'PostgreSQL is still starting up, {0:.0f} seconds until timeout'.format(time_left)
+        else:
+            # Use normal processing for standbys
+            logger.info("Still starting up as a standby.")
+            return None
+
     def _run_cycle(self):
         try:
             self.load_cluster_from_dcs()
@@ -594,6 +665,11 @@ class Ha(object):
 
             if self._async_executor.busy:
                 return self.handle_long_action_in_progress()
+
+            if self.state_handler.check_for_startup():
+                msg = self.handle_starting_instance()
+                if msg is not None:
+                    return msg
 
             # we've got here, so any async action has finished. Check if we tried to recover and failed
             if self.recovering and not self.state_handler.need_rewind:
@@ -639,7 +715,7 @@ class Ha(object):
                 # we might not have a valid PostgreSQL connection here if another thread
                 # stops PostgreSQL, therefore, we only reload replication slots if no
                 # asynchronous processes are running (should be always the case for the master)
-                if not self._async_executor.busy:
+                if not self._async_executor.busy and not self.state_handler.is_starting:
                     if not self.state_handler.cb_called:
                         self.state_handler.call_nowait(ACTION_ON_START)
                     self.state_handler.sync_replication_slots(self.cluster)

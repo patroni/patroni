@@ -22,6 +22,11 @@ ACTION_ON_RESTART = "on_restart"
 ACTION_ON_RELOAD = "on_reload"
 ACTION_ON_ROLE_CHANGE = "on_role_change"
 
+STATE_RUNNING = 'running'
+STATE_REJECT = 'rejecting connections'
+STATE_NO_RESPONSE = 'not responding'
+STATE_UNKNOWN = 'unknown'
+
 
 def slot_name_from_member_name(member_name):
     """Translate member name to valid PostgreSQL slot name.
@@ -116,6 +121,8 @@ class Postgresql(object):
         self._role_lock = Lock()
         self.set_role(self.get_postgres_role_from_data_directory())
 
+        self._state_entry_timestamp = None
+
         if self.is_running():
             self.set_state('running')
             self.set_role('master' if self.is_leader() else 'replica')
@@ -173,13 +180,31 @@ class Postgresql(object):
         pg_ctl = [self._pgcommand('pg_ctl'), cmd]
         if cmd in ('start', 'stop', 'restart'):
             pg_ctl += ['-w']
-            timeout = self.config.get('pg_ctl_timeout')
+            timeout = kwargs.pop('timeout', None)
+            timeout = self.config.get('pg_ctl_timeout', timeout)
             if timeout:
                 try:
                     pg_ctl += ['-t', str(int(timeout))]
                 except Exception:
                     logger.error('Bad value of pg_ctl_timeout: %s', timeout)
         return subprocess.call(pg_ctl + ['-D', self._data_dir] + list(args), **kwargs) == 0
+
+    def pg_isready(self):
+        """Runs pg_isready to see if PostgreSQL is accepting connections.
+
+        :returns: 'ok' if PostgreSQL is up, 'reject' if starting up, 'no_resopnse' if not up."""
+
+        cmd = [self._pgcommand('pg_isready'),
+               '-h', self._local_address['host'],
+               '-p', self._local_address['port'],
+               '-d', self._database,
+               '-U', self._superuser]
+        ret = subprocess.call(cmd)
+        return_codes = {0: STATE_RUNNING,
+                        1: STATE_REJECT,
+                        2: STATE_NO_RESPONSE,
+                        3: STATE_UNKNOWN}
+        return return_codes.get(ret, STATE_UNKNOWN)
 
     def reload_config(self, config):
         server_parameters = self.get_server_parameters(config)
@@ -529,8 +554,19 @@ class Postgresql(object):
     def set_state(self, value):
         with self._state_lock:
             self._state = value
+            self._state_entry_timestamp = time.time()
+
+    def time_in_state(self):
+        return time.time() - self._state_entry_timestamp
+
+    @property
+    def is_starting(self):
+        return self.state == 'starting'
 
     def start(self, block_callbacks=False):
+        """Start PostgreSQL
+
+        :returns: True if start was initiated, False if start failed"""
         # make sure we close all connections established against
         # the former node, otherwise, we might get a stalled one
         # after kill -9, which would report incorrect data to
@@ -546,8 +582,7 @@ class Postgresql(object):
             os.remove(self._postmaster_pid)
             logger.info('Removed %s', self._postmaster_pid)
 
-        if not block_callbacks:
-            self.set_state('starting')
+        self.set_state('starting')
 
         env = {'PATH': os.environ.get('PATH')}
         # pg_ctl will write a FATAL if the username is incorrect. exporting PGUSER if necessary
@@ -560,17 +595,12 @@ class Postgresql(object):
         options = ' '.join("--{0}='{1}'".format(p, self._server_parameters[p]) for p, v in self.CMDLINE_OPTIONS.items()
                            if self._major_version >= v[2])
 
-        ret = self.pg_ctl('start', '-o', options, env=env, preexec_fn=os.setsid)
+        # We want postmaster to open ports before we move into starting state
+        # TODO: implement waiting for pid file and use a zero timeout
+        TIMEOUT_FOR_OPENING_PORTS = 5
+        ret = self.pg_ctl('start', '-o', options, env=env, preexec_fn=os.setsid, timeout=TIMEOUT_FOR_OPENING_PORTS)
         self._pending_restart = False
 
-        self.set_state('running' if ret else 'start failed')
-
-        self._schedule_load_slots = ret and self.use_slots
-        self.save_configuration_files()
-        # block_callbacks is used during restart to avoid
-        # running start/stop callbacks in addition to restart ones
-        if ret and not block_callbacks:
-            self.call_nowait(ACTION_ON_START)
         return ret
 
     def checkpoint(self, connect_kwargs=None):
@@ -598,7 +628,7 @@ class Postgresql(object):
                 self.set_state('stopped')
             return True
 
-        if checkpoint:
+        if checkpoint and not self.is_starting:
             self.checkpoint()
 
         if not block_callbacks:
@@ -621,12 +651,68 @@ class Postgresql(object):
             self.call_nowait(ACTION_ON_RELOAD)
         return ret
 
+    def check_for_startup(self):
+        """Checks PostgreSQL status and returns if PostgreSQL is in the middle of startup."""
+        if self.is_starting:
+            return not self.check_startup_state_changed()
+        else:
+            ready = self.pg_isready()
+            if ready == STATE_REJECT:
+                # Maybe add a ACTION_ON_FAIL here?
+                self.set_state('starting')
+                return True
+            else:
+                # Other cases will be handled by is_healthy check
+                return False
+
+    def check_startup_state_changed(self, action=ACTION_ON_START):
+        """Checks if PostgreSQL has completed starting up or failed or still starting.
+
+        Should only be called when state == 'starting'
+
+        :returns: True iff state was changed from 'starting'
+        """
+        ready = self.pg_isready()
+
+        if ready == STATE_REJECT:
+            return False
+        elif ready == STATE_NO_RESPONSE:
+            self.set_state('start failed')
+            self._schedule_load_slots = False  # TODO: can remove this?
+            self.save_configuration_files()  # TODO: maybe remove this?
+            return True
+        else:
+            if ready != STATE_RUNNING:
+                # Bad configuration or unexpected OS error. No idea of PostgreSQL status.
+                # Let the main loop of run cycle clean up the mess.
+                logger.warning("%s status returned from pg_isready",
+                               "Unknown" if ready == STATE_UNKNOWN else "Invalid")
+            self.set_state('running')
+            self._schedule_load_slots = self.use_slots
+            self.save_configuration_files()
+            self.call_nowait(action)
+            return True
+
+    def wait_for_startup(self, action=ACTION_ON_START):
+        """Waits for PostgreSQL startup to complete or fail.
+
+        :returns: True if start was successful, False otherwise"""
+        if not self.is_starting:
+            # Should not happen
+            logger.warning("wait_for_startup() called when not in starting state")
+
+        while not self.check_startup_state_changed(action):
+            time.sleep(1)
+
+        return self.state == 'running'
+
     def restart(self):
         self.set_state('restarting')
-        ret = self.stop(block_callbacks=True) and self.start(block_callbacks=True)
-        if ret:
-            self.call_nowait(ACTION_ON_RESTART)
-        else:
+        ret = self.stop(block_callbacks=True) \
+            and self.start(block_callbacks=True) \
+            and self.wait_for_startup(ACTION_ON_RESTART)
+        # TODO: follow does not want to wait here, move the waiting to callers
+        if not ret:
             self.set_state('restart failed ({0})'.format(self.state))
         return ret
 
@@ -792,7 +878,7 @@ class Postgresql(object):
         if self._need_rewind:
             logger.info("rewind flag is set")
 
-            if self.is_running() and not self.stop():
+            if self.is_running() and not self.stop(checkpoint=False):
                 return logger.warning('Can not run pg_rewind because postgres is still running')
 
             # prepare pg_rewind connection
@@ -835,6 +921,7 @@ class Postgresql(object):
             self.set_role('replica')
 
         if change_role:
+            # TODO: postpone this until start completes, or maybe do even earlier
             self.call_nowait(ACTION_ON_ROLE_CHANGE)
         return ret
 
@@ -971,7 +1058,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
     def bootstrap(self, config):
         """ Initialize a new node from scratch and start it. """
-        if self._initialize(config) and self.start():
+        if self._initialize(config) and self.start() and self.wait_for_startup():
             for name, value in config['users'].items():
                 if name not in (self._superuser.get('username'), self._replication['username']):
                     self.create_or_update_role(name, value['password'], value.get('options', []))

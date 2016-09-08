@@ -14,6 +14,7 @@ Bootstrap configuration
     -  **loop\_wait**: the number of seconds the loop will sleep. Default value: 10
     -  **ttl**: the TTL to acquire the leader lock. Think of it as the length of time before initiation of the automatic failover process. Default value: 30
     -  **maximum\_lag\_on\_failover**: the maximum bytes a follower may lag to be able to participate in leader election.
+    -  **master\_start\_timeout**: the amount of time a master is allowed to recover from failures before failover is triggered. Default is 300 seconds. When set to 0 failover is done immediately after a crash is detected if possible. When using asynchronous replication a failover can cause lost transactions. Best worst case failover time for master failure is: ttl + master\_start\_timeout + ttl, unless master\_start\_timeout is zero, in which case it's just ttl. Set the value according to your durability/availability tradeoff.
     -  **postgresql**:
         -  **use\_pg\_rewind**:whether or not to use pg_rewind
         -  **use\_slots**: whether or not to use replication_slots. Must be False for PostgreSQL 9.3. You should comment out max_replication_slots before it becomes ineligible for leader status.
