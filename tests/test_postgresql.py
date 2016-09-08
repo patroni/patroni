@@ -395,14 +395,33 @@ class TestPostgresql(unittest.TestCase):
         with patch('subprocess.call', Mock(return_value=1)):
             self.assertRaises(PostgresException, self.p.bootstrap, {})
 
+        with patch.object(Postgresql, 'run_bootstrap_post_init', Mock(return_value=False)):
+            self.assertRaises(PostgresException, self.p.bootstrap, {})
+
         self.p.bootstrap({'users': {'replicator': {'password': 'rep-pass', 'options': ['replication']}},
                           'pg_hba': ['host replication replicator 127.0.0.1/32 md5',
                                      'hostssl all all 0.0.0.0/0 md5',
-                                     'host all all 0.0.0.0/0 md5']})
+                                     'host all all 0.0.0.0/0 md5'],
+                          'post_init': '/bin/false'})
         with open(os.path.join(self.data_dir, 'pg_hba.conf')) as f:
             lines = f.readlines()
             assert 'host replication replicator 127.0.0.1/32 md5\n' in lines
             assert 'host all all 0.0.0.0/0 md5\n' in lines
+
+    def test_run_bootstrap_post_init(self):
+        with patch('subprocess.call', Mock(return_value=1)):
+            self.assertFalse(self.p.run_bootstrap_post_init({'post_init': '/bin/false'}))
+
+        with patch('subprocess.call', Mock(side_effect=OSError)):
+            self.assertFalse(self.p.run_bootstrap_post_init({'post_init': '/bin/false'}))
+
+        with patch('subprocess.call', Mock(return_value=0)) as mock_method:
+            self.assertTrue(self.p.run_bootstrap_post_init({'post_init': '/bin/false'}))
+
+        mock_method.assert_called()
+        args, kwargs = mock_method.call_args
+        assert 'PGPASSFILE' in kwargs['env'].keys()
+        self.assertEquals(args[0], ['/bin/false', 'postgres://test@localhost:5432/postgres'])
 
     @patch('patroni.postgresql.Postgresql.create_replica', Mock(return_value=0))
     def test_clone(self):

@@ -389,6 +389,35 @@ class Postgresql(object):
             self.set_state('initdb failed')
         return ret
 
+    def run_bootstrap_post_init(self, config):
+        """
+        runs a script after initdb is called and waits until completion.
+        passed: cluster name, parameters
+        """
+        if 'post_init' in config:
+            cmd = config['post_init']
+            r = self.get_local_address()
+            r.update({'database': self._database})
+            if 'username' in self._superuser:
+                r.update({'user': self._superuser['username']})
+                connstring = 'postgres://{user}@{host}:{port}/{database}'.format(**r)
+            else:
+                connstring = 'postgres://{host}:{port}/{database}'.format(**r)
+            if 'password' in self._superuser:
+                r.update({'password': self._superuser['password']})
+                env = self.write_pgpass(r)
+            else:
+                env = os.environ.copy()
+            try:
+                ret = subprocess.call(shlex.split(cmd) + [connstring], env=env)
+            except OSError:
+                logger.exception('post_init script %s failed', cmd)
+                return False
+            if ret != 0:
+                logger.exception('post_init script %s returned non-zero code %d', cmd, ret)
+                return False
+        return True
+
     def delete_trigger_file(self):
         if os.path.exists(self._trigger_file):
             os.unlink(self._trigger_file)
@@ -971,7 +1000,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
     def bootstrap(self, config):
         """ Initialize a new node from scratch and start it. """
-        if self._initialize(config) and self.start():
+        if self._initialize(config) and self.start() and self.run_bootstrap_post_init(config):
             for name, value in config['users'].items():
                 if name not in (self._superuser.get('username'), self._replication['username']):
                     self.create_or_update_role(name, value['password'], value.get('options', []))
