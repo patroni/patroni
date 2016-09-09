@@ -12,7 +12,7 @@ RUN apt-get update -y \
     && apt-get upgrade -y \
     && apt-get install -y curl jq haproxy zookeeper postgresql-${PGVERSION} python-psycopg2 python-yaml \
         python-requests python-six python-click python-dateutil python-tzlocal python-urllib3 \
-        python-dnspython python-pip python-setuptools python-kazoo python-prettytable python \
+        python-dnspython python-pip python-setuptools python-kazoo python-prettytable python-wheel python \
     && pip install python-etcd==0.4.3 python-consul==0.6.0 --upgrade \
     && apt-get remove -y python-pip python-setuptools \
     && apt-get autoremove -y \
