@@ -396,25 +396,20 @@ class Postgresql(object):
         """
         if 'post_init' in config:
             cmd = config['post_init']
-            r = self.get_local_address()
-            r.update({'database': self._database})
-            if 'username' in self._superuser:
-                r.update({'user': self._superuser['username']})
+            r = self._local_connect_kwargs
+            if 'user' in r:
                 connstring = 'postgres://{user}@{host}:{port}/{database}'.format(**r)
             else:
                 connstring = 'postgres://{host}:{port}/{database}'.format(**r)
-            if 'password' in self._superuser:
-                r.update({'password': self._superuser['password']})
-                env = self.write_pgpass(r)
-            else:
-                env = os.environ.copy()
+
+            env = self.write_pgpass(r) if 'password' in r else None
             try:
                 ret = subprocess.call(shlex.split(cmd) + [connstring], env=env)
             except OSError:
-                logger.exception('post_init script %s failed', cmd)
+                logger.error('post_init script %s failed', cmd)
                 return False
             if ret != 0:
-                logger.exception('post_init script %s returned non-zero code %d', cmd, ret)
+                logger.error('post_init script %s returned non-zero code %d', cmd, ret)
                 return False
         return True
 
