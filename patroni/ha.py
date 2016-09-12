@@ -122,7 +122,7 @@ class Ha(object):
 
     def recover(self):
         self.recovering = True
-        if self.has_lock():
+        if self.has_lock() and self.update_lock():
             if self.patroni.config['master_start_timeout'] == 0:
                 # We are requested to prefer failing over to restarting master. But see first if there
                 # is anyone to fail over to.
