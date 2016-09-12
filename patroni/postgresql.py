@@ -100,6 +100,7 @@ class Postgresql(object):
 
         self._pgpass = config.get('pgpass') or os.path.join(os.path.expanduser('~'), 'pgpass')
         self.__cb_called = False
+        self.__cb_pending = None
         config_base_name = config.get('config_base_name', 'postgresql')
         self._postgresql_conf = os.path.join(self._data_dir, config_base_name + '.conf')
         self._postgresql_base_conf_name = config_base_name + '.base.conf'
@@ -580,6 +581,9 @@ class Postgresql(object):
             logger.error('Cannot start PostgreSQL because one is already running.')
             return True
 
+        if not block_callbacks:
+            self.__cb_pending = ACTION_ON_START
+
         self.set_role(self.get_postgres_role_from_data_directory())
         if os.path.exists(self._postmaster_pid):
             os.remove(self._postmaster_pid)
@@ -668,7 +672,7 @@ class Postgresql(object):
                 # Other cases will be handled by is_healthy check
                 return False
 
-    def check_startup_state_changed(self, action=ACTION_ON_START):
+    def check_startup_state_changed(self):
         """Checks if PostgreSQL has completed starting up or failed or still starting.
 
         Should only be called when state == 'starting'
@@ -693,10 +697,15 @@ class Postgresql(object):
             self.set_state('running')
             self._schedule_load_slots = self.use_slots
             self.save_configuration_files()
+            # TODO: __cb_pending can be None here after PostgreSQL restarts on its own. Do we want to call the callback?
+            # Previously we didn't even notice.
+            action = self.__cb_pending or ACTION_ON_START
             self.call_nowait(action)
+            self.__cb_pending = None
+
             return True
 
-    def wait_for_startup(self, action=ACTION_ON_START):
+    def wait_for_startup(self, timeout=None):
         """Waits for PostgreSQL startup to complete or fail.
 
         :returns: True if start was successful, False otherwise"""
@@ -704,18 +713,22 @@ class Postgresql(object):
             # Should not happen
             logger.warning("wait_for_startup() called when not in starting state")
 
-        while not self.check_startup_state_changed(action):
+        while not self.check_startup_state_changed():
+            if timeout and self.time_in_state() > timeout:
+                return False
             time.sleep(1)
 
         return self.state == 'running'
 
-    def restart(self):
+    def restart(self, wait=False):
         self.set_state('restarting')
+        self.__cb_pending = ACTION_ON_RESTART
         ret = self.stop(block_callbacks=True) \
-            and self.start(block_callbacks=True) \
-            and self.wait_for_startup(ACTION_ON_RESTART)
-        # TODO: follow does not want to wait here, move the waiting to callers
-        if not ret:
+            and self.start(block_callbacks=True)
+        if ret and wait:
+            # TODO: does this need to be configurable
+            ret = self.wait_for_startup(timeout=60)
+        elif not ret:
             self.set_state('restart failed ({0})'.format(self.state))
         return ret
 

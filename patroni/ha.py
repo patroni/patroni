@@ -575,7 +575,7 @@ class Ha(object):
         if run_async:
             self._async_executor.run_async(self.state_handler.restart)
             return (True, 'restart initiated')
-        elif self._async_executor.run(self.state_handler.restart):
+        elif self._async_executor.run(self.state_handler.restart, (True,)):
             return (True, 'restarted successfully')
         else:
             return (False, 'restart failed')
