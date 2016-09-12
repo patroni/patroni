@@ -396,6 +396,11 @@ class Ha(object):
         return False
 
     def process_manual_failover_from_leader(self):
+        """Checks if manual failover is requested and takes action if appropriate.
+
+        Cleans up failover key if failover conditions are not matched.
+
+        :returns: action message if demote was initiated, None if no action was taken"""
         failover = self.cluster.failover
         if not failover or (self.is_paused() and not self.state_handler.is_leader()):
             return
