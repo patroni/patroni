@@ -197,8 +197,11 @@ class Postgresql(object):
         cmd = [self._pgcommand('pg_isready'),
                '-h', self._local_address['host'],
                '-p', self._local_address['port'],
-               '-d', self._database,
-               '-U', self._superuser]
+               '-d', self._database]
+        # We only need the username because pg_isready does not try to authenticate
+        if 'username' in self._superuser:
+            cmd.extend(['-U', self._superuser['username']])
+
         ret = subprocess.call(cmd)
         return_codes = {0: STATE_RUNNING,
                         1: STATE_REJECT,
