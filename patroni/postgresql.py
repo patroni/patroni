@@ -715,19 +715,26 @@ class Postgresql(object):
 
         while not self.check_startup_state_changed():
             if timeout and self.time_in_state() > timeout:
-                return False
+                return None
             time.sleep(1)
 
         return self.state == 'running'
 
-    def restart(self, wait=False):
+    def restart(self, timeout=None):
+        """Restarts PostgreSQL.
+
+        When timeout parameter is set the call will block either until PostgreSQL has started, failed to start or
+        timeout arrives. When timeout is None then state of PostgreSQL needs to checked via wait_for_startup. Can only
+        be called with the async executor or from the main loop to avoid racy calls to check_startup_state_changed().
+
+        :returns: True when restart was successful and timeout did not expire when waiting.
+        """
         self.set_state('restarting')
         self.__cb_pending = ACTION_ON_RESTART
         ret = self.stop(block_callbacks=True) \
             and self.start(block_callbacks=True)
-        if ret and wait:
-            # TODO: does this need to be configurable
-            ret = self.wait_for_startup(timeout=60)
+        if ret and timeout is not None:
+            ret = self.wait_for_startup(timeout=timeout)
         elif not ret:
             self.set_state('restart failed ({0})'.format(self.state))
         return ret
@@ -925,21 +932,19 @@ class Postgresql(object):
 
             if self.rewind(r) or not self.config.get('remove_data_directory_on_rewind_failure', False):
                 self.write_recovery_conf(primary_conninfo)
-                ret = self.start()
+                self.start()
             else:
                 logger.error('unable to rewind the former master')
                 self.remove_data_directory()
-                ret = True
             self._need_rewind = False
         else:
             self.write_recovery_conf(primary_conninfo)
-            ret = self.start() if recovery else self.restart()
+            self.start() if recovery else self.restart()
             self.set_role('replica')
 
         if change_role:
             # TODO: postpone this until start completes, or maybe do even earlier
             self.call_nowait(ACTION_ON_ROLE_CHANGE)
-        return ret
 
     def save_configuration_files(self):
         """

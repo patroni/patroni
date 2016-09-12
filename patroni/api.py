@@ -9,7 +9,7 @@ import datetime
 import pytz
 
 from patroni.exceptions import PostgresConnectionException
-from patroni.utils import deep_compare, patch_config, Retry, RetryFailedError, is_valid_pg_version
+from patroni.utils import deep_compare, patch_config, Retry, RetryFailedError, is_valid_pg_version, parse_int
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from six.moves.socketserver import ThreadingMixIn
 from threading import Thread
@@ -220,6 +220,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 if not is_valid_pg_version(request[k]):
                     status_code = 400
                     data = "PostgreSQL version should be in the first.major.minor format"
+                    break
+            elif k == 'timeout':
+                request[k] = parse_int(request[k], 's')
+                if request[k] is None or request[k] <= 0:
+                    status_code = 400
+                    data = "Timeout should be a positive number of seconds"
                     break
             elif k != 'restart_pending':
                 status_code = 400

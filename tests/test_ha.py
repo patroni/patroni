@@ -289,18 +289,18 @@ class TestHa(unittest.TestCase):
         self.assertIsNotNone(self.ha.reinitialize())
 
     def test_restart(self):
-        self.assertEquals(self.ha.restart(), (True, 'restarted successfully'))
+        self.assertEquals(self.ha.restart({}), (True, 'restarted successfully'))
         self.p.restart = false
-        self.assertEquals(self.ha.restart(), (False, 'restart failed'))
+        self.assertEquals(self.ha.restart({}), (False, 'restart failed'))
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.ha.reinitialize()
-        self.assertEquals(self.ha.restart(), (False, 'reinitialize already in progress'))
+        self.assertEquals(self.ha.restart({}), (False, 'reinitialize already in progress'))
         with patch.object(self.ha, "restart_matches", return_value=False):
             self.assertEquals(self.ha.restart({'foo': 'bar'}), (False, "restart conditions are not satisfied"))
 
     def test_restart_in_progress(self):
         with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)):
-            self.ha.restart(run_async=True)
+            self.ha.restart({}, run_async=True)
             self.assertTrue(self.ha.restart_scheduled())
             self.assertEquals(self.ha.run_cycle(), 'not healthy enough for leader race')
 

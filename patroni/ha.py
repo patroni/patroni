@@ -24,6 +24,7 @@ class Ha(object):
         self.cluster = None
         self.old_cluster = None
         self.recovering = False
+        self._start_timeout = None
         self._async_executor = AsyncExecutor()
 
     def is_paused(self):
@@ -559,10 +560,11 @@ class Ha(object):
     def restart_scheduled(self):
         return self._async_executor.scheduled_action == 'restart'
 
-    def restart(self, restart_data=None, run_async=False):
+    def restart(self, restart_data, run_async=False):
         """ conditional and unconditional restart """
-        if (restart_data and isinstance(restart_data, dict) and
-            not self.restart_matches(restart_data.get('role'),
+        assert isinstance(restart_data, dict)
+
+        if (not self.restart_matches(restart_data.get('role'),
                                      restart_data.get('postgres_version'),
                                      ('restart_pending' in restart_data))):
             return (False, "restart conditions are not satisfied")
@@ -572,10 +574,16 @@ class Ha(object):
             if prev is not None:
                 return (False, prev + ' already in progress')
 
+        # No that restart is scheduled we can set timeout for startup, it will get reset once async executor runs and
+        # main loop notices PostgreSQL as up.
+        timeout = restart_data.get('timeout', self.patroni.config['master_start_timeout'])
+        self.set_start_timeout(timeout)
+
+        # For non async cases we want to wait for restart to complete or timeout before returning.
         if run_async:
             self._async_executor.run_async(self.state_handler.restart)
             return (True, 'restart initiated')
-        elif self._async_executor.run(self.state_handler.restart, (True,)):
+        elif self._async_executor.run(self.state_handler.restart, (timeout,)):
             return (True, 'restarted successfully')
         else:
             return (False, 'restart failed')
@@ -634,18 +642,21 @@ class Ha(object):
     def handle_starting_instance(self):
         """Starting up PostgreSQL may take a long time. In case we are the leader we may want to
         fail over to."""
-        # state_handler.state == 'starting' here
 
-        # When paused defer to main loop for manual failovers.
-        if self.is_paused():
+        # Check if we are in startup, when paused defer to main loop for manual failovers.
+        if not self.state_handler.check_for_startup() or self.is_paused():
+            self.set_start_timeout(None)
             return None
 
+        # state_handler.state == 'starting' here
         if self.has_lock():
-            time_left = self.patroni.config['master_start_timeout'] - self.state_handler.time_in_state()
             if not self.update_lock():
                 logger.info("Lost lock while starting up. Demoting self.")
                 self.demote_asap()
                 return 'stopped PostgreSQL while starting up because leader key was lost'
+
+            timeout = self._start_timeout or self.patroni.config['master_start_timeout']
+            time_left = timeout - self.state_handler.time_in_state()
 
             if time_left <= 0:
                 if self.is_failover_possible(self.cluster.members):
@@ -665,6 +676,12 @@ class Ha(object):
             logger.info("Still starting up as a standby.")
             return None
 
+    def set_start_timeout(self, value):
+        """Sets timeout for starting as master before eligible for failover.
+
+        Must be called when async_executor is busy or in the main thread."""
+        self._start_timeout = value
+
     def _run_cycle(self):
         try:
             self.load_cluster_from_dcs()
@@ -681,10 +698,9 @@ class Ha(object):
             if self._async_executor.busy:
                 return self.handle_long_action_in_progress()
 
-            if self.state_handler.check_for_startup():
-                msg = self.handle_starting_instance()
-                if msg is not None:
-                    return msg
+            msg = self.handle_starting_instance()
+            if msg is not None:
+                return msg
 
             # we've got here, so any async action has finished. Check if we tried to recover and failed
             if self.recovering and not self.state_handler.need_rewind:
