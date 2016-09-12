@@ -630,6 +630,11 @@ class Ha(object):
         """Starting up PostgreSQL may take a long time. In case we are the leader we may want to
         fail over to."""
         # state_handler.state == 'starting' here
+
+        # When paused defer to main loop for manual failovers.
+        if self.is_paused():
+            return None
+
         if self.has_lock():
             time_left = self.patroni.config['master_start_timeout'] - self.state_handler.time_in_state()
             if time_left <= 0:
