@@ -637,6 +637,11 @@ class Ha(object):
 
         if self.has_lock():
             time_left = self.patroni.config['master_start_timeout'] - self.state_handler.time_in_state()
+            if not self.update_lock():
+                logger.info("Lost lock while starting up. Demoting self.")
+                self.demote_asap()
+                return 'stopped PostgreSQL while starting up because leader key was lost'
+
             if time_left <= 0:
                 if self.is_failover_possible(self.cluster.members):
                     logger.info("Demoting self because master startup is taking too long")
