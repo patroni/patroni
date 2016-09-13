@@ -571,4 +571,4 @@ class TestHa(unittest.TestCase):
         self.ha.has_lock = true
         self.e.get_cluster = Mock(return_value=get_cluster_initialized_without_leader())
         self.ha.demote('immediate')
-        follow.assert_called_once_with(None, None, True, True)
+        follow.assert_called_once_with(None, None, True, None, True)
