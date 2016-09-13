@@ -129,7 +129,8 @@ class Ha(object):
                 # is anyone to fail over to.
                 if self.is_failover_possible(self.cluster.members):
                     logger.info("Master crashed. Failing over.")
-                    return self.demote_asap()
+                    self.demote_asap()
+                    return 'stopped PostgreSQL to fail over after a crash'
 
         return self.follow("starting as readonly because i had the session lock", "starting as a secondary", True, True)
 
