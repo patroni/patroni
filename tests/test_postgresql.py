@@ -609,7 +609,7 @@ class TestPostgresql(unittest.TestCase):
                 state['sleeps'] = 0
                 state['final_return'] = 2
                 self.assertFalse(self.p.wait_for_startup())
-                
+
                 self.p._state = 'starting'
                 state['sleeps'] = 0
                 state['final_return'] = 0
