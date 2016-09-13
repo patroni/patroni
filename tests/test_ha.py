@@ -515,7 +515,10 @@ class TestHa(unittest.TestCase):
     def test_starting_timeout(self, demote_asap, update_lock):
         def check_calls(seq):
             for mock, called in seq:
-                mock.assert_called_once() if called else mock.assert_not_called()
+                if called:
+                    mock.assert_called_once()
+                else:
+                    mock.assert_not_called()
                 mock.reset_mock()
         self.ha.has_lock = true
         self.ha.cluster = get_cluster_initialized_with_leader()

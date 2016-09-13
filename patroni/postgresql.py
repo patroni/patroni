@@ -938,7 +938,10 @@ class Postgresql(object):
             self._need_rewind = False
         else:
             self.write_recovery_conf(primary_conninfo)
-            self.start() if recovery else self.restart()
+            if recovery:
+                self.start()
+            else:
+                self.restart()
             self.set_role('replica')
 
         if change_role:
