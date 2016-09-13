@@ -895,9 +895,10 @@ class Postgresql(object):
         elif change_role:
             self._need_rewind = True
 
-        self._need_rewind &= bool(leader and leader.conn_url) and self.can_rewind
+        if self._need_rewind and not self.can_rewind:
+            logger.warning("Data directory may be out of sync master, rewind may be needed.")
 
-        if self._need_rewind:
+        if self._need_rewind and leader and leader.conn_url and self.can_rewind:
             logger.info("rewind flag is set")
 
             if self.is_running() and not self.stop(checkpoint=False):
