@@ -122,7 +122,6 @@ class Ha(object):
             return 'waiting for leader to bootstrap'
 
     def recover(self):
-        self.recovering = True
         if self.has_lock() and self.update_lock():
             if self.patroni.config['master_start_timeout'] == 0:
                 # We are requested to prefer failing over to restarting master. But see first if there
@@ -132,6 +131,7 @@ class Ha(object):
                     self.demote_asap()
                     return 'stopped PostgreSQL to fail over after a crash'
 
+        self.recovering = True
         return self.follow("starting as readonly because i had the session lock", "starting as a secondary", True, True)
 
     def _get_node_to_follow(self, cluster):
