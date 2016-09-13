@@ -563,7 +563,6 @@ class Postgresql(object):
     def time_in_state(self):
         return time.time() - self._state_entry_timestamp
 
-    @property
     def is_starting(self):
         return self.state == 'starting'
 
@@ -635,7 +634,7 @@ class Postgresql(object):
                 self.set_state('stopped')
             return True
 
-        if checkpoint and not self.is_starting:
+        if checkpoint and not self.is_starting():
             self.checkpoint()
 
         if not block_callbacks:
@@ -660,7 +659,7 @@ class Postgresql(object):
 
     def check_for_startup(self):
         """Checks PostgreSQL status and returns if PostgreSQL is in the middle of startup."""
-        if self.is_starting:
+        if self.is_starting():
             return not self.check_startup_state_changed()
         else:
             ready = self.pg_isready()
@@ -709,7 +708,7 @@ class Postgresql(object):
         """Waits for PostgreSQL startup to complete or fail.
 
         :returns: True if start was successful, False otherwise"""
-        if not self.is_starting:
+        if not self.is_starting():
             # Should not happen
             logger.warning("wait_for_startup() called when not in starting state")
 

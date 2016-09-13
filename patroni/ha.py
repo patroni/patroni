@@ -298,7 +298,7 @@ class Ha(object):
             if ret is not None:  # continue if we just deleted the stale failover key as a master
                 return ret
 
-        if self.state_handler.is_starting:  # postgresql still starting up is unhealthy
+        if self.state_handler.is_starting():  # postgresql still starting up is unhealthy
             return False
 
         if self.state_handler.is_leader():  # leader is always the healthiest
@@ -747,7 +747,7 @@ class Ha(object):
                 # we might not have a valid PostgreSQL connection here if another thread
                 # stops PostgreSQL, therefore, we only reload replication slots if no
                 # asynchronous processes are running (should be always the case for the master)
-                if not self._async_executor.busy and not self.state_handler.is_starting:
+                if not self._async_executor.busy and not self.state_handler.is_starting():
                     if not self.state_handler.cb_called:
                         self.state_handler.call_nowait(ACTION_ON_START)
                     self.state_handler.sync_replication_slots(self.cluster)
