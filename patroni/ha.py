@@ -352,7 +352,10 @@ class Ha(object):
             else:
                 self.state_handler.follow(node_to_follow, cluster.leader, recovery=True, need_rewind=True)
         else:
-            self.state_handler.follow(None, None)
+            # Need to become unavailable as soon as possible, so initiate a stop here. However as we can't release
+            # the leader key we don't care about confirming the shutdown quickly and can use a regular stop.
+            self.state_handler.stop(checkpoint=False)
+            self.state_handler.follow(None, None, recovery=True)
 
     def should_run_scheduled_action(self, action_name, scheduled_at, cleanup_fn):
         if scheduled_at and not self.is_paused():
