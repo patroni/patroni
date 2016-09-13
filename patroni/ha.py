@@ -128,7 +128,7 @@ class Ha(object):
                 # is anyone to fail over to.
                 if self.is_failover_possible(self.cluster.members):
                     logger.info("Master crashed. Failing over.")
-                    self.demote_asap()
+                    self.demote('immediate')
                     return 'stopped PostgreSQL to fail over after a crash'
 
         self.recovering = True
@@ -323,45 +323,36 @@ class Ha(object):
         self.dcs.reset_cluster()
         logger.info("Leader key released")
 
-    def demote(self, delete_leader=True):
-        if delete_leader:
-            self.state_handler.stop()
+    def demote(self, mode):
+        """Demote PostgreSQL running as master.
+
+        :param mode: One of offline, graceful or immediate.
+            offline is used when connection to DCS is not available.
+            graceful is used when failing over to another node due to user request. May only be called running async.
+            immediate is used when we determine that we are not suitable for master and want to failover quickly
+                without regard for data durability. May only be called synchronously.
+        """
+        assert mode in ['offline', 'graceful', 'immediate']
+        if mode != 'offline':
+            if mode == 'immediate':
+                self.state_handler.stop('immediate', checkpoint=False)
+            else:
+                self.state_handler.stop()
             self.state_handler.set_role('demoted')
             self.release_leader_key_voluntarily()
             sleep(2)  # Give a time to somebody to take the leader lock
             cluster = self.dcs.get_cluster()
             node_to_follow = self._get_node_to_follow(cluster)
-            self.state_handler.follow(node_to_follow, cluster.leader, recovery=True, need_rewind=True)
+            if mode == 'immediate':
+                # We will try to start up as a standby now. If no one takes the leader lock before we finish
+                # recovery we will try to promote ourselves.
+                self._async_executor.schedule('waiting for failover to complete')
+                self._async_executor.run_async(self.state_handler.follow,
+                                               (node_to_follow, cluster.leader, True, None, True))
+            else:
+                self.state_handler.follow(node_to_follow, cluster.leader, recovery=True, need_rewind=True)
         else:
             self.state_handler.follow(None, None)
-
-    def demote_asap(self):
-        """We are master, but we want to relinquish control ASAP.
-
-        We don't bother to shut down properly because we will need to rewind anyway."""
-        self.state_handler.stop('immediate', checkpoint=False)
-        self.state_handler.set_role('demoted')
-        self.release_leader_key_voluntarily()
-        self._async_executor.schedule('waiting for failover to complete')
-        self._async_executor.run_async(self.wait_for_failover)
-
-    def wait_for_failover(self):
-        """After forcefully demoting ourselves as unhealthy we want to wait for someone
-        else to take over. However, if no one does we will continue ourselves.
-        """
-        cycles_no_failover_candidates = 0
-        while cycles_no_failover_candidates < 2:
-            sleep(self.dcs.loop_wait)
-            cluster = self.dcs.get_cluster()
-            if cluster.leader:
-                logger.info("New leader detected, proceeding with recovery.")
-                return
-            if self.is_failover_possible(cluster.members):
-                cycles_no_failover_candidates = 0
-            else:
-                cycles_no_failover_candidates += 1
-        logger.info("Nobody else available to failover to, will retry starting.")
-        self.state_handler.follow(None, None, recovery=True)
 
     def should_run_scheduled_action(self, action_name, scheduled_at, cleanup_fn):
         if scheduled_at and not self.is_paused():
@@ -421,7 +412,7 @@ class Ha(object):
                                if not failover.candidate or m.name == failover.candidate]
                     if self.is_failover_possible(members):  # check that there are healthy members
                         self._async_executor.schedule('manual failover: demote')
-                        self._async_executor.run_async(self.demote)
+                        self._async_executor.run_async(self.demote, ('graceful',))
                         return 'manual failover: demoting myself'
                     else:
                         logger.warning('manual failover: no healthy members found, failover is not possible')
@@ -653,7 +644,7 @@ class Ha(object):
         if self.has_lock():
             if not self.update_lock():
                 logger.info("Lost lock while starting up. Demoting self.")
-                self.demote_asap()
+                self.demote('immediate')
                 return 'stopped PostgreSQL while starting up because leader key was lost'
 
             timeout = self._start_timeout or self.patroni.config['master_start_timeout']
@@ -662,7 +653,7 @@ class Ha(object):
             if time_left <= 0:
                 if self.is_failover_possible(self.cluster.members):
                     logger.info("Demoting self because master startup is taking too long")
-                    self.demote_asap()
+                    self.demote('immediate')
                     return 'stopped PostgreSQL because of startup timeout'
                 else:
                     return 'master start has timed out, but continuing to wait because failover is not possible'
@@ -754,7 +745,7 @@ class Ha(object):
         except DCSError:
             logger.error('Error communicating with DCS')
             if not self.is_paused() and self.state_handler.is_running() and self.state_handler.is_leader():
-                self.demote(delete_leader=False)
+                self.demote('offline')
                 return 'demoted self because DCS is not accessible and i was a leader'
             return 'DCS is not accessible'
         except (psycopg2.Error, PostgresConnectionException):
