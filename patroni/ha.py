@@ -340,7 +340,7 @@ class Ha(object):
 
         We don't bother to shut down properly because we will need to rewind anyway."""
         self.state_handler.stop('immediate', checkpoint=False)
-        # Don't set role to unknown to ensure we get rewound
+        self.state_handler.set_role('demoted')
         self.release_leader_key_voluntarily()
         self._async_executor.schedule('waiting for failover to complete')
         self._async_executor.run_async(self.wait_for_failover)
