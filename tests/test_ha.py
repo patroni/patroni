@@ -408,6 +408,8 @@ class TestHa(unittest.TestCase):
         self.ha.patroni.nofailover = False
         self.ha.fetch_node_status = lambda e: (e, True, True, 0, {})
         self.assertTrue(self.ha.is_healthiest_node())
+        with patch('patroni.postgresql.Postgresql.is_starting', return_value=True):
+            self.assertFalse(self.ha.is_healthiest_node())
         self.ha.is_paused = true
         self.assertFalse(self.ha.is_healthiest_node())
 
@@ -507,3 +509,72 @@ class TestHa(unittest.TestCase):
         self.ha.is_paused = true
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
         self.assertEquals(self.ha.run_cycle(), 'PAUSE: DCS is not accessible')
+
+    @patch('patroni.ha.Ha.update_lock', return_value=True)
+    @patch('patroni.ha.Ha.demote_asap')
+    def test_starting_timeout(self, demote_asap, update_lock):
+        def check_calls(seq):
+            for mock, called in seq:
+                mock.assert_called_once() if called else mock.assert_not_called()
+                mock.reset_mock()
+        self.ha.has_lock = true
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.p.check_for_startup = true
+        self.p.time_in_state = lambda: 30
+        self.assertEquals(self.ha.run_cycle(), 'PostgreSQL is still starting up, 270 seconds until timeout')
+        check_calls([(update_lock, True), (demote_asap, False)])
+
+        self.p.time_in_state = lambda: 350
+        self.ha.fetch_node_status = lambda e: (e, False, True, 0, {})  # inaccessible, in_recovery
+        self.assertEquals(self.ha.run_cycle(), 'master start has timed out, but continuing to wait because failover is not possible')
+        check_calls([(update_lock, True), (demote_asap, False)])
+
+        self.ha.fetch_node_status = lambda e: (e, True, True, 0, {})  # accessible, in_recovery
+        self.assertEquals(self.ha.run_cycle(), 'stopped PostgreSQL because of startup timeout')
+        check_calls([(update_lock, True), (demote_asap, True)])
+
+        update_lock.return_value = False
+        self.assertEquals(self.ha.run_cycle(), 'stopped PostgreSQL while starting up because leader key was lost')
+        check_calls([(update_lock, True), (demote_asap, True)])
+
+        self.ha.has_lock = false
+        self.p.is_leader = false
+        self.assertEquals(self.ha.run_cycle(), 'no action.  i am a secondary and i am following a leader')
+        check_calls([(update_lock, False), (demote_asap, False)])
+
+    @patch('time.sleep', Mock())
+    def test_manual_failover_while_starting(self):
+        self.ha.has_lock = true
+        self.p.check_for_startup = true
+        f = Failover(0, self.p.name, '', None)
+        self.ha.cluster = get_cluster_initialized_with_leader(f)
+        self.ha.fetch_node_status = lambda e: (e, True, True, 0, {})  # accessible, in_recovery
+        self.assertEquals(self.ha.run_cycle(), 'manual failover: demoting myself')
+
+    @patch('patroni.ha.Ha.demote_asap')
+    def test_failover_immediately_on_zero_master_start_timeout(self, demote_asap):
+        self.p.is_running = false
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.ha.patroni.config.set_dynamic_configuration({'master_start_timeout': 0})
+        self.ha.has_lock = true
+        self.ha.update_lock = true
+        self.ha.fetch_node_status = lambda e: (e, True, True, 0, {})  # accessible, in_recovery
+        self.assertEquals(self.ha.run_cycle(), 'stopped PostgreSQL to fail over after a crash')
+        demote_asap.assert_called_once()
+
+    @patch('patroni.ha.Ha.wait_for_failover')
+    def test_demote_asap(self, wait_for_failover):
+        self.ha.demote_asap()
+        wait_for_failover.assert_called_once()
+
+    @patch('time.sleep', Mock())
+    @patch('patroni.postgresql.Postgresql.follow')
+    def test_wait_for_failover(self, follow):
+        self.e.get_cluster = Mock(return_value=get_cluster_initialized_with_leader())
+        self.ha.fetch_node_status = lambda e: (e, False, True, 0, {})  # inaccessible, in_recovery
+        self.ha.wait_for_failover()
+        follow.assert_not_called()
+
+        self.e.get_cluster = Mock(return_value=get_cluster_initialized_without_leader())
+        self.ha.wait_for_failover()
+        follow.assert_called_once()

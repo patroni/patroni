@@ -548,3 +548,70 @@ class TestPostgresql(unittest.TestCase):
             self.assertEqual(self.p.postmaster_start_time(), 'foo')
         with patch.object(MockCursor, "execute", side_effect=psycopg2.Error):
             self.assertIsNone(self.p.postmaster_start_time())
+
+    def test_check_for_startup(self):
+        with patch('subprocess.call', return_value=0) as isready:
+            self.p._state = 'starting'
+            self.assertFalse(self.p.check_for_startup())
+            self.assertEquals(self.p.state, 'running')
+
+        with patch('subprocess.call', return_value=1) as isready:
+            self.p._state = 'starting'
+            self.assertTrue(self.p.check_for_startup())
+            self.assertEquals(self.p.state, 'starting')
+
+        with patch('subprocess.call', return_value=2) as isready:
+            self.p._state = 'starting'
+            self.assertFalse(self.p.check_for_startup())
+            self.assertEquals(self.p.state, 'start failed')
+
+        with patch('subprocess.call', return_value=1) as isready:
+            self.p._state = 'running'
+            self.assertTrue(self.p.check_for_startup())
+            self.assertEquals(self.p.state, 'starting')
+
+        with patch('subprocess.call', return_value=0) as isready:
+            self.p._state = 'running'
+            self.assertFalse(self.p.check_for_startup())
+            self.assertEquals(self.p.state, 'running')
+
+        with patch('subprocess.call', return_value=127) as isready:
+            self.p._state = 'running'
+            self.assertFalse(self.p.check_for_startup())
+            self.assertEquals(self.p.state, 'running')
+
+    def test_wait_for_startup(self):
+        state = {'sleeps': 0, 'num_rejects': 0, 'final_return': 0}
+        def increment_sleeps(*args):
+            print("Sleep")
+            state['sleeps'] += 1
+        def isready_return(*args):
+            ret = 1 if state['sleeps'] < state['num_rejects'] else state['final_return']
+            print("Isready {} {}".format(ret,state))
+            return ret
+        def time_in_state(*args):
+            return state['sleeps']
+
+        with patch('subprocess.call', side_effect=isready_return):
+            with patch('time.sleep', side_effect=increment_sleeps):
+                self.p.time_in_state = Mock(side_effect=time_in_state)
+                
+                self.p._state = 'starting'
+                self.assertTrue(self.p.wait_for_startup())
+                self.assertEquals(state['sleeps'], 0)
+                
+                self.p._state = 'starting'
+                state['num_rejects'] = 5
+                self.assertTrue(self.p.wait_for_startup())
+                self.assertEquals(state['sleeps'], 5)
+
+                self.p._state = 'starting'
+                state['sleeps'] = 0
+                state['final_return'] = 2
+                self.assertFalse(self.p.wait_for_startup())
+                
+                self.p._state = 'starting'
+                state['sleeps'] = 0
+                state['final_return'] = 0
+                self.assertFalse(self.p.wait_for_startup(timeout=2))
+                self.assertEquals(state['sleeps'], 3)

@@ -225,6 +225,10 @@ class TestRestApiHandler(unittest.TestCase):
 
         mock_dcs.get_cluster.return_value.is_paused.return_value = True
         MockRestApiServer(RestApiHandler, make_request(schedule='2016-08-42 12:45TZ+1', role='master'))
+        # Valid timeout
+        MockRestApiServer(RestApiHandler, make_request(timeout='60s'))
+        # Invalid timeout
+        MockRestApiServer(RestApiHandler, make_request(timeout='42towels'))
 
     def test_do_DELETE_restart(self):
         for retval in (True, False):
