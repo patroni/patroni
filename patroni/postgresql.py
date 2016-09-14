@@ -80,6 +80,7 @@ class Postgresql(object):
         self._database = config.get('database', 'postgres')
         self._data_dir = config['data_dir']
         self._pending_restart = False
+        self._sync_standby = None
         self._server_parameters = self.get_server_parameters(config)
 
         self._connect_address = config.get('connect_address')
@@ -154,6 +155,8 @@ class Postgresql(object):
         parameters = config['parameters'].copy()
         listen_addresses, port = (config['listen'] + ':5432').split(':')[:2]
         parameters.update({'cluster_name': self.scope, 'listen_addresses': listen_addresses, 'port': port})
+        if self._sync_standby is not None:
+            parameters['synchronous_standby_names'] = self._sync_standby
         return parameters
 
     def resolve_connection_addresses(self):
@@ -1040,6 +1043,38 @@ $$""".format(name, ' '.join(options)), name, password, password)
                 time.sleep(5)
 
         return ret
+
+    def pick_synchronous_standby(self, cluster):
+        current = cluster.sync.sync_standby if cluster.sync else None
+        members = {m.name: m for m in cluster.members}
+        for app_name, state, sync_state in self.query(
+                """SELECT application_name, state, sync_state
+                    FROM pg_stat_replication
+                    ORDER BY sync_state = 'sync' DESC, flush_location DESC"""):
+            member = members.get(app_name)
+            if not member:
+                continue
+            if member.tags.get('nosync', False):
+                continue
+            if state != 'streaming':
+                continue
+            if sync_state == 'sync':
+                return app_name, True
+            if app_name == current and state == 'streaming' and sync_state == 'potential':
+                return current, False
+            if sync_state == 'async':
+                return app_name, False
+        return None, False
+
+    def set_synchronous_standby(self, name):
+        old = self._server_parameters.get('synchronous_standby_names')
+        if name != old:
+            if name is None:
+                self._server_parameters.pop('synchronous_standby_names', None)
+            else:
+                self._server_parameters['synchronous_standby_names'] = name
+            self._write_postgresql_conf()
+            self.reload()
 
     @staticmethod
     def postgres_version_to_int(pg_version):

@@ -222,7 +222,32 @@ class ClusterConfig(namedtuple('ClusterConfig', 'index,data,modify_index')):
         return ClusterConfig(index, data, modify_index or index)
 
 
-class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operation,members,failover')):
+class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
+    """Immutable object (namedtuple) which represents last observed synhcronous replication state
+
+    :param index: modification index of a synchronization key in a Configuration Store
+    :param leader: reference to member that was leader
+    :param sync_standby: standby that was last synchronized to leader
+    """
+
+    @staticmethod
+    def from_node(index, value):
+        if not value:
+            return None
+
+        try:
+            data = json.loads(value)
+            if not data:
+                return None
+        except (TypeError, ValueError):
+            return None
+        return SyncState(index, data.get('leader'), data.get('sync_standby'))
+
+    def matches(self, name):
+        return name is not None and (self.leader == name or self.sync_standby == name)
+
+
+class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operation,members,failover,sync')):
 
     """Immutable object (namedtuple) which represents PostgreSQL cluster.
     Consists of the following fields:
@@ -232,7 +257,9 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
     :param last_leader_operation: int or long object containing position of last known leader operation.
         This value is stored in `/optime/leader` key
     :param members: list of Member object, all PostgreSQL cluster members including leader
-    :param failover: reference to `Failover` object"""
+    :param failover: reference to `Failover` object
+    :param sync: reference to `SyncState` object, last observed synchronous replication state.
+    """
 
     def is_unlocked(self):
         return not (self.leader and self.leader.name)
@@ -261,6 +288,7 @@ class AbstractDCS(object):
     _MEMBERS = 'members/'
     _OPTIME = 'optime'
     _LEADER_OPTIME = _OPTIME + '/' + _LEADER
+    _SYNC = 'sync'
 
     def __init__(self, config):
         """
@@ -307,6 +335,10 @@ class AbstractDCS(object):
     @property
     def leader_optime_path(self):
         return self.client_path(self._LEADER_OPTIME)
+
+    @property
+    def sync_path(self):
+        return self.client_path(self._SYNC)
 
     @abc.abstractmethod
     def set_ttl(self, ttl):
@@ -443,8 +475,19 @@ class AbstractDCS(object):
         """ Removes the initialize key for a cluster """
 
     @abc.abstractmethod
-    def delete_cluster(self):
+    def delete_cluster(self, index=None):
         """Delete cluster from DCS"""
+
+    def write_sync_state(self, leader, sync_standby, index=None):
+        return self.set_sync_state_value(json.dumps({'leader': leader, 'sync_standby': sync_standby}), index=index)
+
+    @abc.abstractmethod
+    def set_sync_state_value(self, value, index=None):
+        """"""
+
+    @abc.abstractmethod
+    def delete_sync_state(self):
+        """"""
 
     def watch(self, timeout):
         """If the current node is a master it should just sleep.

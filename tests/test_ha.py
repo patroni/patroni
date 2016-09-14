@@ -24,7 +24,7 @@ def false(*args, **kwargs):
 
 
 def get_cluster(initialize, leader, members, failover):
-    return Cluster(initialize, None, leader, 10, members, failover)
+    return Cluster(initialize, None, leader, 10, members, failover, None)
 
 
 def get_cluster_not_initialized_without_leader():

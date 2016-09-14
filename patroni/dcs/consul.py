@@ -5,7 +5,7 @@ import time
 import six
 
 from consul import ConsulException, NotFound, base, std
-from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member
+from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState
 from patroni.exceptions import DCSError
 from patroni.utils import sleep
 from requests.exceptions import RequestException
@@ -171,9 +171,14 @@ class Consul(AbstractDCS):
             if failover:
                 failover = Failover.from_node(failover['ModifyIndex'], failover['Value'])
 
-            self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover)
+            # get synchronization state
+            sync = nodes.get(self._SYNC)
+            if sync:
+                sync = SyncState.from_node(sync['ModifyIndex'], sync['Value'])
+
+            self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync)
         except NotFound:
-            self._cluster = Cluster(None, None, None, None, [], None)
+            self._cluster = Cluster(None, None, None, None, [], None, None)
         except:
             logger.exception('get_cluster')
             raise ConsulError('Consul is not responding properly')
@@ -246,6 +251,14 @@ class Consul(AbstractDCS):
         cluster = self.cluster
         if cluster and isinstance(cluster.leader, Leader) and cluster.leader.name == self._name:
             return self._client.kv.delete(self.leader_path, cas=cluster.leader.index)
+
+    @catch_consul_errors
+    def set_sync_state_value(self, value, index=None):
+        return self._client.write(self.sync_path, value, cas=index)
+
+    @catch_consul_errors
+    def delete_sync_state(self, index=None):
+        return self._client.kv.delete(self.sync_path, cas=index)
 
     def watch(self, timeout):
         if self.__do_not_watch:

@@ -3,7 +3,7 @@ import logging
 from kazoo.client import KazooClient, KazooState
 from kazoo.exceptions import NoNodeError, NodeExistsError
 from kazoo.handlers.threading import SequentialThreadingHandler
-from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member
+from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState
 from patroni.exceptions import DCSError
 
 logger = logging.getLogger(__name__)
@@ -179,10 +179,14 @@ class ZooKeeper(AbstractDCS):
         failover = self.get_node(self.failover_path, watch=self.cluster_watcher) if self._FAILOVER in nodes else None
         failover = failover and Failover.from_node(failover[1].version, failover[0])
 
+        # get synchronization state
+        sync = self.get_node(self.sync_path, watch=self.cluster_watcher) if self._SYNC in nodes else None
+        sync = sync and SyncState.from_node(sync[1].version, sync[0])
+
         # get last leader operation
         optime = self.get_node(self.leader_optime_path) if self._OPTIME in nodes and self._fetch_cluster else None
         self._last_leader_operation = 0 if optime is None else int(optime[0])
-        self._cluster = Cluster(initialize, config, leader, self._last_leader_operation, members, failover)
+        self._cluster = Cluster(initialize, config, leader, self._last_leader_operation, members, failover, sync)
 
     def _load_cluster(self):
         if self._fetch_cluster or self._cluster is None:
@@ -228,7 +232,7 @@ class ZooKeeper(AbstractDCS):
 
     def initialize(self, create_new=True, sysid=""):
         return self._create(self.initialize_path, sysid, makepath=True) if create_new \
-            else self._client.retry(self._client.set, self.initialize_path,  sysid.encode("utf-8"))
+            else self._client.retry(self._client.set, self.initialize_path, sysid.encode("utf-8"))
 
     def touch_member(self, data, ttl=None, permanent=False):
         cluster = self.cluster
@@ -304,6 +308,22 @@ class ZooKeeper(AbstractDCS):
     def delete_cluster(self):
         try:
             return self._client.retry(self._client.delete, self.client_path(''), recursive=True)
+        except NoNodeError:
+            return True
+
+    def set_sync_state_value(self, value, index=None):
+        try:
+            self._client.retry(self._client.set, self.sync_path, value.encode('utf-8'), version=index or -1)
+            return True
+        except NoNodeError:
+            return value == '' or (index is None and self._create(self.sync_path, value))
+        except:
+            logging.exception('set_sync_state_value')
+            return False
+
+    def delete_sync_state(self, index=None):
+        try:
+            return self._client.retry(self._client.delete, self.sync_path, version=index)
         except NoNodeError:
             return True
 

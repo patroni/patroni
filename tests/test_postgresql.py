@@ -313,7 +313,7 @@ class TestPostgresql(unittest.TestCase):
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def test_sync_replication_slots(self):
         self.p.start()
-        cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None)
+        cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None, None)
         with mock.patch('patroni.postgresql.Postgresql._query', Mock(side_effect=psycopg2.OperationalError)):
             self.p.sync_replication_slots(cluster)
         self.p.sync_replication_slots(cluster)

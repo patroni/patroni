@@ -9,7 +9,7 @@ import time
 
 from dns.exception import DNSException
 from dns import resolver
-from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member
+from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState
 from patroni.exceptions import DCSError
 from patroni.utils import Retry, RetryFailedError, sleep
 from urllib3.exceptions import HTTPError, ReadTimeoutError
@@ -300,9 +300,14 @@ class Etcd(AbstractDCS):
             if failover:
                 failover = Failover.from_node(failover.modifiedIndex, failover.value)
 
-            self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover)
+            # get synchronization state
+            sync = nodes.get(self._SYNC)
+            if sync:
+                sync = SyncState.from_node(sync.modifiedIndex, sync.value)
+
+            self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync)
         except etcd.EtcdKeyNotFound:
-            self._cluster = Cluster(None, None, None, None, [], None)
+            self._cluster = Cluster(None, None, None, None, [], None, None)
         except:
             logger.exception('get_cluster')
             raise EtcdError('Etcd is not responding properly')
@@ -359,6 +364,14 @@ class Etcd(AbstractDCS):
     @catch_etcd_errors
     def delete_cluster(self):
         return self.retry(self._client.delete, self.client_path(''), recursive=True)
+
+    @catch_etcd_errors
+    def set_sync_state_value(self, value, index=None):
+        return self._client.write(self.sync_path, value, prevIndex=index or 0)
+
+    @catch_etcd_errors
+    def delete_sync_state(self, index=None):
+        return self.retry(self._client.delete, self.sync_path, prevIndex=index or 0)
 
     def watch(self, timeout):
         if self.__do_not_watch:
