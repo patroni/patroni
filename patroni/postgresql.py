@@ -318,9 +318,10 @@ class Postgresql(object):
         return self._cursor_holder
 
     def close_connection(self):
-        if self._cursor_holder and self._cursor_holder.connection and self._cursor_holder.connection.closed == 0:
-            self._cursor_holder.connection.close()
+        if self._connection and self._connection.closed == 0:
+            self._connection.close()
             logger.info("closed patroni connection to the postgresql cluster")
+        self._cursor_holder = self._connection = None
 
     def _query(self, sql, *params):
         cursor = None
