@@ -67,7 +67,7 @@ class Ha(object):
             data['pending_restart'] = True
         if not self._async_executor.busy and data['state'] in ['running', 'restarting', 'starting']:
             try:
-                data['xlog_location'] = self.state_handler.xlog_position()
+                data['xlog_location'] = self.state_handler.xlog_position(retry=False)
             except:
                 pass
         if self.patroni.scheduled_restart:
