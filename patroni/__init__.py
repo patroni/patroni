@@ -103,6 +103,8 @@ class Patroni(object):
                 if self.config.reload_local_configuration():
                     self.reload_config()
 
+            reap_children()
+
             logger.info(self.ha.run_cycle())
 
             cluster = self.dcs.cluster
