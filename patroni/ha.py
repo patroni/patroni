@@ -40,9 +40,9 @@ class Ha(object):
     def acquire_lock(self):
         return self.dcs.attempt_to_acquire_leader()
 
-    def update_lock(self):
+    def update_lock(self, write_leader_optime=False):
         ret = self.dcs.update_leader()
-        if ret and not self._async_executor.busy:
+        if ret and write_leader_optime:
             try:
                 self.dcs.write_leader_optime(self.state_handler.last_operation())
             except:
@@ -428,7 +428,7 @@ class Ha(object):
                 self.dcs.reset_cluster()
                 return 'removed leader lock because postgres is not running as master'
 
-            if self.update_lock():
+            if self.update_lock(True):
                 return self.enforce_master_role('no action.  i am the leader with the lock',
                                                 'promoted self to leader because i had the session lock')
             else:
