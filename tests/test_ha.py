@@ -139,7 +139,7 @@ class TestHa(unittest.TestCase):
 
     def test_update_lock(self):
         self.p.last_operation = Mock(side_effect=PostgresException(''))
-        self.assertTrue(self.ha.update_lock())
+        self.assertTrue(self.ha.update_lock(True))
 
     def test_touch_member(self):
         self.p.xlog_position = Mock(side_effect=Exception)

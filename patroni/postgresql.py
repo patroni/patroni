@@ -318,9 +318,10 @@ class Postgresql(object):
         return self._cursor_holder
 
     def close_connection(self):
-        if self._cursor_holder and self._cursor_holder.connection and self._cursor_holder.connection.closed == 0:
-            self._cursor_holder.connection.close()
+        if self._connection and self._connection.closed == 0:
+            self._connection.close()
             logger.info("closed patroni connection to the postgresql cluster")
+        self._cursor_holder = self._connection = None
 
     def _query(self, sql, *params):
         cursor = None
@@ -888,11 +889,12 @@ BEGIN
 END;
 $$""".format(name, ' '.join(options)), name, password, password)
 
-    def xlog_position(self):
-        return self.query("""SELECT pg_xlog_location_diff(CASE WHEN pg_is_in_recovery()
-                                                               THEN pg_last_xlog_replay_location()
-                                                               ELSE pg_current_xlog_location()
-                                                          END, '0/0')::bigint""").fetchone()[0]
+    def xlog_position(self, retry=True):
+        stmt = """SELECT pg_xlog_location_diff(CASE WHEN pg_is_in_recovery()
+                                                    THEN pg_last_xlog_replay_location()
+                                                    ELSE pg_current_xlog_location()
+                                               END, '0/0')::bigint"""
+        return (self.query(stmt) if retry else self._query(stmt)).fetchone()[0]
 
     def load_replication_slots(self):
         if self.use_slots and self._schedule_load_slots:
