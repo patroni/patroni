@@ -237,6 +237,9 @@ class ConsulController(AbstractDcsController):
     def cleanup_service_tree(self):
         self._client.kv.delete(self.path(), recurse=True)
 
+    def start(self, max_wait_limit=15):
+        super(ConsulController, self).start(max_wait_limit)
+
 
 class EtcdController(AbstractDcsController):
 
@@ -244,8 +247,8 @@ class EtcdController(AbstractDcsController):
 
     def __init__(self, output_dir):
         super(EtcdController, self).__init__('etcd', tempfile.mkdtemp(), output_dir)
-        os.environ['PATRONI_ETCD_HOST'] = 'localhost:4001'
-        self._client = etcd.Client()
+        os.environ['PATRONI_ETCD_HOST'] = 'localhost:2379'
+        self._client = etcd.Client(port=2379)
 
     def _start(self):
         return subprocess.Popen(["etcd", "--debug", "--data-dir", self._work_directory],
