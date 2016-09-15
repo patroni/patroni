@@ -60,8 +60,8 @@ def get_dcs(config):
                 available_implementations.add(name)
                 if name in config:  # which has configuration section in the config file
                     # propagate some parameters
-                    config[name].update({p: config[p] for p in ('namespace', 'name', 'scope',
-                                         'loop_wait', 'ttl', 'retry_timeout') if p in config})
+                    config[name].update({p: config[p] for p in ('namespace', 'name', 'scope', 'loop_wait',
+                                         'patronictl', 'ttl', 'retry_timeout') if p in config})
                     return value(config[name])
     raise PatroniException("""Can not find suitable configuration of distributed configuration store
 Available implementations: """ + ', '.join(available_implementations))
@@ -272,6 +272,7 @@ class AbstractDCS(object):
         self._base_path = '/'.join([self._namespace, config['scope']])
         self._set_loop_wait(config.get('loop_wait', 10))
 
+        self._ctl = bool(config.get('patronictl', False))
         self._cluster = None
         self._cluster_thread_lock = Lock()
         self.event = Event()

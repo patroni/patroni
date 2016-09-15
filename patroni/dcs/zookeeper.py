@@ -65,7 +65,6 @@ class ZooKeeper(AbstractDCS):
         self._client.start()
 
     def _kazoo_connect(self, host, port):
-
         """Kazoo is using Ping's to determine health of connection to zookeeper. If there is no
         response on Ping after Ping interval (1/2 from read_timeout) it will consider current
         connection dead and try to connect to another node. Without this "magic" it was taking
@@ -164,7 +163,8 @@ class ZooKeeper(AbstractDCS):
         leader = self.get_node(self.leader_path) if self._LEADER in nodes else None
         if leader:
             client_id = self._client.client_id
-            if leader[0] == self._name and client_id is not None and client_id[0] != leader[1].ephemeralOwner:
+            if not self._ctl and leader[0] == self._name and client_id is not None \
+                    and client_id[0] != leader[1].ephemeralOwner:
                 logger.info('I am leader but not owner of the session. Removing leader node')
                 self._client.delete(self.leader_path)
                 leader = None

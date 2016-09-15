@@ -106,7 +106,7 @@ def ctl(ctx):
 
 
 def get_dcs(config, scope):
-    config['scope'] = scope
+    config.update({'scope': scope, 'patronictl': True})
     config.setdefault('name', scope)
     try:
         return _get_dcs(config)
