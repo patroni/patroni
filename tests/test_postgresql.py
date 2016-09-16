@@ -380,9 +380,6 @@ class TestPostgresql(unittest.TestCase):
         self.p.query = Mock(side_effect=psycopg2.OperationalError("not supported"))
         self.assertTrue(self.p.stop())
 
-    def test_check_replication_lag(self):
-        self.assertTrue(self.p.check_replication_lag(0))
-
     @patch('os.rename', Mock())
     @patch('os.path.isdir', Mock(return_value=True))
     def test_move_data_directory(self):

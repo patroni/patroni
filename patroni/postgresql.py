@@ -757,9 +757,6 @@ class Postgresql(object):
             return False
         return True
 
-    def check_replication_lag(self, last_leader_operation):
-        return (last_leader_operation or 0) - self.xlog_position() <= self.config.get('maximum_lag_on_failover', 0)
-
     def write_pg_hba(self, config):
         with open(os.path.join(self._data_dir, 'pg_hba.conf'), 'a') as f:
             f.write('\n{}\n'.format('\n'.join(config)))

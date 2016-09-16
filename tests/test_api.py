@@ -63,6 +63,9 @@ class MockHa(object):
     def schedule_future_restart(data):
         return True
 
+    @staticmethod
+    def is_lagging(xlog):
+        return False
 
 class MockPatroni(object):
 

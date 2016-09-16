@@ -1,3 +1,4 @@
+from collections import namedtuple
 import json
 import logging
 import psycopg2
@@ -13,6 +14,38 @@ from patroni.postgresql import ACTION_ON_START
 from patroni.utils import sleep
 
 logger = logging.getLogger(__name__)
+
+
+class _MemberStatus(namedtuple('_MemberStatus', 'member,reachable,in_recovery,xlog_location,is_lagging,tags')):
+    """Node status distilled from API response:
+
+        member - dcs.Member object of the node
+        reachable - `!False` if the node is not reachable or is not responding with correct JSON
+        in_recovery - `!True` if pg_is_in_recovery() == true
+        xlog_location - value of `replayed_location` or `location` from JSON, dependin on its role.
+        is_lagging - `True` if node considers itself too far behind to promote
+        tags - dictionary with values of different tags (i.e. nofailover)
+    """
+    @classmethod
+    def from_api_response(cls, member, json):
+        is_master = json['role'] == 'master'
+        xlog_location = None if is_master else json['xlog']['replayed_location']
+        is_lagging = json['xlog'].get('is_lagging', False)
+        return cls(member, True, not is_master, xlog_location, is_lagging, json.get('tags', {}))
+
+    @classmethod
+    def unknown(cls, member):
+        return cls(member, False, None, 0, False, {})
+
+    def failover_limitation(self, allow_lag=False):
+        """Returns reason why this node can't promote or None if everything is ok."""
+        if not self.reachable:
+            return 'not reachable'
+        if self.tags.get('nofailover', False):
+            return 'not allowed to promote'
+        if not allow_lag and self.is_lagging:
+            return 'exceeds maximum replication lag for promotion'
+        return None
 
 
 class Ha(object):
@@ -181,24 +214,16 @@ class Ha(object):
     @staticmethod
     def fetch_node_status(member):
         """This function perform http get request on member.api_url and fetches its status
-        :returns: tuple(`member`, reachable, in_recovery, xlog_location)
-
-        reachable - `!False` if the node is not reachable or is not responding with correct JSON
-        in_recovery - `!True` if pg_is_in_recovery() == true
-        xlog_location - value of `replayed_location` or `location` from JSON, dependin on its role.
-        tags - dictionary with values of different tags (i.e. nofailover)
+        :returns: `_MemberStatus` object
         """
 
         try:
             response = requests.get(member.api_url, timeout=2, verify=False)
             logger.info('Got response from %s %s: %s', member.name, member.api_url, response.content)
-            json = response.json()
-            is_master = json['role'] == 'master'
-            xlog_location = None if is_master else json['xlog']['replayed_location']
-            return (member, True, not is_master, xlog_location, json.get('tags', {}))
+            return _MemberStatus.from_api_response(member, response.json())
         except Exception as e:
             logger.warning("request failed: GET %s (%s)", member.api_url, e)
-        return (member, False, None, 0, {})
+        return _MemberStatus.unknown(member)
 
     def fetch_nodes_statuses(self, members):
         pool = ThreadPool(len(members))
@@ -207,23 +232,32 @@ class Ha(object):
         pool.join()
         return results
 
+    def is_lagging(self, xlog_location):
+        """Returns if the instance considers itself unhealthy to be promoted due to replication lag.
+
+        :param xlog_location: Current xlog location.
+        :returns True when node is lagging
+        """
+        lag = (self.cluster.last_leader_operation or 0) - xlog_location
+        return lag > self.state_handler.config.get('maximum_lag_on_failover', 0)
+
     def _is_healthiest_node(self, members, check_replication_lag=True):
         """This method tries to determine whether I am healthy enough to became a new leader candidate or not."""
 
-        if check_replication_lag and not self.state_handler.check_replication_lag(self.cluster.last_leader_operation):
+        my_xlog_location = self.state_handler.xlog_position()
+        if check_replication_lag and self.is_lagging(my_xlog_location):
             return False  # Too far behind last reported xlog location on master
 
         # Prepare list of nodes to run check against
         members = [m for m in members if m.name != self.state_handler.name and not m.nofailover and m.api_url]
 
         if members:
-            my_xlog_location = self.state_handler.xlog_position()
-            for member, reachable, in_recovery, xlog_location, tags in self.fetch_nodes_statuses(members):
-                if reachable and not tags.get('nofailover', False):  # If the node is unreachable it's not healhy
-                    if not in_recovery:
-                        logger.warning('Master (%s) is still alive', member.name)
+            for st in self.fetch_nodes_statuses(members):
+                if st.failover_limitation() is None:
+                    if not st.in_recovery:
+                        logger.warning('Master (%s) is still alive', st.member.name)
                         return False
-                    if my_xlog_location < xlog_location:
+                    if my_xlog_location < st.xlog_location:
                         return False
         return True
 
@@ -231,13 +265,12 @@ class Ha(object):
         ret = False
         members = [m for m in members if m.name != self.state_handler.name and not m.nofailover and m.api_url]
         if members:
-            for member, reachable, _, _, tags in self.fetch_nodes_statuses(members):
-                if reachable and not tags.get('nofailover', False):
-                    ret = True  # TODO: check xlog_location
-                elif not reachable:
-                    logger.info('Member %s is not reachable', member.name)
-                elif tags.get('nofailover', False):
-                    logger.info('Member %s is not allowed to promote', member.name)
+            for st in self.fetch_nodes_statuses(members):
+                not_allowed_reason = st.failover_limitation(allow_lag=False)
+                if not_allowed_reason:
+                    logger.info('Member %s is %s', st.member.name, not_allowed_reason)
+                else:
+                    ret = True
         else:
             logger.warning('manual failover: members list is empty')
         return ret
@@ -260,15 +293,13 @@ class Ha(object):
             # find specific node and check that it is healthy
             member = self.cluster.get_member(failover.candidate, fallback_to_leader=False)
             if member:
-                member, reachable, _, _, tags = self.fetch_node_status(member)
-                if reachable and not tags.get('nofailover', False):  # node is healthy
-                    logger.info('manual failover: to %s, i am %s', member.name, self.state_handler.name)
+                st = self.fetch_node_status(member)
+                not_allowed_reason = st.failover_limitation()
+                if not_allowed_reason is None:  # node is healthy
+                    logger.info('manual failover: to %s, i am %s', st.member.name, self.state_handler.name)
                     return False
                 # we wanted to failover to specific member but it is not healthy
-                if not reachable:
-                    logger.warning('manual failover: member %s is unhealthy', member.name)
-                elif tags.get('nofailover', False):
-                    logger.warning('manual failover: member %s is not allowed to promote', member.name)
+                logger.warning('manual failover: member %s is %s', st.member.name, not_allowed_reason)
 
             # at this point we should consider all members as a candidates for failover
             # i.e. we assume that failover.candidate is None

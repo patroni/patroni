@@ -9,7 +9,7 @@ from patroni.config import Config
 from patroni.dcs import Cluster, Failover, Leader, Member, get_dcs
 from patroni.dcs.etcd import Client
 from patroni.exceptions import DCSError, PostgresException
-from patroni.ha import Ha
+from patroni.ha import Ha, _MemberStatus
 from patroni.postgresql import Postgresql
 from test_etcd import socket_getaddrinfo, etcd_read, etcd_write, requests_get
 
@@ -49,6 +49,14 @@ def get_cluster_initialized_with_leader(failover=None):
 def get_cluster_initialized_with_only_leader(failover=None):
     l = get_cluster_initialized_without_leader(leader=True, failover=failover).leader
     return get_cluster(True, l, [l], failover)
+
+def get_node_status(reachable=True,in_recovery=True,xlog_location=10,is_lagging=False,nofailover=False):
+    def fetch_node_status(e):
+        tags = {}
+        if nofailover:
+            tags['nofailover'] = True
+        return _MemberStatus(e, reachable, in_recovery, xlog_location, is_lagging, tags)
+    return fetch_node_status
 
 future_restart_time = datetime.datetime.now(pytz.utc) + datetime.timedelta(days=5)
 postmaster_start_time = datetime.datetime.now(pytz.utc)
@@ -96,7 +104,7 @@ def run_async(self, func, args=()):
 
 @patch.object(Postgresql, 'is_running', Mock(return_value=True))
 @patch.object(Postgresql, 'is_leader', Mock(return_value=True))
-@patch.object(Postgresql, 'xlog_position', Mock(return_value=0))
+@patch.object(Postgresql, 'xlog_position', Mock(return_value=10))
 @patch.object(Postgresql, 'call_nowait', Mock(return_value=True))
 @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=False))
 @patch.object(Postgresql, 'controldata', Mock(return_value={'Database system identifier': '1234567890'}))
@@ -128,7 +136,6 @@ class TestHa(unittest.TestCase):
             self.p.set_state('running')
             self.p.set_role('replica')
             self.p.postmaster_start_time = MagicMock(return_value=str(postmaster_start_time))
-            self.p.check_replication_lag = true
             self.p.can_create_replica_without_replication_connection = MagicMock(return_value=False)
             self.e = get_dcs({'etcd': {'ttl': 30, 'host': 'ok:2379', 'scope': 'test',
                                        'name': 'foo', 'retry_timeout': 10}})
@@ -326,7 +333,9 @@ class TestHa(unittest.TestCase):
         f = Failover(0, self.p.name, '', None)
         self.ha.cluster = get_cluster_initialized_with_leader(f)
         self.assertEquals(self.ha.run_cycle(), 'manual failover: demoting myself')
-        self.ha.fetch_node_status = lambda e: (e, True, True, 0, {'nofailover': 'True'})
+        self.ha.fetch_node_status = get_node_status(nofailover=True)
+        self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
+        self.ha.fetch_node_status = get_node_status(is_lagging=True)
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
         # manual failover from the previous leader to us won't happen if we hold the nofailover flag
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', self.p.name, None))
@@ -372,17 +381,17 @@ class TestHa(unittest.TestCase):
         self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', 'leader', None))
         self.p.set_role('replica')
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
-        self.ha.fetch_node_status = lambda e: (e, True, True, 0, {})  # accessible, in_recovery
+        self.ha.fetch_node_status = get_node_status()  # accessible, in_recovery
         self.assertEquals(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
         self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, self.p.name, '', None))
         self.assertEquals(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
-        self.ha.fetch_node_status = lambda e: (e, False, True, 0, {})  # inaccessible, in_recovery
+        self.ha.fetch_node_status = get_node_status(reachable=False)  # inaccessible, in_recovery
         self.p.set_role('replica')
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
         # set failover flag to True for all members of the cluster
         # this should elect the current member, as we are not going to call the API for it.
         self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', 'other', None))
-        self.ha.fetch_node_status = lambda e: (e, True, True, 0, {'nofailover': 'True'})  # accessible, in_recovery
+        self.ha.fetch_node_status = get_node_status(nofailover=True)  # accessible, in_recovery
         self.p.set_role('replica')
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
         # same as previous, but set the current member to nofailover. In no case it should be elected as a leader
@@ -406,7 +415,7 @@ class TestHa(unittest.TestCase):
     def test_is_healthiest_node(self):
         self.ha.state_handler.is_leader = false
         self.ha.patroni.nofailover = False
-        self.ha.fetch_node_status = lambda e: (e, True, True, 0, {})
+        self.ha.fetch_node_status = get_node_status()
         self.assertTrue(self.ha.is_healthiest_node())
         with patch('patroni.postgresql.Postgresql.is_starting', return_value=True):
             self.assertFalse(self.ha.is_healthiest_node())
@@ -416,14 +425,14 @@ class TestHa(unittest.TestCase):
     def test__is_healthiest_node(self):
         self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         self.p.is_leader = false
-        self.ha.fetch_node_status = lambda e: (e, True, True, 0, {})  # accessible, in_recovery
+        self.ha.fetch_node_status = get_node_status()  # accessible, in_recovery
         self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
-        self.ha.fetch_node_status = lambda e: (e, True, False, 0, {})  # accessible, not in_recovery
+        self.ha.fetch_node_status = get_node_status(in_recovery=False)  # accessible, not in_recovery
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
-        self.ha.fetch_node_status = lambda e: (e, True, True, 1, {})  # accessible, in_recovery, xlog location ahead
+        self.ha.fetch_node_status = get_node_status(xlog_location=11)  # accessible, in_recovery, xlog location ahead
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
-        self.p.check_replication_lag = false
-        self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
+        with patch('patroni.postgresql.Postgresql.xlog_position', return_value=9):
+            self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         self.ha.patroni.nofailover = True
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         self.ha.patroni.nofailover = False
@@ -528,11 +537,11 @@ class TestHa(unittest.TestCase):
         check_calls([(update_lock, True), (demote, False)])
 
         self.p.time_in_state = lambda: 350
-        self.ha.fetch_node_status = lambda e: (e, False, True, 0, {})  # inaccessible, in_recovery
+        self.ha.fetch_node_status = get_node_status(reachable=False)  # inaccessible, in_recovery
         self.assertEquals(self.ha.run_cycle(), 'master start has timed out, but continuing to wait because failover is not possible')
         check_calls([(update_lock, True), (demote, False)])
 
-        self.ha.fetch_node_status = lambda e: (e, True, True, 0, {})  # accessible, in_recovery
+        self.ha.fetch_node_status = get_node_status()  # accessible, in_recovery
         self.assertEquals(self.ha.run_cycle(), 'stopped PostgreSQL because of startup timeout')
         check_calls([(update_lock, True), (demote, True)])
 
@@ -551,7 +560,7 @@ class TestHa(unittest.TestCase):
         self.p.check_for_startup = true
         f = Failover(0, self.p.name, '', None)
         self.ha.cluster = get_cluster_initialized_with_leader(f)
-        self.ha.fetch_node_status = lambda e: (e, True, True, 0, {})  # accessible, in_recovery
+        self.ha.fetch_node_status = get_node_status()  # accessible, in_recovery
         self.assertEquals(self.ha.run_cycle(), 'manual failover: demoting myself')
 
     @patch('patroni.ha.Ha.demote')
@@ -561,7 +570,7 @@ class TestHa(unittest.TestCase):
         self.ha.patroni.config.set_dynamic_configuration({'master_start_timeout': 0})
         self.ha.has_lock = true
         self.ha.update_lock = true
-        self.ha.fetch_node_status = lambda e: (e, True, True, 0, {})  # accessible, in_recovery
+        self.ha.fetch_node_status = get_node_status()  # accessible, in_recovery
         self.assertEquals(self.ha.run_cycle(), 'stopped PostgreSQL to fail over after a crash')
         demote.assert_called_once()
 
