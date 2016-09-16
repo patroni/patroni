@@ -114,14 +114,6 @@ Applications Should Not Use Superusers
 
 When connecting from an application, always use a non-superuser. Patroni requires access to the database to function properly. By using a superuser from an application, you can potentially use the entire connection pool, including the connections reserved for superusers, with the ``superuser_reserved_connections`` setting. If Patroni cannot access the Primary because the connection pool is full, behavior will be undesirable.
 
-================
-Contributing
-================
-Patroni accepts contributions from the open-source community; see the `Issues Tracker <https://github.com/zalando/patroni/issues>`__ for current needs. 
-
-Before making a contribution, please let us know by posting a comment to the relevant issue. 
-If you would like to propose a new feature, please first file a new issue explaining the feature you'd like to create.
-
 .. |Build Status| image:: https://travis-ci.org/zalando/patroni.svg?branch=master
    :target: https://travis-ci.org/zalando/patroni
 .. |Coverage Status| image:: https://coveralls.io/repos/zalando/patroni/badge.svg?branch=master
