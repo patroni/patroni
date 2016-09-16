@@ -29,7 +29,7 @@ class _MemberStatus(namedtuple('_MemberStatus', 'member,reachable,in_recovery,xl
     @classmethod
     def from_api_response(cls, member, json):
         is_master = json['role'] == 'master'
-        xlog_location = None if is_master else json['xlog']['replayed_location']
+        xlog_location = None if is_master else json['xlog']['received_location']
         return cls(member, True, not is_master, xlog_location, json.get('tags', {}))
 
     @classmethod
