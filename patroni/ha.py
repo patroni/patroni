@@ -16,7 +16,7 @@ from patroni.utils import sleep
 logger = logging.getLogger(__name__)
 
 
-class _MemberStatus(namedtuple('_MemberStatus', 'member,reachable,in_recovery,xlog_location,is_lagging,tags')):
+class _MemberStatus(namedtuple('_MemberStatus', 'member,reachable,in_recovery,xlog_location,tags')):
     """Node status distilled from API response:
 
         member - dcs.Member object of the node
@@ -30,21 +30,18 @@ class _MemberStatus(namedtuple('_MemberStatus', 'member,reachable,in_recovery,xl
     def from_api_response(cls, member, json):
         is_master = json['role'] == 'master'
         xlog_location = None if is_master else json['xlog']['replayed_location']
-        is_lagging = json['xlog'].get('is_lagging', False)
-        return cls(member, True, not is_master, xlog_location, is_lagging, json.get('tags', {}))
+        return cls(member, True, not is_master, xlog_location, json.get('tags', {}))
 
     @classmethod
     def unknown(cls, member):
-        return cls(member, False, None, 0, False, {})
+        return cls(member, False, None, 0, {})
 
-    def failover_limitation(self, allow_lag=False):
+    def failover_limitation(self):
         """Returns reason why this node can't promote or None if everything is ok."""
         if not self.reachable:
             return 'not reachable'
         if self.tags.get('nofailover', False):
             return 'not allowed to promote'
-        if not allow_lag and self.is_lagging:
-            return 'exceeds maximum replication lag for promotion'
         return None
 
 
@@ -233,7 +230,7 @@ class Ha(object):
         return results
 
     def is_lagging(self, xlog_location):
-        """Returns if the instance considers itself unhealthy to be promoted due to replication lag.
+        """Returns if instance with an xlog should consider itself unhealthy to be promoted due to replication lag.
 
         :param xlog_location: Current xlog location.
         :returns True when node is lagging
@@ -266,9 +263,11 @@ class Ha(object):
         members = [m for m in members if m.name != self.state_handler.name and not m.nofailover and m.api_url]
         if members:
             for st in self.fetch_nodes_statuses(members):
-                not_allowed_reason = st.failover_limitation(allow_lag=False)
+                not_allowed_reason = st.failover_limitation()
                 if not_allowed_reason:
                     logger.info('Member %s is %s', st.member.name, not_allowed_reason)
+                elif self.is_lagging(st.xlog_location):
+                    logger.info('Member %s exceeds maximum replication lag', st.member.name)
                 else:
                     ret = True
         else:

@@ -50,12 +50,12 @@ def get_cluster_initialized_with_only_leader(failover=None):
     l = get_cluster_initialized_without_leader(leader=True, failover=failover).leader
     return get_cluster(True, l, [l], failover)
 
-def get_node_status(reachable=True,in_recovery=True,xlog_location=10,is_lagging=False,nofailover=False):
+def get_node_status(reachable=True, in_recovery=True, xlog_location=10, nofailover=False):
     def fetch_node_status(e):
         tags = {}
         if nofailover:
             tags['nofailover'] = True
-        return _MemberStatus(e, reachable, in_recovery, xlog_location, is_lagging, tags)
+        return _MemberStatus(e, reachable, in_recovery, xlog_location, tags)
     return fetch_node_status
 
 future_restart_time = datetime.datetime.now(pytz.utc) + datetime.timedelta(days=5)
@@ -129,6 +129,7 @@ class TestHa(unittest.TestCase):
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
             self.p = Postgresql({'name': 'postgresql0', 'scope': 'dummy', 'listen': '127.0.0.1:5432',
                                  'data_dir': 'data/postgresql0', 'retry_timeout': 10,
+                                 'maximum_lag_on_failover': 5,
                                  'authentication': {'superuser': {'username': 'foo', 'password': 'bar'},
                                                     'replication': {'username': '', 'password': ''}},
                                  'parameters': {'wal_level': 'hot_standby', 'max_replication_slots': 5, 'foo': 'bar',
@@ -323,6 +324,7 @@ class TestHa(unittest.TestCase):
     @patch('requests.get', requests_get)
     @patch('time.sleep', Mock())
     def test_manual_failover_from_leader(self):
+        self.ha.fetch_node_status = get_node_status()
         self.ha.has_lock = true
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', '', None))
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
@@ -335,7 +337,7 @@ class TestHa(unittest.TestCase):
         self.assertEquals(self.ha.run_cycle(), 'manual failover: demoting myself')
         self.ha.fetch_node_status = get_node_status(nofailover=True)
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
-        self.ha.fetch_node_status = get_node_status(is_lagging=True)
+        self.ha.fetch_node_status = get_node_status(xlog_location=1)
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
         # manual failover from the previous leader to us won't happen if we hold the nofailover flag
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', self.p.name, None))
@@ -431,7 +433,7 @@ class TestHa(unittest.TestCase):
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         self.ha.fetch_node_status = get_node_status(xlog_location=11)  # accessible, in_recovery, xlog location ahead
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
-        with patch('patroni.postgresql.Postgresql.xlog_position', return_value=9):
+        with patch('patroni.postgresql.Postgresql.xlog_position', return_value=1):
             self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         self.ha.patroni.nofailover = True
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))

@@ -398,7 +398,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     'received_location': row[3],
                     'replayed_location': row[4],
                     'replayed_timestamp': row[5],
-                    'is_lagging': self.server.patroni.ha.is_lagging(xlog=row[3]),
                     'paused': row[6]} if row[1] else {
                     'location': row[2]
                 })
