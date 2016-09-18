@@ -87,9 +87,10 @@ class Ha(object):
             else:
                 logger.error('failed to bootstrap %s', msg)
                 self.state_handler.remove_data_directory()
-        except:
+        except Exception:
             logger.error('failed to bootstrap %s', msg)
             self.state_handler.remove_data_directory()
+            raise Exception
 
     def bootstrap(self):
         if not self.cluster.is_unlocked():  # cluster already has leader
@@ -618,7 +619,7 @@ class Ha(object):
                     logger.fatal("system ID mismatch, node %s belongs to a different cluster: %s != %s",
                                  self.state_handler.name, self.cluster.initialize, self.state_handler.sysid)
                     logger.info("Removing Data dir, allowing DB to bootstrap")
-                    self.state_handler.remove_data_directory()
+                    self.state_handler.move_data_directory()
                     sys.exit(1)
 
             if not self.state_handler.is_healthy():
