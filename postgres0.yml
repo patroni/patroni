@@ -12,7 +12,7 @@ restapi:
 #    password: password
 
 etcd:
-  host: 127.0.0.1:4001
+  host: 127.0.0.1:2379
 
 bootstrap:
   # this section will be written into Etcd:/<namespace>/<scope>/config after initializing new cluster

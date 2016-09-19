@@ -94,7 +94,8 @@ class Consul(AbstractDCS):
         host, port = config.get('host', '127.0.0.1:8500').split(':')
         self._client = ConsulClient(host=host, port=port)
         self.set_retry_timeout(config['retry_timeout'])
-        self.create_session()
+        if not self._ctl:
+            self.create_session()
 
     def retry(self, *args, **kwargs):
         return self._retry.copy()(*args, **kwargs)
@@ -174,7 +175,8 @@ class Consul(AbstractDCS):
 
             # get leader
             leader = nodes.get(self._LEADER)
-            if leader and leader['Value'] == self._name and self._session != leader.get('Session', 'x'):
+            if not self._ctl and leader and leader['Value'] == self._name \
+                    and self._session != leader.get('Session', 'x'):
                 logger.info('I am leader but not owner of the session. Removing leader node')
                 self._client.kv.delete(self.leader_path, cas=leader['ModifyIndex'])
                 leader = None
