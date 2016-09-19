@@ -290,6 +290,7 @@ class TestPostgresql(unittest.TestCase):
         self.assertFalse(self.p.can_rewind)
 
     @patch('time.sleep', Mock())
+    @patch.object(Postgresql, 'remove_data_directory', Mock(return_value=True))
     def test_create_replica(self):
         self.p.delete_trigger_file = Mock(side_effect=OSError)
         with patch('subprocess.call', Mock(side_effect=[1, 0])):
@@ -305,6 +306,9 @@ class TestPostgresql(unittest.TestCase):
             self.assertEquals(self.p.create_replica(self.leader), 0)
 
         with patch('subprocess.call', Mock(side_effect=Exception("foo"))):
+            self.assertEquals(self.p.create_replica(self.leader), 1)
+
+        with patch('subprocess.call', Mock(return_value=1)):
             self.assertEquals(self.p.create_replica(self.leader), 1)
 
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
