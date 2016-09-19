@@ -11,7 +11,6 @@ from patroni.exceptions import PostgresException, PostgresConnectionException
 from patroni.postgresql import Postgresql
 from patroni.utils import RetryFailedError
 from six.moves import builtins
-from test_ha import false
 
 
 class MockCursor(object):
@@ -225,7 +224,7 @@ class TestPostgresql(unittest.TestCase):
             self.assertTrue(self.p.stop())
 
     def test_restart(self):
-        self.p.start = false
+        self.p.start = Mock(return_value=False)
         self.assertFalse(self.p.restart())
         self.assertEquals(self.p.state, 'restart failed (restarting)')
 

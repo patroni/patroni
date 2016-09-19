@@ -12,6 +12,7 @@ from patroni.exceptions import DCSError, PostgresException
 from patroni.ha import Ha
 from patroni.postgresql import Postgresql
 from test_etcd import socket_getaddrinfo, etcd_read, etcd_write, requests_get
+from test_postgresql import psycopg2_connect
 
 
 def true(*args, **kwargs):
@@ -115,6 +116,7 @@ def run_async(self, func, args=()):
 class TestHa(unittest.TestCase):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
+    @patch('psycopg2.connect', psycopg2_connect)
     @patch.object(etcd.Client, 'read', etcd_read)
     def setUp(self):
         with patch.object(Client, 'machines') as mock_machines:
