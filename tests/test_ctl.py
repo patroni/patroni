@@ -31,7 +31,7 @@ def test_rw_config():
 
 @patch('patroni.ctl.load_config',
        Mock(return_value={'postgresql': {'data_dir': '.', 'parameters': {}, 'retry_timeout': 5},
-                          'restapi': {'auth': 'u:p', 'listen': ''}, 'etcd': {'host': 'localhost:4001'}}))
+                          'restapi': {'auth': 'u:p', 'listen': ''}, 'etcd': {'host': 'localhost:2379'}}))
 class TestCtl(unittest.TestCase):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
@@ -54,8 +54,8 @@ class TestCtl(unittest.TestCase):
 
     def test_parse_dcs(self):
         assert parse_dcs(None) is None
-        assert parse_dcs('localhost') == {'etcd': {'host': 'localhost:4001'}}
-        assert parse_dcs('') == {'etcd': {'host': 'localhost:4001'}}
+        assert parse_dcs('localhost') == {'etcd': {'host': 'localhost:2379'}}
+        assert parse_dcs('') == {'etcd': {'host': 'localhost:2379'}}
         assert parse_dcs('localhost:8500') == {'consul': {'host': 'localhost:8500'}}
         assert parse_dcs('zookeeper://localhost') == {'zookeeper': {'hosts': ['localhost:2181']}}
         assert parse_dcs('exhibitor://dummy') == {'exhibitor': {'hosts': ['dummy'], 'port': 8181}}

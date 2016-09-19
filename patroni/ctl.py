@@ -32,7 +32,7 @@ LOGLEVEL = 'WARNING'
 DCS_DEFAULTS = {'zookeeper': {'port': 2181, 'template': "zookeeper:\n hosts: ['{host}:{port}']"},
                 'exhibitor': {'port': 8181, 'template': "exhibitor:\n hosts: [{host}]\n port: {port}"},
                 'consul': {'port': 8500, 'template': "consul:\n host: '{host}:{port}'"},
-                'etcd': {'port': 4001, 'template': "etcd:\n host: '{host}:{port}'"}}
+                'etcd': {'port': 2379, 'template': "etcd:\n host: '{host}:{port}'"}}
 
 
 class PatroniCtlException(ClickException):
@@ -723,7 +723,7 @@ def timestamp(precision=6):
 
 @ctl.command('configure', help='Create configuration file')
 @click.option('--config-file', '-c', help='Configuration file', prompt='Configuration file', default=CONFIG_FILE_PATH)
-@click.option('--dcs', '-d', help='The DCS connect url', prompt='DCS connect url', default='etcd://localhost:4001')
+@click.option('--dcs', '-d', help='The DCS connect url', prompt='DCS connect url', default='etcd://localhost:2379')
 @click.option('--namespace', '-n', help='The namespace', prompt='Namespace', default='/service/')
 def configure(config_file, dcs, namespace):
     config = dict()
