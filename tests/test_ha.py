@@ -231,7 +231,7 @@ class TestHa(unittest.TestCase):
         self.ha.cluster.is_unlocked = false
         self.ha.has_lock = true
         self.ha.update_lock = false
-        self.assertEquals(self.ha.run_cycle(), 'demoting self because i do not have the lock and i was a leader')
+        self.assertEquals(self.ha.run_cycle(), 'demoted self because failed to update leader lock in DCS')
 
     def test_follow(self):
         self.ha.cluster.is_unlocked = false
