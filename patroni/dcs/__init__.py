@@ -486,7 +486,7 @@ class AbstractDCS(object):
         """"""
 
     @abc.abstractmethod
-    def delete_sync_state(self):
+    def delete_sync_state(self, index=None):
         """"""
 
     def watch(self, timeout):
