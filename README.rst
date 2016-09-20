@@ -32,7 +32,7 @@ For additional background info, see:
 Development Status
 ================
 
-Patroni is in active development and accepts contributions. See our `Contributing <https://github.com/zalando/patroni/blob/master/README.rst#contributing>`__ section below for more details.
+Patroni is in active development and accepts contributions. See our `Contributing <https://github.com/zalando/patroni/blob/master/CONTRIBUTING.md>`__ section below for more details.
 
 ===========================
 Technical Requirements/Installation
