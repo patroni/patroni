@@ -434,7 +434,8 @@ class Ha(object):
             else:
                 # Either there is no connection to DCS or someone else acquired the lock
                 logger.error('failed to update leader lock')
-                self.load_cluster_from_dcs()
+                self.demote(delete_leader=False)
+                return 'demoted self because failed to update leader lock in DCS'
         else:
             logger.info('does not have lock')
         return self.follow('demoting self because i do not have the lock and i was a leader',
