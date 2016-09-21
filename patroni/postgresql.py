@@ -80,7 +80,6 @@ class Postgresql(object):
         self._database = config.get('database', 'postgres')
         self._data_dir = config['data_dir']
         self._pending_restart = False
-        self._sync_standby = None
         self._server_parameters = self.get_server_parameters(config)
 
         self._connect_address = config.get('connect_address')
@@ -155,8 +154,6 @@ class Postgresql(object):
         parameters = config['parameters'].copy()
         listen_addresses, port = (config['listen'] + ':5432').split(':')[:2]
         parameters.update({'cluster_name': self.scope, 'listen_addresses': listen_addresses, 'port': port})
-        if self._sync_standby is not None:
-            parameters['synchronous_standby_names'] = self._sync_standby
         return parameters
 
     def resolve_connection_addresses(self):
