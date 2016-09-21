@@ -103,7 +103,7 @@ class TestConsul(unittest.TestCase):
 
     @patch.object(consul.Consul.KV, 'put', Mock(side_effect=ConsulException))
     def test_write_leader_optime(self):
-        self.c.write_leader_optime('')
+        self.c.write_leader_optime('1')
 
     def test_update_leader(self):
         self.c.update_leader()
