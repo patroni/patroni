@@ -454,7 +454,7 @@ def parse_scheduled(scheduled):
             raise PatroniCtlException(message.format(scheduled))
         return scheduled_at
 
-    return None
+    return tzlocal.get_localzone().localize(datetime.datetime.now())
 
 
 @ctl.command('restart', help='Restart cluster member')
@@ -628,7 +628,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
         logging.warning('Failing over to DCS')
         click.echo(timestamp() + ' Could not failover using Patroni api, falling back to DCS')
         click.echo(timestamp() + ' Initializing failover from master {0}'.format(master))
-        dcs.manual_failover(master, candidate, scheduled_at=failover_value)
+        dcs.manual_failover(master, candidate, scheduled_at=parse_scheduled(scheduled))
 
     output_members(cluster, cluster_name)
 
