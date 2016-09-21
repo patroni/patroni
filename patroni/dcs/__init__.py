@@ -284,6 +284,7 @@ class AbstractDCS(object):
         self._ctl = bool(config.get('patronictl', False))
         self._cluster = None
         self._cluster_thread_lock = Lock()
+        self._last_leader_operation = ''
         self.event = Event()
 
     def client_path(self, path):
@@ -366,9 +367,14 @@ class AbstractDCS(object):
             self._cluster = None
 
     @abc.abstractmethod
-    def write_leader_optime(self, last_operation):
+    def _write_leader_optime(self, last_operation):
         """write current xlog location into `/optime/leader` key in DCS
-        :param last_operation: absolute xlog location in bytes"""
+        :param last_operation: absolute xlog location in bytes
+        :returns: `!True` on success."""
+
+    def write_leader_optime(self, last_operation):
+        if self._last_leader_operation != last_operation and self._write_leader_optime(last_operation):
+            self._last_leader_operation = last_operation
 
     @abc.abstractmethod
     def update_leader(self):
