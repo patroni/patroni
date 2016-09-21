@@ -89,7 +89,7 @@ class Ha(object):
 
     def bootstrap(self):
         if not self.cluster.is_unlocked():  # cluster already has leader
-            clone_member = self.cluster.get_clone_member()
+            clone_member = self.cluster.get_clone_member(self.state_handler.name)
             member_role = 'leader' if clone_member == self.cluster.leader else 'replica'
             msg = "from {0} '{1}'".format(member_role, clone_member.name)
             self._async_executor.schedule('bootstrap {0}'.format(msg))
@@ -533,7 +533,7 @@ class Ha(object):
         self.state_handler.stop('immediate')
         self.state_handler.remove_data_directory()
 
-        clone_member = self.cluster.get_clone_member()
+        clone_member = self.cluster.get_clone_member(self.state_handler.name)
         member_role = 'leader' if clone_member == self.cluster.leader else 'replica'
         self.clone(clone_member, "from {0} '{1}'".format(member_role, clone_member.name))
 

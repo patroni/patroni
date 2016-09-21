@@ -142,6 +142,14 @@ class Member(namedtuple('Member', 'index,name,session,data')):
     def clonefrom(self):
         return self.tags.get('clonefrom', False) and bool(self.conn_url)
 
+    @property
+    def state(self):
+        return self.data.get('state', 'unknown')
+
+    @property
+    def is_running(self):
+        return self.state == 'running'
+
 
 class Leader(namedtuple('Leader', 'index,session,member')):
 
@@ -243,8 +251,9 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
     def get_member(self, member_name, fallback_to_leader=True):
         return ([m for m in self.members if m.name == member_name] or [self.leader if fallback_to_leader else None])[0]
 
-    def get_clone_member(self):
-        candidates = [m for m in self.members if m.clonefrom and (not self.leader or m.name != self.leader.name)]
+    def get_clone_member(self, exclude):
+        exclude = [exclude] + [self.leader.name] if self.leader else []
+        candidates = [m for m in self.members if m.clonefrom and m.is_running and m.name not in exclude]
         return candidates[randint(0, len(candidates) - 1)] if candidates else self.leader
 
     def is_paused(self):
