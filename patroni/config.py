@@ -271,9 +271,7 @@ class Config(object):
 
         # restapi server expects to get restapi.auth = 'username:password'
         if 'authentication' in config['restapi']:
-            restapi = config['restapi']
-            auth = restapi['authentication']
-            restapi['auth'] = '{0}:{1}'.format(auth['username'], auth['password'])
+            config['restapi']['auth'] = '{username}:{password}'.format(**config['restapi']['authentication'])
 
         # special treatment for old config
 

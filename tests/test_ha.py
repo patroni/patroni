@@ -12,6 +12,7 @@ from patroni.exceptions import DCSError, PostgresException
 from patroni.ha import Ha, _MemberStatus
 from patroni.postgresql import Postgresql
 from test_etcd import socket_getaddrinfo, etcd_read, etcd_write, requests_get
+from test_postgresql import psycopg2_connect
 
 
 def true(*args, **kwargs):
@@ -36,6 +37,7 @@ def get_cluster_initialized_without_leader(leader=False, failover=None):
     l = Leader(0, 0, m1) if leader else None
     m2 = Member(0, 'other', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
                                  'api_url': 'http://127.0.0.1:8011/patroni',
+                                 'state': 'running',
                                  'tags': {'clonefrom': True},
                                  'scheduled_restart': {'schedule': "2100-01-01 10:53:07.560445+00:00",
                                                        'postgres_version': '99.0.0'}})
@@ -123,6 +125,7 @@ def run_async(self, func, args=()):
 class TestHa(unittest.TestCase):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
+    @patch('psycopg2.connect', psycopg2_connect)
     @patch.object(etcd.Client, 'read', etcd_read)
     def setUp(self):
         with patch.object(Client, 'machines') as mock_machines:
@@ -237,7 +240,7 @@ class TestHa(unittest.TestCase):
         self.ha.cluster.is_unlocked = false
         self.ha.has_lock = true
         self.ha.update_lock = false
-        self.assertEquals(self.ha.run_cycle(), 'demoting self because i do not have the lock and i was a leader')
+        self.assertEquals(self.ha.run_cycle(), 'demoted self because failed to update leader lock in DCS')
 
     def test_follow(self):
         self.ha.cluster.is_unlocked = false

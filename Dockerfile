@@ -20,7 +20,7 @@ RUN apt-get update -y \
     && apt-get clean -y \
     && rm -rf /var/lib/apt/lists/* /root/.cache
 
-ENV ETCDVERSION 2.3.6
+ENV ETCDVERSION 3.0.8
 RUN curl -L https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v${ETCDVERSION}-linux-amd64.tar.gz \
     | tar xz -C /usr/local/bin --strip=1 --wildcards --no-anchored etcd etcdctl
 
