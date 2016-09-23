@@ -647,9 +647,6 @@ class Postgresql(object):
             self.__cb_pending = ACTION_ON_START
 
         self.set_role(self.get_postgres_role_from_data_directory())
-        if os.path.exists(self._postmaster_pid):
-            os.remove(self._postmaster_pid)
-            logger.info('Removed %s', self._postmaster_pid)
 
         self.set_state('starting')
 
