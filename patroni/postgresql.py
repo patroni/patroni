@@ -531,7 +531,7 @@ class Postgresql(object):
         try:
             with open(self._postmaster_pid) as f:
                 return {name: line.rstrip("\n") for name, line in zip(pid_line_names, f)}
-        except OSError:
+        except IOError:
             return {}
 
     @staticmethod
