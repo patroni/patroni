@@ -4,12 +4,11 @@ import psycopg2
 import shutil
 import subprocess
 import unittest
-import time
 
 from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.dcs import Cluster, Leader, Member
 from patroni.exceptions import PostgresException, PostgresConnectionException
-from patroni.postgresql import Postgresql, STATE_RUNNING, STATE_REJECT, STATE_NO_RESPONSE
+from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
 from patroni.utils import RetryFailedError
 from six.moves import builtins
 from test_ha import false

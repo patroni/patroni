@@ -615,9 +615,9 @@ class Postgresql(object):
             if isready not in [STATE_REJECT, STATE_RUNNING]:
                 logger.warning("Can't determine PostgreSQL startup status, assuming running")
             return True
-        else:
-            logger.warning("Timed out waiting for PostgreSQL to start")
-            return None
+
+        logger.warning("Timed out waiting for PostgreSQL to start")
+        return None
 
     def start(self, block_callbacks=False):
         """Start PostgreSQL
