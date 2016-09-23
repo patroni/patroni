@@ -226,7 +226,7 @@ class Consul(AbstractDCS):
         return self._client.kv.put(self.config_path, value, cas=index)
 
     @catch_consul_errors
-    def write_leader_optime(self, last_operation):
+    def _write_leader_optime(self, last_operation):
         return self._client.kv.put(self.leader_optime_path, last_operation)
 
     @staticmethod

@@ -1,3 +1,6 @@
+import json
+import time
+
 from behave import step, then
 
 
@@ -15,3 +18,17 @@ def check_label(context, content, name):
 @step('I create label with "{content:w}" in {name:w} data directory')
 def write_label(context, content, name):
     context.pctl.write_label(name, content)
+
+
+@step('{name:w} has {key:w}={value:w} in dcs after {time_limit:d} seconds')
+def check_member(context, name, key, value, time_limit):
+    max_time = time.time() + int(time_limit)
+    while time.time() < max_time:
+        try:
+            response = json.loads(context.dcs_ctl.query('members/' + name))
+            if response.get(key) == value:
+                return
+        except Exception:
+            pass
+        time.sleep(1)
+    assert False, "{0} does not have {1}={2} in dcs after {3} seconds".format(name, key, value, time_limit)

@@ -19,7 +19,7 @@ We call Patroni a "template" because it is far from being a one-size-fits-all or
 How Patroni Works
 ==============
 
-Patroni originated as a fork of `Governor <https://github.com/compose/governor>`__, the project from Compose. It includes plenty of new features. 
+Patroni originated as a fork of `Governor <https://github.com/compose/governor>`__, the project from Compose. It includes plenty of new features.
 
 For an example of a Docker-based deployment with Patroni, see `Spilo <https://github.com/zalando/spilo>`__, currently in use at Zalando.
 
@@ -32,7 +32,7 @@ For additional background info, see:
 Development Status
 ================
 
-Patroni is in active development and accepts contributions. See our `Contributing <https://github.com/zalando/patroni/blob/master/README.rst#contributing>`__ section below for more details. 
+Patroni is in active development and accepts contributions. See our `Contributing <https://github.com/zalando/patroni/blob/master/CONTRIBUTING.md>`__ section below for more details.
 
 ===========================
 Technical Requirements/Installation
@@ -77,7 +77,7 @@ run:
 YAML Configuration
 ===============
 
-Go `here <https://github.com/zalando/patroni/blob/master/docs/SETTINGS.rst>`__ for comprehensive information about settings for etcd, consul, and ZooKeeper. And for an example, see `postgres0.yml <https://github.com/zalando/patroni/blob/master/postgres0.yml>`__. 
+Go `here <https://github.com/zalando/patroni/blob/master/docs/SETTINGS.rst>`__ for comprehensive information about settings for etcd, consul, and ZooKeeper. And for an example, see `postgres0.yml <https://github.com/zalando/patroni/blob/master/postgres0.yml>`__.
 
 =========================
 Environment Configuration
@@ -93,7 +93,7 @@ Patroni uses Postgres' streaming replication, which is asynchronous by default. 
 
 Patroni's asynchronous replication configuration allows for ``maximum_lag_on_failover`` settings. This setting ensures failover will not occur if a follower is more than a certain number of bytes behind the follower. This setting should be increased or decreased based on business requirements.
 
-When asynchronous replication is not optimal for your use case, investigate Postgres's `synchronous replication <http://www.postgresql.org/docs/current/static/warm-standby.html#SYNCHRONOUS-REPLICATION>`__. Synchronous replication ensures consistency across a cluster by confirming that writes are written to a secondary before returning to the connecting client with a success. The cost of synchronous replication: reduced throughput on writes. This throughput will be entirely based on network performance. 
+When asynchronous replication is not optimal for your use case, investigate Postgres's `synchronous replication <http://www.postgresql.org/docs/current/static/warm-standby.html#SYNCHRONOUS-REPLICATION>`__. Synchronous replication ensures consistency across a cluster by confirming that writes are written to a secondary before returning to the connecting client with a success. The cost of synchronous replication: reduced throughput on writes. This throughput will be entirely based on network performance.
 
 In hosted datacenter environments (like AWS, Rackspace, or any network you do not control), synchronous replication significantly increases the variability of write performance. If followers become inaccessible from the leader, the leader effectively becomes read-only.
 
@@ -113,14 +113,6 @@ Applications Should Not Use Superusers
 ===============================
 
 When connecting from an application, always use a non-superuser. Patroni requires access to the database to function properly. By using a superuser from an application, you can potentially use the entire connection pool, including the connections reserved for superusers, with the ``superuser_reserved_connections`` setting. If Patroni cannot access the Primary because the connection pool is full, behavior will be undesirable.
-
-================
-Contributing
-================
-Patroni accepts contributions from the open-source community; see the `Issues Tracker <https://github.com/zalando/patroni/issues>`__ for current needs. 
-
-Before making a contribution, please let us know by posting a comment to the relevant issue. 
-If you would like to propose a new feature, please first file a new issue explaining the feature you'd like to create.
 
 .. |Build Status| image:: https://travis-ci.org/zalando/patroni.svg?branch=master
    :target: https://travis-ci.org/zalando/patroni
