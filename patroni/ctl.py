@@ -32,7 +32,7 @@ LOGLEVEL = 'WARNING'
 DCS_DEFAULTS = {'zookeeper': {'port': 2181, 'template': "zookeeper:\n hosts: ['{host}:{port}']"},
                 'exhibitor': {'port': 8181, 'template': "exhibitor:\n hosts: [{host}]\n port: {port}"},
                 'consul': {'port': 8500, 'template': "consul:\n host: '{host}:{port}'"},
-                'etcd': {'port': 4001, 'template': "etcd:\n host: '{host}:{port}'"}}
+                'etcd': {'port': 2379, 'template': "etcd:\n host: '{host}:{port}'"}}
 
 
 class PatroniCtlException(ClickException):
@@ -106,7 +106,7 @@ def ctl(ctx):
 
 
 def get_dcs(config, scope):
-    config['scope'] = scope
+    config.update({'scope': scope, 'patronictl': True})
     config.setdefault('name', scope)
     try:
         return _get_dcs(config)
@@ -595,12 +595,13 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
 
     scheduled_at = parse_scheduled(scheduled)
 
+    scheduled_at_str = None
     if scheduled_at:
         if cluster.is_paused():
             raise PatroniCtlException("Can't schedule failover in the paused state")
-        scheduled_at = scheduled_at.isoformat()
+        scheduled_at_str = scheduled_at.isoformat()
 
-    failover_value = {'leader': master, 'candidate': candidate, 'scheduled_at': scheduled_at}
+    failover_value = {'leader': master, 'candidate': candidate, 'scheduled_at': scheduled_at_str}
 
     logging.debug(failover_value)
 
@@ -633,7 +634,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
         logging.warning('Failing over to DCS')
         click.echo(timestamp() + ' Could not failover using Patroni api, falling back to DCS')
         click.echo(timestamp() + ' Initializing failover from master {0}'.format(master))
-        dcs.manual_failover(master, candidate, scheduled_at=failover_value)
+        dcs.manual_failover(master, candidate, scheduled_at=scheduled_at)
 
     output_members(cluster, cluster_name)
 
@@ -728,7 +729,7 @@ def timestamp(precision=6):
 
 @ctl.command('configure', help='Create configuration file')
 @click.option('--config-file', '-c', help='Configuration file', prompt='Configuration file', default=CONFIG_FILE_PATH)
-@click.option('--dcs', '-d', help='The DCS connect url', prompt='DCS connect url', default='etcd://localhost:4001')
+@click.option('--dcs', '-d', help='The DCS connect url', prompt='DCS connect url', default='etcd://localhost:2379')
 @click.option('--namespace', '-n', help='The namespace', prompt='Namespace', default='/service/')
 def configure(config_file, dcs, namespace):
     config = dict()

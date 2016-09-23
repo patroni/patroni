@@ -478,6 +478,9 @@ class Postgresql(object):
                     # if basebackup succeeds, exit with success
                     break
             else:
+                if not self.data_directory_empty():
+                    self.remove_data_directory()
+
                 cmd = replica_method
                 method_config = {}
                 # user-defined method; check for configuration
@@ -487,19 +490,23 @@ class Postgresql(object):
                     # look to see if the user has supplied a full command path
                     # if not, use the method name as the command
                     cmd = method_config.pop('command', cmd)
-                    # add the default parameters
+
+                # add the default parameters
+                method_config.update({"scope": self.scope,
+                                      "role": "replica",
+                                      "datadir": self._data_dir,
+                                      "connstring": connstring})
+                params = ["--{0}={1}".format(arg, val) for arg, val in method_config.items()]
                 try:
-                    method_config.update({"scope": self.scope,
-                                          "role": "replica",
-                                          "datadir": self._data_dir,
-                                          "connstring": connstring})
-                    params = ["--{0}={1}".format(arg, val) for arg, val in method_config.items()]
                     # call script with the full set of parameters
                     ret = subprocess.call(shlex.split(cmd) + params, env=env)
                     # if we succeeded, stop
                     if ret == 0:
                         logger.info('replica has been created using %s', replica_method)
                         break
+                    else:
+                        logger.error('Error creating replica using method %s: %s exited with code=%s',
+                                     replica_method, cmd, ret)
                 except Exception:
                     logger.exception('Error creating replica using method %s', replica_method)
                     ret = 1
@@ -1184,17 +1191,22 @@ $$""".format(name, ' '.join(options)), name, password, password)
         maxfailures = 2
         ret = 1
         for bbfailures in range(0, maxfailures):
+            if not self.data_directory_empty():
+                self.remove_data_directory()
+
             try:
                 ret = subprocess.call([self._pgcommand('pg_basebackup'), '--pgdata=' + self._data_dir,
                                        '--xlog-method=stream', "--dbname=" + conn_url], env=env)
                 if ret == 0:
                     break
+                else:
+                    logger.error('Error when fetching backup: pg_basebackup exited with code=%s', ret)
 
             except Exception as e:
-                logger.error('Error when fetching backup with pg_basebackup: {0}'.format(e))
+                logger.error('Error when fetching backup with pg_basebackup: %s', e)
 
             if bbfailures < maxfailures - 1:
-                logger.error('Trying again in 5 seconds')
+                logger.warning('Trying again in 5 seconds')
                 time.sleep(5)
 
         return ret

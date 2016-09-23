@@ -120,7 +120,7 @@ class Ha(object):
 
     def bootstrap(self):
         if not self.cluster.is_unlocked():  # cluster already has leader
-            clone_member = self.cluster.get_clone_member()
+            clone_member = self.cluster.get_clone_member(self.state_handler.name)
             member_role = 'leader' if clone_member == self.cluster.leader else 'replica'
             msg = "from {0} '{1}'".format(member_role, clone_member.name)
             self._async_executor.schedule('bootstrap {0}'.format(msg))
@@ -512,7 +512,8 @@ class Ha(object):
             else:
                 # Either there is no connection to DCS or someone else acquired the lock
                 logger.error('failed to update leader lock')
-                self.load_cluster_from_dcs()
+                self.demote('immediate')
+                return 'demoted self because failed to update leader lock in DCS'
         else:
             logger.info('does not have lock')
         return self.follow('demoting self because i do not have the lock and i was a leader',
@@ -617,7 +618,7 @@ class Ha(object):
         self.state_handler.stop('immediate')
         self.state_handler.remove_data_directory()
 
-        clone_member = self.cluster.get_clone_member()
+        clone_member = self.cluster.get_clone_member(self.state_handler.name)
         member_role = 'leader' if clone_member == self.cluster.leader else 'replica'
         self.clone(clone_member, "from {0} '{1}'".format(member_role, clone_member.name))
 
