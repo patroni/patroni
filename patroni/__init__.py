@@ -50,7 +50,6 @@ class Patroni(object):
     def get_tags(self):
         tags = {tag: value for tag, value in self.config.get('tags', {}).items()
                 if tag not in ('clonefrom', 'nofailover', 'noloadbalance') or value}
-        tags.update(self.ha.get_dynamic_tags())
         return tags
 
     @property

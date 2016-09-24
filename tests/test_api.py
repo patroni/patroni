@@ -63,6 +63,10 @@ class MockHa(object):
     def schedule_future_restart(data):
         return True
 
+    @staticmethod
+    def get_effective_tags():
+        return {}
+
 
 class MockPatroni(object):
 

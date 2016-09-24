@@ -55,8 +55,9 @@ class Ha(object):
         logger.info('Lock owner: %s; I am %s', lock_owner, self.state_handler.name)
         return lock_owner == self.state_handler.name
 
-    def get_dynamic_tags(self):
-        tags = {}
+    def get_effective_tags(self):
+        """Return configuration tags merged with dynamically applied tags."""
+        tags = self.patroni.tags.copy()
         if self._disable_sync:
             tags['nosync'] = True
         return tags
@@ -69,7 +70,7 @@ class Ha(object):
             'role': self.state_handler.role
         }
         if self.patroni.tags:
-            data['tags'] = self.patroni.tags
+            data['tags'] = self.get_effective_tags()
         if self.state_handler.pending_restart:
             data['pending_restart'] = True
         if not self._async_executor.busy and data['state'] in ['running', 'restarting', 'starting']:
