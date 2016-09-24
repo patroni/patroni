@@ -1,3 +1,4 @@
+import functools
 import json
 import logging
 import psycopg2
@@ -630,7 +631,7 @@ class Ha(object):
 
         do_restart = self.state_handler.restart
         if self.is_synchronous_mode() and not self.has_lock():
-            do_restart = lambda: self.while_not_sync_standby(do_restart)
+            do_restart = functools.partial(self.while_not_sync_standby, do_restart)
 
         if run_async:
             self._async_executor.run_async(do_restart)
