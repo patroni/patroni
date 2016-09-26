@@ -70,8 +70,9 @@ class Ha(object):
             'state': self.state_handler.state,
             'role': self.state_handler.role
         }
-        if self.patroni.tags:
-            data['tags'] = self.get_effective_tags()
+        tags = self.get_effective_tags()
+        if tags:
+            data['tags'] = tags
         if self.state_handler.pending_restart:
             data['pending_restart'] = True
         if not self._async_executor.busy and data['state'] in ['running', 'restarting', 'starting']:
