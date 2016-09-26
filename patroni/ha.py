@@ -199,7 +199,7 @@ class Ha(object):
                     picked, allow_promote = self.state_handler.pick_synchronous_standby(self.cluster)
                 if allow_promote:
                     cluster = self.dcs.get_cluster()
-                    if not cluster.sync or cluster.sync.leader != self.state_handler.name:
+                    if cluster.sync and cluster.sync.leader != self.state_handler.name:
                         logger.info("Synchronous replication key updated by someone else")
                         return
                     sync_index = cluster.sync.index if cluster.sync else None
