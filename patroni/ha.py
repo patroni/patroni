@@ -215,7 +215,7 @@ class Ha(object):
 
     def is_sync_standby(self, cluster):
         return cluster.leader and cluster.sync \
-            and cluster.sync.leader == cluster.leader \
+            and cluster.sync.leader == cluster.leader.member.name \
             and cluster.sync.sync_standby == self.state_handler.name
 
     def while_not_sync_standby(self, func):
@@ -239,6 +239,7 @@ class Ha(object):
                 self.touch_member()
 
                 while self.is_sync_standby(self.dcs.get_cluster()):
+                    logger.info("Waiting for master to release us from synchronous standby")
                     sleep(2)
             except DCSError:
                 pass
