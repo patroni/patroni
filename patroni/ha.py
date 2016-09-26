@@ -165,7 +165,6 @@ class Ha(object):
             return message
         else:
             self.state_handler.promote()
-            self.touch_member()
             return promote_message
 
     @staticmethod
@@ -309,7 +308,6 @@ class Ha(object):
             self.state_handler.stop()
             self.state_handler.set_role('demoted')
             self.dcs.delete_leader()
-            self.touch_member()
             self.dcs.reset_cluster()
             sleep(2)  # Give a time to somebody to take the leader lock
             cluster = self.dcs.get_cluster()
@@ -581,10 +579,12 @@ class Ha(object):
         return None
 
     def _run_cycle(self):
+        dcs_failed = False
         try:
             self.load_cluster_from_dcs()
 
-            self.touch_member()
+            if not self.cluster.has_member(self.state_handler.name):
+                self.touch_member()
 
             # cluster has leader key but not initialize key
             if not (self.cluster.is_unlocked() or self.sysid_valid(self.cluster.initialize)) and self.has_lock():
@@ -645,6 +645,7 @@ class Ha(object):
                         self.state_handler.call_nowait(ACTION_ON_START)
                     self.state_handler.sync_replication_slots(self.cluster)
         except DCSError:
+            dcs_failed = True
             logger.error('Error communicating with DCS')
             if not self.is_paused() and self.state_handler.is_running() and self.state_handler.is_leader():
                 self.demote(delete_leader=False)
@@ -652,6 +653,9 @@ class Ha(object):
             return 'DCS is not accessible'
         except (psycopg2.Error, PostgresConnectionException):
             return 'Error communicating with PostgreSQL. Will try again later'
+        finally:
+            if not dcs_failed:
+                self.touch_member()
 
     def run_cycle(self):
         with self._async_executor:
