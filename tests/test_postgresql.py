@@ -8,7 +8,7 @@ import unittest
 from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.dcs import Cluster, Leader, Member
 from patroni.exceptions import PostgresException, PostgresConnectionException
-from patroni.postgresql import Postgresql
+from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
 from patroni.utils import RetryFailedError
 from six.moves import builtins
 
@@ -202,6 +202,7 @@ class TestPostgresql(unittest.TestCase):
     def test_delete_trigger_file(self):
         self.p.delete_trigger_file()
 
+    @patch.object(Postgresql, 'wait_for_port_open', Mock(return_value=True))
     @patch.object(Postgresql, 'is_running')
     def test_start(self, mock_is_running):
         mock_is_running.return_value = True
@@ -214,6 +215,43 @@ class TestPostgresql(unittest.TestCase):
         with open(pg_conf) as f:
             lines = f.readlines()
             self.assertTrue("f.oo = 'bar'\n" in lines)
+
+    @patch.object(Postgresql, 'pg_isready')
+    @patch.object(Postgresql, 'is_pid_running')
+    @patch.object(Postgresql, 'read_pid_file')
+    @patch('patroni.postgresql.polling_loop', Mock(return_value=range(1)))
+    def test_wait_for_port_open(self, mock_read_pid_file, mock_is_pid_running, mock_pg_isready):
+        mock_pg_isready.return_value = STATE_NO_RESPONSE
+        mock_is_pid_running.return_value = True
+
+        # No pid file
+        mock_read_pid_file.return_value = {}
+        self.assertFalse(self.p.wait_for_port_open(1, 100., 101.))
+
+        # Garbage pid
+        mock_read_pid_file.return_value = {'pid': 'garbage', 'start_time': '101', 'data_dir': '', 'socket_dir': '', 'port': ''}
+        self.assertFalse(self.p.wait_for_port_open(1, 100., 101.))
+
+        # Not ready
+        mock_read_pid_file.return_value = {'pid': '42', 'start_time': '101', 'data_dir': '', 'socket_dir': '', 'port': ''}
+        self.assertFalse(self.p.wait_for_port_open(1, 100., 101.))
+
+        # Socket opened
+        mock_pg_isready.return_value = STATE_REJECT
+        self.assertTrue(self.p.wait_for_port_open(1, 100., 101.))
+
+        # Not running
+        mock_is_pid_running.return_value = False
+        self.assertFalse(self.p.wait_for_port_open(1, 100., 101.))
+
+        # Not our pid file
+        self.assertFalse(self.p.wait_for_port_open(1, 200., 201.))
+        mock_is_pid_running.return_value = True
+        self.assertTrue(self.p.wait_for_port_open(1, 200., 201.))
+
+        # pg_isready failure
+        mock_pg_isready.return_value = 'garbage'
+        self.assertTrue(self.p.wait_for_port_open(1, 200., 201.))
 
     @patch.object(Postgresql, 'is_running')
     def test_stop(self, mock_is_running):
@@ -615,3 +653,16 @@ class TestPostgresql(unittest.TestCase):
                 state['final_return'] = 0
                 self.assertFalse(self.p.wait_for_startup(timeout=2))
                 self.assertEquals(state['sleeps'], 3)
+
+    def test_read_pid_file(self):
+        pidfile = os.path.join(self.data_dir, 'postmaster.pid')
+        if os.path.exists(pidfile):
+            os.remove(pidfile)
+        self.assertEquals(self.p.read_pid_file(), {})
+
+    @patch('os.kill')
+    def test_is_pid_running(self, mock_kill):
+        mock_kill.return_value = True
+        self.assertTrue(self.p.is_pid_running(-100))
+        self.assertFalse(self.p.is_pid_running(0))
+        self.assertFalse(self.p.is_pid_running(None))

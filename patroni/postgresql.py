@@ -10,7 +10,7 @@ import tempfile
 import time
 
 from patroni.exceptions import PostgresConnectionException, PostgresException
-from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError
+from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop
 from six import string_types
 from threading import Lock
 
@@ -179,10 +179,9 @@ class Postgresql(object):
         :returns: `!True` when return_code == 0, otherwise `!False`"""
 
         pg_ctl = [self._pgcommand('pg_ctl'), cmd]
-        if cmd in ('start', 'stop', 'restart'):
+        if cmd == 'stop':
             pg_ctl += ['-w']
-            timeout = kwargs.pop('timeout', None)
-            timeout = self.config.get('pg_ctl_timeout', timeout)
+            timeout = self.config.get('pg_ctl_timeout')
             if timeout:
                 try:
                     pg_ctl += ['-t', str(int(timeout))]
@@ -521,12 +520,27 @@ class Postgresql(object):
     def is_running(self):
         if not (self._version_file_exists() and os.path.isfile(self._postmaster_pid)):
             return False
+        return self.is_pid_running(self.read_pid_file().get('pid', 0))
+
+    def read_pid_file(self):
+        """Reads and parses postmaster.pid from the data directory
+
+        :returns dictionary of values if successful, empty dictionary otherwise
+        """
+        pid_line_names = ['pid', 'data_dir', 'start_time', 'port', 'socket_dir', 'listen_addr', 'shmem_key']
         try:
             with open(self._postmaster_pid) as f:
-                pid = int(f.readline())
-                if pid < 0:
-                    pid = -pid
-                return pid > 0 and pid != os.getpid() and pid != os.getppid() and (os.kill(pid, 0) or True)
+                return {name: line.rstrip("\n") for name, line in zip(pid_line_names, f)}
+        except IOError:
+            return {}
+
+    @staticmethod
+    def is_pid_running(pid):
+        try:
+            pid = int(pid)
+            if pid < 0:
+                pid = -pid
+            return pid > 0 and pid != os.getpid() and pid != os.getppid() and (os.kill(pid, 0) or True)
         except Exception:
             return False
 
@@ -574,10 +588,51 @@ class Postgresql(object):
     def is_starting(self):
         return self.state == 'starting'
 
+    def wait_for_port_open(self, timeout, initiated, completed):
+        """Waits until PostgreSQL opens ports."""
+        for _ in polling_loop(timeout):
+            pid_file = self.read_pid_file()
+            if len(pid_file) < 5:
+                # Pid file doesn't exist or is incomplete, wait for it to be created
+                continue
+            try:
+                pid = int(pid_file['pid'])
+                postmaster_start_time = int(pid_file['start_time'])
+            except ValueError:
+                # Garbage in the pid file
+                continue
+
+            timing_slop = 2
+            is_our_pid_file = (initiated - timing_slop) <= postmaster_start_time <= (completed + timing_slop)
+            if not self.is_pid_running(pid):
+                if is_our_pid_file:
+                    # Start failed
+                    return False
+                else:
+                    # Probably old pid file, need to wait for cleanup
+                    continue
+
+            if not is_our_pid_file:
+                logger.warning("PostgreSQL started in parallel by some other process")
+
+            isready = self.pg_isready()
+            if isready == STATE_NO_RESPONSE:
+                # Still waiting for ports to open
+                continue
+            if isready not in [STATE_REJECT, STATE_RUNNING]:
+                logger.warning("Can't determine PostgreSQL startup status, assuming running")
+            return True
+
+        logger.warning("Timed out waiting for PostgreSQL to start")
+        return None
+
     def start(self, block_callbacks=False):
         """Start PostgreSQL
 
-        :returns: True if start was initiated, False if start failed"""
+        Waits for postmaster to open ports or terminate so pg_isready can be used to check startup completion
+        or failure.
+
+        :returns: True if start was initiated and postmaster ports are open, False if start failed"""
         # make sure we close all connections established against
         # the former node, otherwise, we might get a stalled one
         # after kill -9, which would report incorrect data to
@@ -592,9 +647,6 @@ class Postgresql(object):
             self.__cb_pending = ACTION_ON_START
 
         self.set_role(self.get_postgres_role_from_data_directory())
-        if os.path.exists(self._postmaster_pid):
-            os.remove(self._postmaster_pid)
-            logger.info('Removed %s', self._postmaster_pid)
 
         self.set_state('starting')
 
@@ -609,10 +661,17 @@ class Postgresql(object):
         options = ' '.join("--{0}='{1}'".format(p, self._server_parameters[p]) for p, v in self.CMDLINE_OPTIONS.items()
                            if self._major_version >= v[2])
 
-        # We want postmaster to open ports before we move into starting state
-        # TODO: implement waiting for pid file and use a zero timeout
-        TIMEOUT_FOR_OPENING_PORTS = 5
-        ret = self.pg_ctl('start', '-o', options, env=env, preexec_fn=os.setsid, timeout=TIMEOUT_FOR_OPENING_PORTS)
+        start_initiated = time.time()
+        ret = self.pg_ctl('start', '-o', options, env=env, preexec_fn=os.setsid)
+        start_completed = time.time()
+        if ret:
+            # We want postmaster to open ports before we continue
+            try:
+                start_timeout = float(self.config.get('pg_ctl_timeout', 60))
+            except ValueError:
+                start_timeout = 60
+            ret = self.wait_for_port_open(start_timeout, start_initiated, start_completed)
+
         self._pending_restart = False
 
         return ret
