@@ -32,7 +32,7 @@ Bootstrap configuration
         -  **options**: list of options for CREATE USER statement
             -  **- createrole**
             -  **- createdb**
--  **post_init**: An additional script that will be executed after initializing the cluster. It will be passed a connection string URL to the cluster superuser as a parameter, as well as the location to the **pgpass* file on the `PGPASSENV` variable.
+-  **post_init**: An additional script that will be executed after initializing the cluster. The script receives a connection string URL (with the cluster superuser as a user name). The PGPASSFILE variable is set to the location of pgpass file.
 
 Consul
 ------
