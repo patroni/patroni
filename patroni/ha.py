@@ -223,9 +223,6 @@ class Ha(object):
             self.state_handler.set_synchronous_standby(None)
 
     def is_sync_standby(self, cluster):
-        logger.warning("is sync %s %s %s == %s %s == %s", cluster.leader, cluster.sync,
-            cluster.sync.leader, cluster.leader.member.name,
-            cluster.sync.sync_standby, self.state_handler.name)
         return cluster.leader and cluster.sync \
             and cluster.sync.leader == cluster.leader.member.name \
             and cluster.sync.sync_standby == self.state_handler.name
