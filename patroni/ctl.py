@@ -28,7 +28,6 @@ from six.moves.urllib_parse import urlparse
 
 CONFIG_DIR_PATH = click.get_app_dir('patroni')
 CONFIG_FILE_PATH = os.path.join(CONFIG_DIR_PATH, 'patronictl.yaml')
-LOGLEVEL = 'WARNING'
 DCS_DEFAULTS = {'zookeeper': {'port': 2181, 'template': "zookeeper:\n hosts: ['{host}:{port}']"},
                 'exhibitor': {'port': 8181, 'template': "exhibitor:\n hosts: [{host}]\n port: {port}"},
                 'consul': {'port': 8500, 'template': "consul:\n host: '{host}:{port}'"},
@@ -88,21 +87,19 @@ def store_config(config, path):
         yaml.dump(config, fd)
 
 
-option_config_file = click.option('--config-file', '-c', help='Configuration file', default=CONFIG_FILE_PATH)
 option_format = click.option('--format', '-f', 'fmt', help='Output format (pretty, json)', default='pretty')
-option_dcs = click.option('--dcs', '-d', help='Use this DCS', envvar='DCS')
 option_watchrefresh = click.option('-w', '--watch', type=float, help='Auto update the screen every X seconds')
 option_watch = click.option('-W', is_flag=True, help='Auto update the screen every 2 seconds')
 option_force = click.option('--force', is_flag=True, help='Do not ask for confirmation at any point')
 
 
 @click.group()
+@click.option('--config-file', '-c', help='Configuration file', default=CONFIG_FILE_PATH)
+@click.option('--dcs', '-d', help='Use this DCS', envvar='DCS')
 @click.pass_context
-def ctl(ctx):
-    global LOGLEVEL
-    LOGLEVEL = os.environ.get('LOGLEVEL', LOGLEVEL)
-
-    logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=LOGLEVEL)
+def ctl(ctx, config_file, dcs):
+    logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=os.environ.get('LOGLEVEL', 'WARNING'))
+    ctx.obj = load_config(config_file, dcs)
 
 
 def get_dcs(config, scope):
@@ -267,16 +264,15 @@ def get_members(cluster, cluster_name, member_names, role, force, action):
 @click.option('--role', '-r', help='Give a dsn of any member with this role', type=click.Choice(['master', 'replica',
               'any']), default=None)
 @click.option('--member', '-m', help='Generate a dsn for this member', type=str)
-@option_dcs
-@option_config_file
 @click.argument('cluster_name')
-def dsn(cluster_name, config_file, dcs, role, member):
+@click.pass_obj
+def dsn(obj, cluster_name, role, member):
     if role is not None and member is not None:
         raise PatroniCtlException('--role and --member are mutually exclusive options')
     if member is None and role is None:
         role = 'master'
 
-    _, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+    cluster = get_dcs(obj, cluster_name).get_cluster()
     m = get_any_member(cluster, role=role, member=member)
     if m is None:
         raise PatroniCtlException('Can not find a suitable member')
@@ -287,13 +283,11 @@ def dsn(cluster_name, config_file, dcs, role, member):
 
 @ctl.command('query', help='Query a Patroni PostgreSQL member')
 @click.argument('cluster_name')
-@option_config_file
 @option_format
 @click.option('--format', 'fmt', help='Output format (pretty, json)', default='tsv')
 @click.option('--file', '-f', 'p_file', help='Execute the SQL commands from this file', type=click.File('rb'))
 @click.option('--password', help='force password prompt', is_flag=True)
 @click.option('-U', '--username', help='database user name', type=str)
-@option_dcs
 @option_watch
 @option_watchrefresh
 @click.option('--role', '-r', help='The role of the query', type=click.Choice(['master', 'replica', 'any']),
@@ -302,10 +296,10 @@ def dsn(cluster_name, config_file, dcs, role, member):
 @click.option('--delimiter', help='The column delimiter', default='\t')
 @click.option('--command', '-c', help='The SQL commands to execute')
 @click.option('-d', '--dbname', help='database name to connect to', type=str)
+@click.pass_obj
 def query(
+    obj,
     cluster_name,
-    config_file,
-    dcs,
     role,
     member,
     w,
@@ -329,7 +323,7 @@ def query(
     if p_file is None and command is None:
         raise PatroniCtlException('You need to specify either --command or --file')
 
-    connect_parameters = dict()
+    connect_parameters = {}
     if username:
         connect_parameters['username'] = username
     if password:
@@ -340,16 +334,15 @@ def query(
     if p_file is not None:
         command = p_file.read()
 
-    _, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+    dcs = get_dcs(obj, cluster_name)
 
     cursor = None
     for _ in watching(w, watch, clear=False):
+        if cursor is None:
+            cluster = dcs.get_cluster()
 
         output, cursor = query_member(cluster, cursor, member, role, command, connect_parameters)
         print_output(None, output, fmt=fmt, delimiter=delimiter)
-
-        if cursor is None:
-            cluster = dcs.get_cluster()
 
 
 def query_member(cluster, cursor, member, role, command, connect_parameters):
@@ -385,11 +378,11 @@ def query_member(cluster, cursor, member, role, command, connect_parameters):
 
 @ctl.command('remove', help='Remove cluster from DCS')
 @click.argument('cluster_name')
-@option_config_file
 @option_format
-@option_dcs
-def remove(config_file, cluster_name, fmt, dcs):
-    _, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+@click.pass_obj
+def remove(obj, cluster_name, fmt):
+    dcs = get_dcs(obj, cluster_name)
+    cluster = dcs.get_cluster()
 
     output_members(cluster, cluster_name, fmt=fmt)
 
@@ -424,14 +417,6 @@ def wait_for_leader(dcs, timeout=30):
             return cluster
 
     raise PatroniCtlException('Timeout occured')
-
-
-def ctl_load_config(cluster_name, config_file, dcs):
-    config = load_config(config_file, dcs)
-    dcs = get_dcs(config, cluster_name)
-    cluster = dcs.get_cluster()
-
-    return config, dcs, cluster
 
 
 def check_response(response, member_name, action_name, silent_success=False):
@@ -470,11 +455,10 @@ def parse_scheduled(scheduled):
 @click.option('--pending', help='Restart if pending', is_flag=True)
 @click.option('--timeout',
               help='Return error and fail over if necessary when restarting takes longer than this.')
-@option_config_file
 @option_force
-@option_dcs
-def restart(cluster_name, member_names, config_file, dcs, force, role, p_any, scheduled, version, pending, timeout):
-    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+@click.pass_obj
+def restart(obj, cluster_name, member_names, force, role, p_any, scheduled, version, pending, timeout):
+    cluster = get_dcs(obj, cluster_name).get_cluster()
 
     members = get_members(cluster, cluster_name, member_names, role, force, 'restart')
     if p_any:
@@ -511,10 +495,10 @@ def restart(cluster_name, member_names, config_file, dcs, force, role, p_any, sc
     for member in members:
         if 'schedule' in content:
             if force and member.data.get('scheduled_restart'):
-                r = request_patroni(member, 'delete', 'restart', headers=auth_header(config))
+                r = request_patroni(member, 'delete', 'restart', headers=auth_header(obj))
                 check_response(r, member.name, 'flush scheduled restart', True)
 
-        r = request_patroni(member, 'post', 'restart', content, auth_header(config))
+        r = request_patroni(member, 'post', 'restart', content, auth_header(obj))
         if r.status_code == 200:
             click.echo('Success: restart on member {0}'.format(member.name))
         elif r.status_code == 202:
@@ -530,15 +514,14 @@ def restart(cluster_name, member_names, config_file, dcs, force, role, p_any, sc
 @ctl.command('reinit', help='Reinitialize cluster member')
 @click.argument('cluster_name')
 @click.argument('member_names', nargs=-1)
-@option_config_file
 @option_force
-@option_dcs
-def reinit(cluster_name, member_names, config_file, dcs, force):
-    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+@click.pass_obj
+def reinit(obj, cluster_name, member_names, force):
+    cluster = get_dcs(obj, cluster_name).get_cluster()
     members = get_members(cluster, cluster_name, member_names, None, force, 'reinitialize')
 
     for member in members:
-        r = request_patroni(member, 'post', 'reinitialize', headers=auth_header(config))
+        r = request_patroni(member, 'post', 'reinitialize', headers=auth_header(obj))
         check_response(r, member.name, 'reinitialize')
 
 
@@ -549,9 +532,8 @@ def reinit(cluster_name, member_names, config_file, dcs, force):
 @click.option('--scheduled', help='Timestamp of a scheduled failover in unambiguous format (e.g. ISO 8601)',
               default=None)
 @option_force
-@option_config_file
-@option_dcs
-def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled):
+@click.pass_obj
+def failover(obj, cluster_name, master, candidate, force, scheduled):
     """
         We want to trigger a failover for the specified cluster name.
 
@@ -559,7 +541,8 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
         If so, we trigger a failover and keep the client up to date.
     """
 
-    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+    dcs = get_dcs(obj, cluster_name)
+    cluster = dcs.get_cluster()
 
     if cluster.leader is None and not cluster.is_paused():
         raise PatroniCtlException('This cluster has no master')
@@ -620,7 +603,7 @@ def failover(config_file, cluster_name, master, candidate, force, dcs, scheduled
     try:
         member = cluster.leader.member if cluster.leader else [m for m in cluster.members if m.name == candidate][0]
 
-        r = request_patroni(member, 'post', 'failover', failover_value, auth_header(config))
+        r = request_patroni(member, 'post', 'failover', failover_value, auth_header(obj))
         if r.status_code in (200, 202):
             logging.debug(r)
             cluster = dcs.get_cluster()
@@ -704,19 +687,17 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
 @ctl.command('list', help='List the Patroni members for a given Patroni')
 @click.argument('cluster_names', nargs=-1)
 @click.option('--extended', '-e', help='Show some extra information', is_flag=True)
-@option_config_file
 @option_format
 @option_watch
 @option_watchrefresh
-@option_dcs
-def members(config_file, cluster_names, fmt, watch, w, dcs, extended):
+@click.pass_obj
+def members(obj, cluster_names, fmt, watch, w, extended):
     if not cluster_names:
         logging.warning('Listing members: No cluster names were provided')
         return
 
-    config = load_config(config_file, dcs)
     for cluster_name in cluster_names:
-        dcs = get_dcs(config, cluster_name)
+        dcs = get_dcs(obj, cluster_name)
 
         for _ in watching(w, watch):
             cluster = dcs.get_cluster()
@@ -732,10 +713,7 @@ def timestamp(precision=6):
 @click.option('--dcs', '-d', help='The DCS connect url', prompt='DCS connect url', default='etcd://localhost:2379')
 @click.option('--namespace', '-n', help='The namespace', prompt='Namespace', default='/service/')
 def configure(config_file, dcs, namespace):
-    config = dict()
-    config['dcs_api'] = str(dcs)
-    config['namespace'] = str(namespace)
-    store_config(config, config_file)
+    store_config({'dcs_api': str(dcs), 'namespace': str(namespace)}, config_file)
 
 
 def touch_member(config, dcs):
@@ -772,10 +750,10 @@ def set_defaults(config, cluster_name):
 @ctl.command('scaffold', help='Create a structure for the cluster in DCS')
 @click.argument('cluster_name')
 @click.option('--sysid', '-s', help='System ID of the cluster to put into the initialize key', default="")
-@option_config_file
-@option_dcs
-def scaffold(cluster_name, config_file, dcs, sysid):
-    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+@click.pass_obj
+def scaffold(obj, cluster_name, sysid):
+    dcs = get_dcs(obj, cluster_name)
+    cluster = dcs.get_cluster()
     if cluster and cluster.initialize is not None:
         raise PatroniCtlException("This cluster is already initialized")
 
@@ -783,10 +761,10 @@ def scaffold(cluster_name, config_file, dcs, sysid):
         # initialize key already exists, don't touch this cluster
         raise PatroniCtlException("Initialize key for cluster {0} already exists".format(cluster_name))
 
-    set_defaults(config, cluster_name)
+    set_defaults(obj, cluster_name)
 
     # make sure the leader keys will never expire
-    if not (touch_member(config, dcs) and dcs.attempt_to_acquire_leader(permanent=True)):
+    if not (touch_member(obj, dcs) and dcs.attempt_to_acquire_leader(permanent=True)):
         # we did initialize this cluster, but failed to write the leader or member keys, wipe it down completely.
         dcs.delete_cluster()
         raise PatroniCtlException("Unable to install permanent leader for cluster {0}".format(cluster_name))
@@ -799,24 +777,23 @@ def scaffold(cluster_name, config_file, dcs, sysid):
 @click.argument('target', type=click.Choice(['restart']))
 @click.option('--role', '-r', help='Flush only members with this role', default='any',
               type=click.Choice(['master', 'replica', 'any']))
-@option_config_file
 @option_force
-@option_dcs
-def flush(cluster_name, member_names, config_file, dcs, force, role, target):
-    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+@click.pass_obj
+def flush(obj, cluster_name, member_names, force, role, target):
+    cluster = get_dcs(obj, cluster_name).get_cluster()
 
     members = get_members(cluster, cluster_name, member_names, role, force, 'flush')
     for member in members:
         if target == 'restart':
             if member.data.get('scheduled_restart'):
-                r = request_patroni(member, 'delete', 'restart', None, auth_header(config))
+                r = request_patroni(member, 'delete', 'restart', None, auth_header(obj))
                 check_response(r, member.name, 'flush scheduled restart')
             else:
                 click.echo('No scheduled restart for member {0}'.format(member.name))
 
 
-def toggle_pause(config_file, cluster_name, dcs, paused):
-    config, dcs, cluster = ctl_load_config(cluster_name, config_file, dcs)
+def toggle_pause(config, cluster_name, paused):
+    cluster = get_dcs(config, cluster_name).get_cluster()
     if cluster.is_paused() == paused:
         raise PatroniCtlException('Cluster is {0} paused'.format(paused and 'already' or 'not'))
 
@@ -831,15 +808,13 @@ def toggle_pause(config_file, cluster_name, dcs, paused):
 
 @ctl.command('pause', help='Disable auto failover')
 @click.argument('cluster_name')
-@option_config_file
-@option_dcs
-def pause(config_file, cluster_name, dcs):
-    return toggle_pause(config_file, cluster_name, dcs, True)
+@click.pass_obj
+def pause(obj, cluster_name):
+    return toggle_pause(obj, cluster_name, True)
 
 
 @ctl.command('resume', help='Resume auto failover')
 @click.argument('cluster_name')
-@option_config_file
-@option_dcs
-def resume(config_file, cluster_name, dcs):
-    return toggle_pause(config_file, cluster_name, dcs, False)
+@click.pass_obj
+def resume(obj, cluster_name):
+    return toggle_pause(obj, cluster_name, False)
