@@ -94,7 +94,7 @@ class Ha(object):
                 scheduled_restart_data['schedule'] = scheduled_restart_data['schedule'].isoformat()
                 data['scheduled_restart'] = scheduled_restart_data
 
-            self.dcs.touch_member(json.dumps(data, separators=(',', ':')))
+            return self.dcs.touch_member(json.dumps(data, separators=(',', ':')))
 
     def clone(self, clone_member=None, msg='(without leader)'):
         if self.state_handler.clone(clone_member):
@@ -245,16 +245,15 @@ class Ha(object):
         with self._member_state_lock:
             self._disable_sync += 1
         try:
-            try:
-                self.touch_member()
+            if self.touch_member():
                 # Master should notice the updated value during the next cycle. We will wait double that, if master
                 # hasn't noticed the value by then not disabling sync replication is not likely to matter.
                 for _ in polling_loop(timeout=self.dcs.loop_wait*2, interval=2):
                     if not self.is_sync_standby(self.dcs.get_cluster()):
                         break
                     logger.info("Waiting for master to release us from synchronous standby")
-            except DCSError:
-                pass
+            else:
+                logger.warning("Updating member state failed, skipping synchronous standby disable")
 
             return func()
         finally:
