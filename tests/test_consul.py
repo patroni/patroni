@@ -1,8 +1,9 @@
 import consul
 import unittest
 
+from consul import ConsulException, NotFound
 from mock import Mock, patch
-from patroni.dcs.consul import AbstractDCS, Cluster, Consul, ConsulError, ConsulException, HTTPClient, NotFound
+from patroni.dcs.consul import AbstractDCS, Cluster, Consul, ConsulInternalError, ConsulError, HTTPClient
 from test_etcd import SleepException
 
 
@@ -37,10 +38,17 @@ def kv_get(self, key, **kwargs):
 class TestHTTPClient(unittest.TestCase):
 
     def test_get(self):
-        self.client = HTTPClient('127.0.0.1', '8500', 'http', False)
-        self.client.session.get = Mock()
-        self.client.get(Mock(), '')
-        self.client.get(Mock(), '', {'wait': '1s', 'index': 1})
+        client = HTTPClient('127.0.0.1', '8500', 'http', False)
+        client.http.request = Mock()
+        client.get(Mock(), '')
+        client.get(Mock(), '', {'wait': '1s', 'index': 1})
+        client.http.request.return_value.status = 500
+        self.assertRaises(ConsulInternalError, client.get, Mock(), '')
+        try:
+            client.bla(Mock(), '')
+            self.assertFail()
+        except Exception as e:
+            self.assertTrue(isinstance(e, AttributeError))
 
 
 @patch.object(consul.Consul.KV, 'get', kv_get)
@@ -126,15 +134,11 @@ class TestConsul(unittest.TestCase):
 
     @patch.object(AbstractDCS, 'watch', Mock())
     def test_watch(self):
+        self.c.watch(1)
         self.c._name = ''
         self.c.watch(1)
         with patch.object(consul.Consul.KV, 'get', Mock(side_effect=ConsulException)):
             self.c.watch(1)
-
-    @patch.object(consul.Consul.Session, 'destroy', Mock(side_effect=ConsulException))
-    def test_set_ttl(self):
-        self.c.set_ttl(20)
-        self.assertTrue(self.c.watch(1))
 
     def test_set_retry_timeout(self):
         self.c.set_retry_timeout(10)

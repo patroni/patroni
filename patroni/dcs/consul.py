@@ -1,14 +1,17 @@
 from __future__ import absolute_import
 import logging
 import os
+import socket
 import time
-import six
+import urllib3
 
-from consul import ConsulException, NotFound, base, std
+from consul import ConsulException, NotFound, base
 from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member
 from patroni.exceptions import DCSError
-from patroni.utils import sleep
-from requests.exceptions import RequestException
+from patroni.utils import Retry, RetryFailedError, sleep
+from urllib3.exceptions import HTTPError
+from six.moves.urllib.parse import urlencode
+from six.moves.http_client import HTTPException
 
 logger = logging.getLogger(__name__)
 
@@ -17,38 +20,45 @@ class ConsulError(DCSError):
     pass
 
 
-class HTTPClient(std.HTTPClient):
+class ConsulInternalError(ConsulException):
+    """An internal Consul server error occurred"""
 
-    def __init__(self, *args, **kwargs):
-        super(HTTPClient, self).__init__(*args, **kwargs)
 
-    def patch_default_timeout(self, timeout):
-        # Set a default timeout for the `request.session.request` method, that is used
-        # internally  by the methods request.session.get, request.session.post and
-        # others. We monkey-patch here to avoid reimplementing each individual method from
-        # `std.HTTPClient`. By default, the timeout is not set. It means that a new
-        # session may hang almost indefinitely waiting for the server to respond,
-        # which is not what we want in Patroni.
+class HTTPClient(object):
 
-        request_func = getattr(self.session.request, '__func__' if six.PY3 else 'im_func')
-        defaults_attr_name = '__defaults__' if six.PY3 else 'func_defaults'
-        defaults = list(getattr(request_func, defaults_attr_name))
-        code = request_func.__code__ if six.PY3 else request_func.func_code
-        defaults[code.co_varnames[code.co_argcount - len(defaults):code.co_argcount].index('timeout')] = timeout
-        setattr(request_func, defaults_attr_name, tuple(defaults))  # monkeypatching
+    def __init__(self, host='127.0.0.1', port=8500, scheme='http', verify=True, timeout=10):
+        self.host = host
+        self.port = port
+        self.scheme = scheme
+        self.verify = verify
+        self.set_read_timeout(timeout)
+        self.base_uri = '{0}://{1}:{2}'.format(self.scheme, self.host, self.port)
+        self.http = urllib3.PoolManager(num_pools=10)
 
-    def get(self, callback, path, params=None):
-        # The get function is overridden to handle a special case of it being called
-        # with an index and wait parameters. That form indicates that a user needs to
-        # wait for the given key to change its value, with a wait timeout supplied. We
-        # don't want our monkey-patched timeout to be less than the value of the wait
-        # parameter, therefore, we set it to either the value of wait or a default of 5 minutes.
+    def set_read_timeout(self, timeout):
+        self._read_timeout = timeout/3.0
 
-        if isinstance(params, dict) and 'index' in params:
-            timeout = (float(params['wait'][:-1]) if 'wait' in params else 300) + 1
-        else:
-            timeout = None
-        return callback(self.response(self.session.get(self.uri(path, params), verify=self.verify, timeout=timeout)))
+    @staticmethod
+    def response(response):
+        if response.status == 500:
+            raise ConsulInternalError()
+        return base.Response(response.status, response.headers, response.data.decode('utf-8'))
+
+    def uri(self, path, params=None):
+        return '{0}{1}{2}'.format(self.base_uri, path, params and '?' + urlencode(params) or '')
+
+    def __getattr__(self, method):
+        if method not in ('get', 'post', 'put', 'delete'):
+            raise AttributeError("HTTPClient instance has no attribute '{0}'".format(method))
+
+        def wrapper(callback, path, params=None, data=''):
+            kwargs = {'retries': 0, 'preload_content': False, 'body': data}
+            if method == 'get' and isinstance(params, dict) and 'index' in params:
+                kwargs['timeout'] = (float(params['wait'][:-1]) if 'wait' in params else 300) + 1
+            else:
+                kwargs['timeout'] = self._read_timeout
+            return callback(self.response(self.http.request(method.upper(), self.uri(path, params), **kwargs)))
+        return wrapper
 
 
 class ConsulClient(base.Consul):
@@ -62,7 +72,7 @@ def catch_consul_errors(func):
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except (ConsulException, RequestException):
+        except (RetryFailedError, ConsulException, HTTPException, HTTPError, socket.error, socket.timeout):
             return False
     return wrapper
 
@@ -71,17 +81,24 @@ class Consul(AbstractDCS):
 
     def __init__(self, config):
         super(Consul, self).__init__(config)
-        self._ttl = None
+        self._scope = config['scope']
         self._session = None
+        self._ttl = None
+        self.__do_not_watch = False
+        self._retry = Retry(deadline=config['retry_timeout'], max_delay=1, max_tries=-1,
+                            retry_exceptions=(ConsulInternalError, HTTPException,
+                                              HTTPError, socket.error, socket.timeout))
+
         self._my_member_data = None
         self.set_ttl(config.get('ttl') or 30)
         host, port = config.get('host', '127.0.0.1:8500').split(':')
         self._client = ConsulClient(host=host, port=port)
-        self._client.http.patch_default_timeout(config['retry_timeout']/2.0)
-        self._scope = config['scope']
+        self.set_retry_timeout(config['retry_timeout'])
         if not self._ctl:
             self.create_session()
-        self.__do_not_watch = False
+
+    def retry(self, *args, **kwargs):
+        return self._retry.copy()(*args, **kwargs)
 
     def create_session(self):
         while not self._session:
@@ -99,9 +116,10 @@ class Consul(AbstractDCS):
         self._ttl = ttl
 
     def set_retry_timeout(self, retry_timeout):
-        self._client.http.patch_default_timeout(retry_timeout/2.0)
+        self._retry.deadline = retry_timeout
+        self._client.http.set_read_timeout(retry_timeout)
 
-    def refresh_session(self):
+    def _do_refresh_session(self):
         """:returns: `!True` if it had to create new session"""
         if self._session:
             try:
@@ -110,13 +128,15 @@ class Consul(AbstractDCS):
                 self._session = None
         if not self._session:
             name = self._scope + '-' + self._name
-            try:
-                self._session = self._client.session.create(name=name, lock_delay=0, behavior='delete', ttl=self._ttl)
-            except (ConsulException, RequestException):
-                logger.exception('session.create')
-        if not self._session:
-            raise ConsulError('Failed to renew/create session')
+            self._session = self._client.session.create(name=name, lock_delay=0, behavior='delete', ttl=self._ttl)
         return True
+
+    def refresh_session(self):
+        try:
+            return self.retry(self._do_refresh_session)
+        except (ConsulException, RetryFailedError):
+            logger.exception('refresh_session')
+        raise ConsulError('Failed to renew/create session')
 
     def client_path(self, path):
         return super(Consul, self).client_path(path)[1:]
@@ -128,7 +148,7 @@ class Consul(AbstractDCS):
     def _load_cluster(self):
         try:
             path = self.client_path('/')
-            _, results = self._client.kv.get(path, recurse=True)
+            _, results = self.retry(self._client.kv.get, path, recurse=True)
 
             if results is None:
                 raise NotFound
@@ -204,7 +224,7 @@ class Consul(AbstractDCS):
     @catch_consul_errors
     def attempt_to_acquire_leader(self, permanent=False):
         args = {} if permanent else {'acquire': self._session}
-        ret = self._client.kv.put(self.leader_path, self._name, **args)
+        ret = self.retry(self._client.kv.put, self.leader_path, self._name, **args)
         if not ret:
             logger.info('Could not take out TTL lock')
         return ret
@@ -231,15 +251,15 @@ class Consul(AbstractDCS):
     @catch_consul_errors
     def initialize(self, create_new=True, sysid=''):
         kwargs = {'cas': 0} if create_new else {}
-        return self._client.kv.put(self.initialize_path, sysid, **kwargs)
+        return self.retry(self._client.kv.put, self.initialize_path, sysid, **kwargs)
 
     @catch_consul_errors
     def cancel_initialization(self):
-        return self._client.kv.delete(self.initialize_path)
+        return self.retry(self._client.kv.delete, self.initialize_path)
 
     @catch_consul_errors
     def delete_cluster(self):
-        return self._client.kv.delete(self.client_path(''), recurse=True)
+        return self.retry(self._client.kv.delete, self.client_path(''), recurse=True)
 
     @catch_consul_errors
     def delete_leader(self):
@@ -259,7 +279,7 @@ class Consul(AbstractDCS):
                 try:
                     idx, _ = self._client.kv.get(self.leader_path, index=cluster.leader.index, wait=str(timeout) + 's')
                     return str(idx) != str(cluster.leader.index)
-                except (ConsulException, RequestException):
+                except (ConsulException, HTTPException, HTTPError, socket.error, socket.timeout):
                     logging.exception('watch')
 
                 timeout = end_time - time.time()
