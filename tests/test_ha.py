@@ -645,7 +645,7 @@ class TestHa(unittest.TestCase):
         self.p.set_role('replica')
         mock_restart = self.p.restart = Mock(return_value=True)
         self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
-        mock_touch = self.ha.touch_member = Mock()
+        self.ha.touch_member = Mock()
         self.ha.dcs.get_cluster = Mock(side_effect=[
             get_cluster_initialized_with_leader(sync=('leader', syncstandby))
             for syncstandby in ['other', None]])
@@ -659,7 +659,7 @@ class TestHa(unittest.TestCase):
 
         self.ha.restart()
 
-    def test_effective_tags(self    ):
+    def test_effective_tags(self):
         self.ha._disable_sync = True
         self.assertEquals(self.ha.get_effective_tags(), {'foo': 'bar', 'nosync': True})
         self.ha._disable_sync = False
