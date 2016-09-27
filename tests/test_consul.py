@@ -99,6 +99,8 @@ class TestConsul(unittest.TestCase):
 
     @patch.object(consul.Consul.KV, 'put', Mock(return_value=False))
     def test_take_leader(self):
+        self.c.set_ttl(20)
+        self.c.refresh_session = Mock()
         self.c.take_leader()
 
     @patch.object(consul.Consul.KV, 'put', Mock(return_value=True))

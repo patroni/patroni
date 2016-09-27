@@ -200,7 +200,7 @@ class Consul(AbstractDCS):
 
     def touch_member(self, data, **kwargs):
         cluster = self.cluster
-        member = cluster and ([m for m in cluster.members if m.name == self._name] or [None])[0]
+        member = cluster and cluster.get_member(self._name, fallback_to_leader=False)
         create_member = self.refresh_session()
         if member and (create_member or member.session != self._session):
             try:
@@ -223,6 +223,9 @@ class Consul(AbstractDCS):
 
     @catch_consul_errors
     def attempt_to_acquire_leader(self, permanent=False):
+        if not self._session and not permanent:
+            self.refresh_session()
+
         args = {} if permanent else {'acquire': self._session}
         ret = self.retry(self._client.kv.put, self.leader_path, self._name, **args)
         if not ret:

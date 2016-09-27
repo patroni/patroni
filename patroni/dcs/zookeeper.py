@@ -232,7 +232,7 @@ class ZooKeeper(AbstractDCS):
 
     def touch_member(self, data, ttl=None, permanent=False):
         cluster = self.cluster
-        member = cluster and ([m for m in cluster.members if m.name == self._name] or [None])[0]
+        member = cluster and cluster.get_member(self._name, fallback_to_leader=False)
         data = data.encode('utf-8')
         if member and self._client.client_id is not None and member.session != self._client.client_id[0]:
             try:
