@@ -76,15 +76,11 @@ class TestCtl(unittest.TestCase):
         result = self.runner.invoke(ctl, ['failover', 'dummy'], input='leader\nother\n\ny')
         assert 'leader' in result.output
 
-        result = self.runner.invoke(ctl, ['failover', 'dummy'], input='leader\nother\n2100-01-01T12:23:00\ny')
-        assert result.exit_code == 0
-
-        result = self.runner.invoke(ctl, ['failover', 'dummy'], input='leader\nother\n2030-01-01T12:23:00\ny')
+        result = self.runner.invoke(ctl, ['failover', 'dummy'], input='leader\nother\n2300-01-01T12:23:00\ny')
         assert result.exit_code == 0
 
         with patch('patroni.dcs.Cluster.is_paused', Mock(return_value=True)):
-            result = self.runner.invoke(ctl,
-                                        ['failover', 'dummy', '--force', '--scheduled', '2015-01-01T12:00:00+01:00'])
+            result = self.runner.invoke(ctl, ['failover', 'dummy', '--force', '--scheduled', '2015-01-01T12:00:00'])
             assert result.exit_code == 1
 
         # Aborting failover,as we anser NO to the confirmation
@@ -119,7 +115,7 @@ class TestCtl(unittest.TestCase):
 
         with patch('patroni.ctl.request_patroni', Mock(side_effect=Exception)):
             # Non-responding patroni
-            result = self.runner.invoke(ctl, ['failover', 'dummy'], input='leader\nother\n\ny')
+            result = self.runner.invoke(ctl, ['failover', 'dummy'], input='leader\nother\n2300-01-01T12:23:00\ny')
             assert 'falling back to DCS' in result.output
 
         with patch('patroni.ctl.request_patroni') as mocked:
