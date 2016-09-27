@@ -214,6 +214,9 @@ class Ha(object):
             self.state_handler.set_synchronous_standby(None)
 
     def is_sync_standby(self, cluster):
+        logger.warning("is sync %s %s %s == %s %s == %s", cluster.leader, cluster.sync,
+            cluster.sync.leader, cluster.leader.member.name,
+            cluster.sync.sync_standby, self.state_handler.name)
         return cluster.leader and cluster.sync \
             and cluster.sync.leader == cluster.leader.member.name \
             and cluster.sync.sync_standby == self.state_handler.name
@@ -230,7 +233,7 @@ class Ha(object):
         publishing it to the DCS. As the window is rather tiny consequences are holding up commits for one cycle
         period we don't worry about it here."""
 
-        if not self.is_synchronous_mode or self.patroni.nosync:
+        if not self.is_synchronous_mode() or self.patroni.nosync:
             return func()
 
         self._disable_sync = True

@@ -92,6 +92,7 @@ zookeeper:
         self.replicatefrom = None
         self.api.connection_string = 'http://127.0.0.1:8008'
         self.clonefrom = None
+        self.nosync = False
         self.scheduled_restart = {'schedule': future_restart_time,
                                   'postmaster_start_time': str(postmaster_start_time)}
 
@@ -580,3 +581,86 @@ class TestHa(unittest.TestCase):
         self.ha.dcs.get_cluster = Mock(return_value=get_cluster_initialized_with_leader(sync=('somebodyelse', None)))
         self.ha.run_cycle()
         self.assertEquals(self.ha.dcs.write_sync_state.call_count, 1)
+
+    def test_sync_replication_become_master(self):
+        self.ha.patroni.config.set_dynamic_configuration({"synchronous_mode": True})
+
+        mock_set_sync = self.p.set_synchronous_standby = Mock()
+        self.p.is_leader = false
+        self.p.set_role('replica')
+        self.ha.has_lock = true
+        mock_write_sync = self.ha.dcs.write_sync_state = Mock(return_value=True)
+        self.p.name = 'leader'
+        self.ha.cluster = get_cluster_initialized_with_leader(sync=('other', None))
+
+        # When we just became master nobody is sync
+        self.assertEquals(self.ha.enforce_master_role('msg', 'promote msg'), 'promote msg')
+        mock_set_sync.assert_called_once_with(None)
+        mock_write_sync.assert_called_once_with('leader', None, index=0)
+
+        mock_set_sync.reset_mock()
+
+        # When we just became master nobody is sync
+        self.p.set_role('replica')
+        mock_write_sync.return_value = False
+        self.assertTrue(self.ha.enforce_master_role('msg', 'promote msg') != 'promote msg')
+        mock_set_sync.assert_not_called()
+
+    def test_unhealthy_sync_mode(self):
+        self.ha.patroni.config.set_dynamic_configuration({"synchronous_mode": True})
+
+        self.p.is_leader = false
+        self.p.set_role('replica')
+        self.p.name = 'other'
+        self.ha.cluster = get_cluster_initialized_without_leader(sync=('leader', 'other2'))
+        mock_write_sync = self.ha.dcs.write_sync_state = Mock(return_value=True)
+        mock_acquire = self.ha.acquire_lock = Mock(return_value=True)
+        mock_follow = self.p.follow = Mock()
+        mock_promote = self.p.promote = Mock()
+
+        # If we don't match the sync replica we are not allowed to acquire lock
+        self.ha.run_cycle()
+        mock_acquire.assert_not_called()
+        mock_follow.assert_called_once()
+        self.assertEquals(mock_follow.call_args[0][0], None)
+        mock_write_sync.assert_not_called()
+
+        mock_follow.reset_mock()
+        # If we do match we will try to promote
+        self.ha._is_healthiest_node = true
+
+        self.ha.cluster = get_cluster_initialized_without_leader(sync=('leader', 'other'))
+        self.ha.run_cycle()
+        mock_acquire.assert_called_once()
+        mock_follow.assert_not_called()
+        mock_promote.assert_called_once()
+        mock_write_sync.assert_called_once_with('other', None, index=0)
+
+    @patch('patroni.ha.sleep')
+    def test_disable_sync_when_restarting(self, mock_sleep):
+        self.ha.patroni.config.set_dynamic_configuration({"synchronous_mode": True})
+
+        self.p.name = 'other'
+        self.p.is_leader = false
+        self.p.set_role('replica')
+        mock_restart = self.p.restart = Mock(return_value=True)
+        self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
+        mock_touch = self.ha.touch_member = Mock()
+        self.ha.dcs.get_cluster = Mock(side_effect=[
+            get_cluster_initialized_with_leader(sync=('leader', syncstandby))
+            for syncstandby in ['other', None]])
+
+        self.ha.restart()
+
+        mock_restart.assert_called_once()
+        mock_sleep.assert_called()
+
+        self.ha.dcs.get_cluster = Mock(side_effect=DCSError)
+
+        self.ha.restart()
+
+    def test_effective_tags(self    ):
+        self.ha._disable_sync = True
+        self.assertEquals(self.ha.get_effective_tags(), {'foo': 'bar', 'nosync': True})
+        self.ha._disable_sync = False
+        self.assertEquals(self.ha.get_effective_tags(), {'foo': 'bar'})
