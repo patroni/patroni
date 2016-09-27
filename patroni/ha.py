@@ -512,7 +512,7 @@ class Ha(object):
             else:
                 # Either there is no connection to DCS or someone else acquired the lock
                 logger.error('failed to update leader lock')
-                self.demote('immediate')
+                self.demote('offline')
                 return 'demoted self because failed to update leader lock in DCS'
         else:
             logger.info('does not have lock')
