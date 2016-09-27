@@ -12,7 +12,7 @@ from multiprocessing.pool import ThreadPool
 from patroni.async_executor import AsyncExecutor
 from patroni.exceptions import DCSError, PostgresConnectionException
 from patroni.postgresql import ACTION_ON_START
-from patroni.utils import sleep
+from patroni.utils import polling_loop, sleep
 
 logger = logging.getLogger(__name__)
 
@@ -247,10 +247,12 @@ class Ha(object):
         try:
             try:
                 self.touch_member()
-
-                while self.is_sync_standby(self.dcs.get_cluster()):
+                # Master should notice the updated value during the next cycle. We will wait double that, if master
+                # hasn't noticed the value by then not disabling sync replication is not likely to matter.
+                for _ in polling_loop(timeout=self.dcs.loop_wait*2, interval=2):
+                    if not self.is_sync_standby(self.dcs.get_cluster()):
+                        break
                     logger.info("Waiting for master to release us from synchronous standby")
-                    sleep(2)
             except DCSError:
                 pass
 

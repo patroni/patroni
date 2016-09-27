@@ -636,7 +636,7 @@ class TestHa(unittest.TestCase):
         mock_promote.assert_called_once()
         mock_write_sync.assert_called_once_with('other', None, index=0)
 
-    @patch('patroni.ha.sleep')
+    @patch('patroni.utils.sleep')
     def test_disable_sync_when_restarting(self, mock_sleep):
         self.ha.patroni.config.set_dynamic_configuration({"synchronous_mode": True})
 
