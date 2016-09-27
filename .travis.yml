@@ -9,7 +9,7 @@ addons:
   postgresql: "9.5"
 env:
   global:
-  - ETCDVERSION=3.0.8 ZKVERSION=3.4.9 CONSULVERSION=0.7.0
+  - ETCDVERSION=3.0.10 ZKVERSION=3.4.9 CONSULVERSION=0.7.0
   matrix:
   - TEST_SUITE="python setup.py"
   - DCS="etcd" TEST_SUITE="behave"

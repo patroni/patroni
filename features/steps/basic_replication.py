@@ -30,6 +30,7 @@ def add_table(context, table_name, pg_name):
 
 @then('Table {table_name:w} is present on {pg_name:w} after {max_replication_delay:d} seconds')
 def table_is_present_on(context, table_name, pg_name, max_replication_delay):
+    max_replication_delay *= context.timeout_multiplier
     for _ in range(int(max_replication_delay)):
         if context.pctl.query(pg_name, "SELECT 1 FROM {0}".format(table_name), fail_ok=True) is not None:
             break

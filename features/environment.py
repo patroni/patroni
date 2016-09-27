@@ -16,7 +16,8 @@ import yaml
 @six.add_metaclass(abc.ABCMeta)
 class AbstractController(object):
 
-    def __init__(self, name, work_directory, output_dir):
+    def __init__(self, context, name, work_directory, output_dir):
+        self._context = context
         self._name = name
         self._work_directory = work_directory
         self._output_dir = output_dir
@@ -46,6 +47,7 @@ class AbstractController(object):
 
         assert self._has_started(), "Process {0} is not running after being started".format(self._name)
 
+        max_wait_limit *= self._context.timeout_multiplier
         for _ in range(max_wait_limit):
             if self._is_accessible():
                 break
@@ -58,6 +60,7 @@ class AbstractController(object):
         term = False
         start_time = time.time()
 
+        timeout *= self._context.timeout_multiplier
         while self._handle and self._is_running():
             if kill:
                 self._handle.kill()
@@ -77,8 +80,8 @@ class PatroniController(AbstractController):
     PATRONI_CONFIG = '{}.yml'
     """ starts and stops individual patronis"""
 
-    def __init__(self, dcs, name, work_directory, output_dir, tags=None):
-        super(PatroniController, self).__init__('patroni_' + name, work_directory, output_dir)
+    def __init__(self, context, dcs, name, work_directory, output_dir, tags=None):
+        super(PatroniController, self).__init__(context, 'patroni_' + name, work_directory, output_dir)
         PatroniController.__PORT += 1
         self._data_dir = os.path.join(work_directory, 'data', name)
         self._connstring = None
@@ -209,8 +212,8 @@ class AbstractDcsController(AbstractController):
 
 class ConsulController(AbstractDcsController):
 
-    def __init__(self, output_dir):
-        super(ConsulController, self).__init__('consul', tempfile.mkdtemp(), output_dir)
+    def __init__(self, context):
+        super(ConsulController, self).__init__(context, 'consul', tempfile.mkdtemp(), context.pctl.output_dir)
         os.environ['PATRONI_CONSUL_HOST'] = 'localhost:8500'
         self._client = consul.Consul()
 
@@ -245,8 +248,8 @@ class EtcdController(AbstractDcsController):
 
     """ handles all etcd related tasks, used for the tests setup and cleanup """
 
-    def __init__(self, output_dir):
-        super(EtcdController, self).__init__('etcd', tempfile.mkdtemp(), output_dir)
+    def __init__(self, context):
+        super(EtcdController, self).__init__(context, 'etcd', tempfile.mkdtemp(), context.pctl.output_dir)
         os.environ['PATRONI_ETCD_HOST'] = 'localhost:2379'
         self._client = etcd.Client(port=2379)
 
@@ -283,8 +286,8 @@ class ZooKeeperController(AbstractDcsController):
 
     """ handles all zookeeper related tasks, used for the tests setup and cleanup """
 
-    def __init__(self, output_dir, export_env=True):
-        super(ZooKeeperController, self).__init__('zookeeper', None, output_dir)
+    def __init__(self, context, export_env=True):
+        super(ZooKeeperController, self).__init__(context, 'zookeeper', None, context.pctl.output_dir)
         if export_env:
             os.environ['PATRONI_ZOOKEEPER_HOSTS'] = "'localhost:2181'"
         self._client = kazoo.client.KazooClient()
@@ -321,8 +324,8 @@ class ZooKeeperController(AbstractDcsController):
 
 class ExhibitorController(ZooKeeperController):
 
-    def __init__(self, output_dir):
-        super(ExhibitorController, self).__init__(output_dir, False)
+    def __init__(self, context):
+        super(ExhibitorController, self).__init__(context, False)
         os.environ.update({'PATRONI_EXHIBITOR_HOSTS': 'localhost', 'PATRONI_EXHIBITOR_PORT': '8181'})
 
 
@@ -331,7 +334,8 @@ class PatroniPoolController(object):
     KNOWN_DCS = {'consul': ConsulController, 'etcd': EtcdController,
                  'zookeeper': ZooKeeperController, 'exhibitor': ExhibitorController}
 
-    def __init__(self):
+    def __init__(self, context):
+        self._context = context
         self._dcs = None
         self._output_dir = None
         self._patroni_path = None
@@ -355,7 +359,8 @@ class PatroniPoolController(object):
 
     def start(self, pg_name, max_wait_limit=20, tags=None):
         if pg_name not in self._processes:
-            self._processes[pg_name] = PatroniController(self.dcs, pg_name, self.patroni_path, self._output_dir, tags)
+            self._processes[pg_name] = PatroniController(self._context, self.dcs, pg_name,
+                                                         self.patroni_path, self._output_dir, tags)
         self._processes[pg_name].start(max_wait_limit)
 
     def __getattr__(self, func):
@@ -388,8 +393,9 @@ class PatroniPoolController(object):
 
 # actions to execute on start/stop of the tests and before running invidual features
 def before_all(context):
-    context.pctl = PatroniPoolController()
-    context.dcs_ctl = context.pctl.KNOWN_DCS[context.pctl.dcs](context.pctl.output_dir)
+    context.timeout_multiplier = 2 if 'TRAVIS_BUILD_NUMBER' in os.environ or 'BUILD_NUMBER' in os.environ else 1
+    context.pctl = PatroniPoolController(context)
+    context.dcs_ctl = context.pctl.KNOWN_DCS[context.pctl.dcs](context)
     context.dcs_ctl.start()
     try:
         context.dcs_ctl.cleanup_service_tree()
