@@ -6,6 +6,7 @@ import requests
 import sys
 import datetime
 import pytz
+from threading import RLock
 
 from multiprocessing.pool import ThreadPool
 from patroni.async_executor import AsyncExecutor
@@ -27,6 +28,10 @@ class Ha(object):
         self.recovering = False
         self._async_executor = AsyncExecutor()
         self._disable_sync = False
+
+        # Each member publishes various pieces of information to the DCS using touch_member. This lock protects
+        # the state and publishing procedure to have consistent ordering and avoid publishing stale values.
+        self._member_state_lock = RLock()
 
     def is_paused(self):
         return self.cluster and self.cluster.is_paused()
@@ -64,28 +69,29 @@ class Ha(object):
         return tags
 
     def touch_member(self):
-        data = {
-            'conn_url': self.state_handler.connection_string,
-            'api_url': self.patroni.api.connection_string,
-            'state': self.state_handler.state,
-            'role': self.state_handler.role
-        }
-        tags = self.get_effective_tags()
-        if tags:
-            data['tags'] = tags
-        if self.state_handler.pending_restart:
-            data['pending_restart'] = True
-        if not self._async_executor.busy and data['state'] in ['running', 'restarting', 'starting']:
-            try:
-                data['xlog_location'] = self.state_handler.xlog_position(retry=False)
-            except:
-                pass
-        if self.patroni.scheduled_restart:
-            scheduled_restart_data = self.patroni.scheduled_restart.copy()
-            scheduled_restart_data['schedule'] = scheduled_restart_data['schedule'].isoformat()
-            data['scheduled_restart'] = scheduled_restart_data
+        with self._member_state_lock:
+            data = {
+                'conn_url': self.state_handler.connection_string,
+                'api_url': self.patroni.api.connection_string,
+                'state': self.state_handler.state,
+                'role': self.state_handler.role
+            }
+            tags = self.get_effective_tags()
+            if tags:
+                data['tags'] = tags
+            if self.state_handler.pending_restart:
+                data['pending_restart'] = True
+            if not self._async_executor.busy and data['state'] in ['running', 'restarting', 'starting']:
+                try:
+                    data['xlog_location'] = self.state_handler.xlog_position(retry=False)
+                except:
+                    pass
+            if self.patroni.scheduled_restart:
+                scheduled_restart_data = self.patroni.scheduled_restart.copy()
+                scheduled_restart_data['schedule'] = scheduled_restart_data['schedule'].isoformat()
+                data['scheduled_restart'] = scheduled_restart_data
 
-        self.dcs.touch_member(json.dumps(data, separators=(',', ':')))
+            self.dcs.touch_member(json.dumps(data, separators=(',', ':')))
 
     def clone(self, clone_member=None, msg='(without leader)'):
         if self.state_handler.clone(clone_member):
