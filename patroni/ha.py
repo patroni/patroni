@@ -27,11 +27,13 @@ class Ha(object):
         self.old_cluster = None
         self.recovering = False
         self._async_executor = AsyncExecutor()
-        self._disable_sync = False
 
         # Each member publishes various pieces of information to the DCS using touch_member. This lock protects
         # the state and publishing procedure to have consistent ordering and avoid publishing stale values.
         self._member_state_lock = RLock()
+        # Count of concurrent sync disabling requests. Value above zero means that we don't want to be synchronous
+        # standby. Changes protected by _member_state_lock.
+        self._disable_sync = 0
 
     def is_paused(self):
         return self.cluster and self.cluster.is_paused()
@@ -64,7 +66,8 @@ class Ha(object):
     def get_effective_tags(self):
         """Return configuration tags merged with dynamically applied tags."""
         tags = self.patroni.tags.copy()
-        if self._disable_sync:
+        # _disable_sync could be modified concurrently, but we don't care as attribute get and set are atomic.
+        if self._disable_sync > 0:
             tags['nosync'] = True
         return tags
 
@@ -242,7 +245,8 @@ class Ha(object):
         if not self.is_synchronous_mode() or self.patroni.nosync:
             return func()
 
-        self._disable_sync = True
+        with self._member_state_lock:
+            self._disable_sync += 1
         try:
             try:
                 self.touch_member()
@@ -255,7 +259,8 @@ class Ha(object):
 
             return func()
         finally:
-            self._disable_sync = False
+            with self._member_state_lock:
+                self._disable_sync -= 1
 
     def enforce_master_role(self, message, promote_message):
         if self.state_handler.is_leader() or self.state_handler.role == 'master':
