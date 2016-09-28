@@ -645,7 +645,7 @@ class TestHa(unittest.TestCase):
         self.p.set_role('replica')
         mock_restart = self.p.restart = Mock(return_value=True)
         self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
-        self.ha.touch_member = Mock()
+        self.ha.touch_member = Mock(return_value=True)
         self.ha.dcs.get_cluster = Mock(side_effect=[
             get_cluster_initialized_with_leader(sync=('leader', syncstandby))
             for syncstandby in ['other', None]])
@@ -655,9 +655,23 @@ class TestHa(unittest.TestCase):
         mock_restart.assert_called_once()
         mock_sleep.assert_called()
 
-        self.ha.dcs.get_cluster = Mock(side_effect=DCSError)
+        # Restart is still called when DCS connection fails
+        mock_restart.reset_mock()
+        self.ha.dcs.get_cluster = Mock(side_effect=DCSError("foo"))
+        self.ha.restart()
+
+        mock_restart.assert_called_once()
+
+        # We don't try to fetch the cluster state when touch_member fails
+        mock_restart.reset_mock()
+        self.ha.dcs.get_cluster.reset_mock()
+        self.ha.touch_member = Mock(return_value=False)
 
         self.ha.restart()
+
+        mock_restart.assert_called_once()
+        self.ha.dcs.get_cluster.assert_not_called()
+
 
     def test_effective_tags(self):
         self.ha._disable_sync = True
