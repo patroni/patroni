@@ -30,6 +30,7 @@ def add_table(context, table_name, pg_name):
 
 @then('Table {table_name:w} is present on {pg_name:w} after {max_replication_delay:d} seconds')
 def table_is_present_on(context, table_name, pg_name, max_replication_delay):
+    max_replication_delay *= context.timeout_multiplier
     for _ in range(int(max_replication_delay)):
         if context.pctl.query(pg_name, "SELECT 1 FROM {0}".format(table_name), fail_ok=True) is not None:
             break
@@ -41,6 +42,7 @@ def table_is_present_on(context, table_name, pg_name, max_replication_delay):
 
 @then('{pg_name:w} role is the {pg_role:w} after {max_promotion_timeout:d} seconds')
 def check_role(context, pg_name, pg_role, max_promotion_timeout):
+    max_promotion_timeout *= context.timeout_multiplier
     assert context.pctl.check_role_has_changed_to(pg_name, pg_role, timeout=int(max_promotion_timeout)),\
         "{0} role didn't change to {1} after {2} seconds".format(pg_name, pg_role, max_promotion_timeout)
 
