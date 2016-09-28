@@ -105,3 +105,9 @@ class TestPatroni(unittest.TestCase):
         self.p.reload_config()
         self.p.get_tags = Mock(side_effect=Exception)
         self.p.reload_config()
+
+    def test_nosync(self):
+        self.p.tags['nosync'] = True
+        self.assertTrue(self.p.nosync)
+        self.p.tags['nosync'] = None
+        self.assertFalse(self.p.nosync)

@@ -65,7 +65,7 @@ class MockHa(object):
 
     @staticmethod
     def get_effective_tags():
-        return {}
+        return {'nosync': True}
 
 
 class MockPatroni(object):

@@ -50,7 +50,7 @@ class MockKazooClient(Mock):
         if path.startswith('/no_node'):
             raise NoNodeError
         elif path in ['/service/bla/', '/service/test/']:
-            return ['initialize', 'leader', 'members', 'optime', 'failover']
+            return ['initialize', 'leader', 'members', 'optime', 'failover', 'sync']
         return ['foo', 'bar', 'buzz']
 
     def create(self, path, value=b"", acl=None, ephemeral=False, sequence=False, makepath=False):
@@ -78,7 +78,7 @@ class MockKazooClient(Mock):
             raise Exception
         if path == '/service/test/members/bar' and value == b'retry':
             return
-        if path in ('/service/test/failover', '/service/test/config'):
+        if path in ('/service/test/failover', '/service/test/config', '/service/test/sync'):
             if value == b'Exception':
                 raise Exception
             elif value == b'ok':
@@ -211,3 +211,9 @@ class TestZooKeeper(unittest.TestCase):
         self.zk._client._retry.deadline = 1
         self.zk._orig_kazoo_connect = Mock(return_value=(0, 0))
         self.zk._kazoo_connect(None, None)
+
+    def test_sync_state(self):
+        self.zk.set_sync_state_value('')
+        self.zk.set_sync_state_value('ok')
+        self.zk.set_sync_state_value('Exception')
+        self.zk.delete_sync_state()

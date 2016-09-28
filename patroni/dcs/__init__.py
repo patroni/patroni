@@ -240,6 +240,16 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
 
     @staticmethod
     def from_node(index, value):
+        """
+        >>> SyncState.from_node(1, None) is None
+        True
+        >>> SyncState.from_node(1, '{}') is None
+        True
+        >>> SyncState.from_node(1, '{') is None
+        True
+        >>> SyncState.from_node(1, '{"leader": "leader"}').leader == "leader"
+        True
+        """
         if not value:
             return None
 
@@ -252,6 +262,21 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
         return SyncState(index, data.get('leader'), data.get('sync_standby'))
 
     def matches(self, name):
+        """
+        Returns if a node name matches one of the nodes in the sync state
+
+        >>> s = SyncState(1, 'foo', 'bar')
+        >>> s.matches('foo')
+        True
+        >>> s.matches('bar')
+        True
+        >>> s.matches('baz')
+        False
+        >>> s.matches(None)
+        False
+        >>> SyncState(1, None, None).matches('foo')
+        False
+        """
         return name is not None and (self.leader == name or self.sync_standby == name)
 
 
