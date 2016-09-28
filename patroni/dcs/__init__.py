@@ -490,7 +490,7 @@ class AbstractDCS(object):
         """ Removes the initialize key for a cluster """
 
     @abc.abstractmethod
-    def delete_cluster(self, index=None):
+    def delete_cluster(self):
         """Delete cluster from DCS"""
 
     def write_sync_state(self, leader, sync_standby, index=None):
