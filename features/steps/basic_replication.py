@@ -42,6 +42,7 @@ def table_is_present_on(context, table_name, pg_name, max_replication_delay):
 
 @then('{pg_name:w} role is the {pg_role:w} after {max_promotion_timeout:d} seconds')
 def check_role(context, pg_name, pg_role, max_promotion_timeout):
+    max_promotion_timeout *= context.timeout_multiplier
     assert context.pctl.check_role_has_changed_to(pg_name, pg_role, timeout=int(max_promotion_timeout)),\
         "{0} role didn't change to {1} after {2} seconds".format(pg_name, pg_role, max_promotion_timeout)
 
