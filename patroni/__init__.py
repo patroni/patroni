@@ -48,9 +48,8 @@ class Patroni(object):
                 logger.warning('Can not get cluster from dcs')
 
     def get_tags(self):
-        tags = {tag: value for tag, value in self.config.get('tags', {}).items()
-                if tag not in ('clonefrom', 'nofailover', 'noloadbalance') or value}
-        return tags
+        return {tag: value for tag, value in self.config.get('tags', {}).items()
+                if tag not in ('clonefrom', 'nofailover', 'noloadbalance', 'nosync') or value}
 
     @property
     def nofailover(self):
