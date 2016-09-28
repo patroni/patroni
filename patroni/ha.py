@@ -249,7 +249,11 @@ class Ha(object):
                 # Master should notice the updated value during the next cycle. We will wait double that, if master
                 # hasn't noticed the value by then not disabling sync replication is not likely to matter.
                 for _ in polling_loop(timeout=self.dcs.loop_wait*2, interval=2):
-                    if not self.is_sync_standby(self.dcs.get_cluster()):
+                    try:
+                        if not self.is_sync_standby(self.dcs.get_cluster()):
+                            break
+                    except DCSError:
+                        logger.warning("Could not get cluster state, skipping synchronous standby disable")
                         break
                     logger.info("Waiting for master to release us from synchronous standby")
             else:
