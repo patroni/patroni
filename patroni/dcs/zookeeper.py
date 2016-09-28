@@ -322,10 +322,7 @@ class ZooKeeper(AbstractDCS):
             return False
 
     def delete_sync_state(self, index=None):
-        try:
-            return self._client.retry(self._client.delete, self.sync_path, version=index)
-        except NoNodeError:
-            return True
+        return self.set_sync_state_value("{}", index)
 
     def watch(self, timeout):
         if super(ZooKeeper, self).watch(timeout):
