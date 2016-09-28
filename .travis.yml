@@ -25,19 +25,22 @@ install:
     set -e
 
     if [[ $TEST_SUITE == "behave" ]]; then
-        if [[ $DCS == "consul" ]]; then
+        function get_consul() {
             curl -L https://releases.hashicorp.com/consul/${CONSULVERSION}/consul_${CONSULVERSION}_linux_amd64.zip \
                 | gunzip > consul
+            [[ ${PIPESTATUS[0]} == 0 ]] || return 1
             chmod +x consul
-        fi
+        }
 
-        if [[ $DCS == "etcd" ]]; then
+        function get_etcd() {
             curl -L https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v${ETCDVERSION}-linux-amd64.tar.gz \
                 | tar xz -C . --strip=1 --wildcards --no-anchored etcd
-        fi
+            return ${PIPESTATUS[0]}
+        }
 
-        if [[ $DCS == "exhibitor" ]]; then
+        function get_exhibitor() {
             curl -L http://www.apache.org/dist/zookeeper/zookeeper-${ZKVERSION}/zookeeper-${ZKVERSION}.tar.gz | tar xz
+            [[ ${PIPESTATUS[0]} == 0 ]] || return 1
             mv zookeeper-${ZKVERSION}/conf/zoo_sample.cfg zookeeper-${ZKVERSION}/conf/zoo.cfg
             zookeeper-${ZKVERSION}/bin/zkServer.sh start
             # following lines are 'emulating' exhibitor REST API
@@ -45,7 +48,14 @@ install:
                 echo -e 'HTTP/1.0 200 OK\nContent-Type: application/json\n\n{"servers":["127.0.0.1"],"port":2181}' \
                     | nc -l 8181 &> /dev/null
             done&
-        fi
+        }
+
+        attempt_num=1
+        until get_${DCS}; do
+            [[ $attempt_num -ge 3 ]] && exit 1
+            echo "Attempt $attempt_num failed! Trying again in $attempt_num seconds..."
+            sleep $(( attempt_num++ ))
+        done
     fi
 
     for pv in "2.7" "3.4" "3.5"; do
