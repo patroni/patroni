@@ -565,7 +565,7 @@ class TestHa(unittest.TestCase):
         # Test changing sync standby
         self.ha.dcs.write_sync_state = Mock(return_value=True)
         self.ha.dcs.get_cluster = Mock(return_value=get_cluster_initialized_with_leader(sync=('leader', 'other')))
-        #self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
+        # self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
         self.p.pick_synchronous_standby = Mock(return_value=('other2', True))
         self.ha.run_cycle()
         self.ha.dcs.get_cluster.assert_called_once()
@@ -671,7 +671,6 @@ class TestHa(unittest.TestCase):
 
         mock_restart.assert_called_once()
         self.ha.dcs.get_cluster.assert_not_called()
-
 
     def test_effective_tags(self):
         self.ha._disable_sync = True

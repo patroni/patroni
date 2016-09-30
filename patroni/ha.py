@@ -177,7 +177,8 @@ class Ha(object):
         return ret
 
     def is_synchronous_mode(self):
-        return bool(self.patroni.config.get('synchronous_mode'))
+        return bool(self.patroni.config.get('synchronous_mode') or
+                    self.cluster and self.cluster.config and self.cluster.config.data.get('synchronous_mode'))
 
     def process_sync_replication(self):
         """Process synchronous standby beahvior.
@@ -189,8 +190,8 @@ class Ha(object):
         promoting standbys that were guaranteed to be replicating synchronously.
         """
         if self.is_synchronous_mode():
-            current = self.cluster.sync.sync_standby if self.cluster.sync else None
-            sync_index = self.cluster.sync.index if self.cluster.sync else None
+            current = self.cluster.sync and self.cluster.sync.leader and self.cluster.sync.sync_standby or None
+            sync_index = self.cluster.sync and self.cluster.sync.index
             picked, allow_promote = self.state_handler.pick_synchronous_standby(self.cluster)
             if picked != current:
                 # We need to revoke privilege from current before replacing it in the config
@@ -211,13 +212,13 @@ class Ha(object):
                     if cluster.sync and cluster.sync.leader != self.state_handler.name:
                         logger.info("Synchronous replication key updated by someone else")
                         return
-                    sync_index = cluster.sync.index if cluster.sync else None
+                    sync_index = cluster.sync and cluster.sync.index
                     if not self.dcs.write_sync_state(self.state_handler.name, picked, index=sync_index):
                         logger.info("Synchronous replication key updated by someone else")
                         return
                     logger.info("Synchronous standby status assigned to %s", picked)
         else:
-            if self.cluster.sync:
+            if self.cluster.sync and self.cluster.sync.leader:
                 if self.dcs.delete_sync_state(index=self.cluster.sync.index):
                     logger.info("Disabled synchronous replication")
             self.state_handler.set_synchronous_standby(None)
@@ -275,7 +276,7 @@ class Ha(object):
             if self.is_synchronous_mode():
                 # Just set ourselves as the authoritative source of truth for now. We don't want to wait for standbys
                 # to connect. We will try finding a synchronous standby in the next cycle.
-                sync_index = self.cluster.sync.index if self.cluster.sync else None
+                sync_index = self.cluster.sync and self.cluster.sync.index
                 if not self.dcs.write_sync_state(self.state_handler.name, None, index=sync_index):
                     # Somebody else updated sync state, it may be due to us losing the lock. To be safe, postpone
                     # promotion until next cycle. TODO: trigger immediate retry of run_cycle
@@ -418,7 +419,7 @@ class Ha(object):
 
         # When in sync mode, only last known master and sync standby are allowed to promote automatically.
         all_known_members = self.cluster.members + self.old_cluster.members
-        if self.is_synchronous_mode() and self.cluster.sync:
+        if self.is_synchronous_mode() and self.cluster.sync and self.cluster.sync.leader:
             if not self.cluster.sync.matches(self.state_handler.name):
                 return False
             # pick between synchronous candidates so we minimize unnecessary failovers/demotions
