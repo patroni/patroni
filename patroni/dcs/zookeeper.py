@@ -162,10 +162,10 @@ class ZooKeeper(AbstractDCS):
 
         # get synchronization state
         sync = self.get_node(self.sync_path, watch=self.cluster_watcher) if self._SYNC in nodes else None
-        sync = sync and SyncState.from_node(sync[1].version, sync[0])
+        sync = SyncState.from_node(sync and sync[1].version, sync and sync[0])
 
         # get list of members
-        sync_standby = sync and sync.leader == self._name and sync.sync_standby or None
+        sync_standby = sync.leader == self._name and sync.sync_standby or None
         members = self.load_members(sync_standby) if self._MEMBERS[:-1] in nodes else []
 
         # get leader

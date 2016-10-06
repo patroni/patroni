@@ -28,7 +28,7 @@ def get_cluster(initialize, leader, members, failover, sync):
 
 
 def get_cluster_not_initialized_without_leader():
-    return get_cluster(None, None, [], None, None)
+    return get_cluster(None, None, [], None, SyncState(None, None, None))
 
 
 def get_cluster_initialized_without_leader(leader=False, failover=None, sync=None):
@@ -41,10 +41,7 @@ def get_cluster_initialized_without_leader(leader=False, failover=None, sync=Non
                                  'tags': {'clonefrom': True},
                                  'scheduled_restart': {'schedule': "2100-01-01 10:53:07.560445+00:00",
                                                        'postgres_version': '99.0.0'}})
-    if sync:
-        syncstate = SyncState(0, sync[0], sync[1])
-    else:
-        syncstate = None
+    syncstate = SyncState(0 if sync else None, sync and sync[0], sync and sync[1])
     return get_cluster(True, l, [m1, m2], failover, syncstate)
 
 

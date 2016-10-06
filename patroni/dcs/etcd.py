@@ -302,8 +302,7 @@ class Etcd(AbstractDCS):
 
             # get synchronization state
             sync = nodes.get(self._SYNC)
-            if sync:
-                sync = SyncState.from_node(sync.modifiedIndex, sync.value)
+            sync = SyncState.from_node(sync and sync.modifiedIndex, sync and sync.value)
 
             self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync)
         except etcd.EtcdKeyNotFound:

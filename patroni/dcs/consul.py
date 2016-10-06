@@ -193,8 +193,7 @@ class Consul(AbstractDCS):
 
             # get synchronization state
             sync = nodes.get(self._SYNC)
-            if sync:
-                sync = SyncState.from_node(sync['ModifyIndex'], sync['Value'])
+            sync = SyncState.from_node(sync and sync['ModifyIndex'], sync and sync['Value'])
 
             self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync)
         except NotFound:
