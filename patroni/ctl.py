@@ -624,8 +624,6 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
     if cluster.leader:
         leader_name = cluster.leader.member.name
 
-    sync_name = cluster.sync.sync_standby if cluster.sync else None
-
     xlog_location_cluster = cluster.last_leader_operation or 0
 
     # Mainly for consistent pretty printing and watching we sort the output
@@ -636,7 +634,7 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
         role = ''
         if m.name == leader_name:
             role = 'Leader'
-        elif m.name == sync_name:
+        elif m.name == cluster.sync.sync_standby:
             role = 'Sync standby'
 
         host = m.conn_kwargs()['host']

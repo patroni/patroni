@@ -28,7 +28,7 @@ def get_cluster(initialize, leader, members, failover, sync):
 
 
 def get_cluster_not_initialized_without_leader():
-    return get_cluster(None, None, [], None, None)
+    return get_cluster(None, None, [], None, SyncState(None, None, None))
 
 
 def get_cluster_initialized_without_leader(leader=False, failover=None, sync=None):
@@ -41,10 +41,7 @@ def get_cluster_initialized_without_leader(leader=False, failover=None, sync=Non
                                  'tags': {'clonefrom': True},
                                  'scheduled_restart': {'schedule': "2100-01-01 10:53:07.560445+00:00",
                                                        'postgres_version': '99.0.0'}})
-    if sync:
-        syncstate = SyncState(0, sync[0], sync[1])
-    else:
-        syncstate = None
+    syncstate = SyncState(0 if sync else None, sync and sync[0], sync and sync[1])
     return get_cluster(True, l, [m1, m2], failover, syncstate)
 
 
@@ -565,7 +562,7 @@ class TestHa(unittest.TestCase):
         # Test changing sync standby
         self.ha.dcs.write_sync_state = Mock(return_value=True)
         self.ha.dcs.get_cluster = Mock(return_value=get_cluster_initialized_with_leader(sync=('leader', 'other')))
-        #self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
+        # self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
         self.p.pick_synchronous_standby = Mock(return_value=('other2', True))
         self.ha.run_cycle()
         self.ha.dcs.get_cluster.assert_called_once()
@@ -671,7 +668,6 @@ class TestHa(unittest.TestCase):
 
         mock_restart.assert_called_once()
         self.ha.dcs.get_cluster.assert_not_called()
-
 
     def test_effective_tags(self):
         self.ha._disable_sync = True

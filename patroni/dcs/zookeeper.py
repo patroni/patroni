@@ -133,10 +133,11 @@ class ZooKeeper(AbstractDCS):
         except NoNodeError:
             return []
 
-    def load_members(self):
+    def load_members(self, sync_standby):
         members = []
         for member in self.get_children(self.members_path, self.cluster_watcher):
-            data = self.get_node(self.members_path + member)
+            watch = member == sync_standby and self.cluster_watcher or None
+            data = self.get_node(self.members_path + member, watch)
             if data is not None:
                 members.append(self.member(member, *data))
         return members
@@ -159,8 +160,13 @@ class ZooKeeper(AbstractDCS):
         last_leader_operation = self._OPTIME in nodes and self._fetch_cluster and self.get_node(self.leader_optime_path)
         last_leader_operation = last_leader_operation and int(last_leader_operation[0]) or 0
 
+        # get synchronization state
+        sync = self.get_node(self.sync_path, watch=self.cluster_watcher) if self._SYNC in nodes else None
+        sync = SyncState.from_node(sync and sync[1].version, sync and sync[0])
+
         # get list of members
-        members = self.load_members() if self._MEMBERS[:-1] in nodes else []
+        sync_standby = sync.leader == self._name and sync.sync_standby or None
+        members = self.load_members(sync_standby) if self._MEMBERS[:-1] in nodes else []
 
         # get leader
         leader = self.get_node(self.leader_path) if self._LEADER in nodes else None
@@ -181,10 +187,6 @@ class ZooKeeper(AbstractDCS):
         # failover key
         failover = self.get_node(self.failover_path, watch=self.cluster_watcher) if self._FAILOVER in nodes else None
         failover = failover and Failover.from_node(failover[1].version, failover[0])
-
-        # get synchronization state
-        sync = self.get_node(self.sync_path, watch=self.cluster_watcher) if self._SYNC in nodes else None
-        sync = sync and SyncState.from_node(sync[1].version, sync[0])
 
         self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync)
 

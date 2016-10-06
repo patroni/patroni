@@ -241,24 +241,26 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
     @staticmethod
     def from_node(index, value):
         """
-        >>> SyncState.from_node(1, None) is None
+        >>> SyncState.from_node(1, None).leader is None
         True
-        >>> SyncState.from_node(1, '{}') is None
+        >>> SyncState.from_node(1, '{}').leader is None
         True
-        >>> SyncState.from_node(1, '{') is None
+        >>> SyncState.from_node(1, '{').leader is None
+        True
+        >>> SyncState.from_node(1, '[]').leader is None
         True
         >>> SyncState.from_node(1, '{"leader": "leader"}').leader == "leader"
         True
         """
-        if not value:
-            return None
-
-        try:
-            data = json.loads(value)
-            if not data:
-                return None
-        except (TypeError, ValueError):
-            return None
+        if value:
+            try:
+                data = json.loads(value)
+                if not isinstance(data, dict):
+                    data = {}
+            except (TypeError, ValueError):
+                data = {}
+        else:
+            data = {}
         return SyncState(index, data.get('leader'), data.get('sync_standby'))
 
     def matches(self, name):
@@ -277,7 +279,7 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
         >>> SyncState(1, None, None).matches('foo')
         False
         """
-        return name is not None and (self.leader == name or self.sync_standby == name)
+        return name is not None and name in (self.leader, self.sync_standby)
 
 
 class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operation,members,failover,sync')):

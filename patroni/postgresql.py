@@ -1074,7 +1074,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
         :returns tuple of candidate name or None, and bool showing if the member is the active synchronous standby.
         """
-        current = cluster.sync.sync_standby if cluster.sync else None
+        current = cluster.sync.sync_standby
         members = {m.name: m for m in cluster.members}
         candidates = []
         # Pick candidates based on who has flushed WAL farthest.
