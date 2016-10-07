@@ -194,7 +194,7 @@ class AbstractDcsController(AbstractController):
 
     def stop(self, kill=False, timeout=15):
         """ terminate process and wipe out the temp work directory, but only if we actually started it"""
-        super(AbstractDcsController, self).stop(timeout=timeout)
+        super(AbstractDcsController, self).stop(kill=kill, timeout=timeout)
         if self._work_directory:
             shutil.rmtree(self._work_directory)
 
@@ -240,7 +240,7 @@ class ConsulController(AbstractDcsController):
                                 stdout=self._log, stderr=subprocess.STDOUT)
 
     def stop(self, kill=False, timeout=15):
-        super(ConsulController, self).stop(timeout=timeout)
+        super(ConsulController, self).stop(kill=kill, timeout=timeout)
         if self._work_directory:
             os.unlink(self._work_directory + '.json')
 
