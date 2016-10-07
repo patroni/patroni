@@ -83,6 +83,7 @@ class Postgresql(object):
 
         self._version_file = os.path.join(self._data_dir, 'PG_VERSION')
         self._major_version = self.get_major_version()
+        self._synchronous_standby_names = None
         self._server_parameters = self.get_server_parameters(config)
 
         self._connect_address = config.get('connect_address')
@@ -155,6 +156,11 @@ class Postgresql(object):
         parameters = config['parameters'].copy()
         listen_addresses, port = (config['listen'] + ':5432').split(':')[:2]
         parameters.update({'cluster_name': self.scope, 'listen_addresses': listen_addresses, 'port': port})
+        if config.get('synchronous_mode', False):
+            if self._synchronous_standby_names is None:
+                parameters.pop('synchronous_standby_names', None)
+            else:
+                parameters['synchronous_standby_names'] = self._synchronous_standby_names
         return {k: v for k, v in parameters.items() if not self._major_version or
                 self._major_version >= self.CMDLINE_OPTIONS.get(k, (0, 1, 9.1))[2]}
 
@@ -1100,12 +1106,12 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
     def set_synchronous_standby(self, name):
         """Sets a node to be synchronous standby and if changed does a reload for PostgreSQL."""
-        old = self._server_parameters.get('synchronous_standby_names')
-        if name != old:
+        if name != self._synchronous_standby_names:
             if name is None:
                 self._server_parameters.pop('synchronous_standby_names', None)
             else:
                 self._server_parameters['synchronous_standby_names'] = name
+            self._synchronous_standby_names = name
             self._write_postgresql_conf()
             self.reload()
 

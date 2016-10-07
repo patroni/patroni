@@ -297,7 +297,7 @@ class Config(object):
             config['name'] = pg_config['name']
 
         pg_config.update({p: config[p] for p in ('name', 'scope', 'retry_timeout',
-                          'maximum_lag_on_failover') if p in config})
+                          'synchronous_mode', 'maximum_lag_on_failover') if p in config})
 
         return config
 

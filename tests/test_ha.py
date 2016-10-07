@@ -6,7 +6,7 @@ import unittest
 
 from mock import Mock, MagicMock, PropertyMock, patch
 from patroni.config import Config
-from patroni.dcs import Cluster, Failover, Leader, Member, get_dcs, SyncState
+from patroni.dcs import Cluster, ClusterConfig, Failover, Leader, Member, get_dcs, SyncState
 from patroni.dcs.etcd import Client
 from patroni.exceptions import DCSError, PostgresException
 from patroni.ha import Ha
@@ -24,7 +24,7 @@ def false(*args, **kwargs):
 
 
 def get_cluster(initialize, leader, members, failover, sync):
-    return Cluster(initialize, None, leader, 10, members, failover, sync)
+    return Cluster(initialize, ClusterConfig(1, {1: 2}, 1), leader, 10, members, failover, sync)
 
 
 def get_cluster_not_initialized_without_leader():
@@ -141,6 +141,7 @@ class TestHa(unittest.TestCase):
             self.ha.old_cluster = self.e.get_cluster()
             self.ha.cluster = get_cluster_not_initialized_without_leader()
             self.ha.load_cluster_from_dcs = Mock()
+            self.ha.is_synchronous_mode = false
 
     def test_update_lock(self):
         self.p.last_operation = Mock(side_effect=PostgresException(''))
@@ -536,7 +537,7 @@ class TestHa(unittest.TestCase):
 
         mock_set_sync.reset_mock()
 
-        self.ha.patroni.config.set_dynamic_configuration({"synchronous_mode": True})
+        self.ha.is_synchronous_mode = true
 
         # Test sync standby not touched when picking the same node
         self.p.pick_synchronous_standby = Mock(return_value=('other', True))
@@ -580,7 +581,7 @@ class TestHa(unittest.TestCase):
         self.assertEquals(self.ha.dcs.write_sync_state.call_count, 1)
 
     def test_sync_replication_become_master(self):
-        self.ha.patroni.config.set_dynamic_configuration({"synchronous_mode": True})
+        self.ha.is_synchronous_mode = true
 
         mock_set_sync = self.p.set_synchronous_standby = Mock()
         self.p.is_leader = false
@@ -604,7 +605,7 @@ class TestHa(unittest.TestCase):
         mock_set_sync.assert_not_called()
 
     def test_unhealthy_sync_mode(self):
-        self.ha.patroni.config.set_dynamic_configuration({"synchronous_mode": True})
+        self.ha.is_synchronous_mode = true
 
         self.p.is_leader = false
         self.p.set_role('replica')
@@ -635,7 +636,7 @@ class TestHa(unittest.TestCase):
 
     @patch('patroni.utils.sleep')
     def test_disable_sync_when_restarting(self, mock_sleep):
-        self.ha.patroni.config.set_dynamic_configuration({"synchronous_mode": True})
+        self.ha.is_synchronous_mode = true
 
         self.p.name = 'other'
         self.p.is_leader = false
@@ -674,3 +675,9 @@ class TestHa(unittest.TestCase):
         self.assertEquals(self.ha.get_effective_tags(), {'foo': 'bar', 'nosync': True})
         self.ha._disable_sync = False
         self.assertEquals(self.ha.get_effective_tags(), {'foo': 'bar'})
+
+    def test_restore_cluster_config(self):
+        self.ha.cluster.config.data.clear()
+        self.ha.has_lock = true
+        self.ha.cluster.is_unlocked = false
+        self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
