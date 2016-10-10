@@ -630,3 +630,9 @@ class TestPostgresql(unittest.TestCase):
         self.p.set_synchronous_standby(None)
         mock_reload.assert_called()
         self.assertEquals(value_in_conf(), None)
+
+    def test_get_server_parameters(self):
+        config = {'synchronous_mode': True, 'parameters': {}, 'listen': '0'}
+        self.p.get_server_parameters(config)
+        self.p.set_synchronous_standby('foo')
+        self.p.get_server_parameters(config)

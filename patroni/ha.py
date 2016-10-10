@@ -177,8 +177,7 @@ class Ha(object):
         return ret
 
     def is_synchronous_mode(self):
-        return bool(self.patroni.config.get('synchronous_mode') or
-                    self.cluster and self.cluster.config and self.cluster.config.data.get('synchronous_mode'))
+        return bool(self.cluster and self.cluster.config and self.cluster.config.data.get('synchronous_mode'))
 
     def process_sync_replication(self):
         """Process synchronous standby beahvior.
@@ -718,6 +717,7 @@ class Ha(object):
 
             if not (self.cluster.is_unlocked() or self.cluster.config and self.cluster.config.data) and self.has_lock():
                 self.dcs.set_config_value(json.dumps(self.patroni.config.dynamic_configuration, separators=(',', ':')))
+                self.cluster = self.dcs.get_cluster()
 
             if self._async_executor.busy:
                 return self.handle_long_action_in_progress()
