@@ -192,9 +192,9 @@ class AbstractDcsController(AbstractController):
     def _is_accessible(self):
         return self._is_running()
 
-    def stop_and_remove_work_directory(self, timeout=15):
+    def stop(self, kill=False, timeout=15):
         """ terminate process and wipe out the temp work directory, but only if we actually started it"""
-        self.stop(timeout=timeout)
+        super(AbstractDcsController, self).stop(kill=kill, timeout=timeout)
         if self._work_directory:
             shutil.rmtree(self._work_directory)
 
@@ -233,8 +233,16 @@ class ConsulController(AbstractDcsController):
         self._client = consul.Consul()
 
     def _start(self):
-        return subprocess.Popen(['consul', 'agent', '-server', '-bootstrap', '-advertise=127.0.0.1',
-                                 '-data-dir', self._work_directory], stdout=self._log, stderr=subprocess.STDOUT)
+        config_file = self._work_directory + '.json'
+        with open(config_file, 'wb') as f:
+            f.write(b'{"session_ttl_min":"5s","server":true,"bootstrap":true,"advertise_addr":"127.0.0.1"}')
+        return subprocess.Popen(['consul', 'agent', '-config-file', config_file, '-data-dir', self._work_directory],
+                                stdout=self._log, stderr=subprocess.STDOUT)
+
+    def stop(self, kill=False, timeout=15):
+        super(ConsulController, self).stop(kill=kill, timeout=timeout)
+        if self._work_directory:
+            os.unlink(self._work_directory + '.json')
 
     def _is_running(self):
         try:
@@ -405,19 +413,20 @@ class PatroniPoolController(object):
 
 # actions to execute on start/stop of the tests and before running invidual features
 def before_all(context):
-    context.timeout_multiplier = 2 if 'TRAVIS_BUILD_NUMBER' in os.environ or 'BUILD_NUMBER' in os.environ else 1
+    context.ci = 'TRAVIS_BUILD_NUMBER' in os.environ or 'BUILD_NUMBER' in os.environ
+    context.timeout_multiplier = 2 if context.ci else 1
     context.pctl = PatroniPoolController(context)
     context.dcs_ctl = context.pctl.known_dcs[context.pctl.dcs](context)
     context.dcs_ctl.start()
     try:
         context.dcs_ctl.cleanup_service_tree()
     except AssertionError:  # after_all handlers won't be executed in before_all
-        context.dcs_ctl.stop_and_remove_work_directory()
+        context.dcs_ctl.stop()
         raise
 
 
 def after_all(context):
-    context.dcs_ctl.stop_and_remove_work_directory()
+    context.dcs_ctl.stop()
     subprocess.call(['coverage', 'combine'])
     subprocess.call(['coverage', 'report'])
 

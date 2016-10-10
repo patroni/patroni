@@ -34,15 +34,22 @@ class HTTPClient(object):
         self.set_read_timeout(timeout)
         self.base_uri = '{0}://{1}:{2}'.format(self.scheme, self.host, self.port)
         self.http = urllib3.PoolManager(num_pools=10)
+        self._ttl = None
 
     def set_read_timeout(self, timeout):
         self._read_timeout = timeout/3.0
 
+    def set_ttl(self, ttl):
+        ret = self._ttl != ttl
+        self._ttl = ttl
+        return ret
+
     @staticmethod
     def response(response):
+        data = response.data.decode('utf-8')
         if response.status == 500:
-            raise ConsulInternalError()
-        return base.Response(response.status, response.headers, response.data.decode('utf-8'))
+            raise ConsulInternalError('{0} {1}'.format(response.status, data))
+        return base.Response(response.status, response.headers, data)
 
     def uri(self, path, params=None):
         return '{0}{1}{2}'.format(self.base_uri, path, params and '?' + urlencode(params) or '')
@@ -52,6 +59,14 @@ class HTTPClient(object):
             raise AttributeError("HTTPClient instance has no attribute '{0}'".format(method))
 
         def wrapper(callback, path, params=None, data=''):
+            # python-consul doesn't allow to specify ttl smaller then 10 seconds
+            # because session_ttl_min defaults to 10s, so we have to do this ugly dirty hack...
+            if method == 'put' and path == '/v1/session/create':
+                ttl = '"ttl": "{0}s"'.format(self._ttl)
+                if not data or data == '{}':
+                    data = '{' + ttl + '}'
+                else:
+                    data = data[:-1] + ', ' + ttl + '}'
             kwargs = {'retries': 0, 'preload_content': False, 'body': data}
             if method == 'get' and isinstance(params, dict) and 'index' in params:
                 kwargs['timeout'] = (float(params['wait'][:-1]) if 'wait' in params else 300) + 1
@@ -83,17 +98,17 @@ class Consul(AbstractDCS):
         super(Consul, self).__init__(config)
         self._scope = config['scope']
         self._session = None
-        self._ttl = None
         self.__do_not_watch = False
         self._retry = Retry(deadline=config['retry_timeout'], max_delay=1, max_tries=-1,
                             retry_exceptions=(ConsulInternalError, HTTPException,
                                               HTTPError, socket.error, socket.timeout))
 
         self._my_member_data = None
-        self.set_ttl(config.get('ttl') or 30)
         host, port = config.get('host', '127.0.0.1:8500').split(':')
         self._client = ConsulClient(host=host, port=port)
         self.set_retry_timeout(config['retry_timeout'])
+        self.set_ttl(config.get('ttl') or 30)
+        self._last_session_refresh = 0
         if not self._ctl:
             self.create_session()
 
@@ -109,11 +124,9 @@ class Consul(AbstractDCS):
                 sleep(5)
 
     def set_ttl(self, ttl):
-        ttl = ttl/2.0  # My experiments have shown that session expires after 2*ttl time
-        if self._ttl != ttl:
+        if self._client.http.set_ttl(ttl/2.0):  # Consul multiplies the TTL by 2x
             self._session = None
             self.__do_not_watch = True
-        self._ttl = ttl
 
     def set_retry_timeout(self, retry_timeout):
         self._retry.deadline = retry_timeout
@@ -121,15 +134,20 @@ class Consul(AbstractDCS):
 
     def _do_refresh_session(self):
         """:returns: `!True` if it had to create new session"""
+        if self._session and self._last_session_refresh + self._loop_wait > time.time():
+            return False
+
         if self._session:
             try:
-                return self._client.session.renew(self._session) is None
+                self._client.session.renew(self._session)
             except NotFound:
                 self._session = None
-        if not self._session:
-            name = self._scope + '-' + self._name
-            self._session = self._client.session.create(name=name, lock_delay=0, behavior='delete', ttl=self._ttl)
-        return True
+        ret = not self._session
+        if ret:
+            self._session = self._client.session.create(name=self._scope + '-' + self._name,
+                                                        lock_delay=0.001, behavior='delete')
+        self._last_session_refresh = time.time()
+        return ret
 
     def refresh_session(self):
         try:
@@ -202,6 +220,7 @@ class Consul(AbstractDCS):
         cluster = self.cluster
         member = cluster and cluster.get_member(self._name, fallback_to_leader=False)
         create_member = self.refresh_session()
+
         if member and (create_member or member.session != self._session):
             try:
                 self._client.kv.delete(self.member_path)
@@ -247,9 +266,12 @@ class Consul(AbstractDCS):
     def _write_leader_optime(self, last_operation):
         return self._client.kv.put(self.leader_optime_path, last_operation)
 
-    @staticmethod
-    def update_leader():
-        return True
+    @catch_consul_errors
+    def update_leader(self):
+        if self._session:
+            self.retry(self._client.session.renew, self._session)
+            self._last_session_refresh = time.time()
+        return bool(self._session)
 
     @catch_consul_errors
     def initialize(self, create_new=True, sysid=''):
