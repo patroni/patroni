@@ -1,6 +1,6 @@
 |Build Status| |Coverage Status|
 
-Patroni: Template for PostgreSQL HA with Kubernetes, ZooKeeper, etcd or Consul
+Patroni: Template for PostgreSQL HA with ZooKeeper, etcd or Consul
 ------------------------------------------------------------
 There are many ways to run high availability with PostgreSQL; for a list, see the `PostgreSQL Documentation <https://wiki.postgresql.org/wiki/Replication,_Clustering,_and_Connection_Pooling>`__.
 
