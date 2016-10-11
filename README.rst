@@ -1,14 +1,14 @@
 |Build Status| |Coverage Status|
 
-Patroni: A Template for PostgreSQL HA with ZooKeeper, etcd or Consul
+Patroni: Template for PostgreSQL HA with Kubernetes, ZooKeeper, etcd or Consul
 ------------------------------------------------------------
 There are many ways to run high availability with PostgreSQL; for a list, see the `PostgreSQL Documentation <https://wiki.postgresql.org/wiki/Replication,_Clustering,_and_Connection_Pooling>`__.
 
-Patroni is a template for you to create your own customized, high-availability solution using Python and - for maximum accessibility - a distributed configuration store like `ZooKeeper <https://zookeeper.apache.org/>`__, `etcd <https://github.com/coreos/etcd>`__ or `Consul <https://github.com/hashicorp/consul>`__. Database engineers, DBAs, DevOps engineers, and SREs who are looking to quickly deploy HA PostgreSQL in the datacenter-or anywhere else-will hopefully find it useful.
+Patroni is a template for you to create your own customized, high-availability solution using Python and - for maximum accessibility - a distributed configuration store like `ZooKeeper <https://zookeeper.apache.org/>`__, `etcd <https://github.com/coreos/etcd>`__ or `Consul <https://github.com/hashicorp/consul>`__. Database engineers, DBAs, DevOps engineers, and SREs who are looking to quickly deploy HA PostgreSQL in the datacenter-or anywhere else-will hopefully find it useful. 
+
+Patroni can also be the Postgres HA solution for teams running `Kubernetes <http://kubernetes.io/>`__ on top of Google Compute Engine. `This Helm Chart <https://github.com/kubernetes/charts/tree/master/incubator/patroni>`__ enables you to deploy a five-node Patroni cluster using a Kubernetes PetSet.
 
 We call Patroni a "template" because it is far from being a one-size-fits-all or plug-and-play replication system. It will have its own caveats. Use wisely.
-
-**Note to Kubernetes users**: We're currently developing Patroni to be as useful as possible for teams running Kubernetes on top of Google Compute Engine; Patroni can be the HA solution for Postgres in such an environment. To this end, we've created a `Helm Chart <https://github.com/kubernetes/charts/tree/master/incubator/patroni>`__ that enables you to deploy a five-node Patroni cluster using a Kubernetes PetSet.
 
 .. contents::
     :local:
