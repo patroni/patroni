@@ -1012,7 +1012,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
     def bootstrap(self, config):
         """ Initialize a new node from scratch and start it. """
         if self._initialize(config) and self.start() and self.run_bootstrap_post_init(config):
-            for name, value in config['users'].items():
+            for name, value in (config.get('users') or {}).items():
                 if name not in (self._superuser.get('username'), self._replication['username']):
                     self.create_or_update_role(name, value['password'], value.get('options', []))
             self.create_or_update_role(self._replication['username'], self._replication['password'], ['REPLICATION'])

@@ -39,18 +39,26 @@ def kv_get(self, key, **kwargs):
 
 class TestHTTPClient(unittest.TestCase):
 
+    def setUp(self):
+        self.client = HTTPClient('127.0.0.1', '8500', 'http', False)
+        self.client.http.request = Mock()
+
     def test_get(self):
-        client = HTTPClient('127.0.0.1', '8500', 'http', False)
-        client.http.request = Mock()
-        client.get(Mock(), '')
-        client.get(Mock(), '', {'wait': '1s', 'index': 1})
-        client.http.request.return_value.status = 500
-        self.assertRaises(ConsulInternalError, client.get, Mock(), '')
+        self.client.get(Mock(), '')
+        self.client.get(Mock(), '', {'wait': '1s', 'index': 1})
+        self.client.http.request.return_value.status = 500
+        self.assertRaises(ConsulInternalError, self.client.get, Mock(), '')
+
+    def test_unknown_method(self):
         try:
-            client.bla(Mock(), '')
+            self.client.bla(Mock(), '')
             self.assertFail()
         except Exception as e:
             self.assertTrue(isinstance(e, AttributeError))
+
+    def test_put(self):
+        self.client.put(Mock(), '/v1/session/create')
+        self.client.put(Mock(), '/v1/session/create', data='{"foo": "bar"}')
 
 
 @patch.object(consul.Consul.KV, 'get', kv_get)
@@ -75,7 +83,8 @@ class TestConsul(unittest.TestCase):
     @patch.object(consul.Consul.Session, 'create', Mock(side_effect=ConsulException))
     def test_referesh_session(self):
         self.c._session = '1'
-        self.c._name = ''
+        self.assertFalse(self.c.refresh_session())
+        self.c._last_session_refresh = 0
         self.assertRaises(ConsulError, self.c.refresh_session)
 
     @patch.object(consul.Consul.KV, 'delete', Mock())
@@ -117,6 +126,7 @@ class TestConsul(unittest.TestCase):
     def test_write_leader_optime(self):
         self.c.write_leader_optime('1')
 
+    @patch.object(consul.Consul.Session, 'renew', Mock())
     def test_update_leader(self):
         self.c.update_leader()
 
