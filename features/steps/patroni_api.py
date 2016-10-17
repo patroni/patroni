@@ -27,6 +27,7 @@ register_type(url=parse_url)
 @step('{name:w} is a leader after {time_limit:d} seconds')
 @then('{name:w} is a leader after {time_limit:d} seconds')
 def is_a_leader(context, name, time_limit):
+    time_limit *= context.timeout_multiplier
     max_time = time.time() + int(time_limit)
     while (context.dcs_ctl.query("leader") != name):
         time.sleep(1)
@@ -135,6 +136,7 @@ def add_tag_to_config(context, tag, value, pg_name):
 
 @then('Response on GET {url} contains {value} after {timeout:d} seconds')
 def check_http_response(context, url, value, timeout, negate=False):
+    timeout *= context.timeout_multiplier
     for _ in range(int(timeout)):
         r = requests.get(url)
         if (value in r.content.decode('utf-8')) != negate:

@@ -1,8 +1,9 @@
 import consul
 import unittest
 
+from consul import ConsulException, NotFound
 from mock import Mock, patch
-from patroni.dcs.consul import AbstractDCS, Cluster, Consul, ConsulError, ConsulException, HTTPClient, NotFound
+from patroni.dcs.consul import AbstractDCS, Cluster, Consul, ConsulInternalError, ConsulError, HTTPClient
 from test_etcd import SleepException
 
 
@@ -36,11 +37,26 @@ def kv_get(self, key, **kwargs):
 
 class TestHTTPClient(unittest.TestCase):
 
-    def test_get(self):
+    def setUp(self):
         self.client = HTTPClient('127.0.0.1', '8500', 'http', False)
-        self.client.session.get = Mock()
+        self.client.http.request = Mock()
+
+    def test_get(self):
         self.client.get(Mock(), '')
         self.client.get(Mock(), '', {'wait': '1s', 'index': 1})
+        self.client.http.request.return_value.status = 500
+        self.assertRaises(ConsulInternalError, self.client.get, Mock(), '')
+
+    def test_unknown_method(self):
+        try:
+            self.client.bla(Mock(), '')
+            self.assertFail()
+        except Exception as e:
+            self.assertTrue(isinstance(e, AttributeError))
+
+    def test_put(self):
+        self.client.put(Mock(), '/v1/session/create')
+        self.client.put(Mock(), '/v1/session/create', data='{"foo": "bar"}')
 
 
 @patch.object(consul.Consul.KV, 'get', kv_get)
@@ -65,7 +81,8 @@ class TestConsul(unittest.TestCase):
     @patch.object(consul.Consul.Session, 'create', Mock(side_effect=ConsulException))
     def test_referesh_session(self):
         self.c._session = '1'
-        self.c._name = ''
+        self.assertFalse(self.c.refresh_session())
+        self.c._last_session_refresh = 0
         self.assertRaises(ConsulError, self.c.refresh_session)
 
     @patch.object(consul.Consul.KV, 'delete', Mock())
@@ -91,6 +108,8 @@ class TestConsul(unittest.TestCase):
 
     @patch.object(consul.Consul.KV, 'put', Mock(return_value=False))
     def test_take_leader(self):
+        self.c.set_ttl(20)
+        self.c.refresh_session = Mock()
         self.c.take_leader()
 
     @patch.object(consul.Consul.KV, 'put', Mock(return_value=True))
@@ -105,6 +124,7 @@ class TestConsul(unittest.TestCase):
     def test_write_leader_optime(self):
         self.c.write_leader_optime('1')
 
+    @patch.object(consul.Consul.Session, 'renew', Mock())
     def test_update_leader(self):
         self.c.update_leader()
 
@@ -126,15 +146,11 @@ class TestConsul(unittest.TestCase):
 
     @patch.object(AbstractDCS, 'watch', Mock())
     def test_watch(self):
+        self.c.watch(1)
         self.c._name = ''
         self.c.watch(1)
         with patch.object(consul.Consul.KV, 'get', Mock(side_effect=ConsulException)):
             self.c.watch(1)
-
-    @patch.object(consul.Consul.Session, 'destroy', Mock(side_effect=ConsulException))
-    def test_set_ttl(self):
-        self.c.set_ttl(20)
-        self.assertTrue(self.c.watch(1))
 
     def test_set_retry_timeout(self):
         self.c.set_retry_timeout(10)

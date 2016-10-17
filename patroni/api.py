@@ -387,7 +387,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
                                        pg_xlog_location_diff(pg_last_xlog_replay_location(), '0/0')::bigint,
                                        to_char(pg_last_xact_replay_timestamp(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),
                                        pg_is_in_recovery() AND pg_is_xlog_replay_paused(),
-                                       (SELECT json_agg(row_to_json(ri)) FROM replication_info ri)""", retry=retry)[0]
+                                       (SELECT array_to_json(array_agg(row_to_json(ri))) FROM replication_info ri)""",
+                             retry=retry)[0]
 
             result = {
                 'state': self.server.patroni.postgresql.state,
