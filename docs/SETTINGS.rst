@@ -14,6 +14,7 @@ Bootstrap configuration
     -  **loop\_wait**: the number of seconds the loop will sleep. Default value: 10
     -  **ttl**: the TTL to acquire the leader lock. Think of it as the length of time before initiation of the automatic failover process. Default value: 30
     -  **maximum\_lag\_on\_failover**: the maximum bytes a follower may lag to be able to participate in leader election.
+    -  **synchronous\_mode**: turns on synchronous replication mode. In this mode a replica will be chosen as synchronous and only the latest leader and synchronous replica are able to participate in leader election. Synchronous mode makes sure that succesfully committed transactions will not be lost at failover, at the cost of losing availability for writes when Patroni cannot ensure transaction durability. See `replication modes documentation <https://github.com/zalando/patroni/blob/master/docs/replication_modes.rst>`__ for details.
     -  **postgresql**:
         -  **use\_pg\_rewind**:whether or not to use pg_rewind
         -  **use\_slots**: whether or not to use replication_slots. Must be False for PostgreSQL 9.3. You should comment out max_replication_slots before it becomes ineligible for leader status.

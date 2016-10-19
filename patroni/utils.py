@@ -302,3 +302,14 @@ class Retry(object):
                 else:
                     self.sleep_func(sleeptime)
                 self._cur_delay = min(self._cur_delay * self.backoff, self.max_delay)
+
+
+def polling_loop(timeout, interval=1):
+    """Returns an iterator that returns values until timeout has passed. Timeout is measured from start of iteration."""
+    start_time = time.time()
+    iteration = 0
+    end_time = start_time + timeout
+    while time.time() < end_time:
+        yield iteration
+        iteration += 1
+        sleep(interval)

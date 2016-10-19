@@ -31,7 +31,9 @@ def kv_get(self, key, **kwargs):
                   'Value': ('postgres://replicator:rep-pass@127.0.0.1:5433/postgres' +
                             '?application_name=http://127.0.0.1:8009/patroni').encode('utf-8')},
                  {'CreateIndex': 1085, 'Flags': 0, 'Key': key + 'optime/leader', 'LockIndex': 0,
-                  'ModifyIndex': 6429, 'Value': b'4496294792'}])
+                  'ModifyIndex': 6429, 'Value': b'4496294792'},
+                 {'CreateIndex': 1085, 'Flags': 0, 'Key': key + 'sync', 'LockIndex': 0,
+                  'ModifyIndex': 6429, 'Value': b'{"leader": "leader", "sync_standby": null}'}])
     raise ConsulException
 
 
@@ -154,3 +156,7 @@ class TestConsul(unittest.TestCase):
 
     def test_set_retry_timeout(self):
         self.c.set_retry_timeout(10)
+
+    def test_sync_state(self):
+        self.assertFalse(self.c.set_sync_state_value('{}'))
+        self.assertFalse(self.c.delete_sync_state())
