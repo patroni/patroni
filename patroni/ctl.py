@@ -636,9 +636,11 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
     for m in cluster.members:
         logging.debug(m)
 
-        leader = ''
+        role = ''
         if m.name == leader_name:
-            leader = '*'
+            role = 'Leader'
+        elif m.name == cluster.sync.sync_standby:
+            role = 'Sync standby'
 
         host = m.conn_kwargs()['host']
 
@@ -651,7 +653,7 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
             name,
             m.name,
             host,
-            leader,
+            role,
             m.data.get('state', ''),
             lag,
         ]
@@ -671,7 +673,7 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
         'Cluster',
         'Member',
         'Host',
-        'Leader',
+        'Role',
         'State',
         'Lag in MB',
     ]

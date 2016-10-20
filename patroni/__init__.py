@@ -49,11 +49,15 @@ class Patroni(object):
 
     def get_tags(self):
         return {tag: value for tag, value in self.config.get('tags', {}).items()
-                if tag not in ('clonefrom', 'nofailover', 'noloadbalance') or value}
+                if tag not in ('clonefrom', 'nofailover', 'noloadbalance', 'nosync') or value}
 
     @property
     def nofailover(self):
         return bool(self.tags.get('nofailover', False))
+
+    @property
+    def nosync(self):
+        return bool(self.tags.get('nosync', False))
 
     def reload_config(self):
         try:
@@ -139,5 +143,5 @@ def main():
         if patroni.ha.is_paused():
             logger.info('Leader key is not deleted and Postgresql is not stopped due paused state')
         else:
-            patroni.postgresql.stop(checkpoint=False)
+            patroni.ha.while_not_sync_standby(lambda: patroni.postgresql.stop(checkpoint=False))
             patroni.dcs.delete_leader()

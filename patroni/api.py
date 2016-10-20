@@ -57,7 +57,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     def _write_status_response(self, status_code, response):
         patroni = self.server.patroni
-        response.update({'tags': patroni.tags} if patroni.tags else {})
+        tags = patroni.ha.get_effective_tags()
+        if tags:
+            response['tags'] = tags
         if patroni.postgresql.sysid:
             response['database_system_identifier'] = patroni.postgresql.sysid
         if patroni.postgresql.pending_restart:

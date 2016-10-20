@@ -42,6 +42,7 @@ class Config(object):
         'ttl': 30, 'loop_wait': 10, 'retry_timeout': 10,
         'maximum_lag_on_failover': 1048576,
         'master_start_timeout': 300,
+        'synchronous_mode': False,
         'postgresql': {
             'bin_dir': '',
             'use_slots': True,
@@ -173,7 +174,10 @@ class Config(object):
                     elif name not in ('connect_address', 'listen', 'data_dir', 'pgpass', 'authentication'):
                         config['postgresql'][name] = deepcopy(value)
             elif name in config:  # only variables present in __DEFAULT_CONFIG allowed to be overriden from DCS
-                config[name] = int(value)
+                if name == 'synchronous_mode':
+                    config[name] = value
+                else:
+                    config[name] = int(value)
         return config
 
     @staticmethod
@@ -294,7 +298,7 @@ class Config(object):
             config['name'] = pg_config['name']
 
         pg_config.update({p: config[p] for p in ('name', 'scope', 'retry_timeout',
-                          'maximum_lag_on_failover') if p in config})
+                          'synchronous_mode', 'maximum_lag_on_failover') if p in config})
 
         return config
 

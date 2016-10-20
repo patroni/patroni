@@ -88,6 +88,7 @@ class Postgresql(object):
 
         self._version_file = os.path.join(self._data_dir, 'PG_VERSION')
         self._major_version = self.get_major_version()
+        self._synchronous_standby_names = None
         self._server_parameters = self.get_server_parameters(config)
 
         self._connect_address = config.get('connect_address')
@@ -163,6 +164,11 @@ class Postgresql(object):
         parameters = config['parameters'].copy()
         listen_addresses, port = (config['listen'] + ':5432').split(':')[:2]
         parameters.update({'cluster_name': self.scope, 'listen_addresses': listen_addresses, 'port': port})
+        if config.get('synchronous_mode', False):
+            if self._synchronous_standby_names is None:
+                parameters.pop('synchronous_standby_names', None)
+            else:
+                parameters['synchronous_standby_names'] = self._synchronous_standby_names
         return {k: v for k, v in parameters.items() if not self._major_version or
                 self._major_version >= self.CMDLINE_OPTIONS.get(k, (0, 1, 9.1))[2]}
 
@@ -432,6 +438,9 @@ class Postgresql(object):
                 connstring = 'postgres://{user}@{host}:{port}/{database}'.format(**r)
             else:
                 connstring = 'postgres://{host}:{port}/{database}'.format(**r)
+                if 'password' in r:
+                    import getpass
+                    r.setdefault('user', os.environ.get('PGUSER', getpass.getuser()))
 
             env = self.write_pgpass(r) if 'password' in r else None
             try:
@@ -1235,6 +1244,49 @@ $$""".format(name, ' '.join(options)), name, password, password)
                 time.sleep(5)
 
         return ret
+
+    def pick_synchronous_standby(self, cluster):
+        """Finds the best candidate to be the synchronous standby.
+
+        Current synchronous standby is always preferred, unless it has disconnected or does not want to be a
+        synchronous standby any longer.
+
+        :returns tuple of candidate name or None, and bool showing if the member is the active synchronous standby.
+        """
+        current = cluster.sync.sync_standby
+        members = {m.name: m for m in cluster.members}
+        candidates = []
+        # Pick candidates based on who has flushed WAL farthest.
+        # TODO: for synchronous_commit = remote_write we actually want to order on write_location
+        for app_name, state, sync_state in self.query(
+                """SELECT application_name, state, sync_state
+                     FROM pg_stat_replication
+                    ORDER BY flush_location DESC"""):
+            member = members.get(app_name)
+            if state != 'streaming' or not member or member.tags.get('nosync', False):
+                continue
+            if sync_state == 'sync':
+                return app_name, True
+            if sync_state == 'potential' and app_name == current:
+                # Prefer current even if not the best one any more to avoid indecisivness and spurious swaps.
+                return current, False
+            if sync_state == 'async':
+                candidates.append(app_name)
+
+        if candidates:
+            return candidates[0], False
+        return None, False
+
+    def set_synchronous_standby(self, name):
+        """Sets a node to be synchronous standby and if changed does a reload for PostgreSQL."""
+        if name != self._synchronous_standby_names:
+            if name is None:
+                self._server_parameters.pop('synchronous_standby_names', None)
+            else:
+                self._server_parameters['synchronous_standby_names'] = name
+            self._synchronous_standby_names = name
+            self._write_postgresql_conf()
+            self.reload()
 
     @staticmethod
     def postgres_version_to_int(pg_version):

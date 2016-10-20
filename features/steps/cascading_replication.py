@@ -20,13 +20,13 @@ def write_label(context, content, name):
     context.pctl.write_label(name, content)
 
 
-@step('{name:w} has {key:w}={value:w} in dcs after {time_limit:d} seconds')
+@step('"{name}" key in DCS has {key:w}={value:w} after {time_limit:d} seconds')
 def check_member(context, name, key, value, time_limit):
     time_limit *= context.timeout_multiplier
     max_time = time.time() + int(time_limit)
     while time.time() < max_time:
         try:
-            response = json.loads(context.dcs_ctl.query('members/' + name))
+            response = json.loads(context.dcs_ctl.query(name))
             if response.get(key) == value:
                 return
         except Exception:

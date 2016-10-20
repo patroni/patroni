@@ -6,7 +6,7 @@ import subprocess
 import unittest
 
 from mock import Mock, MagicMock, PropertyMock, patch, mock_open
-from patroni.dcs import Cluster, Leader, Member
+from patroni.dcs import Cluster, Leader, Member, SyncState
 from patroni.exceptions import PostgresException, PostgresConnectionException
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
 from patroni.utils import RetryFailedError
@@ -351,7 +351,7 @@ class TestPostgresql(unittest.TestCase):
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def test_sync_replication_slots(self):
         self.p.start()
-        cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None)
+        cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None, None)
         with mock.patch('patroni.postgresql.Postgresql._query', Mock(side_effect=psycopg2.OperationalError)):
             self.p.sync_replication_slots(cluster)
         self.p.sync_replication_slots(cluster)
@@ -454,12 +454,13 @@ class TestPostgresql(unittest.TestCase):
             self.assertFalse(self.p.run_bootstrap_post_init({'post_init': '/bin/false'}))
 
         with patch('subprocess.call', Mock(return_value=0)) as mock_method:
+            self.p._superuser.pop('username')
             self.assertTrue(self.p.run_bootstrap_post_init({'post_init': '/bin/false'}))
 
         mock_method.assert_called()
         args, kwargs = mock_method.call_args
         assert 'PGPASSFILE' in kwargs['env'].keys()
-        self.assertEquals(args[0], ['/bin/false', 'postgres://test@localhost:5432/postgres'])
+        self.assertEquals(args[0], ['/bin/false', 'postgres://localhost:5432/postgres'])
 
     @patch('patroni.postgresql.Postgresql.create_replica', Mock(return_value=0))
     def test_clone(self):
@@ -685,3 +686,69 @@ class TestPostgresql(unittest.TestCase):
         self.assertTrue(self.p.is_pid_running(-100))
         self.assertFalse(self.p.is_pid_running(0))
         self.assertFalse(self.p.is_pid_running(None))
+
+    def test_pick_sync_standby(self):
+        cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None,
+                          SyncState(0, self.me.name, self.leadermem.name))
+
+        with patch.object(Postgresql, "query", return_value=[
+                    (self.leadermem.name, 'streaming', 'sync'),
+                    (self.me.name, 'streaming', 'async'),
+                    (self.other.name, 'streaming', 'async'),
+                ]):
+            self.assertEquals(self.p.pick_synchronous_standby(cluster), (self.leadermem.name, True))
+
+        with patch.object(Postgresql, "query", return_value=[
+                    (self.me.name, 'streaming', 'async'),
+                    (self.leadermem.name, 'streaming', 'potential'),
+                    (self.other.name, 'streaming', 'async'),
+                ]):
+            self.assertEquals(self.p.pick_synchronous_standby(cluster), (self.leadermem.name, False))
+
+        with patch.object(Postgresql, "query", return_value=[
+                    (self.me.name, 'streaming', 'async'),
+                    (self.other.name, 'streaming', 'async'),
+                ]):
+            self.assertEquals(self.p.pick_synchronous_standby(cluster), (self.me.name, False))
+
+        with patch.object(Postgresql, "query", return_value=[
+                    ('missing', 'streaming', 'sync'),
+                    (self.me.name, 'streaming', 'async'),
+                    (self.other.name, 'streaming', 'async'),
+                ]):
+            self.assertEquals(self.p.pick_synchronous_standby(cluster), (self.me.name, False))
+
+        with patch.object(Postgresql, "query", return_value=[]):
+            self.assertEquals(self.p.pick_synchronous_standby(cluster), (None, False))
+
+    def test_set_sync_standby(self):
+        def value_in_conf():
+            with open(os.path.join(self.data_dir, 'postgresql.conf')) as f:
+                for line in f:
+                    if line.startswith('synchronous_standby_names'):
+                        return line.strip()
+
+        mock_reload = self.p.reload = Mock()
+        self.p.set_synchronous_standby('n1')
+        self.assertEquals(value_in_conf(), "synchronous_standby_names = 'n1'")
+        mock_reload.assert_called()
+
+        mock_reload.reset_mock()
+        self.p.set_synchronous_standby('n1')
+        mock_reload.assert_not_called()
+        self.assertEquals(value_in_conf(), "synchronous_standby_names = 'n1'")
+
+        self.p.set_synchronous_standby('n2')
+        mock_reload.assert_called()
+        self.assertEquals(value_in_conf(), "synchronous_standby_names = 'n2'")
+
+        mock_reload.reset_mock()
+        self.p.set_synchronous_standby(None)
+        mock_reload.assert_called()
+        self.assertEquals(value_in_conf(), None)
+
+    def test_get_server_parameters(self):
+        config = {'synchronous_mode': True, 'parameters': {}, 'listen': '0'}
+        self.p.get_server_parameters(config)
+        self.p.set_synchronous_standby('foo')
+        self.p.get_server_parameters(config)

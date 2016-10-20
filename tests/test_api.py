@@ -67,6 +67,11 @@ class MockHa(object):
     def is_lagging(xlog):
         return False
 
+    @staticmethod
+    def get_effective_tags():
+        return {'nosync': True}
+
+
 class MockPatroni(object):
 
     ha = MockHa()

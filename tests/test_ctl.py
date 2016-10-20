@@ -382,7 +382,8 @@ class TestCtl(unittest.TestCase):
     @patch('patroni.ctl.get_dcs')
     def test_list_extended(self, mock_get_dcs):
         mock_get_dcs.return_value = self.e
-        mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
+        cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
+        mock_get_dcs.return_value.get_cluster = Mock(return_value=cluster)
 
         result = self.runner.invoke(ctl, ['list', 'dummy', '--extended'])
         assert '2100' in result.output

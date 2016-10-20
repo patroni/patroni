@@ -3,7 +3,7 @@ import logging
 from kazoo.client import KazooClient, KazooState
 from kazoo.exceptions import NoNodeError, NodeExistsError
 from kazoo.handlers.threading import SequentialThreadingHandler
-from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member
+from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState
 from patroni.exceptions import DCSError
 
 logger = logging.getLogger(__name__)
@@ -133,10 +133,11 @@ class ZooKeeper(AbstractDCS):
         except NoNodeError:
             return []
 
-    def load_members(self):
+    def load_members(self, sync_standby):
         members = []
         for member in self.get_children(self.members_path, self.cluster_watcher):
-            data = self.get_node(self.members_path + member)
+            watch = member == sync_standby and self.cluster_watcher or None
+            data = self.get_node(self.members_path + member, watch)
             if data is not None:
                 members.append(self.member(member, *data))
         return members
@@ -159,8 +160,13 @@ class ZooKeeper(AbstractDCS):
         last_leader_operation = self._OPTIME in nodes and self._fetch_cluster and self.get_node(self.leader_optime_path)
         last_leader_operation = last_leader_operation and int(last_leader_operation[0]) or 0
 
+        # get synchronization state
+        sync = self.get_node(self.sync_path, watch=self.cluster_watcher) if self._SYNC in nodes else None
+        sync = SyncState.from_node(sync and sync[1].version, sync and sync[0])
+
         # get list of members
-        members = self.load_members() if self._MEMBERS[:-1] in nodes else []
+        sync_standby = sync.leader == self._name and sync.sync_standby or None
+        members = self.load_members(sync_standby) if self._MEMBERS[:-1] in nodes else []
 
         # get leader
         leader = self.get_node(self.leader_path) if self._LEADER in nodes else None
@@ -182,7 +188,7 @@ class ZooKeeper(AbstractDCS):
         failover = self.get_node(self.failover_path, watch=self.cluster_watcher) if self._FAILOVER in nodes else None
         failover = failover and Failover.from_node(failover[1].version, failover[0])
 
-        self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover)
+        self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync)
 
     def _load_cluster(self):
         if self._fetch_cluster or self._cluster is None:
@@ -228,7 +234,7 @@ class ZooKeeper(AbstractDCS):
 
     def initialize(self, create_new=True, sysid=""):
         return self._create(self.initialize_path, sysid, makepath=True) if create_new \
-            else self._client.retry(self._client.set, self.initialize_path,  sysid.encode("utf-8"))
+            else self._client.retry(self._client.set, self.initialize_path, sysid.encode("utf-8"))
 
     def touch_member(self, data, ttl=None, permanent=False):
         cluster = self.cluster
@@ -306,6 +312,19 @@ class ZooKeeper(AbstractDCS):
             return self._client.retry(self._client.delete, self.client_path(''), recursive=True)
         except NoNodeError:
             return True
+
+    def set_sync_state_value(self, value, index=None):
+        try:
+            self._client.retry(self._client.set, self.sync_path, value.encode('utf-8'), version=index or -1)
+            return True
+        except NoNodeError:
+            return value == '' or (index is None and self._create(self.sync_path, value))
+        except:
+            logging.exception('set_sync_state_value')
+            return False
+
+    def delete_sync_state(self, index=None):
+        return self.set_sync_state_value("{}", index)
 
     def watch(self, timeout):
         if super(ZooKeeper, self).watch(timeout):
