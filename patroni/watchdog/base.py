@@ -14,6 +14,7 @@ MODE_REQUIRED = 'required'    # Will not run if a watchdog is not available
 MODE_AUTOMATIC = 'automatic'  # Will use a watchdog if one is available
 MODE_OFF = 'off'              # Will not try to use a watchdog
 
+
 def parse_mode(mode):
     if mode is False:
         return MODE_OFF
@@ -26,6 +27,7 @@ def parse_mode(mode):
         if mode not in ['off', 'disable', 'disabled']:
             logger.warning("Watchdog mode {0} not recognized, disabling watchdog".format(mode))
         return MODE_OFF
+
 
 class Watchdog(object):
     """Facade to dynamically manage watchdog implementations and handle config changes."""
@@ -51,7 +53,7 @@ class Watchdog(object):
         slack = desired_timeout - self.loop_wait
         if slack < 0:
             logger.warning('Watchdog not supported because leader TTL {0} is less than 2x loop_wait {1}'
-                         .format(self.ttl, self.loop_wait))
+                           .format(self.ttl, self.loop_wait))
             self.impl = NullWatchdog()
 
         try:
@@ -61,7 +63,8 @@ class Watchdog(object):
             self.impl = NullWatchdog()
 
         if self.impl.is_running and not self.impl.can_be_disabled:
-            logger.warning("Watchdog implementation can't be disabled. Watchdog will trigger after Patroni is shut down.")
+            logger.warning("Watchdog implementation can't be disabled."
+                           " Watchdog will trigger after Patroni is shut down.")
 
         if self.impl.has_set_timeout():
             self.impl.set_timeout(desired_timeout)
@@ -78,15 +81,15 @@ class Watchdog(object):
 
         if not self.impl.is_running or actual_timeout > desired_timeout:
             if self.mode == MODE_REQUIRED:
-                logger.error(("Configuration requires watchdog, but a safe watchdog timeout {0} could"
-                    " not be configured. Watchdog timeout is {1}.").format(desired_timeout, actual_timeout))
+                logger.error("Configuration requires watchdog, but a safe watchdog timeout {0} could"
+                             " not be configured. Watchdog timeout is {1}.".format(desired_timeout, actual_timeout))
                 sys.exit(1)
             else:
                 logger.warning("Watchdog timeout {0} seconds does not ensure safe termination within {1} seconds"
                                .format(actual_timeout, desired_timeout))
 
         if self.is_running:
-            logger.info("{0} activated with {1} second timeout, timing slack {1} seconds"
+            logger.info("{0} activated with {1} second timeout, timing slack {2} seconds"
                         .format(self.impl.describe(), actual_timeout, slack))
         else:
             if self.mode == MODE_REQUIRED:
@@ -123,6 +126,7 @@ class Watchdog(object):
     @property
     def is_running(self):
         return self.impl.is_running
+
 
 @six.add_metaclass(abc.ABCMeta)
 class WatchdogBase(object):
@@ -179,6 +183,7 @@ class WatchdogBase(object):
     @classmethod
     def from_config(cls, config):
         return cls()
+
 
 class NullWatchdog(WatchdogBase):
     """Null implementation when watchdog is not supported."""

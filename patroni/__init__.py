@@ -135,6 +135,7 @@ class Patroni(object):
         self.api.shutdown()
         self.ha.shutdown()
 
+
 def main():
     logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
     logging.getLogger('requests').setLevel(logging.WARNING)

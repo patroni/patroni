@@ -10,7 +10,7 @@ import pytz
 from collections import namedtuple
 from multiprocessing.pool import ThreadPool
 from patroni.async_executor import AsyncExecutor
-from patroni.exceptions import DCSError, PostgresConnectionException, WatchdogError
+from patroni.exceptions import DCSError, PostgresConnectionException
 from patroni.postgresql import ACTION_ON_START
 from patroni.utils import polling_loop, sleep
 from threading import RLock
@@ -940,5 +940,5 @@ class Ha(object):
                 # but cannot shut down PostgreSQL. Root would be the obvious example. Would be nice to not kill the
                 # system due to a bad config.
                 logger.error("PostgreSQL shutdown failed, leader key not removed."
-                    + (" Leaving watchdog running." if self.watchdog.is_running else "")
-                    )
+                             + (" Leaving watchdog running." if self.watchdog.is_running else "")
+                             )

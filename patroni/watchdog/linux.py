@@ -29,17 +29,22 @@ IOC_TYPESHIFT = IOC_NRSHIFT + IOC_NRBITS
 IOC_SIZESHIFT = IOC_TYPESHIFT + IOC_TYPEBITS
 IOC_DIRSHIFT = IOC_SIZESHIFT + IOC_SIZEBITS
 
+
 def IO(type, nr):
     return IOC(IOC_NONE, type, nr)
+
 
 def IOW(type, nr, size):
     return IOC(IOC_WRITE, type, nr, size)
 
+
 def IOR(type, nr, size):
     return IOC(IOC_READ, type, nr, size)
 
+
 def IOWR(type, nr, size):
-    return IOC(IOC_READ|IOC_WRITE, type, nr, size)
+    return IOC(IOC_READ | IOC_WRITE, type, nr, size)
+
 
 def IOC(dir, type, nr, size):
     return (dir << IOC_DIRSHIFT) \
@@ -51,11 +56,12 @@ def IOC(dir, type, nr, size):
 
 WATCHDOG_IOCTL_BASE = 'W'
 
+
 class watchdog_info(ctypes.Structure):
     _fields_ = [
-        ('options', ctypes.c_uint32),          # Options the card/driver supports
-        ('firmware_version', ctypes.c_uint32), # Firmware version of the card
-        ('identity', ctypes.c_uint8 * 32),     # Identity of the board
+        ('options', ctypes.c_uint32),           # Options the card/driver supports
+        ('firmware_version', ctypes.c_uint32),  # Firmware version of the card
+        ('identity', ctypes.c_uint8 * 32),      # Identity of the board
     ]
 
 struct_watchdog_info_size = ctypes.sizeof(watchdog_info)
@@ -74,31 +80,32 @@ WDIOC_GETPRETIMEOUT = IOR(WATCHDOG_IOCTL_BASE, 9, int_size)
 WDIOC_GETTIMELEFT = IOR(WATCHDOG_IOCTL_BASE, 10, int_size)
 
 
-WDIOF_UNKNOWN = -1 # Unknown flag error
-WDIOS_UNKNOWN = -1 # Unknown status error
+WDIOF_UNKNOWN = -1  # Unknown flag error
+WDIOS_UNKNOWN = -1  # Unknown status error
 
 WDIOF = {
-    "OVERHEAT": 0x0001, # Reset due to CPU overheat
-    "FANFAULT": 0x0002, # Fan failed
-    "EXTERN1": 0x0004, # External relay 1
-    "EXTERN2": 0x0008, # External relay 2
-    "POWERUNDER": 0x0010, # Power bad/power fault
-    "CARDRESET": 0x0020, # Card previously reset the CPU
-    "POWEROVER": 0x0040, # Power over voltage
-    "SETTIMEOUT": 0x0080, # Set timeout (in seconds)
-    "MAGICCLOSE": 0x0100, # Supports magic close char
-    "PRETIMEOUT": 0x0200, # Pretimeout (in seconds), get/set
-    "ALARMONLY": 0x0400, # Watchdog triggers a management or other external alarm not a reboot
-    "KEEPALIVEPING": 0x8000, # Keep alive ping reply
+    "OVERHEAT": 0x0001,       # Reset due to CPU overheat
+    "FANFAULT": 0x0002,       # Fan failed
+    "EXTERN1": 0x0004,        # External relay 1
+    "EXTERN2": 0x0008,        # External relay 2
+    "POWERUNDER": 0x0010,     # Power bad/power fault
+    "CARDRESET": 0x0020,      # Card previously reset the CPU
+    "POWEROVER": 0x0040,      # Power over voltage
+    "SETTIMEOUT": 0x0080,     # Set timeout (in seconds)
+    "MAGICCLOSE": 0x0100,     # Supports magic close char
+    "PRETIMEOUT": 0x0200,     # Pretimeout (in seconds), get/set
+    "ALARMONLY": 0x0400,      # Watchdog triggers a management or other external alarm not a reboot
+    "KEEPALIVEPING": 0x8000,  # Keep alive ping reply
 }
 
 WDIOS = {
-    "DISABLECARD": 0x0001, # Turn off the watchdog timer
-    "ENABLECARD": 0x0002, # Turn on the watchdog timer
-    "TEMPPANIC": 0x0004, # Kernel panic on temperature trip
+    "DISABLECARD": 0x0001,    # Turn off the watchdog timer
+    "ENABLECARD": 0x0002,     # Turn on the watchdog timer
+    "TEMPPANIC": 0x0004,      # Kernel panic on temperature trip
 }
 
 # Implementation
+
 
 class WatchdogInfo(collections.namedtuple('WatchdogInfo', 'options,version,identity')):
     """Watchdog descriptor from the kernel"""
@@ -106,15 +113,19 @@ class WatchdogInfo(collections.namedtuple('WatchdogInfo', 'options,version,ident
     def option_list(self):
         return [name for name, bit in WDIOF.items() if self.options & bit]
 
-# Add WDIOF properties to descriptor
+
 def _property_func(wdiof_name):
+    """Add WDIOF properties to WatchdogInfo descriptor"""
     bit = WDIOF[wdiof_name]
+
     def get_option(self):
         return bool(self.options & bit)
     return property(get_option)
 
+
 for wdiof_name, bit in WDIOF.items():
     setattr(WatchdogInfo, 'has_'+wdiof_name, _property_func(wdiof_name))
+
 
 class LinuxWatchdogDevice(WatchdogBase):
     DEFAULT_DEVICE = '/dev/watchdog'
@@ -123,7 +134,6 @@ class LinuxWatchdogDevice(WatchdogBase):
         self.device = device
         self._support_cache = None
         self._fd = None
-
 
     @classmethod
     def from_config(cls, config):
@@ -196,7 +206,7 @@ class LinuxWatchdogDevice(WatchdogBase):
     def set_timeout(self, timeout):
         timeout = int(timeout)
         if not 0 < timeout < 0xFFFF:
-            raise WatchdogError("Invalid timeout {0}. Supported values are between 1 and 65535".format(d))
+            raise WatchdogError("Invalid timeout {0}. Supported values are between 1 and 65535".format(timeout))
         self._ioctl(WDIOC_SETTIMEOUT, ctypes.c_int(timeout))
 
     def get_timeout(self):
