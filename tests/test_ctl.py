@@ -236,6 +236,9 @@ class TestCtl(unittest.TestCase):
         assert 'Error: PostgreSQL version' in result.output
         assert result.exit_code == 1
 
+        result = self.runner.invoke(ctl, ['restart', 'alpha', '--pending', '--force', '--timeout', '10min'])
+        assert result.exit_code == 0
+
         with patch('requests.delete', Mock(return_value=MockResponse(500))):
             # normal restart, the schedule is actually parsed, but not validated in patronictl
             result = self.runner.invoke(ctl, ['restart', 'alpha', 'other', '--force',

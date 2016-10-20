@@ -453,9 +453,11 @@ def parse_scheduled(scheduled):
 @click.option('--pg-version', 'version', help='Restart if the PostgreSQL version is less than provided (e.g. 9.5.2)',
               default=None)
 @click.option('--pending', help='Restart if pending', is_flag=True)
+@click.option('--timeout',
+              help='Return error and fail over if necessary when restarting takes longer than this.')
 @option_force
 @click.pass_obj
-def restart(obj, cluster_name, member_names, force, role, p_any, scheduled, version, pending):
+def restart(obj, cluster_name, member_names, force, role, p_any, scheduled, version, pending, timeout):
     cluster = get_dcs(obj, cluster_name).get_cluster()
 
     members = get_members(cluster, cluster_name, member_names, role, force, 'restart')
@@ -486,6 +488,9 @@ def restart(obj, cluster_name, member_names, force, role, p_any, scheduled, vers
         if cluster.is_paused():
             raise PatroniCtlException("Can't schedule restart in the paused state")
         content['schedule'] = scheduled_at.isoformat()
+
+    if timeout is not None:
+        content['timeout'] = timeout
 
     for member in members:
         if 'schedule' in content:

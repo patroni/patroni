@@ -6,15 +6,45 @@ import requests
 import sys
 import datetime
 import pytz
-from threading import RLock
 
+from collections import namedtuple
 from multiprocessing.pool import ThreadPool
 from patroni.async_executor import AsyncExecutor
 from patroni.exceptions import DCSError, PostgresConnectionException, WatchdogError
 from patroni.postgresql import ACTION_ON_START
 from patroni.utils import polling_loop, sleep
+from threading import RLock
 
 logger = logging.getLogger(__name__)
+
+
+class _MemberStatus(namedtuple('_MemberStatus', 'member,reachable,in_recovery,xlog_location,tags')):
+    """Node status distilled from API response:
+
+        member - dcs.Member object of the node
+        reachable - `!False` if the node is not reachable or is not responding with correct JSON
+        in_recovery - `!True` if pg_is_in_recovery() == true
+        xlog_location - value of `replayed_location` or `location` from JSON, dependin on its role.
+        is_lagging - `True` if node considers itself too far behind to promote
+        tags - dictionary with values of different tags (i.e. nofailover)
+    """
+    @classmethod
+    def from_api_response(cls, member, json):
+        is_master = json['role'] == 'master'
+        xlog_location = None if is_master else json['xlog']['received_location']
+        return cls(member, True, not is_master, xlog_location, json.get('tags', {}))
+
+    @classmethod
+    def unknown(cls, member):
+        return cls(member, False, None, 0, {})
+
+    def failover_limitation(self):
+        """Returns reason why this node can't promote or None if everything is ok."""
+        if not self.reachable:
+            return 'not reachable'
+        if self.tags.get('nofailover', False):
+            return 'not allowed to promote'
+        return None
 
 
 class Ha(object):
@@ -26,6 +56,7 @@ class Ha(object):
         self.cluster = None
         self.old_cluster = None
         self.recovering = False
+        self._start_timeout = None
         self._async_executor = AsyncExecutor()
         self.watchdog = patroni.watchdog
 
@@ -141,6 +172,15 @@ class Ha(object):
             return 'waiting for leader to bootstrap'
 
     def recover(self):
+        if self.has_lock() and self.update_lock():
+            if self.patroni.config['master_start_timeout'] == 0:
+                # We are requested to prefer failing over to restarting master. But see first if there
+                # is anyone to fail over to.
+                if self.is_failover_possible(self.cluster.members):
+                    logger.info("Master crashed. Failing over.")
+                    self.demote('immediate')
+                    return 'stopped PostgreSQL to fail over after a crash'
+
         self.recovering = True
         return self.follow("starting as readonly because i had the session lock", "starting as a secondary", True, True)
 
@@ -283,24 +323,16 @@ class Ha(object):
     @staticmethod
     def fetch_node_status(member):
         """This function perform http get request on member.api_url and fetches its status
-        :returns: tuple(`member`, reachable, in_recovery, xlog_location)
-
-        reachable - `!False` if the node is not reachable or is not responding with correct JSON
-        in_recovery - `!True` if pg_is_in_recovery() == true
-        xlog_location - value of `replayed_location` or `location` from JSON, dependin on its role.
-        tags - dictionary with values of different tags (i.e. nofailover)
+        :returns: `_MemberStatus` object
         """
 
         try:
             response = requests.get(member.api_url, timeout=2, verify=False)
             logger.info('Got response from %s %s: %s', member.name, member.api_url, response.content)
-            json = response.json()
-            is_master = json['role'] == 'master'
-            xlog_location = None if is_master else json['xlog']['replayed_location']
-            return (member, True, not is_master, xlog_location, json.get('tags', {}))
+            return _MemberStatus.from_api_response(member, response.json())
         except Exception as e:
             logger.warning("request failed: GET %s (%s)", member.api_url, e)
-        return (member, False, None, 0, {})
+        return _MemberStatus.unknown(member)
 
     def fetch_nodes_statuses(self, members):
         pool = ThreadPool(len(members))
@@ -309,23 +341,32 @@ class Ha(object):
         pool.join()
         return results
 
+    def is_lagging(self, xlog_location):
+        """Returns if instance with an xlog should consider itself unhealthy to be promoted due to replication lag.
+
+        :param xlog_location: Current xlog location.
+        :returns True when node is lagging
+        """
+        lag = (self.cluster.last_leader_operation or 0) - xlog_location
+        return lag > self.state_handler.config.get('maximum_lag_on_failover', 0)
+
     def _is_healthiest_node(self, members, check_replication_lag=True):
         """This method tries to determine whether I am healthy enough to became a new leader candidate or not."""
 
-        if check_replication_lag and not self.state_handler.check_replication_lag(self.cluster.last_leader_operation):
+        my_xlog_location = self.state_handler.xlog_position()
+        if check_replication_lag and self.is_lagging(my_xlog_location):
             return False  # Too far behind last reported xlog location on master
 
         # Prepare list of nodes to run check against
         members = [m for m in members if m.name != self.state_handler.name and not m.nofailover and m.api_url]
 
         if members:
-            my_xlog_location = self.state_handler.xlog_position()
-            for member, reachable, in_recovery, xlog_location, tags in self.fetch_nodes_statuses(members):
-                if reachable and not tags.get('nofailover', False):  # If the node is unreachable it's not healhy
-                    if not in_recovery:
-                        logger.warning('Master (%s) is still alive', member.name)
+            for st in self.fetch_nodes_statuses(members):
+                if st.failover_limitation() is None:
+                    if not st.in_recovery:
+                        logger.warning('Master (%s) is still alive', st.member.name)
                         return False
-                    if my_xlog_location < xlog_location:
+                    if my_xlog_location < st.xlog_location:
                         return False
         return True
 
@@ -333,13 +374,14 @@ class Ha(object):
         ret = False
         members = [m for m in members if m.name != self.state_handler.name and not m.nofailover and m.api_url]
         if members:
-            for member, reachable, _, _, tags in self.fetch_nodes_statuses(members):
-                if reachable and not tags.get('nofailover', False):
-                    ret = True  # TODO: check xlog_location
-                elif not reachable:
-                    logger.info('Member %s is not reachable', member.name)
-                elif tags.get('nofailover', False):
-                    logger.info('Member %s is not allowed to promote', member.name)
+            for st in self.fetch_nodes_statuses(members):
+                not_allowed_reason = st.failover_limitation()
+                if not_allowed_reason:
+                    logger.info('Member %s is %s', st.member.name, not_allowed_reason)
+                elif self.is_lagging(st.xlog_location):
+                    logger.info('Member %s exceeds maximum replication lag', st.member.name)
+                else:
+                    ret = True
         else:
             logger.warning('manual failover: members list is empty')
         return ret
@@ -362,15 +404,13 @@ class Ha(object):
             # find specific node and check that it is healthy
             member = self.cluster.get_member(failover.candidate, fallback_to_leader=False)
             if member:
-                member, reachable, _, _, tags = self.fetch_node_status(member)
-                if reachable and not tags.get('nofailover', False):  # node is healthy
-                    logger.info('manual failover: to %s, i am %s', member.name, self.state_handler.name)
+                st = self.fetch_node_status(member)
+                not_allowed_reason = st.failover_limitation()
+                if not_allowed_reason is None:  # node is healthy
+                    logger.info('manual failover: to %s, i am %s', st.member.name, self.state_handler.name)
                     return False
                 # we wanted to failover to specific member but it is not healthy
-                if not reachable:
-                    logger.warning('manual failover: member %s is unhealthy', member.name)
-                elif tags.get('nofailover', False):
-                    logger.warning('manual failover: member %s is not allowed to promote', member.name)
+                logger.warning('manual failover: member %s is %s', st.member.name, not_allowed_reason)
 
             # at this point we should consider all members as a candidates for failover
             # i.e. we assume that failover.candidate is None
@@ -400,6 +440,9 @@ class Ha(object):
             if ret is not None:  # continue if we just deleted the stale failover key as a master
                 return ret
 
+        if self.state_handler.is_starting():  # postgresql still starting up is unhealthy
+            return False
+
         if self.state_handler.is_leader():  # leader is always the healthiest
             return True
 
@@ -425,18 +468,45 @@ class Ha(object):
 
         return self._is_healthiest_node(members.values())
 
-    def demote(self, delete_leader=True):
-        if delete_leader:
-            self.state_handler.stop()
+    def release_leader_key_voluntarily(self):
+        self.dcs.delete_leader()
+        self.touch_member()
+        self.dcs.reset_cluster()
+        logger.info("Leader key released")
+
+    def demote(self, mode):
+        """Demote PostgreSQL running as master.
+
+        :param mode: One of offline, graceful or immediate.
+            offline is used when connection to DCS is not available.
+            graceful is used when failing over to another node due to user request. May only be called running async.
+            immediate is used when we determine that we are not suitable for master and want to failover quickly
+                without regard for data durability. May only be called synchronously.
+        """
+        assert mode in ['offline', 'graceful', 'immediate']
+        if mode != 'offline':
+            if mode == 'immediate':
+                self.state_handler.stop('immediate', checkpoint=False)
+            else:
+                self.state_handler.stop()
             self.state_handler.set_role('demoted')
-            self.dcs.delete_leader()
-            self.dcs.reset_cluster()
+            self.release_leader_key_voluntarily()
             sleep(2)  # Give a time to somebody to take the leader lock
             cluster = self.dcs.get_cluster()
             node_to_follow = self._get_node_to_follow(cluster)
-            self.state_handler.follow(node_to_follow, cluster.leader, recovery=True, need_rewind=True)
+            if mode == 'immediate':
+                # We will try to start up as a standby now. If no one takes the leader lock before we finish
+                # recovery we will try to promote ourselves.
+                self._async_executor.schedule('waiting for failover to complete')
+                self._async_executor.run_async(self.state_handler.follow,
+                                               (node_to_follow, cluster.leader, True, None, True))
+            else:
+                self.state_handler.follow(node_to_follow, cluster.leader, recovery=True, need_rewind=True)
         else:
-            self.state_handler.follow(None, None)
+            # Need to become unavailable as soon as possible, so initiate a stop here. However as we can't release
+            # the leader key we don't care about confirming the shutdown quickly and can use a regular stop.
+            self.state_handler.stop(checkpoint=False)
+            self.state_handler.follow(None, None, recovery=True)
 
     def should_run_scheduled_action(self, action_name, scheduled_at, cleanup_fn):
         if scheduled_at and not self.is_paused():
@@ -455,6 +525,9 @@ class Ha(object):
                                 action_name, scheduled_at.isoformat(), delta)
                     return False
                 elif delta < - int(self.dcs.loop_wait * 1.5):
+                    # This means that if run_cycle gets delayed for 2.5x loop_wait we skip the
+                    # scheduled action. Probably not a problem, if things are that bad we don't
+                    # want to be restarting or failing over anyway.
                     logger.warning('Found a stale %s value, cleaning up: %s',
                                    action_name, scheduled_at.isoformat())
                     cleanup_fn()
@@ -470,7 +543,14 @@ class Ha(object):
         return False
 
     def process_manual_failover_from_leader(self):
+        """Checks if manual failover is requested and takes action if appropriate.
+
+        Cleans up failover key if failover conditions are not matched.
+
+        :returns: action message if demote was initiated, None if no action was taken"""
         failover = self.cluster.failover
+        if not failover or (self.is_paused() and not self.state_handler.is_leader()):
+            return
 
         if (failover.scheduled_at and not
             self.should_run_scheduled_action("failover", failover.scheduled_at, lambda:
@@ -486,7 +566,7 @@ class Ha(object):
                                if not failover.candidate or m.name == failover.candidate]
                     if self.is_failover_possible(members):  # check that there are healthy members
                         self._async_executor.schedule('manual failover: demote')
-                        self._async_executor.run_async(self.demote)
+                        self._async_executor.run_async(self.demote, ('graceful',))
                         return 'manual failover: demoting myself'
                     else:
                         logger.warning('manual failover: no healthy members found, failover is not possible')
@@ -535,10 +615,9 @@ class Ha(object):
 
     def process_healthy_cluster(self):
         if self.has_lock():
-            if self.cluster.failover and (not self.is_paused() or self.state_handler.is_leader()):
-                msg = self.process_manual_failover_from_leader()
-                if msg is not None:
-                    return msg
+            msg = self.process_manual_failover_from_leader()
+            if msg is not None:
+                return msg
 
             if self.is_paused() and not self.state_handler.is_leader():
                 if self.cluster.failover and self.cluster.failover.candidate == self.state_handler.name:
@@ -554,7 +633,7 @@ class Ha(object):
             else:
                 # Either there is no connection to DCS or someone else acquired the lock
                 logger.error('failed to update leader lock')
-                self.demote(delete_leader=False)
+                self.demote('offline')
                 return 'demoted self because failed to update leader lock in DCS'
         else:
             logger.info('does not have lock')
@@ -606,6 +685,7 @@ class Ha(object):
 
     def schedule_future_restart(self, restart_data):
         with self._async_executor:
+            restart_data['postmaster_start_time'] = self.state_handler.postmaster_start_time()
             if not self.patroni.scheduled_restart:
                 self.patroni.scheduled_restart = restart_data
                 self.touch_member()
@@ -628,10 +708,11 @@ class Ha(object):
     def restart_scheduled(self):
         return self._async_executor.scheduled_action == 'restart'
 
-    def restart(self, restart_data=None, run_async=False):
+    def restart(self, restart_data, run_async=False):
         """ conditional and unconditional restart """
-        if (restart_data and isinstance(restart_data, dict) and
-            not self.restart_matches(restart_data.get('role'),
+        assert isinstance(restart_data, dict)
+
+        if (not self.restart_matches(restart_data.get('role'),
                                      restart_data.get('postgres_version'),
                                      ('restart_pending' in restart_data))):
             return (False, "restart conditions are not satisfied")
@@ -641,7 +722,13 @@ class Ha(object):
             if prev is not None:
                 return (False, prev + ' already in progress')
 
-        do_restart = self.state_handler.restart
+        # No that restart is scheduled we can set timeout for startup, it will get reset once async executor runs and
+        # main loop notices PostgreSQL as up.
+        timeout = restart_data.get('timeout', self.patroni.config['master_start_timeout'])
+        self.set_start_timeout(timeout)
+
+        # For non async cases we want to wait for restart to complete or timeout before returning.
+        do_restart = functools.partial(self.state_handler.restart, timeout)
         if self.is_synchronous_mode() and not self.has_lock():
             do_restart = functools.partial(self.while_not_sync_standby, do_restart)
 
@@ -704,6 +791,49 @@ class Ha(object):
             return 'failed to start postgres'
         return None
 
+    def handle_starting_instance(self):
+        """Starting up PostgreSQL may take a long time. In case we are the leader we may want to
+        fail over to."""
+
+        # Check if we are in startup, when paused defer to main loop for manual failovers.
+        if not self.state_handler.check_for_startup() or self.is_paused():
+            self.set_start_timeout(None)
+            return None
+
+        # state_handler.state == 'starting' here
+        if self.has_lock():
+            if not self.update_lock():
+                logger.info("Lost lock while starting up. Demoting self.")
+                self.demote('immediate')
+                return 'stopped PostgreSQL while starting up because leader key was lost'
+
+            timeout = self._start_timeout or self.patroni.config['master_start_timeout']
+            time_left = timeout - self.state_handler.time_in_state()
+
+            if time_left <= 0:
+                if self.is_failover_possible(self.cluster.members):
+                    logger.info("Demoting self because master startup is taking too long")
+                    self.demote('immediate')
+                    return 'stopped PostgreSQL because of startup timeout'
+                else:
+                    return 'master start has timed out, but continuing to wait because failover is not possible'
+            else:
+                msg = self.process_manual_failover_from_leader()
+                if msg is not None:
+                    return msg
+
+                return 'PostgreSQL is still starting up, {0:.0f} seconds until timeout'.format(time_left)
+        else:
+            # Use normal processing for standbys
+            logger.info("Still starting up as a standby.")
+            return None
+
+    def set_start_timeout(self, value):
+        """Sets timeout for starting as master before eligible for failover.
+
+        Must be called when async_executor is busy or in the main thread."""
+        self._start_timeout = value
+
     def _run_cycle(self):
         dcs_failed = False
         try:
@@ -722,6 +852,10 @@ class Ha(object):
 
             if self._async_executor.busy:
                 return self.handle_long_action_in_progress()
+
+            msg = self.handle_starting_instance()
+            if msg is not None:
+                return msg
 
             # we've got here, so any async action has finished. Check if we tried to recover and failed
             if self.recovering and not self.state_handler.need_rewind:
@@ -767,7 +901,7 @@ class Ha(object):
                 # we might not have a valid PostgreSQL connection here if another thread
                 # stops PostgreSQL, therefore, we only reload replication slots if no
                 # asynchronous processes are running (should be always the case for the master)
-                if not self._async_executor.busy:
+                if not self._async_executor.busy and not self.state_handler.is_starting():
                     if not self.state_handler.cb_called:
                         self.state_handler.call_nowait(ACTION_ON_START)
                     self.state_handler.sync_replication_slots(self.cluster)
@@ -775,7 +909,7 @@ class Ha(object):
             dcs_failed = True
             logger.error('Error communicating with DCS')
             if not self.is_paused() and self.state_handler.is_running() and self.state_handler.is_leader():
-                self.demote(delete_leader=False)
+                self.demote('offline')
                 return 'demoted self because DCS is not accessible and i was a leader'
             return 'DCS is not accessible'
         except (psycopg2.Error, PostgresConnectionException):
