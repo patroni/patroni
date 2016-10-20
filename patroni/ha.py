@@ -684,6 +684,7 @@ class Ha(object):
 
     def schedule_future_restart(self, restart_data):
         with self._async_executor:
+            restart_data['postmaster_start_time'] = self.state_handler.postmaster_start_time()
             if not self.patroni.scheduled_restart:
                 self.patroni.scheduled_restart = restart_data
                 self.touch_member()

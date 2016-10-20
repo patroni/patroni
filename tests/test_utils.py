@@ -25,6 +25,7 @@ class TestUtils(unittest.TestCase):
     def test_polling_loop(self):
         self.assertEquals(list(polling_loop(0.001, interval=0.001)), [0])
 
+
 @patch('time.sleep', Mock())
 class TestRetrySleeper(unittest.TestCase):
 

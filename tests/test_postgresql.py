@@ -11,6 +11,7 @@ from patroni.exceptions import PostgresException, PostgresConnectionException
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
 from patroni.utils import RetryFailedError
 from six.moves import builtins
+from threading import Thread
 
 
 class MockCursor(object):
@@ -229,11 +230,13 @@ class TestPostgresql(unittest.TestCase):
         self.assertFalse(self.p.wait_for_port_open(1, 100., 101.))
 
         # Garbage pid
-        mock_read_pid_file.return_value = {'pid': 'garbage', 'start_time': '101', 'data_dir': '', 'socket_dir': '', 'port': ''}
+        mock_read_pid_file.return_value = {'pid': 'garbage', 'start_time': '101',
+                                           'data_dir': '', 'socket_dir': '', 'port': ''}
         self.assertFalse(self.p.wait_for_port_open(1, 100., 101.))
 
         # Not ready
-        mock_read_pid_file.return_value = {'pid': '42', 'start_time': '101', 'data_dir': '', 'socket_dir': '', 'port': ''}
+        mock_read_pid_file.return_value = {'pid': '42', 'start_time': '101',
+                                           'data_dir': '', 'socket_dir': '', 'port': ''}
         self.assertFalse(self.p.wait_for_port_open(1, 100., 101.))
 
         # Socket opened
@@ -378,8 +381,11 @@ class TestPostgresql(unittest.TestCase):
         self.assertRaises(PostgresConnectionException, self.p.query, 'RetryFailedError')
         self.assertRaises(psycopg2.OperationalError, self.p.query, 'blabla')
 
+    @patch.object(Postgresql, 'pg_isready', Mock(return_value=STATE_REJECT))
     def test_is_leader(self):
         self.assertTrue(self.p.is_leader())
+        with patch.object(Postgresql, '_query', Mock(side_effect=RetryFailedError(''))):
+            self.assertRaises(PostgresConnectionException, self.p.is_leader)
 
     def test_reload(self):
         self.assertTrue(self.p.reload())
@@ -398,6 +404,7 @@ class TestPostgresql(unittest.TestCase):
 
     def test_last_operation(self):
         self.assertEquals(self.p.last_operation(), '0')
+        Thread(target=self.p.last_operation).start()
 
     @patch('os.path.isfile', Mock(return_value=True))
     @patch('os.kill', Mock(side_effect=Exception))
@@ -623,11 +630,6 @@ class TestPostgresql(unittest.TestCase):
             self.assertFalse(self.p.check_for_startup())
             self.assertEquals(self.p.state, 'start failed')
 
-        with patch('subprocess.call', return_value=1):
-            self.p._state = 'running'
-            self.assertTrue(self.p.check_for_startup())
-            self.assertEquals(self.p.state, 'starting')
-
         with patch('subprocess.call', return_value=0):
             self.p._state = 'running'
             self.assertFalse(self.p.check_for_startup())
@@ -640,13 +642,16 @@ class TestPostgresql(unittest.TestCase):
 
     def test_wait_for_startup(self):
         state = {'sleeps': 0, 'num_rejects': 0, 'final_return': 0}
+
         def increment_sleeps(*args):
             print("Sleep")
             state['sleeps'] += 1
+
         def isready_return(*args):
             ret = 1 if state['sleeps'] < state['num_rejects'] else state['final_return']
-            print("Isready {} {}".format(ret,state))
+            print("Isready {0} {1}".format(ret, state))
             return ret
+
         def time_in_state(*args):
             return state['sleeps']
 

@@ -53,6 +53,7 @@ def get_cluster_initialized_with_only_leader(failover=None):
     l = get_cluster_initialized_without_leader(leader=True, failover=failover).leader
     return get_cluster(True, l, [l], failover, None)
 
+
 def get_node_status(reachable=True, in_recovery=True, xlog_location=10, nofailover=False):
     def fetch_node_status(e):
         tags = {}
@@ -546,7 +547,8 @@ class TestHa(unittest.TestCase):
 
         self.p.time_in_state = lambda: 350
         self.ha.fetch_node_status = get_node_status(reachable=False)  # inaccessible, in_recovery
-        self.assertEquals(self.ha.run_cycle(), 'master start has timed out, but continuing to wait because failover is not possible')
+        self.assertEquals(self.ha.run_cycle(),
+                          'master start has timed out, but continuing to wait because failover is not possible')
         check_calls([(update_lock, True), (demote, False)])
 
         self.ha.fetch_node_status = get_node_status()  # accessible, in_recovery
