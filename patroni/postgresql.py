@@ -523,6 +523,7 @@ class Postgresql(object):
 
     def is_running(self):
         if not (self._version_file_exists() and os.path.isfile(self._postmaster_pid)):
+            # XXX: This is dangerous in case somebody deletes the data directory while PostgreSQL is still running.
             return False
         try:
             with open(self._postmaster_pid) as f:

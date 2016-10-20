@@ -10,7 +10,7 @@ from threading import RLock
 
 from multiprocessing.pool import ThreadPool
 from patroni.async_executor import AsyncExecutor
-from patroni.exceptions import DCSError, PostgresConnectionException
+from patroni.exceptions import DCSError, PostgresConnectionException, WatchdogError
 from patroni.postgresql import ACTION_ON_START
 from patroni.utils import polling_loop, sleep
 
@@ -27,6 +27,7 @@ class Ha(object):
         self.old_cluster = None
         self.recovering = False
         self._async_executor = AsyncExecutor()
+        self.watchdog = patroni.watchdog
 
         # Each member publishes various pieces of information to the DCS using touch_member. This lock protects
         # the state and publishing procedure to have consistent ordering and avoid publishing stale values.
@@ -782,8 +783,28 @@ class Ha(object):
         finally:
             if not dcs_failed:
                 self.touch_member()
+            self.watchdog.keepalive()
 
     def run_cycle(self):
         with self._async_executor:
             info = self._run_cycle()
             return (self.is_paused() and 'PAUSE: ' or '') + info
+
+    def start(self):
+        self.watchdog.activate()
+
+    def shutdown(self):
+        if self.is_paused():
+            logger.info('Leader key is not deleted and Postgresql is not stopped due paused state')
+        else:
+            self.while_not_sync_standby(lambda: self.state_handler.stop(checkpoint=False))
+            if not self.state_handler.is_running():
+                self.dcs.delete_leader()
+                self.watchdog.disable()
+            else:
+                # XXX: what about when Patroni is started as the wrong user that has access to the watchdog device
+                # but cannot shut down PostgreSQL. Root would be the obvious example. Would be nice to not kill the
+                # system due to a bad config.
+                logger.error("PostgreSQL shutdown failed, leader key not removed."
+                    + (" Leaving watchdog running." if self.watchdog.is_running else "")
+                    )

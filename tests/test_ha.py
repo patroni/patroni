@@ -11,6 +11,7 @@ from patroni.dcs.etcd import Client
 from patroni.exceptions import DCSError, PostgresException
 from patroni.ha import Ha
 from patroni.postgresql import Postgresql
+from patroni.watchdog import Watchdog
 from test_etcd import socket_getaddrinfo, etcd_read, etcd_write, requests_get
 from test_postgresql import psycopg2_connect
 
@@ -75,6 +76,8 @@ postgresql:
   pg_rewind:
     username: postgres
     password: postgres
+watchdog:
+  mode: off
 zookeeper:
   exhibitor:
     hosts: [localhost]
@@ -92,6 +95,7 @@ zookeeper:
         self.nosync = False
         self.scheduled_restart = {'schedule': future_restart_time,
                                   'postmaster_start_time': str(postmaster_start_time)}
+        self.watchdog = Watchdog(self.config)
 
 
 def run_async(self, func, args=()):

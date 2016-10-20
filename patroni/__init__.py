@@ -11,6 +11,7 @@ from patroni.ha import Ha
 from patroni.postgresql import Postgresql
 from patroni.utils import reap_children, sigchld_handler
 from patroni.version import __version__
+from patroni.watchdog import Watchdog
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ class Patroni(object):
 
         self.postgresql = Postgresql(self.config['postgresql'])
         self.api = RestApiServer(self, self.config['restapi'])
+        self.watchdog = Watchdog(self.config)
         self.ha = Ha(self)
 
         self.tags = self.get_tags()
@@ -98,6 +100,7 @@ class Patroni(object):
             self.next_run = time.time()
 
     def run(self):
+        self.ha.start()
         self.api.start()
         self.next_run = time.time()
 
@@ -128,6 +131,9 @@ class Patroni(object):
         signal.signal(signal.SIGTERM, self.sigterm_handler)
         signal.signal(signal.SIGCHLD, sigchld_handler)
 
+    def shutdown(self):
+        self.api.shutdown()
+        self.ha.shutdown()
 
 def main():
     logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
@@ -139,9 +145,4 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        patroni.api.shutdown()
-        if patroni.ha.is_paused():
-            logger.info('Leader key is not deleted and Postgresql is not stopped due paused state')
-        else:
-            patroni.ha.while_not_sync_standby(lambda: patroni.postgresql.stop(checkpoint=False))
-            patroni.dcs.delete_leader()
+        patroni.shutdown()

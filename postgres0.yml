@@ -75,6 +75,11 @@ postgresql:
       password: zalando
   parameters:
     unix_socket_directories: '.'
+
+#watchdog:
+#  mode: automatic # Allowed values: off, automatic, required
+#  device: /dev/watchdog
+
 tags:
     nofailover: false
     noloadbalance: false
