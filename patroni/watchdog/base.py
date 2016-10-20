@@ -94,15 +94,21 @@ class Watchdog(object):
                 sys.exit(1)
 
     def disable(self):
-        if self.impl.is_running and not self.impl.can_be_disabled:
-            # Give sysadmin some extra time to clean stuff up.
-            self.impl.keepalive()
-            logger.warning(("Watchdog implementation can't be disabled. System will reboot after "
-                "{0} seconds when watchdog times out.").format(self.impl.get_timeout()))
-        self.impl.close()
+        try:
+            if self.impl.is_running and not self.impl.can_be_disabled:
+                # Give sysadmin some extra time to clean stuff up.
+                self.impl.keepalive()
+                logger.warning("Watchdog implementation can't be disabled. System will reboot after "
+                               "{0} seconds when watchdog times out.".format(self.impl.get_timeout()))
+            self.impl.close()
+        except WatchdogError as e:
+            logger.error("Error while disabling watchdog: %s", e)
 
     def keepalive(self):
-        self.impl.keepalive()
+        try:
+            self.impl.keepalive()
+        except WatchdogError as e:
+            logger.error("Error while disabling watchdog: %s", e)
 
     def _get_impl(self):
         if self.mode not in ['automatic', 'required', 'require']:
