@@ -3,7 +3,7 @@ import sys
 import time
 import unittest
 
-from mock import Mock, patch
+from mock import Mock, PropertyMock, patch
 from patroni.api import RestApiServer
 from patroni.async_executor import AsyncExecutor
 from patroni.dcs.etcd import Client
@@ -66,6 +66,7 @@ class TestPatroni(unittest.TestCase):
 
     @patch('patroni.config.Config.save_cache', Mock())
     @patch('patroni.config.Config.reload_local_configuration', Mock(return_value=True))
+    @patch.object(Postgresql, 'state', PropertyMock(return_value='running'))
     def test_run(self):
         self.p.sighup_handler()
         self.p.ha.dcs.watch = Mock(side_effect=SleepException)
@@ -105,3 +106,9 @@ class TestPatroni(unittest.TestCase):
         self.p.reload_config()
         self.p.get_tags = Mock(side_effect=Exception)
         self.p.reload_config()
+
+    def test_nosync(self):
+        self.p.tags['nosync'] = True
+        self.assertTrue(self.p.nosync)
+        self.p.tags['nosync'] = None
+        self.assertFalse(self.p.nosync)

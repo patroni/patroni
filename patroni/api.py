@@ -57,7 +57,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     def _write_status_response(self, status_code, response):
         patroni = self.server.patroni
-        response.update({'tags': patroni.tags} if patroni.tags else {})
+        tags = patroni.ha.get_effective_tags()
+        if tags:
+            response['tags'] = tags
         if patroni.postgresql.sysid:
             response['database_system_identifier'] = patroni.postgresql.sysid
         if patroni.postgresql.pending_restart:
@@ -240,7 +242,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     logger.exception('Exception during restart')
                     status_code = 400
             else:
-                request['postmaster_start_time'] = self.server.patroni.ha.state_handler.postmaster_start_time()
                 if self.server.patroni.ha.schedule_future_restart(request):
                     data = "Restart scheduled"
                     status_code = 202
@@ -383,7 +384,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
                                             THEN 0
                                             ELSE pg_xlog_location_diff(pg_current_xlog_location(), '0/0')::bigint
                                        END,
-                                       pg_xlog_location_diff(pg_last_xlog_receive_location(), '0/0')::bigint,
+                                       pg_xlog_location_diff(COALESCE(pg_last_xlog_receive_location(),
+                                                                      pg_last_xlog_replay_location()), '0/0')::bigint,
                                        pg_xlog_location_diff(pg_last_xlog_replay_location(), '0/0')::bigint,
                                        to_char(pg_last_xact_replay_timestamp(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),
                                        pg_is_in_recovery() AND pg_is_xlog_replay_paused(),

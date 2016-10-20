@@ -91,6 +91,8 @@ def etcd_read(self, key, **kwargs):
                     {"key": "/service/batman5/optime/leader", "value": "2164261704",
                      "modifiedIndex": 20729, "createdIndex": 20729}],
                  "modifiedIndex": 20437, "createdIndex": 20437},
+                {"key": "/service/batman5/sync", "value": '{"leader": "leader"}',
+                 "modifiedIndex": 1582, "createdIndex": 1582},
                 {"key": "/service/batman5/members", "dir": True, "nodes": [
                     {"key": "/service/batman5/members/postgresql1",
                      "value": "postgres://replicator:rep-pass@127.0.0.1:5434/postgres" +
@@ -283,3 +285,7 @@ class TestEtcd(unittest.TestCase):
     def test_set_ttl(self):
         self.etcd.set_ttl(20)
         self.assertTrue(self.etcd.watch(1))
+
+    def test_sync_state(self):
+        self.assertFalse(self.etcd.write_sync_state('leader', None))
+        self.assertFalse(self.etcd.delete_sync_state())

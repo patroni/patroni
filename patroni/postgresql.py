@@ -1,4 +1,3 @@
-from collections import defaultdict
 import logging
 import os
 import psycopg2
@@ -9,10 +8,11 @@ import subprocess
 import tempfile
 import time
 
+from collections import defaultdict
 from patroni.exceptions import PostgresConnectionException, PostgresException
 from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop
 from six import string_types
-from threading import Lock
+from threading import current_thread, Lock
 
 logger = logging.getLogger(__name__)
 
@@ -85,9 +85,11 @@ class Postgresql(object):
         self._database = config.get('database', 'postgres')
         self._data_dir = config['data_dir']
         self._pending_restart = False
+        self.__thread_ident = current_thread().ident
 
         self._version_file = os.path.join(self._data_dir, 'PG_VERSION')
         self._major_version = self.get_major_version()
+        self._synchronous_standby_names = None
         self._server_parameters = self.get_server_parameters(config)
 
         self._connect_address = config.get('connect_address')
@@ -117,6 +119,10 @@ class Postgresql(object):
         self._replication_slots = []  # list of already existing replication slots
         self.retry = Retry(max_tries=-1, deadline=config['retry_timeout']/2.0, max_delay=1,
                            retry_exceptions=PostgresConnectionException)
+
+        # Retry 'pg_is_in_recovery()' only once
+        self._is_leader_retry = Retry(max_tries=1, deadline=config['retry_timeout']/2.0, max_delay=1,
+                                      retry_exceptions=PostgresConnectionException)
 
         self._state_lock = Lock()
         self.set_state('stopped')
@@ -163,6 +169,11 @@ class Postgresql(object):
         parameters = config['parameters'].copy()
         listen_addresses, port = (config['listen'] + ':5432').split(':')[:2]
         parameters.update({'cluster_name': self.scope, 'listen_addresses': listen_addresses, 'port': port})
+        if config.get('synchronous_mode', False):
+            if self._synchronous_standby_names is None:
+                parameters.pop('synchronous_standby_names', None)
+            else:
+                parameters['synchronous_standby_names'] = self._synchronous_standby_names
         return {k: v for k, v in parameters.items() if not self._major_version or
                 self._major_version >= self.CMDLINE_OPTIONS.get(k, (0, 1, 9.1))[2]}
 
@@ -215,7 +226,7 @@ class Postgresql(object):
         server_parameters = self.get_server_parameters(config)
 
         listen_address_changed = pending_reload = pending_restart = False
-        if self.is_healthy():
+        if self.state == 'running':
             changes = {p: v for p, v in server_parameters.items() if '.' not in p}
             changes.update({p: None for p, v in self._server_parameters.items() if not ('.' in p or p in changes)})
             if changes:
@@ -270,7 +281,7 @@ class Postgresql(object):
         if pending_reload:
             self._write_postgresql_conf()
             self.reload()
-        self.retry.deadline = config['retry_timeout']/2.0
+        self._is_leader_retry.deadline = self.retry.deadline = config['retry_timeout']/2.0
 
     @property
     def pending_restart(self):
@@ -354,6 +365,9 @@ class Postgresql(object):
         self._cursor_holder = self._connection = None
 
     def _query(self, sql, *params):
+        """We are always using the same cursor, therefore this method is not thread-safe!!!
+        You can call it from different threads only if you are holding explicit `AsyncExecutor` lock,
+        because the main thread is always holding this lock when running HA cycle."""
         cursor = None
         try:
             cursor = self._cursor()
@@ -432,6 +446,9 @@ class Postgresql(object):
                 connstring = 'postgres://{user}@{host}:{port}/{database}'.format(**r)
             else:
                 connstring = 'postgres://{host}:{port}/{database}'.format(**r)
+                if 'password' in r:
+                    import getpass
+                    r.setdefault('user', os.environ.get('PGUSER', getpass.getuser()))
 
             env = self.write_pgpass(r) if 'password' in r else None
             try:
@@ -541,7 +558,12 @@ class Postgresql(object):
         return ret
 
     def is_leader(self):
-        return not self.query('SELECT pg_is_in_recovery()').fetchone()[0]
+        try:
+            return not self._is_leader_retry(self._query, 'SELECT pg_is_in_recovery()').fetchone()[0]
+        except RetryFailedError as e:  # SELECT pg_is_in_recovery() failed two times
+            if not self.is_starting() and self.pg_isready() == STATE_REJECT:
+                self.set_state('starting')
+            raise PostgresConnectionException(str(e))
 
     def is_running(self):
         if not (self._version_file_exists() and os.path.isfile(self._postmaster_pid)):
@@ -752,17 +774,7 @@ class Postgresql(object):
 
     def check_for_startup(self):
         """Checks PostgreSQL status and returns if PostgreSQL is in the middle of startup."""
-        if self.is_starting():
-            return not self.check_startup_state_changed()
-        else:
-            ready = self.pg_isready()
-            if ready == STATE_REJECT:
-                # Maybe add a ACTION_ON_FAIL here?
-                self.set_state('starting')
-                return True
-            else:
-                # Other cases will be handled by is_healthy check
-                return False
+        return self.is_starting() and not self.check_startup_state_changed()
 
     def check_startup_state_changed(self):
         """Checks if PostgreSQL has completed starting up or failed or still starting.
@@ -1090,10 +1102,19 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
     def xlog_position(self, retry=True):
         stmt = """SELECT pg_xlog_location_diff(CASE WHEN pg_is_in_recovery()
-                                                    THEN pg_last_xlog_receive_location()
+                                                    THEN COALESCE(pg_last_xlog_receive_location(),
+                                                                  pg_last_xlog_replay_location())
                                                     ELSE pg_current_xlog_location()
                                                END, '0/0')::bigint"""
-        return (self.query(stmt) if retry else self._query(stmt)).fetchone()[0]
+
+        # This method could be called from different threads (simultaneously with some other `_query` calls).
+        # If it is called not from main thread we will create a new cursor to execute statement.
+        if current_thread().ident == self.__thread_ident:
+            return (self.query(stmt) if retry else self._query(stmt)).fetchone()[0]
+
+        with self.connection().cursor() as cursor:
+            cursor.execute(stmt)
+            return cursor.fetchone()[0]
 
     def load_replication_slots(self):
         if self.use_slots and self._schedule_load_slots:
@@ -1235,6 +1256,49 @@ $$""".format(name, ' '.join(options)), name, password, password)
                 time.sleep(5)
 
         return ret
+
+    def pick_synchronous_standby(self, cluster):
+        """Finds the best candidate to be the synchronous standby.
+
+        Current synchronous standby is always preferred, unless it has disconnected or does not want to be a
+        synchronous standby any longer.
+
+        :returns tuple of candidate name or None, and bool showing if the member is the active synchronous standby.
+        """
+        current = cluster.sync.sync_standby
+        members = {m.name: m for m in cluster.members}
+        candidates = []
+        # Pick candidates based on who has flushed WAL farthest.
+        # TODO: for synchronous_commit = remote_write we actually want to order on write_location
+        for app_name, state, sync_state in self.query(
+                """SELECT application_name, state, sync_state
+                     FROM pg_stat_replication
+                    ORDER BY flush_location DESC"""):
+            member = members.get(app_name)
+            if state != 'streaming' or not member or member.tags.get('nosync', False):
+                continue
+            if sync_state == 'sync':
+                return app_name, True
+            if sync_state == 'potential' and app_name == current:
+                # Prefer current even if not the best one any more to avoid indecisivness and spurious swaps.
+                return current, False
+            if sync_state == 'async':
+                candidates.append(app_name)
+
+        if candidates:
+            return candidates[0], False
+        return None, False
+
+    def set_synchronous_standby(self, name):
+        """Sets a node to be synchronous standby and if changed does a reload for PostgreSQL."""
+        if name != self._synchronous_standby_names:
+            if name is None:
+                self._server_parameters.pop('synchronous_standby_names', None)
+            else:
+                self._server_parameters['synchronous_standby_names'] = name
+            self._synchronous_standby_names = name
+            self._write_postgresql_conf()
+            self.reload()
 
     @staticmethod
     def postgres_version_to_int(pg_version):

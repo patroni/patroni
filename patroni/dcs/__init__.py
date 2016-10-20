@@ -230,7 +230,59 @@ class ClusterConfig(namedtuple('ClusterConfig', 'index,data,modify_index')):
         return ClusterConfig(index, data, modify_index or index)
 
 
-class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operation,members,failover')):
+class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
+    """Immutable object (namedtuple) which represents last observed synhcronous replication state
+
+    :param index: modification index of a synchronization key in a Configuration Store
+    :param leader: reference to member that was leader
+    :param sync_standby: standby that was last synchronized to leader
+    """
+
+    @staticmethod
+    def from_node(index, value):
+        """
+        >>> SyncState.from_node(1, None).leader is None
+        True
+        >>> SyncState.from_node(1, '{}').leader is None
+        True
+        >>> SyncState.from_node(1, '{').leader is None
+        True
+        >>> SyncState.from_node(1, '[]').leader is None
+        True
+        >>> SyncState.from_node(1, '{"leader": "leader"}').leader == "leader"
+        True
+        """
+        if value:
+            try:
+                data = json.loads(value)
+                if not isinstance(data, dict):
+                    data = {}
+            except (TypeError, ValueError):
+                data = {}
+        else:
+            data = {}
+        return SyncState(index, data.get('leader'), data.get('sync_standby'))
+
+    def matches(self, name):
+        """
+        Returns if a node name matches one of the nodes in the sync state
+
+        >>> s = SyncState(1, 'foo', 'bar')
+        >>> s.matches('foo')
+        True
+        >>> s.matches('bar')
+        True
+        >>> s.matches('baz')
+        False
+        >>> s.matches(None)
+        False
+        >>> SyncState(1, None, None).matches('foo')
+        False
+        """
+        return name is not None and name in (self.leader, self.sync_standby)
+
+
+class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operation,members,failover,sync')):
 
     """Immutable object (namedtuple) which represents PostgreSQL cluster.
     Consists of the following fields:
@@ -240,7 +292,9 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
     :param last_leader_operation: int or long object containing position of last known leader operation.
         This value is stored in `/optime/leader` key
     :param members: list of Member object, all PostgreSQL cluster members including leader
-    :param failover: reference to `Failover` object"""
+    :param failover: reference to `Failover` object
+    :param sync: reference to `SyncState` object, last observed synchronous replication state.
+    """
 
     def is_unlocked(self):
         return not (self.leader and self.leader.name)
@@ -270,6 +324,7 @@ class AbstractDCS(object):
     _MEMBERS = 'members/'
     _OPTIME = 'optime'
     _LEADER_OPTIME = _OPTIME + '/' + _LEADER
+    _SYNC = 'sync'
 
     def __init__(self, config):
         """
@@ -317,6 +372,10 @@ class AbstractDCS(object):
     @property
     def leader_optime_path(self):
         return self.client_path(self._LEADER_OPTIME)
+
+    @property
+    def sync_path(self):
+        return self.client_path(self._SYNC)
 
     @abc.abstractmethod
     def set_ttl(self, ttl):
@@ -460,6 +519,17 @@ class AbstractDCS(object):
     @abc.abstractmethod
     def delete_cluster(self):
         """Delete cluster from DCS"""
+
+    def write_sync_state(self, leader, sync_standby, index=None):
+        return self.set_sync_state_value(json.dumps({'leader': leader, 'sync_standby': sync_standby}), index=index)
+
+    @abc.abstractmethod
+    def set_sync_state_value(self, value, index=None):
+        """"""
+
+    @abc.abstractmethod
+    def delete_sync_state(self, index=None):
+        """"""
 
     def watch(self, timeout):
         """If the current node is a master it should just sleep.

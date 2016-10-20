@@ -1,4 +1,4 @@
-from collections import namedtuple
+import functools
 import json
 import logging
 import psycopg2
@@ -7,11 +7,13 @@ import sys
 import datetime
 import pytz
 
+from collections import namedtuple
 from multiprocessing.pool import ThreadPool
 from patroni.async_executor import AsyncExecutor
 from patroni.exceptions import DCSError, PostgresConnectionException
 from patroni.postgresql import ACTION_ON_START
-from patroni.utils import sleep
+from patroni.utils import polling_loop, sleep
+from threading import RLock
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +59,13 @@ class Ha(object):
         self._start_timeout = None
         self._async_executor = AsyncExecutor()
 
+        # Each member publishes various pieces of information to the DCS using touch_member. This lock protects
+        # the state and publishing procedure to have consistent ordering and avoid publishing stale values.
+        self._member_state_lock = RLock()
+        # Count of concurrent sync disabling requests. Value above zero means that we don't want to be synchronous
+        # standby. Changes protected by _member_state_lock.
+        self._disable_sync = 0
+
     def is_paused(self):
         return self.cluster and self.cluster.is_paused()
 
@@ -85,28 +94,38 @@ class Ha(object):
         logger.info('Lock owner: %s; I am %s', lock_owner, self.state_handler.name)
         return lock_owner == self.state_handler.name
 
-    def touch_member(self):
-        data = {
-            'conn_url': self.state_handler.connection_string,
-            'api_url': self.patroni.api.connection_string,
-            'state': self.state_handler.state,
-            'role': self.state_handler.role
-        }
-        if self.patroni.tags:
-            data['tags'] = self.patroni.tags
-        if self.state_handler.pending_restart:
-            data['pending_restart'] = True
-        if not self._async_executor.busy and data['state'] in ['running', 'restarting', 'starting']:
-            try:
-                data['xlog_location'] = self.state_handler.xlog_position(retry=False)
-            except:
-                pass
-        if self.patroni.scheduled_restart:
-            scheduled_restart_data = self.patroni.scheduled_restart.copy()
-            scheduled_restart_data['schedule'] = scheduled_restart_data['schedule'].isoformat()
-            data['scheduled_restart'] = scheduled_restart_data
+    def get_effective_tags(self):
+        """Return configuration tags merged with dynamically applied tags."""
+        tags = self.patroni.tags.copy()
+        # _disable_sync could be modified concurrently, but we don't care as attribute get and set are atomic.
+        if self._disable_sync > 0:
+            tags['nosync'] = True
+        return tags
 
-        self.dcs.touch_member(json.dumps(data, separators=(',', ':')))
+    def touch_member(self):
+        with self._member_state_lock:
+            data = {
+                'conn_url': self.state_handler.connection_string,
+                'api_url': self.patroni.api.connection_string,
+                'state': self.state_handler.state,
+                'role': self.state_handler.role
+            }
+            tags = self.get_effective_tags()
+            if tags:
+                data['tags'] = tags
+            if self.state_handler.pending_restart:
+                data['pending_restart'] = True
+            if not self._async_executor.busy and data['state'] in ['running', 'restarting', 'starting']:
+                try:
+                    data['xlog_location'] = self.state_handler.xlog_position(retry=False)
+                except:
+                    pass
+            if self.patroni.scheduled_restart:
+                scheduled_restart_data = self.patroni.scheduled_restart.copy()
+                scheduled_restart_data['schedule'] = scheduled_restart_data['schedule'].isoformat()
+                data['scheduled_restart'] = scheduled_restart_data
+
+            return self.dcs.touch_member(json.dumps(data, separators=(',', ':')))
 
     def clone(self, clone_member=None, msg='(without leader)'):
         if self.state_handler.clone(clone_member):
@@ -197,13 +216,106 @@ class Ha(object):
 
         return ret
 
+    def is_synchronous_mode(self):
+        return bool(self.cluster and self.cluster.config and self.cluster.config.data.get('synchronous_mode'))
+
+    def process_sync_replication(self):
+        """Process synchronous standby beahvior.
+
+        Synchronous standbys are registered in two places postgresql.conf and DCS. The order of updating them must
+        be right. The invariant that should be kept is that if a node is master and sync_standby is set in DCS,
+        then that node must have synchronous_standby set to that value. Or more simple, first set in postgresql.conf
+        and then in DCS. When removing, first remove in DCS, then in postgresql.conf. This is so we only consider
+        promoting standbys that were guaranteed to be replicating synchronously.
+        """
+        if self.is_synchronous_mode():
+            current = self.cluster.sync.leader and self.cluster.sync.sync_standby
+            picked, allow_promote = self.state_handler.pick_synchronous_standby(self.cluster)
+            if picked != current:
+                # We need to revoke privilege from current before replacing it in the config
+                if current:
+                    logger.info("Removing synchronous privilege from %s", current)
+                    if not self.dcs.write_sync_state(self.state_handler.name, None, index=self.cluster.sync.index):
+                        logger.info('Synchronous replication key updated by someone else.')
+                        return
+                logger.info("Assigning synchronous standby status to %s", picked)
+                self.state_handler.set_synchronous_standby(picked)
+
+                if picked and not allow_promote:
+                    # Wait for PostgreSQL to enable synchronous mode and see if we can immediately set sync_standby
+                    sleep(2)
+                    picked, allow_promote = self.state_handler.pick_synchronous_standby(self.cluster)
+                if allow_promote:
+                    cluster = self.dcs.get_cluster()
+                    if cluster.sync.leader and cluster.sync.leader != self.state_handler.name:
+                        logger.info("Synchronous replication key updated by someone else")
+                        return
+                    if not self.dcs.write_sync_state(self.state_handler.name, picked, index=cluster.sync.index):
+                        logger.info("Synchronous replication key updated by someone else")
+                        return
+                    logger.info("Synchronous standby status assigned to %s", picked)
+        else:
+            if self.cluster.sync.leader and self.dcs.delete_sync_state(index=self.cluster.sync.index):
+                logger.info("Disabled synchronous replication")
+            self.state_handler.set_synchronous_standby(None)
+
+    def is_sync_standby(self, cluster):
+        return cluster.leader and cluster.sync.leader == cluster.leader.name \
+            and cluster.sync.sync_standby == self.state_handler.name
+
+    def while_not_sync_standby(self, func):
+        """Runs specified action while trying to make sure that the node is not assigned synchronous standby status.
+
+        Tags us as not allowed to be a sync standby as we are going to go away, if we currently are wait for
+        leader to notice and pick an alternative one or if the leader changes or goes away we are also free.
+
+        If the connection to DCS fails we run the action anyway, as this is only a hint.
+
+        There is a small race window where this function runs between a master picking us the sync standby and
+        publishing it to the DCS. As the window is rather tiny consequences are holding up commits for one cycle
+        period we don't worry about it here."""
+
+        if not self.is_synchronous_mode() or self.patroni.nosync:
+            return func()
+
+        with self._member_state_lock:
+            self._disable_sync += 1
+        try:
+            if self.touch_member():
+                # Master should notice the updated value during the next cycle. We will wait double that, if master
+                # hasn't noticed the value by then not disabling sync replication is not likely to matter.
+                for _ in polling_loop(timeout=self.dcs.loop_wait*2, interval=2):
+                    try:
+                        if not self.is_sync_standby(self.dcs.get_cluster()):
+                            break
+                    except DCSError:
+                        logger.warning("Could not get cluster state, skipping synchronous standby disable")
+                        break
+                    logger.info("Waiting for master to release us from synchronous standby")
+            else:
+                logger.warning("Updating member state failed, skipping synchronous standby disable")
+
+            return func()
+        finally:
+            with self._member_state_lock:
+                self._disable_sync -= 1
+
     def enforce_master_role(self, message, promote_message):
         if self.state_handler.is_leader() or self.state_handler.role == 'master':
             # Inform the state handler about its master role.
             # It may be unaware of it if postgres is promoted manually.
             self.state_handler.set_role('master')
+            self.process_sync_replication()
             return message
         else:
+            if self.is_synchronous_mode():
+                # Just set ourselves as the authoritative source of truth for now. We don't want to wait for standbys
+                # to connect. We will try finding a synchronous standby in the next cycle.
+                if not self.dcs.write_sync_state(self.state_handler.name, None, index=self.cluster.sync.index):
+                    # Somebody else updated sync state, it may be due to us losing the lock. To be safe, postpone
+                    # promotion until next cycle. TODO: trigger immediate retry of run_cycle
+                    return 'Postponing promotion because synchronous replication state was updated by somebody else'
+                self.state_handler.set_synchronous_standby(None)
             self.state_handler.promote()
             return promote_message
 
@@ -342,8 +454,17 @@ class Ha(object):
         if self.cluster.failover:
             return self.manual_failover_process_no_leader()
 
-        # run usual health check
-        members = {m.name: m for m in self.cluster.members + self.old_cluster.members}
+        # When in sync mode, only last known master and sync standby are allowed to promote automatically.
+        all_known_members = self.cluster.members + self.old_cluster.members
+        if self.is_synchronous_mode() and self.cluster.sync.leader:
+            if not self.cluster.sync.matches(self.state_handler.name):
+                return False
+            # pick between synchronous candidates so we minimize unnecessary failovers/demotions
+            members = {m.name: m for m in all_known_members if self.cluster.sync.matches(m.name)}
+        else:
+            # run usual health check
+            members = {m.name: m for m in all_known_members}
+
         return self._is_healthiest_node(members.values())
 
     def release_leader_key_voluntarily(self):
@@ -563,6 +684,7 @@ class Ha(object):
 
     def schedule_future_restart(self, restart_data):
         with self._async_executor:
+            restart_data['postmaster_start_time'] = self.state_handler.postmaster_start_time()
             if not self.patroni.scheduled_restart:
                 self.patroni.scheduled_restart = restart_data
                 self.touch_member()
@@ -605,10 +727,14 @@ class Ha(object):
         self.set_start_timeout(timeout)
 
         # For non async cases we want to wait for restart to complete or timeout before returning.
+        do_restart = functools.partial(self.state_handler.restart, timeout)
+        if self.is_synchronous_mode() and not self.has_lock():
+            do_restart = functools.partial(self.while_not_sync_standby, do_restart)
+
         if run_async:
-            self._async_executor.run_async(self.state_handler.restart)
+            self._async_executor.run_async(do_restart)
             return (True, 'restart initiated')
-        elif self._async_executor.run(self.state_handler.restart, (timeout,)):
+        elif self._async_executor.run(do_restart):
             return (True, 'restarted successfully')
         else:
             return (False, 'restart failed')
@@ -721,6 +847,7 @@ class Ha(object):
 
             if not (self.cluster.is_unlocked() or self.cluster.config and self.cluster.config.data) and self.has_lock():
                 self.dcs.set_config_value(json.dumps(self.patroni.config.dynamic_configuration, separators=(',', ':')))
+                self.cluster = self.dcs.get_cluster()
 
             if self._async_executor.busy:
                 return self.handle_long_action_in_progress()

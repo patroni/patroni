@@ -6,7 +6,7 @@ import unittest
 
 from mock import Mock, MagicMock, PropertyMock, patch
 from patroni.config import Config
-from patroni.dcs import Cluster, Failover, Leader, Member, get_dcs
+from patroni.dcs import Cluster, ClusterConfig, Failover, Leader, Member, get_dcs, SyncState
 from patroni.dcs.etcd import Client
 from patroni.exceptions import DCSError, PostgresException
 from patroni.ha import Ha, _MemberStatus
@@ -23,15 +23,15 @@ def false(*args, **kwargs):
     return False
 
 
-def get_cluster(initialize, leader, members, failover):
-    return Cluster(initialize, None, leader, 10, members, failover)
+def get_cluster(initialize, leader, members, failover, sync):
+    return Cluster(initialize, ClusterConfig(1, {1: 2}, 1), leader, 10, members, failover, sync)
 
 
 def get_cluster_not_initialized_without_leader():
-    return get_cluster(None, None, [], None)
+    return get_cluster(None, None, [], None, SyncState(None, None, None))
 
 
-def get_cluster_initialized_without_leader(leader=False, failover=None):
+def get_cluster_initialized_without_leader(leader=False, failover=None, sync=None):
     m1 = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
                                   'api_url': 'http://127.0.0.1:8008/patroni', 'xlog_location': 4})
     l = Leader(0, 0, m1) if leader else None
@@ -41,16 +41,18 @@ def get_cluster_initialized_without_leader(leader=False, failover=None):
                                  'tags': {'clonefrom': True},
                                  'scheduled_restart': {'schedule': "2100-01-01 10:53:07.560445+00:00",
                                                        'postgres_version': '99.0.0'}})
-    return get_cluster(True, l, [m1, m2], failover)
+    syncstate = SyncState(0 if sync else None, sync and sync[0], sync and sync[1])
+    return get_cluster(True, l, [m1, m2], failover, syncstate)
 
 
-def get_cluster_initialized_with_leader(failover=None):
-    return get_cluster_initialized_without_leader(leader=True, failover=failover)
+def get_cluster_initialized_with_leader(failover=None, sync=None):
+    return get_cluster_initialized_without_leader(leader=True, failover=failover, sync=sync)
 
 
 def get_cluster_initialized_with_only_leader(failover=None):
     l = get_cluster_initialized_without_leader(leader=True, failover=failover).leader
-    return get_cluster(True, l, [l], failover)
+    return get_cluster(True, l, [l], failover, None)
+
 
 def get_node_status(reachable=True, in_recovery=True, xlog_location=10, nofailover=False):
     def fetch_node_status(e):
@@ -96,6 +98,7 @@ zookeeper:
         self.replicatefrom = None
         self.api.connection_string = 'http://127.0.0.1:8008'
         self.clonefrom = None
+        self.nosync = False
         self.scheduled_restart = {'schedule': future_restart_time,
                                   'postmaster_start_time': str(postmaster_start_time)}
 
@@ -147,6 +150,7 @@ class TestHa(unittest.TestCase):
             self.ha.old_cluster = self.e.get_cluster()
             self.ha.cluster = get_cluster_not_initialized_without_leader()
             self.ha.load_cluster_from_dcs = Mock()
+            self.ha.is_synchronous_mode = false
 
     def test_update_lock(self):
         self.p.last_operation = Mock(side_effect=PostgresException(''))
@@ -543,7 +547,8 @@ class TestHa(unittest.TestCase):
 
         self.p.time_in_state = lambda: 350
         self.ha.fetch_node_status = get_node_status(reachable=False)  # inaccessible, in_recovery
-        self.assertEquals(self.ha.run_cycle(), 'master start has timed out, but continuing to wait because failover is not possible')
+        self.assertEquals(self.ha.run_cycle(),
+                          'master start has timed out, but continuing to wait because failover is not possible')
         check_calls([(update_lock, True), (demote, False)])
 
         self.ha.fetch_node_status = get_node_status()  # accessible, in_recovery
@@ -586,3 +591,171 @@ class TestHa(unittest.TestCase):
         self.e.get_cluster = Mock(return_value=get_cluster_initialized_without_leader())
         self.ha.demote('immediate')
         follow.assert_called_once_with(None, None, True, None, True)
+
+    @patch('patroni.ha.sleep', Mock())
+    def test_process_sync_replication(self):
+        self.ha.has_lock = true
+        mock_set_sync = self.p.set_synchronous_standby = Mock()
+        self.p.name = 'leader'
+
+        # Test sync key removed when sync mode disabled
+        self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
+        with patch.object(self.ha.dcs, 'delete_sync_state') as mock_delete_sync:
+            self.ha.run_cycle()
+            mock_delete_sync.assert_called_once()
+            mock_set_sync.assert_called_once_with(None)
+
+        mock_set_sync.reset_mock()
+        # Test sync key not touched when not there
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        with patch.object(self.ha.dcs, 'delete_sync_state') as mock_delete_sync:
+            self.ha.run_cycle()
+            mock_delete_sync.assert_not_called()
+            mock_set_sync.assert_called_once_with(None)
+
+        mock_set_sync.reset_mock()
+
+        self.ha.is_synchronous_mode = true
+
+        # Test sync standby not touched when picking the same node
+        self.p.pick_synchronous_standby = Mock(return_value=('other', True))
+        self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
+        self.ha.run_cycle()
+        mock_set_sync.assert_not_called()
+
+        mock_set_sync.reset_mock()
+
+        # Test sync standby is replaced when switching standbys
+        self.p.pick_synchronous_standby = Mock(return_value=('other2', False))
+        self.ha.dcs.write_sync_state = Mock(return_value=True)
+        self.ha.run_cycle()
+        mock_set_sync.assert_called_once_with('other2')
+
+        mock_set_sync.reset_mock()
+        # Test sync standby is not disabled when updating dcs fails
+        self.ha.dcs.write_sync_state = Mock(return_value=False)
+        self.ha.run_cycle()
+        mock_set_sync.assert_not_called()
+
+        mock_set_sync.reset_mock()
+        # Test changing sync standby
+        self.ha.dcs.write_sync_state = Mock(return_value=True)
+        self.ha.dcs.get_cluster = Mock(return_value=get_cluster_initialized_with_leader(sync=('leader', 'other')))
+        # self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
+        self.p.pick_synchronous_standby = Mock(return_value=('other2', True))
+        self.ha.run_cycle()
+        self.ha.dcs.get_cluster.assert_called_once()
+        self.assertEquals(self.ha.dcs.write_sync_state.call_count, 2)
+
+        # Test updating sync standby key failed due to race
+        self.ha.dcs.write_sync_state = Mock(side_effect=[True, False])
+        self.ha.run_cycle()
+        self.assertEquals(self.ha.dcs.write_sync_state.call_count, 2)
+
+        # Test changing sync standby failed due to race
+        self.ha.dcs.write_sync_state = Mock(return_value=True)
+        self.ha.dcs.get_cluster = Mock(return_value=get_cluster_initialized_with_leader(sync=('somebodyelse', None)))
+        self.ha.run_cycle()
+        self.assertEquals(self.ha.dcs.write_sync_state.call_count, 1)
+
+    def test_sync_replication_become_master(self):
+        self.ha.is_synchronous_mode = true
+
+        mock_set_sync = self.p.set_synchronous_standby = Mock()
+        self.p.is_leader = false
+        self.p.set_role('replica')
+        self.ha.has_lock = true
+        mock_write_sync = self.ha.dcs.write_sync_state = Mock(return_value=True)
+        self.p.name = 'leader'
+        self.ha.cluster = get_cluster_initialized_with_leader(sync=('other', None))
+
+        # When we just became master nobody is sync
+        self.assertEquals(self.ha.enforce_master_role('msg', 'promote msg'), 'promote msg')
+        mock_set_sync.assert_called_once_with(None)
+        mock_write_sync.assert_called_once_with('leader', None, index=0)
+
+        mock_set_sync.reset_mock()
+
+        # When we just became master nobody is sync
+        self.p.set_role('replica')
+        mock_write_sync.return_value = False
+        self.assertTrue(self.ha.enforce_master_role('msg', 'promote msg') != 'promote msg')
+        mock_set_sync.assert_not_called()
+
+    def test_unhealthy_sync_mode(self):
+        self.ha.is_synchronous_mode = true
+
+        self.p.is_leader = false
+        self.p.set_role('replica')
+        self.p.name = 'other'
+        self.ha.cluster = get_cluster_initialized_without_leader(sync=('leader', 'other2'))
+        mock_write_sync = self.ha.dcs.write_sync_state = Mock(return_value=True)
+        mock_acquire = self.ha.acquire_lock = Mock(return_value=True)
+        mock_follow = self.p.follow = Mock()
+        mock_promote = self.p.promote = Mock()
+
+        # If we don't match the sync replica we are not allowed to acquire lock
+        self.ha.run_cycle()
+        mock_acquire.assert_not_called()
+        mock_follow.assert_called_once()
+        self.assertEquals(mock_follow.call_args[0][0], None)
+        mock_write_sync.assert_not_called()
+
+        mock_follow.reset_mock()
+        # If we do match we will try to promote
+        self.ha._is_healthiest_node = true
+
+        self.ha.cluster = get_cluster_initialized_without_leader(sync=('leader', 'other'))
+        self.ha.run_cycle()
+        mock_acquire.assert_called_once()
+        mock_follow.assert_not_called()
+        mock_promote.assert_called_once()
+        mock_write_sync.assert_called_once_with('other', None, index=0)
+
+    @patch('patroni.utils.sleep')
+    def test_disable_sync_when_restarting(self, mock_sleep):
+        self.ha.is_synchronous_mode = true
+
+        self.p.name = 'other'
+        self.p.is_leader = false
+        self.p.set_role('replica')
+        mock_restart = self.p.restart = Mock(return_value=True)
+        self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
+        self.ha.touch_member = Mock(return_value=True)
+        self.ha.dcs.get_cluster = Mock(side_effect=[
+            get_cluster_initialized_with_leader(sync=('leader', syncstandby))
+            for syncstandby in ['other', None]])
+
+        self.ha.restart({})
+
+        mock_restart.assert_called_once()
+        mock_sleep.assert_called()
+
+        # Restart is still called when DCS connection fails
+        mock_restart.reset_mock()
+        self.ha.dcs.get_cluster = Mock(side_effect=DCSError("foo"))
+        self.ha.restart({})
+
+        mock_restart.assert_called_once()
+
+        # We don't try to fetch the cluster state when touch_member fails
+        mock_restart.reset_mock()
+        self.ha.dcs.get_cluster.reset_mock()
+        self.ha.touch_member = Mock(return_value=False)
+
+        self.ha.restart({})
+
+        mock_restart.assert_called_once()
+        self.ha.dcs.get_cluster.assert_not_called()
+
+    def test_effective_tags(self):
+        self.ha._disable_sync = True
+        self.assertEquals(self.ha.get_effective_tags(), {'foo': 'bar', 'nosync': True})
+        self.ha._disable_sync = False
+        self.assertEquals(self.ha.get_effective_tags(), {'foo': 'bar'})
+
+    def test_restore_cluster_config(self):
+        self.ha.cluster.config.data.clear()
+        self.ha.has_lock = true
+        self.ha.cluster.is_unlocked = false
+        self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')

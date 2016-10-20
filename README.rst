@@ -8,7 +8,7 @@ Patroni is a template for you to create your own customized, high-availability s
 
 We call Patroni a "template" because it is far from being a one-size-fits-all or plug-and-play replication system. It will have its own caveats. Use wisely.
 
-**Note to Kubernetes users**: We're currently developing Patroni to be as useful as possible for teams running Kubernetes on top of Google Compute Engine; Patroni can be the HA solution for Postgres in such an environment. Please contact us via our Issues Tracker if this describes your team's current setup, and we'll follow up.
+**Note to Kubernetes users**: We're currently developing Patroni to be as useful as possible for teams running Kubernetes on top of Google Compute Engine; Patroni can be the HA solution for Postgres in such an environment. To this end, we've created a `Helm Chart <https://github.com/kubernetes/charts/tree/master/incubator/patroni>`__ that enables you to deploy a five-node Patroni cluster using a Kubernetes PetSet.
 
 .. contents::
     :local:
@@ -33,6 +33,8 @@ Development Status
 ================
 
 Patroni is in active development and accepts contributions. See our `Contributing <https://github.com/zalando/patroni/blob/master/CONTRIBUTING.md>`__ section below for more details.
+
+We report new releases information `here <https://github.com/zalando/patroni/releases>`__.
 
 ===========================
 Technical Requirements/Installation
@@ -89,24 +91,7 @@ Go `here <https://github.com/zalando/patroni/blob/master/docs/ENVIRONMENT.rst>`_
 Replication Choices
 ===============
 
-Patroni uses Postgres' streaming replication, which is asynchronous by default. For more information, see the `Postgres documentation on streaming replication <http://www.postgresql.org/docs/current/static/warm-standby.html#STREAMING-REPLICATION>`__.
-
-Patroni's asynchronous replication configuration allows for ``maximum_lag_on_failover`` settings. This setting ensures failover will not occur if a follower is more than a certain number of bytes behind the follower. This setting should be increased or decreased based on business requirements.
-
-When asynchronous replication is not optimal for your use case, investigate Postgres's `synchronous replication <http://www.postgresql.org/docs/current/static/warm-standby.html#SYNCHRONOUS-REPLICATION>`__. Synchronous replication ensures consistency across a cluster by confirming that writes are written to a secondary before returning to the connecting client with a success. The cost of synchronous replication: reduced throughput on writes. This throughput will be entirely based on network performance.
-
-In hosted datacenter environments (like AWS, Rackspace, or any network you do not control), synchronous replication significantly increases the variability of write performance. If followers become inaccessible from the leader, the leader effectively becomes read-only.
-
-To enable a simple synchronous replication test, add the follow lines to the ``parameters`` section of your YAML configuration files:
-
-.. code:: YAML
-
-        synchronous_commit: "on"
-        synchronous_standby_names: "*"
-
-When using synchronous replication, use at least three Postgres data nodes to ensure write availability if one host fails.
-
-Choosing your replication schema is dependent on your business considerations. Investigate both async and sync replication, as well as other HA solutions, to determine which solution is best for you.
+Patroni uses Postgres' streaming replication, which is asynchronous by default. Patroni's asynchronous replication configuration allows for ``maximum_lag_on_failover`` settings. This setting ensures failover will not occur if a follower is more than a certain number of bytes behind the leader. This setting should be increased or decreased based on business requirements. It's also possible to use synchronous replication for better durability guarantees. See `replication modes documentation <https://github.com/zalando/patroni/blob/master/docs/replication_modes.rst>` for details.
 
 ===============================
 Applications Should Not Use Superusers
