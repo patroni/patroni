@@ -5,14 +5,13 @@ import psycopg2
 import requests
 import sys
 import datetime
-import pytz
 from threading import RLock
 
 from multiprocessing.pool import ThreadPool
 from patroni.async_executor import AsyncExecutor
 from patroni.exceptions import DCSError, PostgresConnectionException
 from patroni.postgresql import ACTION_ON_START
-from patroni.utils import polling_loop, sleep
+from patroni.utils import polling_loop, sleep, tzutc
 
 logger = logging.getLogger(__name__)
 
@@ -445,7 +444,7 @@ class Ha(object):
             # If the value is close to now, we initiate the scheduled action
             # Additionally, if the scheduled action cannot be executed altogether, i.e. there is an error
             # or the action is in the past - we take care of cleaning it up.
-            now = datetime.datetime.now(pytz.utc)
+            now = datetime.datetime.now(tzutc)
             try:
                 delta = (scheduled_at - now).total_seconds()
 

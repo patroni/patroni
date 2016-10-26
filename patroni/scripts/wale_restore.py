@@ -32,8 +32,7 @@ import subprocess
 import sys
 import argparse
 
-
-if sys.hexversion >= 0x0300000:
+if sys.hexversion >= 0x3000000:
     long = int
 
 logger = logging.getLogger(__name__)

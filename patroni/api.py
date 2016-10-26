@@ -6,10 +6,9 @@ import psycopg2
 import time
 import dateutil.parser
 import datetime
-import pytz
 
 from patroni.exceptions import PostgresConnectionException
-from patroni.utils import deep_compare, patch_config, Retry, RetryFailedError, is_valid_pg_version
+from patroni.utils import deep_compare, patch_config, Retry, RetryFailedError, is_valid_pg_version, tzutc
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from six.moves.socketserver import ThreadingMixIn
 from threading import Thread
@@ -180,7 +179,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             if scheduled_at.tzinfo is None:
                 error = 'Timezone information is mandatory for the scheduled {0}'.format(action)
                 status_code = 400
-            elif scheduled_at < datetime.datetime.now(pytz.utc):
+            elif scheduled_at < datetime.datetime.now(tzutc):
                 error = 'Cannot schedule {0} in the past'.format(action)
                 status_code = 422
             else:
