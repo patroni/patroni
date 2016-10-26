@@ -1,9 +1,12 @@
 import logging
+import errno
 import os
 import psycopg2
+import psutil
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import tempfile
 import time
@@ -12,7 +15,7 @@ from collections import defaultdict
 from patroni.exceptions import PostgresConnectionException, PostgresException
 from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop
 from six import string_types
-from threading import current_thread, Lock
+from threading import current_thread, Lock, Event
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +30,12 @@ STATE_REJECT = 'rejecting connections'
 STATE_NO_RESPONSE = 'not responding'
 STATE_UNKNOWN = 'unknown'
 
+STOP_SIGNALS = {
+    'smart': signal.SIGTERM,
+    'fast': signal.SIGINT,
+    'immediate': signal.SIGQUIT,
+}
+STOP_POLLING_INTERVAL = 1
 
 def slot_name_from_member_name(member_name):
     """Translate member name to valid PostgreSQL slot name.
@@ -130,6 +139,12 @@ class Postgresql(object):
         self.set_role(self.get_postgres_role_from_data_directory())
 
         self._state_entry_timestamp = None
+
+        # This event is set to true when no backends are running. Could be set in parallel by
+        # multiple processes, like when demote is racing with async restart. Needs to be cleared
+        # before invoking stop if wait for this event is desired.
+        self.stop_safepoint_reached = Event()
+        self.stop_safepoint_reached.set()
 
         if self.is_running():
             self.set_state('running')
@@ -569,7 +584,7 @@ class Postgresql(object):
         if not (self._version_file_exists() and os.path.isfile(self._postmaster_pid)):
             # XXX: This is dangerous in case somebody deletes the data directory while PostgreSQL is still running.
             return False
-        return self.is_pid_running(self.read_pid_file().get('pid', 0))
+        return self.is_pid_running(self.get_pid())
 
     def read_pid_file(self):
         """Reads and parses postmaster.pid from the data directory
@@ -582,6 +597,13 @@ class Postgresql(object):
                 return {name: line.rstrip("\n") for name, line in zip(pid_line_names, f)}
         except IOError:
             return {}
+
+    def get_pid(self):
+        """Fetches pid value from postmaster.pid using read_pid_file
+
+        :returns pid if successful, 0 if pid file is not present"""
+        #TODO: figure out what to do on permission errors
+        return self.read_pid_file().get('pid', 0)
 
     @staticmethod
     def is_pid_running(pid):
@@ -745,10 +767,23 @@ class Postgresql(object):
             return 'not accessible or not healty'
 
     def stop(self, mode='fast', block_callbacks=False, checkpoint=True):
-        if not self.is_running():
+        success, pg_signaled = self._do_stop(mode, block_callbacks, checkpoint)
+        if success:
+            self.stop_safepoint_reached.set()  # In case we exited early. Setting twice is not a problem.
+            # block_callbacks is used during restart to avoid
+            # running start/stop callbacks in addition to restart ones
             if not block_callbacks:
                 self.set_state('stopped')
-            return True
+                if pg_signaled:
+                    self.call_nowait(ACTION_ON_STOP)
+        else:
+            logger.warning('pg_ctl stop failed')
+            self.set_state('stop failed')
+        return success
+
+    def _do_stop(self, mode, block_callbacks, checkpoint):
+        if not self.is_running():
+            return True, False
 
         if checkpoint and not self.is_starting():
             self.checkpoint()
@@ -756,16 +791,65 @@ class Postgresql(object):
         if not block_callbacks:
             self.set_state('stopping')
 
-        ret = self.pg_ctl('stop', '-m', mode)
-        # block_callbacks is used during restart to avoid
-        # running start/stop callbacks in addition to restart ones
-        if not ret:
-            logger.warning('pg_ctl stop failed')
-            self.set_state('stop failed')
-        elif not block_callbacks:
-            self.set_state('stopped')
-            self.call_nowait(ACTION_ON_STOP)
-        return ret
+        # Send signal to postmaster to stop
+        pid, result = self._signal_postmaster_stop(mode)
+        if result is not None:
+            return result, True
+
+        # We can skip safepoint detection if nobody is waiting for it.
+        if not self.stop_safepoint_reached.is_set():
+            # Wait for our connection to terminate so we can be sure that no new connections are being initiated
+            self._wait_for_connection_close()
+            self._wait_for_user_backends_to_close(pid)
+            self.stop_safepoint_reached.set()
+
+        self._wait_for_postmaster_stop(pid)
+
+        return True, True
+
+    def _wait_for_postmaster_stop(self, pid):
+        # This wait loop differs subtly from pg_ctl as we check for both the pid file going
+        # away and if the pid is running. This seems safer.
+        while pid == self.get_pid() and self.is_pid_running(pid):
+            time.sleep(STOP_POLLING_INTERVAL)
+
+    def _signal_postmaster_stop(self, mode):
+        pid = self.get_pid()
+        if pid == 0:
+            return None, True
+        elif pid < 0:
+            logger.warning("Cannot stop server; single-user server is running (PID: {0})".format(-pid))
+            return None, False
+        try:
+            os.kill(pid, STOP_SIGNALS[mode])
+        except OSError as e:
+            if e.errno == errno.ESRCH:
+                return None, True
+            else:
+                logger.warning("Could not send stop signal to PostgreSQL (error: {0})".format(e.errno))
+                return None, False
+        return pid, None
+
+    def _wait_for_connection_close(self):
+        try:
+            cur = self._cursor()
+            while True:  # Need a timeout here?
+                if pid == self.get_pid() and self.is_pid_running(pid):
+                    cur.execute("SELECT 1")
+                    time.sleep(STOP_POLLING_INTERVAL)
+                    continue
+                else:
+                    break
+        except psycopg2.Error as e:
+            pass
+
+    def _wait_for_user_backends_to_close(self, postmaster_pid):
+        # These regexps are cross checked against versions PostgreSQL 9.1 .. 9.6
+        aux_proc_re = re.compile("(?:postgres:)( .*:)? (?:(startup|logger|checkpointer|writer|wal writer|autovacuum launcher|autovacuum worker|stats collector|wal receiver|archiver|wal sender) process|bgworker: )")
+
+        postmaster = psutil.Process(postmaster_pid)
+        user_backends = [p for p in postmaster.children() if aux_proc_re.match(p.cmdline()[0])]
+        psutil.wait_procs(user_backends)
 
     def reload(self):
         ret = self.pg_ctl('reload')
@@ -874,6 +958,7 @@ class Postgresql(object):
         return ' '.join('{0}={{{0}}}'.format(kw) for kw in keywords).format(**r)
 
     def check_recovery_conf(self, member):
+        # TODO: recovery.conf could be stale, would be nice to detect that.
         primary_conninfo = self.primary_conninfo(member)
 
         if not os.path.isfile(self._recovery_conf):
