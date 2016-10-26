@@ -468,7 +468,14 @@ class Ha(object):
         return False
 
     def process_manual_failover_from_leader(self):
+        """Checks if manual failover is requested and takes action if appropriate.
+
+        Cleans up failover key if failover conditions are not matched.
+
+        :returns: action message if demote was initiated, None if no action was taken"""
         failover = self.cluster.failover
+        if not failover or (self.is_paused() and not self.state_handler.is_leader()):
+            return
 
         if (failover.scheduled_at and not
             self.should_run_scheduled_action("failover", failover.scheduled_at, lambda:
@@ -533,11 +540,6 @@ class Ha(object):
 
     def process_healthy_cluster(self):
         if self.has_lock():
-            if self.cluster.failover and (not self.is_paused() or self.state_handler.is_leader()):
-                msg = self.process_manual_failover_from_leader()
-                if msg is not None:
-                    return msg
-
             if self.is_paused() and not self.state_handler.is_leader():
                 if self.cluster.failover and self.cluster.failover.candidate == self.state_handler.name:
                     return 'waiting to become master after promote...'
@@ -547,6 +549,10 @@ class Ha(object):
                 return 'removed leader lock because postgres is not running as master'
 
             if self.update_lock(True):
+                msg = self.process_manual_failover_from_leader()
+                if msg is not None:
+                    return msg
+
                 return self.enforce_master_role('no action.  i am the leader with the lock',
                                                 'promoted self to leader because i had the session lock')
             else:
@@ -560,6 +566,9 @@ class Ha(object):
                            'no action.  i am a secondary and i am following a leader', False)
 
     def evaluate_scheduled_restart(self):
+        if self._async_executor.busy:  # Restart already in progress
+            return None
+
         # restart if we need to
         restart_data = self.future_restart_scheduled()
         if restart_data:
@@ -757,10 +766,8 @@ class Ha(object):
                 if self.cluster.is_unlocked():
                     return self.process_unhealthy_cluster()
                 else:
-                    msg = self.evaluate_scheduled_restart()
-                    if msg is not None:
-                        return msg
-                    return self.process_healthy_cluster()
+                    msg = self.process_healthy_cluster()
+                    return self.evaluate_scheduled_restart() or msg
             finally:
                 # we might not have a valid PostgreSQL connection here if another thread
                 # stops PostgreSQL, therefore, we only reload replication slots if no
