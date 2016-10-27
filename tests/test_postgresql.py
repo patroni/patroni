@@ -297,9 +297,6 @@ class TestPostgresql(unittest.TestCase):
     @patch.object(Postgresql, 'can_rewind', PropertyMock(return_value=True))
     @patch.object(Postgresql, 'rewind', return_value=False)
     def test_follow(self, mock_pg_rewind):
-        with patch.object(Postgresql, 'check_recovery_conf', Mock(return_value=True)):
-            self.assertTrue(self.p.follow(None, None))  # nothing to do, recovery.conf has good primary_conninfo
-
         self.p.follow(self.me, self.me)  # follow is called when the node is holding leader lock
 
         with patch.object(Postgresql, 'restart', Mock(return_value=False)):

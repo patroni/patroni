@@ -213,7 +213,10 @@ class Ha(object):
             elif not node_to_follow:
                 return 'no action'
 
-        self.state_handler.follow(node_to_follow, self.cluster.leader, recovery, self._async_executor, need_rewind)
+        if recovery or not self.state_handler.check_recovery_conf(node_to_follow):
+            self._async_executor.schedule('changing primary_conninfo and restarting')
+            self._async_executor.run_async(self.state_handler.follow,
+                                          (node_to_follow, self.cluster.leader, recovery, need_rewind))
 
         return ret
 

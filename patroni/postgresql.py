@@ -873,7 +873,9 @@ class Postgresql(object):
         keywords = 'user password host port sslmode sslcompression application_name'.split()
         return ' '.join('{0}={{{0}}}'.format(kw) for kw in keywords).format(**r)
 
-    def check_recovery_conf(self, primary_conninfo):
+    def check_recovery_conf(self, member):
+        primary_conninfo = self.primary_conninfo(member)
+
         if not os.path.isfile(self._recovery_conf):
             return False
 
@@ -971,22 +973,11 @@ class Postgresql(object):
     def need_rewind(self):
         return self._need_rewind
 
-    def follow(self, member, leader, recovery=False, async_executor=None, need_rewind=None):
+    def follow(self, member, leader, recovery=False, need_rewind=None):
         if need_rewind is not None:
             self._need_rewind = need_rewind
 
         primary_conninfo = self.primary_conninfo(member)
-
-        if self.check_recovery_conf(primary_conninfo) and not recovery:
-            return True
-
-        if async_executor:
-            async_executor.schedule('changing primary_conninfo and restarting')
-            async_executor.run_async(self._do_follow, (primary_conninfo, leader, recovery))
-        else:
-            self._do_follow(primary_conninfo, leader, recovery)
-
-    def _do_follow(self, primary_conninfo, leader, recovery=False):
         change_role = self.role in ('master', 'demoted')
 
         if leader and leader.name == self.name:
