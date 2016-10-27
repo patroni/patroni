@@ -221,6 +221,9 @@ class Ha(object):
             elif not node_to_follow:
                 return 'no action'
 
+        if is_leader and not self.is_paused():
+            self.demote('immediate-nolock')
+
         if not self.state_handler.check_recovery_conf(node_to_follow):
             self._async_executor.schedule('changing primary_conninfo and restarting')
             self._async_executor.run_async(self.state_handler.follow, (node_to_follow, self.cluster.leader))
@@ -492,31 +495,32 @@ class Ha(object):
             graceful is used when failing over to another node due to user request. May only be called running async.
             immediate is used when we determine that we are not suitable for master and want to failover quickly
                 without regard for data durability. May only be called synchronously.
+            immediate-nolock is used when find out that we have lost the lock to be master. Need to bring down
+                PostgreSQL as quickly as possible without regard for data durability. May only be called synchronously.
         """
-        assert mode in ['offline', 'graceful', 'immediate']
-        if mode != 'offline':
-            if mode == 'immediate':
-                self.state_handler.stop('immediate', checkpoint=False)
-            else:
-                self.state_handler.stop()
-            self.state_handler.set_role('demoted')
-            self.release_leader_key_voluntarily()
-            sleep(2)  # Give a time to somebody to take the leader lock
-            cluster = self.dcs.get_cluster()
-            node_to_follow = self._get_node_to_follow(cluster)
-            self.state_handler.trigger_rewind()
-            if mode == 'immediate':
-                # We will try to start up as a standby now. If no one takes the leader lock before we finish
-                # recovery we will try to promote ourselves.
-                self._async_executor.schedule('waiting for failover to complete')
-                self._async_executor.run_async(self.state_handler.follow, (node_to_follow, cluster.leader))
-            else:
-                self.state_handler.follow(node_to_follow, cluster.leader)
+        mode_control = {
+            'offline':          dict(stop='fast', checkpoint=False, release=False, offline=True, async=False),
+            'graceful':         dict(stop='fast', checkpoint=True, release=True, offline=False, async=False),
+            'immediate':        dict(stop='immediate', checkpoint=False, release=True, offline=False, async=True),
+            'immediate-nolock': dict(stop='immediate', checkpoint=False, release=False, offline=False, async=True),
+        }[mode]
+
+        self.state_handler.stop(mode_control['stop'], checkpoint=mode_control['checkpoint'])
+        self.state_handler.set_role('demoted')
+        if mode_control['release']:
+                self.release_leader_key_voluntarily()
+                sleep(2)  # Give a time to somebody to take the leader lock
+        if mode_control['offline']:
+            node_to_follow, leader = None, None
         else:
-            # Need to become unavailable as soon as possible, so initiate a stop here. However as we can't release
-            # the leader key we don't care about confirming the shutdown quickly and can use a regular stop.
-            self.state_handler.stop(checkpoint=False)
-            self.state_handler.follow(None, None)
+            cluster = self.dcs.get_cluster()
+            node_to_follow, leader = self._get_node_to_follow(cluster), cluster.leader
+
+        if mode_control['async']:
+            self._async_executor.schedule('restarting after demotion')
+            self._async_executor.run_async(self.state_handler.follow, (node_to_follow, leader))
+        else:
+            self.state_handler.follow(node_to_follow, leader)
 
     def should_run_scheduled_action(self, action_name, scheduled_at, cleanup_fn):
         if scheduled_at and not self.is_paused():
