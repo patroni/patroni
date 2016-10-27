@@ -133,7 +133,7 @@ class Ha(object):
             logger.info('bootstrapped %s', msg)
             cluster = self.dcs.get_cluster()
             node_to_follow = self._get_node_to_follow(cluster)
-            self.state_handler.follow(node_to_follow, cluster.leader, True)
+            self.state_handler.follow(node_to_follow, cluster.leader)
         else:
             logger.error('failed to bootstrap %s', msg)
             self.state_handler.remove_data_directory()
@@ -192,7 +192,7 @@ class Ha(object):
             node_to_follow = self._get_node_to_follow(self.cluster)
 
         self._async_executor.schedule('restarting after failure')
-        self._async_executor.run_async(self.state_handler.follow, (node_to_follow, self.cluster.leader, True))
+        self._async_executor.run_async(self.state_handler.follow, (node_to_follow, self.cluster.leader))
         return msg
 
     def _get_node_to_follow(self, cluster):
@@ -223,7 +223,7 @@ class Ha(object):
 
         if not self.state_handler.check_recovery_conf(node_to_follow):
             self._async_executor.schedule('changing primary_conninfo and restarting')
-            self._async_executor.run_async(self.state_handler.follow, (node_to_follow, self.cluster.leader, False))
+            self._async_executor.run_async(self.state_handler.follow, (node_to_follow, self.cluster.leader))
 
         return ret
 
@@ -509,14 +509,14 @@ class Ha(object):
                 # We will try to start up as a standby now. If no one takes the leader lock before we finish
                 # recovery we will try to promote ourselves.
                 self._async_executor.schedule('waiting for failover to complete')
-                self._async_executor.run_async(self.state_handler.follow, (node_to_follow, cluster.leader, True))
+                self._async_executor.run_async(self.state_handler.follow, (node_to_follow, cluster.leader))
             else:
-                self.state_handler.follow(node_to_follow, cluster.leader, recovery=True)
+                self.state_handler.follow(node_to_follow, cluster.leader)
         else:
             # Need to become unavailable as soon as possible, so initiate a stop here. However as we can't release
             # the leader key we don't care about confirming the shutdown quickly and can use a regular stop.
             self.state_handler.stop(checkpoint=False)
-            self.state_handler.follow(None, None, recovery=True)
+            self.state_handler.follow(None, None)
 
     def should_run_scheduled_action(self, action_name, scheduled_at, cleanup_fn):
         if scheduled_at and not self.is_paused():

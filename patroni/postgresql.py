@@ -976,7 +976,7 @@ class Postgresql(object):
     def trigger_rewind(self):
         self._need_rewind = True
 
-    def follow(self, member, leader, recovery=False):
+    def follow(self, member, leader):
         primary_conninfo = self.primary_conninfo(member)
         change_role = self.role in ('master', 'demoted')
 
@@ -994,13 +994,12 @@ class Postgresql(object):
         if self._need_rewind and leader and leader.conn_url and self.can_rewind:
             if not self._do_rewind(leader):
                 return
-            recovery = True
 
         self.write_recovery_conf(primary_conninfo)
-        if recovery:
-            self.start()
-        else:
+        if self.is_running():
             self.restart()
+        else:
+            self.start()
         self.set_role('replica')
 
         if change_role:
