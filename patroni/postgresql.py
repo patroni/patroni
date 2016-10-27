@@ -973,10 +973,10 @@ class Postgresql(object):
     def need_rewind(self):
         return self._need_rewind
 
-    def follow(self, member, leader, recovery=False, need_rewind=None):
-        if need_rewind is not None:
-            self._need_rewind = need_rewind
+    def trigger_rewind(self):
+        self._need_rewind = True
 
+    def follow(self, member, leader, recovery=False):
         primary_conninfo = self.primary_conninfo(member)
         change_role = self.role in ('master', 'demoted')
 

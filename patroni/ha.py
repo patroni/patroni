@@ -182,7 +182,8 @@ class Ha(object):
                     return 'stopped PostgreSQL to fail over after a crash'
 
         self.recovering = True
-        return self.follow("starting as readonly because i had the session lock", "starting as a secondary", True, True)
+        return self.follow("starting as readonly because i had the session lock", "starting as a secondary",
+                           recovery=True)
 
     def _get_node_to_follow(self, cluster):
         # determine the node to follow. If replicatefrom tag is set,
@@ -194,7 +195,7 @@ class Ha(object):
 
         return node_to_follow if node_to_follow and node_to_follow.name != self.state_handler.name else None
 
-    def follow(self, demote_reason, follow_reason, refresh=True, recovery=False, need_rewind=None):
+    def follow(self, demote_reason, follow_reason, refresh=True, recovery=False):
         if refresh:
             self.load_cluster_from_dcs()
 
@@ -206,7 +207,7 @@ class Ha(object):
 
         node_to_follow = self._get_node_to_follow(self.cluster)
 
-        if self.is_paused() and not self.state_handler.need_rewind:
+        if self.is_paused() and (not self.state_handler.need_rewind or self.cluster.is_unlocked()):
             self.state_handler.set_role('master' if is_leader else 'replica')
             if is_leader:
                 return 'continue to run as master without lock'
@@ -215,8 +216,7 @@ class Ha(object):
 
         if recovery or not self.state_handler.check_recovery_conf(node_to_follow):
             self._async_executor.schedule('changing primary_conninfo and restarting')
-            self._async_executor.run_async(self.state_handler.follow,
-                                          (node_to_follow, self.cluster.leader, recovery, need_rewind))
+            self._async_executor.run_async(self.state_handler.follow, (node_to_follow, self.cluster.leader, recovery))
 
         return ret
 
@@ -497,14 +497,14 @@ class Ha(object):
             sleep(2)  # Give a time to somebody to take the leader lock
             cluster = self.dcs.get_cluster()
             node_to_follow = self._get_node_to_follow(cluster)
+            self.state_handler.trigger_rewind()
             if mode == 'immediate':
                 # We will try to start up as a standby now. If no one takes the leader lock before we finish
                 # recovery we will try to promote ourselves.
                 self._async_executor.schedule('waiting for failover to complete')
-                self._async_executor.run_async(self.state_handler.follow,
-                                               (node_to_follow, cluster.leader, True, None, True))
+                self._async_executor.run_async(self.state_handler.follow, (node_to_follow, cluster.leader, True))
             else:
-                self.state_handler.follow(node_to_follow, cluster.leader, recovery=True, need_rewind=True)
+                self.state_handler.follow(node_to_follow, cluster.leader, recovery=True)
         else:
             # Need to become unavailable as soon as possible, so initiate a stop here. However as we can't release
             # the leader key we don't care about confirming the shutdown quickly and can use a regular stop.
@@ -604,17 +604,15 @@ class Ha(object):
         else:
             # when we are doing manual failover there is no guaranty that new leader is ahead of any other node
             # node tagged as nofailover can be ahead of the new leader either, but it is always excluded from elections
-            need_rewind = bool(self.cluster.failover) or self.patroni.nofailover
-            if need_rewind:
+            if bool(self.cluster.failover) or self.patroni.nofailover:
+                self.state_handler.trigger_rewind()
                 sleep(2)  # Give a time to somebody to take the leader lock
 
             if self.patroni.nofailover:
                 return self.follow('demoting self because I am not allowed to become master',
-                                   'following a different leader because I am not allowed to promote',
-                                   need_rewind=need_rewind)
+                                   'following a different leader because I am not allowed to promote')
             return self.follow('demoting self because i am not the healthiest node',
-                               'following a different leader because i am not the healthiest node',
-                               need_rewind=need_rewind)
+                               'following a different leader because i am not the healthiest node')
 
     def process_healthy_cluster(self):
         if self.has_lock():
@@ -641,7 +639,7 @@ class Ha(object):
         else:
             logger.info('does not have lock')
         return self.follow('demoting self because i do not have the lock and i was a leader',
-                           'no action.  i am a secondary and i am following a leader', False)
+                           'no action.  i am a secondary and i am following a leader', refresh=False)
 
     def evaluate_scheduled_restart(self):
         # restart if we need to

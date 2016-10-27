@@ -304,14 +304,16 @@ class TestPostgresql(unittest.TestCase):
             self.p.follow(None, None)  # restart without rewind
 
         with patch.object(Postgresql, 'stop', Mock(return_value=False)):
-            self.p.follow(self.leader, self.leader, need_rewind=True)  # failed to stop postgres
+            self.p.trigger_rewind()
+            self.p.follow(self.leader, self.leader)  # failed to stop postgres
 
         self.p.follow(self.leader, self.leader)  # "leader" is not accessible or is_in_recovery
 
         with patch.object(Postgresql, 'checkpoint', Mock(return_value=None)):
             self.p.follow(self.leader, self.leader)
             mock_pg_rewind.return_value = True
-            self.p.follow(self.leader, self.leader, need_rewind=True)
+            self.p.trigger_rewind()
+            self.p.follow(self.leader, self.leader)
 
         self.p.follow(None, None)  # check_recovery_conf...
 
