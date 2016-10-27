@@ -182,8 +182,18 @@ class Ha(object):
                     return 'stopped PostgreSQL to fail over after a crash'
 
         self.recovering = True
-        return self.follow("starting as readonly because i had the session lock", "starting as a secondary",
-                           recovery=True)
+        self.load_cluster_from_dcs()
+
+        if self.has_lock():
+            msg = "starting as readonly because i had the session lock"
+            node_to_follow = None
+        else:
+            msg = "starting as a secondary"
+            node_to_follow = self._get_node_to_follow(self.cluster)
+
+        self._async_executor.schedule('restarting after failure')
+        self._async_executor.run_async(self.state_handler.follow, (node_to_follow, self.cluster.leader, True))
+        return msg
 
     def _get_node_to_follow(self, cluster):
         # determine the node to follow. If replicatefrom tag is set,
@@ -195,15 +205,12 @@ class Ha(object):
 
         return node_to_follow if node_to_follow and node_to_follow.name != self.state_handler.name else None
 
-    def follow(self, demote_reason, follow_reason, refresh=True, recovery=False):
+    def follow(self, demote_reason, follow_reason, refresh=True):
         if refresh:
             self.load_cluster_from_dcs()
 
-        if recovery:
-            ret = demote_reason if self.has_lock() else follow_reason
-        else:
-            is_leader = self.state_handler.is_leader()
-            ret = demote_reason if is_leader else follow_reason
+        is_leader = self.state_handler.is_leader()
+        ret = demote_reason if is_leader else follow_reason
 
         node_to_follow = self._get_node_to_follow(self.cluster)
 
@@ -214,9 +221,9 @@ class Ha(object):
             elif not node_to_follow:
                 return 'no action'
 
-        if recovery or not self.state_handler.check_recovery_conf(node_to_follow):
+        if not self.state_handler.check_recovery_conf(node_to_follow):
             self._async_executor.schedule('changing primary_conninfo and restarting')
-            self._async_executor.run_async(self.state_handler.follow, (node_to_follow, self.cluster.leader, recovery))
+            self._async_executor.run_async(self.state_handler.follow, (node_to_follow, self.cluster.leader, False))
 
         return ret
 
