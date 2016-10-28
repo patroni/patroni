@@ -832,7 +832,7 @@ class Postgresql(object):
 
     def _wait_for_connection_close(self):
         try:
-            with self.connection.cursor() as cursor:
+            with self.connection.cursor() as cur:
                 while True:  # Need a timeout here?
                     if pid == self.get_pid() and self.is_pid_running(pid):
                         cur.execute("SELECT 1")
@@ -840,10 +840,11 @@ class Postgresql(object):
                         continue
                     else:
                         break
-        except psycopg2.Error as e:
+        except psycopg2.Error:
             pass
 
-    def _wait_for_user_backends_to_close(self, postmaster_pid):
+    @staticmethod
+    def _wait_for_user_backends_to_close(postmaster_pid):
         # These regexps are cross checked against versions PostgreSQL 9.1 .. 9.6
         aux_proc_re = re.compile("(?:postgres:)( .*:)? (?:(startup|logger|checkpointer|writer|wal writer|autovacuum launcher|autovacuum worker|stats collector|wal receiver|archiver|wal sender) process|bgworker: )")
 

@@ -1,5 +1,5 @@
 import unittest
-from mock import Mock, MagicMock, PropertyMock, patch
+from mock import patch
 import platform
 import ctypes
 
@@ -75,7 +75,7 @@ class TestWatchdog(unittest.TestCase):
         self.assertTrue(device.open)
 
         self.assertEquals(device.timeout, 15)
- 
+
         watchdog.keepalive()
         self.assertEquals(len(device.writes), 1)
 

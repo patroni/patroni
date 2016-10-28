@@ -166,7 +166,8 @@ class WatchdogBase(object):
     def get_timeout(self):
         """Returns the current keepalive timeout in effect."""
 
-    def has_set_timeout(self):
+    @staticmethod
+    def has_set_timeout():
         """Returns True if setting a timeout is supported."""
         return False
 

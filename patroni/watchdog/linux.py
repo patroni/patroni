@@ -30,25 +30,21 @@ IOC_SIZESHIFT = IOC_TYPESHIFT + IOC_TYPEBITS
 IOC_DIRSHIFT = IOC_SIZESHIFT + IOC_SIZEBITS
 
 
-def IO(type, nr):
-    return IOC(IOC_NONE, type, nr)
+def IOW(type_, nr, size):
+    return IOC(IOC_WRITE, type_, nr, size)
 
 
-def IOW(type, nr, size):
-    return IOC(IOC_WRITE, type, nr, size)
+def IOR(type_, nr, size):
+    return IOC(IOC_READ, type_, nr, size)
 
 
-def IOR(type, nr, size):
-    return IOC(IOC_READ, type, nr, size)
+def IOWR(type_, nr, size):
+    return IOC(IOC_READ | IOC_WRITE, type_, nr, size)
 
 
-def IOWR(type, nr, size):
-    return IOC(IOC_READ | IOC_WRITE, type, nr, size)
-
-
-def IOC(dir, type, nr, size):
-    return (dir << IOC_DIRSHIFT) \
-        | (ord(type) << IOC_TYPESHIFT) \
+def IOC(dir_, type_, nr, size):
+    return (dir_ << IOC_DIRSHIFT) \
+        | (ord(type_) << IOC_TYPESHIFT) \
         | (nr << IOC_NRSHIFT) \
         | (size << IOC_SIZESHIFT)
 
