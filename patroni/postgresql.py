@@ -37,6 +37,7 @@ STOP_SIGNALS = {
 }
 STOP_POLLING_INTERVAL = 1
 
+
 def slot_name_from_member_name(member_name):
     """Translate member name to valid PostgreSQL slot name.
 
@@ -602,7 +603,7 @@ class Postgresql(object):
         """Fetches pid value from postmaster.pid using read_pid_file
 
         :returns pid if successful, 0 if pid file is not present"""
-        #TODO: figure out what to do on permission errors
+        # TODO: figure out what to do on permission errors
         return self.read_pid_file().get('pid', 0)
 
     @staticmethod
@@ -799,7 +800,7 @@ class Postgresql(object):
         # We can skip safepoint detection if nobody is waiting for it.
         if not self.stop_safepoint_reached.is_set():
             # Wait for our connection to terminate so we can be sure that no new connections are being initiated
-            self._wait_for_connection_close()
+            self._wait_for_connection_close(pid)
             self._wait_for_user_backends_to_close(pid)
             self.stop_safepoint_reached.set()
 
@@ -830,7 +831,7 @@ class Postgresql(object):
                 return None, False
         return pid, None
 
-    def _wait_for_connection_close(self):
+    def _wait_for_connection_close(self, pid):
         try:
             with self.connection.cursor() as cur:
                 while True:  # Need a timeout here?
@@ -846,7 +847,9 @@ class Postgresql(object):
     @staticmethod
     def _wait_for_user_backends_to_close(postmaster_pid):
         # These regexps are cross checked against versions PostgreSQL 9.1 .. 9.6
-        aux_proc_re = re.compile("(?:postgres:)( .*:)? (?:(startup|logger|checkpointer|writer|wal writer|autovacuum launcher|autovacuum worker|stats collector|wal receiver|archiver|wal sender) process|bgworker: )")
+        aux_proc_re = re.compile("(?:postgres:)( .*:)? (?:""(?:startup|logger|checkpointer|writer|wal writer|"
+                                 "autovacuum launcher|autovacuum worker|stats collector|wal receiver|archiver|"
+                                 "wal sender) process|bgworker: )")
 
         postmaster = psutil.Process(postmaster_pid)
         user_backends = [p for p in postmaster.children() if aux_proc_re.match(p.cmdline()[0])]

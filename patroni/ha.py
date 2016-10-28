@@ -73,8 +73,8 @@ class BackgroundKeepaliveSender(object):
         # e.g. stop failed with an exception, looks like witholding keepalives is ok then
         # We do want to avoid it when we don't have keepalives enabled, but maybe we can
         # avoid creating the thread in the first place.
-        #if not self.safe_event.is_set():
-        #    self.safe_event.set()????
+        # if not self.safe_event.is_set():
+        #     self.safe_event.set()????
         self._stop_event.set()
         self._bg_thread.join()
 
@@ -214,7 +214,8 @@ class Ha(object):
                         self.state_handler.stop('immediate')
                         self.state_handler.move_data_directory()
                         raise
-                    self.dcs.set_config_value(json.dumps(self.patroni.config.dynamic_configuration, separators=(',', ':')))
+                    self.dcs.set_config_value(json.dumps(self.patroni.config.dynamic_configuration,
+                                                         separators=(',', ':')))
                     self.dcs.take_leader()
                     self.load_cluster_from_dcs()
                     return 'initialized a new cluster'
