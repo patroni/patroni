@@ -437,3 +437,7 @@ class TestCtl(unittest.TestCase):
                     patch('patroni.dcs.Cluster.is_paused', Mock(return_value=False)):
                 result = self.runner.invoke(ctl, ['resume', 'dummy'])
                 assert 'Cluster is not paused' in result.output
+
+            with patch('requests.patch', Mock(side_effect=Exception)):
+                result = self.runner.invoke(ctl, ['resume', 'dummy'])
+                assert 'Can not find accessible cluster member' in result.output
