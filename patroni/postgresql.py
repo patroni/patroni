@@ -832,14 +832,14 @@ class Postgresql(object):
 
     def _wait_for_connection_close(self):
         try:
-            cur = self._cursor()
-            while True:  # Need a timeout here?
-                if pid == self.get_pid() and self.is_pid_running(pid):
-                    cur.execute("SELECT 1")
-                    time.sleep(STOP_POLLING_INTERVAL)
-                    continue
-                else:
-                    break
+            with self.connection.cursor() as cursor:
+                while True:  # Need a timeout here?
+                    if pid == self.get_pid() and self.is_pid_running(pid):
+                        cur.execute("SELECT 1")
+                        time.sleep(STOP_POLLING_INTERVAL)
+                        continue
+                    else:
+                        break
         except psycopg2.Error as e:
             pass
 
