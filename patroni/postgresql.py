@@ -636,43 +636,37 @@ class Postgresql(object):
     def is_starting(self):
         return self.state == 'starting'
 
-    def wait_for_port_open(self, timeout, initiated, completed):
+    def wait_for_port_open(self, pid, initiated, timeout):
         """Waits until PostgreSQL opens ports."""
         for _ in polling_loop(timeout):
             pid_file = self.read_pid_file()
-            if len(pid_file) < 5:
-                # Pid file doesn't exist or is incomplete, wait for it to be created
-                continue
+            if len(pid_file) > 5:
+                try:
+                    pmpid = int(pid_file['pid'])
+                    pmstart = int(pid_file['start_time'])
+
+                    if pmstart >= initiated - 2 and pmpid == pid:
+                        isready = self.pg_isready()
+                        if isready != STATE_NO_RESPONSE:
+                            if isready not in [STATE_REJECT, STATE_RUNNING]:
+                                logger.warning("Can't determine PostgreSQL startup status, assuming running")
+                            return True
+                except ValueError:
+                    # Garbage in the pid file
+                    pass
             try:
-                pid = int(pid_file['pid'])
-                postmaster_start_time = int(pid_file['start_time'])
-            except ValueError:
-                # Garbage in the pid file
-                continue
-
-            timing_slop = 2
-            is_our_pid_file = (initiated - timing_slop) <= postmaster_start_time <= (completed + timing_slop)
-            if not self.is_pid_running(pid):
-                if is_our_pid_file:
-                    # Start failed
+                stat = os.waitpid(pid, os.WNOHANG)
+                if stat[0] == pid:
+                    logger.error('postmaster with pid=%s is not running, exit status=%s', *stat)
+                    self.set_state('start failed')
                     return False
-                else:
-                    # Probably old pid file, need to wait for cleanup
-                    continue
-
-            if not is_our_pid_file:
-                logger.warning("PostgreSQL started in parallel by some other process")
-
-            isready = self.pg_isready()
-            if isready == STATE_NO_RESPONSE:
-                # Still waiting for ports to open
-                continue
-            if isready not in [STATE_REJECT, STATE_RUNNING]:
-                logger.warning("Can't determine PostgreSQL startup status, assuming running")
-            return True
+            except OSError:
+                logger.exception('postmaster with pid=%s is not running', pid)
+                self.set_state('start failed')
+                return False
 
         logger.warning("Timed out waiting for PostgreSQL to start")
-        return None
+        return False
 
     def start(self, block_callbacks=False):
         """Start PostgreSQL
@@ -698,31 +692,28 @@ class Postgresql(object):
 
         self.set_state('starting')
 
-        env = {'PATH': os.environ.get('PATH')}
-        # pg_ctl will write a FATAL if the username is incorrect. exporting PGUSER if necessary
-        if 'username' in self._superuser and self._superuser['username'] != os.environ.get('USER'):
-            env['PGUSER'] = self._superuser['username']
-
         self._write_postgresql_conf()
         self.resolve_connection_addresses()
 
-        options = ' '.join("--{0}='{1}'".format(p, self._server_parameters[p]) for p, v in self.CMDLINE_OPTIONS.items()
+        options = ' '.join('--{0}="{1}"'.format(p, self._server_parameters[p]) for p, v in self.CMDLINE_OPTIONS.items()
                            if self._major_version >= v[2])
 
+        cmd = 'exec "{0}" -D "{1}" {2} < "/dev/null" 2>&1'.format(self._pgcommand('postgres'), self._data_dir, options)
+
         start_initiated = time.time()
-        ret = self.pg_ctl('start', '-o', options, env=env, preexec_fn=os.setsid)
-        start_completed = time.time()
-        if ret:
-            # We want postmaster to open ports before we continue
-            try:
-                start_timeout = float(self.config.get('pg_ctl_timeout', 60))
-            except ValueError:
-                start_timeout = 60
-            ret = self.wait_for_port_open(start_timeout, start_initiated, start_completed)
+        pid = os.fork()
+        if pid == 0:
+            os.setsid()
+            os.execle("/bin/sh", "/bin/sh", "-c", cmd, {'PATH': os.environ.get('PATH')})
+
+        # We want postmaster to open ports before we continue
+        try:
+            start_timeout = float(self.config.get('pg_ctl_timeout', 60))
+        except ValueError:
+            start_timeout = 60
 
         self._pending_restart = False
-
-        return ret
+        return self.wait_for_port_open(pid, start_initiated, start_timeout)
 
     def checkpoint(self, connect_kwargs=None):
         check_not_is_in_recovery = connect_kwargs is not None
