@@ -208,14 +208,6 @@ class Postgresql(object):
         :returns: `!True` when return_code == 0, otherwise `!False`"""
 
         pg_ctl = [self._pgcommand('pg_ctl'), cmd]
-        if cmd == 'stop':
-            pg_ctl += ['-w']
-            timeout = self.config.get('pg_ctl_timeout')
-            if timeout:
-                try:
-                    pg_ctl += ['-t', str(int(timeout))]
-                except Exception:
-                    logger.error('Bad value of pg_ctl_timeout: %s', timeout)
         return subprocess.call(pg_ctl + ['-D', self._data_dir] + list(args), **kwargs) == 0
 
     def pg_isready(self):
