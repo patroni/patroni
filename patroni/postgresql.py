@@ -13,7 +13,7 @@ import time
 
 from collections import defaultdict
 from patroni.exceptions import PostgresConnectionException, PostgresException
-from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop
+from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, reap_children
 from six import string_types
 from threading import current_thread, Lock, Event
 
@@ -603,11 +603,12 @@ class Postgresql(object):
             logger.warning("Garbage pid in postmaster.pid: {0!r}".format(pid))
             return 0
 
-    @staticmethod
-    def is_pid_running(pid):
+    def is_pid_running(self, pid):
         try:
             if pid < 0:
                 pid = -pid
+            if current_thread().ident == self.__thread_ident:
+                reap_children()
             return pid > 0 and pid != os.getpid() and pid != os.getppid() and (os.kill(pid, 0) or True)
         except Exception:
             return False
