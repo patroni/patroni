@@ -596,12 +596,16 @@ class Postgresql(object):
 
         :returns pid if successful, 0 if pid file is not present"""
         # TODO: figure out what to do on permission errors
-        return self.read_pid_file().get('pid', 0)
+        pid = self.read_pid_file().get('pid', 0)
+        try:
+            return int(pid)
+        except ValueError:
+            logger.warning("Garbage pid in postmaster.pid: {0!r}".format(pid))
+            return 0
 
     @staticmethod
     def is_pid_running(pid):
         try:
-            pid = int(pid)
             if pid < 0:
                 pid = -pid
             return pid > 0 and pid != os.getpid() and pid != os.getppid() and (os.kill(pid, 0) or True)
