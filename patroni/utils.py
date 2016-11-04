@@ -4,11 +4,13 @@ import sys
 import time
 import re
 
+from dateutil import tz
 from patroni.exceptions import PatroniException
 
-if sys.hexversion >= 0x0300000:
+if sys.hexversion >= 0x3000000:
     long = int
 
+tzutc = tz.tzutc()
 __interrupted_sleep = False
 __reap_children = False
 
