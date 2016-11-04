@@ -141,6 +141,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 value = json.dumps(data, separators=(',', ':'))
                 if not self.server.patroni.dcs.set_config_value(value, cluster.config.index):
                     return self.send_error(409)
+            self.server.patroni.dcs.event.set()
             self._write_json_response(200, data)
 
     @check_auth
