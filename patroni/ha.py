@@ -96,14 +96,19 @@ class Ha(object):
             return self.dcs.touch_member(json.dumps(data, separators=(',', ':')))
 
     def clone(self, clone_member=None, msg='(without leader)'):
-        if self.state_handler.clone(clone_member):
-            logger.info('bootstrapped %s', msg)
-            cluster = self.dcs.get_cluster()
-            node_to_follow = self._get_node_to_follow(cluster)
-            self.state_handler.follow(node_to_follow, cluster.leader, True)
-        else:
+        try:
+            if self.state_handler.clone(clone_member):
+                logger.info('bootstrapped %s', msg)
+                cluster = self.dcs.get_cluster()
+                node_to_follow = self._get_node_to_follow(cluster)
+                self.state_handler.follow(node_to_follow, cluster.leader, True)
+            else:
+                logger.error('failed to bootstrap %s', msg)
+                self.state_handler.remove_data_directory()
+        except Exception:
             logger.error('failed to bootstrap %s', msg)
             self.state_handler.remove_data_directory()
+            raise Exception
 
     def bootstrap(self):
         if not self.cluster.is_unlocked():  # cluster already has leader
@@ -748,6 +753,8 @@ class Ha(object):
                 if self.sysid_valid(self.cluster.initialize) and self.cluster.initialize != self.state_handler.sysid:
                     logger.fatal("system ID mismatch, node %s belongs to a different cluster: %s != %s",
                                  self.state_handler.name, self.cluster.initialize, self.state_handler.sysid)
+                    logger.info("Removing Data dir, allowing DB to bootstrap")
+                    self.state_handler.move_data_directory()
                     sys.exit(1)
 
             if not self.state_handler.is_healthy():
