@@ -8,7 +8,7 @@ import urllib3
 from consul import ConsulException, NotFound, base
 from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState
 from patroni.exceptions import DCSError
-from patroni.utils import Retry, RetryFailedError, sleep
+from patroni.utils import Retry, RetryFailedError
 from urllib3.exceptions import HTTPError
 from six.moves.urllib.parse import urlencode
 from six.moves.http_client import HTTPException
@@ -121,7 +121,7 @@ class Consul(AbstractDCS):
                 self.refresh_session()
             except ConsulError:
                 logger.info('waiting on consul')
-                sleep(5)
+                time.sleep(5)
 
     def set_ttl(self, ttl):
         if self._client.http.set_ttl(ttl/2.0):  # Consul multiplies the TTL by 2x
