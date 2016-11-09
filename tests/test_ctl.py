@@ -73,6 +73,7 @@ class TestCtl(unittest.TestCase):
     def test_failover(self, mock_get_dcs):
         mock_get_dcs.return_value = self.e
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
+        mock_get_dcs.return_value.set_failover_value = Mock()
         result = self.runner.invoke(ctl, ['failover', 'dummy'], input='leader\nother\n\ny')
         assert 'leader' in result.output
 
@@ -363,6 +364,7 @@ class TestCtl(unittest.TestCase):
         mock_get_dcs.return_value.initialize = Mock(return_value=True)
         mock_get_dcs.return_value.touch_member = Mock(return_value=True)
         mock_get_dcs.return_value.attempt_to_acquire_leader = Mock(return_value=True)
+        mock_get_dcs.return_value.delete_cluster = Mock()
 
         with patch.object(self.e, 'initialize', return_value=False):
             result = self.runner.invoke(ctl, ['scaffold', 'alpha'])
@@ -440,3 +442,7 @@ class TestCtl(unittest.TestCase):
                     patch('patroni.dcs.Cluster.is_paused', Mock(return_value=False)):
                 result = self.runner.invoke(ctl, ['resume', 'dummy'])
                 assert 'Cluster is not paused' in result.output
+
+            with patch('requests.patch', Mock(side_effect=Exception)):
+                result = self.runner.invoke(ctl, ['resume', 'dummy'])
+                assert 'Can not find accessible cluster member' in result.output

@@ -6,10 +6,9 @@ import psycopg2
 import time
 import dateutil.parser
 import datetime
-import pytz
 
 from patroni.exceptions import PostgresConnectionException
-from patroni.utils import deep_compare, patch_config, Retry, RetryFailedError, is_valid_pg_version, parse_int
+from patroni.utils import deep_compare, patch_config, Retry, RetryFailedError, is_valid_pg_version, parse_int, tzutc
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from six.moves.socketserver import ThreadingMixIn
 from threading import Thread
@@ -142,6 +141,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 value = json.dumps(data, separators=(',', ':'))
                 if not self.server.patroni.dcs.set_config_value(value, cluster.config.index):
                     return self.send_error(409)
+            self.server.patroni.dcs.event.set()
             self._write_json_response(200, data)
 
     @check_auth
@@ -180,7 +180,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             if scheduled_at.tzinfo is None:
                 error = 'Timezone information is mandatory for the scheduled {0}'.format(action)
                 status_code = 400
-            elif scheduled_at < datetime.datetime.now(pytz.utc):
+            elif scheduled_at < datetime.datetime.now(tzutc):
                 error = 'Cannot schedule {0} in the past'.format(action)
                 status_code = 422
             else:

@@ -157,6 +157,8 @@ class TestConsul(unittest.TestCase):
     def test_set_retry_timeout(self):
         self.c.set_retry_timeout(10)
 
+    @patch.object(consul.Consul.KV, 'delete', Mock(return_value=True))
+    @patch.object(consul.Consul.KV, 'put', Mock(return_value=True))
     def test_sync_state(self):
-        self.assertFalse(self.c.set_sync_state_value('{}'))
-        self.assertFalse(self.c.delete_sync_state())
+        self.assertTrue(self.c.set_sync_state_value('{}'))
+        self.assertTrue(self.c.delete_sync_state())

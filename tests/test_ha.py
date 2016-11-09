@@ -1,7 +1,6 @@
 import datetime
 import etcd
 import os
-import pytz
 import unittest
 
 from mock import Mock, MagicMock, PropertyMock, patch
@@ -11,6 +10,7 @@ from patroni.dcs.etcd import Client
 from patroni.exceptions import DCSError, PostgresException
 from patroni.ha import Ha, _MemberStatus
 from patroni.postgresql import Postgresql
+from patroni.utils import tzutc
 from test_etcd import socket_getaddrinfo, etcd_read, etcd_write, requests_get
 from test_postgresql import psycopg2_connect
 
@@ -62,8 +62,8 @@ def get_node_status(reachable=True, in_recovery=True, xlog_location=10, nofailov
         return _MemberStatus(e, reachable, in_recovery, xlog_location, tags)
     return fetch_node_status
 
-future_restart_time = datetime.datetime.now(pytz.utc) + datetime.timedelta(days=5)
-postmaster_start_time = datetime.datetime.now(pytz.utc)
+future_restart_time = datetime.datetime.now(tzutc) + datetime.timedelta(days=5)
+postmaster_start_time = datetime.datetime.now(tzutc)
 
 
 class MockPatroni(object):
@@ -355,7 +355,7 @@ class TestHa(unittest.TestCase):
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', self.p.name, scheduled))
         self.ha.run_cycle()
 
-        scheduled = datetime.datetime.utcnow().replace(tzinfo=pytz.UTC)
+        scheduled = datetime.datetime.utcnow().replace(tzinfo=tzutc)
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', self.p.name, scheduled))
         self.assertEquals('no action.  i am the leader with the lock', self.ha.run_cycle())
 

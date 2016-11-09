@@ -5,14 +5,13 @@ import psycopg2
 import requests
 import sys
 import datetime
-import pytz
 
 from collections import namedtuple
 from multiprocessing.pool import ThreadPool
 from patroni.async_executor import AsyncExecutor
 from patroni.exceptions import DCSError, PostgresConnectionException
 from patroni.postgresql import ACTION_ON_START
-from patroni.utils import polling_loop, sleep
+from patroni.utils import polling_loop, sleep, tzutc
 from threading import RLock
 
 logger = logging.getLogger(__name__)
@@ -515,7 +514,7 @@ class Ha(object):
             # If the value is close to now, we initiate the scheduled action
             # Additionally, if the scheduled action cannot be executed altogether, i.e. there is an error
             # or the action is in the past - we take care of cleaning it up.
-            now = datetime.datetime.now(pytz.utc)
+            now = datetime.datetime.now(tzutc)
             try:
                 delta = (scheduled_at - now).total_seconds()
 
@@ -614,10 +613,6 @@ class Ha(object):
 
     def process_healthy_cluster(self):
         if self.has_lock():
-            msg = self.process_manual_failover_from_leader()
-            if msg is not None:
-                return msg
-
             if self.is_paused() and not self.state_handler.is_leader():
                 if self.cluster.failover and self.cluster.failover.candidate == self.state_handler.name:
                     return 'waiting to become master after promote...'
@@ -627,6 +622,10 @@ class Ha(object):
                 return 'removed leader lock because postgres is not running as master'
 
             if self.update_lock(True):
+                msg = self.process_manual_failover_from_leader()
+                if msg is not None:
+                    return msg
+
                 return self.enforce_master_role('no action.  i am the leader with the lock',
                                                 'promoted self to leader because i had the session lock')
             else:
@@ -640,6 +639,9 @@ class Ha(object):
                            'no action.  i am a secondary and i am following a leader', False)
 
     def evaluate_scheduled_restart(self):
+        if self._async_executor.busy:  # Restart already in progress
+            return None
+
         # restart if we need to
         restart_data = self.future_restart_scheduled()
         if restart_data:
@@ -892,10 +894,8 @@ class Ha(object):
                 if self.cluster.is_unlocked():
                     return self.process_unhealthy_cluster()
                 else:
-                    msg = self.evaluate_scheduled_restart()
-                    if msg is not None:
-                        return msg
-                    return self.process_healthy_cluster()
+                    msg = self.process_healthy_cluster()
+                    return self.evaluate_scheduled_restart() or msg
             finally:
                 # we might not have a valid PostgreSQL connection here if another thread
                 # stops PostgreSQL, therefore, we only reload replication slots if no
