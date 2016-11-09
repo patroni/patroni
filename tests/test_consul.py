@@ -148,11 +148,11 @@ class TestConsul(unittest.TestCase):
 
     @patch.object(AbstractDCS, 'watch', Mock())
     def test_watch(self):
-        self.c.watch(1)
+        self.c.watch(None, 1)
         self.c._name = ''
-        self.c.watch(1)
+        self.c.watch(6429, 1)
         with patch.object(consul.Consul.KV, 'get', Mock(side_effect=ConsulException)):
-            self.c.watch(1)
+            self.c.watch(6429, 1)
 
     def test_set_retry_timeout(self):
         self.c.set_retry_timeout(10)

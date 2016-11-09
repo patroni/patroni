@@ -372,19 +372,17 @@ class Etcd(AbstractDCS):
     def delete_sync_state(self, index=None):
         return self.retry(self._client.delete, self.sync_path, prevIndex=index or 0)
 
-    def watch(self, timeout):
+    def watch(self, leader_index, timeout):
         if self.__do_not_watch:
             self.__do_not_watch = False
             return True
 
-        cluster = self.cluster
-        # watch on leader key changes if it is defined and current node is not lock owner
-        if cluster and cluster.leader and cluster.leader.name != self._name and cluster.leader.index:
+        if leader_index:
             end_time = time.time() + timeout
 
             while timeout >= 1:  # when timeout is too small urllib3 doesn't have enough time to connect
                 try:
-                    self._client.watch(self.leader_path, index=cluster.leader.index, timeout=timeout + 0.5)
+                    self._client.watch(self.leader_path, index=leader_index, timeout=timeout + 0.5)
                     # Synchronous work of all cluster members with etcd is less expensive
                     # than reestablishing http connection every time from every replica.
                     return True
@@ -397,6 +395,6 @@ class Etcd(AbstractDCS):
                 timeout = end_time - time.time()
 
         try:
-            return super(Etcd, self).watch(timeout)
+            return super(Etcd, self).watch(None, timeout)
         finally:
             self.event.clear()

@@ -25,7 +25,7 @@ class Ha(object):
         self.cluster = None
         self.old_cluster = None
         self.recovering = False
-        self._async_executor = AsyncExecutor()
+        self._async_executor = AsyncExecutor(self)
 
         # Each member publishes various pieces of information to the DCS using touch_member. This lock protects
         # the state and publishing procedure to have consistent ordering and avoid publishing stale values.
@@ -100,7 +100,7 @@ class Ha(object):
             logger.info('bootstrapped %s', msg)
             cluster = self.dcs.get_cluster()
             node_to_follow = self._get_node_to_follow(cluster)
-            self.state_handler.follow(node_to_follow, cluster.leader, True)
+            return self.state_handler.follow(node_to_follow, cluster.leader, True)
         else:
             logger.error('failed to bootstrap %s', msg)
             self.state_handler.remove_data_directory()
@@ -432,7 +432,7 @@ class Ha(object):
             sleep(2)  # Give a time to somebody to take the leader lock
             cluster = self.dcs.get_cluster()
             node_to_follow = self._get_node_to_follow(cluster)
-            self.state_handler.follow(node_to_follow, cluster.leader, recovery=True, need_rewind=True)
+            return self.state_handler.follow(node_to_follow, cluster.leader, recovery=True, need_rewind=True)
         else:
             self.state_handler.follow(None, None)
 
@@ -730,12 +730,18 @@ class Ha(object):
             if self._async_executor.busy:
                 return self.handle_long_action_in_progress()
 
-            # we've got here, so any async action has finished. Check if we tried to recover and failed
+            # we've got here, so any async action has finished.
             if self.recovering and not self.state_handler.need_rewind:
                 self.recovering = False
+                # Check if we tried to recover and failed
                 msg = self.post_recover()
                 if msg is not None:
                     return msg
+
+                if not self.has_lock() and len(self.cluster.members) == 1 and \
+                        not (self.is_synchronous_mode() and self.cluster.sync and
+                             self.cluster.sync.matches(self.state_handler.name)):
+                    return 'too few members in cluster after "recovery", postponing leader race'
 
             # is data directory empty?
             if self.state_handler.data_directory_empty():
@@ -793,3 +799,17 @@ class Ha(object):
         with self._async_executor:
             info = self._run_cycle()
             return (self.is_paused() and 'PAUSE: ' or '') + info
+
+    def watch(self, timeout):
+        cluster = self.cluster
+        # watch on leader key changes if the postgres is running and leader is known and current node is not lock owner
+        if not self._async_executor.busy and cluster and cluster.leader \
+                and cluster.leader.name != self.state_handler.name:
+            leader_index = cluster.leader.index
+        else:
+            leader_index = None
+
+        return self.dcs.watch(leader_index, timeout)
+
+    def wakeup(self):
+        self.dcs.event.set()

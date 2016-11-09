@@ -225,7 +225,7 @@ class TestPostgresql(unittest.TestCase):
 
     def test_restart(self):
         self.p.start = Mock(return_value=False)
-        self.assertFalse(self.p.restart())
+        self.assertTrue(self.p.restart())
         self.assertEquals(self.p.state, 'restart failed (restarting)')
 
     @patch.object(builtins, 'open', MagicMock())

@@ -668,7 +668,7 @@ class Postgresql(object):
             self.call_nowait(ACTION_ON_RESTART)
         else:
             self.set_state('restart failed ({0})'.format(self.state))
-        return ret
+        return True
 
     def _write_postgresql_conf(self):
         # rename the original configuration if it is necessary
@@ -813,7 +813,7 @@ class Postgresql(object):
             async_executor.schedule('changing primary_conninfo and restarting')
             async_executor.run_async(self._do_follow, (primary_conninfo, leader, recovery))
         else:
-            self._do_follow(primary_conninfo, leader, recovery)
+            return self._do_follow(primary_conninfo, leader, recovery)
 
     def _do_follow(self, primary_conninfo, leader, recovery=False):
         change_role = self.role in ('master', 'demoted')
@@ -862,20 +862,22 @@ class Postgresql(object):
 
             if self.rewind(r) or not self.config.get('remove_data_directory_on_rewind_failure', False):
                 self.write_recovery_conf(primary_conninfo)
-                ret = self.start()
+                self.start()
             else:
                 logger.error('unable to rewind the former master')
                 self.remove_data_directory()
-                ret = True
             self._need_rewind = False
         else:
             self.write_recovery_conf(primary_conninfo)
-            ret = self.start() if recovery else self.restart()
+            if recovery:
+                self.start()
+            else:
+                self.restart()
             self.set_role('replica')
 
         if change_role:
             self.call_nowait(ACTION_ON_ROLE_CHANGE)
-        return ret
+        return True
 
     def save_configuration_files(self):
         """

@@ -94,7 +94,7 @@ class Patroni(object):
             time.sleep(0.001)
             # Warn user that Patroni is not keeping up
             logger.warning("Loop time exceeded, rescheduling immediately.")
-        elif self.dcs.watch(nap_time):
+        elif self.ha.watch(nap_time):
             self.next_run = time.time()
 
     def run(self):

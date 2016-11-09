@@ -6,7 +6,8 @@ logger = logging.getLogger(__name__)
 
 class AsyncExecutor(object):
 
-    def __init__(self):
+    def __init__(self, ha):
+        self._ha = ha
         self._thread_lock = RLock()
         self._scheduled_action = None
         self._scheduled_action_lock = RLock()
@@ -32,13 +33,18 @@ class AsyncExecutor(object):
             self._scheduled_action = None
 
     def run(self, func, args=()):
+        wakeup = False
         try:
-            return func(*args) if args else func()
+            # if the func returned non empty result - wake up main HA loop
+            wakeup = func(*args) if args else func()
+            return wakeup
         except:
             logger.exception('Exception during execution of long running task %s', self.scheduled_action)
         finally:
             with self:
                 self.reset_scheduled_action()
+            if wakeup:
+                self._ha.wakeup()
 
     def run_async(self, func, args=()):
         Thread(target=self.run, args=(func, args)).start()
