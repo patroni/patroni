@@ -157,16 +157,13 @@ def main():
                 if ret == (0, 0):
                     break
                 elif ret[0] != pid:
-                    logging.info('Reaped unknow pid=%s, exit status=%s', *ret)
+                    logging.info('Reaped pid=%s, exit status=%s', *ret)
         except OSError:
             pass
 
     def passtochild(signo, stack_frame):
         if pid:
             os.kill(pid, signo)
-
-        if signo in (signal.SIGTERM, signal.SIGINT, signal.SIGQUIT):
-            sys.exit(0)
 
     signal.signal(signal.SIGCHLD, sigchld_handler)
     signal.signal(signal.SIGHUP, passtochild)

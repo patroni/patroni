@@ -75,17 +75,13 @@ class TestPatroni(unittest.TestCase):
         mock_getpid.return_value = 1
 
         def mock_signal(signo, handler):
-            if signo not in (signal.SIGTERM, signal.SIGINT, signal.SIGQUIT):
-                handler(signo, None)
-
-        with patch('signal.signal', mock_signal), patch('os.waitpid', Mock(side_effect=[(1, 0), (0, 0)])):
-            _main()
-
-        def mock_sigterm(signo, handler):
             handler(signo, None)
 
-        with patch('signal.signal', mock_sigterm), patch('os.waitpid', Mock(side_effect=OSError)):
-            self.assertRaises(SystemExit, _main)
+        with patch('signal.signal', mock_signal):
+            with patch('os.waitpid', Mock(side_effect=[(1, 0), (0, 0)])):
+                _main()
+            with patch('os.waitpid', Mock(side_effect=OSError)):
+                _main()
 
         ref = {'passtochild': lambda signo, stack_frame: 0}
 
@@ -98,7 +94,7 @@ class TestPatroni(unittest.TestCase):
 
         mock_popen.return_value.wait = mock_wait
         with patch('signal.signal', mock_sighup), patch('os.kill', Mock()):
-            _main()
+            self.assertIsNone(_main())
 
     @patch('patroni.config.Config.save_cache', Mock())
     @patch('patroni.config.Config.reload_local_configuration', Mock(return_value=True))
