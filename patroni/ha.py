@@ -1,4 +1,3 @@
-import contextlib
 import functools
 import json
 import logging
@@ -13,7 +12,7 @@ from multiprocessing.pool import ThreadPool
 from patroni.async_executor import AsyncExecutor
 from patroni.exceptions import DCSError, PostgresConnectionException
 from patroni.postgresql import ACTION_ON_START
-from patroni.utils import polling_loop, sleep
+from patroni.utils import polling_loop, sleep, null_context
 from threading import RLock, Event, Thread
 
 logger = logging.getLogger(__name__)
@@ -85,11 +84,6 @@ class BackgroundKeepaliveSender(object):
             self.ha.keepalive()
             if not self._stop_event.wait(self.loop_wait):
                 self.ha.keepalive_sent = False
-
-
-@contextlib.contextmanager
-def null_context():
-    yield
 
 
 class Ha(object):
@@ -808,7 +802,7 @@ class Ha(object):
         self.set_start_timeout(timeout)
 
         # For non async cases we want to wait for restart to complete or timeout before returning.
-        do_restart = functools.partial(self.state_handler.restart, timeout)
+        do_restart = functools.partial(self.state_handler.restart, timeout, self._async_executor.critical_task)
         if self.is_synchronous_mode() and not self.has_lock():
             do_restart = functools.partial(self.while_not_sync_standby, do_restart)
 
@@ -845,20 +839,28 @@ class Ha(object):
         self._async_executor.run_async(self._do_reinitialize, args=(self.cluster, ))
 
     def handle_long_action_in_progress(self):
-        # TODO: handle restart as a leader - need to either change restart to start as standby or have a way to cancel
-        # it and redo as a standby.
-        # Handle demote('graceful') we can be in the middle of doing the pre stop checkpoint when we lose the lock.
-        # Need to do immediate stop and hold off on the keepalives until we reach the safepoint
-        self.keepalive()
-        if self.has_lock():
-            if self.update_lock():
+        try:
+            if self.has_lock() and self.update_lock():
                 return 'updated leader lock during ' + self._async_executor.scheduled_action
             else:
-                return 'failed to update leader lock during ' + self._async_executor.scheduled_action
-        elif self.cluster.is_unlocked():
-            return 'not healthy enough for leader race'
-        else:
-            return self._async_executor.scheduled_action + ' in progress'
+                # Don't have lock, make sure we are not starting up a master in the background
+                if self.state_handler.role == 'master':
+                    logger.info("Demoting master during " + self._async_executor.scheduled_action)
+                    if self._async_executor.scheduled_action == 'restart':
+                        # Restart needs a special interlocking cancel because postmaster may be just started in a
+                        # background thread and has not even written a pid file yet.
+                        with self._async_executor.critical_task as task:
+                            if not task.cancel():
+                                self.state_handler.terminate_starting_postmaster(pid=task.result)
+                    self.demote('offline')
+                    return 'lost leader lock during ' + self._async_executor.scheduled_action
+        finally:
+            self.keepalive()
+
+        if self.cluster.is_unlocked():
+            logger.info('not healthy enough for leader race')
+
+        return self._async_executor.scheduled_action + ' in progress'
 
     @staticmethod
     def sysid_valid(sysid):

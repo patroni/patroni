@@ -321,7 +321,7 @@ class TestHa(unittest.TestCase):
         with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)):
             self.ha.restart({}, run_async=True)
             self.assertTrue(self.ha.restart_scheduled())
-            self.assertEquals(self.ha.run_cycle(), 'not healthy enough for leader race')
+            self.assertEquals(self.ha.run_cycle(), 'restart in progress')
 
             self.ha.cluster = get_cluster_initialized_with_leader()
             self.assertEquals(self.ha.run_cycle(), 'restart in progress')
@@ -330,7 +330,10 @@ class TestHa(unittest.TestCase):
             self.assertEquals(self.ha.run_cycle(), 'updated leader lock during restart')
 
             self.ha.update_lock = false
-            self.assertEquals(self.ha.run_cycle(), 'failed to update leader lock during restart')
+            self.p.set_role('master')
+            with patch('patroni.postgresql.Postgresql.stop') as stop_mock:
+                self.assertEquals(self.ha.run_cycle(), 'lost leader lock during restart')
+                stop_mock.assert_called()
 
     @patch('requests.get', requests_get)
     @patch('time.sleep', Mock())

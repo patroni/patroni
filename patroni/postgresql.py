@@ -13,7 +13,8 @@ import time
 
 from collections import defaultdict
 from patroni.exceptions import PostgresConnectionException, PostgresException
-from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, reap_children
+from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, reap_children, \
+                          null_context
 from six import string_types
 from threading import current_thread, Lock, Event
 
@@ -684,7 +685,7 @@ class Postgresql(object):
         logger.warning("Timed out waiting for PostgreSQL to start")
         return False
 
-    def start(self, block_callbacks=False):
+    def start(self, block_callbacks=False, task=None):
         """Start PostgreSQL
 
         Waits for postmaster to open ports or terminate so pg_isready can be used to check startup completion
@@ -714,10 +715,18 @@ class Postgresql(object):
         options = ['--{0}={1}'.format(p, self._server_parameters[p])
                    for p, v in self.CMDLINE_OPTIONS.items() if self._major_version >= v[2]]
 
-        start_initiated = time.time()
-        proc = subprocess.Popen([self._pgcommand('postgres'), '-D', self._data_dir] + options,
-                                close_fds=True, preexec_fn=os.setsid, stderr=subprocess.STDOUT,
-                                env={'PATH': os.environ.get('PATH')})
+        with task or null_context():
+            if task and task.is_cancelled:
+                logger.info("PostgreSQL start cancelled.")
+                return False
+
+            start_initiated = time.time()
+            proc = subprocess.Popen([self._pgcommand('postgres'), '-D', self._data_dir] + options,
+                                    close_fds=True, preexec_fn=os.setsid, stderr=subprocess.STDOUT,
+                                    env={'PATH': os.environ.get('PATH')})
+
+            if task:
+                task.complete(proc.pid)
 
         # We want postmaster to open ports before we continue
         try:
@@ -811,6 +820,19 @@ class Postgresql(object):
                 return None, False
         return pid, None
 
+    def terminate_starting_postmaster(self, pid):
+        """Terminates a postmaster that has not yet opened ports or possibly even written a pid file. Blocks
+        until the process goes away."""
+        try:
+            os.kill(pid, STOP_SIGNALS['immediate'])
+        except OSError as e:
+            if e.errno == errno.ESRCH:
+                return
+            logger.warning("Could not send stop signal to PostgreSQL (error: {0})".format(e.errno))
+
+        while self.is_pid_running(pid):
+            time.sleep(STOP_POLLING_INTERVAL)
+
     def _wait_for_connection_close(self, pid):
         try:
             with self.connection.cursor() as cur:
@@ -893,7 +915,7 @@ class Postgresql(object):
 
         return self.state == 'running'
 
-    def restart(self, timeout=None):
+    def restart(self, timeout=None, task=None):
         """Restarts PostgreSQL.
 
         When timeout parameter is set the call will block either until PostgreSQL has started, failed to start or
@@ -905,7 +927,7 @@ class Postgresql(object):
         self.set_state('restarting')
         self.__cb_pending = ACTION_ON_RESTART
         ret = self.stop(block_callbacks=True) \
-            and self.start(block_callbacks=True)
+            and self.start(block_callbacks=True, task=task)
         if ret and timeout is not None:
             ret = self.wait_for_startup(timeout=timeout)
         elif not ret:

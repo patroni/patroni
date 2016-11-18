@@ -1,3 +1,4 @@
+import contextlib
 import os
 import random
 import sys
@@ -313,3 +314,8 @@ def polling_loop(timeout, interval=1):
         yield iteration
         iteration += 1
         sleep(interval)
+
+
+@contextlib.contextmanager
+def null_context():
+    yield
