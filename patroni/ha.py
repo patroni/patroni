@@ -25,7 +25,7 @@ class Ha(object):
         self.cluster = None
         self.old_cluster = None
         self.recovering = False
-        self._async_executor = AsyncExecutor(self)
+        self._async_executor = AsyncExecutor(self.wakeup)
 
         # Each member publishes various pieces of information to the DCS using touch_member. This lock protects
         # the state and publishing procedure to have consistent ordering and avoid publishing stale values.
@@ -812,4 +812,7 @@ class Ha(object):
         return self.dcs.watch(leader_index, timeout)
 
     def wakeup(self):
+        """Call of this method will trigger the next run of HA loop if there is
+        no "active" leader watch request in progress.
+        This usually happens on the master or if the node is running async action"""
         self.dcs.event.set()

@@ -6,8 +6,8 @@ logger = logging.getLogger(__name__)
 
 class AsyncExecutor(object):
 
-    def __init__(self, ha):
-        self._ha = ha
+    def __init__(self, ha_wakeup):
+        self._ha_wakeup = ha_wakeup
         self._thread_lock = RLock()
         self._scheduled_action = None
         self._scheduled_action_lock = RLock()
@@ -44,7 +44,7 @@ class AsyncExecutor(object):
             with self:
                 self.reset_scheduled_action()
             if wakeup:
-                self._ha.wakeup()
+                self._ha_wakeup()
 
     def run_async(self, func, args=()):
         Thread(target=self.run, args=(func, args)).start()
