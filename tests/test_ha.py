@@ -514,7 +514,7 @@ class TestHa(unittest.TestCase):
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
         self.assertEquals(self.ha.run_cycle(), 'PAUSE: DCS is not accessible')
 
-    @patch('patroni.ha.sleep', Mock())
+    @patch('time.sleep', Mock())
     def test_process_sync_replication(self):
         self.ha.has_lock = true
         mock_set_sync = self.p.set_synchronous_standby = Mock()
@@ -634,7 +634,7 @@ class TestHa(unittest.TestCase):
         mock_promote.assert_called_once()
         mock_write_sync.assert_called_once_with('other', None, index=0)
 
-    @patch('patroni.utils.sleep')
+    @patch('time.sleep')
     def test_disable_sync_when_restarting(self, mock_sleep):
         self.ha.is_synchronous_mode = true
 

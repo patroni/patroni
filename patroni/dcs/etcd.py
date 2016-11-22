@@ -11,7 +11,7 @@ from dns.exception import DNSException
 from dns import resolver
 from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState
 from patroni.exceptions import DCSError
-from patroni.utils import Retry, RetryFailedError, sleep
+from patroni.utils import Retry, RetryFailedError
 from urllib3.exceptions import HTTPError, ReadTimeoutError
 from requests.exceptions import RequestException
 from six.moves.http_client import HTTPException
@@ -251,7 +251,7 @@ class Etcd(AbstractDCS):
                 client = Client(config)
             except etcd.EtcdException:
                 logger.info('waiting on etcd')
-                sleep(5)
+                time.sleep(5)
         return client
 
     def set_ttl(self, ttl):

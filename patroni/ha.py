@@ -1,17 +1,18 @@
+import datetime
 import functools
 import json
 import logging
 import psycopg2
 import requests
 import sys
-import datetime
-from threading import RLock
+import time
 
 from multiprocessing.pool import ThreadPool
 from patroni.async_executor import AsyncExecutor
 from patroni.exceptions import DCSError, PostgresConnectionException
 from patroni.postgresql import ACTION_ON_START
-from patroni.utils import polling_loop, sleep, tzutc
+from patroni.utils import polling_loop, tzutc
+from threading import RLock
 
 logger = logging.getLogger(__name__)
 
@@ -202,7 +203,7 @@ class Ha(object):
 
                 if picked and not allow_promote:
                     # Wait for PostgreSQL to enable synchronous mode and see if we can immediately set sync_standby
-                    sleep(2)
+                    time.sleep(2)
                     picked, allow_promote = self.state_handler.pick_synchronous_standby(self.cluster)
                 if allow_promote:
                     cluster = self.dcs.get_cluster()
@@ -429,7 +430,7 @@ class Ha(object):
             self.state_handler.set_role('demoted')
             self.dcs.delete_leader()
             self.dcs.reset_cluster()
-            sleep(2)  # Give a time to somebody to take the leader lock
+            time.sleep(2)  # Give a time to somebody to take the leader lock
             cluster = self.dcs.get_cluster()
             node_to_follow = self._get_node_to_follow(cluster)
             return self.state_handler.follow(node_to_follow, cluster.leader, recovery=True, need_rewind=True)
@@ -459,7 +460,7 @@ class Ha(object):
                     return False
 
                 # The value is very close to now
-                sleep(max(delta, 0))
+                time.sleep(max(delta, 0))
                 logger.info('Manual scheduled {0} at %s'.format(action_name), scheduled_at.isoformat())
                 return True
             except TypeError:
@@ -528,7 +529,7 @@ class Ha(object):
             # node tagged as nofailover can be ahead of the new leader either, but it is always excluded from elections
             need_rewind = bool(self.cluster.failover) or self.patroni.nofailover
             if need_rewind:
-                sleep(2)  # Give a time to somebody to take the leader lock
+                time.sleep(2)  # Give a time to somebody to take the leader lock
 
             if self.patroni.nofailover:
                 return self.follow('demoting self because I am not allowed to become master',
