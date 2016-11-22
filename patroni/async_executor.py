@@ -35,7 +35,7 @@ class AsyncExecutor(object):
     def run(self, func, args=()):
         wakeup = False
         try:
-            # if the func returned non empty result - wake up main HA loop
+            # if the func returned something (not None) - wake up main HA loop
             wakeup = func(*args) if args else func()
             return wakeup
         except:
@@ -43,7 +43,7 @@ class AsyncExecutor(object):
         finally:
             with self:
                 self.reset_scheduled_action()
-            if wakeup:
+            if wakeup is not None:
                 self._ha_wakeup()
 
     def run_async(self, func, args=()):

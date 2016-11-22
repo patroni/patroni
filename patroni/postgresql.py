@@ -668,7 +668,7 @@ class Postgresql(object):
             self.call_nowait(ACTION_ON_RESTART)
         else:
             self.set_state('restart failed ({0})'.format(self.state))
-        return True
+        return ret
 
     def _write_postgresql_conf(self):
         # rename the original configuration if it is necessary
