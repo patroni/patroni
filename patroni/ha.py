@@ -738,11 +738,6 @@ class Ha(object):
                 if msg is not None:
                     return msg
 
-                if not self.has_lock() and len(self.cluster.members) == 1 and \
-                        not (self.is_synchronous_mode() and self.cluster.sync and
-                             self.cluster.sync.matches(self.state_handler.name)):
-                    return 'too few members in cluster after "recovery", postponing leader race'
-
             # is data directory empty?
             if self.state_handler.data_directory_empty():
                 return self.bootstrap()  # new node

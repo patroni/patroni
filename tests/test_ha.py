@@ -173,15 +173,6 @@ class TestHa(unittest.TestCase):
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.assertEquals(self.ha.run_cycle(), 'starting as readonly because i had the session lock')
 
-    def test_postpone_leader_race_after_recovery(self):
-        self.ha.cluster = get_cluster(True, None, [Member(0, 'other', 28, {})], None, None)
-        self.p.is_healthy = false
-        self.p.is_running = false
-        self.p.follow = false
-        self.ha.post_recover = Mock(return_value=None)
-        self.assertEquals(self.ha.run_cycle(), 'starting as a secondary')
-        self.assertEquals(self.ha.run_cycle(), 'too few members in cluster after "recovery", postponing leader race')
-
     @patch('sys.exit', return_value=1)
     @patch('patroni.ha.Ha.sysid_valid', MagicMock(return_value=True))
     def test_sysid_no_match(self, exit_mock):
