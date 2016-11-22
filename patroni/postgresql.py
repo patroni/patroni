@@ -966,7 +966,7 @@ class Postgresql(object):
             async_executor.schedule('changing primary_conninfo and restarting')
             async_executor.run_async(self._do_follow, (primary_conninfo, leader, recovery))
         else:
-            self._do_follow(primary_conninfo, leader, recovery)
+            return self._do_follow(primary_conninfo, leader, recovery)
 
     def _do_follow(self, primary_conninfo, leader, recovery=False):
         change_role = self.role in ('master', 'demoted')
@@ -1032,6 +1032,7 @@ class Postgresql(object):
         if change_role:
             # TODO: postpone this until start completes, or maybe do even earlier
             self.call_nowait(ACTION_ON_ROLE_CHANGE)
+        return True
 
     def save_configuration_files(self):
         """

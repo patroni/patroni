@@ -2,25 +2,10 @@ import unittest
 
 from mock import Mock, patch
 from patroni.exceptions import PatroniException
-from patroni.utils import reap_children, Retry, RetryFailedError, sigchld_handler, sleep, polling_loop
-
-
-def time_sleep(_):
-    sigchld_handler(None, None)
+from patroni.utils import Retry, RetryFailedError, polling_loop
 
 
 class TestUtils(unittest.TestCase):
-
-    @patch('time.sleep', Mock())
-    def test_reap_children(self):
-        self.assertIsNone(reap_children())
-        with patch('os.waitpid', Mock(return_value=(0, 0))):
-            sigchld_handler(None, None)
-            self.assertIsNone(reap_children())
-
-    @patch('time.sleep', time_sleep)
-    def test_sleep(self):
-        self.assertIsNone(sleep(0.01))
 
     def test_polling_loop(self):
         self.assertEquals(list(polling_loop(0.001, interval=0.001)), [0])

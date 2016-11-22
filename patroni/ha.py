@@ -1,17 +1,18 @@
+import datetime
 import functools
 import json
 import logging
 import psycopg2
 import requests
 import sys
-import datetime
+import time
 
 from collections import namedtuple
 from multiprocessing.pool import ThreadPool
 from patroni.async_executor import AsyncExecutor
 from patroni.exceptions import DCSError, PostgresConnectionException
 from patroni.postgresql import ACTION_ON_START
-from patroni.utils import polling_loop, sleep, tzutc
+from patroni.utils import polling_loop, tzutc
 from threading import RLock
 
 logger = logging.getLogger(__name__)
@@ -56,7 +57,7 @@ class Ha(object):
         self.old_cluster = None
         self.recovering = False
         self._start_timeout = None
-        self._async_executor = AsyncExecutor()
+        self._async_executor = AsyncExecutor(self.wakeup)
 
         # Each member publishes various pieces of information to the DCS using touch_member. This lock protects
         # the state and publishing procedure to have consistent ordering and avoid publishing stale values.
@@ -131,7 +132,7 @@ class Ha(object):
             logger.info('bootstrapped %s', msg)
             cluster = self.dcs.get_cluster()
             node_to_follow = self._get_node_to_follow(cluster)
-            self.state_handler.follow(node_to_follow, cluster.leader, True)
+            return self.state_handler.follow(node_to_follow, cluster.leader, True)
         else:
             logger.error('failed to bootstrap %s', msg)
             self.state_handler.remove_data_directory()
@@ -242,7 +243,7 @@ class Ha(object):
 
                 if picked and not allow_promote:
                     # Wait for PostgreSQL to enable synchronous mode and see if we can immediately set sync_standby
-                    sleep(2)
+                    time.sleep(2)
                     picked, allow_promote = self.state_handler.pick_synchronous_standby(self.cluster)
                 if allow_promote:
                     cluster = self.dcs.get_cluster()
@@ -489,7 +490,7 @@ class Ha(object):
                 self.state_handler.stop()
             self.state_handler.set_role('demoted')
             self.release_leader_key_voluntarily()
-            sleep(2)  # Give a time to somebody to take the leader lock
+            time.sleep(2)  # Give a time to somebody to take the leader lock
             cluster = self.dcs.get_cluster()
             node_to_follow = self._get_node_to_follow(cluster)
             if mode == 'immediate':
@@ -499,7 +500,7 @@ class Ha(object):
                 self._async_executor.run_async(self.state_handler.follow,
                                                (node_to_follow, cluster.leader, True, None, True))
             else:
-                self.state_handler.follow(node_to_follow, cluster.leader, recovery=True, need_rewind=True)
+                return self.state_handler.follow(node_to_follow, cluster.leader, recovery=True, need_rewind=True)
         else:
             # Need to become unavailable as soon as possible, so initiate a stop here. However as we can't release
             # the leader key we don't care about confirming the shutdown quickly and can use a regular stop.
@@ -532,7 +533,7 @@ class Ha(object):
                     return False
 
                 # The value is very close to now
-                sleep(max(delta, 0))
+                time.sleep(max(delta, 0))
                 logger.info('Manual scheduled {0} at %s'.format(action_name), scheduled_at.isoformat())
                 return True
             except TypeError:
@@ -601,7 +602,7 @@ class Ha(object):
             # node tagged as nofailover can be ahead of the new leader either, but it is always excluded from elections
             need_rewind = bool(self.cluster.failover) or self.patroni.nofailover
             if need_rewind:
-                sleep(2)  # Give a time to somebody to take the leader lock
+                time.sleep(2)  # Give a time to somebody to take the leader lock
 
             if self.patroni.nofailover:
                 return self.follow('demoting self because I am not allowed to become master',
@@ -747,7 +748,7 @@ class Ha(object):
 
         clone_member = self.cluster.get_clone_member(self.state_handler.name)
         member_role = 'leader' if clone_member == self.cluster.leader else 'replica'
-        self.clone(clone_member, "from {0} '{1}'".format(member_role, clone_member.name))
+        return self.clone(clone_member, "from {0} '{1}'".format(member_role, clone_member.name))
 
     def reinitialize(self):
         with self._async_executor:
@@ -858,9 +859,10 @@ class Ha(object):
             if msg is not None:
                 return msg
 
-            # we've got here, so any async action has finished. Check if we tried to recover and failed
+            # we've got here, so any async action has finished.
             if self.recovering and not self.state_handler.need_rewind:
                 self.recovering = False
+                # Check if we tried to recover and failed
                 msg = self.post_recover()
                 if msg is not None:
                     return msg
@@ -921,3 +923,20 @@ class Ha(object):
         with self._async_executor:
             info = self._run_cycle()
             return (self.is_paused() and 'PAUSE: ' or '') + info
+
+    def watch(self, timeout):
+        cluster = self.cluster
+        # watch on leader key changes if the postgres is running and leader is known and current node is not lock owner
+        if not self._async_executor.busy and cluster and cluster.leader \
+                and cluster.leader.name != self.state_handler.name:
+            leader_index = cluster.leader.index
+        else:
+            leader_index = None
+
+        return self.dcs.watch(leader_index, timeout)
+
+    def wakeup(self):
+        """Call of this method will trigger the next run of HA loop if there is
+        no "active" leader watch request in progress.
+        This usually happens on the master or if the node is running async action"""
+        self.dcs.event.set()

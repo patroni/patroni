@@ -203,9 +203,9 @@ class TestZooKeeper(unittest.TestCase):
         self.assertTrue(self.zk.delete_cluster())
 
     def test_watch(self):
-        self.zk.watch(0)
-        self.zk.event.isSet = lambda: True
-        self.zk.watch(0)
+        self.zk.watch(None, 0)
+        self.zk.event.isSet = Mock(return_value=True)
+        self.zk.watch(None, 0)
 
     def test__kazoo_connect(self):
         self.zk._client._retry.deadline = 1

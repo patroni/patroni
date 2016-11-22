@@ -531,10 +531,11 @@ class AbstractDCS(object):
     def delete_sync_state(self, index=None):
         """"""
 
-    def watch(self, timeout):
+    def watch(self, leader_index, timeout):
         """If the current node is a master it should just sleep.
         Any other node should watch for changes of leader key with a given timeout
 
+        :param leader_index: index of a leader key
         :param timeout: timeout in seconds
         :returns: `!True` if you would like to reschedule the next run of ha cycle"""
 

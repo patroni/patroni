@@ -326,7 +326,7 @@ class ZooKeeper(AbstractDCS):
     def delete_sync_state(self, index=None):
         return self.set_sync_state_value("{}", index)
 
-    def watch(self, timeout):
-        if super(ZooKeeper, self).watch(timeout):
+    def watch(self, leader_index, timeout):
+        if super(ZooKeeper, self).watch(leader_index, timeout):
             self._fetch_cluster = True
         return self._fetch_cluster

@@ -7,7 +7,7 @@ import unittest
 from click.testing import CliRunner
 from mock import patch, Mock
 from patroni.ctl import ctl, members, store_config, load_config, output_members, request_patroni, get_dcs, parse_dcs, \
-    wait_for_leader, get_all_members, get_any_member, get_cursor, query_member, configure, PatroniCtlException
+    get_all_members, get_any_member, get_cursor, query_member, configure, PatroniCtlException
 from patroni.dcs.etcd import Client
 from psycopg2 import OperationalError
 from test_etcd import etcd_read, requests_get, socket_getaddrinfo, MockResponse
@@ -307,14 +307,6 @@ class TestCtl(unittest.TestCase):
 
         result = self.runner.invoke(ctl, ['remove', 'alpha'], input='alpha\nYes I am aware\nleader')
         assert result.exit_code == 0
-
-    @patch('patroni.dcs.AbstractDCS.watch', Mock(return_value=None))
-    @patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=get_cluster_initialized_with_leader()))
-    def test_wait_for_leader(self):
-        self.assertRaises(PatroniCtlException, wait_for_leader, self.e, 0)
-
-        cluster = wait_for_leader(self.e, timeout=2)
-        assert cluster.leader.member.name == 'leader'
 
     @patch('requests.post', Mock(side_effect=requests.exceptions.ConnectionError('foo')))
     def test_request_patroni(self):

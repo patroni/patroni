@@ -405,20 +405,6 @@ def remove(obj, cluster_name, fmt):
     dcs.delete_cluster()
 
 
-def wait_for_leader(dcs, timeout=30):
-    t_stop = time.time() + timeout
-    timeout /= 2
-
-    while time.time() < t_stop:
-        dcs.watch(timeout)
-        cluster = dcs.get_cluster()
-
-        if cluster.leader:
-            return cluster
-
-    raise PatroniCtlException('Timeout occured')
-
-
 def check_response(response, member_name, action_name, silent_success=False):
     if response.status_code >= 400:
         click.echo('Failed: {0} for member {1}, status code={2}, ({3})'.format(
