@@ -141,7 +141,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 value = json.dumps(data, separators=(',', ':'))
                 if not self.server.patroni.dcs.set_config_value(value, cluster.config.index):
                     return self.send_error(409)
-            self.server.patroni.dcs.event.set()
+            self.server.patroni.ha.wakeup()
             self._write_json_response(200, data)
 
     @check_auth
@@ -323,7 +323,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 if _:
                     status_code = _
                 elif self.server.patroni.dcs.manual_failover(leader, candidate, scheduled_at=scheduled_at):
-                    self.server.patroni.dcs.event.set()
+                    self.server.patroni.ha.wakeup()
                     data = 'Failover scheduled'
                     status_code = 202
                 else:
@@ -333,7 +333,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 data = self.is_failover_possible(cluster, leader, candidate)
                 if not data:
                     if self.server.patroni.dcs.manual_failover(leader, candidate):
-                        self.server.patroni.dcs.event.set()
+                        self.server.patroni.ha.wakeup()
                         status_code, data = self.poll_failover_result(cluster.leader and cluster.leader.name, candidate)
                     else:
                         data = 'failed to write failover key into DCS'

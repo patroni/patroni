@@ -304,24 +304,23 @@ class Consul(AbstractDCS):
     def delete_sync_state(self, index=None):
         return self._client.kv.delete(self.sync_path, cas=index)
 
-    def watch(self, timeout):
+    def watch(self, leader_index, timeout):
         if self.__do_not_watch:
             self.__do_not_watch = False
             return True
 
-        cluster = self.cluster
-        if cluster and cluster.leader and cluster.leader.name != self._name and cluster.leader.index:
+        if leader_index:
             end_time = time.time() + timeout
             while timeout >= 1:
                 try:
-                    idx, _ = self._client.kv.get(self.leader_path, index=cluster.leader.index, wait=str(timeout) + 's')
-                    return str(idx) != str(cluster.leader.index)
+                    idx, _ = self._client.kv.get(self.leader_path, index=leader_index, wait=str(timeout) + 's')
+                    return str(idx) != str(leader_index)
                 except (ConsulException, HTTPException, HTTPError, socket.error, socket.timeout):
                     logging.exception('watch')
 
                 timeout = end_time - time.time()
 
         try:
-            return super(Consul, self).watch(timeout)
+            return super(Consul, self).watch(None, timeout)
         finally:
             self.event.clear()
