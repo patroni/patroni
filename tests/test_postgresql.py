@@ -204,19 +204,29 @@ class TestPostgresql(unittest.TestCase):
         self.p.delete_trigger_file()
 
     @patch('subprocess.Popen', Mock())
-    @patch.object(Postgresql, 'wait_for_port_open', Mock(return_value=True))
+    @patch.object(Postgresql, 'wait_for_startup')
+    @patch.object(Postgresql, 'wait_for_port_open')
     @patch.object(Postgresql, 'is_running')
-    def test_start(self, mock_is_running):
+    def test_start(self, mock_is_running, mock_wait_for_port_open, mock_wait_for_startup):
         mock_is_running.return_value = True
+        mock_wait_for_port_open.return_value = True
+        mock_wait_for_startup.return_value = False
         self.assertTrue(self.p.start())
         mock_is_running.return_value = False
         open(os.path.join(self.data_dir, 'postmaster.pid'), 'w').close()
         pg_conf = os.path.join(self.data_dir, 'postgresql.conf')
         open(pg_conf, 'w').close()
-        self.assertTrue(self.p.start())
+        self.assertFalse(self.p.start())
         with open(pg_conf) as f:
             lines = f.readlines()
             self.assertTrue("f.oo = 'bar'\n" in lines)
+
+        mock_wait_for_startup.return_value = None
+        self.assertFalse(self.p.start(10))
+        self.assertIsNone(self.p.start())
+
+        mock_wait_for_port_open.return_value = False
+        self.assertFalse(self.p.start())
 
     @patch.object(Postgresql, 'pg_isready')
     @patch.object(Postgresql, 'read_pid_file')
@@ -635,6 +645,10 @@ class TestPostgresql(unittest.TestCase):
             self.assertFalse(self.p.check_for_startup())
             self.assertEquals(self.p.state, 'running')
 
+            self.p._state = 'starting'
+            self.assertFalse(self.p.check_for_startup())
+            self.assertEquals(self.p.state, 'running')
+
     def test_wait_for_startup(self):
         state = {'sleeps': 0, 'num_rejects': 0, 'final_return': 0}
 
@@ -654,7 +668,7 @@ class TestPostgresql(unittest.TestCase):
             with patch('time.sleep', side_effect=increment_sleeps):
                 self.p.time_in_state = Mock(side_effect=time_in_state)
 
-                self.p._state = 'starting'
+                self.p._state = 'stopped'
                 self.assertTrue(self.p.wait_for_startup())
                 self.assertEquals(state['sleeps'], 0)
 

@@ -663,7 +663,7 @@ class Postgresql(object):
         logger.warning("Timed out waiting for PostgreSQL to start")
         return False
 
-    def start(self, block_callbacks=False):
+    def start(self, timeout=None, block_callbacks=False):
         """Start PostgreSQL
 
         Waits for postmaster to open ports or terminate so pg_isready can be used to check startup completion
@@ -686,6 +686,7 @@ class Postgresql(object):
         self.set_role(self.get_postgres_role_from_data_directory())
 
         self.set_state('starting')
+        self._pending_restart = False
 
         self._write_postgresql_conf()
         self.resolve_connection_addresses()
@@ -698,14 +699,24 @@ class Postgresql(object):
                                 close_fds=True, preexec_fn=os.setsid, stderr=subprocess.STDOUT,
                                 env={'PATH': os.environ.get('PATH')})
 
-        # We want postmaster to open ports before we continue
-        try:
-            start_timeout = float(self.config.get('pg_ctl_timeout', 60))
-        except ValueError:
-            start_timeout = 60
+        start_timeout = timeout
+        if not start_timeout:
+            try:
+                start_timeout = float(self.config.get('pg_ctl_timeout', 60))
+            except ValueError:
+                start_timeout = 60
 
-        self._pending_restart = False
-        return self.wait_for_port_open(proc, start_initiated, start_timeout)
+        # We want postmaster to open ports before we continue
+        if not self.wait_for_port_open(proc, start_initiated, start_timeout):
+            return False
+
+        ret = self.wait_for_startup(start_timeout)
+        if ret is not None:
+            return ret
+        elif timeout is not None:
+            return False
+        else:
+            return None
 
     def checkpoint(self, connect_kwargs=None):
         check_not_is_in_recovery = connect_kwargs is not None
@@ -811,18 +822,14 @@ class Postgresql(object):
         """Restarts PostgreSQL.
 
         When timeout parameter is set the call will block either until PostgreSQL has started, failed to start or
-        timeout arrives. When timeout is None then state of PostgreSQL needs to checked via wait_for_startup. Can only
-        be called with the async executor or from the main loop to avoid racy calls to check_startup_state_changed().
+        timeout arrives.
 
         :returns: True when restart was successful and timeout did not expire when waiting.
         """
         self.set_state('restarting')
         self.__cb_pending = ACTION_ON_RESTART
-        ret = self.stop(block_callbacks=True) \
-            and self.start(block_callbacks=True)
-        if ret and timeout is not None:
-            ret = self.wait_for_startup(timeout=timeout)
-        elif not ret:
+        ret = self.stop(block_callbacks=True) and self.start(timeout=timeout, block_callbacks=True)
+        if not ret and not self.is_starting():
             self.set_state('restart failed ({0})'.format(self.state))
         return ret
 
@@ -953,7 +960,7 @@ class Postgresql(object):
     def need_rewind(self):
         return self._need_rewind
 
-    def follow(self, member, leader, recovery=False, async_executor=None, need_rewind=None):
+    def follow(self, member, leader, recovery=False, async_executor=None, need_rewind=None, timeout=None):
         if need_rewind is not None:
             self._need_rewind = need_rewind
 
@@ -964,11 +971,11 @@ class Postgresql(object):
 
         if async_executor:
             async_executor.schedule('changing primary_conninfo and restarting')
-            async_executor.run_async(self._do_follow, (primary_conninfo, leader, recovery))
+            async_executor.run_async(self._do_follow, (primary_conninfo, leader, recovery, timeout))
         else:
-            return self._do_follow(primary_conninfo, leader, recovery)
+            return self._do_follow(primary_conninfo, leader, recovery, timeout)
 
-    def _do_follow(self, primary_conninfo, leader, recovery=False):
+    def _do_follow(self, primary_conninfo, leader, recovery=False, timeout=None):
         change_role = self.role in ('master', 'demoted')
 
         if leader and leader.name == self.name:
@@ -1024,7 +1031,7 @@ class Postgresql(object):
         else:
             self.write_recovery_conf(primary_conninfo)
             if recovery:
-                self.start()
+                self.start(timeout=timeout)
             else:
                 self.restart()
             self.set_role('replica')
@@ -1177,10 +1184,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
     def bootstrap(self, config):
         """ Initialize a new node from scratch and start it. """
-        if self._initialize(config) and \
-                self.start() and \
-                self.wait_for_startup() and \
-                self.run_bootstrap_post_init(config):
+        if self._initialize(config) and self.start() and self.run_bootstrap_post_init(config):
             for name, value in (config.get('users') or {}).items():
                 if name not in (self._superuser.get('username'), self._replication['username']):
                     self.create_or_update_role(name, value['password'], value.get('options', []))

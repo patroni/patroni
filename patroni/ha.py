@@ -172,16 +172,20 @@ class Ha(object):
 
     def recover(self):
         if self.has_lock() and self.update_lock():
-            if self.patroni.config['master_start_timeout'] == 0:
+            timeout = self.patroni.config['master_start_timeout']
+            if timeout == 0:
                 # We are requested to prefer failing over to restarting master. But see first if there
                 # is anyone to fail over to.
                 if self.is_failover_possible(self.cluster.members):
                     logger.info("Master crashed. Failing over.")
                     self.demote('immediate')
                     return 'stopped PostgreSQL to fail over after a crash'
+        else:
+            timeout = None
 
         self.recovering = True
-        return self.follow("starting as readonly because i had the session lock", "starting as a secondary", True, True)
+        return self.follow("starting as readonly because i had the session lock",
+                           "starting as a secondary", True, True, None, timeout)
 
     def _get_node_to_follow(self, cluster):
         # determine the node to follow. If replicatefrom tag is set,
@@ -193,7 +197,7 @@ class Ha(object):
 
         return node_to_follow if node_to_follow and node_to_follow.name != self.state_handler.name else None
 
-    def follow(self, demote_reason, follow_reason, refresh=True, recovery=False, need_rewind=None):
+    def follow(self, demote_reason, follow_reason, refresh=True, recovery=False, need_rewind=None, timeout=None):
         if refresh:
             self.load_cluster_from_dcs()
 
@@ -212,7 +216,8 @@ class Ha(object):
             elif not node_to_follow:
                 return 'no action'
 
-        self.state_handler.follow(node_to_follow, self.cluster.leader, recovery, self._async_executor, need_rewind)
+        self.state_handler.follow(node_to_follow, self.cluster.leader, recovery,
+                                  self._async_executor, need_rewind, timeout)
 
         return ret
 
