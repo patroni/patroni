@@ -214,7 +214,7 @@ class Postgresql(object):
                         unit = changes['wal_segment_size'] if r[0] in ('min_wal_size', 'max_wal_size') else r[2]
                         new_value = changes.pop(r[0])
                         if self._major_version >= 9.6 and r[0] == 'wal_level' and new_value == 'hot_standby':
-                            new_value = 'logical'
+                            new_value = 'replica'
                         if new_value is None or not compare_values(r[3], unit, r[1], new_value):
                             if r[4] == 'postmaster':
                                 pending_restart = True
@@ -601,7 +601,7 @@ class Postgresql(object):
 
         opts = {p: self._server_parameters[p] for p, v in self.CMDLINE_OPTIONS.items() if self._major_version >= v[2]}
         if self._major_version >= 9.6 and opts['wal_level'] == 'hot_standby':
-            opts['wal_level'] = 'logical'
+            opts['wal_level'] = 'replica'
         options = ' '.join("--{0}='{1}'".format(p, v) for p, v in opts.items())
 
         ret = self.pg_ctl('start', '-o', options, env=env, preexec_fn=os.setsid)

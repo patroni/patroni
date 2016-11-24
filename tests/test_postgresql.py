@@ -41,7 +41,7 @@ class MockCursor(object):
                             ('port', '5433', None, 'integer', 'postmaster'),
                             ('listen_addresses', '*', None, 'string', 'postmaster'),
                             ('autovacuum', 'on', None, 'bool', 'sighup'),
-                            ('wal_level', 'logical', None, 'enum', 'postmaster')]
+                            ('wal_level', 'replica', None, 'enum', 'postmaster')]
         else:
             self.results = [(None, None, None, None, None, None, None, None, None, None)]
 
