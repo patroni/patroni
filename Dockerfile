@@ -27,7 +27,7 @@ RUN apt-get update -y \
 
     # Remove the default cluster, which Debian stupidly starts right after installation of the packages
     && pg_dropcluster --stop ${PGVERSION} main \
-    && pip install python-etcd==0.4.3 python-consul==0.6.0 --upgrade \
+    && pip install python-etcd==0.4.3 python-consul==0.6.1 --upgrade \
 
     # Clean up
     && apt-get remove -y python-pip python-setuptools \
