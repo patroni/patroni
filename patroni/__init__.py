@@ -1,16 +1,8 @@
 import logging
+import os
 import signal
 import sys
 import time
-
-from patroni.api import RestApiServer
-from patroni.config import Config
-from patroni.dcs import get_dcs
-from patroni.exceptions import DCSError
-from patroni.ha import Ha
-from patroni.postgresql import Postgresql
-from patroni.utils import reap_children, sigchld_handler
-from patroni.version import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +10,13 @@ logger = logging.getLogger(__name__)
 class Patroni(object):
 
     def __init__(self):
+        from patroni.api import RestApiServer
+        from patroni.config import Config
+        from patroni.dcs import get_dcs
+        from patroni.ha import Ha
+        from patroni.postgresql import Postgresql
+        from patroni.version import __version__
+
         self.setup_signal_handlers()
 
         self.version = __version__
@@ -34,6 +33,7 @@ class Patroni(object):
         self.scheduled_restart = {}
 
     def load_dynamic_configuration(self):
+        from patroni.exceptions import DCSError
         while True:
             try:
                 cluster = self.dcs.get_cluster()
@@ -94,7 +94,7 @@ class Patroni(object):
             time.sleep(0.001)
             # Warn user that Patroni is not keeping up
             logger.warning("Loop time exceeded, rescheduling immediately.")
-        elif self.dcs.watch(nap_time):
+        elif self.ha.watch(nap_time):
             self.next_run = time.time()
 
     def run(self):
@@ -107,8 +107,6 @@ class Patroni(object):
                 if self.config.reload_local_configuration():
                     self.reload_config()
 
-            reap_children()
-
             logger.info(self.ha.run_cycle())
 
             cluster = self.dcs.cluster
@@ -118,7 +116,6 @@ class Patroni(object):
             if not self.postgresql.data_directory_empty():
                 self.config.save_cache()
 
-            reap_children()
             self.schedule_next_run()
 
     def setup_signal_handlers(self):
@@ -126,10 +123,9 @@ class Patroni(object):
         self._received_sigterm = False
         signal.signal(signal.SIGHUP, self.sighup_handler)
         signal.signal(signal.SIGTERM, self.sigterm_handler)
-        signal.signal(signal.SIGCHLD, sigchld_handler)
 
 
-def main():
+def patroni_main():
     logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
     logging.getLogger('requests').setLevel(logging.WARNING)
 
@@ -145,3 +141,39 @@ def main():
         else:
             patroni.ha.while_not_sync_standby(lambda: patroni.postgresql.stop(checkpoint=False))
             patroni.dcs.delete_leader()
+
+
+def main():
+    if os.getpid() != 1:
+        return patroni_main()
+
+    pid = 0
+
+    # Looks like we are in a docker, so we will act like init
+    def sigchld_handler(signo, stack_frame):
+        try:
+            while True:
+                ret = os.waitpid(-1, os.WNOHANG)
+                if ret == (0, 0):
+                    break
+                elif ret[0] != pid:
+                    logging.info('Reaped pid=%s, exit status=%s', *ret)
+        except OSError:
+            pass
+
+    def passtochild(signo, stack_frame):
+        if pid:
+            os.kill(pid, signo)
+
+    signal.signal(signal.SIGCHLD, sigchld_handler)
+    signal.signal(signal.SIGHUP, passtochild)
+    signal.signal(signal.SIGINT, passtochild)
+    signal.signal(signal.SIGUSR1, passtochild)
+    signal.signal(signal.SIGUSR2, passtochild)
+    signal.signal(signal.SIGQUIT, passtochild)
+    signal.signal(signal.SIGTERM, passtochild)
+
+    import subprocess
+    patroni = subprocess.Popen([sys.executable] + sys.argv)
+    pid = patroni.pid
+    patroni.wait()

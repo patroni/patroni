@@ -1,19 +1,19 @@
 import datetime
 import json
 import psycopg2
-import pytz
 import unittest
 
 from mock import Mock, patch
 from patroni.api import RestApiHandler, RestApiServer
 from patroni.dcs import ClusterConfig, Member
+from patroni.utils import tzutc
 from six import BytesIO as IO
 from six.moves import BaseHTTPServer
 from test_postgresql import psycopg2_connect, MockCursor
 
 
-future_restart_time = datetime.datetime.now(pytz.utc) + datetime.timedelta(days=5)
-postmaster_start_time = datetime.datetime.now(pytz.utc)
+future_restart_time = datetime.datetime.now(tzutc) + datetime.timedelta(days=5)
+postmaster_start_time = datetime.datetime.now(tzutc)
 
 
 class MockPostgresql(object):
@@ -70,6 +70,10 @@ class MockHa(object):
     @staticmethod
     def get_effective_tags():
         return {'nosync': True}
+
+    @staticmethod
+    def wakeup():
+        pass
 
 
 class MockPatroni(object):

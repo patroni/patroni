@@ -1,7 +1,6 @@
 import json
 import os
 import parse
-import pytz
 import requests
 import shlex
 import subprocess
@@ -9,7 +8,10 @@ import time
 import yaml
 
 from behave import register_type, step, then
+from dateutil import tz
 from datetime import datetime, timedelta
+
+tzutc = tz.tzutc()
 
 
 @parse.with_pattern(r'https?://(?:\w|\.|:|/)+')
@@ -123,13 +125,13 @@ def check_response(context, component, data):
 def scheduled_failover(context, from_host, to_host, in_seconds):
     context.execute_steps(u"""
         Given I run patronictl.py failover batman --master {0} --candidate {1} --scheduled "{2}" --force
-    """.format(from_host, to_host, datetime.now(pytz.utc) + timedelta(seconds=int(in_seconds))))
+    """.format(from_host, to_host, datetime.now(tzutc) + timedelta(seconds=int(in_seconds))))
 
 
 @step('I issue a scheduled restart at {url:url} in {in_seconds:d} seconds with {data}')
 def scheduled_restart(context, url, in_seconds, data):
     data = data and json.loads(data) or {}
-    data.update(schedule='{0}'.format((datetime.now(pytz.utc) + timedelta(seconds=int(in_seconds))).isoformat()))
+    data.update(schedule='{0}'.format((datetime.now(tzutc) + timedelta(seconds=int(in_seconds))).isoformat()))
     context.execute_steps(u"""Given I issue a POST request to {0}/restart with {1}""".format(url, json.dumps(data)))
 
 

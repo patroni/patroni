@@ -8,7 +8,7 @@ from threading import Thread
 class TestAsyncExecutor(unittest.TestCase):
 
     def setUp(self):
-        self.a = AsyncExecutor()
+        self.a = AsyncExecutor(Mock())
 
     @patch.object(Thread, 'start', Mock())
     def test_run_async(self):
