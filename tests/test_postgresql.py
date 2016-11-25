@@ -40,7 +40,8 @@ class MockCursor(object):
                             ('search_path', 'public', None, 'string', 'user'),
                             ('port', '5433', None, 'integer', 'postmaster'),
                             ('listen_addresses', '*', None, 'string', 'postmaster'),
-                            ('autovacuum', 'on', None, 'bool', 'sighup')]
+                            ('autovacuum', 'on', None, 'bool', 'sighup'),
+                            ('wal_level', 'replica', None, 'enum', 'postmaster')]
         else:
             self.results = [(None, None, None, None, None, None, None, None, None, None)]
 
@@ -157,12 +158,13 @@ class TestPostgresql(unittest.TestCase):
     _PARAMETERS = {'wal_level': 'hot_standby', 'max_replication_slots': 5, 'f.oo': 'bar',
                    'search_path': 'public', 'hot_standby': 'on', 'max_wal_senders': 5,
                    'wal_keep_segments': 8, 'wal_log_hints': 'on', 'max_locks_per_transaction': 64,
-                   'max_worker_processes': 8, 'max_connections': 100, 'max_prepared_transactions': 0}
+                   'max_worker_processes': 8, 'max_connections': 100, 'max_prepared_transactions': 0,
+                   'track_commit_timestamp': 'off'}
 
     @patch('subprocess.call', Mock(return_value=0))
     @patch('psycopg2.connect', psycopg2_connect)
     @patch('os.rename', Mock())
-    @patch.object(Postgresql, 'get_major_version', Mock(return_value=9.4))
+    @patch.object(Postgresql, 'get_major_version', Mock(return_value=9.6))
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def setUp(self):
         self.data_dir = 'data/test0'

@@ -59,7 +59,7 @@ class Postgresql(object):
         'listen_addresses': (None, lambda _: False, 9.1),
         'port': (None, lambda _: False, 9.1),
         'cluster_name': (None, lambda _: False, 9.5),
-        'wal_level': ('hot_standby', lambda v: v.lower() in ('hot_standby', 'logical'), 9.1),
+        'wal_level': ('hot_standby', lambda v: v.lower() in ('hot_standby', 'replica', 'logical'), 9.1),
         'hot_standby': ('on', lambda _: False, 9.1),
         'max_connections': (100, lambda v: int(v) >= 100, 9.1),
         'max_wal_senders': (5, lambda v: int(v) >= 5, 9.1),
@@ -213,6 +213,8 @@ class Postgresql(object):
                     elif r[0] in changes:
                         unit = changes['wal_segment_size'] if r[0] in ('min_wal_size', 'max_wal_size') else r[2]
                         new_value = changes.pop(r[0])
+                        if self._major_version >= 9.6 and r[0] == 'wal_level' and new_value == 'hot_standby':
+                            new_value = 'replica'
                         if new_value is None or not compare_values(r[3], unit, r[1], new_value):
                             if r[4] == 'postmaster':
                                 pending_restart = True
@@ -597,8 +599,10 @@ class Postgresql(object):
         self._write_postgresql_conf()
         self.resolve_connection_addresses()
 
-        options = ' '.join("--{0}='{1}'".format(p, self._server_parameters[p]) for p, v in self.CMDLINE_OPTIONS.items()
-                           if self._major_version >= v[2])
+        opts = {p: self._server_parameters[p] for p, v in self.CMDLINE_OPTIONS.items() if self._major_version >= v[2]}
+        if self._major_version >= 9.6 and opts['wal_level'] == 'hot_standby':
+            opts['wal_level'] = 'replica'
+        options = ' '.join("--{0}='{1}'".format(p, v) for p, v in opts.items())
 
         ret = self.pg_ctl('start', '-o', options, env=env, preexec_fn=os.setsid)
         self._pending_restart = False
@@ -813,7 +817,7 @@ class Postgresql(object):
             async_executor.schedule('changing primary_conninfo and restarting')
             async_executor.run_async(self._do_follow, (primary_conninfo, leader, recovery))
         else:
-            self._do_follow(primary_conninfo, leader, recovery)
+            return self._do_follow(primary_conninfo, leader, recovery)
 
     def _do_follow(self, primary_conninfo, leader, recovery=False):
         change_role = self.role in ('master', 'demoted')
@@ -862,20 +866,22 @@ class Postgresql(object):
 
             if self.rewind(r) or not self.config.get('remove_data_directory_on_rewind_failure', False):
                 self.write_recovery_conf(primary_conninfo)
-                ret = self.start()
+                self.start()
             else:
                 logger.error('unable to rewind the former master')
                 self.remove_data_directory()
-                ret = True
             self._need_rewind = False
         else:
             self.write_recovery_conf(primary_conninfo)
-            ret = self.start() if recovery else self.restart()
+            if recovery:
+                self.start()
+            else:
+                self.restart()
             self.set_role('replica')
 
         if change_role:
             self.call_nowait(ACTION_ON_ROLE_CHANGE)
-        return ret
+        return True
 
     def save_configuration_files(self):
         """

@@ -4,7 +4,6 @@ import requests
 import time
 
 from patroni.dcs.zookeeper import ZooKeeper
-from patroni.utils import sleep
 from requests.exceptions import RequestException
 
 logger = logging.getLogger(__name__)
@@ -24,7 +23,7 @@ class ExhibitorEnsembleProvider(object):
         self._next_poll = None
         while not self.poll():
             logger.info('waiting on exhibitor')
-            sleep(5)
+            time.sleep(5)
 
     def poll(self):
         if self._next_poll and self._next_poll > time.time():

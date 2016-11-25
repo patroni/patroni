@@ -274,12 +274,12 @@ class TestEtcd(unittest.TestCase):
 
     @patch.object(etcd.Client, 'watch', etcd_watch)
     def test_watch(self):
-        self.etcd.watch(0)
+        self.etcd.watch(None, 0)
         self.etcd.get_cluster()
-        self.etcd.watch(1.5)
-        self.etcd.watch(4.5)
+        self.etcd.watch(20729, 1.5)
+        self.etcd.watch(20729, 4.5)
         with patch.object(AbstractDCS, 'watch', Mock()):
-            self.etcd.watch(9.5)
+            self.etcd.watch(20729, 9.5)
 
     def test_other_exceptions(self):
         self.etcd.retry = Mock(side_effect=AttributeError('foo'))
@@ -287,7 +287,7 @@ class TestEtcd(unittest.TestCase):
 
     def test_set_ttl(self):
         self.etcd.set_ttl(20)
-        self.assertTrue(self.etcd.watch(1))
+        self.assertTrue(self.etcd.watch(None, 1))
 
     def test_sync_state(self):
         self.assertFalse(self.etcd.write_sync_state('leader', None))

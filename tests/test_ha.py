@@ -173,9 +173,6 @@ class TestHa(unittest.TestCase):
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.assertEquals(self.ha.run_cycle(), 'starting as readonly because i had the session lock')
 
-    def test_do_not_recover_in_pause(self):
-        pass
-
     @patch('sys.exit', return_value=1)
     @patch('patroni.ha.Ha.sysid_valid', MagicMock(return_value=True))
     def test_sysid_no_match(self, exit_mock):
@@ -459,6 +456,9 @@ class TestHa(unittest.TestCase):
 
     def test_evaluate_scheduled_restart(self):
         self.p.postmaster_start_time = Mock(return_value=str(postmaster_start_time))
+        # restart already in progres
+        with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)):
+            self.assertIsNone(self.ha.evaluate_scheduled_restart())
         # restart while the postmaster has been already restarted, fails
         with patch.object(self.ha,
                           'future_restart_scheduled',
@@ -514,7 +514,7 @@ class TestHa(unittest.TestCase):
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
         self.assertEquals(self.ha.run_cycle(), 'PAUSE: DCS is not accessible')
 
-    @patch('patroni.ha.sleep', Mock())
+    @patch('time.sleep', Mock())
     def test_process_sync_replication(self):
         self.ha.has_lock = true
         mock_set_sync = self.p.set_synchronous_standby = Mock()
@@ -634,7 +634,7 @@ class TestHa(unittest.TestCase):
         mock_promote.assert_called_once()
         mock_write_sync.assert_called_once_with('other', None, index=0)
 
-    @patch('patroni.utils.sleep')
+    @patch('time.sleep')
     def test_disable_sync_when_restarting(self, mock_sleep):
         self.ha.is_synchronous_mode = true
 
@@ -681,3 +681,10 @@ class TestHa(unittest.TestCase):
         self.ha.has_lock = true
         self.ha.cluster.is_unlocked = false
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
+
+    def test_watch(self):
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.ha.watch(0)
+
+    def test_wakup(self):
+        self.ha.wakeup()
