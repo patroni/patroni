@@ -9,6 +9,7 @@ import tempfile
 import time
 
 from collections import defaultdict
+from patroni import call_self
 from patroni.exceptions import PostgresConnectionException, PostgresException
 from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop
 from six import string_types
@@ -64,7 +65,7 @@ class Postgresql(object):
         'listen_addresses': (None, lambda _: False, 9.1),
         'port': (None, lambda _: False, 9.1),
         'cluster_name': (None, lambda _: False, 9.5),
-        'wal_level': ('hot_standby', lambda v: v.lower() in ('hot_standby', 'logical'), 9.1),
+        'wal_level': ('hot_standby', lambda v: v.lower() in ('hot_standby', 'replica', 'logical'), 9.1),
         'hot_standby': ('on', lambda _: False, 9.1),
         'max_connections': (100, lambda v: int(v) >= 100, 9.1),
         'max_wal_senders': (5, lambda v: int(v) >= 5, 9.1),
@@ -246,6 +247,8 @@ class Postgresql(object):
                     elif r[0] in changes:
                         unit = changes['wal_segment_size'] if r[0] in ('min_wal_size', 'max_wal_size') else r[2]
                         new_value = changes.pop(r[0])
+                        if self._major_version >= 9.6 and r[0] == 'wal_level' and new_value == 'hot_standby':
+                            new_value = 'replica'
                         if new_value is None or not compare_values(r[3], unit, r[1], new_value):
                             if r[4] == 'postmaster':
                                 pending_restart = True
@@ -636,7 +639,7 @@ class Postgresql(object):
     def is_starting(self):
         return self.state == 'starting'
 
-    def wait_for_port_open(self, proc, initiated, timeout):
+    def wait_for_port_open(self, pid, initiated, timeout):
         """Waits until PostgreSQL opens ports."""
         for _ in polling_loop(timeout):
             pid_file = self.read_pid_file()
@@ -645,7 +648,7 @@ class Postgresql(object):
                     pmpid = int(pid_file['pid'])
                     pmstart = int(pid_file['start_time'])
 
-                    if pmstart >= initiated - 2 and pmpid == proc.pid:
+                    if pmstart >= initiated - 2 and pmpid == pid:
                         isready = self.pg_isready()
                         if isready != STATE_NO_RESPONSE:
                             if isready not in [STATE_REJECT, STATE_RUNNING]:
@@ -655,8 +658,8 @@ class Postgresql(object):
                     # Garbage in the pid file
                     pass
 
-            if proc.poll():
-                logger.error('postmaster is not running, return code=%s', proc.returncode)
+            if not self.is_pid_running(pid):
+                logger.error('postmaster is not running')
                 self.set_state('start failed')
                 return False
 
@@ -691,13 +694,29 @@ class Postgresql(object):
         self._write_postgresql_conf()
         self.resolve_connection_addresses()
 
-        options = ['--{0}={1}'.format(p, self._server_parameters[p])
-                   for p, v in self.CMDLINE_OPTIONS.items() if self._major_version >= v[2]]
+        opts = {p: self._server_parameters[p] for p, v in self.CMDLINE_OPTIONS.items() if self._major_version >= v[2]}
+        if self._major_version >= 9.6 and opts['wal_level'] == 'hot_standby':
+            opts['wal_level'] = 'replica'
+        options = ['--{0}={1}'.format(p, v) for p, v in opts.items()]
 
         start_initiated = time.time()
-        proc = subprocess.Popen([self._pgcommand('postgres'), '-D', self._data_dir] + options,
-                                close_fds=True, preexec_fn=os.setsid, stderr=subprocess.STDOUT,
-                                env={'PATH': os.environ.get('PATH')})
+
+        # Unfortunately `pg_ctl start` does not return postmaster pid to us. Without this information
+        # it is hard to know the current state of postgres startup, so we had to reimplement pg_ctl start
+        # in python. It will start postgres, wait for port to be open and wait until postgres will start
+        # accepting connections.
+        # Important!!! We can't just start postgres using subprocess.Popen, because in this case it
+        # will be our child for the rest of our live and we will have to take care of it (`waitpid`).
+        # So we will use the same approach as pg_ctl uses: start a new process, which will start postgres.
+        # This process will write postmaster pid to stdout and exit immediately. Now it's responsibility
+        # of init process to take care about postmaster.
+        # In order to make everything portable we can't use fork&exec approach here, so  we will call
+        # ourselves and pass list of arguments which must be used to start postgres.
+        proc = call_self(['pg_ctl_start', self._pgcommand('postgres'), '-D', self._data_dir] + options, close_fds=True,
+                         preexec_fn=os.setsid, stdout=subprocess.PIPE, env={'PATH': os.environ.get('PATH')})
+        pid = int(proc.stdout.readline().strip())
+        proc.wait()
+        logger.info('postmaster pid=%s', pid)
 
         start_timeout = timeout
         if not start_timeout:
@@ -707,7 +726,7 @@ class Postgresql(object):
                 start_timeout = 60
 
         # We want postmaster to open ports before we continue
-        if not self.wait_for_port_open(proc, start_initiated, start_timeout):
+        if not self.wait_for_port_open(pid, start_initiated, start_timeout):
             return False
 
         ret = self.wait_for_startup(start_timeout)

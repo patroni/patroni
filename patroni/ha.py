@@ -729,8 +729,13 @@ class Ha(object):
             if prev is not None:
                 return (False, prev + ' already in progress')
 
-        # No that restart is scheduled we can set timeout for startup, it will get reset once async executor runs and
-        # main loop notices PostgreSQL as up.
+            # Make the main loop to think that we were recovering dead postgres. If we fail
+            # to start postgres after a specified timeout (see below), we need to remove
+            # leader key (if it belong to us) rather than trying to start postgres once again.
+            self.recovering = True
+
+        # No that restart is scheduled we can set timeout for startup, it will get reset
+        # once async executor runs and main loop notices PostgreSQL as up.
         timeout = restart_data.get('timeout', self.patroni.config['master_start_timeout'])
         self.set_start_timeout(timeout)
 
@@ -742,10 +747,14 @@ class Ha(object):
         if run_async:
             self._async_executor.run_async(do_restart)
             return (True, 'restart initiated')
-        elif self._async_executor.run(do_restart):
-            return (True, 'restarted successfully')
         else:
-            return (False, 'restart failed')
+            res = self._async_executor.run(do_restart)
+            if res:
+                return (True, 'restarted successfully')
+            elif res is None:
+                return (False, 'postgres is still starting')
+            else:
+                return (False, 'restart failed')
 
     def _do_reinitialize(self, cluster):
         self.state_handler.stop('immediate')
