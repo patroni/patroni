@@ -302,6 +302,8 @@ class TestHa(unittest.TestCase):
 
     def test_restart(self):
         self.assertEquals(self.ha.restart({}), (True, 'restarted successfully'))
+        self.p.restart = Mock(return_value=None)
+        self.assertEquals(self.ha.restart({}), (False, 'postgres is still starting'))
         self.p.restart = false
         self.assertEquals(self.ha.restart({}), (False, 'restart failed'))
         self.ha.cluster = get_cluster_initialized_with_leader()
