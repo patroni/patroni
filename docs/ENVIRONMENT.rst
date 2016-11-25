@@ -27,6 +27,12 @@ Consul
 Etcd
 ----
 -  **PATRONI\_ETCD\_HOST**: the host:port for the etcd endpoint.
+-  **PATRONI\_ETCD\_URL**: url for the etcd, in format: http(s)://(username:password@)host:port
+-  **PATRONI\_ETCD\_PROXY**: proxy url for the etcd. If you are connecting to the etcd using proxy, use this parameter instead of **PATRONI\_ETCD\_URL**
+-  **PATRONI\_ETCD\_SRV**: Domain to search the SRV record(s) for cluster autodiscovery.
+-  **PATRONI\_ETCD\_CACERT**: The ca certificate. If pressent it will enable validation.
+-  **PATRONI\_ETCD\_CERT**: File with the client certificate
+-  **PATRONI\_ETCD\_KEY**: File with the client key. Can be empty if the key is part of certificate.
 
 Exhibitor
 ---------

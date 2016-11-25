@@ -229,9 +229,11 @@ class TestEtcd(unittest.TestCase):
             mock_machines.__get__ = Mock(side_effect=etcd.EtcdException)
             with patch('time.sleep', Mock(side_effect=SleepException)):
                 self.assertRaises(SleepException, self.etcd.get_etcd_client,
-                                  {'discovery_srv': 'test', 'retry_timeout': 10})
+                                  {'discovery_srv': 'test', 'retry_timeout': 10, 'cacert': '1', 'key': '1', 'cert': 1})
                 self.assertRaises(SleepException, self.etcd.get_etcd_client,
-                                  {'url': 'https://test:2379/', 'retry_timeout': 10})
+                                  {'url': 'https://test:2379', 'retry_timeout': 10})
+                self.assertRaises(SleepException, self.etcd.get_etcd_client,
+                                  {'proxy': 'https://user:password@test:2379', 'retry_timeout': 10})
 
     def test_get_cluster(self):
         self.assertIsInstance(self.etcd.get_cluster(), Cluster)

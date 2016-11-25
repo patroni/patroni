@@ -27,11 +27,12 @@ class EtcdError(DCSError):
 class Client(etcd.Client):
 
     def __init__(self, config):
-        args = {p: config.get(p) for p in ('host', 'port', 'protocol', 'username', 'password') if config.get(p)}
+        args = {p: config.get(p) for p in ('host', 'port', 'protocol', 'use_proxies', 'username', 'password',
+                                           'cert', 'ca_cert') if config.get(p)}
         super(Client, self).__init__(read_timeout=config['retry_timeout'], **args)
         self._config = config
         self._load_machines_cache()
-        self._allow_reconnect = True
+        self._allow_reconnect = not self._use_proxies
 
     def _build_request_parameters(self):
         kwargs = {'headers': self._get_headers(), 'redirect': self.allow_redirect}
@@ -203,13 +204,16 @@ class Client(etcd.Client):
         if 'srv' not in self._config and 'host' not in self._config:
             raise Exception('Neither srv nor host url are defined in etcd section of config')
 
-        self._machines_cache = []
+        if self._use_proxies:
+            self._machines_cache = ['{0}://{1}:{2}'.format(self.protocol, self._config['host'], self._config['port'])]
+        else:
+            self._machines_cache = []
 
-        if 'srv' in self._config:
-            self._machines_cache = self._get_machines_cache_from_srv(self._config['srv'])
+            if 'srv' in self._config:
+                self._machines_cache = self._get_machines_cache_from_srv(self._config['srv'])
 
-        if not self._machines_cache and 'host' in self._config:
-            self._machines_cache = self._get_machines_cache_from_dns(self._config['host'], self._config['port'])
+            if not self._machines_cache and 'host' in self._config:
+                self._machines_cache = self._get_machines_cache_from_dns(self._config['host'], self._config['port'])
 
         # Can not bootstrap list of etcd-cluster members, giving up
         if not self._machines_cache:
@@ -255,13 +259,26 @@ class Etcd(AbstractDCS):
 
     @staticmethod
     def get_etcd_client(config):
+        if 'proxy' in config:
+            config['use_proxies'] = True
+            config['url'] = config['proxy']
+
         if 'url' in config:
             r = urlparse(config['url'])
             config.update({'protocol': r.scheme, 'host': r.hostname, 'port': r.port or 2379,
                            'username': r.username, 'password': r.password})
         elif 'host' in config:
             host, port = (config['host'] + ':2379').split(':')[:2]
-            config.update({'host': host, 'port': int(port)})
+            config['host'] = host
+            if 'port' not in config:
+                config['port'] = int(port)
+
+        if config.get('cacert'):
+            config['ca_cert'] = config.pop('cacert')
+
+        if config.get('key') and config.get('cert'):
+            config['cert'] = (config['cert'], config['key'])
+
         for p in ('discovery_srv', 'srv_domain'):
             if p in config:
                 config['srv'] = config.pop(p)
