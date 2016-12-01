@@ -2,8 +2,9 @@ import psycopg2
 import subprocess
 import unittest
 
-from mock import MagicMock, patch, PropertyMock
-from patroni.scripts.wale_restore import WALERestore, main as _main
+from mock import Mock, MagicMock, patch, PropertyMock, mock_open
+from patroni.scripts.wale_restore import WALERestore, main as _main, get_major_version
+from six.moves import builtins
 
 
 wale_output = b'name last_modified expanded_size_bytes wal_segment_backup_start ' +\
@@ -46,6 +47,9 @@ class TestWALERestore(unittest.TestCase):
     def test_create_replica_with_s3(self):
         with patch('subprocess.call', MagicMock(return_value=0)):
             self.assertEqual(self.wale_restore.create_replica_with_s3(), 0)
+            with patch.object(self.wale_restore, 'fix_subdirectory_path_if_broken', Mock(return_value=False)):
+                self.assertEqual(self.wale_restore.create_replica_with_s3(), 1)
+
         with patch('subprocess.call', MagicMock(side_effect=Exception("foo"))):
             self.assertEqual(self.wale_restore.create_replica_with_s3(), 1)
 
@@ -60,3 +64,21 @@ class TestWALERestore(unittest.TestCase):
     @patch.object(WALERestore, 'run', MagicMock(return_value=0))
     def test_main(self):
         self.assertEqual(_main(), None)
+
+    @patch('os.path.isfile', Mock(return_value=True))
+    def test_get_major_version(self):
+        with patch.object(builtins, 'open', mock_open(read_data='9.4')):
+            self.assertEqual(get_major_version("data"), 9.4)
+        with patch.object(builtins, 'open', side_effect=OSError):
+            self.assertEqual(get_major_version("data"), 0.0)
+
+    @patch('os.path.islink', Mock(return_value=True))
+    @patch('os.readlink', Mock(return_value="foo"))
+    @patch('os.remove', Mock())
+    @patch('os.mkdir', Mock())
+    def test_fix_subdirectory_path_if_broken(self):
+        with patch('os.path.exists', Mock(return_value=False)):  # overriding the class-wide mock
+            self.assertTrue(self.wale_restore.fix_subdirectory_path_if_broken("data1"))
+            for fn in ('os.remove', 'os.mkdir'):
+                with patch(fn, side_effect=OSError):
+                    self.assertFalse(self.wale_restore.fix_subdirectory_path_if_broken("data3"))

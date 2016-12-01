@@ -149,11 +149,13 @@ class WALERestore(object):
                 except OSError:
                     logger.exception("could not remove broken %s symlink pointing to %s",
                                      dirname, os.readlink(path))
-                    return
+                    return False
             try:
                 os.mkdir(path)
             except OSError:
                 logger.exception("coud not create missing %s directory path", dirname)
+                return False
+        return True
 
     def create_replica_with_s3(self):
         # if we're set up, restore the replica using fetch latest
@@ -163,8 +165,9 @@ class WALERestore(object):
             logger.error('Error when fetching backup with WAL-E: {0}'.format(e))
             return 1
 
-        self.fix_subdirectory_path_if_broken('pg_xlog' if get_major_version(self.data_dir) < 10.0 else 'pg_wal')
-
+        if (ret == 0 and not
+           self.fix_subdirectory_path_if_broken('pg_xlog' if get_major_version(self.data_dir) < 10.0 else 'pg_wal')):
+            return 1
         return ret
 
 
