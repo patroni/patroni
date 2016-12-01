@@ -38,6 +38,19 @@ if sys.hexversion >= 0x3000000:
 logger = logging.getLogger(__name__)
 
 
+# We need to know the current PG version in order to figure out the correct WAL directory name
+
+def get_major_version(data_dir):
+    version_file = os.path.join(data_dir, 'PG_VERSION')
+    if os.path.isfile(version_file):  # version file exists
+        try:
+            with open(version_file) as f:
+                return float(f.read())
+        except Exception:
+            logger.exception('Failed to read PG_VERSION from %s', data_dir)
+    return 0.0
+
+
 class WALERestore(object):
 
     def __init__(self, scope, datadir, connstring, env_dir, threshold_mb, threshold_pct, use_iam, no_master):
@@ -126,6 +139,22 @@ class WALERestore(object):
         return (diff_in_bytes < long(threshold_megabytes) * 1048576) and\
             (diff_in_bytes < long(backup_size) * float(threshold_backup_size_percentage) / 100)
 
+    def fix_subdirectory_path_if_broken(self, dirname):
+        # in case it is a symlink pointing to a non-existing location, remove it and create the actual directory
+        path = os.path.join(self.data_dir, dirname)
+        if not os.path.exists(path):
+            if os.path.islink(path):  # broken xlog symlink, to remove
+                try:
+                    os.remove(path)
+                except OSError:
+                    logger.exception("could not remove broken %s symlink pointing to %s",
+                                     dirname, os.readlink(path))
+                    return
+            try:
+                os.mkdir(path)
+            except OSError:
+                logger.exception("coud not create missing %s directory path", dirname)
+
     def create_replica_with_s3(self):
         # if we're set up, restore the replica using fetch latest
         try:
@@ -133,6 +162,8 @@ class WALERestore(object):
         except Exception as e:
             logger.error('Error when fetching backup with WAL-E: {0}'.format(e))
             return 1
+
+        self.fix_subdirectory_path_if_broken('pg_xlog' if get_major_version(self.data_dir) < 10.0 else 'pg_wal')
 
         return ret
 
