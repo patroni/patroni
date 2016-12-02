@@ -30,6 +30,7 @@ import os
 import psycopg2
 import subprocess
 import sys
+import time
 import argparse
 
 if sys.hexversion >= 0x3000000:
@@ -68,8 +69,15 @@ class WALERestore(object):
 
     def run(self):
         """ creates a new replica using WAL-E """
-        if not self.init_error and self.should_use_s3_to_create_replica():
-            return self.create_replica_with_s3()
+        if not self.init_error:
+            try:
+                ret = self.should_use_s3_to_create_replica()
+                if ret:
+                    return self.create_replica_with_s3()
+                elif ret is None:  # caught an exception, need to retry
+                    return 1
+            except Exception:
+                logger.exception("Exception when running WAL-E restore")
         return 2
 
     def should_use_s3_to_create_replica(self):
@@ -96,16 +104,16 @@ class WALERestore(object):
 
             backup_info = dict(zip(names, vals))
         except subprocess.CalledProcessError as e:
-            logger.error("could not query wal-e latest backup: {}".format(e))
-            return False
+            logger.exception("could not query wal-e latest backup: {}".format(e))
+            return None
 
         try:
             backup_size = backup_info['expanded_size_bytes']
             backup_start_segment = backup_info['wal_segment_backup_start']
             backup_start_offset = backup_info['wal_segment_offset_backup_start']
         except Exception as e:
-            logger.error("unable to get some of WALE backup parameters: {}".format(e))
-            return False
+            logger.exception("unable to get some of WALE backup parameters: {}".format(e))
+            return None
 
         # WAL filename is XXXXXXXXYYYYYYYY000000ZZ, where X - timeline, Y - LSN logical log file,
         # ZZ - 2 high digits of LSN offset. The rest of the offset is the provided decimal offset,
@@ -128,8 +136,8 @@ class WALERestore(object):
                         cur.execute("SELECT pg_xlog_location_diff(pg_current_xlog_location(), %s)", (backup_start_lsn,))
                         diff_in_bytes = long(cur.fetchone()[0])
             except psycopg2.Error as e:
-                logger.error('could not determine difference with the master location: %s', e)
-                return False
+                logger.exception('could not determine difference with the master location: %s', e)
+                return None
         else:
             # always try to use WAL-E if base backup is available
             diff_in_bytes = 0
@@ -167,7 +175,7 @@ class WALERestore(object):
 
         if (ret == 0 and not
            self.fix_subdirectory_path_if_broken('pg_xlog' if get_major_version(self.data_dir) < 10.0 else 'pg_wal')):
-            return 1
+            return 2
         return ret
 
 
@@ -193,8 +201,9 @@ def main():
                               threshold_pct=args.threshold_backup_size_percentage, use_iam=args.use_iam,
                               no_master=args.no_master)
         ret = restore.run()
-        if ret == 0:
+        if ret != 1:  # only WAL-E failures lead to the retry
             break
+        time.sleep(3)
 
     sys.exit(ret)
 
