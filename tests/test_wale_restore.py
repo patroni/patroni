@@ -48,7 +48,7 @@ class TestWALERestore(unittest.TestCase):
         with patch('subprocess.call', Mock(return_value=0)):
             self.assertEqual(self.wale_restore.create_replica_with_s3(), 0)
             with patch.object(self.wale_restore, 'fix_subdirectory_path_if_broken', Mock(return_value=False)):
-                self.assertEqual(self.wale_restore.create_replica_with_s3(), 1)
+                self.assertEqual(self.wale_restore.create_replica_with_s3(), 2)
 
         with patch('subprocess.call', Mock(side_effect=Exception("foo"))):
             self.assertEqual(self.wale_restore.create_replica_with_s3(), 1)
