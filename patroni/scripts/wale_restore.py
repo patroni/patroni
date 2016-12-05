@@ -136,7 +136,8 @@ class WALERestore(object):
                     with psycopg2.connect(self.master_connection) as con:
                         con.autocommit = True
                         with con.cursor() as cur:
-                            cur.execute("SELECT pg_xlog_location_diff(pg_current_xlog_location(), %s)", (backup_start_lsn,))
+                            cur.execute("SELECT pg_xlog_location_diff(pg_current_xlog_location(), %s)",
+                                        (backup_start_lsn,))
                             diff_in_bytes = long(cur.fetchone()[0])
                 except psycopg2.Error:
                     logger.exception('could not determine difference with the master location')
@@ -223,6 +224,7 @@ def main():
         time.sleep(RETRY_SLEEP_INTERVAL)
 
     return ret
+
 
 if __name__ == '__main__':
     sys.exit(main())
