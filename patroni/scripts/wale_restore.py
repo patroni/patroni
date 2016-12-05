@@ -104,16 +104,16 @@ class WALERestore(object):
                 return False
 
             backup_info = dict(zip(names, vals))
-        except subprocess.CalledProcessError as e:
-            logger.exception("could not query wal-e latest backup: {}".format(e))
+        except subprocess.CalledProcessError:
+            logger.exception("could not query wal-e latest backup")
             return None
 
         try:
             backup_size = backup_info['expanded_size_bytes']
             backup_start_segment = backup_info['wal_segment_backup_start']
             backup_start_offset = backup_info['wal_segment_offset_backup_start']
-        except Exception as e:
-            logger.exception("unable to get some of WALE backup parameters: {}".format(e))
+        except Exception:
+            logger.exception("unable to get some of WALE backup parameters")
             return None
 
         # WAL filename is XXXXXXXXYYYYYYYY000000ZZ, where X - timeline, Y - LSN logical log file,
@@ -138,8 +138,8 @@ class WALERestore(object):
                         with con.cursor() as cur:
                             cur.execute("SELECT pg_xlog_location_diff(pg_current_xlog_location(), %s)", (backup_start_lsn,))
                             diff_in_bytes = long(cur.fetchone()[0])
-                except psycopg2.Error as e:
-                    logger.exception('could not determine difference with the master location: %s', e)
+                except psycopg2.Error:
+                    logger.exception('could not determine difference with the master location')
                     if attempts_no < self.retries:  # retry in case of a temporarily connection issue
                         attempts_no = attempts_no + 1
                         time.sleep(RETRY_SLEEP_INTERVAL)
