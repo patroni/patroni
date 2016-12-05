@@ -38,9 +38,10 @@ if sys.hexversion >= 0x3000000:
 
 logger = logging.getLogger(__name__)
 
+RETRY_SLEEP_INTERVAL = 1
+
 
 # We need to know the current PG version in order to figure out the correct WAL directory name
-
 def get_major_version(data_dir):
     version_file = os.path.join(data_dir, 'PG_VERSION')
     if os.path.isfile(version_file):  # version file exists
@@ -53,8 +54,7 @@ def get_major_version(data_dir):
 
 
 class WALERestore(object):
-
-    def __init__(self, scope, datadir, connstring, env_dir, threshold_mb, threshold_pct, use_iam, no_master):
+    def __init__(self, scope, datadir, connstring, env_dir, threshold_mb, threshold_pct, use_iam, no_master, retries):
         self.scope = scope
         self.master_connection = connstring
         self.data_dir = datadir
@@ -66,6 +66,7 @@ class WALERestore(object):
         self.no_master = no_master
         self.wal_e.cmd = 'envdir {0} wal-e {1} '.format(self.wal_e.dir, self.wal_e.iam_string)
         self.init_error = (not os.path.exists(self.wal_e.dir))
+        self.retries = retries
 
     def run(self):
         """ creates a new replica using WAL-E """
@@ -127,20 +128,32 @@ class WALERestore(object):
         backup_start_lsn = '{0}/{1}'.format(lsn_segment, lsn_offset)
 
         diff_in_bytes = long(backup_size)
-        if not self.no_master:
-            try:
-                # get the difference in bytes between the current WAL location and the backup start offset
-                with psycopg2.connect(self.master_connection) as con:
-                    con.autocommit = True
-                    with con.cursor() as cur:
-                        cur.execute("SELECT pg_xlog_location_diff(pg_current_xlog_location(), %s)", (backup_start_lsn,))
-                        diff_in_bytes = long(cur.fetchone()[0])
-            except psycopg2.Error as e:
-                logger.exception('could not determine difference with the master location: %s', e)
-                return None
-        else:
-            # always try to use WAL-E if base backup is available
-            diff_in_bytes = 0
+        attempts_no = 0
+        while True:
+            if self.master_connection:
+                try:
+                    # get the difference in bytes between the current WAL location and the backup start offset
+                    with psycopg2.connect(self.master_connection) as con:
+                        con.autocommit = True
+                        with con.cursor() as cur:
+                            cur.execute("SELECT pg_xlog_location_diff(pg_current_xlog_location(), %s)", (backup_start_lsn,))
+                            diff_in_bytes = long(cur.fetchone()[0])
+                except psycopg2.Error as e:
+                    logger.exception('could not determine difference with the master location: %s', e)
+                    if attempts_no < self.retries:  # retry in case of a temporarily connection issue
+                        attempts_no = attempts_no + 1
+                        time.sleep(RETRY_SLEEP_INTERVAL)
+                        continue
+                    else:
+                        if not self.no_master:
+                            return False  # do no more retries on the outer level
+                        logger.info("continue with base backup from S3 since master is not available")
+                        diff_in_bytes = 0
+                        break
+            else:
+                # always try to use WAL-E if master connection string is not available
+                diff_in_bytes = 0
+            break
 
         # if the size of the accumulated WAL segments is more than a certan percentage of the backup size
         # or exceeds the pre-determined size - pg_basebackup is chosen instead.
@@ -194,18 +207,22 @@ def main():
     parser.add_argument('--no_master', type=int, default=0)
     args = parser.parse_args()
 
-    # retry cloning in a loop
+    # Retry cloning in a loop. We do separate retries for the master
+    # connection attempt inside should_use_s3_to_create_replica,
+    # because we need to differentiate between the last attempt and
+    # the rest and make a decision when the last attempt fails on
+    # whether to use WAL-E or not depending on the no_master flag.
     for _ in range(0, args.retries + 1):
         restore = WALERestore(scope=args.scope, datadir=args.datadir, connstring=args.connstring,
                               env_dir=args.envdir, threshold_mb=args.threshold_megabytes,
                               threshold_pct=args.threshold_backup_size_percentage, use_iam=args.use_iam,
-                              no_master=args.no_master)
+                              no_master=args.no_master, retries=args.retries)
         ret = restore.run()
         if ret != 1:  # only WAL-E failures lead to the retry
             break
-        time.sleep(3)
+        time.sleep(RETRY_SLEEP_INTERVAL)
 
-    sys.exit(ret)
+    return ret
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())
