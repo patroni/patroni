@@ -15,6 +15,7 @@ from patroni.utils import Retry, RetryFailedError
 from urllib3.exceptions import HTTPError, ReadTimeoutError
 from requests.exceptions import RequestException
 from six.moves.http_client import HTTPException
+from six.moves.urllib_parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +27,12 @@ class EtcdError(DCSError):
 class Client(etcd.Client):
 
     def __init__(self, config):
-        super(Client, self).__init__(read_timeout=config['retry_timeout'])
+        args = {p: config.get(p) for p in ('host', 'port', 'protocol', 'use_proxies', 'username', 'password',
+                                           'cert', 'ca_cert') if config.get(p)}
+        super(Client, self).__init__(read_timeout=config['retry_timeout'], **args)
         self._config = config
         self._load_machines_cache()
-        self._allow_reconnect = True
+        self._allow_reconnect = not self._use_proxies
 
     def _build_request_parameters(self):
         kwargs = {'headers': self._get_headers(), 'redirect': self.allow_redirect}
@@ -147,40 +150,48 @@ class Client(etcd.Client):
     @staticmethod
     def get_srv_record(host):
         try:
-            return [(str(r.target).rstrip('.'), r.port) for r in resolver.query('_etcd-server._tcp.' + host, 'SRV')]
+            return [(r.target.to_text(True), r.port) for r in resolver.query(host, 'SRV')]
         except DNSException:
             logger.exception('Can not resolve SRV for %s', host)
         return []
 
-    def _get_machines_cache_from_srv(self, discovery_srv):
+    def _get_machines_cache_from_srv(self, srv):
         """Fetch list of etcd-cluster member by resolving _etcd-server._tcp. SRV record.
         This record should contain list of host and peer ports which could be used to run
         'GET http://{host}:{port}/members' request (peer protocol)"""
 
         ret = []
-        for host, port in self.get_srv_record(discovery_srv):
-            url = '{0}://{1}:{2}/members'.format(self._protocol, host, port)
-            try:
-                response = requests.get(url, timeout=self.read_timeout)
-                if response.ok:
-                    for member in response.json():
-                        ret.extend(member['clientURLs'])
-                    break
-            except RequestException:
-                logger.exception('GET %s', url)
+        for r in ['-client-ssl', '-client', '-ssl', '', '-server-ssl', '-server']:
+            protocol = 'https' if '-ssl' in r else 'http'
+            endpoint = '/members' if '-server' in r else ''
+            for host, port in self.get_srv_record('_etcd{0}._tcp.{1}'.format(r, srv)):
+                url = '{0}://{1}:{2}{3}'.format(protocol, host, port, endpoint)
+                if endpoint:
+                    try:
+                        response = requests.get(url, timeout=self.read_timeout, verify=False)
+                        if response.ok:
+                            for member in response.json():
+                                ret.extend(member['clientURLs'])
+                            break
+                    except RequestException:
+                        logger.exception('GET %s', url)
+                else:
+                    ret.append(url)
+            if ret:
+                self._protocol = protocol
+                break
         return list(set(ret))
 
-    def _get_machines_cache_from_dns(self, addr):
+    def _get_machines_cache_from_dns(self, host, port):
         """One host might be resolved into multiple ip addresses. We will make list out of it"""
 
         ret = []
-        host, port = addr.split(':')
         try:
             for r in set(socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)):
-                ret.append('{0}://{1}:{2}'.format(self._protocol, r[4][0], r[4][1]))
+                ret.append('{0}://{1}:{2}'.format(self.protocol, *r[4]))
         except socket.error:
             logger.exception('Can not resolve %s', host)
-        return list(set(ret)) if ret else ['{0}://{1}:{2}'.format(self._protocol, host, port)]
+        return list(set(ret)) if ret else ['{0}://{1}:{2}'.format(self.protocol, host, port)]
 
     def _load_machines_cache(self):
         """This method should fill up `_machines_cache` from scratch.
@@ -190,16 +201,19 @@ class Client(etcd.Client):
 
         self._update_machines_cache = True
 
-        if 'discovery_srv' not in self._config and 'host' not in self._config:
-            raise Exception('Neither discovery_srv nor host are defined in etcd section of config')
+        if 'srv' not in self._config and 'host' not in self._config:
+            raise Exception('Neither srv nor host url are defined in etcd section of config')
 
-        self._machines_cache = []
+        if self._use_proxies:
+            self._machines_cache = ['{0}://{1}:{2}'.format(self.protocol, self._config['host'], self._config['port'])]
+        else:
+            self._machines_cache = []
 
-        if 'discovery_srv' in self._config:
-            self._machines_cache = self._get_machines_cache_from_srv(self._config['discovery_srv'])
+            if 'srv' in self._config:
+                self._machines_cache = self._get_machines_cache_from_srv(self._config['srv'])
 
-        if not self._machines_cache and 'host' in self._config:
-            self._machines_cache = self._get_machines_cache_from_dns(self._config['host'])
+            if not self._machines_cache and 'host' in self._config:
+                self._machines_cache = self._get_machines_cache_from_dns(self._config['host'], self._config['port'])
 
         # Can not bootstrap list of etcd-cluster members, giving up
         if not self._machines_cache:
@@ -245,6 +259,29 @@ class Etcd(AbstractDCS):
 
     @staticmethod
     def get_etcd_client(config):
+        if 'proxy' in config:
+            config['use_proxies'] = True
+            config['url'] = config['proxy']
+
+        if 'url' in config:
+            r = urlparse(config['url'])
+            config.update({'protocol': r.scheme, 'host': r.hostname, 'port': r.port or 2379,
+                           'username': r.username, 'password': r.password})
+        elif 'host' in config:
+            host, port = (config['host'] + ':2379').split(':')[:2]
+            config['host'] = host
+            if 'port' not in config:
+                config['port'] = int(port)
+
+        if config.get('cacert'):
+            config['ca_cert'] = config.pop('cacert')
+
+        if config.get('key') and config.get('cert'):
+            config['cert'] = (config['cert'], config['key'])
+
+        for p in ('discovery_srv', 'srv_domain'):
+            if p in config:
+                config['srv'] = config.pop(p)
         client = None
         while not client:
             try:

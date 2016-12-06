@@ -114,17 +114,17 @@ class SleepException(Exception):
     pass
 
 
-class MockSRV(object):
-    port = 2380
-    target = '127.0.0.1'
-
-
 def dns_query(name, _):
+    if '-server' not in name or '-ssl' in name:
+        return []
     if name == '_etcd-server._tcp.blabla':
         return []
     elif name == '_etcd-server._tcp.exception':
         raise DNSException()
-    return [MockSRV()]
+    srv = Mock()
+    srv.port = 2380
+    srv.target.to_text.return_value = 'localhost' if name == '_etcd-server._tcp.foobar' else '127.0.0.1'
+    return [srv]
 
 
 def socket_getaddrinfo(*args):
@@ -155,7 +155,7 @@ class TestClient(unittest.TestCase):
     def setUp(self):
         with patch.object(Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://localhost:2379', 'http://localhost:4001'])
-            self.client = Client({'discovery_srv': 'test', 'retry_timeout': 3})
+            self.client = Client({'srv': 'test', 'retry_timeout': 3})
             self.client.http.request = http_request
             self.client.http.request_encode_body = http_request
 
@@ -188,22 +188,23 @@ class TestClient(unittest.TestCase):
             self.assertRaises(etcd.EtcdException, self.client.api_execute, '/', 'GET')
 
     def test_get_srv_record(self):
-        self.assertEquals(self.client.get_srv_record('blabla'), [])
-        self.assertEquals(self.client.get_srv_record('exception'), [])
+        self.assertEquals(self.client.get_srv_record('_etcd-server._tcp.blabla'), [])
+        self.assertEquals(self.client.get_srv_record('_etcd-server._tcp.exception'), [])
 
     def test__get_machines_cache_from_srv(self):
+        self.client._get_machines_cache_from_srv('foobar')
         self.client.get_srv_record = Mock(return_value=[('localhost', 2380)])
         self.client._get_machines_cache_from_srv('blabla')
 
     def test__get_machines_cache_from_dns(self):
-        self.client._get_machines_cache_from_dns('error:2379')
+        self.client._get_machines_cache_from_dns('error', 2379)
 
     @patch.object(Client, 'machines')
     def test__load_machines_cache(self, mock_machines):
         mock_machines.__get__ = Mock(return_value=['http://localhost:2379'])
         self.client._config = {}
         self.assertRaises(Exception, self.client._load_machines_cache)
-        self.client._config = {'discovery_srv': 'blabla'}
+        self.client._config = {'srv': 'blabla'}
         self.assertRaises(etcd.EtcdException, self.client._load_machines_cache)
 
 
@@ -228,7 +229,11 @@ class TestEtcd(unittest.TestCase):
             mock_machines.__get__ = Mock(side_effect=etcd.EtcdException)
             with patch('time.sleep', Mock(side_effect=SleepException)):
                 self.assertRaises(SleepException, self.etcd.get_etcd_client,
-                                  {'discovery_srv': 'test', 'retry_timeout': 10})
+                                  {'discovery_srv': 'test', 'retry_timeout': 10, 'cacert': '1', 'key': '1', 'cert': 1})
+                self.assertRaises(SleepException, self.etcd.get_etcd_client,
+                                  {'url': 'https://test:2379', 'retry_timeout': 10})
+                self.assertRaises(SleepException, self.etcd.get_etcd_client,
+                                  {'proxy': 'https://user:password@test:2379', 'retry_timeout': 10})
 
     def test_get_cluster(self):
         self.assertIsInstance(self.etcd.get_cluster(), Cluster)
