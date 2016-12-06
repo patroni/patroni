@@ -12,9 +12,9 @@ import tempfile
 import time
 
 from collections import defaultdict
+from patroni import call_self
 from patroni.exceptions import PostgresConnectionException, PostgresException
-from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, reap_children, \
-                          null_context
+from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, null_context
 from six import string_types
 from threading import current_thread, Lock, Event
 
@@ -75,7 +75,7 @@ class Postgresql(object):
         'listen_addresses': (None, lambda _: False, 9.1),
         'port': (None, lambda _: False, 9.1),
         'cluster_name': (None, lambda _: False, 9.5),
-        'wal_level': ('hot_standby', lambda v: v.lower() in ('hot_standby', 'logical'), 9.1),
+        'wal_level': ('hot_standby', lambda v: v.lower() in ('hot_standby', 'replica', 'logical'), 9.1),
         'hot_standby': ('on', lambda _: False, 9.1),
         'max_connections': (100, lambda v: int(v) >= 100, 9.1),
         'max_wal_senders': (5, lambda v: int(v) >= 5, 9.1),
@@ -255,6 +255,8 @@ class Postgresql(object):
                     elif r[0] in changes:
                         unit = changes['wal_segment_size'] if r[0] in ('min_wal_size', 'max_wal_size') else r[2]
                         new_value = changes.pop(r[0])
+                        if self._major_version >= 9.6 and r[0] == 'wal_level' and new_value == 'hot_standby':
+                            new_value = 'replica'
                         if new_value is None or not compare_values(r[3], unit, r[1], new_value):
                             if r[4] == 'postmaster':
                                 pending_restart = True
@@ -608,8 +610,6 @@ class Postgresql(object):
         try:
             if pid < 0:
                 pid = -pid
-            if current_thread().ident == self.__thread_ident:
-                reap_children()
             return pid > 0 and pid != os.getpid() and pid != os.getppid() and (os.kill(pid, 0) or True)
         except Exception:
             return False
@@ -658,7 +658,7 @@ class Postgresql(object):
     def is_starting(self):
         return self.state == 'starting'
 
-    def wait_for_port_open(self, proc, initiated, timeout):
+    def wait_for_port_open(self, pid, initiated, timeout):
         """Waits until PostgreSQL opens ports."""
         for _ in polling_loop(timeout):
             pid_file = self.read_pid_file()
@@ -667,7 +667,7 @@ class Postgresql(object):
                     pmpid = int(pid_file['pid'])
                     pmstart = int(pid_file['start_time'])
 
-                    if pmstart >= initiated - 2 and pmpid == proc.pid:
+                    if pmstart >= initiated - 2 and pmpid == pid:
                         isready = self.pg_isready()
                         if isready != STATE_NO_RESPONSE:
                             if isready not in [STATE_REJECT, STATE_RUNNING]:
@@ -677,15 +677,15 @@ class Postgresql(object):
                     # Garbage in the pid file
                     pass
 
-            if proc.poll():
-                logger.error('postmaster is not running, return code=%s', proc.returncode)
+            if not self.is_pid_running(pid):
+                logger.error('postmaster is not running')
                 self.set_state('start failed')
                 return False
 
         logger.warning("Timed out waiting for PostgreSQL to start")
         return False
 
-    def start(self, block_callbacks=False, task=None):
+    def start(self, timeout=None, block_callbacks=False, task=None):
         """Start PostgreSQL
 
         Waits for postmaster to open ports or terminate so pg_isready can be used to check startup completion
@@ -708,34 +708,63 @@ class Postgresql(object):
         self.set_role(self.get_postgres_role_from_data_directory())
 
         self.set_state('starting')
+        self._pending_restart = False
 
         self._write_postgresql_conf()
         self.resolve_connection_addresses()
 
-        options = ['--{0}={1}'.format(p, self._server_parameters[p])
-                   for p, v in self.CMDLINE_OPTIONS.items() if self._major_version >= v[2]]
+        opts = {p: self._server_parameters[p] for p, v in self.CMDLINE_OPTIONS.items() if self._major_version >= v[2]}
+        if self._major_version >= 9.6 and opts['wal_level'] == 'hot_standby':
+            opts['wal_level'] = 'replica'
+        options = ['--{0}={1}'.format(p, v) for p, v in opts.items()]
 
+        start_initiated = time.time()
+
+        # Unfortunately `pg_ctl start` does not return postmaster pid to us. Without this information
+        # it is hard to know the current state of postgres startup, so we had to reimplement pg_ctl start
+        # in python. It will start postgres, wait for port to be open and wait until postgres will start
+        # accepting connections.
+        # Important!!! We can't just start postgres using subprocess.Popen, because in this case it
+        # will be our child for the rest of our live and we will have to take care of it (`waitpid`).
+        # So we will use the same approach as pg_ctl uses: start a new process, which will start postgres.
+        # This process will write postmaster pid to stdout and exit immediately. Now it's responsibility
+        # of init process to take care about postmaster.
+        # In order to make everything portable we can't use fork&exec approach here, so  we will call
+        # ourselves and pass list of arguments which must be used to start postgres.
         with task or null_context():
             if task and task.is_cancelled:
                 logger.info("PostgreSQL start cancelled.")
                 return False
 
             start_initiated = time.time()
-            proc = subprocess.Popen([self._pgcommand('postgres'), '-D', self._data_dir] + options,
-                                    close_fds=True, preexec_fn=os.setsid, stderr=subprocess.STDOUT,
-                                    env={'PATH': os.environ.get('PATH')})
+            proc = call_self(['pg_ctl_start', self._pgcommand('postgres'), '-D', self._data_dir] + options,
+                             close_fds=True, preexec_fn=os.setsid, stdout=subprocess.PIPE,
+                             env={'PATH': os.environ.get('PATH')})
+            pid = int(proc.stdout.readline().strip())
+            proc.wait()
+            logger.info('postmaster pid=%s', pid)
 
             if task:
-                task.complete(proc.pid)
+                task.complete(pid)
+
+        start_timeout = timeout
+        if not start_timeout:
+            try:
+                start_timeout = float(self.config.get('pg_ctl_timeout', 60))
+            except ValueError:
+                start_timeout = 60
 
         # We want postmaster to open ports before we continue
-        try:
-            start_timeout = float(self.config.get('pg_ctl_timeout', 60))
-        except ValueError:
-            start_timeout = 60
+        if not self.wait_for_port_open(pid, start_initiated, start_timeout):
+            return False
 
-        self._pending_restart = False
-        return self.wait_for_port_open(proc, start_initiated, start_timeout)
+        ret = self.wait_for_startup(start_timeout)
+        if ret is not None:
+            return ret
+        elif timeout is not None:
+            return False
+        else:
+            return None
 
     def checkpoint(self, connect_kwargs=None):
         check_not_is_in_recovery = connect_kwargs is not None
@@ -919,18 +948,14 @@ class Postgresql(object):
         """Restarts PostgreSQL.
 
         When timeout parameter is set the call will block either until PostgreSQL has started, failed to start or
-        timeout arrives. When timeout is None then state of PostgreSQL needs to checked via wait_for_startup. Can only
-        be called with the async executor or from the main loop to avoid racy calls to check_startup_state_changed().
+        timeout arrives.
 
         :returns: True when restart was successful and timeout did not expire when waiting.
         """
         self.set_state('restarting')
         self.__cb_pending = ACTION_ON_RESTART
-        ret = self.stop(block_callbacks=True) \
-            and self.start(block_callbacks=True, task=task)
-        if ret and timeout is not None:
-            ret = self.wait_for_startup(timeout=timeout)
-        elif not ret:
+        ret = self.stop(block_callbacks=True) and self.start(timeout=timeout, block_callbacks=True, task=task)
+        if not ret and not self.is_starting():
             self.set_state('restart failed ({0})'.format(self.state))
         return ret
 
@@ -1067,7 +1092,7 @@ class Postgresql(object):
     def trigger_rewind(self):
         self._need_rewind = True
 
-    def follow(self, member, leader):
+    def follow(self, member, leader, timeout=None):
         primary_conninfo = self.primary_conninfo(member)
         change_role = self.role in ('master', 'demoted')
 
@@ -1090,12 +1115,13 @@ class Postgresql(object):
         if self.is_running():
             self.restart()
         else:
-            self.start()
+            self.start(timeout=timeout)
         self.set_role('replica')
 
         if change_role:
             # TODO: postpone this until start completes, or maybe do even earlier
             self.call_nowait(ACTION_ON_ROLE_CHANGE)
+        return True
 
     def _do_rewind(self, leader):
         logger.info("rewind flag is set")
@@ -1284,10 +1310,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
     def bootstrap(self, config):
         """ Initialize a new node from scratch and start it. """
-        if self._initialize(config) and \
-                self.start() and \
-                self.wait_for_startup() and \
-                self.run_bootstrap_post_init(config):
+        if self._initialize(config) and self.start() and self.run_bootstrap_post_init(config):
             for name, value in (config.get('users') or {}).items():
                 if name not in (self._superuser.get('username'), self._replication['username']):
                     self.create_or_update_role(name, value['password'], value.get('options', []))

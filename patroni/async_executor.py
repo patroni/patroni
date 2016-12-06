@@ -52,7 +52,8 @@ class CriticalTask(object):
 
 class AsyncExecutor(object):
 
-    def __init__(self):
+    def __init__(self, ha_wakeup):
+        self._ha_wakeup = ha_wakeup
         self._thread_lock = RLock()
         self._scheduled_action = None
         self._scheduled_action_lock = RLock()
@@ -79,8 +80,11 @@ class AsyncExecutor(object):
             self._scheduled_action = None
 
     def run(self, func, args=()):
+        wakeup = False
         try:
-            return func(*args) if args else func()
+            # if the func returned something (not None) - wake up main HA loop
+            wakeup = func(*args) if args else func()
+            return wakeup
         except:
             logger.exception('Exception during execution of long running task %s', self.scheduled_action)
         finally:
@@ -88,6 +92,8 @@ class AsyncExecutor(object):
                 self.reset_scheduled_action()
                 with self.critical_task:
                     self.critical_task.reset()
+            if wakeup is not None:
+                self._ha_wakeup()
 
     def run_async(self, func, args=()):
         Thread(target=self.run, args=(func, args)).start()

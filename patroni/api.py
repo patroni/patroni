@@ -6,10 +6,9 @@ import psycopg2
 import time
 import dateutil.parser
 import datetime
-import pytz
 
 from patroni.exceptions import PostgresConnectionException
-from patroni.utils import deep_compare, patch_config, Retry, RetryFailedError, is_valid_pg_version, parse_int
+from patroni.utils import deep_compare, patch_config, Retry, RetryFailedError, is_valid_pg_version, parse_int, tzutc
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from six.moves.socketserver import ThreadingMixIn
 from threading import Thread
@@ -142,6 +141,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 value = json.dumps(data, separators=(',', ':'))
                 if not self.server.patroni.dcs.set_config_value(value, cluster.config.index):
                     return self.send_error(409)
+            self.server.patroni.ha.wakeup()
             self._write_json_response(200, data)
 
     @check_auth
@@ -180,7 +180,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             if scheduled_at.tzinfo is None:
                 error = 'Timezone information is mandatory for the scheduled {0}'.format(action)
                 status_code = 400
-            elif scheduled_at < datetime.datetime.now(pytz.utc):
+            elif scheduled_at < datetime.datetime.now(tzutc):
                 error = 'Cannot schedule {0} in the past'.format(action)
                 status_code = 422
             else:
@@ -328,7 +328,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 if _:
                     status_code = _
                 elif self.server.patroni.dcs.manual_failover(leader, candidate, scheduled_at=scheduled_at):
-                    self.server.patroni.dcs.event.set()
+                    self.server.patroni.ha.wakeup()
                     data = 'Failover scheduled'
                     status_code = 202
                 else:
@@ -338,7 +338,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 data = self.is_failover_possible(cluster, leader, candidate)
                 if not data:
                     if self.server.patroni.dcs.manual_failover(leader, candidate):
-                        self.server.patroni.dcs.event.set()
+                        self.server.patroni.ha.wakeup()
                         status_code, data = self.poll_failover_result(cluster.leader and cluster.leader.name, candidate)
                     else:
                         data = 'failed to write failover key into DCS'

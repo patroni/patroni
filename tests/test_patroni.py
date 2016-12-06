@@ -1,4 +1,5 @@
 import etcd
+import signal
 import sys
 import time
 import unittest
@@ -8,7 +9,7 @@ from patroni.api import RestApiServer
 from patroni.async_executor import AsyncExecutor
 from patroni.dcs.etcd import Client
 from patroni.exceptions import DCSError
-from patroni import Patroni, main as _main
+from patroni import Patroni, main as _main, patroni_main
 from six.moves import BaseHTTPServer
 from test_etcd import SleepException, etcd_read, etcd_write
 from test_postgresql import Postgresql, psycopg2_connect
@@ -53,16 +54,51 @@ class TestPatroni(unittest.TestCase):
     @patch('time.sleep', Mock(side_effect=SleepException))
     @patch.object(etcd.Client, 'delete', Mock())
     @patch.object(Client, 'machines')
-    def test_patroni_main(self, mock_machines):
+    def test_patroni_patroni_main(self, mock_machines):
         with patch('subprocess.call', Mock(return_value=1)):
             sys.argv = ['patroni.py', 'postgres0.yml']
 
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
             with patch.object(Patroni, 'run', Mock(side_effect=SleepException)):
-                self.assertRaises(SleepException, _main)
+                self.assertRaises(SleepException, patroni_main)
             with patch.object(Patroni, 'run', Mock(side_effect=KeyboardInterrupt())):
                 with patch('patroni.ha.Ha.is_paused', Mock(return_value=True)):
-                    _main()
+                    patroni_main()
+
+    @patch('os.getpid')
+    @patch('subprocess.Popen', )
+    @patch('patroni.patroni_main', Mock())
+    def test_patroni_main(self, mock_popen, mock_getpid):
+        mock_getpid.return_value = 2
+        _main()
+
+        with patch('sys.frozen', Mock(return_value=True), create=True):
+            sys.argv = ['/patroni', 'pg_ctl_start', 'postgres', '-D', '/data', '--max_connections=100']
+            _main()
+
+        mock_getpid.return_value = 1
+
+        def mock_signal(signo, handler):
+            handler(signo, None)
+
+        with patch('signal.signal', mock_signal):
+            with patch('os.waitpid', Mock(side_effect=[(1, 0), (0, 0)])):
+                _main()
+            with patch('os.waitpid', Mock(side_effect=OSError)):
+                _main()
+
+        ref = {'passtochild': lambda signo, stack_frame: 0}
+
+        def mock_sighup(signo, handler):
+            if signo == signal.SIGHUP:
+                ref['passtochild'] = handler
+
+        def mock_wait():
+            ref['passtochild'](0, None)
+
+        mock_popen.return_value.wait = mock_wait
+        with patch('signal.signal', mock_sighup), patch('os.kill', Mock()):
+            self.assertIsNone(_main())
 
     @patch('patroni.config.Config.save_cache', Mock())
     @patch('patroni.config.Config.reload_local_configuration', Mock(return_value=True))

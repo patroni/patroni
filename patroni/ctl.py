@@ -405,20 +405,6 @@ def remove(obj, cluster_name, fmt):
     dcs.delete_cluster()
 
 
-def wait_for_leader(dcs, timeout=30):
-    t_stop = time.time() + timeout
-    timeout /= 2
-
-    while time.time() < t_stop:
-        dcs.watch(timeout)
-        cluster = dcs.get_cluster()
-
-        if cluster.leader:
-            return cluster
-
-    raise PatroniCtlException('Timeout occured')
-
-
 def check_response(response, member_name, action_name, silent_success=False):
     if response.status_code >= 400:
         click.echo('Failed: {0} for member {1}, status code={2}, ({3})'.format(
@@ -799,13 +785,26 @@ def toggle_pause(config, cluster_name, paused):
     if cluster.is_paused() == paused:
         raise PatroniCtlException('Cluster is {0} paused'.format(paused and 'already' or 'not'))
 
-    r = request_patroni(cluster.leader.member, 'patch', 'config', {'pause': paused or None}, auth_header(config))
+    members = []
+    if cluster.leader:
+        members.append(cluster.leader.member)
+    members.extend([m for m in cluster.members if m.api_url and (not members or members[0].name != m.name)])
 
-    if r.status_code == 200:
-        click.echo('Success: cluster management is {0}'.format(paused and 'paused' or 'resumed'))
+    for member in members:
+        try:
+            r = request_patroni(member, 'patch', 'config', {'pause': paused or None}, auth_header(config))
+        except Exception:
+            logging.warning('Member %s is not accessible', member.name)
+            continue
+
+        if r.status_code == 200:
+            click.echo('Success: cluster management is {0}'.format(paused and 'paused' or 'resumed'))
+        else:
+            click.echo('Failed: {0} cluster management status code={1}, ({2})'.format(
+                       paused and 'pause' or 'resume', r.status_code, r.text))
+        break
     else:
-        click.echo('Failed: {0} cluster management status code={1}, ({2})'.format(
-                   paused and 'pause' or 'resume', r.status_code, r.text))
+        raise PatroniCtlException('Can not find accessible cluster member')
 
 
 @ctl.command('pause', help='Disable auto failover')

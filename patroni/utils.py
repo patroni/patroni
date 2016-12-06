@@ -1,17 +1,16 @@
 import contextlib
-import os
 import random
 import sys
 import time
 import re
 
+from dateutil import tz
 from patroni.exceptions import PatroniException
 
-if sys.hexversion >= 0x0300000:
+if sys.hexversion >= 0x3000000:
     long = int
 
-__interrupted_sleep = False
-__reap_children = False
+tzutc = tz.tzutc()
 
 
 def deep_compare(obj1, obj2):
@@ -196,36 +195,8 @@ def compare_values(vartype, unit, old_value, new_value):
     return old_value is not None and new_value is not None and old_value == new_value
 
 
-def sigchld_handler(signo, stack_frame):
-    global __interrupted_sleep, __reap_children
-    __reap_children = __interrupted_sleep = True
-
-
-def sleep(interval):
-    global __interrupted_sleep
-    current_time = time.time()
-    end_time = current_time + interval
-    while current_time < end_time:
-        __interrupted_sleep = False
-        time.sleep(end_time - current_time)
-        if not __interrupted_sleep:  # we will ignore only sigchld
-            break
-        current_time = time.time()
-    __interrupted_sleep = False
-
-
-def reap_children():
-    global __reap_children
-    if __reap_children:
-        try:
-            while True:
-                ret = os.waitpid(-1, os.WNOHANG)
-                if ret == (0, 0):
-                    break
-        except OSError:
-            pass
-        finally:
-            __reap_children = False
+def _sleep(interval):
+    time.sleep(interval)
 
 
 def is_valid_pg_version(version):
@@ -242,7 +213,7 @@ class Retry(object):
     """Helper for retrying a method in the face of retry-able exceptions"""
 
     def __init__(self, max_tries=1, delay=0.1, backoff=2, max_jitter=0.8, max_delay=3600,
-                 sleep_func=sleep, deadline=None, retry_exceptions=PatroniException):
+                 sleep_func=_sleep, deadline=None, retry_exceptions=PatroniException):
         """Create a :class:`Retry` instance for retrying function calls
 
         :param max_tries: How many times to retry the command. -1 means infinite tries.
@@ -313,7 +284,7 @@ def polling_loop(timeout, interval=1):
     while time.time() < end_time:
         yield iteration
         iteration += 1
-        sleep(interval)
+        time.sleep(interval)
 
 
 @contextlib.contextmanager
