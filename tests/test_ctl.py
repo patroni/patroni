@@ -34,7 +34,7 @@ def test_rw_config():
                           'restapi': {'auth': 'u:p', 'listen': ''}, 'etcd': {'host': 'localhost:2379'}}))
 class TestCtl(unittest.TestCase):
 
-    @patch('socket.gethostbyname_ex', socket_getaddrinfo)
+    @patch('socket.getaddrinfo', socket_getaddrinfo)
     def setUp(self):
         with patch.object(Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])

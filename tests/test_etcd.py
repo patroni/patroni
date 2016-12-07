@@ -127,9 +127,9 @@ def dns_query(name, _):
     return [srv]
 
 
-def socket_getaddrinfo(hostname):
-    if hostname in ('ok', 'localhost', '127.0.0.1'):
-        return (hostname, [], ['127.0.0.1'])
+def socket_getaddrinfo(*args):
+    if args[0] in ('ok', 'localhost', '127.0.0.1'):
+        return [(2, 1, 6, '', ('127.0.0.1', 0))]
     raise socket.gaierror
 
 
@@ -156,12 +156,12 @@ class TestDnsCachingResolver(unittest.TestCase):
 
 
 @patch('dns.resolver.query', dns_query)
-@patch('socket.gethostbyname_ex', socket_getaddrinfo)
+@patch('socket.getaddrinfo', socket_getaddrinfo)
 @patch('requests.get', requests_get)
 class TestClient(unittest.TestCase):
 
     @patch('dns.resolver.query', dns_query)
-    @patch('socket.gethostbyname_ex', socket_getaddrinfo)
+    @patch('socket.getaddrinfo', socket_getaddrinfo)
     @patch('requests.get', requests_get)
     def setUp(self):
         with patch.object(Client, 'machines') as mock_machines:
@@ -220,13 +220,13 @@ class TestClient(unittest.TestCase):
 
 
 @patch('requests.get', requests_get)
-@patch('socket.gethostbyname_ex', socket_getaddrinfo)
+@patch('socket.getaddrinfo', socket_getaddrinfo)
 @patch.object(etcd.Client, 'write', etcd_write)
 @patch.object(etcd.Client, 'read', etcd_read)
 @patch.object(etcd.Client, 'delete', Mock(side_effect=etcd.EtcdException))
 class TestEtcd(unittest.TestCase):
 
-    @patch('socket.gethostbyname_ex', socket_getaddrinfo)
+    @patch('socket.getaddrinfo', socket_getaddrinfo)
     def setUp(self):
         with patch.object(Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://localhost:2379', 'http://localhost:4001'])

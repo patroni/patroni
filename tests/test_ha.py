@@ -118,7 +118,7 @@ def run_async(self, func, args=()):
 @patch('subprocess.call', Mock(return_value=0))
 class TestHa(unittest.TestCase):
 
-    @patch('socket.gethostbyname_ex', socket_getaddrinfo)
+    @patch('socket.getaddrinfo', socket_getaddrinfo)
     @patch('psycopg2.connect', psycopg2_connect)
     @patch.object(etcd.Client, 'read', etcd_read)
     def setUp(self):

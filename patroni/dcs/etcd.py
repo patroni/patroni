@@ -45,8 +45,7 @@ class DnsCachingResolver(Thread):
                 self._cache[hostname] = (time.time(), ips)
             else:
                 if attempt < 10:
-                    attempt += 1
-                    self.resolve_async(hostname, attempt)
+                    self.resolve_async(hostname, attempt + 1)
                     time.sleep(1)
 
     def resolve(self, hostname):
@@ -66,7 +65,7 @@ class DnsCachingResolver(Thread):
     @staticmethod
     def _do_resolve(hostname):
         try:
-            return socket.gethostbyname_ex(hostname)[2]
+            return list(set(r[4][0] for r in socket.getaddrinfo(hostname, 0, 0, 0, socket.IPPROTO_TCP)))
         except socket.gaierror:
             logger.warning('failed to resolve host %s', hostname)
             return []
