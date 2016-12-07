@@ -65,7 +65,13 @@ class DnsCachingResolver(Thread):
     @staticmethod
     def _do_resolve(hostname):
         try:
-            return list(set(r[4][0] for r in socket.getaddrinfo(hostname, 0, 0, 0, socket.IPPROTO_TCP)))
+            ret = set()
+            for r in socket.getaddrinfo(hostname, 0, 0, 0, socket.IPPROTO_TCP):
+                if r[0] == socket.AF_INET6:
+                    ret.add('[{0}]'.format(r[4][0]))
+                else:
+                    ret.add(r[4][0])
+            return list(ret)
         except socket.gaierror:
             logger.warning('failed to resolve host %s', hostname)
             return []

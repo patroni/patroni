@@ -129,18 +129,18 @@ def dns_query(name, _):
 
 def socket_getaddrinfo(*args):
     if args[0] in ('ok', 'localhost', '127.0.0.1'):
-        return [(2, 1, 6, '', ('127.0.0.1', 0))]
+        return [(2, 1, 6, '', ('127.0.0.1', 0)), (10, 1, 6, '', ('::1', 0))]
     raise socket.gaierror
 
 
 def http_request(method, url, **kwargs):
-    if url == 'http://127.0.0.1:2379/timeout':
+    if url in ('http://127.0.0.1:2379/timeout', 'http://[::1]:2379/timeout'):
         raise ReadTimeoutError(None, None, None)
-    if url == 'http://127.0.0.1:2379/v2/machines':
+    if url in ('http://127.0.0.1:2379/v2/machines', 'http://[::1]:2379/v2/machines'):
         ret = MockResponse()
         ret.content = 'http://localhost:2379,http://localhost:4001'
         return ret
-    if url == 'http://127.0.0.1:2379/':
+    if url in ('http://127.0.0.1:2379/', 'http://[::1]:2379/'):
         return MockResponse()
     raise socket.error
 
