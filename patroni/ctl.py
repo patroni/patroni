@@ -31,6 +31,7 @@ from patroni.dcs import get_dcs as _get_dcs
 from patroni.exceptions import PatroniException
 from patroni.postgresql import Postgresql
 from patroni.utils import patch_config
+from patroni.version import __version__
 from prettytable import PrettyTable
 from six.moves.urllib_parse import urlparse
 from six import text_type
@@ -1038,3 +1039,36 @@ def show_config(obj, cluster_name):
     cluster = get_dcs(obj, cluster_name).get_cluster()
 
     click.echo(format_config_for_editing(cluster.config.data))
+
+
+@ctl.command('version', help='Output version of patronictl command or a running Patroni instance')
+@click.argument('cluster_name', required=False)
+@click.argument('member_names', nargs=-1)
+@click.pass_obj
+def version(obj, cluster_name, member_names):
+    click.echo("patronictl version {0}".format(__version__))
+
+    if not cluster_name:
+        return
+
+    click.echo("")
+    cluster = get_dcs(obj, cluster_name).get_cluster()
+    for m in cluster.members:
+        if m.api_url:
+            if not member_names or m.name in member_names:
+                try:
+                    response = request_patroni(m, 'get', None, auth_header(obj))
+                    data = response.json()
+                    version = data.get('patroni', {}).get('version')
+                    pg_version = data.get('server_version')
+                    pg_version_str = " PostgreSQL {0}".format(format_pg_version(pg_version)) if pg_version else ""
+                    click.echo("{0}: Patroni {1}{2}".format(m.name, version, pg_version_str))
+                except Exception as e:
+                    click.echo("{0}: failed to get version: {1}".format(m.name, e))
+
+
+def format_pg_version(version):
+    if version < 100000:
+        return "{0}.{1}.{2}".format(version // 10000, version // 100 % 100, version % 100)
+    else:
+        return "{0}.{1}".format(version // 10000, version % 100)

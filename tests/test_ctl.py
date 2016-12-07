@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from mock import patch, Mock
 from patroni.ctl import ctl, members, store_config, load_config, output_members, request_patroni, get_dcs, parse_dcs, \
     get_all_members, get_any_member, get_cursor, query_member, configure, PatroniCtlException, apply_config_changes, \
-    format_config_for_editing, show_diff, invoke_editor
+    format_config_for_editing, show_diff, invoke_editor, format_pg_version
 from patroni.dcs.etcd import Client, Failover
 from patroni.utils import tzutc
 from psycopg2 import OperationalError
@@ -509,3 +509,21 @@ class TestCtl(unittest.TestCase):
         self.runner.invoke(ctl, ['edit-config', 'dummy', '--force', '--apply', '-'], input='foo: bar')
         mock_get_dcs.return_value.set_config_value = Mock(return_value=True)
         self.runner.invoke(ctl, ['edit-config', 'dummy', '--force', '--apply', '-'], input='foo: bar')
+
+    @patch('patroni.ctl.get_dcs')
+    def test_version(self, mock_get_dcs):
+        mock_get_dcs.return_value = self.e
+        mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
+        with patch('patroni.ctl.request_patroni') as mocked:
+            result = self.runner.invoke(ctl, ['version'])
+            assert 'patronictl version' in result.output
+            mocked.return_value.json = lambda: {'patroni': {'version': '1.2.3'}, 'server_version': 100001}
+            result = self.runner.invoke(ctl, ['version', 'dummy'])
+            assert '1.2.3' in result.output
+        with patch('requests.get', Mock(side_effect=Exception)):
+            result = self.runner.invoke(ctl, ['version', 'dummy'])
+            assert 'failed to get version' in result.output
+
+    def test_format_pg_version(self):
+        self.assertEquals(format_pg_version(100001), '10.1')
+        self.assertEquals(format_pg_version(90605), '9.6.5')
