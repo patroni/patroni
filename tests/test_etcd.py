@@ -6,7 +6,7 @@ import unittest
 
 from dns.exception import DNSException
 from mock import Mock, patch
-from patroni.dcs.etcd import AbstractDCS, Client, Cluster, Etcd, EtcdError
+from patroni.dcs.etcd import AbstractDCS, Client, Cluster, Etcd, EtcdError, DnsCachingResolver
 from patroni.exceptions import DCSError
 from urllib3.exceptions import ReadTimeoutError
 
@@ -128,21 +128,31 @@ def dns_query(name, _):
 
 
 def socket_getaddrinfo(*args):
-    if args[0] == 'ok':
-        return [(2, 1, 6, '', ('127.0.0.1', 2379)), (2, 1, 6, '', ('127.0.0.1', 2379))]
-    raise socket.error
+    if args[0] in ('ok', 'localhost', '127.0.0.1'):
+        return [(2, 1, 6, '', ('127.0.0.1', 0)), (10, 1, 6, '', ('::1', 0))]
+    raise socket.gaierror
 
 
 def http_request(method, url, **kwargs):
-    if url == 'http://localhost:2379/timeout':
+    if url in ('http://127.0.0.1:2379/timeout', 'http://[::1]:2379/timeout'):
         raise ReadTimeoutError(None, None, None)
-    if url == 'http://localhost:2379/v2/machines':
+    if url in ('http://127.0.0.1:2379/v2/machines', 'http://[::1]:2379/v2/machines'):
         ret = MockResponse()
         ret.content = 'http://localhost:2379,http://localhost:4001'
         return ret
-    if url == 'http://localhost:2379/':
+    if url in ('http://127.0.0.1:2379/', 'http://[::1]:2379/'):
         return MockResponse()
     raise socket.error
+
+
+class TestDnsCachingResolver(unittest.TestCase):
+
+    @patch('time.sleep', Mock(side_effect=SleepException))
+    @patch('socket.gethostbyname_ex', Mock(side_effect=socket.gaierror))
+    def test_run(self):
+        r = DnsCachingResolver()
+        self.assertIsNone(r.resolve_async(''))
+        r.join()
 
 
 @patch('dns.resolver.query', dns_query)
@@ -151,6 +161,7 @@ def http_request(method, url, **kwargs):
 class TestClient(unittest.TestCase):
 
     @patch('dns.resolver.query', dns_query)
+    @patch('socket.getaddrinfo', socket_getaddrinfo)
     @patch('requests.get', requests_get)
     def setUp(self):
         with patch.object(Client, 'machines') as mock_machines:
@@ -209,11 +220,13 @@ class TestClient(unittest.TestCase):
 
 
 @patch('requests.get', requests_get)
+@patch('socket.getaddrinfo', socket_getaddrinfo)
 @patch.object(etcd.Client, 'write', etcd_write)
 @patch.object(etcd.Client, 'read', etcd_read)
 @patch.object(etcd.Client, 'delete', Mock(side_effect=etcd.EtcdException))
 class TestEtcd(unittest.TestCase):
 
+    @patch('socket.getaddrinfo', socket_getaddrinfo)
     def setUp(self):
         with patch.object(Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://localhost:2379', 'http://localhost:4001'])
