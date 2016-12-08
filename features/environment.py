@@ -56,7 +56,7 @@ class AbstractController(object):
             assert False,\
                 "{0} instance is not available for queries after {1} seconds".format(self._name, max_wait_limit)
 
-    def stop(self, kill=False, timeout=15):
+    def stop(self, kill=False, timeout=15, _=False):
         term = False
         start_time = time.time()
 
