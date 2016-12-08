@@ -20,7 +20,7 @@ def kill_patroni(context, name):
 
 
 @step('I kill postmaster on {name:w}')
-def stop_patroni(context, name):
+def stop_postgres(context, name):
     return context.pctl.stop(name, postgres=True)
 
 
