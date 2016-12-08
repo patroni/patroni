@@ -148,7 +148,7 @@ def http_request(method, url, **kwargs):
 class TestDnsCachingResolver(unittest.TestCase):
 
     @patch('time.sleep', Mock(side_effect=SleepException))
-    @patch('socket.gethostbyname_ex', Mock(side_effect=socket.gaierror))
+    @patch('socket.getaddrinfo', Mock(side_effect=socket.gaierror))
     def test_run(self):
         r = DnsCachingResolver()
         self.assertIsNone(r.resolve_async(''))
@@ -171,7 +171,7 @@ class TestClient(unittest.TestCase):
             self.client.http.request_encode_body = http_request
 
     def test_machines(self):
-        self.client._base_uri = 'http://localhost:4001'
+        self.client._base_uri = 'http://127.0.0.1:4001'
         self.client._machines_cache = ['http://localhost:2379']
         self.assertIsNotNone(self.client.machines)
         self.client._base_uri = 'http://localhost:4001'
