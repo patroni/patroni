@@ -129,7 +129,7 @@ def dns_query(name, _):
 
 def socket_getaddrinfo(*args):
     if args[0] in ('ok', 'localhost', '127.0.0.1'):
-        return [(2, 1, 6, '', ('127.0.0.1', 0)), (10, 1, 6, '', ('::1', 0))]
+        return [(socket.AF_INET, 1, 6, '', ('127.0.0.1', 0)), (socket.AF_INET6, 1, 6, '', ('::1', 0))]
     raise socket.gaierror
 
 
@@ -171,7 +171,7 @@ class TestClient(unittest.TestCase):
             self.client.http.request_encode_body = http_request
 
     def test_machines(self):
-        self.client._base_uri = 'http://127.0.0.1:4001'
+        self.client._base_uri = 'http://localhost:4001'
         self.client._machines_cache = ['http://localhost:2379']
         self.assertIsNotNone(self.client.machines)
         self.client._base_uri = 'http://localhost:4001'
