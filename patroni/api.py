@@ -8,7 +8,7 @@ import dateutil.parser
 import datetime
 
 from patroni.exceptions import PostgresConnectionException
-from patroni.utils import deep_compare, patch_config, Retry, RetryFailedError, is_valid_pg_version, tzutc
+from patroni.utils import deep_compare, patch_config, Retry, RetryFailedError, is_valid_pg_version, parse_int, tzutc
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from six.moves.socketserver import ThreadingMixIn
 from threading import Thread
@@ -223,6 +223,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     status_code = 400
                     data = "PostgreSQL version should be in the first.major.minor format"
                     break
+            elif k == 'timeout':
+                request[k] = parse_int(request[k], 's')
+                if request[k] is None or request[k] <= 0:
+                    status_code = 400
+                    data = "Timeout should be a positive number of seconds"
+                    break
             elif k != 'restart_pending':
                 status_code = 400
                 data = "Unknown filter for the scheduled restart: {0}".format(k)
@@ -236,7 +242,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     logger.exception('Exception during restart')
                     status_code = 400
             else:
-                request['postmaster_start_time'] = self.server.patroni.ha.state_handler.postmaster_start_time()
                 if self.server.patroni.ha.schedule_future_restart(request):
                     data = "Restart scheduled"
                     status_code = 202
@@ -379,7 +384,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
                                             THEN 0
                                             ELSE pg_xlog_location_diff(pg_current_xlog_location(), '0/0')::bigint
                                        END,
-                                       pg_xlog_location_diff(pg_last_xlog_receive_location(), '0/0')::bigint,
+                                       pg_xlog_location_diff(COALESCE(pg_last_xlog_receive_location(),
+                                                                      pg_last_xlog_replay_location()), '0/0')::bigint,
                                        pg_xlog_location_diff(pg_last_xlog_replay_location(), '0/0')::bigint,
                                        to_char(pg_last_xact_replay_timestamp(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),
                                        pg_is_in_recovery() AND pg_is_xlog_replay_paused(),

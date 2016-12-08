@@ -41,6 +41,7 @@ class Config(object):
     __DEFAULT_CONFIG = {
         'ttl': 30, 'loop_wait': 10, 'retry_timeout': 10,
         'maximum_lag_on_failover': 1048576,
+        'master_start_timeout': 300,
         'synchronous_mode': False,
         'postgresql': {
             'bin_dir': '',

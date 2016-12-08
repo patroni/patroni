@@ -20,9 +20,10 @@ class TestConfig(unittest.TestCase):
     def test_no_config(self):
         self.assertRaises(SystemExit, Config)
 
-    @patch.object(Config, '_build_effective_configuration', Mock(side_effect=Exception))
     def test_set_dynamic_configuration(self):
-        self.assertIsNone(self.config.set_dynamic_configuration({'foo': 'bar'}))
+        with patch.object(Config, '_build_effective_configuration', Mock(side_effect=Exception)):
+            self.assertIsNone(self.config.set_dynamic_configuration({'foo': 'bar'}))
+        self.assertTrue(self.config.set_dynamic_configuration({'synchronous_mode': True}))
 
     def test_reload_local_configuration(self):
         os.environ.update({

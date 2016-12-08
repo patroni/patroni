@@ -1,4 +1,3 @@
-from collections import defaultdict
 import logging
 import os
 import psycopg2
@@ -9,10 +8,12 @@ import subprocess
 import tempfile
 import time
 
+from collections import defaultdict
+from patroni import call_self
 from patroni.exceptions import PostgresConnectionException, PostgresException
-from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError
+from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop
 from six import string_types
-from threading import Lock
+from threading import current_thread, Lock
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,11 @@ ACTION_ON_STOP = "on_stop"
 ACTION_ON_RESTART = "on_restart"
 ACTION_ON_RELOAD = "on_reload"
 ACTION_ON_ROLE_CHANGE = "on_role_change"
+
+STATE_RUNNING = 'running'
+STATE_REJECT = 'rejecting connections'
+STATE_NO_RESPONSE = 'not responding'
+STATE_UNKNOWN = 'unknown'
 
 
 def slot_name_from_member_name(member_name):
@@ -80,6 +86,7 @@ class Postgresql(object):
         self._database = config.get('database', 'postgres')
         self._data_dir = config['data_dir']
         self._pending_restart = False
+        self.__thread_ident = current_thread().ident
 
         self._version_file = os.path.join(self._data_dir, 'PG_VERSION')
         self._major_version = self.get_major_version()
@@ -97,6 +104,7 @@ class Postgresql(object):
 
         self._pgpass = config.get('pgpass') or os.path.join(os.path.expanduser('~'), 'pgpass')
         self.__cb_called = False
+        self.__cb_pending = None
         config_base_name = config.get('config_base_name', 'postgresql')
         self._postgresql_conf = os.path.join(self._data_dir, config_base_name + '.conf')
         self._postgresql_base_conf_name = config_base_name + '.base.conf'
@@ -113,10 +121,16 @@ class Postgresql(object):
         self.retry = Retry(max_tries=-1, deadline=config['retry_timeout']/2.0, max_delay=1,
                            retry_exceptions=PostgresConnectionException)
 
+        # Retry 'pg_is_in_recovery()' only once
+        self._is_leader_retry = Retry(max_tries=1, deadline=config['retry_timeout']/2.0, max_delay=1,
+                                      retry_exceptions=PostgresConnectionException)
+
         self._state_lock = Lock()
         self.set_state('stopped')
         self._role_lock = Lock()
         self.set_role(self.get_postgres_role_from_data_directory())
+
+        self._state_entry_timestamp = None
 
         if self.is_running():
             self.set_state('running')
@@ -179,7 +193,7 @@ class Postgresql(object):
         :returns: `!True` when return_code == 0, otherwise `!False`"""
 
         pg_ctl = [self._pgcommand('pg_ctl'), cmd]
-        if cmd in ('start', 'stop', 'restart'):
+        if cmd == 'stop':
             pg_ctl += ['-w']
             timeout = self.config.get('pg_ctl_timeout')
             if timeout:
@@ -189,11 +203,31 @@ class Postgresql(object):
                     logger.error('Bad value of pg_ctl_timeout: %s', timeout)
         return subprocess.call(pg_ctl + ['-D', self._data_dir] + list(args), **kwargs) == 0
 
+    def pg_isready(self):
+        """Runs pg_isready to see if PostgreSQL is accepting connections.
+
+        :returns: 'ok' if PostgreSQL is up, 'reject' if starting up, 'no_resopnse' if not up."""
+
+        cmd = [self._pgcommand('pg_isready'),
+               '-h', self._local_address['host'],
+               '-p', self._local_address['port'],
+               '-d', self._database]
+        # We only need the username because pg_isready does not try to authenticate
+        if 'username' in self._superuser:
+            cmd.extend(['-U', self._superuser['username']])
+
+        ret = subprocess.call(cmd)
+        return_codes = {0: STATE_RUNNING,
+                        1: STATE_REJECT,
+                        2: STATE_NO_RESPONSE,
+                        3: STATE_UNKNOWN}
+        return return_codes.get(ret, STATE_UNKNOWN)
+
     def reload_config(self, config):
         server_parameters = self.get_server_parameters(config)
 
         listen_address_changed = pending_reload = pending_restart = False
-        if self.is_healthy():
+        if self.state == 'running':
             changes = {p: v for p, v in server_parameters.items() if '.' not in p}
             changes.update({p: None for p, v in self._server_parameters.items() if not ('.' in p or p in changes)})
             if changes:
@@ -250,7 +284,7 @@ class Postgresql(object):
         if pending_reload:
             self._write_postgresql_conf()
             self.reload()
-        self.retry.deadline = config['retry_timeout']/2.0
+        self._is_leader_retry.deadline = self.retry.deadline = config['retry_timeout']/2.0
 
     @property
     def pending_restart(self):
@@ -334,6 +368,9 @@ class Postgresql(object):
         self._cursor_holder = self._connection = None
 
     def _query(self, sql, *params):
+        """We are always using the same cursor, therefore this method is not thread-safe!!!
+        You can call it from different threads only if you are holding explicit `AsyncExecutor` lock,
+        because the main thread is always holding this lock when running HA cycle."""
         cursor = None
         try:
             cursor = self._cursor()
@@ -412,6 +449,9 @@ class Postgresql(object):
                 connstring = 'postgres://{user}@{host}:{port}/{database}'.format(**r)
             else:
                 connstring = 'postgres://{host}:{port}/{database}'.format(**r)
+                if 'password' in r:
+                    import getpass
+                    r.setdefault('user', os.environ.get('PGUSER', getpass.getuser()))
 
             env = self.write_pgpass(r) if 'password' in r else None
             try:
@@ -521,17 +561,37 @@ class Postgresql(object):
         return ret
 
     def is_leader(self):
-        return not self.query('SELECT pg_is_in_recovery()').fetchone()[0]
+        try:
+            return not self._is_leader_retry(self._query, 'SELECT pg_is_in_recovery()').fetchone()[0]
+        except RetryFailedError as e:  # SELECT pg_is_in_recovery() failed two times
+            if not self.is_starting() and self.pg_isready() == STATE_REJECT:
+                self.set_state('starting')
+            raise PostgresConnectionException(str(e))
 
     def is_running(self):
         if not (self._version_file_exists() and os.path.isfile(self._postmaster_pid)):
             return False
+        return self.is_pid_running(self.read_pid_file().get('pid', 0))
+
+    def read_pid_file(self):
+        """Reads and parses postmaster.pid from the data directory
+
+        :returns dictionary of values if successful, empty dictionary otherwise
+        """
+        pid_line_names = ['pid', 'data_dir', 'start_time', 'port', 'socket_dir', 'listen_addr', 'shmem_key']
         try:
             with open(self._postmaster_pid) as f:
-                pid = int(f.readline())
-                if pid < 0:
-                    pid = -pid
-                return pid > 0 and pid != os.getpid() and pid != os.getppid() and (os.kill(pid, 0) or True)
+                return {name: line.rstrip("\n") for name, line in zip(pid_line_names, f)}
+        except IOError:
+            return {}
+
+    @staticmethod
+    def is_pid_running(pid):
+        try:
+            pid = int(pid)
+            if pid < 0:
+                pid = -pid
+            return pid > 0 and pid != os.getpid() and pid != os.getppid() and (os.kill(pid, 0) or True)
         except Exception:
             return False
 
@@ -571,8 +631,48 @@ class Postgresql(object):
     def set_state(self, value):
         with self._state_lock:
             self._state = value
+            self._state_entry_timestamp = time.time()
 
-    def start(self, block_callbacks=False):
+    def time_in_state(self):
+        return time.time() - self._state_entry_timestamp
+
+    def is_starting(self):
+        return self.state == 'starting'
+
+    def wait_for_port_open(self, pid, initiated, timeout):
+        """Waits until PostgreSQL opens ports."""
+        for _ in polling_loop(timeout):
+            pid_file = self.read_pid_file()
+            if len(pid_file) > 5:
+                try:
+                    pmpid = int(pid_file['pid'])
+                    pmstart = int(pid_file['start_time'])
+
+                    if pmstart >= initiated - 2 and pmpid == pid:
+                        isready = self.pg_isready()
+                        if isready != STATE_NO_RESPONSE:
+                            if isready not in [STATE_REJECT, STATE_RUNNING]:
+                                logger.warning("Can't determine PostgreSQL startup status, assuming running")
+                            return True
+                except ValueError:
+                    # Garbage in the pid file
+                    pass
+
+            if not self.is_pid_running(pid):
+                logger.error('postmaster is not running')
+                self.set_state('start failed')
+                return False
+
+        logger.warning("Timed out waiting for PostgreSQL to start")
+        return False
+
+    def start(self, timeout=None, block_callbacks=False):
+        """Start PostgreSQL
+
+        Waits for postmaster to open ports or terminate so pg_isready can be used to check startup completion
+        or failure.
+
+        :returns: True if start was initiated and postmaster ports are open, False if start failed"""
         # make sure we close all connections established against
         # the former node, otherwise, we might get a stalled one
         # after kill -9, which would report incorrect data to
@@ -583,18 +683,13 @@ class Postgresql(object):
             logger.error('Cannot start PostgreSQL because one is already running.')
             return True
 
-        self.set_role(self.get_postgres_role_from_data_directory())
-        if os.path.exists(self._postmaster_pid):
-            os.remove(self._postmaster_pid)
-            logger.info('Removed %s', self._postmaster_pid)
-
         if not block_callbacks:
-            self.set_state('starting')
+            self.__cb_pending = ACTION_ON_START
 
-        env = {'PATH': os.environ.get('PATH')}
-        # pg_ctl will write a FATAL if the username is incorrect. exporting PGUSER if necessary
-        if 'username' in self._superuser and self._superuser['username'] != os.environ.get('USER'):
-            env['PGUSER'] = self._superuser['username']
+        self.set_role(self.get_postgres_role_from_data_directory())
+
+        self.set_state('starting')
+        self._pending_restart = False
 
         self._write_postgresql_conf()
         self.resolve_connection_addresses()
@@ -602,20 +697,45 @@ class Postgresql(object):
         opts = {p: self._server_parameters[p] for p, v in self.CMDLINE_OPTIONS.items() if self._major_version >= v[2]}
         if self._major_version >= 9.6 and opts['wal_level'] == 'hot_standby':
             opts['wal_level'] = 'replica'
-        options = ' '.join("--{0}='{1}'".format(p, v) for p, v in opts.items())
+        options = ['--{0}={1}'.format(p, v) for p, v in opts.items()]
 
-        ret = self.pg_ctl('start', '-o', options, env=env, preexec_fn=os.setsid)
-        self._pending_restart = False
+        start_initiated = time.time()
 
-        self.set_state('running' if ret else 'start failed')
+        # Unfortunately `pg_ctl start` does not return postmaster pid to us. Without this information
+        # it is hard to know the current state of postgres startup, so we had to reimplement pg_ctl start
+        # in python. It will start postgres, wait for port to be open and wait until postgres will start
+        # accepting connections.
+        # Important!!! We can't just start postgres using subprocess.Popen, because in this case it
+        # will be our child for the rest of our live and we will have to take care of it (`waitpid`).
+        # So we will use the same approach as pg_ctl uses: start a new process, which will start postgres.
+        # This process will write postmaster pid to stdout and exit immediately. Now it's responsibility
+        # of init process to take care about postmaster.
+        # In order to make everything portable we can't use fork&exec approach here, so  we will call
+        # ourselves and pass list of arguments which must be used to start postgres.
+        proc = call_self(['pg_ctl_start', self._pgcommand('postgres'), '-D', self._data_dir] + options, close_fds=True,
+                         preexec_fn=os.setsid, stdout=subprocess.PIPE, env={'PATH': os.environ.get('PATH')})
+        pid = int(proc.stdout.readline().strip())
+        proc.wait()
+        logger.info('postmaster pid=%s', pid)
 
-        self._schedule_load_slots = ret and self.use_slots
-        self.save_configuration_files()
-        # block_callbacks is used during restart to avoid
-        # running start/stop callbacks in addition to restart ones
-        if ret and not block_callbacks:
-            self.call_nowait(ACTION_ON_START)
-        return ret
+        start_timeout = timeout
+        if not start_timeout:
+            try:
+                start_timeout = float(self.config.get('pg_ctl_timeout', 60))
+            except ValueError:
+                start_timeout = 60
+
+        # We want postmaster to open ports before we continue
+        if not self.wait_for_port_open(pid, start_initiated, start_timeout):
+            return False
+
+        ret = self.wait_for_startup(start_timeout)
+        if ret is not None:
+            return ret
+        elif timeout is not None:
+            return False
+        else:
+            return None
 
     def checkpoint(self, connect_kwargs=None):
         check_not_is_in_recovery = connect_kwargs is not None
@@ -642,7 +762,7 @@ class Postgresql(object):
                 self.set_state('stopped')
             return True
 
-        if checkpoint:
+        if checkpoint and not self.is_starting():
             self.checkpoint()
 
         if not block_callbacks:
@@ -665,12 +785,70 @@ class Postgresql(object):
             self.call_nowait(ACTION_ON_RELOAD)
         return ret
 
-    def restart(self):
-        self.set_state('restarting')
-        ret = self.stop(block_callbacks=True) and self.start(block_callbacks=True)
-        if ret:
-            self.call_nowait(ACTION_ON_RESTART)
+    def check_for_startup(self):
+        """Checks PostgreSQL status and returns if PostgreSQL is in the middle of startup."""
+        return self.is_starting() and not self.check_startup_state_changed()
+
+    def check_startup_state_changed(self):
+        """Checks if PostgreSQL has completed starting up or failed or still starting.
+
+        Should only be called when state == 'starting'
+
+        :returns: True iff state was changed from 'starting'
+        """
+        ready = self.pg_isready()
+
+        if ready == STATE_REJECT:
+            return False
+        elif ready == STATE_NO_RESPONSE:
+            self.set_state('start failed')
+            self._schedule_load_slots = False  # TODO: can remove this?
+            self.save_configuration_files()  # TODO: maybe remove this?
+            return True
         else:
+            if ready != STATE_RUNNING:
+                # Bad configuration or unexpected OS error. No idea of PostgreSQL status.
+                # Let the main loop of run cycle clean up the mess.
+                logger.warning("%s status returned from pg_isready",
+                               "Unknown" if ready == STATE_UNKNOWN else "Invalid")
+            self.set_state('running')
+            self._schedule_load_slots = self.use_slots
+            self.save_configuration_files()
+            # TODO: __cb_pending can be None here after PostgreSQL restarts on its own. Do we want to call the callback?
+            # Previously we didn't even notice.
+            action = self.__cb_pending or ACTION_ON_START
+            self.call_nowait(action)
+            self.__cb_pending = None
+
+            return True
+
+    def wait_for_startup(self, timeout=None):
+        """Waits for PostgreSQL startup to complete or fail.
+
+        :returns: True if start was successful, False otherwise"""
+        if not self.is_starting():
+            # Should not happen
+            logger.warning("wait_for_startup() called when not in starting state")
+
+        while not self.check_startup_state_changed():
+            if timeout and self.time_in_state() > timeout:
+                return None
+            time.sleep(1)
+
+        return self.state == 'running'
+
+    def restart(self, timeout=None):
+        """Restarts PostgreSQL.
+
+        When timeout parameter is set the call will block either until PostgreSQL has started, failed to start or
+        timeout arrives.
+
+        :returns: True when restart was successful and timeout did not expire when waiting.
+        """
+        self.set_state('restarting')
+        self.__cb_pending = ACTION_ON_RESTART
+        ret = self.stop(block_callbacks=True) and self.start(timeout=timeout, block_callbacks=True)
+        if not ret and not self.is_starting():
             self.set_state('restart failed ({0})'.format(self.state))
         return ret
 
@@ -690,9 +868,6 @@ class Postgresql(object):
             logger.warning('Postgresql is not running.')
             return False
         return True
-
-    def check_replication_lag(self, last_leader_operation):
-        return (last_leader_operation or 0) - self.xlog_position() <= self.config.get('maximum_lag_on_failover', 0)
 
     def write_pg_hba(self, config):
         with open(os.path.join(self._data_dir, 'pg_hba.conf'), 'a') as f:
@@ -804,7 +979,7 @@ class Postgresql(object):
     def need_rewind(self):
         return self._need_rewind
 
-    def follow(self, member, leader, recovery=False, async_executor=None, need_rewind=None):
+    def follow(self, member, leader, recovery=False, async_executor=None, need_rewind=None, timeout=None):
         if need_rewind is not None:
             self._need_rewind = need_rewind
 
@@ -815,11 +990,11 @@ class Postgresql(object):
 
         if async_executor:
             async_executor.schedule('changing primary_conninfo and restarting')
-            async_executor.run_async(self._do_follow, (primary_conninfo, leader, recovery))
+            async_executor.run_async(self._do_follow, (primary_conninfo, leader, recovery, timeout))
         else:
-            return self._do_follow(primary_conninfo, leader, recovery)
+            return self._do_follow(primary_conninfo, leader, recovery, timeout)
 
-    def _do_follow(self, primary_conninfo, leader, recovery=False):
+    def _do_follow(self, primary_conninfo, leader, recovery=False, timeout=None):
         change_role = self.role in ('master', 'demoted')
 
         if leader and leader.name == self.name:
@@ -830,12 +1005,13 @@ class Postgresql(object):
         elif change_role:
             self._need_rewind = True
 
-        self._need_rewind &= bool(leader and leader.conn_url) and self.can_rewind
+        if self._need_rewind and not self.can_rewind:
+            logger.warning("Data directory may be out of sync master, rewind may be needed.")
 
-        if self._need_rewind:
+        if self._need_rewind and leader and leader.conn_url and self.can_rewind:
             logger.info("rewind flag is set")
 
-            if self.is_running() and not self.stop():
+            if self.is_running() and not self.stop(checkpoint=False):
                 return logger.warning('Can not run pg_rewind because postgres is still running')
 
             # prepare pg_rewind connection
@@ -874,12 +1050,13 @@ class Postgresql(object):
         else:
             self.write_recovery_conf(primary_conninfo)
             if recovery:
-                self.start()
+                self.start(timeout=timeout)
             else:
                 self.restart()
             self.set_role('replica')
 
         if change_role:
+            # TODO: postpone this until start completes, or maybe do even earlier
             self.call_nowait(ACTION_ON_ROLE_CHANGE)
         return True
 
@@ -935,10 +1112,19 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
     def xlog_position(self, retry=True):
         stmt = """SELECT pg_xlog_location_diff(CASE WHEN pg_is_in_recovery()
-                                                    THEN pg_last_xlog_replay_location()
+                                                    THEN COALESCE(pg_last_xlog_receive_location(),
+                                                                  pg_last_xlog_replay_location())
                                                     ELSE pg_current_xlog_location()
                                                END, '0/0')::bigint"""
-        return (self.query(stmt) if retry else self._query(stmt)).fetchone()[0]
+
+        # This method could be called from different threads (simultaneously with some other `_query` calls).
+        # If it is called not from main thread we will create a new cursor to execute statement.
+        if current_thread().ident == self.__thread_ident:
+            return (self.query(stmt) if retry else self._query(stmt)).fetchone()[0]
+
+        with self.connection().cursor() as cursor:
+            cursor.execute(stmt)
+            return cursor.fetchone()[0]
 
     def load_replication_slots(self):
         if self.use_slots and self._schedule_load_slots:
@@ -1093,7 +1279,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
         # TODO: for synchronous_commit = remote_write we actually want to order on write_location
         for app_name, state, sync_state in self.query(
                 """SELECT application_name, state, sync_state
-                    FROM pg_stat_replication
+                     FROM pg_stat_replication
                     ORDER BY flush_location DESC"""):
             member = members.get(app_name)
             if state != 'streaming' or not member or member.tags.get('nosync', False):
