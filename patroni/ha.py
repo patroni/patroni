@@ -25,7 +25,6 @@ class _MemberStatus(namedtuple('_MemberStatus', 'member,reachable,in_recovery,xl
         reachable - `!False` if the node is not reachable or is not responding with correct JSON
         in_recovery - `!True` if pg_is_in_recovery() == true
         xlog_location - value of `replayed_location` or `location` from JSON, dependin on its role.
-        is_lagging - `True` if node considers itself too far behind to promote
         tags - dictionary with values of different tags (i.e. nofailover)
     """
     @classmethod
@@ -801,6 +800,7 @@ class Ha(object):
     def post_recover(self):
         if not self.state_handler.is_running():
             if self.has_lock():
+                self.state_handler.set_role('demoted')
                 self.dcs.delete_leader()
                 self.dcs.reset_cluster()
                 return 'removed leader key after trying and failing to start postgres'

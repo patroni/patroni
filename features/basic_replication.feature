@@ -23,13 +23,13 @@ Feature: basic replication
   Scenario: check the basic failover in synchronous mode
     When I kill postgres0
     Then postgres2 role is the primary after 22 seconds
-    When I issue a PATCH request to http://127.0.0.1:8009/config with {"synchronous_mode": null}
+    When I issue a PATCH request to http://127.0.0.1:8009/config with {"synchronous_mode": null, "master_start_timeout": 0}
     Then I receive a response code 200
     When I add the table bar to postgres2
     Then table bar is present on postgres1 after 20 seconds
 
-  Scenario: check the basic failover
-    Given I shut down postgres2
+  Scenario: check immediate failover when master_start_timeout=0
+    Given I kill postmaster on postgres2
     Then postgres1 is a leader after 10 seconds
     And postgres1 role is the primary after 10 seconds
 

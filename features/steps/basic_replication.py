@@ -19,6 +19,11 @@ def kill_patroni(context, name):
     return context.pctl.stop(name, kill=True)
 
 
+@step('I kill postmaster on {name:w}')
+def stop_patroni(context, name):
+    return context.pctl.stop(name, postgres=True)
+
+
 @step('I add the table {table_name:w} to {pg_name:w}')
 def add_table(context, table_name, pg_name):
     # parse the configuration file and get the port

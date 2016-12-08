@@ -112,6 +112,11 @@ class PatroniController(AbstractController):
         return subprocess.Popen(['coverage', 'run', '--source=patroni', '-p', 'patroni.py', self._config],
                                 stdout=self._log, stderr=subprocess.STDOUT, cwd=self._work_directory)
 
+    def stop(self, kill=False, timeout=15, postgres=False):
+        if postgres:
+            return subprocess.call(['pg_ctl', '-D', self._data_dir, 'stop', '-mi', '-w'])
+        super(PatroniController, self).stop(kill, timeout)
+
     def _is_accessible(self):
         return self.query("SELECT 1", fail_ok=True) is not None
 
