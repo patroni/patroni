@@ -226,7 +226,7 @@ class Client(etcd.Client):
         try:
             return [(r.target.to_text(True), r.port) for r in resolver.query(host, 'SRV')]
         except DNSException:
-            logger.exception('Can not resolve SRV for %s', host)
+            logger.warning('Can not resolve SRV for %s', host)
         return []
 
     def _get_machines_cache_from_srv(self, srv):

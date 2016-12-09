@@ -56,7 +56,7 @@ class AbstractController(object):
             assert False,\
                 "{0} instance is not available for queries after {1} seconds".format(self._name, max_wait_limit)
 
-    def stop(self, kill=False, timeout=15):
+    def stop(self, kill=False, timeout=15, _=False):
         term = False
         start_time = time.time()
 
@@ -111,6 +111,11 @@ class PatroniController(AbstractController):
     def _start(self):
         return subprocess.Popen(['coverage', 'run', '--source=patroni', '-p', 'patroni.py', self._config],
                                 stdout=self._log, stderr=subprocess.STDOUT, cwd=self._work_directory)
+
+    def stop(self, kill=False, timeout=15, postgres=False):
+        if postgres:
+            return subprocess.call(['pg_ctl', '-D', self._data_dir, 'stop', '-mi', '-w'])
+        super(PatroniController, self).stop(kill, timeout)
 
     def _is_accessible(self):
         return self.query("SELECT 1", fail_ok=True) is not None

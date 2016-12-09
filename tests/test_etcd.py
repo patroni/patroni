@@ -129,7 +129,7 @@ def dns_query(name, _):
 
 def socket_getaddrinfo(*args):
     if args[0] in ('ok', 'localhost', '127.0.0.1'):
-        return [(2, 1, 6, '', ('127.0.0.1', 0)), (10, 1, 6, '', ('::1', 0))]
+        return [(socket.AF_INET, 1, 6, '', ('127.0.0.1', 0)), (socket.AF_INET6, 1, 6, '', ('::1', 0))]
     raise socket.gaierror
 
 
@@ -148,7 +148,7 @@ def http_request(method, url, **kwargs):
 class TestDnsCachingResolver(unittest.TestCase):
 
     @patch('time.sleep', Mock(side_effect=SleepException))
-    @patch('socket.gethostbyname_ex', Mock(side_effect=socket.gaierror))
+    @patch('socket.getaddrinfo', Mock(side_effect=socket.gaierror))
     def test_run(self):
         r = DnsCachingResolver()
         self.assertIsNone(r.resolve_async(''))
