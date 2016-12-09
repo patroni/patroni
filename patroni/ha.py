@@ -208,7 +208,7 @@ class Ha(object):
 
         node_to_follow = self._get_node_to_follow(self.cluster)
 
-        if self.is_paused() and not self.state_handler.need_rewind:
+        if self.is_paused() and not (self.state_handler.need_rewind and self.state_handler.can_rewind):
             self.state_handler.set_role('master' if is_leader else 'replica')
             if is_leader:
                 return 'continue to run as master without lock'
@@ -900,7 +900,7 @@ class Ha(object):
                         self.dcs.delete_leader()
                         self.dcs.reset_cluster()
                         return 'removed leader lock because postgres is not running'
-                    elif not self.state_handler.need_rewind:
+                    elif not (self.state_handler.need_rewind and self.state_handler.can_rewind):
                         return 'postgres is not running'
 
                 # try to start dead postgres
