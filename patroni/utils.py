@@ -1,13 +1,9 @@
 import random
-import sys
 import time
 import re
 
 from dateutil import tz
 from patroni.exceptions import PatroniException
-
-if sys.hexversion >= 0x3000000:
-    long = int
 
 tzutc = tz.tzutc()
 
@@ -121,7 +117,7 @@ def strtol(value, strict=True):
         while i <= l:
             try:  # try to find maximally long number
                 i += 1  # by giving to `int` longer and longer strings
-                ret = long(value[:i], base)
+                ret = int(value[:i], base)
             except ValueError:  # until we will not get an exception or end of the string
                 i -= 1
                 break
