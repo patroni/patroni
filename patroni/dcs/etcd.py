@@ -226,8 +226,7 @@ class Client(etcd.Client):
         try:
             return [(r.target.to_text(True), r.port) for r in resolver.query(host, 'SRV')]
         except DNSException:
-            logger.warning('Can not resolve SRV for %s', host)
-        return []
+            return []
 
     def _get_machines_cache_from_srv(self, srv):
         """Fetch list of etcd-cluster member by resolving _etcd-server._tcp. SRV record.
@@ -254,6 +253,8 @@ class Client(etcd.Client):
             if ret:
                 self._protocol = protocol
                 break
+        else:
+            logger.warning('Can not resolve SRV for %s', srv)
         return list(set(ret))
 
     def _get_machines_cache_from_dns(self, host, port):
