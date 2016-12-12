@@ -33,9 +33,6 @@ import sys
 import time
 import argparse
 
-if sys.hexversion >= 0x3000000:
-    long = int
-
 logger = logging.getLogger(__name__)
 
 RETRY_SLEEP_INTERVAL = 1
@@ -122,12 +119,12 @@ class WALERestore(object):
 
         lsn_segment = backup_start_segment[8:16]
         # first 2 characters of the result are 0x and the last one is L
-        lsn_offset = hex((long(backup_start_segment[16:32], 16) << 24) + long(backup_start_offset))[2:-1]
+        lsn_offset = hex((int(backup_start_segment[16:32], 16) << 24) + int(backup_start_offset))[2:-1]
 
         # construct the LSN from the segment and offset
         backup_start_lsn = '{0}/{1}'.format(lsn_segment, lsn_offset)
 
-        diff_in_bytes = long(backup_size)
+        diff_in_bytes = int(backup_size)
         attempts_no = 0
         while True:
             if self.master_connection:
@@ -138,7 +135,7 @@ class WALERestore(object):
                         with con.cursor() as cur:
                             cur.execute("SELECT pg_xlog_location_diff(pg_current_xlog_location(), %s)",
                                         (backup_start_lsn,))
-                            diff_in_bytes = long(cur.fetchone()[0])
+                            diff_in_bytes = int(cur.fetchone()[0])
                 except psycopg2.Error:
                     logger.exception('could not determine difference with the master location')
                     if attempts_no < self.retries:  # retry in case of a temporarily connection issue
@@ -158,8 +155,8 @@ class WALERestore(object):
 
         # if the size of the accumulated WAL segments is more than a certan percentage of the backup size
         # or exceeds the pre-determined size - pg_basebackup is chosen instead.
-        return (diff_in_bytes < long(threshold_megabytes) * 1048576) and\
-            (diff_in_bytes < long(backup_size) * float(threshold_backup_size_percentage) / 100)
+        return (diff_in_bytes < int(threshold_megabytes) * 1048576) and\
+            (diff_in_bytes < int(backup_size) * float(threshold_backup_size_percentage) / 100)
 
     def fix_subdirectory_path_if_broken(self, dirname):
         # in case it is a symlink pointing to a non-existing location, remove it and create the actual directory

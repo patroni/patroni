@@ -24,7 +24,8 @@ wale_output = b'name last_modified expanded_size_bytes wal_segment_backup_start 
 class TestWALERestore(unittest.TestCase):
 
     def setUp(self):
-        self.wale_restore = WALERestore("batman", "/data", "host=batman port=5432 user=batman", "/etc", 100, 100, 1, 0, 1)
+        self.wale_restore = WALERestore("batman", "/data", "host=batman port=5432 user=batman",
+                                        "/etc", 100, 100, 1, 0, 1)
 
     def test_should_use_s3_to_create_replica(self):
         self.assertTrue(self.wale_restore.should_use_s3_to_create_replica())
