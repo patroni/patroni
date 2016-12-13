@@ -72,5 +72,6 @@ def main():
     else:
         sys.exit("Usage: {0} action role name".format(sys.argv[0]))
 
+
 if __name__ == '__main__':
     main()
