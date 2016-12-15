@@ -75,6 +75,8 @@ class BackgroundKeepaliveSender(object):
         #     self.safe_event.set()????
         self._stop_event.set()
         self._bg_thread.join()
+        # Always send at least one keepalive
+        self.ha.keepalive()
 
     def run(self):
         if self.safe_event is not None:
@@ -265,19 +267,20 @@ class Ha(object):
 
         node_to_follow = self._get_node_to_follow(self.cluster)
 
-        if self.is_paused() and (not self.state_handler.need_rewind or self.cluster.is_unlocked()):
-            self.state_handler.set_role('master' if is_leader else 'replica')
-            if is_leader:
-                return 'continue to run as master without lock'
-            elif not node_to_follow:
-                return 'no action'
-
-        if is_leader and not self.is_paused():
+        if self.is_paused():
+            self.keepalive()
+            if not self.state_handler.need_rewind or self.cluster.is_unlocked():
+                self.state_handler.set_role('master' if is_leader else 'replica')
+                if is_leader:
+                    return 'continue to run as master without lock'
+                elif not node_to_follow:
+                    return 'no action'
+        elif is_leader:
             with self._background_keepalive_context():
                 self.demote('immediate-nolock')
                 return demote_reason
-
-        self.keepalive()
+        else:
+            self.keepalive()
 
         if not self.state_handler.check_recovery_conf(node_to_follow):
             self._async_executor.schedule('changing primary_conninfo and restarting')
@@ -571,6 +574,9 @@ class Ha(object):
             cluster = self.dcs.get_cluster()
             node_to_follow, leader = self._get_node_to_follow(cluster), cluster.leader
 
+        # FIXME: with mode offline called from DCS exception handler and handle_long_action_in_progress
+        # there could be an async action already running, calling follow from here will lead
+        # to racy state handler state updates.
         if mode_control['async']:
             self._async_executor.schedule('restarting after demotion')
             self._async_executor.run_async(self.state_handler.follow, (node_to_follow, leader))
@@ -709,7 +715,8 @@ class Ha(object):
             else:
                 # Either there is no connection to DCS or someone else acquired the lock
                 logger.error('failed to update leader lock')
-                self.demote('immediate-nolock')
+                with self._background_keepalive_context():
+                    self.demote('immediate-nolock')
                 return 'demoted self because failed to update leader lock in DCS'
         else:
             logger.info('does not have lock')
