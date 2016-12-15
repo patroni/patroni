@@ -24,6 +24,7 @@ def read_version(package):
         exec(fd.read(), data)
     return data['__version__']
 
+
 NAME = 'patroni'
 MAIN_PACKAGE = NAME
 SCRIPTS = 'scripts'

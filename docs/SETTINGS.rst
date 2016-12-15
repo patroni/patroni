@@ -14,7 +14,7 @@ Bootstrap configuration
     -  **loop\_wait**: the number of seconds the loop will sleep. Default value: 10
     -  **ttl**: the TTL to acquire the leader lock. Think of it as the length of time before initiation of the automatic failover process. Default value: 30
     -  **maximum\_lag\_on\_failover**: the maximum bytes a follower may lag to be able to participate in leader election.
-    -  **master\_start\_timeout**: the amount of time a master is allowed to recover from failures before failover is triggered. Default is 300 seconds. When set to 0 failover is done immediately after a crash is detected if possible. When using asynchronous replication a failover can cause lost transactions. Best worst case failover time for master failure is: ttl + master\_start\_timeout + ttl, unless master\_start\_timeout is zero, in which case it's just ttl. Set the value according to your durability/availability tradeoff.
+    -  **master\_start\_timeout**: the amount of time a master is allowed to recover from failures before failover is triggered. Default is 300 seconds. When set to 0 failover is done immediately after a crash is detected if possible. When using asynchronous replication a failover can cause lost transactions. Best worst case failover time for master failure is: loop\_wait + master\_start\_timeout + loop\_wait, unless master\_start\_timeout is zero, in which case it's just loop\_wait. Set the value according to your durability/availability tradeoff.
     -  **synchronous\_mode**: turns on synchronous replication mode. In this mode a replica will be chosen as synchronous and only the latest leader and synchronous replica are able to participate in leader election. Synchronous mode makes sure that succesfully committed transactions will not be lost at failover, at the cost of losing availability for writes when Patroni cannot ensure transaction durability. See `replication modes documentation <https://github.com/zalando/patroni/blob/master/docs/replication_modes.rst>`__ for details.
     -  **postgresql**:
         -  **use\_pg\_rewind**:whether or not to use pg_rewind
@@ -42,7 +42,17 @@ Consul
 
 Etcd
 ----
+Most of the parameters are optional, but you have to specify one of the **host**, **url**, **proxy** or **srv**
 -  **host**: the host:port for the etcd endpoint.
+-  **url**: url for the etcd
+-  **proxy**: proxy url for the etcd. If you are connecting to the etcd using proxy, use this parameter instead of **url**
+-  **srv**: Domain to search the SRV record(s) for cluster autodiscovery.
+-  **protocol**: (optional) http or https, if not specified http is used. If the **url** or **proxy** is specified - will take protocol from them.
+-  **username**: (optional) username for etcd authentication
+-  **password**: (optional) password for etcd authentication.
+-  **cacert**: (optional) The ca certificate. If pressent it will enable validation.
+-  **cert**: (optional) file with the client certificate
+-  **key**: (optional) file with the client key. Can be empty if the key is part of **cert**.
 
 Exhibitor
 ---------

@@ -165,6 +165,26 @@ def call_self(args, **kwargs):
     return subprocess.Popen(exe + args, **kwargs)
 
 
+def pg_ctl_start(args):
+    import subprocess
+    postmaster = subprocess.Popen(args)
+    print(postmaster.pid)
+
+
+def call_self(args, **kwargs):
+    """This function executes Patroni once again with provided arguments.
+
+    :args: list of arguments to call Patroni with.
+    :returns: `Popen` object"""
+
+    exe = [sys.executable]
+    if not getattr(sys, 'frozen', False):  # Binary distribution?
+        exe.append(sys.argv[0])
+
+    import subprocess
+    return subprocess.Popen(exe + args, **kwargs)
+
+
 def main():
     if os.getpid() != 1:
         if len(sys.argv) > 5 and sys.argv[1] == 'pg_ctl_start':

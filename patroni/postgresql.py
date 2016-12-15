@@ -606,7 +606,8 @@ class Postgresql(object):
             logger.warning("Garbage pid in postmaster.pid: {0!r}".format(pid))
             return 0
 
-    def is_pid_running(self, pid):
+    @staticmethod
+    def is_pid_running(pid):
         try:
             if pid < 0:
                 pid = -pid
@@ -1218,11 +1219,12 @@ END;
 $$""".format(name, ' '.join(options)), name, password, password)
 
     def xlog_position(self, retry=True):
-        stmt = """SELECT pg_xlog_location_diff(CASE WHEN pg_is_in_recovery()
-                                                    THEN COALESCE(pg_last_xlog_receive_location(),
-                                                                  pg_last_xlog_replay_location())
-                                                    ELSE pg_current_xlog_location()
-                                               END, '0/0')::bigint"""
+        stmt = """SELECT CASE WHEN pg_is_in_recovery()
+                              THEN GREATEST(pg_xlog_location_diff(COALESCE(pg_last_xlog_receive_location(), '0/0'),
+                                                                  '0/0')::bigint,
+                                            pg_xlog_location_diff(pg_last_xlog_replay_location(), '0/0')::bigint)
+                              ELSE pg_xlog_location_diff(pg_current_xlog_location(), '0/0')::bigint
+                          END"""
 
         # This method could be called from different threads (simultaneously with some other `_query` calls).
         # If it is called not from main thread we will create a new cursor to execute statement.

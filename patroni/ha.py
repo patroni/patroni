@@ -25,14 +25,13 @@ class _MemberStatus(namedtuple('_MemberStatus', 'member,reachable,in_recovery,xl
         reachable - `!False` if the node is not reachable or is not responding with correct JSON
         in_recovery - `!True` if pg_is_in_recovery() == true
         xlog_location - value of `replayed_location` or `location` from JSON, dependin on its role.
-        is_lagging - `True` if node considers itself too far behind to promote
         tags - dictionary with values of different tags (i.e. nofailover)
     """
     @classmethod
     def from_api_response(cls, member, json):
         is_master = json['role'] == 'master'
-        xlog_location = None if is_master else json['xlog']['received_location']
-        return cls(member, True, not is_master, xlog_location, json.get('tags', {}))
+        xlog = not is_master and max(json['xlog'].get('received_location', 0), json['xlog'].get('replayed_location', 0))
+        return cls(member, True, not is_master, xlog, json.get('tags', {}))
 
     @classmethod
     def unknown(cls, member):
@@ -888,6 +887,7 @@ class Ha(object):
         if not self.state_handler.is_running():
             self.keepalive()
             if self.has_lock():
+                self.state_handler.set_role('demoted')
                 self.dcs.delete_leader()
                 self.dcs.reset_cluster()
                 return 'removed leader key after trying and failing to start postgres'

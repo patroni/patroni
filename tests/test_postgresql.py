@@ -28,7 +28,7 @@ class MockCursor(object):
             raise RetryFailedError('retry')
         elif sql.startswith('SELECT slot_name'):
             self.results = [('blabla',), ('foobar',)]
-        elif sql.startswith('SELECT pg_xlog_location_diff'):
+        elif sql.startswith('SELECT CASE WHEN pg_is_in_recovery()'):
             self.results = [(0,)]
         elif sql == 'SELECT pg_is_in_recovery()':
             self.results = [(False, )]
