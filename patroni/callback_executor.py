@@ -1,5 +1,4 @@
 import logging
-import os
 import subprocess
 from threading import Event, Lock, Thread
 
@@ -31,7 +30,7 @@ class CallbackExecutor(Thread):
             self._callback_event.clear()
             with self._lock:
                 try:
-                    self._process = subprocess.Popen(self._cmd, close_fds=True, env={'PATH': os.environ.get('PATH')})
+                    self._process = subprocess.Popen(self._cmd, close_fds=True)
                 except Exception:
                     logger.exception('Failed to execute %s',  self._cmd)
                     continue
