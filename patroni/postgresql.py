@@ -471,6 +471,9 @@ class Postgresql(object):
             os.unlink(self._trigger_file)
 
     def write_pgpass(self, record):
+        if 'user' not in record or 'password' not in record:
+            return os.environ.copy()
+
         with open(self._pgpass, 'w') as f:
             os.fchmod(f.fileno(), 0o600)
             f.write('{host}:{port}:*:{user}:{password}\n'.format(**record))
@@ -900,7 +903,15 @@ class Postgresql(object):
     def rewind(self, r):
         # prepare pg_rewind connection
         env = self.write_pgpass(r)
-        dsn = 'user={user} host={host} port={port} dbname={database} sslmode=prefer sslcompression=1'.format(**r)
+        dsn_attrs = [
+            ('user', r.get('user')),
+            ('host', r.get('host')),
+            ('port', r.get('port')),
+            ('dbname', r.get('database')),
+            ('sslmode', 'prefer'),
+            ('sslcompression', '1'),
+        ]
+        dsn = " ".join("{0}={1}".format(k, v) for k, v in dsn_attrs if v is not None)
         logger.info('running pg_rewind from %s', dsn)
         try:
             return subprocess.call([self._pgcommand('pg_rewind'),
