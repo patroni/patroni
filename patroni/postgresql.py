@@ -10,6 +10,7 @@ import time
 
 from collections import defaultdict
 from patroni import call_self
+from patroni.callback_executor import CallbackExecutor
 from patroni.exceptions import PostgresConnectionException, PostgresException
 from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop
 from six import string_types
@@ -103,6 +104,7 @@ class Postgresql(object):
         self._schedule_load_slots = self.use_slots
 
         self._pgpass = config.get('pgpass') or os.path.join(os.path.expanduser('~'), 'pgpass')
+        self._callback_executor = CallbackExecutor()
         self.__cb_called = False
         self.__cb_pending = None
         config_base_name = config.get('config_base_name', 'postgresql')
@@ -607,15 +609,8 @@ class Postgresql(object):
         if cb_name in (ACTION_ON_START, ACTION_ON_STOP, ACTION_ON_RESTART, ACTION_ON_ROLE_CHANGE):
             self.__cb_called = True
 
-        if not self.callback or cb_name not in self.callback:
-            return False
-        cmd = self.callback[cb_name]
-        try:
-            subprocess.Popen(shlex.split(cmd) + [cb_name, self.role, self.scope])
-        except OSError:
-            logger.exception('callback %s %s %s %s failed', cmd, cb_name, self.role, self.scope)
-            return False
-        return True
+        if self.callback and cb_name in self.callback:
+            self._callback_executor.call(self.callback[cb_name])
 
     @property
     def role(self):

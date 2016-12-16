@@ -27,6 +27,7 @@ class MockFrozenImporter(object):
 @patch.object(Postgresql, '_write_postgresql_conf', Mock())
 @patch.object(Postgresql, 'write_recovery_conf', Mock())
 @patch.object(Postgresql, 'is_running', Mock(return_value=True))
+@patch.object(Postgresql, 'call_nowait', Mock())
 @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
 @patch.object(AsyncExecutor, 'run', Mock())
 @patch.object(etcd.Client, 'write', etcd_write)

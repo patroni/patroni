@@ -184,6 +184,7 @@ class TestPostgresql(unittest.TestCase):
                                            'on_reload': 'true'
                                            },
                              'restore': 'true'})
+        self.p._callback_executor = Mock()
         self.leadermem = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres'})
         self.leader = Leader(-1, 28, self.leadermem)
         self.other = Member(0, 'test-1', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
