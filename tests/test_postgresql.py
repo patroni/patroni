@@ -279,6 +279,7 @@ class TestPostgresql(unittest.TestCase):
 
     @patch.object(builtins, 'open', MagicMock())
     def test_write_pgpass(self):
+        self.p.write_pgpass({'host': 'localhost', 'port': '5432', 'user': 'foo'})
         self.p.write_pgpass({'host': 'localhost', 'port': '5432', 'user': 'foo', 'password': 'bar'})
 
     def test_checkpoint(self):
@@ -423,9 +424,9 @@ class TestPostgresql(unittest.TestCase):
     def test_is_running(self):
         self.assertFalse(self.p.is_running())
 
-    @patch('subprocess.Popen', Mock(side_effect=OSError))
+    @patch('shlex.split', Mock(side_effect=OSError))
     def test_call_nowait(self):
-        self.assertFalse(self.p.call_nowait('on_start'))
+        self.assertIsNone(self.p.call_nowait('on_start'))
 
     def test_non_existing_callback(self):
         self.assertFalse(self.p.call_nowait('foobar'))

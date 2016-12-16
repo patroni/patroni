@@ -610,7 +610,12 @@ class Postgresql(object):
             self.__cb_called = True
 
         if self.callback and cb_name in self.callback:
-            self._callback_executor.call(self.callback[cb_name])
+            cmd = self.callback[cb_name]
+            try:
+                cmd = shlex.split(self.callback[cb_name]) + [cb_name, self.role, self.scope]
+                self._callback_executor.call(cmd)
+            except Exception:
+                logger.exception('callback %s %s %s %s failed', cmd, cb_name, self.role, self.scope)
 
     @property
     def role(self):
