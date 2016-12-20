@@ -18,6 +18,7 @@ We call Patroni a "template" because it is far from being a one-size-fits-all or
    :caption: Contents:
 
    README
+   dynamic_configuration
    ENVIRONMENT
    SETTINGS
    replication_modes
