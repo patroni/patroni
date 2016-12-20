@@ -1,3 +1,5 @@
+.. _settings:
+
 ===========================
 YAML Configuration Settings
 ===========================
