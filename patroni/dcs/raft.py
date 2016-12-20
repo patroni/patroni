@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 class DynMemberSyncObj(SyncObj):
 
     def __init__(self, selfAddress, partnerAddrs, conf):
+        autoTick = conf.autoTick
         conf.autoTick = False
         super(DynMemberSyncObj, self).__init__(None, partnerAddrs, conf)
         for self.__node in self._SyncObj__nodes:
@@ -24,7 +25,7 @@ class DynMemberSyncObj(SyncObj):
                     elif selfAddress:
                         response = self.__utility_message(['add', selfAddress])  # TODO check response
                 break
-        conf.autoTick = True
+        conf.autoTick = autoTick
         super(DynMemberSyncObj, self).__init__(selfAddress, partnerAddrs, conf)
 
     def __utility_message(self, message):
@@ -144,7 +145,7 @@ class KVStoreTTL(DynMemberSyncObj):
         if recursive:
             for k in list(self.__data.keys()):
                 if k.startswith(key):
-                    self.__pop(key)
+                    self.__pop(k)
         elif not self.__check_requirements(self.__data.get(key, {}), **kwargs):
             return False
         else:
@@ -199,7 +200,8 @@ class Raft(AbstractDCS):
         ready_event = threading.Event()
         conf = SyncObjConf(appendEntriesUseBatch=False, dynamicMembershipChange=True, onReady=ready_event.set,
                            journalFile=template + '.journal', fullDumpFile=template + '.dump', logCompactionMinTime=30)
-        self._sync_obj = KVStoreTTL(config['self_addr'], config['partner_addrs'], conf, self._on_set, self._on_delete)
+        self._sync_obj = KVStoreTTL(config['self_addr'], config.get('partner_addrs', []),
+                                    conf, self._on_set, self._on_delete)
         while True:
             ready_event.wait(5)
             if ready_event.isSet():

@@ -640,7 +640,7 @@ class Ha(object):
                     self.demote('offline')
                     return 'demoted self because failed to update leader lock in DCS'
                 else:
-                    return 'not promoting beacuse failed to update leader lock'
+                    return 'not promoting because failed to update leader lock in DCS'
         else:
             logger.info('does not have lock')
         return self.follow('demoting self because i do not have the lock and i was a leader',

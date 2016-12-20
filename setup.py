@@ -121,7 +121,14 @@ def setup_package():
     # Some helper variables
     version = os.getenv('GO_PIPELINE_LABEL', VERSION)
 
-    install_reqs = get_install_requirements('requirements.txt')
+    install_reqs = []
+    dependency_links = []
+    for r in get_install_requirements('requirements.txt'):
+        i = r.find('#egg=')
+        if i > 0:
+            dependency_links.append(r)
+            r = r[i+5:]
+        install_reqs.append(r)
 
     command_options = {'test': {'test_suite': ('setup.py', 'tests')}}
     if JUNIT_XML:
@@ -146,6 +153,7 @@ def setup_package():
         packages=find_packages(exclude=['tests', 'tests.*']),
         package_data={MAIN_PACKAGE: ["*.json"]},
         install_requires=install_reqs,
+        dependency_links=dependency_links,
         setup_requires=['flake8'],
         cmdclass=cmdclass,
         tests_require=['mock>=2.0.0', 'pytest-cov', 'pytest'],

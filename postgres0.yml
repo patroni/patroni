@@ -11,15 +11,15 @@ restapi:
 #    username: username
 #    password: password
 
-#etcd:
-#  host: 127.0.0.1:2379
+etcd:
+  host: 127.0.0.1:2379
 
-raft:
-  data_dir: .
-  self_addr: 127.0.0.1:2222
-  partner_addrs:
-  - 127.0.0.1:2223
-  - 127.0.0.1:2224
+#raft:
+#  data_dir: .
+#  self_addr: 127.0.0.1:2222
+#  partner_addrs:
+#  - 127.0.0.1:2223
+#  - 127.0.0.1:2224
 
 bootstrap:
   # this section will be written into Etcd:/<namespace>/<scope>/config after initializing new cluster
