@@ -74,7 +74,7 @@ Go :ref:`here <environment>` for comprehensive information about configuring(ove
 Replication Choices
 ===================
 
-Patroni uses Postgres' streaming replication, which is asynchronous by default. Patroni's asynchronous replication configuration allows for ``maximum_lag_on_failover`` settings. This setting ensures failover will not occur if a follower is more than a certain number of bytes behind the leader. This setting should be increased or decreased based on business requirements. It's also possible to use synchronous replication for better durability guarantees. See `replication modes documentation <https://github.com/zalando/patroni/blob/master/docs/replication_modes.rst>` for details.
+Patroni uses Postgres' streaming replication, which is asynchronous by default. Patroni's asynchronous replication configuration allows for ``maximum_lag_on_failover`` settings. This setting ensures failover will not occur if a follower is more than a certain number of bytes behind the leader. This setting should be increased or decreased based on business requirements. It's also possible to use synchronous replication for better durability guarantees. See :ref:`replication modes documentation <replication_modes>` for details.
 
 ======================================
 Applications Should Not Use Superusers

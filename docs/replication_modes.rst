@@ -1,3 +1,5 @@
+.. _replication_modes:
+
 =================
 Replication modes
 =================
