@@ -17,7 +17,7 @@ Development Status
 
 Patroni is in active development and accepts contributions. See our `Contributing <https://github.com/zalando/patroni/blob/master/CONTRIBUTING.md>`__ section below for more details.
 
-We report new releases information `here <https://github.com/zalando/patroni/releases>`__.
+We report new releases information :ref:`here <releases>`.
 
 ===================================
 Technical Requirements/Installation

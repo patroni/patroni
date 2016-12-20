@@ -22,6 +22,7 @@ We call Patroni a "template" because it is far from being a one-size-fits-all or
    SETTINGS
    replication_modes
    pause
+   releases
 
 Indices and tables
 ==================

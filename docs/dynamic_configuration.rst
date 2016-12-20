@@ -1,3 +1,5 @@
+.. _dynamic_configuration:
+
 Patroni configuration
 =====================
 

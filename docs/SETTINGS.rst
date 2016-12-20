@@ -62,6 +62,8 @@ Exhibitor
 -  **poll\_interval**: how often the list of ZooKeeper and Exhibitor nodes should be updated from Exhibitor
 -  **port**: Exhibitor port.
 
+.. _postgresql_settings:
+
 PostgreSQL
 ----------
 -  **authentication**:
