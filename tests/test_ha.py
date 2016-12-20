@@ -243,6 +243,8 @@ class TestHa(unittest.TestCase):
         self.ha.has_lock = true
         self.ha.update_lock = false
         self.assertEquals(self.ha.run_cycle(), 'demoted self because failed to update leader lock in DCS')
+        self.p.is_leader = false
+        self.assertEquals(self.ha.run_cycle(), 'not promoting because failed to update leader lock in DCS')
 
     def test_follow(self):
         self.ha.cluster.is_unlocked = false
