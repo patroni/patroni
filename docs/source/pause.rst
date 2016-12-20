@@ -1,0 +1,2 @@
+.. include:: ../pause.rst
+
