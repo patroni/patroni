@@ -1,0 +1,1 @@
+.. include:: ../SETTINGS.rst
