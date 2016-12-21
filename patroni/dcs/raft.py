@@ -211,7 +211,7 @@ class Raft(AbstractDCS):
         self.set_retry_timeout(int(config.get('retry_timeout') or 10))
 
     def _on_set(self, key, value):
-        if value['created'] == value['updated'] and key.startswith(self.members_path) \
+        if value['created'] == value['updated'] and (key.startswith(self.members_path) or key == self.leader_path) \
                 or key in (self.config_path, self.sync_path):
             self.event.set()
 
@@ -271,7 +271,7 @@ class Raft(AbstractDCS):
         self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync)
 
     def _write_leader_optime(self, last_operation):
-        return self._sync_obj.set(self.leader_optime_path, last_operation)
+        return self._sync_obj.set(self.leader_optime_path, last_operation, timeout=1)
 
     def update_leader(self):
         return self._sync_obj.set(self.leader_path, self._name, ttl=self._ttl, prevValue=self._name)
@@ -287,7 +287,7 @@ class Raft(AbstractDCS):
         return self._sync_obj.set(self.config_path, value, prevIndex=index)
 
     def touch_member(self, data, ttl=None, permanent=False):
-        return self._sync_obj.set(self.member_path, data, None if permanent else ttl or self._ttl)
+        return self._sync_obj.set(self.member_path, data, None if permanent else ttl or self._ttl, timeout=2)
 
     def take_leader(self):
         return self._sync_obj.set(self.leader_path, self._name, ttl=self._ttl)
@@ -296,7 +296,7 @@ class Raft(AbstractDCS):
         return self._sync_obj.set(self.initialize_path, sysid, prevExist=(not create_new))
 
     def delete_leader(self):
-        return self._sync_obj.delete(self.leader_path, prevValue=self._name)
+        return self._sync_obj.delete(self.leader_path, prevValue=self._name, timeout=1)
 
     def cancel_initialization(self):
         return self._sync_obj.delete(self.initialize_path)
