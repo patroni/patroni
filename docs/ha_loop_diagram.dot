@@ -1,0 +1,148 @@
+// Graphviz source for ha_loop_diagram.png
+// recompile with:
+// dot -Tpng ha_loop_diagram.dot -o ha_loop_diagram.png
+
+digraph G {
+  rankdir=TB;
+  fontname="sans-serif";
+  penwidth="0.3";
+  layout="dot";
+  newrank=true;
+  edge [fontname="sans-serif", 
+        fontsize=12, 
+        color=black, 
+        fontcolor=black];
+  node [fontname=serif, 
+        fontsize=12, 
+        fillcolor=white, 
+        color=black, 
+        fontcolor=black,
+        style=filled];
+  "start" [label=Start, shape="rectangle", fillcolor="green"]
+  "start" -> "load_cluster_from_dcs";
+  "update_member" [label="Persist node state in DCS"]
+  "update_member" -> "start"
+  
+  subgraph cluster_run_cycle {
+    label="run_cycle"
+    "load_cluster_from_dcs" [label="Load cluster from DCS"];
+    "touch_member" [label="Persist node in DCS"];
+    "cluster.has_member" [shape="diamond", label="Is node registered on DCS?"]
+    "cluster.has_member" -> "touch_member"  [label="no" color="red"]
+    "long_action_in_progress?" [shape="diamond" label="Is the PostgreSQL currently being\nstopping/starting/restarting/reinitializing?"]
+    "load_cluster_from_dcs" -> "cluster.has_member";
+    "touch_member" -> "long_action_in_progress?";
+    "cluster.has_member" -> "long_action_in_progress?"  [label="yes" color="green"];
+    "long_action_in_progress?" -> "recovering?" [label="no" color="red"]
+    "recovering?" [label="Was cluster recovering and failed?", shape="diamond"];
+    "recovering?" -> "post_recover" [label="yes" color="green"];
+    "recovering?" -> "data_directory_empty" [label="no" color="red"];
+    "post_recover" [label="Remove leader key (if I was the leader)"];
+    "data_directory_empty" [label="Is data folder empty?", shape="diamond"];
+    "data_directory_empty" -> "cluster_initialize" [label="no" color="red"];
+    "data_belongs_to_cluster" [label="Does data dir belong to cluster?", shape="diamond"];
+    "data_belongs_to_cluster" -> "exit" [label="no" color="red"];
+    "data_belongs_to_cluster" -> "is_healthy" [label="yes" color="green"]
+    "exit" [label="Fail and exit", fillcolor=red];
+    "cluster_initialize" [label="Is cluster initialized on DCS?" shape="diamond"]
+    "cluster_initialize" -> "cluster.has_leader" [label="no" color="red"]
+    "cluster.has_leader" [label="Does the cluster has leader?", shape="diamond"]
+    "cluster.has_leader" -> "dcs.initialize" [label="no", color="red"]
+    "cluster.has_leader" -> "is_healthy" [label="yes", color="green"]
+    "cluster_initialize" -> "data_belongs_to_cluster" [label="yes" color="green"]
+    "dcs.initialize" [label="Initialize new cluster"];
+    "dcs.initialize" -> "is_healthy"
+    "is_healthy" [label="Is node healthy?\n(running Postgres)", shape="diamond"];
+    "recover" [label="Start as read-only\nand set Recover flag"]
+    "is_healthy" -> "recover" [label="no" color="red"]; 
+    "is_healthy" -> "cluster.is_unlocked" [label="yes" color="green"]; 
+    "cluster.is_unlocked" [label="Does the cluster has a leader?", shape="diamond"]
+  }
+
+  "post_recover" -> "update_member"
+  "recover" -> "update_member"
+  "long_action_in_progress?" -> "async_has_lock?" [label="yes" color="green"];
+  "cluster.is_unlocked" -> "unhealthy_is_healthiest" [label="no" color="red"]
+  "cluster.is_unlocked" -> "healthy_has_lock" [label="yes" color="green"]
+  "data_directory_empty" -> "bootstrap.is_unlocked" [label="yes" color="green"]
+
+  subgraph cluster_async {
+    label = "Long action in progress\n(Start/Stop/Restart/Reinitialize)"
+    "async_has_lock?" [label="Do I have the leader lock?", shape="diamond"]
+    "async_update_lock" [label="Renew leader lock"]
+    "async_has_lock?" -> "async_update_lock" [label="yes" color="green"]
+  }
+  "async_update_lock" -> "update_member"
+  "async_has_lock?" -> "update_member" [label="no" color="red"]
+
+  subgraph cluster_bootstrap {
+    label = "Node bootstrap";
+    "bootstrap.is_unlocked" [label="Does the cluster has a leader?", shape="diamond"]
+    "bootstrap.is_initialized" [label="Does the cluster has an initialize key?", shape="diamond"]
+    "bootstrap.is_unlocked" -> "bootstrap.is_initialized" [label="no" color="red"]
+    "bootstrap.is_unlocked" -> "bootstrap.select_node" [label="yes" color="green"]
+    "bootstrap.select_node" [label="Select a node to take a backup from"]
+    "bootstrap.do_bootstrap" [label="Run pg_basebackup\n(async)"]
+    "bootstrap.select_node" -> "bootstrap.do_bootstrap"
+    "bootstrap.is_initialized" -> "bootstrap.initialization_race" [label="no" color="red"]
+    "bootstrap.is_initialized" -> "bootstrap.wait_for_leader" [label="yes" color="green"]
+    "bootstrap.initialization_race" [label="Race for initialize key"]
+    "bootstrap.initialization_race" -> "bootstrap.won_initialize_race?"
+    "bootstrap.won_initialize_race?" [label="Do I won initialize race?", shape="diamond"]
+    "bootstrap.won_initialize_race?" -> "bootstrap.initdb_and_start" [label="yes" color="green"]
+    "bootstrap.won_initialize_race?" -> "bootstrap.wait_for_leader" [label="no" color="red"]
+    "bootstrap.wait_for_leader" [label="Need to wait for leader key"]
+    "bootstrap.initdb_and_start" [label="Run initdb, start postgres and create roles"]
+    "bootstrap.initdb_and_start" -> "bootstrap.success?"
+    "bootstrap.success?" [label="Success", shape="diamond"]
+    "bootstrap.success?" -> "bootstrap.take_leader_key" [label="yes" color="green"]
+    "bootstrap.success?" -> "bootstrap.clean" [label="no" color="red"]
+    "bootstrap.clean" [label="Remove initialize key from DCS\nand data directory from filesystem"]
+    "bootstrap.take_leader_key" [label="Take a leader key in DCS"]
+  }
+
+  "bootstrap.do_bootstrap" -> "update_member"
+  "bootstrap.wait_for_leader" -> "update_member"
+  "bootstrap.clean" -> "update_member"
+  "bootstrap.take_leader_key" -> "update_member"
+
+  subgraph cluster_process_healthy_cluster {
+    label = "process_healthy_cluster"
+    "healthy_has_lock" [label="Am I the owner of the leader lock?", shape=diamond]
+    "healthy_is_leader" [label="Is Postgres running as master?", shape=diamond]
+    "healthy_no_lock" [label="Follow the leader (async,\ncreate/update recovery.conf and restart if necessary)"]
+    "healthy_has_lock" -> "healthy_no_lock" [label="no" color="red"]
+    "healthy_has_lock" -> "healthy_update_leader_lock" [label="yes" color="green"]
+    "healthy_update_leader_lock" [label="Try to update leader lock"]
+    "healthy_update_leader_lock" -> "healthy_update_success"
+    "healthy_update_success" [label="Success?", shape=diamond]
+    "healthy_update_success" -> "healthy_is_leader" [label="yes" color="green"]
+    "healthy_update_success" -> "healthy_demote" [label="no" color="red"]
+    "healthy_demote" [label="Demote (async,\nrestart in read-only)"]
+    "healthy_failover" [label="Promote Postgres to master"]
+    "healthy_is_leader" -> "healthy_failover" [label="no" color="red"]
+  }
+  "healthy_demote" -> "update_member"
+  "healthy_is_leader" -> "update_member" [label="yes" color="green"]
+  "healthy_failover" -> "update_member"
+  "healthy_no_lock" -> "update_member"
+
+  subgraph cluster_process_unhealthy_cluster {
+    label = "process_unhealthy_cluster"
+    "unhealthy_is_healthiest" [label="Am I the healthiest node?", shape="diamond"]
+    "unhealthy_is_healthiest" -> "unhealthy_leader_race" [label="yes", color="green"]
+    "unhealthy_leader_race" [label="Try to create leader key"]
+    "unhealthy_leader_race" -> "unhealthy_acquire_lock"
+    "unhealthy_acquire_lock" [label="Was I able to get the lock?", shape="diamond"]
+    "unhealthy_is_leader" [label="Is Postgres running as master?", shape=diamond]
+    "unhealthy_acquire_lock" -> "unhealthy_is_leader" [label="yes" color="green"]
+    "unhealthy_is_leader" -> "unhealthy_promote" [label="no" color="red"]
+    "unhealthy_promote" [label="Promote to master"]
+    "unhealthy_is_healthiest" -> "unhealthy_follow" [label="no" color="red"]
+    "unhealthy_follow" [label="try to follow somebody else()"]
+    "unhealthy_acquire_lock" -> "unhealthy_follow" [label="no" color="red"]
+  }
+  "unhealthy_follow" -> "update_member"
+  "unhealthy_promote" -> "update_member"
+  "unhealthy_is_leader" -> "update_member" [label="yes" color="green"]
+}

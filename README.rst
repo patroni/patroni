@@ -2,6 +2,10 @@
 
 Patroni: A Template for PostgreSQL HA with ZooKeeper, etcd or Consul
 ------------------------------------------------------------
+
+You can find a version of this documentation that is searchable and also easier to navigagate at `patroni.readthedocs.io <https://patroni.readthedocs.io>`__.
+
+
 There are many ways to run high availability with PostgreSQL; for a list, see the `PostgreSQL Documentation <https://wiki.postgresql.org/wiki/Replication,_Clustering,_and_Connection_Pooling>`__.
 
 Patroni is a template for you to create your own customized, high-availability solution using Python and - for maximum accessibility - a distributed configuration store like `ZooKeeper <https://zookeeper.apache.org/>`__, `etcd <https://github.com/coreos/etcd>`__ or `Consul <https://github.com/hashicorp/consul>`__. Database engineers, DBAs, DevOps engineers, and SREs who are looking to quickly deploy HA PostgreSQL in the datacenter-or anywhere else-will hopefully find it useful.
@@ -32,7 +36,7 @@ For additional background info, see:
 Development Status
 ================
 
-Patroni is in active development and accepts contributions. See our `Contributing <https://github.com/zalando/patroni/blob/master/CONTRIBUTING.md>`__ section below for more details.
+Patroni is in active development and accepts contributions. See our `Contributing <https://github.com/zalando/patroni/blob/master/docs/CONTRIBUTING.rst>`__ section below for more details.
 
 We report new releases information `here <https://github.com/zalando/patroni/releases>`__.
 

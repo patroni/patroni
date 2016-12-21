@@ -1,3 +1,5 @@
+.. _dynamic_configuration:
+
 Patroni configuration
 =====================
 
@@ -10,11 +12,11 @@ Patroni configuration is stored in the DCS (Distributed Configuration Store). Th
 	have changed), a special flag, ``pending_restart`` indicating this, is set in the members.data JSON.
 	Additionally, the node status also indicates this, by showing ``"restart_pending": true``.
 
-- Local `configuration <https://github.com/zalando/patroni/blob/master/docs/SETTINGS.rst>`__ (patroni.yml).
+- Local :ref:`configuration <settings>` (patroni.yml).
 	These options are defined in the configuration file and take precedence over dynamic configuration.
 	patroni.yml could be changed and reload in runtime (without restart of Patroni) by sending SIGHUP to the Patroni process or by performing ``POST /reload`` REST-API request.
 
-- Environment `configuration <https://github.com/zalando/patroni/blob/master/docs/ENVIRONMENT.rst>`__ .
+- Environment :ref:`configuration <environment>` .
 	It is possible to set/override some of the "Local" configuration parameters with environment variables.
 	Environment configuration is very useful when you are running in a dynamic environment and you don't know some of the parameters in advance (for example it's not possible to know you external IP address when you are running inside ``docker``).
 
