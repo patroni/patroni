@@ -4,7 +4,7 @@ import time
 
 from mock import Mock, patch
 from patroni.dcs.raft import DynMemberSyncObj, KVStoreTTL, Raft
-from pysyncobj import SyncObj, SyncObjConf, replicated, FAIL_REASON
+from pysyncobj import SyncObjConf
 
 
 @patch('pysyncobj.tcp_server.TcpServer.bind', Mock())

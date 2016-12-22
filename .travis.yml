@@ -15,6 +15,7 @@ env:
   - DCS="etcd" TEST_SUITE="behave"
   - DCS="exhibitor" TEST_SUITE="behave"
   - DCS="consul" TEST_SUITE="behave"
+  - DCS="raft" TEST_SUITE="behave"
 cache:
   directories:
   - $HOME/virtualenv/python2.7.9
@@ -48,6 +49,10 @@ install:
                 echo -e 'HTTP/1.0 200 OK\nContent-Type: application/json\n\n{"servers":["127.0.0.1"],"port":2181}' \
                     | nc -l 8181 &> /dev/null
             done&
+        }
+
+        function get_raft() {
+            return 0
         }
 
         attempt_num=1

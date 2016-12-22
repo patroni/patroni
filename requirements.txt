@@ -10,4 +10,4 @@ click>=4.1
 prettytable>=0.7
 tzlocal
 python-dateutil
-git+https://github.com/bakwc/PySyncObj.git@7688384be767121d397cd84991f18c1da6bdd239#egg=pysyncobj
+git+https://github.com/CyberDem0n/PySyncObj.git@dea45067380f297320ef1d574199cc2c93461dac#egg=pysyncobj

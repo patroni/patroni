@@ -128,6 +128,11 @@ class PatroniController(AbstractController):
             config = yaml.safe_load(f)
             config.pop('etcd')
 
+        raft_port = os.environ.get('RAFT_PORT')
+        if raft_port:
+            os.environ['RAFT_PORT'] = str(int(raft_port) + 1)
+            config['raft'] = {'data_dir': self._output_dir, 'self_addr': 'localhost:' + os.environ['RAFT_PORT']}
+
         host = config['postgresql']['listen'].split(':')[0]
 
         config['postgresql']['listen'] = config['postgresql']['connect_address'] = '{0}:{1}'.format(host, self.__PORT)
@@ -355,6 +360,37 @@ class ExhibitorController(ZooKeeperController):
     def __init__(self, context):
         super(ExhibitorController, self).__init__(context, False)
         os.environ.update({'PATRONI_EXHIBITOR_HOSTS': 'localhost', 'PATRONI_EXHIBITOR_PORT': '8181'})
+
+
+class RaftController(AbstractDcsController):
+
+    def __init__(self, context):
+        super(RaftController, self).__init__(context)
+        self._raft = None
+
+    def _start(self):
+        pass
+
+    def query(self, key):
+        ret = self._raft.get(self.path(key))
+        return ret and ret['value']
+
+    def set(self, key, value):
+        self._raft.set(self.path(key), value)
+
+    def cleanup_service_tree(self):
+        from patroni.dcs.raft import KVStoreTTL
+        from pysyncobj import SyncObjConf
+        if self._raft:
+            self._raft.destroy()
+            self._raft._SyncObj__thread.join()
+
+        self._raft = KVStoreTTL('localhost:1234', ['localhost:1235'],
+                                SyncObjConf(appendEntriesUseBatch=False, dynamicMembershipChange=True))
+        os.environ.update(PATRONI_RAFT_PARTNER_ADDRS="'localhost:1234'", RAFT_PORT='1234')
+
+    def _is_running(self):
+        return True
 
 
 class PatroniPoolController(object):
