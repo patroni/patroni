@@ -6,8 +6,16 @@ Release notes
 Version 1.2
 -----------
 
-This version introduces significant improvements over the handling of synchronous replication, makes the start process and failover more reliable and fixes plenty of bugs.
+This version introduces significant improvements over the handling of synchronous replication, makes the start process and failover more reliable, adds PostgreSQL 9.6 support and fixes plenty of bugs.
 In addition, the documentation, including these release notes, has been moved to patroni.readthedocs.org
+
+**Synchronous replication**
+
+- Add synchronous replication support. (Ants Aasma)
+
+  Adds a new configuration variable ``synchronous_mode``. When enabled Patroni will manage ``synchronous_standby_names`` to enable synchronous replication whenever there are healthy standbys available. When synchronous mode is enabled, Patroni will automatically fail over only to a standby that was synchronously replicating at the time of the master failure. This effectively means zero lost user visible transactions. See the `feature documentation <http://patroni.readthedocs.io/en/latest/replication_modes.html#synchronous-mode>`__ for the detailed description and implementation details.
+
+**Reliability improvements**
 
 - Do not try to update leader position stored in the ``leader optime`` key when PostgreSQL is not 100% healthy. Demote immediately when update of the leader key failed. (Alexander Kukushkin)
 
@@ -19,19 +27,7 @@ In addition, the documentation, including these release notes, has been moved to
 
 - Write all postgres parameters into postgresql.conf (Alexander). It allows starting PostgreSQL configured by Patroni with just ``pg_ctl``.
 
-- Add ``post_init`` configuration option on bootstrap (Alejandro Martínez).
-
-  Patroni will call the script argument of this option right after running ``initdb`` for a new cluster. The script receives a connection URL with ``superuser``
-  and sets ``PGPASSFILE`` to point to the ``.pgpass`` file containing the password. If the script fails, Patroni initialization fails as well. It is useful for adding
-  new users or creating extensions in the new cluster.
-
 - Avoid exceptions when there are no users in the config. (Kirill Pushkin)
-
-- Add synchronous replication support. (Ants Aasma)
-
-  Adds a new configuration variable ``synchronous_mode``. When enabled Patroni will manage ``synchronous_standby_names`` to enable synchronous replication whenever there are healthy standbys available. When synchronous mode is enabled, Patroni will automatically fail over only to a standby that was synchronously replicating at the time of the master failure. This effectively means zero lost user visible transactions. See the `feature documentation <http://patroni.readthedocs.io/en/latest/replication_modes.html#synchronous-mode>`__ for the detailed description and implementation details.
-
-- Improve README, adding the Helm chart and links to release notes. (Lauri Apple)
 
 - Allow pausing an unhealthy cluster. Before this fix, patronictl would bail out if the node it tries to execute pause on is unhealthy. (Alexander)
 
@@ -44,10 +40,6 @@ In addition, the documentation, including these release notes, has been moved to
 
   Previously a race condition could occur when running inside the Docker containers, since the same process inside Patroni both spawned new processes
   and handled SIGCHILD from them. This change uses fork/execs for Patroni and leaves the original PID 1 process responsible for handling signals from children.
-
-- Add PostgreSQL 9.6 support. (Alexander)
-
-  Use wal_level = ``replica`` as a synonym for ``hot_standby``, avoiding pending_restart flag when it changes from one to another. (Alexander)
 
 - Fix WAL-E restore (Oleksii Kliukin)
 
@@ -76,11 +68,27 @@ In addition, the documentation, including these release notes, has been moved to
 
 - Serialize callback execution. Kill the previous callback of the same type when the new one is about to run. Fix the issue of spawning zombie processes when running callbacks. (Alexander)
 
-- Add a Patroni main loop workflow diagram (Alejandro, Alexander)
-
 - Avoid promoting a former master when the leader key is set in DCS but update to this leader key fails (Alexander)
 
-  This avoids the issue of a current master continuing to keep its role when it is partitioned together with the minority of nodes in Etcd and other DCSs that allow "inconsistent reads".
+   This avoids the issue of a current master continuing to keep its role when it is partitioned together with the minority of nodes in Etcd and other DCSs that allow "inconsistent reads".
+
+**Miscellaneous**
+
+- Add ``post_init`` configuration option on bootstrap (Alejandro Martínez).
+
+  Patroni will call the script argument of this option right after running ``initdb`` for a new cluster. The script receives a connection URL with ``superuser``
+  and sets ``PGPASSFILE`` to point to the ``.pgpass`` file containing the password. If the script fails, Patroni initialization fails as well. It is useful for adding
+  new users or creating extensions in the new cluster.
+
+- Implement PostgreSQL 9.6 support. (Alexander)
+
+  Use wal_level = ``replica`` as a synonym for ``hot_standby``, avoiding pending_restart flag when it changes from one to another. (Alexander)
+
+**Documentation improvements**
+
+- Add a Patroni main loop workflow diagram (Alejandro, Alexander)
+
+- Improve README, adding the Helm chart and links to release notes. (Lauri Apple)
 
 - Move Patroni documentation to ``readthedocs``. The up-to-date documentation is available at https://patroni.readthedocs.org (Oleksii)
 
