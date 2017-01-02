@@ -21,15 +21,15 @@ In addition, the documentation, including these release notes, has been moved to
 
 - Add ``post_init`` configuration option on bootstrap (Alejandro Martínez).
 
-Patroni will call the script argument of this option right after running ``initdb`` for a new cluster. The script receives a connection URL with ``superuser``
-and sets ``PGPASSFILE`` to point to the ``.pgpass`` file containing the password. If the script fails, Patroni initialization fails as well. It is useful for adding
-new users or creating extensions in the new cluster.
+  Patroni will call the script argument of this option right after running ``initdb`` for a new cluster. The script receives a connection URL with ``superuser``
+  and sets ``PGPASSFILE`` to point to the ``.pgpass`` file containing the password. If the script fails, Patroni initialization fails as well. It is useful for adding
+  new users or creating extensions in the new cluster.
 
 - Avoid exceptions when there are no users in the config. (Kirill Pushkin)
 
 - Add synchronous replication support. (Ants Aasma)
 
-Adds a new configuration variable ``synchronous_mode``. When enabled Patroni will manage ``synchronous_standby_names`` to enable synchronous replication whenever there are healthy standbys available. When synchronous mode is enabled, Patroni will automatically fail over only to a standby that was synchronously replicating at the time of the master failure. This effectively means zero lost user visible transactions. See the `feature documentation <http://patroni.readthedocs.io/en/latest/replication_modes.html#synchronous-mode>`__ for the detailed description and implementation details.
+  Adds a new configuration variable ``synchronous_mode``. When enabled Patroni will manage ``synchronous_standby_names`` to enable synchronous replication whenever there are healthy standbys available. When synchronous mode is enabled, Patroni will automatically fail over only to a standby that was synchronously replicating at the time of the master failure. This effectively means zero lost user visible transactions. See the `feature documentation <http://patroni.readthedocs.io/en/latest/replication_modes.html#synchronous-mode>`__ for the detailed description and implementation details.
 
 - Improve README, adding the Helm chart and links to release notes. (Lauri Apple)
 
@@ -37,42 +37,42 @@ Adds a new configuration variable ``synchronous_mode``. When enabled Patroni wil
 
 - Improve the leader watch functionality. (Alexander)
 
-Previously the replicas were always watching the leader key (sleeping until the timeout or the leader key changes). With this change, they only watch
-when the leader's PostgreSQL is in the ``running`` state and not when it is stopped/starting or restarting PostgreSQL.
+  Previously the replicas were always watching the leader key (sleeping until the timeout or the leader key changes). With this change, they only watch
+  when the leader's PostgreSQL is in the ``running`` state and not when it is stopped/starting or restarting PostgreSQL.
 
 - Avoid running into race conditions when handling SIGCHILD as a PID 1 (Alexander)
 
-Previously a race condition could occur when running inside the Docker containers, since the same process inside Patroni both spawned new processes
-and handled SIGCHILD from them. This change uses fork/execs for Patroni and leaves the original PID 1 process responsible for handling signals from children.
+  Previously a race condition could occur when running inside the Docker containers, since the same process inside Patroni both spawned new processes
+  and handled SIGCHILD from them. This change uses fork/execs for Patroni and leaves the original PID 1 process responsible for handling signals from children.
 
 - Add PostgreSQL 9.6 support. (Alexander)
 
-Use wal_level = ``replica`` as a synonym for ``hot_standby``, avoiding pending_restart flag when it changes from one to another. (Alexander)
+  Use wal_level = ``replica`` as a synonym for ``hot_standby``, avoiding pending_restart flag when it changes from one to another. (Alexander)
 
 - Fix WAL-E restore (Oleksii Kliukin)
 
-Previously WAL-E restore used the ``no_master`` flag to avoid consulting with the master altogether, making Patroni always choose restoring
-from WAL over the pg_basebackup. Correct it to the original meaning of ``no_master``, namely Patroni WAL-E restore may be selected as a replication method if the master is not running.
-The latter is checked by examining the connection string passed to the method. In addition, make the retry mechanism more robust and handle other minutia.
+  Previously WAL-E restore used the ``no_master`` flag to avoid consulting with the master altogether, making Patroni always choose restoring
+  from WAL over the pg_basebackup. Correct it to the original meaning of ``no_master``, namely Patroni WAL-E restore may be selected as a replication method if the master is not running.
+  The latter is checked by examining the connection string passed to the method. In addition, make the retry mechanism more robust and handle other minutia.
 
 - Implement asynchronous DNS resolver cache (Alexander)
 
-Avoid failing when DNS is temporary unavailable (for instance, due to an excessive traffic received by the node).
+  Avoid failing when DNS is temporary unavailable (for instance, due to an excessive traffic received by the node).
 
 - Implement starting state and master start timeout (Ants)
 
-Previously ``pg_ctl`` waited for a timeout and then happily trodded on considering PostgreSQL to be running. This caused PostgreSQL to show up in listings as running when it was actually not and caused a race condition that resulted in either a failover, or a crash recovery, or a crash recovery interrupted by failover and a missed rewind.
-This change adds a ``master_start_timeout`` parameter and introduces a new state for the main HA loop: ``starting``. When ``master_start_timeout`` is 0 we will failover immediately when the master crashes as soon as there is a failover candidate. Otherwise, Patroni will wait after attempting to start PostgreSQL on the master for the duration of the timeout; when it expires, it will failover if possible. Manual failover requests will be honored during the crash of the master even before the timeout expiration.
+  Previously ``pg_ctl`` waited for a timeout and then happily trodded on considering PostgreSQL to be running. This caused PostgreSQL to show up in listings as running when it was actually not and caused a race condition that   resulted in either a failover, or a crash recovery, or a crash recovery interrupted by failover and a missed rewind.
+  This change adds a ``master_start_timeout`` parameter and introduces a new state for the main HA loop: ``starting``. When ``master_start_timeout`` is 0 we will failover immediately when the master crashes as soon as there is a failover candidate. Otherwise, Patroni will wait after attempting to start PostgreSQL on the master for the duration of the timeout; when it expires, it will failover if possible. Manual failover requests will be honored during the crash of the master even before the timeout expiration.
 
-Introduce the ``timeout`` parameter to the ``restart`` API endpoint and patronictl. When it is set and restart takes longer than the timeout, PostgreSQL is considered unhealthy and the other nodes becomes eligible to take the leader lock.
+  Introduce the ``timeout`` parameter to the ``restart`` API endpoint and patronictl. When it is set and restart takes longer than the timeout, PostgreSQL is considered unhealthy and the other nodes becomes eligible to take the leader lock.
 
 - Take a max of ``pg_last_xlog_receive_location`` and ``pg_last_xlog_replay_location`` when reporting the replica position in Patroni API (Alexander)
 
-Previously, Patroni used to choose ``pg_last_xlog_receive_location`` when it was not ``NULL``. That lead to the incorrect reporting of position if last receive location was not updated, i.e. because the replica stopped streaming and started updating itself just by restoring WAL segments.
+  Previously, Patroni used to choose ``pg_last_xlog_receive_location`` when it was not ``NULL``. That lead to the incorrect reporting of position if last receive location was not updated, i.e. because the replica stopped streaming and started updating itself just by restoring WAL segments.
 
 - Fix pg_rewind behavior in a pause mode (Ants)
 
-Avoid unnecessary restart in a pause mode when Patroni thinks it needs to rewind but rewind is not possible (i.e. pg_rewind is not present). Fallback to default ``libpq`` values for the ``superuser`` (default OS user) if ``superuser`` authentication is missing from the ``pg_rewind`` related Patroni configuration section.
+  Avoid unnecessary restart in a pause mode when Patroni thinks it needs to rewind but rewind is not possible (i.e. pg_rewind is not present). Fallback to default ``libpq`` values for the ``superuser`` (default OS user) if ``superuser`` authentication is missing from the ``pg_rewind`` related Patroni configuration section.
 
 - Serialize callback execution. Kill the previous callback of the same type when the new one is about to run. Fix the issue of spawning zombie processes when running callbacks. (Alexander)
 
@@ -80,15 +80,15 @@ Avoid unnecessary restart in a pause mode when Patroni thinks it needs to rewind
 
 - Avoid promoting a former master when the leader key is set in DCS but update to this leader key fails (Alexander)
 
-This avoids the issue of a current master continuing to keep its role when it is partitioned together with the minority of nodes in Etcd and other DCSs that allow "inconsistent reads".
+  This avoids the issue of a current master continuing to keep its role when it is partitioned together with the minority of nodes in Etcd and other DCSs that allow "inconsistent reads".
 
 - Move Patroni documentation to ``readthedocs``. The up-to-date documentation is available at https://patroni.readthedocs.org (Oleksii)
 
-Makes the documentation easily viewable from different devices (including smartphones) and searchable.
+  Makes the documentation easily viewable from different devices (including smartphones) and searchable.
 
 - Move the package to the semantic versioning (Oleksii)
 
-Patroni will follow the major.minor.patch version schema to avoid releasing the new minor version on small but critical bugfixes. We will only publish the release notes for the minor version, which will include all patches.
+  Patroni will follow the major.minor.patch version schema to avoid releasing the new minor version on small but critical bugfixes. We will only publish the release notes for the minor version, which will include all patches.
 
 
 Version 1.1
