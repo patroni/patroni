@@ -34,7 +34,7 @@ In addition, the documentation, including these release notes, has been moved to
 - Improve the leader watch functionality. (Alexander)
 
   Previously the replicas were always watching the leader key (sleeping until the timeout or the leader key changes). With this change, they only watch
-  when the leader's PostgreSQL is in the ``running`` state and not when it is stopped/starting or restarting PostgreSQL.
+  when the replica's PostgreSQL is in the ``running`` state and not when it is stopped/starting or restarting PostgreSQL.
 
 - Avoid running into race conditions when handling SIGCHILD as a PID 1 (Alexander)
 
@@ -51,16 +51,12 @@ In addition, the documentation, including these release notes, has been moved to
 
   Avoid failing when DNS is temporary unavailable (for instance, due to an excessive traffic received by the node).
 
-- Implement starting state and master start timeout (Ants)
+- Implement starting state and master start timeout (Ants, Alexander)
 
   Previously ``pg_ctl`` waited for a timeout and then happily trodded on considering PostgreSQL to be running. This caused PostgreSQL to show up in listings as running when it was actually not and caused a race condition that   resulted in either a failover, or a crash recovery, or a crash recovery interrupted by failover and a missed rewind.
   This change adds a ``master_start_timeout`` parameter and introduces a new state for the main HA loop: ``starting``. When ``master_start_timeout`` is 0 we will failover immediately when the master crashes as soon as there is a failover candidate. Otherwise, Patroni will wait after attempting to start PostgreSQL on the master for the duration of the timeout; when it expires, it will failover if possible. Manual failover requests will be honored during the crash of the master even before the timeout expiration.
 
   Introduce the ``timeout`` parameter to the ``restart`` API endpoint and patronictl. When it is set and restart takes longer than the timeout, PostgreSQL is considered unhealthy and the other nodes becomes eligible to take the leader lock.
-
-- Take a max of ``pg_last_xlog_receive_location`` and ``pg_last_xlog_replay_location`` when reporting the replica position in Patroni API (Alexander)
-
-  Previously, Patroni used to choose ``pg_last_xlog_receive_location`` when it was not ``NULL``. That lead to the incorrect reporting of position if last receive location was not updated, i.e. because the replica stopped streaming and started updating itself just by restoring WAL segments.
 
 - Fix pg_rewind behavior in a pause mode (Ants)
 
@@ -76,7 +72,7 @@ In addition, the documentation, including these release notes, has been moved to
 
 - Add ``post_init`` configuration option on bootstrap (Alejandro Martínez).
 
-  Patroni will call the script argument of this option right after running ``initdb`` for a new cluster. The script receives a connection URL with ``superuser``
+  Patroni will call the script argument of this option right after running ``initdb`` and starting up PostgreSQL for a new cluster. The script receives a connection URL with ``superuser``
   and sets ``PGPASSFILE`` to point to the ``.pgpass`` file containing the password. If the script fails, Patroni initialization fails as well. It is useful for adding
   new users or creating extensions in the new cluster.
 
