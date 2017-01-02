@@ -17,32 +17,48 @@ env:
   - DCS="consul" TEST_SUITE="behave"
 cache:
   directories:
-  - $HOME/virtualenv/python2.7.9
-  - $HOME/virtualenv/python3.4.2
-  - $HOME/virtualenv/python3.5.2
+  - $HOME/mycache
+before_cache:
+- mv $HOME/virtualenv/python2.7.9 $HOME/mycache/python2.7.9
+- if [[ $TEST_SUITE != "behave" ]]; then mv $HOME/virtualenv/python3.4.2 $HOME/mycache/python3.4.2; fi
+- mv $HOME/virtualenv/python3.5.2 $HOME/mycache/python3.5.2
+- rm -f $HOME/mycache/python3.5.2/python3.5.2
 install:
   - |
     set -e
 
     if [[ $TEST_SUITE == "behave" ]]; then
         function get_consul() {
-            curl -L https://releases.hashicorp.com/consul/${CONSULVERSION}/consul_${CONSULVERSION}_linux_amd64.zip \
-                | gunzip > consul
-            [[ ${PIPESTATUS[0]} == 0 ]] || return 1
-            chmod +x consul
+            CC=~/mycache/consul_${CONSULVERSION}
+            if [[ ! -x $CC ]]; then
+                curl -L https://releases.hashicorp.com/consul/${CONSULVERSION}/consul_${CONSULVERSION}_linux_amd64.zip \
+                    | gunzip > $CC
+                [[ ${PIPESTATUS[0]} == 0 ]] || return 1
+                chmod +x $CC
+            fi
+            ln -s $CC consul
         }
 
         function get_etcd() {
-            curl -L https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v${ETCDVERSION}-linux-amd64.tar.gz \
-                | tar xz -C . --strip=1 --wildcards --no-anchored etcd
-            return ${PIPESTATUS[0]}
+            EC=~/mycache/etcd_${ETCDVERSION}
+            if [[ ! -x $EC ]]; then
+                curl -L https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v${ETCDVERSION}-linux-amd64.tar.gz \
+                    | tar xz -C . --strip=1 --wildcards --no-anchored etcd
+                [[ ${PIPESTATUS[0]} == 0 ]] || return 1
+                mv etcd $EC
+            fi
+            ln -s $EC etcd
         }
 
         function get_exhibitor() {
-            curl -L http://www.apache.org/dist/zookeeper/zookeeper-${ZKVERSION}/zookeeper-${ZKVERSION}.tar.gz | tar xz
-            [[ ${PIPESTATUS[0]} == 0 ]] || return 1
-            mv zookeeper-${ZKVERSION}/conf/zoo_sample.cfg zookeeper-${ZKVERSION}/conf/zoo.cfg
-            zookeeper-${ZKVERSION}/bin/zkServer.sh start
+            ZC=~/mycache/zookeeper-${ZKVERSION}
+            if [[ ! -d $ZC ]]; then
+                curl -L http://www.apache.org/dist/zookeeper/zookeeper-${ZKVERSION}/zookeeper-${ZKVERSION}.tar.gz | tar xz
+                [[ ${PIPESTATUS[0]} == 0 ]] || return 1
+                mv zookeeper-${ZKVERSION}/conf/zoo_sample.cfg zookeeper-${ZKVERSION}/conf/zoo.cfg
+                mv zookeeper-${ZKVERSION} $ZC
+            fi
+            $ZC/bin/zkServer.sh start
             # following lines are 'emulating' exhibitor REST API
             while true; do
                 echo -e 'HTTP/1.0 200 OK\nContent-Type: application/json\n\n{"servers":["127.0.0.1"],"port":2181}' \
@@ -58,31 +74,35 @@ install:
         done
     fi
 
-    for pv in "2.7" "3.4" "3.5"; do
-        source ~/virtualenv/python${pv}/bin/activate
-        # explicitly install all needed python modules to cache them
-        for p in '-r requirements.txt' 'behave codacy-coverage coverage coveralls flake8==2.6.0 mock>=2.0.0 pytest-cov pytest'; do
-            pip install $p
-        done
+    for pv in "2.7.9" "3.4.2" "3.5.2"; do
+        if [[ $TEST_SUITE != "behave" || $pv != "3.4.2" ]]; then
+            if [[ -d ~/mycache/python${pv} ]]; then
+                mv ~/virtualenv/python${pv} ~/virtualenv/python${pv}.bckp
+                mv ~/mycache/python${pv} ~/virtualenv/python${pv}
+            fi
+            source ~/virtualenv/python${pv}/bin/activate
+            # explicitly install all needed python modules to cache them
+            for p in '-r requirements.txt' 'behave codacy-coverage coverage coveralls flake8 mock pytest-cov pytest setuptools'; do
+                pip install $p --upgrade
+            done
+        fi
     done
 script:
   - |
     for pv in "2.7" "3.4" "3.5"; do
         source ~/virtualenv/python${pv}/bin/activate
 
-        if [[ $TEST_SUITE == "behave" ]]; then
-            if [[ $pv != "3.4" ]]; then
-                echo Running acceptance tests using python${pv}
-                if ! PATH=.:$PATH $TEST_SUITE; then
-                    # output all log files when tests are failing
-                    grep . features/output/*/*postgres?.*
-                    exit 1
-                fi
-            fi
-        else
+        if [[ $TEST_SUITE != "behave" ]]; then
             echo Running unit tests using python${pv}
             $TEST_SUITE test
             $TEST_SUITE flake8
+        elif [[ $pv != "3.4" ]]; then
+            echo Running acceptance tests using python${pv}
+            if ! PATH=.:$PATH $TEST_SUITE; then
+                # output all log files when tests are failing
+                grep . features/output/*/*postgres?.*
+                exit 1
+            fi
         fi
     done
 
