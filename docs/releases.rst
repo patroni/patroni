@@ -7,7 +7,7 @@ Version 1.2
 -----------
 
 This version introduces significant improvements over the handling of synchronous replication, makes the start process and failover more reliable, adds PostgreSQL 9.6 support and fixes plenty of bugs.
-In addition, the documentation, including these release notes, has been moved to patroni.readthedocs.org
+In addition, the documentation, including these release notes, has been moved to https://patroni.readthedocs.org.
 
 **Synchronous replication**
 
