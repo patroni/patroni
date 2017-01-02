@@ -9,7 +9,7 @@ Version 1.2
 This version introduces significant improvements over the handling of synchronous replication, makes the start process and failover more reliable and fixes plenty of bugs.
 In addition, the documentation, including these release notes, has been moved to patroni.readthedocs.org
 
-- Do not try to update leader optime when PostgreSQL is not 100% healthy. Demote immediately when update of the leader key failed. (Alexander Kukushkin)
+- Do not try to update leader position stored in the ``leader optime`` key when PostgreSQL is not 100% healthy. Demote immediately when update of the leader key failed. (Alexander Kukushkin)
 
 - Exclude unhealthy nodes from the list of targets to clone the new replica from. (Alexander)
 
@@ -21,8 +21,8 @@ In addition, the documentation, including these release notes, has been moved to
 
 - Add ``post_init`` configuration option on bootstrap (Alejandro Martínez).
 
-Patroni will call the script argument of this option right after running ``initdb`` for a new cluster. The script receives a connection URL with superuser
-and sets PGPASSFILE to point to the .pgpass file containing the password. If the script fails, Patroni initialization fails as well. It is useful for adding
+Patroni will call the script argument of this option right after running ``initdb`` for a new cluster. The script receives a connection URL with ``superuser``
+and sets ``PGPASSFILE`` to point to the ``.pgpass`` file containing the password. If the script fails, Patroni initialization fails as well. It is useful for adding
 new users or creating extensions in the new cluster.
 
 - Avoid exceptions when there are no users in the config. (Kirill Pushkin)
@@ -62,17 +62,17 @@ Avoid failing when DNS is temporary unavailable (for instance, due to an excessi
 - Implement starting state and master start timeout (Ants)
 
 Previously ``pg_ctl`` waited for a timeout and then happily trodded on considering PostgreSQL to be running. This caused PostgreSQL to show up in listings as running when it was actually not and caused a race condition that resulted in either a failover, or a crash recovery, or a crash recovery interrupted by failover and a missed rewind.
-This change adds a ``master_start_timeout`` parameter and introduces a new state for the main run_cycle loop: starting. When ``master_start_timeout`` is 0 we will failover immediately when the master crashes as soon as there is a failover candidate. Otherwise, Patroni will wait after attempting to start PostgreSQL on the master for the duration of the timeout; when it expires, it will failover if possible. Manual failover requests will be honored during the crash of the master even before the timeout expiration.
+This change adds a ``master_start_timeout`` parameter and introduces a new state for the main HA loop: ``starting``. When ``master_start_timeout`` is 0 we will failover immediately when the master crashes as soon as there is a failover candidate. Otherwise, Patroni will wait after attempting to start PostgreSQL on the master for the duration of the timeout; when it expires, it will failover if possible. Manual failover requests will be honored during the crash of the master even before the timeout expiration.
 
 Introduce the ``timeout`` parameter to the ``restart`` API endpoint and patronictl. When it is set and restart takes longer than the timeout, PostgreSQL is considered unhealthy and the other nodes becomes eligible to take the leader lock.
 
 - Take a max of ``pg_last_xlog_receive_location`` and ``pg_last_xlog_replay_location`` when reporting the replica position in Patroni API (Alexander)
 
-Previously, Patroni used to choose pg_last_xlog_receive_location when it was not NULL. That lead to the incorrect reporting of position if last receive location was not updated, i.e. because the replica stopped streaming and started updating itself just by restoring WAL segments.
+Previously, Patroni used to choose ``pg_last_xlog_receive_location`` when it was not ``NULL``. That lead to the incorrect reporting of position if last receive location was not updated, i.e. because the replica stopped streaming and started updating itself just by restoring WAL segments.
 
 - Fix pg_rewind behavior in a pause mode (Ants)
 
-Avoid unnecessary restart in a pause mode when Patroni thinks it needs to rewind but rewind is not possible (i.e. pg_rewind is not present). Fallback to default libpq values for the superuser (default OS user) if superuser authentication is missing from the pg_rewind related Patroni configuration section.
+Avoid unnecessary restart in a pause mode when Patroni thinks it needs to rewind but rewind is not possible (i.e. pg_rewind is not present). Fallback to default ``libpq`` values for the ``superuser`` (default OS user) if ``superuser`` authentication is missing from the ``pg_rewind`` related Patroni configuration section.
 
 - Serialize callback execution. Kill the previous callback of the same type when the new one is about to run. Fix the issue of spawning zombie processes when running callbacks. (Alexander)
 
@@ -82,7 +82,7 @@ Avoid unnecessary restart in a pause mode when Patroni thinks it needs to rewind
 
 This avoids the issue of a current master continuing to keep its role when it is partitioned together with the minority of nodes in Etcd and other DCSs that allow "inconsistent reads".
 
-- Move Patroni documentation to readthedocs. The up-to-date documentation is available at https://patroni.readthedocs.org (Oleksii)
+- Move Patroni documentation to ``readthedocs``. The up-to-date documentation is available at https://patroni.readthedocs.org (Oleksii)
 
 Makes the documentation easily viewable from different devices (including smartphones) and searchable.
 
