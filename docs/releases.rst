@@ -25,7 +25,7 @@ In addition, the documentation, including these release notes, has been moved to
 
 - Make ``--dcs`` and ``--config-file`` apply to all options in patronictl. (Alexander)
 
-- Write all postgres parameters into postgresql.conf (Alexander).
+- Write all postgres parameters into postgresql.conf. (Alexander)
 
   It allows starting PostgreSQL configured by Patroni with just ``pg_ctl``.
 
