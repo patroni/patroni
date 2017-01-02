@@ -82,7 +82,7 @@ In addition, the documentation, including these release notes, has been moved to
 
 **Documentation improvements**
 
-- Add a Patroni main loop workflow diagram (Alejandro, Alexander)
+- Add a Patroni main `loop workflow diagram <https://raw.githubusercontent.com/zalando/patroni/master/docs/ha_loop_diagram.png>`__ (Alejandro, Alexander)
 
 - Improve README, adding the Helm chart and links to release notes. (Lauri Apple)
 
