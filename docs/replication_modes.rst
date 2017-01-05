@@ -31,6 +31,8 @@ When using PostgreSQL synchronous replication, use at least three Postgres data 
 
 Using PostgreSQL synchronous replication does not guarantee zero lost transactions under all circumstances. When master and standby that is currently acting as synchronous fail simultaneously a third node that might not contain all transactions will be promoted.
 
+.. _synchronous_mode:
+
 Synchronous mode
 ----------------
 
