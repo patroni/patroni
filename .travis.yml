@@ -1,15 +1,11 @@
 sudo: false
+dist: trusty
 language: python
 python:
-- "3.5"
-addons:
-  apt:
-    packages:
-    - postgresql-contrib-9.5
-  postgresql: "9.5"
+- "3.4"  # 2.7 and 3.5 are preinstalled by default
 env:
   global:
-  - ETCDVERSION=3.0.15 ZKVERSION=3.4.9 CONSULVERSION=0.7.1
+  - ETCDVERSION=3.0.15 ZKVERSION=3.4.9 CONSULVERSION=0.7.2
   matrix:
   - TEST_SUITE="python setup.py"
   - DCS="etcd" TEST_SUITE="behave"
@@ -19,10 +15,9 @@ cache:
   directories:
   - $HOME/mycache
 before_cache:
-- mv $HOME/virtualenv/python2.7.9 $HOME/mycache/python2.7.9
-- if [[ $TEST_SUITE != "behave" ]]; then mv $HOME/virtualenv/python3.4.2 $HOME/mycache/python3.4.2; fi
+- mv $HOME/virtualenv/python2.7.12 $HOME/mycache/python2.7.12
+- if [[ $TEST_SUITE != "behave" ]]; then mv $HOME/virtualenv/python3.4.5 $HOME/mycache/python3.4.5; fi
 - mv $HOME/virtualenv/python3.5.2 $HOME/mycache/python3.5.2
-- rm -f $HOME/mycache/python3.5.2/python3.5.2
 install:
   - |
     set -e
@@ -74,8 +69,8 @@ install:
         done
     fi
 
-    for pv in "2.7.9" "3.4.2" "3.5.2"; do
-        if [[ $TEST_SUITE != "behave" || $pv != "3.4.2" ]]; then
+    for pv in "2.7.12" "3.4.5" "3.5.2"; do
+        if [[ $TEST_SUITE != "behave" || $pv != "3.4.5" ]]; then
             if [[ -d ~/mycache/python${pv} ]]; then
                 mv ~/virtualenv/python${pv} ~/virtualenv/python${pv}.bckp
                 mv ~/mycache/python${pv} ~/virtualenv/python${pv}
@@ -98,7 +93,7 @@ script:
             $TEST_SUITE flake8
         elif [[ $pv != "3.4" ]]; then
             echo Running acceptance tests using python${pv}
-            if ! PATH=.:$PATH $TEST_SUITE; then
+            if ! PATH=.:/usr/lib/postgresql/9.6/bin:$PATH $TEST_SUITE; then
                 # output all log files when tests are failing
                 grep . features/output/*/*postgres?.*
                 exit 1

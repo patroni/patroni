@@ -73,7 +73,7 @@ Scenario: check the failover via the API in the pause mode
 	And replication works from postgres1 to postgres0 after 20 seconds
 
 Scenario: check the scheduled failover
-	Given I issue a scheduled failover from postgres1 to postgres0 in 1 seconds
+	Given I issue a scheduled failover from postgres1 to postgres0 in 3 seconds
 	Then I receive a response returncode 1
 	And I receive a response output "Can't schedule failover in the paused state"
 	When I run patronictl.py resume batman
