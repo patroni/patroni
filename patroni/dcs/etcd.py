@@ -194,8 +194,13 @@ class Client(etcd.Client):
             raise etcd.EtcdException('HTTP method {0} not supported'.format(method))
 
         # Update machines_cache if previous attempt of update has failed
-        if self._update_machines_cache or time.time() - self._machines_cache_updated > self._machines_cache_ttl:
+        if self._update_machines_cache:
             self._load_machines_cache()
+        elif time.time() - self._machines_cache_updated > self._machines_cache_ttl:
+            self._machines_cache = self.machines
+            if self._base_uri_unresolved in self._machines_cache:
+                self._machines_cache.remove(self._base_uri_unresolved)
+            self._machines_cache_updated = time.time()
 
         kwargs.update(self._build_request_parameters())
 
