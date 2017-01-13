@@ -188,3 +188,8 @@ epub_exclude_files = ['search.html']
 
 # Example configuration for intersphinx: refer to the Python standard library.
 intersphinx_mapping = {'https://docs.python.org/': None}
+
+# A possibility to have an own stylesheet, to add new rules or override existing ones
+# For the latter case, the CSS specificity of the rules should be higher than the default ones
+def setup(app):
+   app.add_stylesheet("custom.css")
