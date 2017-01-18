@@ -1,3 +1,4 @@
+urllib3>=1.9
 boto
 psycopg2>=2.6.1
 PyYAML
