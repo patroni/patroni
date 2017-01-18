@@ -182,8 +182,8 @@ class Client(etcd.Client):
             self._load_machines_cache()
         elif time.time() - self._machines_cache_updated > self._machines_cache_ttl:
             self._machines_cache = self.machines
-            if self._base_uri_unresolved in self._machines_cache:
-                self._machines_cache.remove(self._base_uri_unresolved)
+            if self._base_uri in self._machines_cache:
+                self._machines_cache.remove(self._base_uri)
             self._machines_cache_updated = time.time()
 
         kwargs.update(self._build_request_parameters())
