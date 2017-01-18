@@ -249,7 +249,12 @@ class Client(etcd.Client):
     def _get_machines_cache_from_dns(self, host, port):
         """One host might be resolved into multiple ip addresses. We will make list out of it"""
         if self.protocol == 'http':
-            ret = ['{0}://{1}:{2}'.format(self.protocol, *r[4]) for r in self._dns_resolver.resolve(host, port)]
+            ret = []
+            for af, _, _, _, sa in self._dns_resolver.resolve(host, port):
+                host, port = sa[:2]
+                if af == socket.AF_INET6:
+                    host = '[{0}]'.format(host)
+                ret.append('{0}://{1}:{2}'.format(self.protocol, host, port))
             if ret:
                 return list(set(ret))
         return ['{0}://{1}:{2}'.format(self.protocol, host, port)]
