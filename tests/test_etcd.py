@@ -61,6 +61,8 @@ def etcd_watch(self, key, index=None, timeout=None, recursive=None):
         return etcd.EtcdResult('delete', {})
     elif timeout == 10.0:
         raise etcd.EtcdException
+    elif timeout == 20.0:
+        raise etcd.EtcdEventIndexCleared
 
 
 def etcd_write(self, key, value, **kwargs):
@@ -307,6 +309,7 @@ class TestEtcd(unittest.TestCase):
         self.etcd.watch(20729, 1.5)
         self.etcd.watch(20729, 4.5)
         with patch.object(AbstractDCS, 'watch', Mock()):
+            self.assertTrue(self.etcd.watch(20729, 19.5))
             self.etcd.watch(20729, 9.5)
 
     def test_other_exceptions(self):
