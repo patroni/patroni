@@ -5,7 +5,7 @@ python:
 - "3.4"  # 2.7 and 3.5 are preinstalled by default
 env:
   global:
-  - ETCDVERSION=3.0.15 ZKVERSION=3.4.9 CONSULVERSION=0.7.2
+  - ETCDVERSION=3.0.17 ZKVERSION=3.4.9 CONSULVERSION=0.7.4
   - PYVERSIONS="2.7 3.4 3.5"
   matrix:
   - TEST_SUITE="python setup.py"
