@@ -41,8 +41,7 @@ class MockCursor(object):
                             ('search_path', 'public', None, 'string', 'user'),
                             ('port', '5433', None, 'integer', 'postmaster'),
                             ('listen_addresses', '*', None, 'string', 'postmaster'),
-                            ('autovacuum', 'on', None, 'bool', 'sighup'),
-                            ('wal_level', 'replica', None, 'enum', 'postmaster')]
+                            ('autovacuum', 'on', None, 'bool', 'sighup')]
         else:
             self.results = [(None, None, None, None, None, None, None, None, None, None)]
 
@@ -766,7 +765,7 @@ class TestPostgresql(unittest.TestCase):
         self.assertEquals(value_in_conf(), None)
 
     def test_get_server_parameters(self):
-        config = {'synchronous_mode': True, 'parameters': {}, 'listen': '0'}
+        config = {'synchronous_mode': True, 'parameters': {'wal_level': 'hot_standby'}, 'listen': '0'}
         self.p.get_server_parameters(config)
         self.p.set_synchronous_standby('foo')
         self.p.get_server_parameters(config)
