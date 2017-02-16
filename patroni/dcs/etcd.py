@@ -530,6 +530,8 @@ class Etcd(AbstractDCS):
                 except etcd.EtcdWatchTimedOut:
                     self._client.http.clear()
                     return False
+                except (etcd.EtcdEventIndexCleared, etcd.EtcdWatcherCleared):  # Watch failed
+                    return True  # leave the loop, because watch with the same parameters will fail anyway
                 except etcd.EtcdException:
                     logger.exception('watch')
 
