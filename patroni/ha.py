@@ -223,9 +223,6 @@ class Ha(object):
     def is_synchronous_mode(self):
         return bool(self.cluster and self.cluster.config and self.cluster.config.data.get('synchronous_mode'))
 
-    def is_synchronous_mode_strict(self):
-        return bool(self.cluster and self.cluster.config and self.cluster.config.data.get('synchronous_mode_strict'))
-
     def process_sync_replication(self):
         """Process synchronous standby beahvior.
 
@@ -245,11 +242,6 @@ class Ha(object):
                     if not self.dcs.write_sync_state(self.state_handler.name, None, index=self.cluster.sync.index):
                         logger.info('Synchronous replication key updated by someone else.')
                         return
-
-                logger.info("Debug: %s", self.is_synchronous_mode_strict())
-                if self.is_synchronous_mode_strict() and picked is None:
-                    picked = 'patroni_dummy_host'
-
                 logger.info("Assigning synchronous standby status to %s", picked)
                 self.state_handler.set_synchronous_standby(picked)
 
