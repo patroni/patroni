@@ -248,7 +248,7 @@ class Ha(object):
 
                 if self.is_synchronous_mode_strict() and picked is None:
                     picked = 'patroni_dummy_host'
-                    logger.info("No standbys available and synchronous_mode_strict set: blocking writes with dummy hostname"
+                    logger.info("No standbys available: blocking writes with dummy hostname")
 
                 logger.info("Assigning synchronous standby status to %s", picked)
                 self.state_handler.set_synchronous_standby(picked)
