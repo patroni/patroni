@@ -246,9 +246,9 @@ class Ha(object):
                         logger.info('Synchronous replication key updated by someone else.')
                         return
 
-                logger.info("Debug: %s", self.is_synchronous_mode_strict())
                 if self.is_synchronous_mode_strict() and picked is None:
                     picked = 'patroni_dummy_host'
+                    logger.info("No standbys available and synchronous_mode_strict set: blocking writes with dummy hostname"
 
                 logger.info("Assigning synchronous standby status to %s", picked)
                 self.state_handler.set_synchronous_standby(picked)
