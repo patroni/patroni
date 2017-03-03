@@ -1294,7 +1294,9 @@ $$""".format(name, ' '.join(options)), name, password, password)
                      FROM pg_stat_replication
                     ORDER BY flush_location DESC"""):
             member = members.get(app_name)
-            if state != 'streaming' or not member or member.tags.get('nosync', False):
+            if (state != 'streaming' or not member
+                    or member.tags.get('nosync', False)
+                    or member.tags.get('nofailover', False)):
                 continue
             if sync_state == 'sync':
                 return app_name, True
