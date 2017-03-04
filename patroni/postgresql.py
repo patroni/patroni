@@ -1296,7 +1296,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
             member = members.get(app_name)
             if (state != 'streaming' or not member
                     or member.tags.get('nosync', False)
-                    or member.tags.get('nofailover', False)):
+                    or member.nofailover):
                 continue
             if sync_state == 'sync':
                 return app_name, True
