@@ -983,8 +983,6 @@ class Postgresql(object):
         return timeline, lsn
 
     def _check_timeline_and_lsn(self, leader):
-        logger.info('_check_timeline_and_lsn')
-
         local_timeline, local_lsn = self._get_local_timeline_lsn()
         if local_timeline is None or local_lsn is None:
             return
@@ -994,7 +992,7 @@ class Postgresql(object):
             with self._get_replication_connection_cursor(**leader.conn_kwargs()) as cur:
                 cur.execute('IDENTIFY_SYSTEM')
                 master_timeline = cur.fetchone()[1]
-                logger.error('master_timeline=%s', master_timeline)
+                logger.info('master_timeline=%s', master_timeline)
                 if local_timeline > master_timeline:  # Not always supported by pg_rewind
                     need_rewind = True
                 elif master_timeline > 1:
@@ -1033,7 +1031,6 @@ class Postgresql(object):
             self._rewind_state = 'rewind_not_needed'
 
     def _do_rewind(self, leader):
-        logger.info('_do_rewind')
         if self.is_running() and not self.stop(checkpoint=False):
             return logger.warning('Can not run pg_rewind because postgres is still running')
 
