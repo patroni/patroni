@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 retry_timeout = 15
 
+
 class AWSConnection(object):
     def __init__(self, cluster_name):
         self.available = False
@@ -57,12 +58,12 @@ class AWSConnection(object):
             conn = self.retry(boto.ec2.connect_to_region, self.region)
             self.retry(self._tag_ec2, conn, new_role)
             self.retry(self._tag_ebs, conn, new_role)
-        except RetryFailedError as e:
+        except RetryFailedError:
             logger.warning("Unable to communicate to AWS "
-                           "when setting tags for the EC2 instance {0} and attached EBS volumes".format(self.instance_id))
+                           "when setting tags for the EC2 instance {0} "
+                           "and attached EBS volumes".format(self.instance_id))
             return False
         return True
-
 
 
 def main():
