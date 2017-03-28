@@ -883,10 +883,11 @@ class Ha(object):
                 msg = self.post_recover()
                 if msg is not None:
                     return msg
-            
+
             # is the data directory empty and we are the leader?
             if self.state_handler.data_directory_empty() and self.has_lock():
                 self.release_leader_key_voluntarily()
+                return 'released leader key voluntarily as data dir empty and currently leader'
 
             # is data directory empty?
             if self.state_handler.data_directory_empty():
