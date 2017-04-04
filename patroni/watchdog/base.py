@@ -86,8 +86,9 @@ class Watchdog(object):
                              " not be configured. Watchdog timeout is {1}.".format(desired_timeout, actual_timeout))
                 sys.exit(1)
             else:
-                logger.warning("Watchdog timeout {0} seconds does not ensure safe termination within {1} seconds"
-                               .format(actual_timeout, desired_timeout))
+                if not isinstance(self.impl, NullWatchdog):
+                    logger.warning("Watchdog timeout {0} seconds does not ensure safe termination within {1} seconds"
+                                   .format(actual_timeout, desired_timeout))
 
         if self.is_running:
             logger.info("{0} activated with {1} second timeout, timing slack {2} seconds"
