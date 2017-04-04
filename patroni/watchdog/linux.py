@@ -105,22 +105,12 @@ WDIOS = {
 
 class WatchdogInfo(collections.namedtuple('WatchdogInfo', 'options,version,identity')):
     """Watchdog descriptor from the kernel"""
-    @property
-    def option_list(self):
-        return [name for name, bit in WDIOF.items() if self.options & bit]
+    def __getattr__(self, name):
+        """Convenience has_XYZ attributes for checking WDIOF bits in options"""
+        if name.startswith('has_') and name[4:] in WDIOF:
+            return bool(self.options & WDIOF[name[4:]])
 
-
-def _property_func(wdiof_name):
-    """Add WDIOF properties to WatchdogInfo descriptor"""
-    bit = WDIOF[wdiof_name]
-
-    def get_option(self):
-        return bool(self.options & bit)
-    return property(get_option)
-
-
-for wdiof_name, bit in WDIOF.items():
-    setattr(WatchdogInfo, 'has_'+wdiof_name, _property_func(wdiof_name))
+        raise AttributeError("WatchdogInfo instance has no attribute '{0}'".format(name))
 
 
 class LinuxWatchdogDevice(WatchdogBase):
