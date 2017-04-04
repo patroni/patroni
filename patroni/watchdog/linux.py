@@ -48,6 +48,7 @@ def IOC(dir_, type_, nr, size):
         | (nr << IOC_NRSHIFT) \
         | (size << IOC_SIZESHIFT)
 
+
 # Pythonification of linux/watchdog.h
 
 WATCHDOG_IOCTL_BASE = 'W'
@@ -59,6 +60,7 @@ class watchdog_info(ctypes.Structure):
         ('firmware_version', ctypes.c_uint32),  # Firmware version of the card
         ('identity', ctypes.c_uint8 * 32),      # Identity of the board
     ]
+
 
 struct_watchdog_info_size = ctypes.sizeof(watchdog_info)
 int_size = ctypes.sizeof(ctypes.c_int)
