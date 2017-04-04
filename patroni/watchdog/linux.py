@@ -165,7 +165,7 @@ class LinuxWatchdogDevice(WatchdogBase):
 
         result = fcntl.ioctl(self._fd, func, arg, mutate_arg)
         if result < 0:
-            return IOError(result)
+            raise IOError(result)
 
     def get_support(self):
         if self._support_cache is None:
