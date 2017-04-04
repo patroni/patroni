@@ -111,7 +111,7 @@ class Watchdog(object):
         try:
             self.impl.keepalive()
         except WatchdogError as e:
-            logger.error("Error while disabling watchdog: %s", e)
+            logger.error("Error while sending keepalive: %s", e)
 
     def _get_impl(self):
         if self.mode not in ['automatic', 'required', 'require']:
