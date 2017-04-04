@@ -867,7 +867,7 @@ class Postgresql(object):
 
     def _wait_for_connection_close(self, pid):
         try:
-            with self.connection.cursor() as cur:
+            with self.connection().cursor() as cur:
                 while True:  # Need a timeout here?
                     if pid == self.get_pid() and self.is_pid_running(pid):
                         cur.execute("SELECT 1")
@@ -886,8 +886,11 @@ class Postgresql(object):
                                  "wal sender) process|bgworker: )")
 
         postmaster = psutil.Process(postmaster_pid)
-        user_backends = [p for p in postmaster.children() if aux_proc_re.match(p.cmdline()[0])]
-        psutil.wait_procs(user_backends)
+        try:
+            user_backends = [p for p in postmaster.children() if aux_proc_re.match(p.cmdline()[0])]
+            psutil.wait_procs(user_backends)
+        except psutil.NoSuchProcess:
+            return
 
     def reload(self):
         ret = self.pg_ctl('reload')
