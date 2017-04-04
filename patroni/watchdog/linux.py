@@ -149,7 +149,7 @@ class LinuxWatchdogDevice(WatchdogBase):
     def close(self):
         if self.is_running:
             try:
-                os.write(self._fd, 'V')
+                os.write(self._fd, b'V')
                 os.close(self._fd)
                 self._fd = None
             except OSError as e:
@@ -191,7 +191,7 @@ class LinuxWatchdogDevice(WatchdogBase):
 
     def keepalive(self):
         try:
-            os.write(self._fd, '1')
+            os.write(self._fd, b'1')
         except OSError as e:
             raise WatchdogError("Could not send watchdog keepalive: {0}".format(e))
 

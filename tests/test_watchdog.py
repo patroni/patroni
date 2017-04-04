@@ -81,7 +81,7 @@ class TestWatchdog(unittest.TestCase):
 
         watchdog.disable()
         self.assertFalse(device.open)
-        self.assertEquals(device.writes[-1], 'V')
+        self.assertEquals(device.writes[-1], b'V')
 
     def test_invalid_timings(self):
         watchdog = Watchdog({'ttl': 30, 'loop_wait': 20, 'watchdog': {'mode': 'automatic'}})
