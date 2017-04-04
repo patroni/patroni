@@ -1,3 +1,5 @@
+.. _pause:
+
 Pause/Resume mode for the cluster
 =================================
 

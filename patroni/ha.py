@@ -715,9 +715,12 @@ class Ha(object):
             else:
                 # Either there is no connection to DCS or someone else acquired the lock
                 logger.error('failed to update leader lock')
-                with self._background_keepalive_context():
-                    self.demote('immediate-nolock')
-                return 'demoted self because failed to update leader lock in DCS'
+                if self.state_handler.is_leader():
+                    with self._background_keepalive_context():
+                        self.demote('immediate-nolock')
+                    return 'demoted self because failed to update leader lock in DCS'
+                else:
+                    return 'not promoting because failed to update leader lock in DCS'
         else:
             logger.info('does not have lock')
         return self.follow('demoting self because i do not have the lock and i was a leader',
@@ -1006,7 +1009,7 @@ class Ha(object):
                         self.dcs.delete_leader()
                         self.dcs.reset_cluster()
                         return 'removed leader lock because postgres is not running'
-                    elif not self.state_handler.need_rewind:
+                    elif not (self.state_handler.need_rewind and self.state_handler.can_rewind):
                         return 'postgres is not running'
 
                 # try to start dead postgres

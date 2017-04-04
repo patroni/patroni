@@ -6,13 +6,18 @@ from requests.exceptions import RequestException
 import sys
 import boto.ec2
 
+from patroni.utils import Retry, RetryFailedError
+
 logger = logging.getLogger(__name__)
+
+retry_timeout = 15
 
 
 class AWSConnection(object):
     def __init__(self, cluster_name):
         self.available = False
         self.cluster_name = cluster_name if cluster_name is not None else 'unknown'
+        self._retry = Retry(deadline=retry_timeout, max_delay=5, max_tries=-1, retry_exceptions=(boto.exception,))
         try:
             # get the instance id
             r = requests.get('http://169.254.169.254/latest/dynamic/instance-identity/document', timeout=0.1)
@@ -29,40 +34,36 @@ class AWSConnection(object):
                 return
             self.available = True
 
+    def retry(self, *args, **kwargs):
+        return self._retry.copy()(*args, **kwargs)
+
     def aws_available(self):
         return self.available
 
-    def _tag_ebs(self, role):
+    def _tag_ebs(self, conn, role):
         """ set tags, carrying the cluster name, instance role and instance id for the EBS storage """
-        if not self.available:
-            return False
-
         tags = {'Name': 'spilo_' + self.cluster_name, 'Role': role, 'Instance': self.instance_id}
-        try:
-            conn = boto.ec2.connect_to_region(self.region)
-            volumes = conn.get_all_volumes(filters={'attachment.instance-id': self.instance_id})
-            conn.create_tags([v.id for v in volumes], tags)
-        except Exception as e:
-            logger.info('could not set tags for EBS storage devices attached: {}'.format(e))
-            return False
-        return True
+        volumes = conn.get_all_volumes(filters={'attachment.instance-id': self.instance_id})
+        conn.create_tags([v.id for v in volumes], tags)
 
-    def _tag_ec2(self, role):
+    def _tag_ec2(self, conn, role):
         """ tag the current EC2 instance with a cluster role """
-        if not self.available:
-            return False
         tags = {'Role': role}
-        try:
-            conn = boto.ec2.connect_to_region(self.region)
-            conn.create_tags([self.instance_id], tags)
-        except Exception as e:
-            logger.info("could not set tags for EC2 instance %s: %s", self.instance_id, e)
-            return False
-        return True
+        conn.create_tags([self.instance_id], tags)
 
     def on_role_change(self, new_role):
-        ret = self._tag_ec2(new_role)
-        return self._tag_ebs(new_role) and ret
+        if not self.available:
+            return False
+        try:
+            conn = self.retry(boto.ec2.connect_to_region, self.region)
+            self.retry(self._tag_ec2, conn, new_role)
+            self.retry(self._tag_ebs, conn, new_role)
+        except RetryFailedError:
+            logger.warning("Unable to communicate to AWS "
+                           "when setting tags for the EC2 instance {0} "
+                           "and attached EBS volumes".format(self.instance_id))
+            return False
+        return True
 
 
 def main():

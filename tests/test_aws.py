@@ -6,6 +6,7 @@ import unittest
 from mock import Mock, patch
 from collections import namedtuple
 from patroni.scripts.aws import AWSConnection, main as _main
+from patroni.utils import RetryFailedError
 from requests.exceptions import RequestException
 
 
@@ -16,13 +17,13 @@ class MockEc2Connection(object):
 
     def get_all_volumes(self, filters):
         if self.error:
-            raise Exception("get_all_volumes")
+            raise boto.exception("get_all_volumes")
         oid = namedtuple('Volume', 'id')
         return [oid(id='a'), oid(id='b')]
 
     def create_tags(self, objects, tags):
         if self.error or len(objects) == 0:
-            raise Exception("create_tags")
+            raise boto.exception("create_tags")
         return True
 
 
@@ -63,29 +64,19 @@ class TestAWSConnection(unittest.TestCase):
         self.assertTrue(self.conn.aws_available())
 
     def test_on_role_change(self):
-        self.assertTrue(self.conn._tag_ebs('master'))
-        self.assertTrue(self.conn._tag_ec2('master'))
         self.assertTrue(self.conn.on_role_change('master'))
+        self.conn.retry = Mock(side_effect=RetryFailedError("retry failed"))
+        self.assertFalse(self.conn.on_role_change('master'))
 
     def test_non_aws(self):
         self.error = True
         conn = AWSConnection('test')
-        self.assertFalse(conn.aws_available())
-        self.assertFalse(conn._tag_ebs('master'))
-        self.assertFalse(conn._tag_ec2('master'))
+        self.assertFalse(conn.on_role_change("master"))
 
     def test_aws_bizare_response(self):
         self.json_error = True
         conn = AWSConnection('test')
         self.assertFalse(conn.aws_available())
-
-    def test_aws_tag_ebs_error(self):
-        self.error = True
-        self.assertFalse(self.conn._tag_ebs("master"))
-
-    def test_aws_tag_ec2_error(self):
-        self.error = True
-        self.assertFalse(self.conn._tag_ec2("master"))
 
     @patch('sys.exit', Mock())
     def test_main(self):

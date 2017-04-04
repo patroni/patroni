@@ -46,3 +46,8 @@ dummy
 
 pgpass
 scm-source.json
+
+# Sphinx-generated documentation
+docs/build/
+docs/source/_static/
+docs/source/_templates/

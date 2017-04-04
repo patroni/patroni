@@ -41,8 +41,7 @@ class MockCursor(object):
                             ('search_path', 'public', None, 'string', 'user'),
                             ('port', '5433', None, 'integer', 'postmaster'),
                             ('listen_addresses', '*', None, 'string', 'postmaster'),
-                            ('autovacuum', 'on', None, 'bool', 'sighup'),
-                            ('wal_level', 'replica', None, 'enum', 'postmaster')]
+                            ('autovacuum', 'on', None, 'bool', 'sighup')]
         else:
             self.results = [(None, None, None, None, None, None, None, None, None, None)]
 
@@ -184,6 +183,7 @@ class TestPostgresql(unittest.TestCase):
                                            'on_reload': 'true'
                                            },
                              'restore': 'true'})
+        self.p._callback_executor = Mock()
         self.leadermem = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres'})
         self.leader = Leader(-1, 28, self.leadermem)
         self.other = Member(0, 'test-1', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
@@ -278,6 +278,7 @@ class TestPostgresql(unittest.TestCase):
 
     @patch.object(builtins, 'open', MagicMock())
     def test_write_pgpass(self):
+        self.p.write_pgpass({'host': 'localhost', 'port': '5432', 'user': 'foo'})
         self.p.write_pgpass({'host': 'localhost', 'port': '5432', 'user': 'foo', 'password': 'bar'})
 
     def test_checkpoint(self):
@@ -421,9 +422,9 @@ class TestPostgresql(unittest.TestCase):
     def test_is_running(self):
         self.assertFalse(self.p.is_running())
 
-    @patch('subprocess.Popen', Mock(side_effect=OSError))
+    @patch('shlex.split', Mock(side_effect=OSError))
     def test_call_nowait(self):
-        self.assertFalse(self.p.call_nowait('on_start'))
+        self.assertIsNone(self.p.call_nowait('on_start'))
 
     def test_non_existing_callback(self):
         self.assertFalse(self.p.call_nowait('foobar'))
@@ -763,7 +764,7 @@ class TestPostgresql(unittest.TestCase):
         self.assertEquals(value_in_conf(), None)
 
     def test_get_server_parameters(self):
-        config = {'synchronous_mode': True, 'parameters': {}, 'listen': '0'}
+        config = {'synchronous_mode': True, 'parameters': {'wal_level': 'hot_standby'}, 'listen': '0'}
         self.p.get_server_parameters(config)
         self.p.set_synchronous_standby('foo')
         self.p.get_server_parameters(config)

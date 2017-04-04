@@ -13,6 +13,7 @@ import time
 
 from collections import defaultdict
 from patroni import call_self
+from patroni.callback_executor import CallbackExecutor
 from patroni.exceptions import PostgresConnectionException, PostgresException
 from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, null_context
 from six import string_types
@@ -113,6 +114,7 @@ class Postgresql(object):
         self._schedule_load_slots = self.use_slots
 
         self._pgpass = config.get('pgpass') or os.path.join(os.path.expanduser('~'), 'pgpass')
+        self._callback_executor = CallbackExecutor()
         self.__cb_called = False
         self.__cb_pending = None
         config_base_name = config.get('config_base_name', 'postgresql')
@@ -191,6 +193,8 @@ class Postgresql(object):
                 parameters.pop('synchronous_standby_names', None)
             else:
                 parameters['synchronous_standby_names'] = self._synchronous_standby_names
+        if self._major_version >= 9.6 and parameters['wal_level'] == 'hot_standby':
+            parameters['wal_level'] = 'replica'
         return {k: v for k, v in parameters.items() if not self._major_version or
                 self._major_version >= self.CMDLINE_OPTIONS.get(k, (0, 1, 9.1))[2]}
 
@@ -255,8 +259,6 @@ class Postgresql(object):
                     elif r[0] in changes:
                         unit = changes['wal_segment_size'] if r[0] in ('min_wal_size', 'max_wal_size') else r[2]
                         new_value = changes.pop(r[0])
-                        if self._major_version >= 9.6 and r[0] == 'wal_level' and new_value == 'hot_standby':
-                            new_value = 'replica'
                         if new_value is None or not compare_values(r[3], unit, r[1], new_value):
                             if r[4] == 'postmaster':
                                 pending_restart = True
@@ -441,6 +443,7 @@ class Postgresql(object):
         if ret:
             self.write_pg_hba(config.get('pg_hba', []))
             self._major_version = self.get_major_version()
+            self._server_parameters = self.get_server_parameters(self.config)
         else:
             self.set_state('initdb failed')
         return ret
@@ -477,6 +480,9 @@ class Postgresql(object):
             os.unlink(self._trigger_file)
 
     def write_pgpass(self, record):
+        if 'user' not in record or 'password' not in record:
+            return os.environ.copy()
+
         with open(self._pgpass, 'w') as f:
             os.fchmod(f.fileno(), 0o600)
             f.write('{host}:{port}:*:{user}:{password}\n'.format(**record))
@@ -624,15 +630,13 @@ class Postgresql(object):
         if cb_name in (ACTION_ON_START, ACTION_ON_STOP, ACTION_ON_RESTART, ACTION_ON_ROLE_CHANGE):
             self.__cb_called = True
 
-        if not self.callback or cb_name not in self.callback:
-            return False
-        cmd = self.callback[cb_name]
-        try:
-            subprocess.Popen(shlex.split(cmd) + [cb_name, self.role, self.scope])
-        except OSError:
-            logger.exception('callback %s %s %s %s failed', cmd, cb_name, self.role, self.scope)
-            return False
-        return True
+        if self.callback and cb_name in self.callback:
+            cmd = self.callback[cb_name]
+            try:
+                cmd = shlex.split(self.callback[cb_name]) + [cb_name, self.role, self.scope]
+                self._callback_executor.call(cmd)
+            except Exception:
+                logger.exception('callback %s %s %s %s failed', cmd, cb_name, self.role, self.scope)
 
     @property
     def role(self):
@@ -714,9 +718,7 @@ class Postgresql(object):
         self._write_postgresql_conf()
         self.resolve_connection_addresses()
 
-        opts = {p: self._server_parameters[p] for p, v in self.CMDLINE_OPTIONS.items() if self._major_version >= v[2]}
-        if self._major_version >= 9.6 and opts['wal_level'] == 'hot_standby':
-            opts['wal_level'] = 'replica'
+        opts = {p: self._server_parameters[p] for p in self.CMDLINE_OPTIONS if p in self._server_parameters}
         options = ['--{0}={1}'.format(p, v) for p, v in opts.items()]
 
         start_initiated = time.time()
@@ -1016,7 +1018,15 @@ class Postgresql(object):
     def rewind(self, r):
         # prepare pg_rewind connection
         env = self.write_pgpass(r)
-        dsn = 'user={user} host={host} port={port} dbname={database} sslmode=prefer sslcompression=1'.format(**r)
+        dsn_attrs = [
+            ('user', r.get('user')),
+            ('host', r.get('host')),
+            ('port', r.get('port')),
+            ('dbname', r.get('database')),
+            ('sslmode', 'prefer'),
+            ('sslcompression', '1'),
+        ]
+        dsn = " ".join("{0}={1}".format(k, v) for k, v in dsn_attrs if v is not None)
         logger.info('running pg_rewind from %s', dsn)
         try:
             return subprocess.call([self._pgcommand('pg_rewind'),
@@ -1306,6 +1316,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
         ret = self.create_replica(clone_member) == 0
         if ret:
             self._major_version = self.get_major_version()
+            self._server_parameters = self.get_server_parameters(self.config)
             self.delete_trigger_file()
             self.restore_configuration_files()
         return ret

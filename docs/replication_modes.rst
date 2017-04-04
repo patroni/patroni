@@ -1,3 +1,5 @@
+.. _replication_modes:
+
 =================
 Replication modes
 =================
@@ -28,6 +30,8 @@ To enable a simple synchronous replication test, add the follow lines to the ``p
 When using PostgreSQL synchronous replication, use at least three Postgres data nodes to ensure write availability if one host fails.
 
 Using PostgreSQL synchronous replication does not guarantee zero lost transactions under all circumstances. When master and standby that is currently acting as synchronous fail simultaneously a third node that might not contain all transactions will be promoted.
+
+.. _synchronous_mode:
 
 Synchronous mode
 ----------------

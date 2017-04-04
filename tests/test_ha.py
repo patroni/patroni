@@ -123,6 +123,7 @@ def run_async(self, func, args=()):
 @patch.object(Postgresql, 'write_recovery_conf', Mock())
 @patch.object(Postgresql, 'query', Mock())
 @patch.object(Postgresql, 'checkpoint', Mock())
+@patch.object(Postgresql, 'call_nowait', Mock())
 @patch.object(etcd.Client, 'write', etcd_write)
 @patch.object(etcd.Client, 'read', etcd_read)
 @patch.object(etcd.Client, 'delete', Mock(side_effect=etcd.EtcdException))
@@ -246,6 +247,8 @@ class TestHa(unittest.TestCase):
         self.ha.has_lock = true
         self.ha.update_lock = false
         self.assertEquals(self.ha.run_cycle(), 'demoted self because failed to update leader lock in DCS')
+        self.p.is_leader = false
+        self.assertEquals(self.ha.run_cycle(), 'not promoting because failed to update leader lock in DCS')
 
     def test_follow(self):
         self.ha.cluster.is_unlocked = false
