@@ -114,7 +114,7 @@ class Watchdog(object):
             logger.error("Error while sending keepalive: %s", e)
 
     def _get_impl(self):
-        if self.mode not in ['automatic', 'required', 'require']:
+        if self.mode not in [MODE_AUTOMATIC, MODE_REQUIRED]:
             return NullWatchdog()
 
         if platform.system() == 'Linux':
