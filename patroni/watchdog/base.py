@@ -35,6 +35,7 @@ class Watchdog(object):
         self.ttl = config['ttl']
         self.loop_wait = config['loop_wait']
         self.mode = parse_mode(config['watchdog'].get('mode', 'automatic'))
+        self.driver = config['watchdog'].get('driver')
         self.config = config
 
         if self.mode == MODE_OFF:
@@ -117,7 +118,10 @@ class Watchdog(object):
         if self.mode not in [MODE_AUTOMATIC, MODE_REQUIRED]:
             return NullWatchdog()
 
-        if platform.system() == 'Linux':
+        if self.driver == 'testing':
+            from patroni.watchdog.linux import TestingWatchdogDevice
+            return TestingWatchdogDevice.from_config(self.config['watchdog'])
+        elif platform.system() == 'Linux':
             from patroni.watchdog.linux import LinuxWatchdogDevice
             return LinuxWatchdogDevice.from_config(self.config['watchdog'])
         else:

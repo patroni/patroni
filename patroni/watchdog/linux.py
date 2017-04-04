@@ -132,7 +132,7 @@ class LinuxWatchdogDevice(WatchdogBase):
 
     def open(self):
         try:
-            self._fd = os.open(self.device, os.O_RDWR)
+            self._fd = os.open(self.device, os.O_WRONLY)
         except OSError as e:
             raise WatchdogError("Can't open watchdog device: {0}".format(e))
 
@@ -199,3 +199,20 @@ class LinuxWatchdogDevice(WatchdogBase):
         timeout = ctypes.c_int()
         self._ioctl(WDIOC_GETTIMEOUT, timeout, True)
         return timeout.value
+
+
+class TestingWatchdogDevice(LinuxWatchdogDevice):
+    """Converts timeout ioctls to regular writes that can be intercepted from a named pipe."""
+    timeout = 60
+
+    def get_support(self):
+        return WatchdogInfo(WDIOF['MAGICCLOSE'] | WDIOF['SETTIMEOUT'], 0, "Watchdog test harness")
+
+    def set_timeout(self, timeout):
+        buf = "Ctimeout={0}\n".format(timeout).encode('utf8')
+        while len(buf):
+            buf = buf[os.write(self._fd, buf):]
+        self.timeout = timeout
+
+    def get_timeout(self):
+        return self.timeout
