@@ -887,8 +887,10 @@ class Postgresql(object):
 
         postmaster = psutil.Process(postmaster_pid)
         try:
-            user_backends = [p for p in postmaster.children() if aux_proc_re.match(p.cmdline()[0])]
+            user_backends = [p for p in postmaster.children() if not aux_proc_re.match(p.cmdline()[0])]
+            logger.debug("Waiting for user backends {0} to close".format(",".join(p.cmdline()[0] for p in user_backends)))
             psutil.wait_procs(user_backends)
+            logger.debug("Backends closed")
         except psutil.NoSuchProcess:
             return
 
