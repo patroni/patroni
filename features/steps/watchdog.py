@@ -72,8 +72,3 @@ def dcs_connection_lost(context, timeout):
 @then('{name:w} database is running')
 def database_is_running(context, name):
     assert context.pctl.database_is_running(name)
-
-
-@then(u'{name:w} is running as {role:w} after {timeout:d} seconds')
-def check_state(context, name, role, timeout):
-    assert context.pctl.check_role_has_changed_to(name, role, timeout)
