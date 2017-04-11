@@ -81,10 +81,13 @@ class BackgroundKeepaliveSender(object):
     def run(self):
         if self.safe_event is not None:
             self.safe_event.wait()
+            logger.debug("Background keepalive safe event reached")
         while not self._stop_event.is_set():
+            logger.debug("Sending background keepalive")
             self.ha.keepalive()
             if not self._stop_event.wait(self.loop_wait):
                 self.ha.keepalive_sent = False
+        logger.debug("Stopping background keepalive")
 
 
 class Ha(object):
@@ -1057,7 +1060,12 @@ class Ha(object):
             logger.info('Leader key is not deleted and Postgresql is not stopped due paused state')
             self.watchdog.disable()
         else:
-            self.while_not_sync_standby(lambda: self.state_handler.stop(checkpoint=False))
+            # FIXME: If stop doesn't reach safepoint quickly enough keepalive is triggered. If shutdown checkpoint
+            # takes longer than ttl, then leader key is lost and replication might not have sent out all xlog.
+            # This might not be the desired behavior of users, as a graceful shutdown of the host can mean lost data.
+            # We probably need to something smarter here.
+            with self._background_keepalive_context(wait_for_safepoint=self.state_handler.is_leader):
+                self.while_not_sync_standby(lambda: self.state_handler.stop(checkpoint=False))
             if not self.state_handler.is_running():
                 self.dcs.delete_leader()
                 self.watchdog.disable()
