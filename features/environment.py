@@ -78,6 +78,8 @@ class AbstractController(object):
         if self._log:
             self._log.close()
 
+    def cancel_background(self):
+        pass
 
 class PatroniController(AbstractController):
     __PORT = 5440
@@ -127,10 +129,6 @@ class PatroniController(AbstractController):
                                 stdout=self._log, stderr=subprocess.STDOUT, cwd=self._work_directory)
 
     def stop(self, kill=False, timeout=15, postgres=False):
-        for obj in self._closables:
-            obj.close()
-        self._closables = []
-
         if postgres:
             return subprocess.call(['pg_ctl', '-D', self._data_dir, 'stop', '-mi', '-w'])
         super(PatroniController, self).stop(kill, timeout)
@@ -247,7 +245,7 @@ class PatroniController(AbstractController):
             return False
         proc = psutil.Process(pid)
         for child in proc.children():
-            if 'checkpoint' in child.name():
+            if 'checkpoint' in child.cmdline()[0]:
                 checkpointer = child
                 break
         else:
@@ -255,7 +253,21 @@ class PatroniController(AbstractController):
         hang = ProcessHang(checkpointer.pid, timeout)
         self._closables.append(hang)
         hang.start()
+        return True
 
+    def cancel_background(self):
+        for obj in self._closables:
+            obj.close()
+        self._closables = []
+
+    def terminate_backends(self):
+        pid = self._get_pid()
+        if not pid:
+            return False
+        proc = psutil.Process(pid)
+        for p in proc.children():
+            if 'process' not in p.cmdline()[0]:
+                p.terminate()
 
 class ProcessHang(object):
 
@@ -486,7 +498,8 @@ class PatroniPoolController(object):
 
     def __getattr__(self, func):
         if func not in ['stop', 'query', 'write_label', 'read_label', 'check_role_has_changed_to', 'add_tag_to_config',
-                        'get_watchdog', 'database_is_running', 'checkpoint_hang', 'postmaster_hang']:
+                        'get_watchdog', 'database_is_running', 'checkpoint_hang', 'postmaster_hang',
+                        'terminate_backends']:
             raise AttributeError("PatroniPoolController instance has no attribute '{0}'".format(func))
 
         def wrapper(name, *args, **kwargs):
@@ -495,6 +508,7 @@ class PatroniPoolController(object):
 
     def stop_all(self):
         for ctl in self._processes.values():
+            ctl.cancel_background()
             ctl.stop()
         self._processes.clear()
 
@@ -558,8 +572,10 @@ class WatchdogMonitor(object):
                     self._log("Fifo {0} connected".format(self.fifo_path))
                     while not self._stop_requested:
                         c = os.read(self.fifo_file, 1)
+
                         if c == b'X':
                             self._log("Stop requested")
+                            self.was_closed = True
                             return
                         elif c == b'':
                             self._log("Pipe closed")
@@ -575,17 +591,18 @@ class WatchdogMonitor(object):
                             if command.startswith('timeout='):
                                 self.timeout = int(command.split('=')[1])
                                 self._log("timeout={0}".format(self.timeout))
-                        elif c == b'V':
-                            self._log("magic close")
-                            self.was_closed = True
-                        elif c == b'1':
-                            self.was_pinged = True
-                            cur_ping = time.time()
-                            if cur_ping - self.last_ping > self.timeout:
+                        elif c in [b'V', b'1']:
+                            cur_time = time.time()
+                            if cur_time - self.last_ping > self.timeout:
                                 self._log("Triggered")
                                 self._was_triggered = True
-                            self._log("ping after {0} seconds".format(cur_ping - (self.last_ping or cur_ping)))
-                            self.last_ping = cur_ping
+                            if c == b'V':
+                                self._log("magic close")
+                                self.was_closed = True
+                            elif c == b'1':
+                                self.was_pinged = True
+                                self._log("ping after {0} seconds".format(cur_time - (self.last_ping or cur_time)))
+                                self.last_ping = cur_time
                         else:
                             self._log('Unknown command {0} received from fifo'.format(c))
                 finally:
@@ -600,6 +617,7 @@ class WatchdogMonitor(object):
                 os.unlink(self.fifo_path)
 
     def stop(self):
+        self._log("Monitor stop")
         self._stop_requested = True
         try:
             if os.path.exists(self.fifo_path):
@@ -614,11 +632,12 @@ class WatchdogMonitor(object):
 
 
     def reset(self):
+        self._log("reset")
         self.was_pinged = self.was_closed = self._was_triggered = False
 
     @property
     def was_triggered(self):
-        triggered = self._was_triggered or (time.time() - self.last_ping) > self.timeout
+        triggered = self._was_triggered or not self.was_closed and (time.time() - self.last_ping) > self.timeout
         self._log("triggered={0}".format(triggered))
         return triggered
 

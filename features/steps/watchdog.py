@@ -26,9 +26,9 @@ def watchdog_was_pinged(context, name, timeout):
     return False
 
 
-@step('{name:w} watchdog has been closed')
+@then('{name:w} watchdog has been closed')
 def watchdog_was_closed(context, name):
-    context.pctl.get_watchdog(name).was_closed
+    assert context.pctl.get_watchdog(name).was_closed
 
 
 @step('I wait for next {name:w} watchdog ping')
@@ -51,7 +51,7 @@ def watchdog_was_not_triggered(context, name):
 
 @step('{name:w} checkpoint takes {timeout:d} seconds')
 def checkpoint_hang(context, name, timeout):
-    return context.pctl.checkpoint_hang(name, timeout)
+    assert context.pctl.checkpoint_hang(name, timeout)
 
 
 @step('{name:w} hangs for {timeout:d} seconds')
@@ -59,9 +59,14 @@ def checkpoint_hang(context, name, timeout):
     return context.pctl.postmaster_hang(name, timeout)
 
 
-@step('DCS leader key is lost to {name:w}')
-def dcs_connection_lost(context, name):
-    return context.dcs_ctl.set('leader', name)
+@step('I terminate {name:w} user processes')
+def terminate_backends(context, name):
+    return context.pctl.terminate_backends(name)
+
+
+@step('Sleep for {timeout:d} seconds')
+def dcs_connection_lost(context, timeout):
+    time.sleep(timeout)
 
     
 @then('{name:w} database is running')
@@ -71,4 +76,4 @@ def database_is_running(context, name):
 
 @then(u'{name:w} is running as {role:w} after {timeout:d} seconds')
 def check_state(context, name, role, timeout):
-    return context.pctl.check_role_has_changed_to(name, role, timeout)
+    assert context.pctl.check_role_has_changed_to(name, role, timeout)
