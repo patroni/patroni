@@ -55,7 +55,7 @@ def checkpoint_hang(context, name, timeout):
 
 
 @step('{name:w} hangs for {timeout:d} seconds')
-def checkpoint_hang(context, name, timeout):
+def postmaster_hang(context, name, timeout):
     return context.pctl.postmaster_hang(name, timeout)
 
 
@@ -68,7 +68,7 @@ def terminate_backends(context, name):
 def dcs_connection_lost(context, timeout):
     time.sleep(timeout)
 
-    
+
 @then('{name:w} database is running')
 def database_is_running(context, name):
     assert context.pctl.database_is_running(name)
