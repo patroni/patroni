@@ -885,8 +885,8 @@ class Postgresql(object):
                                  "autovacuum launcher|autovacuum worker|stats collector|wal receiver|archiver|"
                                  "wal sender) process|bgworker: )")
 
-        postmaster = psutil.Process(postmaster_pid)
         try:
+            postmaster = psutil.Process(postmaster_pid)
             user_backends = [p for p in postmaster.children() if not aux_proc_re.match(p.cmdline()[0])]
             logger.debug("Waiting for user backends {0} to close".format(
                 ",".join(p.cmdline()[0] for p in user_backends)))
