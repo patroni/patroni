@@ -297,14 +297,20 @@ class Client(etcd.Client):
 
 
 def catch_etcd_errors(func):
-    def wrapper(*args, **kwargs):
+    def wrapper(self, *args, **kwargs):
         try:
-            return func(*args, **kwargs) is not None
+            return func(self, *args, **kwargs) is not None
         except (RetryFailedError, etcd.EtcdException):
             return False
-        except:
-            logger.exception("")
+        except Exception as e:
+            if not self._has_failed:
+                logger.exception("")
+            else:
+                logger.error(e)
+            self._has_failed = True
             raise EtcdError("unexpected error")
+        else:
+            self._has_failed = False
 
     return wrapper
 
@@ -320,6 +326,7 @@ class Etcd(AbstractDCS):
                                               etcd.EtcdEventIndexCleared))
         self._client = self.get_etcd_client(config)
         self.__do_not_watch = False
+        self._has_failed = False
 
     def retry(self, *args, **kwargs):
         return self._retry.copy()(*args, **kwargs)
@@ -448,9 +455,15 @@ class Etcd(AbstractDCS):
             self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync)
         except etcd.EtcdKeyNotFound:
             self._cluster = Cluster(None, None, None, None, [], None, None)
-        except:
-            logger.exception('get_cluster')
+        except Exception as e:
+            if not self._has_failed:
+                logger.exception('get_cluster')
+            else:
+                logger.error(e)
+            self._has_failed = True
             raise EtcdError('Etcd is not responding properly')
+        else:
+            self._has_failed = False
 
     @catch_etcd_errors
     def touch_member(self, data, ttl=None, permanent=False):
@@ -532,8 +545,15 @@ class Etcd(AbstractDCS):
                     return False
                 except (etcd.EtcdEventIndexCleared, etcd.EtcdWatcherCleared):  # Watch failed
                     return True  # leave the loop, because watch with the same parameters will fail anyway
-                except etcd.EtcdException:
-                    logger.exception('watch')
+                except etcd.EtcdException as e:
+                    if not self._has_failed:
+                        logger.exception('watch')
+                    else:
+                        logger.error(e)
+                        time.sleep(1)
+                    self._has_failed = True
+                else:
+                    self._has_failed = False
 
                 timeout = end_time - time.time()
 
