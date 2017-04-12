@@ -6,7 +6,9 @@ import base64
 import click
 import datetime
 import dateutil.parser
+import cdiff
 import difflib
+import io
 import json
 import logging
 import os
@@ -841,8 +843,22 @@ def show_diff(before_editing, after_editing):
     def listify(string):
         return [l+'\n' for l in string.rstrip('\n').split('\n')]
 
-    for line in difflib.unified_diff(listify(before_editing), listify(after_editing)):
-        click.echo(line.rstrip('\n'))
+    unified_diff = difflib.unified_diff(listify(before_editing), listify(after_editing))
+
+    if sys.stdout.isatty():
+        buf = io.StringIO()
+        for line in unified_diff:
+            buf.write(line)
+        buf.seek(0)
+
+        class opts:
+            side_by_side = False
+            width = 80
+            tab_width = 8
+        cdiff.markup_to_pager(cdiff.PatchStream(buf), opts)
+    else:
+        for line in unified_diff:
+            click.echo(line.rstrip('\n'))
 
 
 @ctl.command('edit-config', help="Edit cluster configuration")
