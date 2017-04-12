@@ -924,10 +924,11 @@ def invoke_editor(before_editing, data, cluster_name):
 @click.option('--set', '-s', 'kvpairs', multiple=True,
               help='Set specific configuration value. Can be specified multiple times')
 @click.option('--pg', '-p', 'pgkvpairs', multiple=True,
-              help='Set specific PostgreSQL parameter value. Shorthand for -s postgresql.parameters.'
+              help='Set specific PostgreSQL parameter value. Shorthand for -s postgresql.parameters. '
                    'Can be specified multiple times')
 @click.option('--apply', 'apply_filename', help='Apply configuration from file. Use - for stdin.')
-@click.option('--replace', 'replace_filename', help='Apply configuration from file replacing existing configuration. Use - for stdin.')
+@click.option('--replace', 'replace_filename', help='Apply configuration from file, replacing existing configuration.'
+              ' Use - for stdin.')
 @option_force
 @click.pass_obj
 def edit_config(obj, cluster_name, force, quiet, kvpairs, pgkvpairs, apply_filename, replace_filename):
