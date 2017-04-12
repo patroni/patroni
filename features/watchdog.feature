@@ -31,13 +31,13 @@ Feature: watchdog
     When postgres0 checkpoint takes 30 seconds
     And I shut down postgres0
     Then postgres0 watchdog was not triggered
+    And postgres1 role is the primary after 10 seconds
 
   Scenario: watchdog is triggered if postgres stops responding
     Given I start postgres0 with watchdog
     Then postgres0 role is the secondary after 10 seconds
     When I shut down postgres1
     Then postgres0 role is the primary after 10 seconds
-    And I start postgres1
     When postgres0 hangs for 30 seconds
     And I terminate postgres0 user processes
     Then postgres0 watchdog is triggered after 30 seconds

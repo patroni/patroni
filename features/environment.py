@@ -570,12 +570,12 @@ class WatchdogMonitor(object):
                 self.fifo_file = os.open(self.fifo_path, os.O_RDONLY)
                 try:
                     self._log("Fifo {0} connected".format(self.fifo_path))
+                    self.was_closed = False
                     while not self._stop_requested:
                         c = os.read(self.fifo_file, 1)
 
                         if c == b'X':
                             self._log("Stop requested")
-                            self.was_closed = True
                             return
                         elif c == b'':
                             self._log("Pipe closed")
@@ -606,6 +606,7 @@ class WatchdogMonitor(object):
                         else:
                             self._log('Unknown command {0} received from fifo'.format(c))
                 finally:
+                    self.was_closed = True
                     self._log("closing")
                     os.close(self.fifo_file)
         except Exception as e:
@@ -637,8 +638,9 @@ class WatchdogMonitor(object):
 
     @property
     def was_triggered(self):
-        triggered = self._was_triggered or not self.was_closed and (time.time() - self.last_ping) > self.timeout
-        self._log("triggered={0}".format(triggered))
+        delta = time.time() - self.last_ping
+        triggered = self._was_triggered or not self.was_closed and delta > self.timeout
+        self._log("triggered={0}, {1}s left".format(triggered,time.time(), self.timeout - delta))
         return triggered
 
 
