@@ -7,6 +7,7 @@ import click
 import datetime
 import dateutil.parser
 import cdiff
+import copy
 import difflib
 import io
 import json
@@ -861,23 +862,38 @@ def show_diff(before_editing, after_editing):
             click.echo(line.rstrip('\n'))
 
 
-@ctl.command('edit-config', help="Edit cluster configuration")
-@click.argument('cluster_name')
-@click.option('--quiet', '-q', is_flag=True, help='Do not show changes')
-@option_force
-@click.pass_obj
-def edit_config(obj, cluster_name, force, quiet):
+def apply_config_changes(before_editing, data, kvpairs):
+    changed_data = copy.deepcopy(data)
+
+    def set_path_value(config, path, value):
+        if len(path) == 1:
+            if value is None:
+                config.pop(path[0], None)
+            else:
+                config[path[0]] = value
+        else:
+            key = path[0]
+            if key not in config:
+                config[key] = {}
+            set_path_value(config[key], path[1:], value)
+
+    for pair in kvpairs:
+        if not pair or "=" not in pair:
+            raise PatroniCtlException("Invalid parameter setting {0}".format(pair))
+        key_path, value = pair.split("=", 1)
+        set_path_value(changed_data, key_path.strip().split("."), yaml.safe_load(value))
+
+    return yaml.safe_dump(changed_data, default_flow_style=False), changed_data
+
+
+def invoke_editor(before_editing, data, cluster_name):
     editor_cmd = os.environ.get('EDITOR')
     if not editor_cmd:
         raise PatroniCtlException('EDITOR environment variable is not set')
 
-    dcs = get_dcs(obj, cluster_name)
-    cluster = dcs.get_cluster()
-
-    before_editing = yaml.safe_dump(cluster.config.data, default_flow_style=False)
     with temporary_file(contents=before_editing.encode('utf-8'),
                         suffix='.yaml',
-                        prefix='{0}-config'.format(cluster_name)) as tmpfile:
+                        prefix='{0}-config-'.format(cluster_name)) as tmpfile:
         ret = subprocess.call([editor_cmd, tmpfile])
         if ret:
             raise PatroniCtlException("Editor exited with return code {0}".format(ret))
@@ -885,18 +901,38 @@ def edit_config(obj, cluster_name, force, quiet):
         with open(tmpfile, encoding='utf-8') as fd:
             after_editing = fd.read()
 
-        changed_data = yaml.load(after_editing)
-        if cluster.config.data == changed_data:
-            if not quiet:
-                click.echo("Not changed")
-            return
-        
-        if not quiet:
-            show_diff(before_editing, after_editing)
+        return after_editing, yaml.safe_load(after_editing)
 
-        if force or click.confirm('Apply these changes?'):
-            if not dcs.set_config_value(json.dumps(changed_data), cluster.config.modify_index):
-                raise PatroniCtlException("Config modification aborted due to concurrent changes")
+
+@ctl.command('edit-config', help="Edit cluster configuration")
+@click.argument('cluster_name')
+@click.option('--quiet', '-q', is_flag=True, help='Do not show changes')
+@click.option('--set', '-s', 'kvpairs', multiple=True,
+              help='Set specific configuration value. Can be specified multiple times')
+@option_force
+@click.pass_obj
+def edit_config(obj, cluster_name, force, quiet, kvpairs):
+    dcs = get_dcs(obj, cluster_name)
+    cluster = dcs.get_cluster()
+
+    before_editing = yaml.safe_dump(cluster.config.data, default_flow_style=False)
+
+    if kvpairs:
+        after_editing, changed_data = apply_config_changes(before_editing, cluster.config.data, kvpairs)
+    else:
+        after_editing, changed_data = invoke_editor(before_editing, cluster.config.data, cluster_name)
+
+    if cluster.config.data == changed_data:
+        if not quiet:
+            click.echo("Not changed")
+        return
+
+    if not quiet:
+        show_diff(before_editing, after_editing)
+
+    if force or click.confirm('Apply these changes?'):
+        if not dcs.set_config_value(json.dumps(changed_data), cluster.config.modify_index):
+            raise PatroniCtlException("Config modification aborted due to concurrent changes")
 
 
 @ctl.command('show-config', help="Show cluster configuration")
