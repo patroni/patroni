@@ -6,18 +6,22 @@ import base64
 import click
 import datetime
 import dateutil.parser
+import difflib
 import json
 import logging
 import os
 import psycopg2
 import random
 import requests
+import subprocess
 import sys
+import tempfile
 import time
 import tzlocal
 import yaml
 
 from click import ClickException
+from contextlib import contextmanager
 from patroni.config import Config
 from patroni.dcs import get_dcs as _get_dcs
 from patroni.exceptions import PatroniException
@@ -819,3 +823,70 @@ def pause(obj, cluster_name):
 @click.pass_obj
 def resume(obj, cluster_name):
     return toggle_pause(obj, cluster_name, False)
+
+
+@contextmanager
+def temporary_file(contents, suffix='', prefix='tmp'):
+    tmp = tempfile.NamedTemporaryFile(suffix=suffix, prefix=prefix, delete=False)
+    with tmp:
+        tmp.write(contents)
+
+    try:
+        yield tmp.name
+    finally:
+        os.unlink(tmp.name)
+
+
+def show_diff(before_editing, after_editing):
+    def listify(string):
+        return [l+'\n' for l in string.rstrip('\n').split('\n')]
+
+    for line in difflib.unified_diff(listify(before_editing), listify(after_editing)):
+        click.echo(line.rstrip('\n'))
+
+
+@ctl.command('edit-config', help="Edit cluster configuration")
+@click.argument('cluster_name')
+@click.option('--quiet', '-q', is_flag=True, help='Do not show changes')
+@option_force
+@click.pass_obj
+def edit_config(obj, cluster_name, force, quiet):
+    editor_cmd = os.environ.get('EDITOR')
+    if not editor_cmd:
+        raise PatroniCtlException('EDITOR environment variable is not set')
+
+    dcs = get_dcs(obj, cluster_name)
+    cluster = dcs.get_cluster()
+
+    before_editing = yaml.safe_dump(cluster.config.data, default_flow_style=False)
+    with temporary_file(contents=before_editing.encode('utf-8'),
+                        suffix='.yaml',
+                        prefix='{0}-config'.format(cluster_name)) as tmpfile:
+        ret = subprocess.call([editor_cmd, tmpfile])
+        if ret:
+            raise PatroniCtlException("Editor exited with return code {0}".format(ret))
+
+        with open(tmpfile, encoding='utf-8') as fd:
+            after_editing = fd.read()
+
+        changed_data = yaml.load(after_editing)
+        if cluster.config.data == changed_data:
+            if not quiet:
+                click.echo("Not changed")
+            return
+        
+        if not quiet:
+            show_diff(before_editing, after_editing)
+
+        if force or click.confirm('Apply these changes?'):
+            if not dcs.set_config_value(json.dumps(changed_data), cluster.config.modify_index):
+                raise PatroniCtlException("Config modification aborted due to concurrent changes")
+
+
+@ctl.command('show-config', help="Show cluster configuration")
+@click.argument('cluster_name')
+@click.pass_obj
+def show_config(obj, cluster_name):
+    cluster = get_dcs(obj, cluster_name).get_cluster()
+
+    click.echo(yaml.safe_dump(cluster.config.data, default_flow_style=False))
