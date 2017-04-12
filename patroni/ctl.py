@@ -29,7 +29,7 @@ from patroni.config import Config
 from patroni.dcs import get_dcs as _get_dcs
 from patroni.exceptions import PatroniException
 from patroni.postgresql import Postgresql
-from patroni.utils import is_valid_pg_version
+from patroni.utils import is_valid_pg_version, patch_config
 from prettytable import PrettyTable
 from six.moves.urllib_parse import urlparse
 
@@ -886,6 +886,20 @@ def apply_config_changes(before_editing, data, kvpairs):
     return yaml.safe_dump(changed_data, default_flow_style=False), changed_data
 
 
+def apply_yaml_file(data, filename):
+    changed_data = copy.deepcopy(data)
+
+    if filename == '-':
+        new_options = yaml.safe_load(sys.stdin)
+    else:
+        with open(filename) as fd:
+            new_options = yaml.safe_load(fd)
+
+    patch_config(changed_data, new_options)
+
+    return yaml.safe_dump(changed_data, default_flow_style=False), changed_data
+
+
 def invoke_editor(before_editing, data, cluster_name):
     editor_cmd = os.environ.get('EDITOR')
     if not editor_cmd:
@@ -912,18 +926,27 @@ def invoke_editor(before_editing, data, cluster_name):
 @click.option('--pg', '-p', 'pgkvpairs', multiple=True,
               help='Set specific PostgreSQL parameter value. Shorthand for -s postgresql.parameters.'
                    'Can be specified multiple times')
+@click.option('--apply', 'apply_filename', help='Apply configuration from file. Use - for stdin.')
 @option_force
 @click.pass_obj
-def edit_config(obj, cluster_name, force, quiet, kvpairs, pgkvpairs):
+def edit_config(obj, cluster_name, force, quiet, kvpairs, pgkvpairs, apply_filename):
     dcs = get_dcs(obj, cluster_name)
     cluster = dcs.get_cluster()
 
     before_editing = yaml.safe_dump(cluster.config.data, default_flow_style=False)
 
+    after_editing = None  # Serves as a flag if any changes were requested
+    changed_data = cluster.config.data
+
+    if apply_filename:
+        after_editing, changed_data = apply_yaml_file(changed_data, apply_filename)
+
     if kvpairs or pgkvpairs:
         all_pairs = list(kvpairs) + ['postgresql.parameters.'+v.lstrip() for v in pgkvpairs]
-        after_editing, changed_data = apply_config_changes(before_editing, cluster.config.data, all_pairs)
-    else:
+        after_editing, changed_data = apply_config_changes(before_editing, changed_data, all_pairs)
+
+    # If no changes were specified on the command line invoke editor
+    if after_editing is None:
         after_editing, changed_data = invoke_editor(before_editing, cluster.config.data, cluster_name)
 
     if cluster.config.data == changed_data:
@@ -933,6 +956,10 @@ def edit_config(obj, cluster_name, force, quiet, kvpairs, pgkvpairs):
 
     if not quiet:
         show_diff(before_editing, after_editing)
+
+    if apply_filename == '-' and not force:
+        click.echo("Use --force option to apply changes")
+        return
 
     if force or click.confirm('Apply these changes?'):
         if not dcs.set_config_value(json.dumps(changed_data), cluster.config.modify_index):
