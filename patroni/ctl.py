@@ -909,16 +909,20 @@ def invoke_editor(before_editing, data, cluster_name):
 @click.option('--quiet', '-q', is_flag=True, help='Do not show changes')
 @click.option('--set', '-s', 'kvpairs', multiple=True,
               help='Set specific configuration value. Can be specified multiple times')
+@click.option('--pg', '-p', 'pgkvpairs', multiple=True,
+              help='Set specific PostgreSQL parameter value. Shorthand for -s postgresql.parameters.'
+                   'Can be specified multiple times')
 @option_force
 @click.pass_obj
-def edit_config(obj, cluster_name, force, quiet, kvpairs):
+def edit_config(obj, cluster_name, force, quiet, kvpairs, pgkvpairs):
     dcs = get_dcs(obj, cluster_name)
     cluster = dcs.get_cluster()
 
     before_editing = yaml.safe_dump(cluster.config.data, default_flow_style=False)
 
-    if kvpairs:
-        after_editing, changed_data = apply_config_changes(before_editing, cluster.config.data, kvpairs)
+    if kvpairs or pgkvpairs:
+        all_pairs = list(kvpairs) + ['postgresql.parameters.'+v.lstrip() for v in pgkvpairs]
+        after_editing, changed_data = apply_config_changes(before_editing, cluster.config.data, all_pairs)
     else:
         after_editing, changed_data = invoke_editor(before_editing, cluster.config.data, cluster_name)
 
