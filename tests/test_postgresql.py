@@ -19,6 +19,7 @@ class MockCursor(object):
     def __init__(self, connection):
         self.connection = connection
         self.closed = False
+        self.rowcount = 0
         self.results = []
 
     def execute(self, sql, *params):

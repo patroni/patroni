@@ -1179,9 +1179,12 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
                 # drop unused slots
                 for slot in set(self._replication_slots) - slots:
-                    self._query("""SELECT pg_drop_replication_slot(%s)
-                                    WHERE EXISTS(SELECT 1 FROM pg_replication_slots
-                                    WHERE slot_name = %s AND NOT active)""", slot, slot)
+                    cursor = self._query("""SELECT pg_drop_replication_slot(%s)
+                                             WHERE EXISTS(SELECT 1 FROM pg_replication_slots
+                                             WHERE slot_name = %s AND NOT active)""", slot, slot)
+
+                    if cursor.rowcount != 1:  # Either slot doesn't exists or it is still active
+                        self._schedule_load_slots = True  # schedule load_replication_slots on the next iteration
 
                 # create new slots
                 for slot in slots - set(self._replication_slots):
