@@ -299,9 +299,9 @@ class Client(etcd.Client):
 def catch_etcd_errors(func):
     def wrapper(self, *args, **kwargs):
         try:
-            return func(self, *args, **kwargs) is not None
+            retval = func(self, *args, **kwargs) is not None
         except (RetryFailedError, etcd.EtcdException):
-            return False
+            retval = False
         except Exception as e:
             if not self._has_failed:
                 logger.exception("")
@@ -309,8 +309,9 @@ def catch_etcd_errors(func):
                 logger.error(e)
             self._has_failed = True
             raise EtcdError("unexpected error")
-        else:
-            self._has_failed = False
+
+        self._has_failed = False
+        return retval
 
     return wrapper
 
