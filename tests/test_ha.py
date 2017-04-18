@@ -771,3 +771,14 @@ class TestHa(unittest.TestCase):
 
     def test_wakup(self):
         self.ha.wakeup()
+
+    def test_leader_with_empty_directory(self):
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.ha.has_lock = true
+        self.p.data_directory_empty = true
+        self.assertEquals(self.ha.run_cycle(), 'released leader key voluntarily as data dir empty and currently leader')
+
+        # as has_lock is mocked out, we need to fake the leader key release
+        self.ha.has_lock = false
+        # will not say bootstrap from leader as replica can't self elect
+        self.assertEquals(self.ha.run_cycle(), "trying to bootstrap from replica 'other'")
