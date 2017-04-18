@@ -116,6 +116,7 @@ class Postgresql(object):
         self._trigger_file = config.get('recovery_conf', {}).get('trigger_file') or 'promote'
         self._trigger_file = os.path.abspath(os.path.join(self._data_dir, self._trigger_file))
 
+        self._connection_lock = Lock()
         self._connection = None
         self._cursor_holder = None
         self._sysid = None
@@ -351,10 +352,11 @@ class Postgresql(object):
         return ret
 
     def connection(self):
-        if not self._connection or self._connection.closed != 0:
-            self._connection = psycopg2.connect(**self._local_connect_kwargs)
-            self._connection.autocommit = True
-            self.server_version = self._connection.server_version
+        with self._connection_lock:
+            if not self._connection or self._connection.closed != 0:
+                self._connection = psycopg2.connect(**self._local_connect_kwargs)
+                self._connection.autocommit = True
+                self.server_version = self._connection.server_version
         return self._connection
 
     def _cursor(self):
