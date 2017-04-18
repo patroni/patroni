@@ -101,6 +101,8 @@ class MockRequest(object):
     def makefile(self, *args, **kwargs):
         return IO(self.request)
 
+    def sendall(self, *args, **kwargs):
+        pass
 
 class MockRestApiServer(RestApiServer):
 
