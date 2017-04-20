@@ -296,26 +296,6 @@ class Client(etcd.Client):
         self._machines_cache_updated = time.time()
 
 
-def catch_etcd_errors(func):
-    def wrapper(self, *args, **kwargs):
-        try:
-            retval = func(self, *args, **kwargs) is not None
-        except (RetryFailedError, etcd.EtcdException):
-            retval = False
-        except Exception as e:
-            if not self._has_failed:
-                logger.exception("")
-            else:
-                logger.error(e)
-            self._has_failed = True
-            raise EtcdError("unexpected error")
-
-        self._has_failed = False
-        return retval
-
-    return wrapper
-
-
 class Etcd(AbstractDCS):
 
     def __init__(self, config):
@@ -331,6 +311,31 @@ class Etcd(AbstractDCS):
 
     def retry(self, *args, **kwargs):
         return self._retry.copy()(*args, **kwargs)
+
+    def _handle_exception(self, e, name='', do_sleep=False, raise_ex=None):
+        if not self._has_failed:
+            logger.exception(name)
+        else:
+            logger.error(e)
+            if do_sleep:
+                time.sleep(1)
+        self._has_failed = True
+        if isinstance(raise_ex, Exception):
+            raise raise_ex
+
+    def catch_etcd_errors(func):
+        def wrapper(self, *args, **kwargs):
+            try:
+                retval = func(self, *args, **kwargs) is not None
+                self._has_failed = False
+                return retval
+            except (RetryFailedError, etcd.EtcdException) as e:
+                self._handle_exception(e)
+                return False
+            except Exception as e:
+                self._handle_exception(e, raise_ex=EtcdError('unexpected error'))
+
+        return wrapper
 
     @staticmethod
     def get_etcd_client(config):
@@ -457,14 +462,8 @@ class Etcd(AbstractDCS):
         except etcd.EtcdKeyNotFound:
             self._cluster = Cluster(None, None, None, None, [], None, None)
         except Exception as e:
-            if not self._has_failed:
-                logger.exception('get_cluster')
-            else:
-                logger.error(e)
-            self._has_failed = True
-            raise EtcdError('Etcd is not responding properly')
-        else:
-            self._has_failed = False
+            self._handle_exception(e, 'get_cluster', raise_ex=EtcdError('Etcd is not responding properly'))
+        self._has_failed = False
 
     @catch_etcd_errors
     def touch_member(self, data, ttl=None, permanent=False):
@@ -538,23 +537,19 @@ class Etcd(AbstractDCS):
             while timeout >= 1:  # when timeout is too small urllib3 doesn't have enough time to connect
                 try:
                     self._client.watch(self.leader_path, index=leader_index, timeout=timeout + 0.5)
+                    self._has_failed = False
                     # Synchronous work of all cluster members with etcd is less expensive
                     # than reestablishing http connection every time from every replica.
                     return True
                 except etcd.EtcdWatchTimedOut:
                     self._client.http.clear()
+                    self._has_failed = False
                     return False
                 except (etcd.EtcdEventIndexCleared, etcd.EtcdWatcherCleared):  # Watch failed
+                    self._has_failed = False
                     return True  # leave the loop, because watch with the same parameters will fail anyway
                 except etcd.EtcdException as e:
-                    if not self._has_failed:
-                        logger.exception('watch')
-                    else:
-                        logger.error(e)
-                        time.sleep(1)
-                    self._has_failed = True
-                else:
-                    self._has_failed = False
+                    self._handle_exception(e, 'watch', True)
 
                 timeout = end_time - time.time()
 
