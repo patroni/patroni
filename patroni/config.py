@@ -175,9 +175,7 @@ class Config(object):
                     elif name not in ('connect_address', 'listen', 'data_dir', 'pgpass', 'authentication'):
                         config['postgresql'][name] = deepcopy(value)
             elif name in config:  # only variables present in __DEFAULT_CONFIG allowed to be overriden from DCS
-                if name == 'synchronous_mode':
-                    config[name] = value
-                if name == 'synchronous_mode_strict':
+                if name in ('synchronous_mode', 'synchronous_mode_strict'):
                     config[name] = value
                 else:
                     config[name] = int(value)
