@@ -104,6 +104,7 @@ class MockRequest(object):
     def sendall(self, *args, **kwargs):
         pass
 
+
 class MockRestApiServer(RestApiServer):
 
     def __init__(self, Handler, request):
