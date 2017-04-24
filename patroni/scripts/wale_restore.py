@@ -23,7 +23,8 @@
 # currently also requires that you configure the restore_command to use wal_e, example:
 #       recovery_conf:
 #               restore_command: envdir /etc/wal-e.d/env wal-e wal-fetch "%f" "%p" -p 1
-
+import io
+import csv
 from collections import namedtuple
 import logging
 import os
@@ -91,16 +92,16 @@ class WALERestore(object):
             # base_00000001000000000000007F_00000040  2015-05-18T10:13:25.000Z
             # 20310671    00000001000000000000007F    00000040
             # 00000001000000000000007F    00000240
-            backup_strings = latest_backup.decode('utf-8').splitlines() if latest_backup else ()
-            if len(backup_strings) != 2:
+
+            if not latest_backup:
+                logger.warning('wal-e exited without printing.')
                 return False
 
-            names = backup_strings[0].split()
-            vals = backup_strings[1].split()
-            if (len(names) != len(vals)) or (len(names) != 7):
-                return False
+            reader = csv.DictReader(io.StringIO(latest_backup),
+                                    dialect='excel-tab')
+            rows = list(reader)
+            backup_info = rows[0]
 
-            backup_info = dict(zip(names, vals))
         except subprocess.CalledProcessError:
             logger.exception("could not query wal-e latest backup")
             return None
