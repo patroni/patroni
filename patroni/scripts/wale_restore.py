@@ -120,7 +120,7 @@ class WALERestore(object):
             backup_size = backup_info['expanded_size_bytes']
             backup_start_segment = backup_info['wal_segment_backup_start']
             backup_start_offset = backup_info['wal_segment_offset_backup_start']
-        except Exception:
+        except KeyError:
             logger.exception("unable to get some of WALE backup parameters")
             return None
 
