@@ -51,18 +51,28 @@ def get_major_version(data_dir):
     return 0.0
 
 
+WALEConfig = namedtuple('WALEConfig',
+                        'dir,threshold_mb,threshold_pct,iam_string,cmd')
+
+
 class WALERestore(object):
-    def __init__(self, scope, datadir, connstring, env_dir, threshold_mb, threshold_pct, use_iam, no_master, retries):
+    def __init__(self, scope, datadir, connstring, env_dir, threshold_mb,
+                 threshold_pct, use_iam, no_master, retries):
         self.scope = scope
         self.master_connection = connstring
         self.data_dir = datadir
-        self.wal_e = namedtuple('wale', 'dir,threshold_mb,threshold_pct,iam_string,cmd')
-        self.wal_e.dir = env_dir
-        self.wal_e.threshold_mb = threshold_mb
-        self.wal_e.threshold_pct = threshold_pct
-        self.wal_e.iam_string = ' --aws-instance-profile ' if use_iam == 1 else ''
         self.no_master = no_master
-        self.wal_e.cmd = 'envdir {0} wal-e {1} '.format(self.wal_e.dir, self.wal_e.iam_string)
+
+        iam_string = ' --aws-instance-profile ' if use_iam == 1 else ''
+
+        self.wal_e = WALEConfig(
+            dir=env_dir,
+            threshold_mb=threshold_mb,
+            threshold_pct=threshold_pct,
+            iam_string=iam_string,
+            cmd='envdir {0} wal-e {1} '.format(env_dir, iam_string)
+        )
+
         self.init_error = (not os.path.exists(self.wal_e.dir))
         self.retries = retries
 
