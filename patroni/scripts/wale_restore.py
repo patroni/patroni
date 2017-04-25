@@ -97,7 +97,7 @@ class WALERestore(object):
                 logger.warning('wal-e exited without printing.')
                 return False
 
-            reader = csv.DictReader(io.StringIO(latest_backup),
+            reader = csv.DictReader(io.BytesIO(latest_backup),
                                     dialect='excel-tab')
             rows = list(reader)
             backup_info = rows[0]
