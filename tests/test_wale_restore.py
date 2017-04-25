@@ -1,16 +1,78 @@
 import psycopg2
 import subprocess
 import unittest
+import pytest
 
 from mock import Mock, MagicMock, patch, mock_open
 from patroni.scripts.wale_restore import WALERestore, main as _main, get_major_version
 from six.moves import builtins
 
 
-wale_output = b'name last_modified expanded_size_bytes wal_segment_backup_start ' +\
-              b'wal_segment_offset_backup_start wal_segment_backup_stop wal_segment_offset_backup_stop\n' +\
-              b'base_00000001000000000000007F_00000040 2015-05-18T10:13:25.000Z 167772160 ' +\
-              b'00000001000000000000007F 00000040 00000001000000000000007F 00000240\n'
+wale_output = (
+    b'name\tlast_modified\t'
+    b'expanded_size_bytes\t'
+    b'wal_segment_backup_start\twal_segment_offset_backup_start\t'
+    b'wal_segment_backup_stop\twal_segment_offset_backup_stop\n'
+    
+    b'base_00000001000000000000007F_00000040\t2015-05-18T10:13:25.000Z\t'
+    b'167772160\t'
+    b'00000001000000000000007F\t00000040\t'
+    b'00000001000000000000007F\t00000240\n'
+)
+
+def make_wale_restore():
+    return WALERestore("batman", "/data", "host=batman port=5432 user=batman",
+                       "/etc", 100, 100, 1, 0, 1)
+
+
+@pytest.fixture(params=[
+        # Nn space
+        wale_output,
+        # Space
+        wale_output.replace(
+            b'\t2015-05-18T10:13:25.000Z',
+            b'\t2015-05-18 10:13:25.000Z'),
+    ])
+def fx_wale_spaces(request):
+    return request.param
+
+
+@pytest.fixture()
+def fx_wale_restore(request):
+    patches = [
+        patch('psycopg2.extensions.cursor', Mock(autospec=True)),
+        patch('psycopg2.extensions.connection', Mock(autospec=True)),
+        patch('psycopg2.connect', MagicMock(autospec=True)),
+    ]
+    for patch_ in patches:
+        patch_.start()
+
+    def _finalize():
+        for patch_ in patches:
+            patch_.stop()
+
+    request.addfinalizer(_finalize)
+
+    return make_wale_restore()
+
+
+def test_should_use_s3_handles_space_in_date(fx_wale_restore, fx_wale_spaces):
+    with patch('subprocess.check_output',
+               Mock(return_value=fx_wale_spaces)):
+
+        assert fx_wale_restore.should_use_s3_to_create_replica()
+
+
+def test_should_use_s3_missing_unused_field(fx_wale_restore):
+    with patch('subprocess.check_output',
+               Mock(return_value=wale_output.replace(b'\twal_segment_offset_backup_stop', b''))):
+        assert fx_wale_restore.should_use_s3_to_create_replica()
+
+
+def test_should_use_s3_missing_used_field(fx_wale_restore):
+    with patch('subprocess.check_output',
+               Mock(return_value=wale_output.replace(b'expanded_size_bytes', b'expanded_size_foo'))):
+        assert not fx_wale_restore.should_use_s3_to_create_replica()
 
 
 @patch('os.access', Mock(return_value=True))
@@ -24,8 +86,7 @@ wale_output = b'name last_modified expanded_size_bytes wal_segment_backup_start 
 class TestWALERestore(unittest.TestCase):
 
     def setUp(self):
-        self.wale_restore = WALERestore("batman", "/data", "host=batman port=5432 user=batman",
-                                        "/etc", 100, 100, 1, 0, 1)
+        self.wale_restore = make_wale_restore()
 
     def test_should_use_s3_to_create_replica(self):
         self.assertTrue(self.wale_restore.should_use_s3_to_create_replica())
@@ -46,12 +107,6 @@ class TestWALERestore(unittest.TestCase):
         with patch('subprocess.check_output', Mock(side_effect=subprocess.CalledProcessError(1, "cmd", "foo"))):
             self.assertFalse(self.wale_restore.should_use_s3_to_create_replica())
         with patch('subprocess.check_output', Mock(return_value=wale_output.split(b'\n')[0])):
-            self.assertFalse(self.wale_restore.should_use_s3_to_create_replica())
-        with patch('subprocess.check_output',
-                   Mock(return_value=wale_output.replace(b' wal_segment_offset_backup_stop', b''))):
-            self.assertFalse(self.wale_restore.should_use_s3_to_create_replica())
-        with patch('subprocess.check_output',
-                   Mock(return_value=wale_output.replace(b'expanded_size_bytes', b'expanded_size_foo'))):
             self.assertFalse(self.wale_restore.should_use_s3_to_create_replica())
 
     def test_create_replica_with_s3(self):

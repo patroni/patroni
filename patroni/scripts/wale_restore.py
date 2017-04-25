@@ -23,8 +23,8 @@
 # currently also requires that you configure the restore_command to use wal_e, example:
 #       recovery_conf:
 #               restore_command: envdir /etc/wal-e.d/env wal-e wal-fetch "%f" "%p" -p 1
-import io
 import csv
+import shlex
 from collections import namedtuple
 import logging
 import os
@@ -96,22 +96,20 @@ class WALERestore(object):
         threshold_backup_size_percentage = self.wal_e.threshold_pct
 
         try:
-            latest_backup = subprocess.check_output(self.wal_e.cmd.split() + ['backup-list', '--detail', 'LATEST'])
-            # name    last_modified   expanded_size_bytes wal_segment_backup_start    wal_segment_offset_backup_start
-            #                                                   wal_segment_backup_stop wal_segment_offset_backup_stop
-            # base_00000001000000000000007F_00000040  2015-05-18T10:13:25.000Z
-            # 20310671    00000001000000000000007F    00000040
-            # 00000001000000000000007F    00000240
+            cmd = shlex.split(self.wal_e.cmd) + \
+                           ['backup-list', '--detail', 'LATEST']
 
-            if not latest_backup:
-                logger.warning('wal-e exited without printing.')
-                return False
+            logger.debug('calling %r', cmd)
+            wale_output = subprocess.check_output(cmd)
 
-            reader = csv.DictReader(io.BytesIO(latest_backup),
+            reader = csv.DictReader(wale_output.decode('utf-8').splitlines(),
                                     dialect='excel-tab')
             rows = list(reader)
-            backup_info = rows[0]
+            if not len(rows):
+                logger.warning('wal-e did not find any backups')
+                return False
 
+            backup_info = rows[0]
         except subprocess.CalledProcessError:
             logger.exception("could not query wal-e latest backup")
             return None
