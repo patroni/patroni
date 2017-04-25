@@ -8,17 +8,21 @@ from patroni.scripts.wale_restore import WALERestore, main as _main, get_major_v
 from six.moves import builtins
 
 
-wale_output = (
+wale_output_header = (
     b'name\tlast_modified\t'
     b'expanded_size_bytes\t'
     b'wal_segment_backup_start\twal_segment_offset_backup_start\t'
     b'wal_segment_backup_stop\twal_segment_offset_backup_stop\n'
-    
+)
+
+wale_output_values =  (
     b'base_00000001000000000000007F_00000040\t2015-05-18T10:13:25.000Z\t'
     b'167772160\t'
     b'00000001000000000000007F\t00000040\t'
     b'00000001000000000000007F\t00000240\n'
 )
+
+wale_output = wale_output_header + wale_output_values
 
 
 def make_wale_restore():
@@ -55,6 +59,14 @@ def fx_wale_restore(request):
     request.addfinalizer(_finalize)
 
     return make_wale_restore()
+
+
+def test_should_use_s3_too_many_rows(fx_wale_restore):
+    with patch('subprocess.check_output',
+               Mock(return_value=wale_output_header +
+                       wale_output_values +
+                       wale_output_values)):
+        assert not fx_wale_restore.should_use_s3_to_create_replica()
 
 
 def test_should_use_s3_handles_space_in_date(fx_wale_restore, fx_wale_spaces):

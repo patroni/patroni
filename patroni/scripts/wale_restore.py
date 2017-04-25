@@ -109,6 +109,15 @@ class WALERestore(object):
                 logger.warning('wal-e did not find any backups')
                 return False
 
+            # This check might not add much, it was performed in the previous
+            # version of this code. since the old version rolled CSV parsing the
+            # check may have been part of the CSV parsing.
+            if len(rows) > 1:
+                logger.warning(
+                    'wal-e returned more than one row of backups: %r',
+                    rows)
+                return False
+
             backup_info = rows[0]
         except subprocess.CalledProcessError:
             logger.exception("could not query wal-e latest backup")
