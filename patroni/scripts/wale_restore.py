@@ -69,16 +69,14 @@ class WALERestore(object):
         self.data_dir = datadir
         self.no_master = no_master
 
-        iam_string = ' --aws-instance-profile ' if use_iam == 1 else ''
-
         wale_cmd = [
             'envdir',
             env_dir,
             'wal-e',
         ]
 
-        if iam_string:
-            wale_cmd += [iam_string]
+        if use_iam == 1:
+            wale_cmd += ['--aws-instance-profile']
 
         self.wal_e = WALEConfig(
             env_dir=env_dir,
