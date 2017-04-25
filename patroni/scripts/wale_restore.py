@@ -24,7 +24,6 @@
 #       recovery_conf:
 #               restore_command: envdir /etc/wal-e.d/env wal-e wal-fetch "%f" "%p" -p 1
 import csv
-import shlex
 from collections import namedtuple
 import logging
 import os
