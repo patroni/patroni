@@ -51,8 +51,15 @@ def get_major_version(data_dir):
     return 0.0
 
 
-WALEConfig = namedtuple('WALEConfig',
-                        'dir,threshold_mb,threshold_pct,iam_string,cmd')
+WALEConfig = namedtuple(
+    'WALEConfig',
+    [
+        'env_dir',
+        'threshold_mb',
+        'threshold_pct',
+        'cmd',
+    ]
+)
 
 
 class WALERestore(object):
@@ -65,29 +72,41 @@ class WALERestore(object):
 
         iam_string = ' --aws-instance-profile ' if use_iam == 1 else ''
 
+        wale_cmd = [
+            'envdir',
+            env_dir,
+            'wal-e',
+        ]
+
+        if iam_string:
+            wale_cmd += [iam_string]
+
         self.wal_e = WALEConfig(
-            dir=env_dir,
+            env_dir=env_dir,
             threshold_mb=threshold_mb,
             threshold_pct=threshold_pct,
-            iam_string=iam_string,
-            cmd='envdir {0} wal-e {1} '.format(env_dir, iam_string)
+            cmd=wale_cmd,
         )
 
-        self.init_error = (not os.path.exists(self.wal_e.dir))
+        self.init_error = (not os.path.exists(self.wal_e.env_dir))
         self.retries = retries
 
     def run(self):
         """ creates a new replica using WAL-E """
-        if not self.init_error:
-            try:
-                ret = self.should_use_s3_to_create_replica()
-                if ret:
-                    return self.create_replica_with_s3()
-                elif ret is None:  # caught an exception, need to retry
-                    return 1
-            except Exception:
-                logger.exception("Exception when running WAL-E restore")
-        return 2
+        if self.init_error:
+            logger.error('init error: %r did not exist at initialization time',
+                         self.wal_e.env_dir)
+            return 2
+
+        try:
+            ret = self.should_use_s3_to_create_replica()
+            if ret:
+                return self.create_replica_with_s3()
+            elif ret is None:  # caught an exception, need to retry
+                return 1
+        except Exception:
+            logger.exception("Exception when running WAL-E restore")
+            return 2
 
     def should_use_s3_to_create_replica(self):
         """ determine whether it makes sense to use S3 and not pg_basebackup """
@@ -96,8 +115,7 @@ class WALERestore(object):
         threshold_backup_size_percentage = self.wal_e.threshold_pct
 
         try:
-            cmd = shlex.split(self.wal_e.cmd) + \
-                           ['backup-list', '--detail', 'LATEST']
+            cmd = self.wal_e.cmd + ['backup-list', '--detail', 'LATEST']
 
             logger.debug('calling %r', cmd)
             wale_output = subprocess.check_output(cmd)
@@ -205,7 +223,11 @@ class WALERestore(object):
     def create_replica_with_s3(self):
         # if we're set up, restore the replica using fetch latest
         try:
-            ret = subprocess.call(self.wal_e.cmd.split() + ['backup-fetch', '{}'.format(self.data_dir), 'LATEST'])
+            cmd = self.wal_e.cmd + ['backup-fetch',
+                                    '{}'.format(self.data_dir),
+                                    'LATEST']
+            logger.debug('calling: %r', cmd)
+            ret = subprocess.call(cmd)
         except Exception as e:
             logger.error('Error when fetching backup with WAL-E: {0}'.format(e))
             return 1
