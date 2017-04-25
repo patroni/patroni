@@ -717,7 +717,9 @@ class Postgresql(object):
         # In order to make everything portable we can't use fork&exec approach here, so  we will call
         # ourselves and pass list of arguments which must be used to start postgres.
         proc = call_self(['pg_ctl_start', self._pgcommand('postgres'), '-D', self._data_dir] + options, close_fds=True,
-                         preexec_fn=os.setsid, stdout=subprocess.PIPE, env={'PATH': os.environ.get('PATH'), 'LC_ALL': os.environ.get('LC_ALL')})
+                         preexec_fn=os.setsid, stdout=subprocess.PIPE,
+                         env={'PATH': os.environ.get('PATH'), 'LC_ALL': os.environ.get('LC_ALL'),
+                              'LANG': os.environ.get('LANG')})
         pid = int(proc.stdout.readline().strip())
         proc.wait()
         logger.info('postmaster pid=%s', pid)
