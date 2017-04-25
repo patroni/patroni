@@ -20,6 +20,7 @@ wale_output = (
     b'00000001000000000000007F\t00000240\n'
 )
 
+
 def make_wale_restore():
     return WALERestore("batman", "/data", "host=batman port=5432 user=batman",
                        "/etc", 100, 100, 1, 0, 1)
