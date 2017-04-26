@@ -2,9 +2,12 @@ import psycopg2
 import subprocess
 import unittest
 import pytest
+import time
 
 from mock import Mock, MagicMock, patch, mock_open
-from patroni.scripts.wale_restore import WALERestore, main as _main, get_major_version
+from patroni.scripts import wale_restore
+from patroni.scripts.wale_restore import WALERestore, main as _main, \
+    get_major_version, ExitCode
 from six.moves import builtins
 
 
@@ -24,10 +27,22 @@ wale_output_values =  (
 
 wale_output = wale_output_header + wale_output_values
 
+wale_restore.RETRY_SLEEP_INTERVAL = 0.1  # Speed up retries
+WALE_TEST_RETRIES = 2
+
 
 def make_wale_restore():
-    return WALERestore("batman", "/data", "host=batman port=5432 user=batman",
-                       "/etc", 100, 100, 1, 0, 1)
+    return WALERestore(
+        scope="batman",
+        datadir="/data",
+        connstring="host=batman port=5432 user=batman",
+        env_dir="/etc",
+        threshold_mb=100,
+        threshold_pct=100,
+        use_iam=1,
+        no_master=0,
+        retries=WALE_TEST_RETRIES,
+    )
 
 
 @pytest.fixture(params=[
@@ -61,6 +76,33 @@ def fx_wale_restore(request):
     return make_wale_restore()
 
 
+@pytest.mark.parametrize('exit_code_int,exit_code', [
+    (0, ExitCode.SUCCESS),
+    (1, ExitCode.RETRY_LATER),
+    (2, ExitCode.FAIL),
+])
+def test_exit_code_enum_members_are_int_compatible(exit_code_int, exit_code):
+    assert exit_code_int == exit_code
+
+
+@pytest.mark.parametrize('mock,exit_code', [
+    (Mock(return_value=True), ExitCode.SUCCESS),
+    (Mock(return_value=False), ExitCode.FAIL),
+    (Mock(return_value=None), ExitCode.RETRY_LATER),  # Handled exception
+    (Mock(side_effect=Exception('Unhandled exception')), ExitCode.FAIL)
+])
+def test_run_exit_codes_by_should_use_s3(mock, exit_code, fx_wale_restore):
+    """
+    Verify that WALERestore.run() returns the correct values based on the 
+    results of WALERestore.should_use_s3t_to_create_replica().
+    """
+    with patch.object(fx_wale_restore, 'should_use_s3_to_create_replica',
+                      mock),\
+            patch.object(fx_wale_restore, 'create_replica_with_s3',
+                         Mock(return_value=ExitCode.SUCCESS)):
+        assert fx_wale_restore.run() == exit_code
+
+
 def test_should_use_s3_too_many_rows(fx_wale_restore):
     with patch('subprocess.check_output',
                Mock(return_value=wale_output_header +
@@ -85,7 +127,7 @@ def test_should_use_s3_missing_unused_field(fx_wale_restore):
 def test_should_use_s3_missing_used_field(fx_wale_restore):
     with patch('subprocess.check_output',
                Mock(return_value=wale_output.replace(b'expanded_size_bytes', b'expanded_size_foo'))):
-        assert not fx_wale_restore.should_use_s3_to_create_replica()
+        assert fx_wale_restore.should_use_s3_to_create_replica() is None
 
 
 @patch('os.access', Mock(return_value=True))
@@ -109,8 +151,15 @@ class TestWALERestore(unittest.TestCase):
             save_master_connection = self.wale_restore.master_connection
 
             self.assertFalse(self.wale_restore.should_use_s3_to_create_replica())
-            self.wale_restore.no_master = 1
-            self.assertTrue(self.wale_restore.should_use_s3_to_create_replica())  # this would do 2 retries 1 sec each
+
+            with patch('time.sleep', Mock(return_value=None)) as mock_sleep:
+                self.wale_restore.no_master = 1
+                assert self.wale_restore.should_use_s3_to_create_replica()
+                # verify retries
+                mock_sleep.assert_has_calls(
+                    [((wale_restore.RETRY_SLEEP_INTERVAL,),)] * WALE_TEST_RETRIES
+                )
+
             self.wale_restore.master_connection = ''
             self.assertTrue(self.wale_restore.should_use_s3_to_create_replica())
 
@@ -147,8 +196,11 @@ class TestWALERestore(unittest.TestCase):
     def test_main(self):
         with patch.object(WALERestore, 'run', Mock(return_value=0)):
             self.assertEqual(_main(), 0)
-        with patch.object(WALERestore, 'run', Mock(return_value=1)):
+
+        with patch.object(WALERestore, 'run', Mock(return_value=1)), \
+             patch('time.sleep', Mock(return_value=None)) as mock_sleep:
             self.assertEqual(_main(), 1)
+            assert mock_sleep.call_count == WALE_TEST_RETRIES
 
     @patch('os.path.isfile', Mock(return_value=True))
     def test_get_major_version(self):

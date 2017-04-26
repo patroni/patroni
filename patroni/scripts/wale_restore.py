@@ -27,6 +27,8 @@ import csv
 from collections import namedtuple
 import logging
 import os
+from enum import IntEnum
+
 import psycopg2
 import subprocess
 import sys
@@ -36,6 +38,19 @@ import argparse
 logger = logging.getLogger(__name__)
 
 RETRY_SLEEP_INTERVAL = 1
+
+
+class ExitCode(IntEnum):
+    """
+    Gives meaningful names to the exit codes used by WALERestore
+    """
+
+    #: Succeeded
+    SUCCESS = 0
+    #: External issue, retry later
+    RETRY_LATER = 1
+    #: Don't try again unless configuration changes
+    FAIL = 2
 
 
 # We need to know the current PG version in order to figure out the correct WAL directory name
@@ -89,21 +104,36 @@ class WALERestore(object):
         self.retries = retries
 
     def run(self):
-        """ creates a new replica using WAL-E """
+        """
+        Creates a new replica using WAL-E
+
+        Returns
+        -------
+        ExitCode
+            0 = Success
+            1 = Error, try again
+            2 = Error, don't try again
+
+        """
         if self.init_error:
             logger.error('init error: %r did not exist at initialization time',
                          self.wal_e.env_dir)
-            return 2
+            return ExitCode.FAIL
 
         try:
-            ret = self.should_use_s3_to_create_replica()
-            if ret:
+            should_use_s3 = self.should_use_s3_to_create_replica()
+            if should_use_s3 is None:  # Need to retry
+                return ExitCode.RETRY_LATER
+            elif should_use_s3:
                 return self.create_replica_with_s3()
-            elif ret is None:  # caught an exception, need to retry
-                return 1
+            elif not should_use_s3:
+                return ExitCode.FAIL
         except Exception:
-            logger.exception("Exception when running WAL-E restore")
-            return 2
+            logger.exception("Unhandled exception when running WAL-E restore")
+            return ExitCode.FAIL
+
+        logger.warning('Missing exit code', stack_info=True)
+        return ExitCode.FAIL
 
     def should_use_s3_to_create_replica(self):
         """ determine whether it makes sense to use S3 and not pg_basebackup """
@@ -224,15 +254,15 @@ class WALERestore(object):
                                     '{}'.format(self.data_dir),
                                     'LATEST']
             logger.debug('calling: %r', cmd)
-            ret = subprocess.call(cmd)
+            exit_code = subprocess.call(cmd)
         except Exception as e:
             logger.error('Error when fetching backup with WAL-E: {0}'.format(e))
-            return 1
+            return ExitCode.RETRY_LATER
 
-        if (ret == 0 and not
+        if (exit_code == 0 and not
            self.fix_subdirectory_path_if_broken('pg_xlog' if get_major_version(self.data_dir) < 10.0 else 'pg_wal')):
-            return 2
-        return ret
+            return ExitCode.FAIL
+        return exit_code
 
 
 def main():
@@ -250,6 +280,9 @@ def main():
     parser.add_argument('--no_master', type=int, default=0)
     args = parser.parse_args()
 
+    exit_code = None
+    assert args.retries >= 0
+
     # Retry cloning in a loop. We do separate retries for the master
     # connection attempt inside should_use_s3_to_create_replica,
     # because we need to differentiate between the last attempt and
@@ -260,12 +293,13 @@ def main():
                               env_dir=args.envdir, threshold_mb=args.threshold_megabytes,
                               threshold_pct=args.threshold_backup_size_percentage, use_iam=args.use_iam,
                               no_master=args.no_master, retries=args.retries)
-        ret = restore.run()
-        if ret != 1:  # only WAL-E failures lead to the retry
+        exit_code = restore.run()
+        if not exit_code == ExitCode.RETRY_LATER:  # only WAL-E failures lead to the retry
+            logger.debug('exit_code is %r, not retrying', exit_code)
             break
         time.sleep(RETRY_SLEEP_INTERVAL)
 
-    return ret
+    return exit_code
 
 
 if __name__ == '__main__':
