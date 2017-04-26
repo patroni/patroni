@@ -718,8 +718,7 @@ class Postgresql(object):
         # ourselves and pass list of arguments which must be used to start postgres.
         proc = call_self(['pg_ctl_start', self._pgcommand('postgres'), '-D', self._data_dir] + options, close_fds=True,
                          preexec_fn=os.setsid, stdout=subprocess.PIPE,
-                         env={'PATH': os.environ.get('PATH'), 'LC_ALL': os.environ.get('LC_ALL'),
-                              'LANG': os.environ.get('LANG')})
+                         env={p: os.environ[p] for p in ('PATH', 'LC_ALL', 'LANG') if p in os.environ})
         pid = int(proc.stdout.readline().strip())
         proc.wait()
         logger.info('postmaster pid=%s', pid)
