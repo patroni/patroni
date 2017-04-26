@@ -2,7 +2,6 @@ import psycopg2
 import subprocess
 import unittest
 import pytest
-import time
 
 from mock import Mock, MagicMock, patch, mock_open
 from patroni.scripts import wale_restore
@@ -93,7 +92,7 @@ def test_exit_code_enum_members_are_int_compatible(exit_code_int, exit_code):
 ])
 def test_run_exit_codes_by_should_use_s3(mock, exit_code, fx_wale_restore):
     """
-    Verify that WALERestore.run() returns the correct values based on the 
+    Verify that WALERestore.run() returns the correct values based on the
     results of WALERestore.should_use_s3t_to_create_replica().
     """
     with patch.object(fx_wale_restore, 'should_use_s3_to_create_replica',
