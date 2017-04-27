@@ -19,6 +19,7 @@ class MockCursor(object):
     def __init__(self, connection):
         self.connection = connection
         self.closed = False
+        self.rowcount = 0
         self.results = []
 
     def execute(self, sql, *params):
@@ -740,6 +741,8 @@ class TestPostgresql(unittest.TestCase):
 
     def test_get_server_parameters(self):
         config = {'synchronous_mode': True, 'parameters': {'wal_level': 'hot_standby'}, 'listen': '0'}
+        self.p.get_server_parameters(config)
+        config['synchronous_mode_strict'] = True
         self.p.get_server_parameters(config)
         self.p.set_synchronous_standby('foo')
         self.p.get_server_parameters(config)

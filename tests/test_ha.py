@@ -663,6 +663,13 @@ class TestHa(unittest.TestCase):
         self.ha.run_cycle()
         self.assertEquals(self.ha.dcs.write_sync_state.call_count, 1)
 
+        # Test sync set to '*' when synchronous_mode_strict is enabled
+        mock_set_sync.reset_mock()
+        self.ha.is_synchronous_mode_strict = true
+        self.p.pick_synchronous_standby = Mock(return_value=(None, False))
+        self.ha.run_cycle()
+        mock_set_sync.assert_called_once_with('*')
+
     def test_sync_replication_become_master(self):
         self.ha.is_synchronous_mode = true
 
@@ -771,3 +778,14 @@ class TestHa(unittest.TestCase):
 
     def test_wakup(self):
         self.ha.wakeup()
+
+    def test_leader_with_empty_directory(self):
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.ha.has_lock = true
+        self.p.data_directory_empty = true
+        self.assertEquals(self.ha.run_cycle(), 'released leader key voluntarily as data dir empty and currently leader')
+
+        # as has_lock is mocked out, we need to fake the leader key release
+        self.ha.has_lock = false
+        # will not say bootstrap from leader as replica can't self elect
+        self.assertEquals(self.ha.run_cycle(), "trying to bootstrap from replica 'other'")

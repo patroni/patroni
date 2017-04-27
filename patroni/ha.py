@@ -165,8 +165,10 @@ class Ha(object):
                 return 'failed to acquire initialize lock'
         else:
             if self.state_handler.can_create_replica_without_replication_connection():
+                msg = 'bootstrap (without leader)'
+                self._async_executor.schedule(msg)
                 self._async_executor.run_async(self.clone)
-                return "trying to bootstrap (without leader)"
+                return 'trying to ' + msg
             return 'waiting for leader to bootstrap'
 
     def recover(self):
@@ -233,6 +235,9 @@ class Ha(object):
     def is_synchronous_mode(self):
         return bool(self.cluster and self.cluster.config and self.cluster.config.data.get('synchronous_mode'))
 
+    def is_synchronous_mode_strict(self):
+        return bool(self.cluster and self.cluster.config and self.cluster.config.data.get('synchronous_mode_strict'))
+
     def process_sync_replication(self):
         """Process synchronous standby beahvior.
 
@@ -252,10 +257,15 @@ class Ha(object):
                     if not self.dcs.write_sync_state(self.state_handler.name, None, index=self.cluster.sync.index):
                         logger.info('Synchronous replication key updated by someone else.')
                         return
+
+                if self.is_synchronous_mode_strict() and picked is None:
+                    picked = '*'
+                    logger.warning("No standbys available!")
+
                 logger.info("Assigning synchronous standby status to %s", picked)
                 self.state_handler.set_synchronous_standby(picked)
 
-                if picked and not allow_promote:
+                if picked and picked != '*' and not allow_promote:
                     # Wait for PostgreSQL to enable synchronous mode and see if we can immediately set sync_standby
                     time.sleep(2)
                     picked, allow_promote = self.state_handler.pick_synchronous_standby(self.cluster)
@@ -894,6 +904,11 @@ class Ha(object):
 
             # is data directory empty?
             if self.state_handler.data_directory_empty():
+                # is this instance the leader?
+                if self.has_lock():
+                    self.release_leader_key_voluntarily()
+                    return 'released leader key voluntarily as data dir empty and currently leader'
+
                 return self.bootstrap()  # new node
             # "bootstrap", but data directory is not empty
             elif not self.sysid_valid(self.cluster.initialize) and self.cluster.is_unlocked() and not self.is_paused():
