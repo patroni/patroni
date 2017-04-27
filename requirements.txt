@@ -12,3 +12,4 @@ prettytable>=0.7
 tzlocal
 python-dateutil
 enum34
+humanize==0.5.1
