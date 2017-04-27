@@ -175,7 +175,10 @@ class Postgresql(object):
         parameters.update({'cluster_name': self.scope, 'listen_addresses': listen_addresses, 'port': port})
         if config.get('synchronous_mode', False):
             if self._synchronous_standby_names is None:
-                parameters.pop('synchronous_standby_names', None)
+                if config.get('synchronous_mode_strict', False):
+                    parameters['synchronous_standby_names'] = '*'
+                else:
+                    parameters.pop('synchronous_standby_names', None)
             else:
                 parameters['synchronous_standby_names'] = self._synchronous_standby_names
         if self._major_version >= 9.6 and parameters['wal_level'] == 'hot_standby':

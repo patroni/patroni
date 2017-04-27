@@ -663,6 +663,13 @@ class TestHa(unittest.TestCase):
         self.ha.run_cycle()
         self.assertEquals(self.ha.dcs.write_sync_state.call_count, 1)
 
+        # Test sync set to '*' when synchronous_mode_strict is enabled
+        mock_set_sync.reset_mock()
+        self.ha.is_synchronous_mode_strict = true
+        self.p.pick_synchronous_standby = Mock(return_value=(None, False))
+        self.ha.run_cycle()
+        mock_set_sync.assert_called_once_with('*')
+
     def test_sync_replication_become_master(self):
         self.ha.is_synchronous_mode = true
 

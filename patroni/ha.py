@@ -223,6 +223,9 @@ class Ha(object):
     def is_synchronous_mode(self):
         return bool(self.cluster and self.cluster.config and self.cluster.config.data.get('synchronous_mode'))
 
+    def is_synchronous_mode_strict(self):
+        return bool(self.cluster and self.cluster.config and self.cluster.config.data.get('synchronous_mode_strict'))
+
     def process_sync_replication(self):
         """Process synchronous standby beahvior.
 
@@ -242,10 +245,15 @@ class Ha(object):
                     if not self.dcs.write_sync_state(self.state_handler.name, None, index=self.cluster.sync.index):
                         logger.info('Synchronous replication key updated by someone else.')
                         return
+
+                if self.is_synchronous_mode_strict() and picked is None:
+                    picked = '*'
+                    logger.warning("No standbys available!")
+
                 logger.info("Assigning synchronous standby status to %s", picked)
                 self.state_handler.set_synchronous_standby(picked)
 
-                if picked and not allow_promote:
+                if picked and picked != '*' and not allow_promote:
                     # Wait for PostgreSQL to enable synchronous mode and see if we can immediately set sync_standby
                     time.sleep(2)
                     picked, allow_promote = self.state_handler.pick_synchronous_standby(self.cluster)

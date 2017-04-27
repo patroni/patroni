@@ -768,5 +768,7 @@ class TestPostgresql(unittest.TestCase):
     def test_get_server_parameters(self):
         config = {'synchronous_mode': True, 'parameters': {'wal_level': 'hot_standby'}, 'listen': '0'}
         self.p.get_server_parameters(config)
+        config['synchronous_mode_strict'] = True
+        self.p.get_server_parameters(config)
         self.p.set_synchronous_standby('foo')
         self.p.get_server_parameters(config)
