@@ -165,8 +165,10 @@ class Ha(object):
                 return 'failed to acquire initialize lock'
         else:
             if self.state_handler.can_create_replica_without_replication_connection():
+                msg = 'bootstrap (without leader)'
+                self._async_executor.schedule(msg)
                 self._async_executor.run_async(self.clone)
-                return "trying to bootstrap (without leader)"
+                return 'trying to ' + msg
             return 'waiting for leader to bootstrap'
 
     def recover(self):
