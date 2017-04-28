@@ -957,8 +957,9 @@ class Postgresql(object):
     def need_rewind(self):
         return self._rewind_state in (REWIND_STATUS.CHECK, REWIND_STATUS.NEED)
 
+    @staticmethod
     @contextmanager
-    def _get_connection_cursor(self, **kwargs):
+    def _get_connection_cursor(**kwargs):
         with psycopg2.connect(**kwargs) as conn:
             conn.autocommit = True
             with conn.cursor() as cur:
