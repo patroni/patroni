@@ -126,6 +126,7 @@ def run_async(self, func, args=()):
 @patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=False))
 @patch('patroni.async_executor.AsyncExecutor.run_async', run_async)
 @patch('subprocess.call', Mock(return_value=0))
+@patch('time.sleep', Mock())
 class TestHa(unittest.TestCase):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
@@ -167,7 +168,6 @@ class TestHa(unittest.TestCase):
 
     def test_recover_replica_failed(self):
         self.p.controldata = lambda: {'Database cluster state': 'in production'}
-        self.p.is_healthy = false
         self.p.is_running = false
         self.p.follow = false
         self.assertEquals(self.ha.run_cycle(), 'starting as a secondary')
@@ -175,13 +175,18 @@ class TestHa(unittest.TestCase):
 
     def test_recover_master_failed(self):
         self.p.follow = false
-        self.p.is_healthy = false
         self.p.is_running = false
         self.p.name = 'leader'
         self.p.set_role('master')
         self.p.controldata = lambda: {'Database cluster state': 'in production'}
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.assertEquals(self.ha.run_cycle(), 'starting as readonly because i had the session lock')
+
+    @patch.object(Postgresql, 'rewind_needed_and_possible', Mock(return_value=True))
+    def test_recover_with_rewind(self):
+        self.p.is_running = false
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.assertEquals(self.ha.run_cycle(), 'running pg_rewind from leader')
 
     @patch('sys.exit', return_value=1)
     @patch('patroni.ha.Ha.sysid_valid', MagicMock(return_value=True))
@@ -260,6 +265,13 @@ class TestHa(unittest.TestCase):
         self.p.is_leader = false
         self.assertEquals(self.ha.run_cycle(), 'PAUSE: no action')
 
+    @patch.object(Postgresql, 'rewind_needed_and_possible', Mock(return_value=True))
+    def test_follow_triggers_rewind(self):
+        self.p.is_leader = false
+        self.p.trigger_check_diverged_lsn()
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.assertEquals(self.ha.run_cycle(), 'running pg_rewind from leader')
+
     def test_no_etcd_connection_master_demote(self):
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
         self.assertEquals(self.ha.run_cycle(), 'demoted self because DCS is not accessible and i was a leader')
@@ -331,7 +343,6 @@ class TestHa(unittest.TestCase):
             self.assertEquals(self.ha.run_cycle(), 'failed to update leader lock during restart')
 
     @patch('requests.get', requests_get)
-    @patch('time.sleep', Mock())
     def test_manual_failover_from_leader(self):
         self.ha.fetch_node_status = get_node_status()
         self.ha.has_lock = true
@@ -343,6 +354,8 @@ class TestHa(unittest.TestCase):
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
         f = Failover(0, self.p.name, '', None)
         self.ha.cluster = get_cluster_initialized_with_leader(f)
+        self.assertEquals(self.ha.run_cycle(), 'manual failover: demoting myself')
+        self.p.rewind_needed_and_possible = true
         self.assertEquals(self.ha.run_cycle(), 'manual failover: demoting myself')
         self.ha.fetch_node_status = get_node_status(nofailover=True)
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
@@ -384,7 +397,6 @@ class TestHa(unittest.TestCase):
         self.assertEquals('PAUSE: no action.  i am the leader with the lock', self.ha.run_cycle())
 
     @patch('requests.get', requests_get)
-    @patch('time.sleep', Mock())
     def test_manual_failover_process_no_leader(self):
         self.p.is_leader = false
         self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', self.p.name, None))
@@ -409,7 +421,6 @@ class TestHa(unittest.TestCase):
         self.ha.patroni.nofailover = True
         self.assertEquals(self.ha.run_cycle(), 'following a different leader because I am not allowed to promote')
 
-    @patch('time.sleep', Mock())
     def test_manual_failover_process_no_leader_in_pause(self):
         self.ha.is_paused = true
         self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', 'other', None))
@@ -569,7 +580,6 @@ class TestHa(unittest.TestCase):
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am a secondary and i am following a leader')
         check_calls([(update_lock, False), (demote, False)])
 
-    @patch('time.sleep', Mock())
     def test_manual_failover_while_starting(self):
         self.ha.has_lock = true
         self.p.check_for_startup = true
@@ -589,15 +599,13 @@ class TestHa(unittest.TestCase):
         self.assertEquals(self.ha.run_cycle(), 'stopped PostgreSQL to fail over after a crash')
         demote.assert_called_once()
 
-    @patch('time.sleep', Mock())
     @patch('patroni.postgresql.Postgresql.follow')
     def test_demote_immediate(self, follow):
         self.ha.has_lock = true
         self.e.get_cluster = Mock(return_value=get_cluster_initialized_without_leader())
         self.ha.demote('immediate')
-        follow.assert_called_once_with(None, None)
+        follow.assert_called_once_with(None)
 
-    @patch('time.sleep', Mock())
     def test_process_sync_replication(self):
         self.ha.has_lock = true
         mock_set_sync = self.p.set_synchronous_standby = Mock()
@@ -724,8 +732,7 @@ class TestHa(unittest.TestCase):
         mock_promote.assert_called_once()
         mock_write_sync.assert_called_once_with('other', None, index=0)
 
-    @patch('time.sleep')
-    def test_disable_sync_when_restarting(self, mock_sleep):
+    def test_disable_sync_when_restarting(self):
         self.ha.is_synchronous_mode = true
 
         self.p.name = 'other'
@@ -738,10 +745,10 @@ class TestHa(unittest.TestCase):
             get_cluster_initialized_with_leader(sync=('leader', syncstandby))
             for syncstandby in ['other', None]])
 
-        self.ha.restart({})
-
-        mock_restart.assert_called_once()
-        mock_sleep.assert_called()
+        with patch('time.sleep') as mock_sleep:
+            self.ha.restart({})
+            mock_restart.assert_called_once()
+            mock_sleep.assert_called()
 
         # Restart is still called when DCS connection fails
         mock_restart.reset_mock()

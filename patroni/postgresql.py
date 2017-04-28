@@ -30,6 +30,8 @@ STATE_REJECT = 'rejecting connections'
 STATE_NO_RESPONSE = 'not responding'
 STATE_UNKNOWN = 'unknown'
 
+REWIND_STATUS = type('Enum', (), {'INITIAL': 0, 'CHECK': 1, 'NEED': 2, 'NOT_NEED': 3, 'SUCCESS': 4, 'FAILED': 5})
+
 
 def slot_name_from_member_name(member_name):
     """Translate member name to valid PostgreSQL slot name.
@@ -100,7 +102,7 @@ class Postgresql(object):
         self._replication = config['authentication']['replication']
         self.resolve_connection_addresses()
 
-        self._rewind_state = None
+        self._rewind_state = REWIND_STATUS.INITIAL
         self._use_slots = config.get('use_slots', True)
         self._schedule_load_slots = self.use_slots
 
@@ -755,15 +757,13 @@ class Postgresql(object):
         for p in ['connect_timeout', 'options']:
             connect_kwargs.pop(p, None)
         try:
-            with psycopg2.connect(**connect_kwargs) as conn:
-                conn.autocommit = True
-                with conn.cursor() as cur:
-                    cur.execute("SET statement_timeout = 0")
-                    if check_not_is_in_recovery:
-                        cur.execute('SELECT pg_is_in_recovery()')
-                        if cur.fetchone()[0]:
-                            return 'is_in_recovery=true'
-                    return cur.execute('CHECKPOINT')
+            with self._get_connection_cursor(**connect_kwargs) as cur:
+                cur.execute("SET statement_timeout = 0")
+                if check_not_is_in_recovery:
+                    cur.execute('SELECT pg_is_in_recovery()')
+                    if cur.fetchone()[0]:
+                        return 'is_in_recovery=true'
+                return cur.execute('CHECKPOINT')
         except psycopg2.Error:
             logging.exception('Exception during CHECKPOINT')
             return 'not accessible or not healty'
@@ -955,16 +955,31 @@ class Postgresql(object):
 
     @property
     def need_rewind(self):
-        return self._rewind_state in ('rewind_need_to_check', 'rewind_needed')
+        return self._rewind_state in (REWIND_STATUS.CHECK, REWIND_STATUS.NEED)
 
     @contextmanager
-    def _get_replication_connection_cursor(self, host='localhost', port=5432, **kwargs):
-        with psycopg2.connect(host=host, port=int(port), database=self._database, replication=1,
-                              user=self._replication['username'], password=self._replication['password'],
-                              connect_timeout=3, options='-c statement_timeout=2000') as conn:
+    def _get_connection_cursor(self, **kwargs):
+        with psycopg2.connect(**kwargs) as conn:
             conn.autocommit = True
             with conn.cursor() as cur:
                 yield cur
+
+    @contextmanager
+    def _get_replication_connection_cursor(self, host='localhost', port=5432, **kwargs):
+        with self._get_connection_cursor(host=host, port=int(port), database=self._database, replication=1,
+                                         user=self._replication['username'], password=self._replication['password'],
+                                         connect_timeout=3, options='-c statement_timeout=2000') as cur:
+            yield cur
+
+    def check_leader_is_not_in_recovery(self, **kwargs):
+        try:
+            with self._get_connection_cursor(connect_timeout=3, options='-c statement_timeout=2000', **kwargs) as cur:
+                cur.execute('SELECT pg_is_in_recovery()')
+                if not cur.fetchone()[0]:
+                    return True
+                logger.info('Leader is still in_recovery and therefore can\'t be used for rewind')
+        except Exception:
+            return logger.exception('Exception when working with leader')
 
     def _get_local_timeline_lsn(self):
         timeline = lsn = None
@@ -986,11 +1001,15 @@ class Postgresql(object):
                     timeline = int(data.get("Min recovery ending loc's timeline"))
             except (TypeError, ValueError):
                 logger.exception('Failed to get local timeline and lsn from pg_controldata output')
+        logger.info('Local timeline=%s lsn=%s', timeline, lsn)
         return timeline, lsn
 
     def _check_timeline_and_lsn(self, leader):
         local_timeline, local_lsn = self._get_local_timeline_lsn()
         if local_timeline is None or local_lsn is None:
+            return
+
+        if not self.check_leader_is_not_in_recovery(**leader.conn_kwargs(self._superuser)):
             return
 
         history = need_rewind = None
@@ -1031,12 +1050,9 @@ class Postgresql(object):
                     except ValueError:
                         continue
 
-        if need_rewind:
-            self._rewind_state = 'rewind_needed'
-        else:
-            self._rewind_state = 'rewind_not_needed'
+        self._rewind_state = need_rewind and REWIND_STATUS.NEED or REWIND_STATUS.NOT_NEED
 
-    def _do_rewind(self, leader):
+    def rewind(self, leader):
         if self.is_running() and not self.stop(checkpoint=False):
             return logger.warning('Can not run pg_rewind because postgres is still running')
 
@@ -1051,8 +1067,8 @@ class Postgresql(object):
             return logger.warning('Can not use %s for rewind: %s', leader.name, leader_status)
 
         if self.pg_rewind(r):
-            self._rewind_state = 'rewind_executed_successfully'
-        elif self.checkpoint(r):
+            self._rewind_state = REWIND_STATUS.SUCCESS
+        elif not self.check_leader_is_not_in_recovery(**r):
             logger.warning('Failed to rewind because master %s become unreachable', leader.name)
         else:
             logger.error('Failed to rewind from healty master: %s', leader.name)
@@ -1060,27 +1076,25 @@ class Postgresql(object):
             if self.config.get('remove_data_directory_on_rewind_failure', False):
                 logger.warning('remove_data_directory_on_rewind_failure is set. removing...')
                 self.remove_data_directory()
-                self._rewind_state = None
+                self._rewind_state = REWIND_STATUS.INITIAL
             else:
-                self._rewind_state = 'rewind_failed'
+                self._rewind_state = REWIND_STATUS.FAILED
         return False
 
     def trigger_check_diverged_lsn(self):
-        if self.can_rewind:
-            self._rewind_state = 'rewind_need_to_check'
+        if self.can_rewind and self._rewind_state != REWIND_STATUS.NEED:
+            self._rewind_state = REWIND_STATUS.CHECK
 
-    def follow(self, member, leader, timeout=None):
-        if leader and leader.name != self.name and leader.conn_url:
-            if self.is_running():
-                if self.is_leader():
-                    self.trigger_check_diverged_lsn()
-                    if not self.stop(checkpoint=False):
-                        return
-            if self._rewind_state == 'rewind_need_to_check':
-                self._check_timeline_and_lsn(leader)
-            if self._rewind_state == 'rewind_needed':
-                return self._do_rewind(leader)
+    def rewind_needed_and_possible(self, leader):
+        if leader and leader.name != self.name and leader.conn_url and self._rewind_state == REWIND_STATUS.CHECK:
+            self._check_timeline_and_lsn(leader)
+        return leader and leader.conn_url and self._rewind_state == REWIND_STATUS.NEED
 
+    @property
+    def rewind_executed(self):
+        return self._rewind_state > REWIND_STATUS.NOT_NEED
+
+    def follow(self, member, timeout=None):
         primary_conninfo = self.primary_conninfo(member)
         change_role = self.role in ('master', 'demoted')
 
@@ -1125,7 +1139,7 @@ class Postgresql(object):
         if ret:
             self.set_role('master')
             logger.info("cleared rewind state after becoming the leader")
-            self._rewind_state = None
+            self._rewind_state = REWIND_STATUS.INITIAL
             self.call_nowait(ACTION_ON_ROLE_CHANGE)
         return ret
 

@@ -131,7 +131,7 @@ class Ha(object):
             logger.info('bootstrapped %s', msg)
             cluster = self.dcs.get_cluster()
             node_to_follow = self._get_node_to_follow(cluster)
-            return self.state_handler.follow(node_to_follow, cluster.leader)
+            return self.state_handler.follow(node_to_follow)
         else:
             logger.error('failed to bootstrap %s', msg)
             self.state_handler.remove_data_directory()
@@ -171,6 +171,12 @@ class Ha(object):
                 return 'trying to ' + msg
             return 'waiting for leader to bootstrap'
 
+    def _handle_rewind(self):
+        if self.state_handler.rewind_needed_and_possible(self.cluster.leader):
+            self._async_executor.schedule('running pg_rewind from ' + self.cluster.leader.name)
+            self._async_executor.run_async(self.state_handler.rewind, (self.cluster.leader,))
+            return True
+
     def recover(self):
         if self.has_lock() and self.update_lock():
             timeout = self.patroni.config['master_start_timeout']
@@ -184,19 +190,22 @@ class Ha(object):
         else:
             timeout = None
 
-        self.recovering = True
         self.load_cluster_from_dcs()
 
         if self.has_lock():
             msg = "starting as readonly because i had the session lock"
             node_to_follow = None
         else:
+            if not self.state_handler.rewind_executed:
+                self.state_handler.trigger_check_diverged_lsn()
+            if self._handle_rewind():
+                return self._async_executor.scheduled_action
             msg = "starting as a secondary"
             node_to_follow = self._get_node_to_follow(self.cluster)
 
-        self.state_handler.trigger_check_diverged_lsn()
+        self.recovering = True
         self._async_executor.schedule('restarting after failure')
-        self._async_executor.run_async(self.state_handler.follow, (node_to_follow, self.cluster.leader, timeout))
+        self._async_executor.run_async(self.state_handler.follow, (node_to_follow, timeout))
         return msg
 
     def _get_node_to_follow(self, cluster):
@@ -217,20 +226,25 @@ class Ha(object):
 
         node_to_follow = self._get_node_to_follow(self.cluster)
 
-        if self.is_paused() and not (self.state_handler.need_rewind and self.state_handler.can_rewind):
-            self.state_handler.set_role('master' if is_leader else 'replica')
-            if is_leader:
-                return 'continue to run as master without lock'
-            elif not node_to_follow:
-                return 'no action'
+        if self.is_paused():
+            if not (self.state_handler.need_rewind and self.state_handler.can_rewind) or self.cluster.is_unlocked():
+                self.state_handler.set_role('master' if is_leader else 'replica')
+                if is_leader:
+                    return 'continue to run as master without lock'
+                elif not node_to_follow:
+                    return 'no action'
+        elif is_leader:
+            self.demote('immediate')
+            return demote_reason
+
+        if self._handle_rewind():
+            return self._async_executor.scheduled_action
 
         if not self.state_handler.check_recovery_conf(node_to_follow):
-            if is_leader:
-                self.state_handler.trigger_check_diverged_lsn()
             self._async_executor.schedule('changing primary_conninfo and restarting')
-            self._async_executor.run_async(self.state_handler.follow, (node_to_follow, self.cluster.leader))
+            self._async_executor.run_async(self.state_handler.follow, (node_to_follow,))
 
-        return demote_reason if is_leader else follow_reason
+        return follow_reason
 
     def is_synchronous_mode(self):
         return bool(self.cluster and self.cluster.config and self.cluster.config.data.get('synchronous_mode'))
@@ -507,6 +521,7 @@ class Ha(object):
                 without regard for data durability. May only be called synchronously.
         """
         assert mode in ['offline', 'graceful', 'immediate']
+        self.state_handler.trigger_check_diverged_lsn()
         if mode != 'offline':
             if mode == 'immediate':
                 self.state_handler.stop('immediate', checkpoint=False)
@@ -520,15 +535,18 @@ class Ha(object):
             if mode == 'immediate':
                 # We will try to start up as a standby now. If no one takes the leader lock before we finish
                 # recovery we will try to promote ourselves.
-                self._async_executor.schedule('waiting for failover to complete')
-                self._async_executor.run_async(self.state_handler.follow, (node_to_follow, cluster.leader))
+                self._async_executor.schedule('starting after demotion')
+                self._async_executor.run_async(self.state_handler.follow, (node_to_follow,))
             else:
-                return self.state_handler.follow(node_to_follow, cluster.leader)
+                logger.info('cluster.leader = %s', cluster.leader)
+                if self.state_handler.rewind_needed_and_possible(cluster.leader):
+                    return False  # do not start postgres, but run pg_rewind on the next iteration
+                return self.state_handler.follow(node_to_follow)
         else:
             # Need to become unavailable as soon as possible, so initiate a stop here. However as we can't release
             # the leader key we don't care about confirming the shutdown quickly and can use a regular stop.
             self.state_handler.stop(checkpoint=False)
-            self.state_handler.follow(None, None)
+            self.state_handler.follow(None)
 
     def should_run_scheduled_action(self, action_name, scheduled_at, cleanup_fn):
         if scheduled_at and not self.is_paused():
@@ -944,7 +962,8 @@ class Ha(object):
                 # asynchronous processes are running (should be always the case for the master)
                 if not self._async_executor.busy and not self.state_handler.is_starting():
                     if not self.state_handler.cb_called:
-                        self.state_handler.trigger_check_diverged_lsn()
+                        if not self.state_handler.is_leader():
+                            self.state_handler.trigger_check_diverged_lsn()
                         self.state_handler.call_nowait(ACTION_ON_START)
                     self.state_handler.sync_replication_slots(self.cluster)
         except DCSError:
