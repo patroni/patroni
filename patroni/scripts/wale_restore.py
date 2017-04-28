@@ -66,8 +66,8 @@ def get_major_version(data_dir):
     return 0.0
 
 
-def repr_size(size_):
-    return humanize.naturalsize(size_, binary=True)
+def repr_size(n_bytes):
+    return humanize.naturalsize(n_bytes, binary=True)
 
 
 def size_as_bytes(size_, prefix):
@@ -248,22 +248,46 @@ class WALERestore(object):
         is_percentage_thresh_ok = float(diff_in_bytes) < int(threshold_pct_bytes)
         are_thresholds_ok = is_size_thresh_ok and is_percentage_thresh_ok
 
+        class Size(object):
+            def __init__(self, n_bytes, prefix=None):
+                self.n_bytes = n_bytes
+                self.prefix = prefix
+
+            def __repr__(self):
+                if self.prefix is not None:
+                    n_bytes = size_as_bytes(self.n_bytes, self.prefix)
+                else:
+                    n_bytes = self.n_bytes
+                return repr_size(n_bytes)
+
+        class HumanContext(object):
+            def __init__(self, items):
+                self.items = items
+
+            def __repr__(self):
+                return ', '.join('{}={!r}'.format(key, value)
+                                 for key, value in self.items)
+
+        human_context = HumanContext([
+            ('threshold_size', Size(threshold_megabytes, 'M')),
+            ('threshold_percent', threshold_percent),
+            ('threshold_percent_size', Size(threshold_pct_bytes)),
+            ('backup_size', Size(backup_size)),
+            ('backup_diff', Size(diff_in_bytes)),
+            ('is_size_thresh_ok', is_size_thresh_ok),
+            ('is_percentage_thresh_ok', is_percentage_thresh_ok),
+        ])
+
         if not are_thresholds_ok:
             logger.error(
-                'WAL-E backup size diff is over threshold, falling back '
-                'to other means of restore. '
-                'Thresholds: size=%s, percent=%r, percent as bytes: %s. '
-                'Backup size: %s '
-                'Difference: %s '
-                'is_size_thresh_ok=%r '
-                'is_percent_thresh_ok=%r ',
-                repr_size(size_as_bytes(threshold_megabytes, 'M')),
-                threshold_percent,
-                repr_size(threshold_pct_bytes),
-                repr_size(backup_size),
-                repr_size(diff_in_bytes),
-                is_size_thresh_ok,
-                is_percentage_thresh_ok,
+                'wal-e backup size diff is over threshold, falling back '
+                'to other means of restore. %r',
+                human_context
+            )
+        else:
+            logger.info(
+                'Thresholds are OK, using wal-e basebackup. %r',
+                human_context
             )
         return are_thresholds_ok
 
