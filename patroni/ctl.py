@@ -4,6 +4,7 @@ Patroni Control
 
 import base64
 import click
+import codecs
 import datetime
 import dateutil.parser
 import cdiff
@@ -32,6 +33,7 @@ from patroni.postgresql import Postgresql
 from patroni.utils import is_valid_pg_version, patch_config
 from prettytable import PrettyTable
 from six.moves.urllib_parse import urlparse
+from six import text_type
 
 CONFIG_DIR_PATH = click.get_app_dir('patroni')
 CONFIG_FILE_PATH = os.path.join(CONFIG_DIR_PATH, 'patronictl.yaml')
@@ -849,7 +851,8 @@ def show_diff(before_editing, after_editing):
     if sys.stdout.isatty():
         buf = io.StringIO()
         for line in unified_diff:
-            buf.write(line)
+            # Force cast to unicode as difflib on Python 2.7 returns a mix of unicode and str.
+            buf.write(text_type(line))
         buf.seek(0)
 
         class opts:
@@ -860,6 +863,10 @@ def show_diff(before_editing, after_editing):
     else:
         for line in unified_diff:
             click.echo(line.rstrip('\n'))
+
+
+def format_config_for_editing(data):
+    return yaml.safe_dump(data, default_flow_style=False, encoding=None, allow_unicode=True)
 
 
 def apply_config_changes(before_editing, data, kvpairs):
@@ -883,7 +890,7 @@ def apply_config_changes(before_editing, data, kvpairs):
         key_path, value = pair.split("=", 1)
         set_path_value(changed_data, key_path.strip().split("."), yaml.safe_load(value))
 
-    return yaml.safe_dump(changed_data, default_flow_style=False), changed_data
+    return format_config_for_editing(changed_data), changed_data
 
 
 def apply_yaml_file(data, filename):
@@ -897,7 +904,7 @@ def apply_yaml_file(data, filename):
 
     patch_config(changed_data, new_options)
 
-    return yaml.safe_dump(changed_data, default_flow_style=False), changed_data
+    return format_config_for_editing(changed_data), changed_data
 
 
 def invoke_editor(before_editing, data, cluster_name):
@@ -912,7 +919,7 @@ def invoke_editor(before_editing, data, cluster_name):
         if ret:
             raise PatroniCtlException("Editor exited with return code {0}".format(ret))
 
-        with open(tmpfile, encoding='utf-8') as fd:
+        with codecs.open(tmpfile, encoding='utf-8') as fd:
             after_editing = fd.read()
 
         return after_editing, yaml.safe_load(after_editing)
@@ -935,7 +942,7 @@ def edit_config(obj, cluster_name, force, quiet, kvpairs, pgkvpairs, apply_filen
     dcs = get_dcs(obj, cluster_name)
     cluster = dcs.get_cluster()
 
-    before_editing = yaml.safe_dump(cluster.config.data, default_flow_style=False)
+    before_editing = format_config_for_editing(cluster.config.data)
 
     after_editing = None  # Serves as a flag if any changes were requested
     changed_data = cluster.config.data
@@ -978,4 +985,4 @@ def edit_config(obj, cluster_name, force, quiet, kvpairs, pgkvpairs, apply_filen
 def show_config(obj, cluster_name):
     cluster = get_dcs(obj, cluster_name).get_cluster()
 
-    click.echo(yaml.safe_dump(cluster.config.data, default_flow_style=False))
+    click.echo(format_config_for_editing(cluster.config.data))
