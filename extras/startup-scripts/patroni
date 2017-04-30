@@ -1,0 +1,77 @@
+#!/bin/sh
+#
+### BEGIN INIT INFO
+# Provides:          patroni
+# Required-Start:    $remote_fs $syslog
+# Required-Stop:     $remote_fs $syslog
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Patroni init script
+# Description:       Runners to orchestrate a high-availability PostgreSQL
+### END INIT INFO
+
+NAME="patroni"
+PATRONI="/opt/patroni/$NAME.py"
+PIDFILE="/var/run/$NAME.pid"
+CONF="/etc/$NAME/postgres.yml"
+USER="postgres"
+GROUP="postgres"
+LOGFILE="/var/log/patroni.log"
+
+. /lib/lsb/init-functions
+
+# Check executable file
+if test ! -e $PATRONI; then
+  log_action_msg "Patroni executable $PATRONI does not exist."
+  exit 0
+fi
+
+# Check config file
+if test ! -e $CONF; then
+  log_action_msg "Patroni configuration file $CONF does not exist."
+  exit 0
+fi
+
+# Check log file
+if test ! -e $LOGFILE; then
+  log_action_msg "Creating logfile for Patroni..."
+  touch $LOGFILE
+  chown $USER:$GROUP $LOGFILE
+fi
+
+case "$1" in
+  start)
+    log_daemon_msg "Starting Patroni."
+    exec start-stop-daemon --start --quiet \
+        --background \
+        --make-pidfile \
+        --pidfile $PIDFILE \
+        --chuid $USER:$GROUP \
+        --chdir `eval echo ~$USER` \
+        --startas /bin/sh \
+        -- -c "exec $PATRONI $CONF >> $LOGFILE 2>&1"
+    ;;
+
+  stop)
+    log_daemon_msg "Stopping Patroni." patroni
+    start-stop-daemon --stop --pidfile $PIDFILE --remove-pidfile
+    ;;
+
+  restart)
+    $0 stop
+    $0 start
+    ;;
+
+  *)
+    echo "Usage: /etc/init.d/$NAME {start|stop|restart}"
+    exit 1
+    ;;
+esac
+
+if [ $? -eq 0 ]; then
+        echo .
+        exit 0
+else
+        echo " failed"
+        exit 1
+fi
