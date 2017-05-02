@@ -116,6 +116,7 @@ class Postgresql(object):
         self._trigger_file = config.get('recovery_conf', {}).get('trigger_file') or 'promote'
         self._trigger_file = os.path.abspath(os.path.join(self._data_dir, self._trigger_file))
 
+        self._connection_lock = Lock()
         self._connection = None
         self._cursor_holder = None
         self._sysid = None
@@ -174,7 +175,10 @@ class Postgresql(object):
         parameters.update({'cluster_name': self.scope, 'listen_addresses': listen_addresses, 'port': port})
         if config.get('synchronous_mode', False):
             if self._synchronous_standby_names is None:
-                parameters.pop('synchronous_standby_names', None)
+                if config.get('synchronous_mode_strict', False):
+                    parameters['synchronous_standby_names'] = '*'
+                else:
+                    parameters.pop('synchronous_standby_names', None)
             else:
                 parameters['synchronous_standby_names'] = self._synchronous_standby_names
         if self._major_version >= 9.6 and parameters['wal_level'] == 'hot_standby':
@@ -351,10 +355,11 @@ class Postgresql(object):
         return ret
 
     def connection(self):
-        if not self._connection or self._connection.closed != 0:
-            self._connection = psycopg2.connect(**self._local_connect_kwargs)
-            self._connection.autocommit = True
-            self.server_version = self._connection.server_version
+        with self._connection_lock:
+            if not self._connection or self._connection.closed != 0:
+                self._connection = psycopg2.connect(**self._local_connect_kwargs)
+                self._connection.autocommit = True
+                self.server_version = self._connection.server_version
         return self._connection
 
     def _cursor(self):
@@ -715,7 +720,8 @@ class Postgresql(object):
         # In order to make everything portable we can't use fork&exec approach here, so  we will call
         # ourselves and pass list of arguments which must be used to start postgres.
         proc = call_self(['pg_ctl_start', self._pgcommand('postgres'), '-D', self._data_dir] + options, close_fds=True,
-                         preexec_fn=os.setsid, stdout=subprocess.PIPE, env={'PATH': os.environ.get('PATH')})
+                         preexec_fn=os.setsid, stdout=subprocess.PIPE,
+                         env={p: os.environ[p] for p in ('PATH', 'LC_ALL', 'LANG') if p in os.environ})
         pid = int(proc.stdout.readline().strip())
         proc.wait()
         logger.info('postmaster pid=%s', pid)
@@ -1179,9 +1185,12 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
                 # drop unused slots
                 for slot in set(self._replication_slots) - slots:
-                    self._query("""SELECT pg_drop_replication_slot(%s)
-                                    WHERE EXISTS(SELECT 1 FROM pg_replication_slots
-                                    WHERE slot_name = %s AND NOT active)""", slot, slot)
+                    cursor = self._query("""SELECT pg_drop_replication_slot(%s)
+                                             WHERE EXISTS(SELECT 1 FROM pg_replication_slots
+                                             WHERE slot_name = %s AND NOT active)""", slot, slot)
+
+                    if cursor.rowcount != 1:  # Either slot doesn't exists or it is still active
+                        self._schedule_load_slots = True  # schedule load_replication_slots on the next iteration
 
                 # create new slots
                 for slot in slots - set(self._replication_slots):

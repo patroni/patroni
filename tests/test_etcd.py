@@ -59,7 +59,7 @@ def etcd_watch(self, key, index=None, timeout=None, recursive=None):
         raise etcd.EtcdWatchTimedOut
     elif timeout == 5.0:
         return etcd.EtcdResult('delete', {})
-    elif timeout == 10.0:
+    elif 5 < timeout <= 10.0:
         raise etcd.EtcdException
     elif timeout == 20.0:
         raise etcd.EtcdEventIndexCleared
@@ -302,6 +302,7 @@ class TestEtcd(unittest.TestCase):
     def test_delete_cluster(self):
         self.assertFalse(self.etcd.delete_cluster())
 
+    @patch('time.sleep', Mock(side_effect=SleepException))
     @patch.object(etcd.Client, 'watch', etcd_watch)
     def test_watch(self):
         self.etcd.watch(None, 0)
@@ -310,7 +311,7 @@ class TestEtcd(unittest.TestCase):
         self.etcd.watch(20729, 4.5)
         with patch.object(AbstractDCS, 'watch', Mock()):
             self.assertTrue(self.etcd.watch(20729, 19.5))
-            self.etcd.watch(20729, 9.5)
+            self.assertRaises(SleepException, self.etcd.watch, 20729, 9.5)
 
     def test_other_exceptions(self):
         self.etcd.retry = Mock(side_effect=AttributeError('foo'))
