@@ -832,6 +832,13 @@ def resume(obj, cluster_name):
 
 @contextmanager
 def temporary_file(contents, suffix='', prefix='tmp'):
+    """Creates a temporary file with specified contents that persists for the context.
+
+    :param contents: binary string that will be written to the file.
+    :param prefix: will be prefixed to the filename.
+    :param suffix: will be appended to the filename.
+    :returns path of the created file.
+    """
     tmp = tempfile.NamedTemporaryFile(suffix=suffix, prefix=prefix, delete=False)
     with tmp:
         tmp.write(contents)
@@ -843,6 +850,10 @@ def temporary_file(contents, suffix='', prefix='tmp'):
 
 
 def show_diff(before_editing, after_editing):
+    """Shows a diff between two strings.
+
+    If the output is to a tty the diff will be colored. Inputs are expected to be unicode strings.
+    """
     def listify(string):
         return [l+'\n' for l in string.rstrip('\n').split('\n')]
 
@@ -866,10 +877,25 @@ def show_diff(before_editing, after_editing):
 
 
 def format_config_for_editing(data):
+    """Formats configuration as YAML for human consumption.
+
+    :param data: configuration as nested dictionaries
+    :returns unicode YAML of the configuration"""
     return yaml.safe_dump(data, default_flow_style=False, encoding=None, allow_unicode=True)
 
 
 def apply_config_changes(before_editing, data, kvpairs):
+    """Applies config changes specified as a list of key-value pairs.
+
+    Keys are interpreted as dotted paths into the configuration data structure. Except for paths beginning with
+    `postgresql.parameters` where rest of the path is used directly to allow for PostgreSQL GUCs containing dots.
+    Values are interpreted as YAML values.
+
+    :param before_editing: human representation before editing
+    :param data: configuration datastructure
+    :param kvpairs: list of strings containing key value pairs separated by =
+    :returns tuple of human readable and parsed datastructure after changes
+    """
     changed_data = copy.deepcopy(data)
 
     def set_path_value(config, path, value, prefix=()):
@@ -900,6 +926,12 @@ def apply_config_changes(before_editing, data, kvpairs):
 
 
 def apply_yaml_file(data, filename):
+    """Applies changes from a YAML file to configuration
+
+    :param data: configuration datastructure
+    :param filename: name of the YAML file, - is taken to mean standard input
+    :returns tuple of human readable and parsed datastructure after changes
+    """
     changed_data = copy.deepcopy(data)
 
     if filename == '-':
@@ -914,6 +946,12 @@ def apply_yaml_file(data, filename):
 
 
 def invoke_editor(before_editing, data, cluster_name):
+    """Starts editor command to edit configuration in human readable format
+
+    :param before_editing: human representation before editing
+    :param data: configuration datastructure
+    :returns tuple of human readable and parsed datastructure after changes
+    """
     editor_cmd = os.environ.get('EDITOR')
     if not editor_cmd:
         raise PatroniCtlException('EDITOR environment variable is not set')
