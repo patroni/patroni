@@ -99,7 +99,6 @@ class Postgresql(object):
 
         self._connect_address = config.get('connect_address')
         self._superuser = config['authentication'].get('superuser', {})
-        self._replication = config['authentication']['replication']
         self.resolve_connection_addresses()
 
         self._rewind_state = REWIND_STATUS.INITIAL
@@ -155,6 +154,10 @@ class Postgresql(object):
     @property
     def use_slots(self):
         return self._use_slots and self._major_version >= 9.4
+
+    @property
+    def _replication(self):
+        return self.config['authentication']['replication']
 
     @property
     def callback(self):
@@ -235,6 +238,7 @@ class Postgresql(object):
         return return_codes.get(ret, STATE_UNKNOWN)
 
     def reload_config(self, config):
+        self._superuser = config['authentication'].get('superuser', {})
         server_parameters = self.get_server_parameters(config)
 
         listen_address_changed = pending_reload = pending_restart = False
