@@ -601,14 +601,16 @@ class TestPostgresql(unittest.TestCase):
     def test_reload_config(self):
         parameters = self._PARAMETERS.copy()
         parameters.pop('f.oo')
-        self.p.reload_config({'retry_timeout': 10, 'listen': '*', 'parameters': parameters})
+        config = {'authentication': {}, 'retry_timeout': 10, 'listen': '*', 'parameters': parameters}
+        self.p.reload_config(config)
         parameters['b.ar'] = 'bar'
-        self.p.reload_config({'retry_timeout': 10, 'listen': '*', 'parameters': parameters})
+        self.p.reload_config(config)
         parameters['autovacuum'] = 'on'
-        self.p.reload_config({'retry_timeout': 10, 'listen': '*', 'parameters': parameters})
+        self.p.reload_config(config)
         parameters['autovacuum'] = 'off'
         parameters.pop('search_path')
-        self.p.reload_config({'retry_timeout': 10, 'listen': '*:5433', 'parameters': parameters})
+        config['listen'] = '*:5433'
+        self.p.reload_config(config)
 
     @patch.object(Postgresql, '_version_file_exists', Mock(return_value=True))
     def test_get_major_version(self):
