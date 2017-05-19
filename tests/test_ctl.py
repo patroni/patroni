@@ -8,7 +8,7 @@ from click.testing import CliRunner
 from mock import patch, Mock
 from patroni.ctl import ctl, members, store_config, load_config, output_members, request_patroni, get_dcs, parse_dcs, \
     get_all_members, get_any_member, get_cursor, query_member, configure, PatroniCtlException, apply_config_changes, \
-    format_config_for_editing, show_diff
+    format_config_for_editing, show_diff, invoke_editor
 from patroni.dcs.etcd import Client
 from psycopg2 import OperationalError
 from test_etcd import etcd_read, requests_get, socket_getaddrinfo, MockResponse
@@ -447,25 +447,27 @@ class TestCtl(unittest.TestCase):
 
         # Spaces are allowed and stripped, numbers and booleans are interpreted
         after_editing, changed_config = apply_config_changes(before_editing, config,
-            ["postgresql.parameters.work_mem = 5MB", "ttl=15", "postgresql.use_pg_rewind=off"])
-        self.assertEquals(changed_config,
-            {"postgresql": {"parameters": {"work_mem": "5MB"}, "use_pg_rewind": False}, "ttl": 15})
+                                                             ["postgresql.parameters.work_mem = 5MB",
+                                                              "ttl=15", "postgresql.use_pg_rewind=off", 'a.b=c'])
+        self.assertEquals(changed_config, {"a": {"b": "c"}, "postgresql": {"parameters": {"work_mem": "5MB"},
+                                                                           "use_pg_rewind": False}, "ttl": 15})
 
         # postgresql.parameters namespace is flattened
         after_editing, changed_config = apply_config_changes(before_editing, config,
-            ["postgresql.parameters.work_mem.sub = x"])
-        self.assertEquals(changed_config,
-            {"postgresql": {"parameters": {"work_mem": "4MB", "work_mem.sub": "x"}, "use_pg_rewind": True}, "ttl": 30})
+                                                             ["postgresql.parameters.work_mem.sub = x"])
+        self.assertEquals(changed_config, {"postgresql": {"parameters": {"work_mem": "4MB", "work_mem.sub": "x"},
+                                                          "use_pg_rewind": True}, "ttl": 30})
 
         # Setting to null deletes
         after_editing, changed_config = apply_config_changes(before_editing, config,
-            ["postgresql.parameters.work_mem=null"])
-        self.assertEquals(changed_config,
-            {"postgresql": {"use_pg_rewind": True}, "ttl": 30})
+                                                             ["postgresql.parameters.work_mem=null"])
+        self.assertEquals(changed_config, {"postgresql": {"use_pg_rewind": True}, "ttl": 30})
         after_editing, changed_config = apply_config_changes(before_editing, config,
-            ["postgresql.use_pg_rewind=null", "postgresql.parameters.work_mem=null"])
-        self.assertEquals(changed_config,
-            {"ttl": 30})
+                                                             ["postgresql.use_pg_rewind=null",
+                                                              "postgresql.parameters.work_mem=null"])
+        self.assertEquals(changed_config, {"ttl": 30})
+
+        self.assertRaises(PatroniCtlException, apply_config_changes, before_editing, config, ['a'])
 
     @patch('sys.stdout.isatty', return_value=False)
     @patch('cdiff.markup_to_pager')
@@ -480,3 +482,27 @@ class TestCtl(unittest.TestCase):
         # Test that unicode handling doesn't fail with an exception
         show_diff(b"foo:\n  bar: \xc3\xb6\xc3\xb6\n".decode('utf-8'),
                   b"foo:\n  bar: \xc3\xbc\xc3\xbc\n".decode('utf-8'))
+
+    def test_invoke_editor(self):
+        for e in ('', 'false'):
+            os.environ['EDITOR'] = e
+            self.assertRaises(PatroniCtlException, invoke_editor, 'foo: bar\n', None, 'test')
+
+    @patch('patroni.ctl.get_dcs')
+    def test_show_config(self, mock_get_dcs):
+        mock_get_dcs.return_value = self.e
+        mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
+        self.runner.invoke(ctl, ['show-config', 'dummy'])
+
+    @patch('patroni.ctl.get_dcs')
+    def test_edit_config(self, mock_get_dcs):
+        mock_get_dcs.return_value = self.e
+        mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
+        os.environ['EDITOR'] = 'true'
+        self.runner.invoke(ctl, ['edit-config', 'dummy'])
+        self.runner.invoke(ctl, ['edit-config', 'dummy', '-s', 'foo=bar'])
+        self.runner.invoke(ctl, ['edit-config', 'dummy', '--replace', 'postgres0.yml'])
+        self.runner.invoke(ctl, ['edit-config', 'dummy', '--apply', '-'], input='foo: bar')
+        self.runner.invoke(ctl, ['edit-config', 'dummy', '--force', '--apply', '-'], input='foo: bar')
+        mock_get_dcs.return_value.set_config_value = Mock(return_value=True)
+        self.runner.invoke(ctl, ['edit-config', 'dummy', '--force', '--apply', '-'], input='foo: bar')
