@@ -13,3 +13,4 @@ tzlocal
 python-dateutil
 enum34
 cdiff
+humanize==0.5.1
