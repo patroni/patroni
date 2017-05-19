@@ -538,7 +538,6 @@ class Ha(object):
                 self._async_executor.schedule('starting after demotion')
                 self._async_executor.run_async(self.state_handler.follow, (node_to_follow,))
             else:
-                logger.info('cluster.leader = %s', cluster.leader)
                 if self.state_handler.rewind_needed_and_possible(cluster.leader):
                     return False  # do not start postgres, but run pg_rewind on the next iteration
                 return self.state_handler.follow(node_to_follow)
