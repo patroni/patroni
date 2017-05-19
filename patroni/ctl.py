@@ -4,27 +4,36 @@ Patroni Control
 
 import base64
 import click
+import codecs
 import datetime
 import dateutil.parser
+import cdiff
+import copy
+import difflib
+import io
 import json
 import logging
 import os
 import psycopg2
 import random
 import requests
+import subprocess
 import sys
+import tempfile
 import time
 import tzlocal
 import yaml
 
 from click import ClickException
+from contextlib import contextmanager
 from patroni.config import Config
 from patroni.dcs import get_dcs as _get_dcs
 from patroni.exceptions import PatroniException
 from patroni.postgresql import Postgresql
-from patroni.utils import is_valid_pg_version
+from patroni.utils import is_valid_pg_version, patch_config
 from prettytable import PrettyTable
 from six.moves.urllib_parse import urlparse
+from six import text_type
 
 CONFIG_DIR_PATH = click.get_app_dir('patroni')
 CONFIG_FILE_PATH = os.path.join(CONFIG_DIR_PATH, 'patronictl.yaml')
@@ -819,3 +828,205 @@ def pause(obj, cluster_name):
 @click.pass_obj
 def resume(obj, cluster_name):
     return toggle_pause(obj, cluster_name, False)
+
+
+@contextmanager
+def temporary_file(contents, suffix='', prefix='tmp'):
+    """Creates a temporary file with specified contents that persists for the context.
+
+    :param contents: binary string that will be written to the file.
+    :param prefix: will be prefixed to the filename.
+    :param suffix: will be appended to the filename.
+    :returns path of the created file.
+    """
+    tmp = tempfile.NamedTemporaryFile(suffix=suffix, prefix=prefix, delete=False)
+    with tmp:
+        tmp.write(contents)
+
+    try:
+        yield tmp.name
+    finally:
+        os.unlink(tmp.name)
+
+
+def show_diff(before_editing, after_editing):
+    """Shows a diff between two strings.
+
+    If the output is to a tty the diff will be colored. Inputs are expected to be unicode strings.
+    """
+    def listify(string):
+        return [l+'\n' for l in string.rstrip('\n').split('\n')]
+
+    unified_diff = difflib.unified_diff(listify(before_editing), listify(after_editing))
+
+    if sys.stdout.isatty():
+        buf = io.StringIO()
+        for line in unified_diff:
+            # Force cast to unicode as difflib on Python 2.7 returns a mix of unicode and str.
+            buf.write(text_type(line))
+        buf.seek(0)
+
+        class opts:
+            side_by_side = False
+            width = 80
+            tab_width = 8
+        cdiff.markup_to_pager(cdiff.PatchStream(buf), opts)
+    else:
+        for line in unified_diff:
+            click.echo(line.rstrip('\n'))
+
+
+def format_config_for_editing(data):
+    """Formats configuration as YAML for human consumption.
+
+    :param data: configuration as nested dictionaries
+    :returns unicode YAML of the configuration"""
+    return yaml.safe_dump(data, default_flow_style=False, encoding=None, allow_unicode=True)
+
+
+def apply_config_changes(before_editing, data, kvpairs):
+    """Applies config changes specified as a list of key-value pairs.
+
+    Keys are interpreted as dotted paths into the configuration data structure. Except for paths beginning with
+    `postgresql.parameters` where rest of the path is used directly to allow for PostgreSQL GUCs containing dots.
+    Values are interpreted as YAML values.
+
+    :param before_editing: human representation before editing
+    :param data: configuration datastructure
+    :param kvpairs: list of strings containing key value pairs separated by =
+    :returns tuple of human readable and parsed datastructure after changes
+    """
+    changed_data = copy.deepcopy(data)
+
+    def set_path_value(config, path, value, prefix=()):
+        # Postgresql GUCs can't be nested, but can contain dots so we re-flatten the structure for this case
+        if prefix == ('postgresql', 'parameters'):
+            path = ['.'.join(path)]
+
+        if len(path) == 1:
+            if value is None:
+                config.pop(path[0], None)
+            else:
+                config[path[0]] = value
+        else:
+            key = path[0]
+            if key not in config:
+                config[key] = {}
+            set_path_value(config[key], path[1:], value, prefix + (key,))
+            if config[key] == {}:
+                del config[key]
+
+    for pair in kvpairs:
+        if not pair or "=" not in pair:
+            raise PatroniCtlException("Invalid parameter setting {0}".format(pair))
+        key_path, value = pair.split("=", 1)
+        set_path_value(changed_data, key_path.strip().split("."), yaml.safe_load(value))
+
+    return format_config_for_editing(changed_data), changed_data
+
+
+def apply_yaml_file(data, filename):
+    """Applies changes from a YAML file to configuration
+
+    :param data: configuration datastructure
+    :param filename: name of the YAML file, - is taken to mean standard input
+    :returns tuple of human readable and parsed datastructure after changes
+    """
+    changed_data = copy.deepcopy(data)
+
+    if filename == '-':
+        new_options = yaml.safe_load(sys.stdin)
+    else:
+        with open(filename) as fd:
+            new_options = yaml.safe_load(fd)
+
+    patch_config(changed_data, new_options)
+
+    return format_config_for_editing(changed_data), changed_data
+
+
+def invoke_editor(before_editing, data, cluster_name):
+    """Starts editor command to edit configuration in human readable format
+
+    :param before_editing: human representation before editing
+    :param data: configuration datastructure
+    :returns tuple of human readable and parsed datastructure after changes
+    """
+    editor_cmd = os.environ.get('EDITOR')
+    if not editor_cmd:
+        raise PatroniCtlException('EDITOR environment variable is not set')
+
+    with temporary_file(contents=before_editing.encode('utf-8'),
+                        suffix='.yaml',
+                        prefix='{0}-config-'.format(cluster_name)) as tmpfile:
+        ret = subprocess.call([editor_cmd, tmpfile])
+        if ret:
+            raise PatroniCtlException("Editor exited with return code {0}".format(ret))
+
+        with codecs.open(tmpfile, encoding='utf-8') as fd:
+            after_editing = fd.read()
+
+        return after_editing, yaml.safe_load(after_editing)
+
+
+@ctl.command('edit-config', help="Edit cluster configuration")
+@click.argument('cluster_name')
+@click.option('--quiet', '-q', is_flag=True, help='Do not show changes')
+@click.option('--set', '-s', 'kvpairs', multiple=True,
+              help='Set specific configuration value. Can be specified multiple times')
+@click.option('--pg', '-p', 'pgkvpairs', multiple=True,
+              help='Set specific PostgreSQL parameter value. Shorthand for -s postgresql.parameters. '
+                   'Can be specified multiple times')
+@click.option('--apply', 'apply_filename', help='Apply configuration from file. Use - for stdin.')
+@click.option('--replace', 'replace_filename', help='Apply configuration from file, replacing existing configuration.'
+              ' Use - for stdin.')
+@option_force
+@click.pass_obj
+def edit_config(obj, cluster_name, force, quiet, kvpairs, pgkvpairs, apply_filename, replace_filename):
+    dcs = get_dcs(obj, cluster_name)
+    cluster = dcs.get_cluster()
+
+    before_editing = format_config_for_editing(cluster.config.data)
+
+    after_editing = None  # Serves as a flag if any changes were requested
+    changed_data = cluster.config.data
+
+    if replace_filename:
+        after_editing, changed_data = apply_yaml_file({}, replace_filename)
+
+    if apply_filename:
+        after_editing, changed_data = apply_yaml_file(changed_data, apply_filename)
+
+    if kvpairs or pgkvpairs:
+        all_pairs = list(kvpairs) + ['postgresql.parameters.'+v.lstrip() for v in pgkvpairs]
+        after_editing, changed_data = apply_config_changes(before_editing, changed_data, all_pairs)
+
+    # If no changes were specified on the command line invoke editor
+    if after_editing is None:
+        after_editing, changed_data = invoke_editor(before_editing, cluster.config.data, cluster_name)
+
+    if cluster.config.data == changed_data:
+        if not quiet:
+            click.echo("Not changed")
+        return
+
+    if not quiet:
+        show_diff(before_editing, after_editing)
+
+    if (apply_filename == '-' or replace_filename == '-') and not force:
+        click.echo("Use --force option to apply changes")
+        return
+
+    if force or click.confirm('Apply these changes?'):
+        if not dcs.set_config_value(json.dumps(changed_data), cluster.config.modify_index):
+            raise PatroniCtlException("Config modification aborted due to concurrent changes")
+        click.echo("Configuration changed")
+
+
+@ctl.command('show-config', help="Show cluster configuration")
+@click.argument('cluster_name')
+@click.pass_obj
+def show_config(obj, cluster_name):
+    cluster = get_dcs(obj, cluster_name).get_cluster()
+
+    click.echo(format_config_for_editing(cluster.config.data))
