@@ -945,11 +945,10 @@ def apply_yaml_file(data, filename):
     return format_config_for_editing(changed_data), changed_data
 
 
-def invoke_editor(before_editing, data, cluster_name):
+def invoke_editor(before_editing, cluster_name):
     """Starts editor command to edit configuration in human readable format
 
     :param before_editing: human representation before editing
-    :param data: configuration datastructure
     :returns tuple of human readable and parsed datastructure after changes
     """
     editor_cmd = os.environ.get('EDITOR')
@@ -1003,7 +1002,7 @@ def edit_config(obj, cluster_name, force, quiet, kvpairs, pgkvpairs, apply_filen
 
     # If no changes were specified on the command line invoke editor
     if after_editing is None:
-        after_editing, changed_data = invoke_editor(before_editing, cluster.config.data, cluster_name)
+        after_editing, changed_data = invoke_editor(before_editing, cluster_name)
 
     if cluster.config.data == changed_data:
         if not quiet:

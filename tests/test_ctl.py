@@ -486,7 +486,7 @@ class TestCtl(unittest.TestCase):
     def test_invoke_editor(self):
         for e in ('', 'false'):
             os.environ['EDITOR'] = e
-            self.assertRaises(PatroniCtlException, invoke_editor, 'foo: bar\n', None, 'test')
+            self.assertRaises(PatroniCtlException, invoke_editor, 'foo: bar\n', 'test')
 
     @patch('patroni.ctl.get_dcs')
     def test_show_config(self, mock_get_dcs):
