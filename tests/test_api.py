@@ -25,6 +25,8 @@ class MockPostgresql(object):
     sysid = 'dummysysid'
     scope = 'dummy'
     pending_restart = True
+    wal_name = 'wal'
+    lsn_name = 'lsn'
 
     @staticmethod
     def connection():
@@ -64,7 +66,7 @@ class MockHa(object):
         return True
 
     @staticmethod
-    def is_lagging(xlog):
+    def is_lagging(wal):
         return False
 
     @staticmethod

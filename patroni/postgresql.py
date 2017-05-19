@@ -63,20 +63,20 @@ class Postgresql(object):
     #    check_function -- if the new value is not correct must return `!False`
     #    min_version -- major version of PostgreSQL when parameter was introduced
     CMDLINE_OPTIONS = {
-        'listen_addresses': (None, lambda _: False, 9.1),
-        'port': (None, lambda _: False, 9.1),
-        'cluster_name': (None, lambda _: False, 9.5),
-        'wal_level': ('hot_standby', lambda v: v.lower() in ('hot_standby', 'replica', 'logical'), 9.1),
-        'hot_standby': ('on', lambda _: False, 9.1),
-        'max_connections': (100, lambda v: int(v) >= 100, 9.1),
-        'max_wal_senders': (5, lambda v: int(v) >= 5, 9.1),
-        'wal_keep_segments': (8, lambda v: int(v) >= 8, 9.1),
-        'max_prepared_transactions': (0, lambda v: int(v) >= 0, 9.1),
-        'max_locks_per_transaction': (64, lambda v: int(v) >= 64, 9.1),
-        'track_commit_timestamp': ('off', lambda v: parse_bool(v) is not None, 9.5),
-        'max_replication_slots': (5, lambda v: int(v) >= 5, 9.4),
-        'max_worker_processes': (8, lambda v: int(v) >= 8, 9.4),
-        'wal_log_hints': ('on', lambda _: False, 9.4)
+        'listen_addresses': (None, lambda _: False, 90100),
+        'port': (None, lambda _: False, 90100),
+        'cluster_name': (None, lambda _: False, 90500),
+        'wal_level': ('hot_standby', lambda v: v.lower() in ('hot_standby', 'replica', 'logical'), 90100),
+        'hot_standby': ('on', lambda _: False, 90100),
+        'max_connections': (100, lambda v: int(v) >= 100, 90100),
+        'max_wal_senders': (5, lambda v: int(v) >= 5, 90100),
+        'wal_keep_segments': (8, lambda v: int(v) >= 8, 90100),
+        'max_prepared_transactions': (0, lambda v: int(v) >= 0, 90100),
+        'max_locks_per_transaction': (64, lambda v: int(v) >= 64, 90100),
+        'track_commit_timestamp': ('off', lambda v: parse_bool(v) is not None, 90500),
+        'max_replication_slots': (5, lambda v: int(v) >= 5, 90400),
+        'max_worker_processes': (8, lambda v: int(v) >= 8, 90400),
+        'wal_log_hints': ('on', lambda _: False, 90400)
     }
 
     def __init__(self, config):
@@ -151,11 +151,23 @@ class Postgresql(object):
 
     @property
     def use_slots(self):
-        return self._use_slots and self._major_version >= 9.4
+        return self._use_slots and self._major_version >= 90400
 
     @property
     def callback(self):
         return self.config.get('callbacks') or {}
+
+    @staticmethod
+    def _wal_name(version):
+        return version >= 100000 and 'wal' or 'xlog'
+
+    @property
+    def wal_name(self):
+        return self._wal_name(self._major_version)
+
+    @property
+    def lsn_name(self):
+        return self._major_version >= 100000 and 'lsn' or 'location'
 
     def _version_file_exists(self):
         return not self.data_directory_empty() and os.path.isfile(self._version_file)
@@ -164,10 +176,10 @@ class Postgresql(object):
         if self._version_file_exists():
             try:
                 with open(self._version_file) as f:
-                    return float(f.read())
+                    return self.postgres_major_version_to_int(f.read().strip())
             except Exception:
                 logger.exception('Failed to read PG_VERSION from %s', self._data_dir)
-        return 0.0
+        return 0
 
     def get_server_parameters(self, config):
         parameters = config['parameters'].copy()
@@ -181,10 +193,10 @@ class Postgresql(object):
                     parameters.pop('synchronous_standby_names', None)
             else:
                 parameters['synchronous_standby_names'] = self._synchronous_standby_names
-        if self._major_version >= 9.6 and parameters['wal_level'] == 'hot_standby':
+        if self._major_version >= 90600 and parameters['wal_level'] == 'hot_standby':
             parameters['wal_level'] = 'replica'
         return {k: v for k, v in parameters.items() if not self._major_version or
-                self._major_version >= self.CMDLINE_OPTIONS.get(k, (0, 1, 9.1))[2]}
+                self._major_version >= self.CMDLINE_OPTIONS.get(k, (0, 1, 90400))[2]}
 
     def resolve_connection_addresses(self):
         self._local_address = self.get_local_address()
@@ -977,7 +989,7 @@ class Postgresql(object):
         return 1
 
     def cleanup_archive_status(self):
-        status_dir = os.path.join(self._data_dir, 'pg_xlog', 'archive_status')
+        status_dir = os.path.join(self._data_dir, 'pg_' + self.wal_name, 'archive_status')
         try:
             for f in os.listdir(status_dir):
                 path = os.path.join(status_dir, f)
@@ -1126,13 +1138,13 @@ BEGIN
 END;
 $$""".format(name, ' '.join(options)), name, password, password)
 
-    def xlog_position(self, retry=True):
+    def wal_position(self, retry=True):
         stmt = """SELECT CASE WHEN pg_is_in_recovery()
-                              THEN GREATEST(pg_xlog_location_diff(COALESCE(pg_last_xlog_receive_location(), '0/0'),
+                              THEN GREATEST(pg_{0}_{1}_diff(COALESCE(pg_last_{0}_receive_{1}(), '0/0'),
                                                                   '0/0')::bigint,
-                                            pg_xlog_location_diff(pg_last_xlog_replay_location(), '0/0')::bigint)
-                              ELSE pg_xlog_location_diff(pg_current_xlog_location(), '0/0')::bigint
-                          END"""
+                                            pg_{0}_{1}_diff(pg_last_{0}_replay_{1}(), '0/0')::bigint)
+                              ELSE pg_{0}_{1}_diff(pg_current_{0}_{1}(), '0/0')::bigint
+                          END""".format(self.wal_name, self.lsn_name)
 
         # This method could be called from different threads (simultaneously with some other `_query` calls).
         # If it is called not from main thread we will create a new cursor to execute statement.
@@ -1204,7 +1216,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
                 self._schedule_load_slots = True
 
     def last_operation(self):
-        return str(self.xlog_position())
+        return str(self.wal_position())
 
     def clone(self, clone_member):
         """
@@ -1258,6 +1270,11 @@ $$""".format(name, ' '.join(options)), name, password, password)
             self.move_data_directory()
 
     def basebackup(self, conn_url, env):
+        # save environ to restore it later
+        old_env = os.environ.copy()
+        os.environ.clear()
+        os.environ.update(env)
+
         # creates a replica data dir using pg_basebackup.
         # this is the default, built-in create_replica_method
         # tries twice, then returns failure (as 1)
@@ -1269,19 +1286,29 @@ $$""".format(name, ' '.join(options)), name, password, password)
                 self.remove_data_directory()
 
             try:
+                version = 0
+                with psycopg2.connect(conn_url + '?replication=1') as c:
+                    version = c.server_version
+
                 ret = subprocess.call([self._pgcommand('pg_basebackup'), '--pgdata=' + self._data_dir,
-                                       '--xlog-method=stream', "--dbname=" + conn_url], env=env)
+                                       '--{0}-method=stream'.format(self._wal_name(version)), '--dbname=' + conn_url])
                 if ret == 0:
                     break
                 else:
                     logger.error('Error when fetching backup: pg_basebackup exited with code=%s', ret)
 
+            except psycopg2.Error:
+                logger.error('Can not connect to %s', conn_url)
             except Exception as e:
                 logger.error('Error when fetching backup with pg_basebackup: %s', e)
 
             if bbfailures < maxfailures - 1:
                 logger.warning('Trying again in 5 seconds')
                 time.sleep(5)
+
+        # restore environ
+        os.environ.clear()
+        os.environ.update(old_env)
 
         return ret
 
@@ -1301,7 +1328,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
         for app_name, state, sync_state in self.query(
                 """SELECT application_name, state, sync_state
                      FROM pg_stat_replication
-                    ORDER BY flush_location DESC"""):
+                    ORDER BY flush_{0} DESC""".format(self.lsn_name)):
             member = members.get(app_name)
             if state != 'streaming' or not member or member.tags.get('nosync', False):
                 continue
@@ -1361,3 +1388,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
         except ValueError:
             raise Exception("Invalid PostgreSQL version: {0}".format(pg_version))
         return result
+
+    @staticmethod
+    def postgres_major_version_to_int(pg_version):
+        return Postgresql.postgres_version_to_int(pg_version + '.0')

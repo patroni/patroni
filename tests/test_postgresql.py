@@ -65,7 +65,7 @@ class MockCursor(object):
 
 class MockConnect(object):
 
-    server_version = '99999'
+    server_version = 99999
     autocommit = False
     closed = 0
 
@@ -165,7 +165,7 @@ class TestPostgresql(unittest.TestCase):
     @patch('subprocess.call', Mock(return_value=0))
     @patch('psycopg2.connect', psycopg2_connect)
     @patch('os.rename', Mock())
-    @patch.object(Postgresql, 'get_major_version', Mock(return_value=9.6))
+    @patch.object(Postgresql, 'get_major_version', Mock(return_value=90600))
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def setUp(self):
         self.data_dir = 'data/test0'
@@ -613,9 +613,9 @@ class TestPostgresql(unittest.TestCase):
     @patch.object(Postgresql, '_version_file_exists', Mock(return_value=True))
     def test_get_major_version(self):
         with patch.object(builtins, 'open', mock_open(read_data='9.4')):
-            self.assertEquals(self.p.get_major_version(), 9.4)
+            self.assertEquals(self.p.get_major_version(), 90400)
         with patch.object(builtins, 'open', Mock(side_effect=Exception)):
-            self.assertEquals(self.p.get_major_version(), 0.0)
+            self.assertEquals(self.p.get_major_version(), 0)
 
     def test_postmaster_start_time(self):
         with patch.object(MockCursor, "fetchone", Mock(return_value=('foo', True, '', '', '', '', False))):

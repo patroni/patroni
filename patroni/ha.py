@@ -18,20 +18,20 @@ from threading import RLock
 logger = logging.getLogger(__name__)
 
 
-class _MemberStatus(namedtuple('_MemberStatus', 'member,reachable,in_recovery,xlog_location,tags')):
+class _MemberStatus(namedtuple('_MemberStatus', 'member,reachable,in_recovery,wal_position,tags')):
     """Node status distilled from API response:
 
         member - dcs.Member object of the node
         reachable - `!False` if the node is not reachable or is not responding with correct JSON
         in_recovery - `!True` if pg_is_in_recovery() == true
-        xlog_location - value of `replayed_location` or `location` from JSON, dependin on its role.
+        wal_position - value of `replayed_location` or `location` from JSON, dependin on its role.
         tags - dictionary with values of different tags (i.e. nofailover)
     """
     @classmethod
     def from_api_response(cls, member, json):
         is_master = json['role'] == 'master'
-        xlog = not is_master and max(json['xlog'].get('received_location', 0), json['xlog'].get('replayed_location', 0))
-        return cls(member, True, not is_master, xlog, json.get('tags', {}))
+        wal = not is_master and max(json['xlog'].get('received_location', 0), json['xlog'].get('replayed_location', 0))
+        return cls(member, True, not is_master, wal, json.get('tags', {}))
 
     @classmethod
     def unknown(cls, member):
@@ -116,7 +116,7 @@ class Ha(object):
                 data['pending_restart'] = True
             if not self._async_executor.busy and data['state'] in ['running', 'restarting', 'starting']:
                 try:
-                    data['xlog_location'] = self.state_handler.xlog_position(retry=False)
+                    data['xlog_location'] = self.state_handler.wal_position(retry=False)
                 except:
                     pass
             if self.patroni.scheduled_restart:
@@ -354,21 +354,21 @@ class Ha(object):
         pool.join()
         return results
 
-    def is_lagging(self, xlog_location):
-        """Returns if instance with an xlog should consider itself unhealthy to be promoted due to replication lag.
+    def is_lagging(self, wal_position):
+        """Returns if instance with an wal should consider itself unhealthy to be promoted due to replication lag.
 
-        :param xlog_location: Current xlog location.
+        :param wal_position: Current wal position.
         :returns True when node is lagging
         """
-        lag = (self.cluster.last_leader_operation or 0) - xlog_location
+        lag = (self.cluster.last_leader_operation or 0) - wal_position
         return lag > self.state_handler.config.get('maximum_lag_on_failover', 0)
 
     def _is_healthiest_node(self, members, check_replication_lag=True):
         """This method tries to determine whether I am healthy enough to became a new leader candidate or not."""
 
-        my_xlog_location = self.state_handler.xlog_position()
-        if check_replication_lag and self.is_lagging(my_xlog_location):
-            return False  # Too far behind last reported xlog location on master
+        my_wal_position = self.state_handler.wal_position()
+        if check_replication_lag and self.is_lagging(my_wal_position):
+            return False  # Too far behind last reported wal position on master
 
         # Prepare list of nodes to run check against
         members = [m for m in members if m.name != self.state_handler.name and not m.nofailover and m.api_url]
@@ -379,7 +379,7 @@ class Ha(object):
                     if not st.in_recovery:
                         logger.warning('Master (%s) is still alive', st.member.name)
                         return False
-                    if my_xlog_location < st.xlog_location:
+                    if my_wal_position < st.wal_position:
                         return False
         return True
 
@@ -391,7 +391,7 @@ class Ha(object):
                 not_allowed_reason = st.failover_limitation()
                 if not_allowed_reason:
                     logger.info('Member %s is %s', st.member.name, not_allowed_reason)
-                elif self.is_lagging(st.xlog_location):
+                elif self.is_lagging(st.wal_position):
                     logger.info('Member %s exceeds maximum replication lag', st.member.name)
                 else:
                     ret = True
