@@ -159,7 +159,7 @@ class Postgresql(object):
 
     @staticmethod
     def _wal_name(version):
-        return version >= 100000 and 'wal' or 'xlog'
+        return 'wal' if version >= 100000 else 'xlog'
 
     @property
     def wal_name(self):
@@ -167,7 +167,7 @@ class Postgresql(object):
 
     @property
     def lsn_name(self):
-        return self._major_version >= 100000 and 'lsn' or 'location'
+        return 'lsn' if self._major_version >= 100000 else 'location'
 
     def _version_file_exists(self):
         return not self.data_directory_empty() and os.path.isfile(self._version_file)
@@ -196,7 +196,7 @@ class Postgresql(object):
         if self._major_version >= 90600 and parameters['wal_level'] == 'hot_standby':
             parameters['wal_level'] = 'replica'
         return {k: v for k, v in parameters.items() if not self._major_version or
-                self._major_version >= self.CMDLINE_OPTIONS.get(k, (0, 1, 90400))[2]}
+                self._major_version >= self.CMDLINE_OPTIONS.get(k, (0, 1, 90100))[2]}
 
     def resolve_connection_addresses(self):
         self._local_address = self.get_local_address()
@@ -1391,4 +1391,10 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
     @staticmethod
     def postgres_major_version_to_int(pg_version):
+        """
+        >>> Postgresql.postgres_major_version_to_int('10')
+        100000
+        >>> Postgresql.postgres_major_version_to_int('9.6')
+        90600
+        """
         return Postgresql.postgres_version_to_int(pg_version + '.0')
