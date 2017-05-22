@@ -30,7 +30,7 @@ class MockCursor(object):
         elif sql.startswith('SELECT slot_name'):
             self.results = [('blabla',), ('foobar',)]
         elif sql.startswith('SELECT CASE WHEN pg_is_in_recovery()'):
-            self.results = [(0,)]
+            self.results = [(2,)]
         elif sql == 'SELECT pg_is_in_recovery()':
             self.results = [(False, )]
         elif sql.startswith('WITH replication_info AS ('):
@@ -453,7 +453,7 @@ class TestPostgresql(unittest.TestCase):
         self.assertTrue(self.p.promote())
 
     def test_last_operation(self):
-        self.assertEquals(self.p.last_operation(), '0')
+        self.assertEquals(self.p.last_operation(), '2')
         Thread(target=self.p.last_operation).start()
 
     @patch('os.path.isfile', Mock(return_value=True))

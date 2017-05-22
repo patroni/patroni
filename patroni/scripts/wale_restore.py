@@ -23,35 +23,29 @@
 # currently also requires that you configure the restore_command to use wal_e, example:
 #       recovery_conf:
 #               restore_command: envdir /etc/wal-e.d/env wal-e wal-fetch "%f" "%p" -p 1
+import argparse
 import csv
-from collections import namedtuple
-import humanize
 import logging
 import os
-from enum import IntEnum
-
 import psycopg2
 import subprocess
 import sys
 import time
-import argparse
+
+from collections import namedtuple
 
 logger = logging.getLogger(__name__)
 
 RETRY_SLEEP_INTERVAL = 1
+si_prefixes = ['K', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y']
 
 
-class ExitCode(IntEnum):
-    """
-    Gives meaningful names to the exit codes used by WALERestore
-    """
-
-    #: Succeeded
-    SUCCESS = 0
-    #: External issue, retry later
-    RETRY_LATER = 1
-    #: Don't try again unless configuration changes
-    FAIL = 2
+# Meaningful names to the exit codes used by WALERestore
+ExitCode = type('Enum', (), {
+    'SUCCESS': 0,  #: Succeeded
+    'RETRY_LATER': 1,  #: External issue, retry later
+    'FAIL': 2  #: Don't try again unless configuration changes
+})
 
 
 # We need to know the current PG version in order to figure out the correct WAL directory name
@@ -67,19 +61,33 @@ def get_major_version(data_dir):
 
 
 def repr_size(n_bytes):
-    return humanize.naturalsize(n_bytes, binary=True)
+    """
+    >>> repr_size(1000)
+    '1000 Bytes'
+    >>> repr_size(8257332324597)
+    '7.5 TiB'
+    """
+    if n_bytes < 1024:
+        return '{0} Bytes'.format(n_bytes)
+    i = -1
+    while n_bytes > 1023:
+        n_bytes /= 1024.0
+        i += 1
+    return '{0} {1}iB'.format(round(n_bytes, 1), si_prefixes[i])
 
 
 def size_as_bytes(size_, prefix):
-    si_prefixes = ['K', 'M', 'G', 'T'', P', 'E', 'Z', 'Y']
-
+    """
+    >>> size_as_bytes(7.5, 'T')
+    8246337208320
+    """
     prefix = prefix.upper()
 
     assert prefix in si_prefixes
 
     exponent = si_prefixes.index(prefix) + 1
 
-    return size_ * 1024.0 ** -exponent
+    return int(size_ * (1024.0 ** exponent))
 
 
 WALEConfig = namedtuple(
@@ -147,9 +155,6 @@ class WALERestore(object):
                 return ExitCode.FAIL
         except Exception:
             logger.exception("Unhandled exception when running WAL-E restore")
-            return ExitCode.FAIL
-
-        logger.warning('Missing exit code', stack_info=True)
         return ExitCode.FAIL
 
     def should_use_s3_to_create_replica(self):
@@ -211,17 +216,22 @@ class WALERestore(object):
                 try:
                     # get the difference in bytes between the current WAL location and the backup start offset
                     with psycopg2.connect(self.master_connection) as con:
+                        if con.server_version >= 100000:
+                            wal_name = 'wal'
+                            lsn_name = 'lsn'
+                        else:
+                            wal_name = 'xlog'
+                            lsn_name = 'location'
                         con.autocommit = True
                         with con.cursor() as cur:
                             cur.execute("""SELECT CASE WHEN pg_is_in_recovery()
                                                        THEN GREATEST(
-                                                                pg_xlog_location_diff(COALESCE(
-                                                                  pg_last_xlog_receive_location(), '0/0'), %s)::bigint,
-                                                                pg_xlog_location_diff(
-                                                                  pg_last_xlog_replay_location(), %s)::bigint)
-                                                       ELSE pg_xlog_location_diff(
-                                                                pg_current_xlog_location(), %s)::bigint
-                                                   END""", (backup_start_lsn, backup_start_lsn, backup_start_lsn))
+                                                                pg_{0}_{1}_diff(COALESCE(
+                                                                  pg_last_{0}_receive_{1}(), '0/0'), %s)::bigint,
+                                                                pg_{0}_{1}_diff(pg_last_{0}_replay_{1}(), %s)::bigint)
+                                                       ELSE pg_{0}_{1}_diff(pg_current_{0}_{1}(), %s)::bigint
+                                                   END""".format(wal_name, lsn_name),
+                                        (backup_start_lsn, backup_start_lsn, backup_start_lsn))
 
                             diff_in_bytes = int(cur.fetchone()[0])
                 except psycopg2.Error:
@@ -268,7 +278,7 @@ class WALERestore(object):
                 return ', '.join('{}={!r}'.format(key, value)
                                  for key, value in self.items)
 
-        human_context = HumanContext([
+        human_context = repr(HumanContext([
             ('threshold_size', Size(threshold_megabytes, 'M')),
             ('threshold_percent', threshold_percent),
             ('threshold_percent_size', Size(threshold_pct_bytes)),
@@ -276,19 +286,13 @@ class WALERestore(object):
             ('backup_diff', Size(diff_in_bytes)),
             ('is_size_thresh_ok', is_size_thresh_ok),
             ('is_percentage_thresh_ok', is_percentage_thresh_ok),
-        ])
+        ]))
 
         if not are_thresholds_ok:
-            logger.error(
-                'wal-e backup size diff is over threshold, falling back '
-                'to other means of restore. %r',
-                human_context
-            )
+            logger.info('wal-e backup size diff is over threshold, falling back '
+                        'to other means of restore: %s', human_context)
         else:
-            logger.info(
-                'Thresholds are OK, using wal-e basebackup. %r',
-                human_context
-            )
+            logger.info('Thresholds are OK, using wal-e basebackup: %s', human_context)
         return are_thresholds_ok
 
     def fix_subdirectory_path_if_broken(self, dirname):
@@ -322,7 +326,7 @@ class WALERestore(object):
             return ExitCode.RETRY_LATER
 
         if (exit_code == 0 and not
-           self.fix_subdirectory_path_if_broken('pg_xlog' if get_major_version(self.data_dir) < 10.0 else 'pg_wal')):
+           self.fix_subdirectory_path_if_broken('pg_xlog' if get_major_version(self.data_dir) < 10 else 'pg_wal')):
             return ExitCode.FAIL
         return exit_code
 
