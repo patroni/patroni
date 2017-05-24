@@ -12,6 +12,7 @@ import tempfile
 import time
 
 from collections import defaultdict
+from contextlib import contextmanager
 from patroni import call_self
 from patroni.callback_executor import CallbackExecutor
 from patroni.exceptions import PostgresConnectionException, PostgresException
@@ -38,6 +39,7 @@ STOP_SIGNALS = {
     'immediate': signal.SIGQUIT,
 }
 STOP_POLLING_INTERVAL = 1
+REWIND_STATUS = type('Enum', (), {'INITIAL': 0, 'CHECK': 1, 'NEED': 2, 'NOT_NEED': 3, 'SUCCESS': 4, 'FAILED': 5})
 
 
 def slot_name_from_member_name(member_name):
@@ -73,20 +75,20 @@ class Postgresql(object):
     #    check_function -- if the new value is not correct must return `!False`
     #    min_version -- major version of PostgreSQL when parameter was introduced
     CMDLINE_OPTIONS = {
-        'listen_addresses': (None, lambda _: False, 9.1),
-        'port': (None, lambda _: False, 9.1),
-        'cluster_name': (None, lambda _: False, 9.5),
-        'wal_level': ('hot_standby', lambda v: v.lower() in ('hot_standby', 'replica', 'logical'), 9.1),
-        'hot_standby': ('on', lambda _: False, 9.1),
-        'max_connections': (100, lambda v: int(v) >= 100, 9.1),
-        'max_wal_senders': (5, lambda v: int(v) >= 5, 9.1),
-        'wal_keep_segments': (8, lambda v: int(v) >= 8, 9.1),
-        'max_prepared_transactions': (0, lambda v: int(v) >= 0, 9.1),
-        'max_locks_per_transaction': (64, lambda v: int(v) >= 64, 9.1),
-        'track_commit_timestamp': ('off', lambda v: parse_bool(v) is not None, 9.5),
-        'max_replication_slots': (5, lambda v: int(v) >= 5, 9.4),
-        'max_worker_processes': (8, lambda v: int(v) >= 8, 9.4),
-        'wal_log_hints': ('on', lambda _: False, 9.4)
+        'listen_addresses': (None, lambda _: False, 90100),
+        'port': (None, lambda _: False, 90100),
+        'cluster_name': (None, lambda _: False, 90500),
+        'wal_level': ('hot_standby', lambda v: v.lower() in ('hot_standby', 'replica', 'logical'), 90100),
+        'hot_standby': ('on', lambda _: False, 90100),
+        'max_connections': (100, lambda v: int(v) >= 100, 90100),
+        'max_wal_senders': (5, lambda v: int(v) >= 5, 90100),
+        'wal_keep_segments': (8, lambda v: int(v) >= 8, 90100),
+        'max_prepared_transactions': (0, lambda v: int(v) >= 0, 90100),
+        'max_locks_per_transaction': (64, lambda v: int(v) >= 64, 90100),
+        'track_commit_timestamp': ('off', lambda v: parse_bool(v) is not None, 90500),
+        'max_replication_slots': (5, lambda v: int(v) >= 5, 90400),
+        'max_worker_processes': (8, lambda v: int(v) >= 8, 90400),
+        'wal_log_hints': ('on', lambda _: False, 90400)
     }
 
     def __init__(self, config):
@@ -106,10 +108,9 @@ class Postgresql(object):
 
         self._connect_address = config.get('connect_address')
         self._superuser = config['authentication'].get('superuser', {})
-        self._replication = config['authentication']['replication']
         self.resolve_connection_addresses()
 
-        self._need_rewind = False
+        self._rewind_state = REWIND_STATUS.INITIAL
         self._use_slots = config.get('use_slots', True)
         self._schedule_load_slots = self.use_slots
 
@@ -126,6 +127,7 @@ class Postgresql(object):
         self._trigger_file = config.get('recovery_conf', {}).get('trigger_file') or 'promote'
         self._trigger_file = os.path.abspath(os.path.join(self._data_dir, self._trigger_file))
 
+        self._connection_lock = Lock()
         self._connection = None
         self._cursor_holder = None
         self._sysid = None
@@ -166,11 +168,27 @@ class Postgresql(object):
 
     @property
     def use_slots(self):
-        return self._use_slots and self._major_version >= 9.4
+        return self._use_slots and self._major_version >= 90400
+
+    @property
+    def _replication(self):
+        return self.config['authentication']['replication']
 
     @property
     def callback(self):
         return self.config.get('callbacks') or {}
+
+    @staticmethod
+    def _wal_name(version):
+        return 'wal' if version >= 100000 else 'xlog'
+
+    @property
+    def wal_name(self):
+        return self._wal_name(self._major_version)
+
+    @property
+    def lsn_name(self):
+        return 'lsn' if self._major_version >= 100000 else 'location'
 
     def _version_file_exists(self):
         return not self.data_directory_empty() and os.path.isfile(self._version_file)
@@ -179,10 +197,10 @@ class Postgresql(object):
         if self._version_file_exists():
             try:
                 with open(self._version_file) as f:
-                    return float(f.read())
+                    return self.postgres_major_version_to_int(f.read().strip())
             except Exception:
                 logger.exception('Failed to read PG_VERSION from %s', self._data_dir)
-        return 0.0
+        return 0
 
     def get_server_parameters(self, config):
         parameters = config['parameters'].copy()
@@ -190,13 +208,16 @@ class Postgresql(object):
         parameters.update({'cluster_name': self.scope, 'listen_addresses': listen_addresses, 'port': port})
         if config.get('synchronous_mode', False):
             if self._synchronous_standby_names is None:
-                parameters.pop('synchronous_standby_names', None)
+                if config.get('synchronous_mode_strict', False):
+                    parameters['synchronous_standby_names'] = '*'
+                else:
+                    parameters.pop('synchronous_standby_names', None)
             else:
                 parameters['synchronous_standby_names'] = self._synchronous_standby_names
-        if self._major_version >= 9.6 and parameters['wal_level'] == 'hot_standby':
+        if self._major_version >= 90600 and parameters['wal_level'] == 'hot_standby':
             parameters['wal_level'] = 'replica'
         return {k: v for k, v in parameters.items() if not self._major_version or
-                self._major_version >= self.CMDLINE_OPTIONS.get(k, (0, 1, 9.1))[2]}
+                self._major_version >= self.CMDLINE_OPTIONS.get(k, (0, 1, 90100))[2]}
 
     def resolve_connection_addresses(self):
         self._local_address = self.get_local_address()
@@ -236,6 +257,7 @@ class Postgresql(object):
         return return_codes.get(ret, STATE_UNKNOWN)
 
     def reload_config(self, config):
+        self._superuser = config['authentication'].get('superuser', {})
         server_parameters = self.get_server_parameters(config)
 
         listen_address_changed = pending_reload = pending_restart = False
@@ -300,6 +322,11 @@ class Postgresql(object):
     def pending_restart(self):
         return self._pending_restart
 
+    @staticmethod
+    def configuration_allows_rewind(data):
+        return data.get('Current wal_log_hints setting', 'off') == 'on' \
+            or data.get('Data page checksum version', '0') != '0'
+
     @property
     def can_rewind(self):
         """ check if pg_rewind executable is there and that pg_controldata indicates
@@ -316,9 +343,7 @@ class Postgresql(object):
                 return False
         except OSError:
             return False
-        # check if the cluster's configuration permits pg_rewind
-        data = self.controldata()
-        return data.get('wal_log_hints setting', 'off') == 'on' or data.get('Data page checksum version', '0') != '0'
+        return self.configuration_allows_rewind(self.controldata())
 
     @property
     def sysid(self):
@@ -359,10 +384,11 @@ class Postgresql(object):
         return ret
 
     def connection(self):
-        if not self._connection or self._connection.closed != 0:
-            self._connection = psycopg2.connect(**self._local_connect_kwargs)
-            self._connection.autocommit = True
-            self.server_version = self._connection.server_version
+        with self._connection_lock:
+            if not self._connection or self._connection.closed != 0:
+                self._connection = psycopg2.connect(**self._local_connect_kwargs)
+                self._connection.autocommit = True
+                self.server_version = self._connection.server_version
         return self._connection
 
     def _cursor(self):
@@ -742,7 +768,7 @@ class Postgresql(object):
             start_initiated = time.time()
             proc = call_self(['pg_ctl_start', self._pgcommand('postgres'), '-D', self._data_dir] + options,
                              close_fds=True, preexec_fn=os.setsid, stdout=subprocess.PIPE,
-                             env={'PATH': os.environ.get('PATH')})
+                             env={p: os.environ[p] for p in ('PATH', 'LC_ALL', 'LANG') if p in os.environ})
             pid = int(proc.stdout.readline().strip())
             proc.wait()
             logger.info('postmaster pid=%s', pid)
@@ -775,15 +801,13 @@ class Postgresql(object):
         for p in ['connect_timeout', 'options']:
             connect_kwargs.pop(p, None)
         try:
-            with psycopg2.connect(**connect_kwargs) as conn:
-                conn.autocommit = True
-                with conn.cursor() as cur:
-                    cur.execute("SET statement_timeout = 0")
-                    if check_not_is_in_recovery:
-                        cur.execute('SELECT pg_is_in_recovery()')
-                        if cur.fetchone()[0]:
-                            return 'is_in_recovery=true'
-                    return cur.execute('CHECKPOINT')
+            with self._get_connection_cursor(**connect_kwargs) as cur:
+                cur.execute("SET statement_timeout = 0")
+                if check_not_is_in_recovery:
+                    cur.execute('SELECT pg_is_in_recovery()')
+                    if cur.fetchone()[0]:
+                        return 'is_in_recovery=true'
+                return cur.execute('CHECKPOINT')
         except psycopg2.Error:
             logging.exception('Exception during CHECKPOINT')
             return 'not accessible or not healty'
@@ -990,7 +1014,7 @@ class Postgresql(object):
             f.write('\n{}\n'.format('\n'.join(config)))
 
     def primary_conninfo(self, member):
-        if not (member and member.conn_url):
+        if not (member and member.conn_url) or member.name == self.name:
             return None
         r = member.conn_kwargs(self._replication)
         r.update({'application_name': self.name, 'sslmode': 'prefer', 'sslcompression': '1'})
@@ -1021,7 +1045,7 @@ class Postgresql(object):
                 if name not in ('standby_mode', 'recovery_target_timeline', 'primary_conninfo', 'primary_slot_name'):
                     f.write("{0} = '{1}'\n".format(name, value))
 
-    def rewind(self, r):
+    def pg_rewind(self, r):
         # prepare pg_rewind connection
         env = self.write_pgpass(r)
         dsn_attrs = [
@@ -1048,85 +1072,160 @@ class Postgresql(object):
         # Don't try to call pg_controldata during backup restore
         if self._version_file_exists() and self.state != 'creating replica':
             try:
-                data = subprocess.check_output([self._pgcommand('pg_controldata'), self._data_dir])
+                data = subprocess.check_output([self._pgcommand('pg_controldata'), self._data_dir],
+                                               env={'LANG': 'C', 'LC_ALL': 'C', 'PATH': os.environ['PATH']})
                 if data:
                     data = data.decode('utf-8').splitlines()
-                    result = {l.split(':')[0].replace('Current ', '', 1): l.split(':')[1].strip() for l in data if l}
+                    result = {l.split(':', 1)[0]: l.split(':', 1)[1].strip() for l in data if l}
             except subprocess.CalledProcessError:
                 logger.exception("Error when calling pg_controldata")
         return result
 
-    def read_postmaster_opts(self):
-        """ returns the list of option names/values from postgres.opts, Empty dict if read failed or no file """
-        result = {}
-        try:
-            with open(os.path.join(self._data_dir, "postmaster.opts")) as f:
-                data = f.read()
-                opts = [opt.strip('"\n') for opt in data.split(' "')]
-                for opt in opts:
-                    if '=' in opt and opt.startswith('--'):
-                        name, val = opt.split('=', 1)
-                        name = name.strip('-')
-                        result[name] = val
-        except IOError:
-            logger.exception('Error when reading postmaster.opts')
-        return result
-
-    def single_user_mode(self, command=None, options=None):
-        """ run a given command in a single-user mode. If the command is empty - then just start and stop """
-        cmd = [self._pgcommand('postgres'), '--single', '-D', self._data_dir]
-        for opt, val in sorted((options or {}).items()):
-            cmd.extend(['-c', '{0}={1}'.format(opt, val)])
-        # need a database name to connect
-        cmd.append(self._database)
-        p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=open(os.devnull, 'w'), stderr=subprocess.STDOUT)
-        if p:
-            if command:
-                p.communicate('{0}\n'.format(command))
-            p.stdin.close()
-            return p.wait()
-        return 1
-
-    def cleanup_archive_status(self):
-        status_dir = os.path.join(self._data_dir, 'pg_xlog', 'archive_status')
-        try:
-            for f in os.listdir(status_dir):
-                path = os.path.join(status_dir, f)
-                try:
-                    if os.path.islink(path):
-                        os.unlink(path)
-                    elif os.path.isfile(path):
-                        os.remove(path)
-                except OSError:
-                    logger.exception("Unable to remove %s", path)
-        except OSError:
-            logger.exception("Unable to list %s", status_dir)
-
     @property
     def need_rewind(self):
-        return self._need_rewind
+        return self._rewind_state in (REWIND_STATUS.CHECK, REWIND_STATUS.NEED)
 
-    def trigger_rewind(self):
-        self._need_rewind = True
+    @staticmethod
+    @contextmanager
+    def _get_connection_cursor(**kwargs):
+        with psycopg2.connect(**kwargs) as conn:
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                yield cur
 
-    def follow(self, member, leader, timeout=None):
+    @contextmanager
+    def _get_replication_connection_cursor(self, host='localhost', port=5432, **kwargs):
+        with self._get_connection_cursor(host=host, port=int(port), database=self._database, replication=1,
+                                         user=self._replication['username'], password=self._replication['password'],
+                                         connect_timeout=3, options='-c statement_timeout=2000') as cur:
+            yield cur
+
+    def check_leader_is_not_in_recovery(self, **kwargs):
+        try:
+            with self._get_connection_cursor(connect_timeout=3, options='-c statement_timeout=2000', **kwargs) as cur:
+                cur.execute('SELECT pg_is_in_recovery()')
+                if not cur.fetchone()[0]:
+                    return True
+                logger.info('Leader is still in_recovery and therefore can\'t be used for rewind')
+        except Exception:
+            return logger.exception('Exception when working with leader')
+
+    def _get_local_timeline_lsn(self):
+        timeline = lsn = None
+        if self.is_running():  # if postgres is running - get timeline and lsn from replication connection
+            try:
+                with self._get_replication_connection_cursor(**self._local_address) as cur:
+                    cur.execute('IDENTIFY_SYSTEM')
+                    timeline, lsn = cur.fetchone()[1:3]
+            except Exception:
+                logger.exception('Can not fetch local timeline and lsn from replication connection')
+        else:  # otherwise analyze pg_controldata output
+            data = self.controldata()
+            try:
+                if data.get('Database cluster state') == 'shut down':
+                    lsn = data.get('Latest checkpoint location')
+                    timeline = int(data.get("Latest checkpoint's TimeLineID"))
+                elif data.get('Database cluster state') == 'shut down in recovery':
+                    lsn = data.get('Minimum recovery ending location')
+                    timeline = int(data.get("Min recovery ending loc's timeline"))
+            except (TypeError, ValueError):
+                logger.exception('Failed to get local timeline and lsn from pg_controldata output')
+        logger.info('Local timeline=%s lsn=%s', timeline, lsn)
+        return timeline, lsn
+
+    def _check_timeline_and_lsn(self, leader):
+        local_timeline, local_lsn = self._get_local_timeline_lsn()
+        if local_timeline is None or local_lsn is None:
+            return
+
+        if not self.check_leader_is_not_in_recovery(**leader.conn_kwargs(self._superuser)):
+            return
+
+        history = need_rewind = None
+        try:
+            with self._get_replication_connection_cursor(**leader.conn_kwargs()) as cur:
+                cur.execute('IDENTIFY_SYSTEM')
+                master_timeline = cur.fetchone()[1]
+                logger.info('master_timeline=%s', master_timeline)
+                if local_timeline > master_timeline:  # Not always supported by pg_rewind
+                    need_rewind = True
+                elif master_timeline > 1:
+                    cur.execute('TIMELINE_HISTORY %s', (master_timeline,))
+                    history = bytes(cur.fetchone()[1]).decode('utf-8')
+                    logger.info('master: history=%s', history)
+                else:  # local_timeline == master_timeline == 1
+                    need_rewind = False
+        except Exception:
+            return logger.exception('Exception when working with master via replication connection')
+
+        if history is not None:
+            def parse_lsn(lsn):
+                t = lsn.split('/')
+                return int(t[0], 16) * 0x100000000 + int(t[1], 16)
+
+            for line in history.split('\n'):
+                line = line.strip().split('\t')
+                if len(line) == 3:
+                    try:
+                        timeline = int(line[0])
+                        if timeline == local_timeline:
+                            try:
+                                need_rewind = parse_lsn(local_lsn) >= parse_lsn(line[1])
+                            except ValueError:
+                                logger.exception('Exception when parsing lsn')
+                            break
+                        elif timeline > local_timeline:
+                            break
+                    except ValueError:
+                        continue
+
+        self._rewind_state = need_rewind and REWIND_STATUS.NEED or REWIND_STATUS.NOT_NEED
+
+    def rewind(self, leader):
+        if self.is_running() and not self.stop(checkpoint=False):
+            return logger.warning('Can not run pg_rewind because postgres is still running')
+
+        # prepare pg_rewind connection
+        r = leader.conn_kwargs(self._superuser)
+
+        # first make sure that we are really trying to rewind
+        # from the master and run a checkpoint on it in order to
+        # make it store the new timeline (5540277D.8020309@iki.fi)
+        leader_status = self.checkpoint(r)
+        if leader_status:
+            return logger.warning('Can not use %s for rewind: %s', leader.name, leader_status)
+
+        if self.pg_rewind(r):
+            self._rewind_state = REWIND_STATUS.SUCCESS
+        elif not self.check_leader_is_not_in_recovery(**r):
+            logger.warning('Failed to rewind because master %s become unreachable', leader.name)
+        else:
+            logger.error('Failed to rewind from healty master: %s', leader.name)
+
+            if self.config.get('remove_data_directory_on_rewind_failure', False):
+                logger.warning('remove_data_directory_on_rewind_failure is set. removing...')
+                self.remove_data_directory()
+                self._rewind_state = REWIND_STATUS.INITIAL
+            else:
+                self._rewind_state = REWIND_STATUS.FAILED
+        return False
+
+    def trigger_check_diverged_lsn(self):
+        if self.can_rewind and self._rewind_state != REWIND_STATUS.NEED:
+            self._rewind_state = REWIND_STATUS.CHECK
+
+    def rewind_needed_and_possible(self, leader):
+        if leader and leader.name != self.name and leader.conn_url and self._rewind_state == REWIND_STATUS.CHECK:
+            self._check_timeline_and_lsn(leader)
+        return leader and leader.conn_url and self._rewind_state == REWIND_STATUS.NEED
+
+    @property
+    def rewind_executed(self):
+        return self._rewind_state > REWIND_STATUS.NOT_NEED
+
+    def follow(self, member, timeout=None):
         primary_conninfo = self.primary_conninfo(member)
         change_role = self.role in ('master', 'demoted')
-
-        if leader and leader.name == self.name:
-            primary_conninfo = None
-            self._need_rewind = False
-            if self.is_running():
-                return
-        elif change_role:
-            self._need_rewind = True
-
-        if self._need_rewind and not self.can_rewind:
-            logger.warning("Data directory may be out of sync master, rewind may be needed.")
-
-        if self._need_rewind and leader and leader.conn_url and self.can_rewind:
-            if not self._do_rewind(leader):
-                return
 
         self.write_recovery_conf(primary_conninfo)
         if self.is_running():
@@ -1212,8 +1311,8 @@ class Postgresql(object):
         ret = self.pg_ctl('promote')
         if ret:
             self.set_role('master')
-            logger.info("cleared rewind flag after becoming the leader")
-            self._need_rewind = False
+            logger.info("cleared rewind state after becoming the leader")
+            self._rewind_state = REWIND_STATUS.INITIAL
             self.call_nowait(ACTION_ON_ROLE_CHANGE)
         return ret
 
@@ -1234,13 +1333,13 @@ BEGIN
 END;
 $$""".format(name, ' '.join(options)), name, password, password)
 
-    def xlog_position(self, retry=True):
+    def wal_position(self, retry=True):
         stmt = """SELECT CASE WHEN pg_is_in_recovery()
-                              THEN GREATEST(pg_xlog_location_diff(COALESCE(pg_last_xlog_receive_location(), '0/0'),
+                              THEN GREATEST(pg_{0}_{1}_diff(COALESCE(pg_last_{0}_receive_{1}(), '0/0'),
                                                                   '0/0')::bigint,
-                                            pg_xlog_location_diff(pg_last_xlog_replay_location(), '0/0')::bigint)
-                              ELSE pg_xlog_location_diff(pg_current_xlog_location(), '0/0')::bigint
-                          END"""
+                                            pg_{0}_{1}_diff(pg_last_{0}_replay_{1}(), '0/0')::bigint)
+                              ELSE pg_{0}_{1}_diff(pg_current_{0}_{1}(), '0/0')::bigint
+                          END""".format(self.wal_name, self.lsn_name)
 
         # This method could be called from different threads (simultaneously with some other `_query` calls).
         # If it is called not from main thread we will create a new cursor to execute statement.
@@ -1293,9 +1392,12 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
                 # drop unused slots
                 for slot in set(self._replication_slots) - slots:
-                    self._query("""SELECT pg_drop_replication_slot(%s)
-                                    WHERE EXISTS(SELECT 1 FROM pg_replication_slots
-                                    WHERE slot_name = %s AND NOT active)""", slot, slot)
+                    cursor = self._query("""SELECT pg_drop_replication_slot(%s)
+                                             WHERE EXISTS(SELECT 1 FROM pg_replication_slots
+                                             WHERE slot_name = %s AND NOT active)""", slot, slot)
+
+                    if cursor.rowcount != 1:  # Either slot doesn't exists or it is still active
+                        self._schedule_load_slots = True  # schedule load_replication_slots on the next iteration
 
                 # create new slots
                 for slot in slots - set(self._replication_slots):
@@ -1309,7 +1411,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
                 self._schedule_load_slots = True
 
     def last_operation(self):
-        return str(self.xlog_position())
+        return str(self.wal_position())
 
     def clone(self, clone_member):
         """
@@ -1363,6 +1465,11 @@ $$""".format(name, ' '.join(options)), name, password, password)
             self.move_data_directory()
 
     def basebackup(self, conn_url, env):
+        # save environ to restore it later
+        old_env = os.environ.copy()
+        os.environ.clear()
+        os.environ.update(env)
+
         # creates a replica data dir using pg_basebackup.
         # this is the default, built-in create_replica_method
         # tries twice, then returns failure (as 1)
@@ -1374,19 +1481,29 @@ $$""".format(name, ' '.join(options)), name, password, password)
                 self.remove_data_directory()
 
             try:
+                version = 0
+                with psycopg2.connect(conn_url + '?replication=1') as c:
+                    version = c.server_version
+
                 ret = subprocess.call([self._pgcommand('pg_basebackup'), '--pgdata=' + self._data_dir,
-                                       '--xlog-method=stream', "--dbname=" + conn_url], env=env)
+                                       '--{0}-method=stream'.format(self._wal_name(version)), '--dbname=' + conn_url])
                 if ret == 0:
                     break
                 else:
                     logger.error('Error when fetching backup: pg_basebackup exited with code=%s', ret)
 
+            except psycopg2.Error:
+                logger.error('Can not connect to %s', conn_url)
             except Exception as e:
                 logger.error('Error when fetching backup with pg_basebackup: %s', e)
 
             if bbfailures < maxfailures - 1:
                 logger.warning('Trying again in 5 seconds')
                 time.sleep(5)
+
+        # restore environ
+        os.environ.clear()
+        os.environ.update(old_env)
 
         return ret
 
@@ -1406,7 +1523,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
         for app_name, state, sync_state in self.query(
                 """SELECT application_name, state, sync_state
                      FROM pg_stat_replication
-                    ORDER BY flush_location DESC"""):
+                    ORDER BY flush_{0} DESC""".format(self.lsn_name)):
             member = members.get(app_name)
             if state != 'streaming' or not member or member.tags.get('nosync', False):
                 continue
@@ -1466,3 +1583,13 @@ $$""".format(name, ' '.join(options)), name, password, password)
         except ValueError:
             raise Exception("Invalid PostgreSQL version: {0}".format(pg_version))
         return result
+
+    @staticmethod
+    def postgres_major_version_to_int(pg_version):
+        """
+        >>> Postgresql.postgres_major_version_to_int('10')
+        100000
+        >>> Postgresql.postgres_major_version_to_int('9.6')
+        90600
+        """
+        return Postgresql.postgres_version_to_int(pg_version + '.0')

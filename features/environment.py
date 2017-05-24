@@ -136,7 +136,10 @@ class PatroniController(AbstractController):
             self.watchdog.stop()
 
     def _is_accessible(self):
-        return self.query("SELECT 1", fail_ok=True) is not None
+        cursor = self.query("SELECT 1", fail_ok=True)
+        if cursor is not None:
+            cursor.execute("SET synchronous_commit TO 'local'")
+            return True
 
     def _make_patroni_test_config(self, name, tags, custom_config):
         patroni_config_name = self.PATRONI_CONFIG.format(name)

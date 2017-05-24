@@ -110,5 +110,7 @@ script:
 
     set +e
 after_success:
+  # before_cache is executed earlier than after_success, so we need to restore one of virtualenv directories
+  - fpv=$(basename $(readlink $HOME/virtualenv/python3.5)) && mv $HOME/mycache/${fpv} $HOME/virtualenv/${fpv}
   - coveralls
   - if [[ $TEST_SUITE != "behave" ]]; then python-codacy-coverage -r coverage.xml; fi
