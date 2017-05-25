@@ -382,14 +382,16 @@ class RestApiHandler(BaseHTTPRequestHandler):
                                        pg_is_in_recovery(),
                                        CASE WHEN pg_is_in_recovery()
                                             THEN 0
-                                            ELSE pg_xlog_location_diff(pg_current_xlog_location(), '0/0')::bigint
+                                            ELSE pg_{0}_{1}_diff(pg_current_{0}_{1}(), '0/0')::bigint
                                        END,
-                                       pg_xlog_location_diff(COALESCE(pg_last_xlog_receive_location(),
-                                                                      pg_last_xlog_replay_location()), '0/0')::bigint,
-                                       pg_xlog_location_diff(pg_last_xlog_replay_location(), '0/0')::bigint,
+                                       pg_{0}_{1}_diff(COALESCE(pg_last_{0}_receive_{1}(),
+                                                                      pg_last_{0}_replay_{1}()), '0/0')::bigint,
+                                       pg_{0}_{1}_diff(pg_last_{0}_replay_{1}(), '0/0')::bigint,
                                        to_char(pg_last_xact_replay_timestamp(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),
-                                       pg_is_in_recovery() AND pg_is_xlog_replay_paused(),
-                                       (SELECT array_to_json(array_agg(row_to_json(ri))) FROM replication_info ri)""",
+                                       pg_is_in_recovery() AND pg_is_{0}_replay_paused(),
+                                       (SELECT array_to_json(array_agg(row_to_json(ri)))
+                                          FROM replication_info ri)""".format(self.server.patroni.postgresql.wal_name,
+                                                                              self.server.patroni.postgresql.lsn_name),
                              retry=retry)[0]
 
             result = {

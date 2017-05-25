@@ -23,19 +23,29 @@
 # currently also requires that you configure the restore_command to use wal_e, example:
 #       recovery_conf:
 #               restore_command: envdir /etc/wal-e.d/env wal-e wal-fetch "%f" "%p" -p 1
-
-from collections import namedtuple
+import argparse
+import csv
 import logging
 import os
 import psycopg2
 import subprocess
 import sys
 import time
-import argparse
+
+from collections import namedtuple
 
 logger = logging.getLogger(__name__)
 
 RETRY_SLEEP_INTERVAL = 1
+si_prefixes = ['K', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y']
+
+
+# Meaningful names to the exit codes used by WALERestore
+ExitCode = type('Enum', (), {
+    'SUCCESS': 0,  #: Succeeded
+    'RETRY_LATER': 1,  #: External issue, retry later
+    'FAIL': 2  #: Don't try again unless configuration changes
+})
 
 
 # We need to know the current PG version in order to figure out the correct WAL directory name
@@ -50,66 +60,141 @@ def get_major_version(data_dir):
     return 0.0
 
 
+def repr_size(n_bytes):
+    """
+    >>> repr_size(1000)
+    '1000 Bytes'
+    >>> repr_size(8257332324597)
+    '7.5 TiB'
+    """
+    if n_bytes < 1024:
+        return '{0} Bytes'.format(n_bytes)
+    i = -1
+    while n_bytes > 1023:
+        n_bytes /= 1024.0
+        i += 1
+    return '{0} {1}iB'.format(round(n_bytes, 1), si_prefixes[i])
+
+
+def size_as_bytes(size_, prefix):
+    """
+    >>> size_as_bytes(7.5, 'T')
+    8246337208320
+    """
+    prefix = prefix.upper()
+
+    assert prefix in si_prefixes
+
+    exponent = si_prefixes.index(prefix) + 1
+
+    return int(size_ * (1024.0 ** exponent))
+
+
+WALEConfig = namedtuple(
+    'WALEConfig',
+    [
+        'env_dir',
+        'threshold_mb',
+        'threshold_pct',
+        'cmd',
+    ]
+)
+
+
 class WALERestore(object):
-    def __init__(self, scope, datadir, connstring, env_dir, threshold_mb, threshold_pct, use_iam, no_master, retries):
+    def __init__(self, scope, datadir, connstring, env_dir, threshold_mb,
+                 threshold_pct, use_iam, no_master, retries):
         self.scope = scope
         self.master_connection = connstring
         self.data_dir = datadir
-        self.wal_e = namedtuple('wale', 'dir,threshold_mb,threshold_pct,iam_string,cmd')
-        self.wal_e.dir = env_dir
-        self.wal_e.threshold_mb = threshold_mb
-        self.wal_e.threshold_pct = threshold_pct
-        self.wal_e.iam_string = ' --aws-instance-profile ' if use_iam == 1 else ''
         self.no_master = no_master
-        self.wal_e.cmd = 'envdir {0} wal-e {1} '.format(self.wal_e.dir, self.wal_e.iam_string)
-        self.init_error = (not os.path.exists(self.wal_e.dir))
+
+        wale_cmd = [
+            'envdir',
+            env_dir,
+            'wal-e',
+        ]
+
+        if use_iam == 1:
+            wale_cmd += ['--aws-instance-profile']
+
+        self.wal_e = WALEConfig(
+            env_dir=env_dir,
+            threshold_mb=threshold_mb,
+            threshold_pct=threshold_pct,
+            cmd=wale_cmd,
+        )
+
+        self.init_error = (not os.path.exists(self.wal_e.env_dir))
         self.retries = retries
 
     def run(self):
-        """ creates a new replica using WAL-E """
-        if not self.init_error:
-            try:
-                ret = self.should_use_s3_to_create_replica()
-                if ret:
-                    return self.create_replica_with_s3()
-                elif ret is None:  # caught an exception, need to retry
-                    return 1
-            except Exception:
-                logger.exception("Exception when running WAL-E restore")
-        return 2
+        """
+        Creates a new replica using WAL-E
+
+        Returns
+        -------
+        ExitCode
+            0 = Success
+            1 = Error, try again
+            2 = Error, don't try again
+
+        """
+        if self.init_error:
+            logger.error('init error: %r did not exist at initialization time',
+                         self.wal_e.env_dir)
+            return ExitCode.FAIL
+
+        try:
+            should_use_s3 = self.should_use_s3_to_create_replica()
+            if should_use_s3 is None:  # Need to retry
+                return ExitCode.RETRY_LATER
+            elif should_use_s3:
+                return self.create_replica_with_s3()
+            elif not should_use_s3:
+                return ExitCode.FAIL
+        except Exception:
+            logger.exception("Unhandled exception when running WAL-E restore")
+        return ExitCode.FAIL
 
     def should_use_s3_to_create_replica(self):
         """ determine whether it makes sense to use S3 and not pg_basebackup """
 
         threshold_megabytes = self.wal_e.threshold_mb
-        threshold_backup_size_percentage = self.wal_e.threshold_pct
+        threshold_percent = self.wal_e.threshold_pct
 
         try:
-            latest_backup = subprocess.check_output(self.wal_e.cmd.split() + ['backup-list', '--detail', 'LATEST'])
-            # name    last_modified   expanded_size_bytes wal_segment_backup_start    wal_segment_offset_backup_start
-            #                                                   wal_segment_backup_stop wal_segment_offset_backup_stop
-            # base_00000001000000000000007F_00000040  2015-05-18T10:13:25.000Z
-            # 20310671    00000001000000000000007F    00000040
-            # 00000001000000000000007F    00000240
-            backup_strings = latest_backup.decode('utf-8').splitlines() if latest_backup else ()
-            if len(backup_strings) != 2:
+            cmd = self.wal_e.cmd + ['backup-list', '--detail', 'LATEST']
+
+            logger.debug('calling %r', cmd)
+            wale_output = subprocess.check_output(cmd)
+
+            reader = csv.DictReader(wale_output.decode('utf-8').splitlines(),
+                                    dialect='excel-tab')
+            rows = list(reader)
+            if not len(rows):
+                logger.warning('wal-e did not find any backups')
                 return False
 
-            names = backup_strings[0].split()
-            vals = backup_strings[1].split()
-            if (len(names) != len(vals)) or (len(names) != 7):
+            # This check might not add much, it was performed in the previous
+            # version of this code. since the old version rolled CSV parsing the
+            # check may have been part of the CSV parsing.
+            if len(rows) > 1:
+                logger.warning(
+                    'wal-e returned more than one row of backups: %r',
+                    rows)
                 return False
 
-            backup_info = dict(zip(names, vals))
+            backup_info = rows[0]
         except subprocess.CalledProcessError:
             logger.exception("could not query wal-e latest backup")
             return None
 
         try:
-            backup_size = backup_info['expanded_size_bytes']
+            backup_size = int(backup_info['expanded_size_bytes'])
             backup_start_segment = backup_info['wal_segment_backup_start']
             backup_start_offset = backup_info['wal_segment_offset_backup_start']
-        except Exception:
+        except KeyError:
             logger.exception("unable to get some of WALE backup parameters")
             return None
 
@@ -124,24 +209,29 @@ class WALERestore(object):
         # construct the LSN from the segment and offset
         backup_start_lsn = '{0}/{1}'.format(lsn_segment, lsn_offset)
 
-        diff_in_bytes = int(backup_size)
+        diff_in_bytes = backup_size
         attempts_no = 0
         while True:
             if self.master_connection:
                 try:
                     # get the difference in bytes between the current WAL location and the backup start offset
                     with psycopg2.connect(self.master_connection) as con:
+                        if con.server_version >= 100000:
+                            wal_name = 'wal'
+                            lsn_name = 'lsn'
+                        else:
+                            wal_name = 'xlog'
+                            lsn_name = 'location'
                         con.autocommit = True
                         with con.cursor() as cur:
                             cur.execute("""SELECT CASE WHEN pg_is_in_recovery()
                                                        THEN GREATEST(
-                                                                pg_xlog_location_diff(COALESCE(
-                                                                  pg_last_xlog_receive_location(), '0/0'), %s)::bigint,
-                                                                pg_xlog_location_diff(
-                                                                  pg_last_xlog_replay_location(), %s)::bigint)
-                                                       ELSE pg_xlog_location_diff(
-                                                                pg_current_xlog_location(), %s)::bigint
-                                                   END""", (backup_start_lsn, backup_start_lsn, backup_start_lsn))
+                                                                pg_{0}_{1}_diff(COALESCE(
+                                                                  pg_last_{0}_receive_{1}(), '0/0'), %s)::bigint,
+                                                                pg_{0}_{1}_diff(pg_last_{0}_replay_{1}(), %s)::bigint)
+                                                       ELSE pg_{0}_{1}_diff(pg_current_{0}_{1}(), %s)::bigint
+                                                   END""".format(wal_name, lsn_name),
+                                        (backup_start_lsn, backup_start_lsn, backup_start_lsn))
 
                             diff_in_bytes = int(cur.fetchone()[0])
                 except psycopg2.Error:
@@ -163,8 +253,47 @@ class WALERestore(object):
 
         # if the size of the accumulated WAL segments is more than a certan percentage of the backup size
         # or exceeds the pre-determined size - pg_basebackup is chosen instead.
-        return (diff_in_bytes < int(threshold_megabytes) * 1048576) and\
-            (diff_in_bytes < int(backup_size) * float(threshold_backup_size_percentage) / 100)
+        is_size_thresh_ok = diff_in_bytes < int(threshold_megabytes) * 1048576
+        threshold_pct_bytes = backup_size * threshold_percent / 100.0
+        is_percentage_thresh_ok = float(diff_in_bytes) < int(threshold_pct_bytes)
+        are_thresholds_ok = is_size_thresh_ok and is_percentage_thresh_ok
+
+        class Size(object):
+            def __init__(self, n_bytes, prefix=None):
+                self.n_bytes = n_bytes
+                self.prefix = prefix
+
+            def __repr__(self):
+                if self.prefix is not None:
+                    n_bytes = size_as_bytes(self.n_bytes, self.prefix)
+                else:
+                    n_bytes = self.n_bytes
+                return repr_size(n_bytes)
+
+        class HumanContext(object):
+            def __init__(self, items):
+                self.items = items
+
+            def __repr__(self):
+                return ', '.join('{}={!r}'.format(key, value)
+                                 for key, value in self.items)
+
+        human_context = repr(HumanContext([
+            ('threshold_size', Size(threshold_megabytes, 'M')),
+            ('threshold_percent', threshold_percent),
+            ('threshold_percent_size', Size(threshold_pct_bytes)),
+            ('backup_size', Size(backup_size)),
+            ('backup_diff', Size(diff_in_bytes)),
+            ('is_size_thresh_ok', is_size_thresh_ok),
+            ('is_percentage_thresh_ok', is_percentage_thresh_ok),
+        ]))
+
+        if not are_thresholds_ok:
+            logger.info('wal-e backup size diff is over threshold, falling back '
+                        'to other means of restore: %s', human_context)
+        else:
+            logger.info('Thresholds are OK, using wal-e basebackup: %s', human_context)
+        return are_thresholds_ok
 
     def fix_subdirectory_path_if_broken(self, dirname):
         # in case it is a symlink pointing to a non-existing location, remove it and create the actual directory
@@ -187,15 +316,19 @@ class WALERestore(object):
     def create_replica_with_s3(self):
         # if we're set up, restore the replica using fetch latest
         try:
-            ret = subprocess.call(self.wal_e.cmd.split() + ['backup-fetch', '{}'.format(self.data_dir), 'LATEST'])
+            cmd = self.wal_e.cmd + ['backup-fetch',
+                                    '{}'.format(self.data_dir),
+                                    'LATEST']
+            logger.debug('calling: %r', cmd)
+            exit_code = subprocess.call(cmd)
         except Exception as e:
             logger.error('Error when fetching backup with WAL-E: {0}'.format(e))
-            return 1
+            return ExitCode.RETRY_LATER
 
-        if (ret == 0 and not
-           self.fix_subdirectory_path_if_broken('pg_xlog' if get_major_version(self.data_dir) < 10.0 else 'pg_wal')):
-            return 2
-        return ret
+        if (exit_code == 0 and not
+           self.fix_subdirectory_path_if_broken('pg_xlog' if get_major_version(self.data_dir) < 10 else 'pg_wal')):
+            return ExitCode.FAIL
+        return exit_code
 
 
 def main():
@@ -213,6 +346,9 @@ def main():
     parser.add_argument('--no_master', type=int, default=0)
     args = parser.parse_args()
 
+    exit_code = None
+    assert args.retries >= 0
+
     # Retry cloning in a loop. We do separate retries for the master
     # connection attempt inside should_use_s3_to_create_replica,
     # because we need to differentiate between the last attempt and
@@ -223,12 +359,13 @@ def main():
                               env_dir=args.envdir, threshold_mb=args.threshold_megabytes,
                               threshold_pct=args.threshold_backup_size_percentage, use_iam=args.use_iam,
                               no_master=args.no_master, retries=args.retries)
-        ret = restore.run()
-        if ret != 1:  # only WAL-E failures lead to the retry
+        exit_code = restore.run()
+        if not exit_code == ExitCode.RETRY_LATER:  # only WAL-E failures lead to the retry
+            logger.debug('exit_code is %r, not retrying', exit_code)
             break
         time.sleep(RETRY_SLEEP_INTERVAL)
 
-    return ret
+    return exit_code
 
 
 if __name__ == '__main__':

@@ -12,3 +12,4 @@ prettytable>=0.7
 tzlocal
 python-dateutil
 psutil
+cdiff
