@@ -643,7 +643,7 @@ class WatchdogMonitor(object):
     def was_triggered(self):
         delta = time.time() - self.last_ping
         triggered = self._was_triggered or not self.was_closed and delta > self.timeout
-        self._log("triggered={0}, {1}s left".format(triggered,time.time(), self.timeout - delta))
+        self._log("triggered={0}, {1}s left".format(triggered, self.timeout - delta))
         return triggered
 
 
