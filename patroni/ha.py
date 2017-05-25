@@ -50,6 +50,9 @@ class BackgroundKeepaliveSender(object):
     """A context manager that sends keepalives every loop_wait seconds in a background thread while the context is
     running, but only after a safepoint has been reached. After the safepoint PostgreSQL must not be allowed to
     transition to master before the context has ended. Intended use is for long operations that run in main HA loop.
+
+    If safe event is given it must be triggered when no client can be accessing PostgreSQL as master. If this condition
+    is already guaranteed before entering the context the safe event can be omitted.
     """
     def __init__(self, ha, safe_event=None):
         """
@@ -292,9 +295,8 @@ class Ha(object):
                 elif not node_to_follow:
                     return 'no action'
         elif is_leader:
-            with self._background_keepalive_context():
-                self.demote('immediate-nolock')
-                return demote_reason
+            self.demote('immediate-nolock')
+            return demote_reason
         else:
             self.keepalive()
 
@@ -590,28 +592,30 @@ class Ha(object):
             'immediate-nolock': dict(stop='immediate', checkpoint=False, release=False, offline=False, async=True),
         }[mode]
 
-        self.state_handler.trigger_check_diverged_lsn()
-        self.state_handler.stop(mode_control['stop'], checkpoint=mode_control['checkpoint'])
-        self.state_handler.set_role('demoted')
-        if mode_control['release']:
-                self.release_leader_key_voluntarily()
-                time.sleep(2)  # Give a time to somebody to take the leader lock
-        if mode_control['offline']:
-            node_to_follow, leader = None, None
-        else:
-            cluster = self.dcs.get_cluster()
-            node_to_follow, leader = self._get_node_to_follow(cluster), cluster.leader
+        with self._background_keepalive_context() if mode != 'graceful' else null_context():
+            self.state_handler.trigger_check_diverged_lsn()
+            self.state_handler.stop(mode_control['stop'], checkpoint=mode_control['checkpoint'])
+            self.state_handler.set_role('demoted')
 
-        # FIXME: with mode offline called from DCS exception handler and handle_long_action_in_progress
-        # there could be an async action already running, calling follow from here will lead
-        # to racy state handler state updates.
-        if mode_control['async']:
-            self._async_executor.schedule('starting after demotion')
-            self._async_executor.run_async(self.state_handler.follow, (node_to_follow,))
-        else:
-            if self.state_handler.rewind_needed_and_possible(leader):
-                return False  # do not start postgres, but run pg_rewind on the next iteration
-            self.state_handler.follow(node_to_follow)
+            if mode_control['release']:
+                    self.release_leader_key_voluntarily()
+                    time.sleep(2)  # Give a time to somebody to take the leader lock
+            if mode_control['offline']:
+                node_to_follow, leader = None, None
+            else:
+                cluster = self.dcs.get_cluster()
+                node_to_follow, leader = self._get_node_to_follow(cluster), cluster.leader
+
+            # FIXME: with mode offline called from DCS exception handler and handle_long_action_in_progress
+            # there could be an async action already running, calling follow from here will lead
+            # to racy state handler state updates.
+            if mode_control['async']:
+                self._async_executor.schedule('starting after demotion')
+                self._async_executor.run_async(self.state_handler.follow, (node_to_follow,))
+            else:
+                if self.state_handler.rewind_needed_and_possible(leader):
+                    return False  # do not start postgres, but run pg_rewind on the next iteration
+                self.state_handler.follow(node_to_follow)
 
     def _background_keepalive_context(self, wait_for_safepoint=True):
         if self.watchdog.is_running:
@@ -746,8 +750,7 @@ class Ha(object):
                 # Either there is no connection to DCS or someone else acquired the lock
                 logger.error('failed to update leader lock')
                 if self.state_handler.is_leader():
-                    with self._background_keepalive_context():
-                        self.demote('immediate-nolock')
+                    self.demote('immediate-nolock')
                     return 'demoted self because failed to update leader lock in DCS'
                 else:
                     return 'not promoting because failed to update leader lock in DCS'
@@ -906,7 +909,7 @@ class Ha(object):
                         with self._async_executor.critical_task as task:
                             if not task.cancel():
                                 self.state_handler.terminate_starting_postmaster(pid=task.result)
-                    self.demote('offline')
+                    self.demote('immediate-nolock')
                     return 'lost leader lock during ' + self._async_executor.scheduled_action
         finally:
             self.keepalive()
@@ -947,8 +950,7 @@ class Ha(object):
         if self.has_lock():
             if not self.update_lock():
                 logger.info("Lost lock while starting up. Demoting self.")
-                with self._background_keepalive_context():
-                    self.demote('immediate-nolock')
+                self.demote('immediate-nolock')
                 return 'stopped PostgreSQL while starting up because leader key was lost'
 
             timeout = self._start_timeout or self.patroni.config['master_start_timeout']
