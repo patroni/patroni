@@ -1,14 +1,18 @@
 import abc
 import consul
+import datetime
 import etcd
 import kazoo.client
 import kazoo.exceptions
 import os
+import psutil
 import psycopg2
 import shutil
+import signal
 import six
 import subprocess
 import tempfile
+import threading
 import time
 import yaml
 
@@ -74,18 +78,28 @@ class AbstractController(object):
         if self._log:
             self._log.close()
 
+    def cancel_background(self):
+        pass
 
 class PatroniController(AbstractController):
     __PORT = 5440
     PATRONI_CONFIG = '{}.yml'
     """ starts and stops individual patronis"""
 
-    def __init__(self, context, name, work_directory, output_dir, tags=None):
+    def __init__(self, context, name, work_directory, output_dir, tags=None, with_watchdog=False):
         super(PatroniController, self).__init__(context, 'patroni_' + name, work_directory, output_dir)
         PatroniController.__PORT += 1
         self._data_dir = os.path.join(work_directory, 'data', name)
         self._connstring = None
-        self._config = self._make_patroni_test_config(name, tags)
+        if with_watchdog:
+            self.watchdog = WatchdogMonitor(name, work_directory, output_dir)
+            custom_config = {'watchdog': {'driver': 'testing', 'device': self.watchdog.fifo_path, 'mode': 'required'}}
+        else:
+            self.watchdog = None
+            custom_config = None
+
+        self._config = self._make_patroni_test_config(name, tags, custom_config)
+        self._closables = []
 
         self._conn = None
         self._curs = None
@@ -109,6 +123,8 @@ class PatroniController(AbstractController):
                 yaml.safe_dump(config, w, default_flow_style=False)
 
     def _start(self):
+        if self.watchdog:
+            self.watchdog.start()
         return subprocess.Popen(['coverage', 'run', '--source=patroni', '-p', 'patroni.py', self._config],
                                 stdout=self._log, stderr=subprocess.STDOUT, cwd=self._work_directory)
 
@@ -116,6 +132,8 @@ class PatroniController(AbstractController):
         if postgres:
             return subprocess.call(['pg_ctl', '-D', self._data_dir, 'stop', '-mi', '-w'])
         super(PatroniController, self).stop(kill, timeout)
+        if self.watchdog:
+            self.watchdog.stop()
 
     def _is_accessible(self):
         cursor = self.query("SELECT 1", fail_ok=True)
@@ -123,7 +141,7 @@ class PatroniController(AbstractController):
             cursor.execute("SET synchronous_commit TO 'local'")
             return True
 
-    def _make_patroni_test_config(self, name, tags):
+    def _make_patroni_test_config(self, name, tags, custom_config):
         patroni_config_name = self.PATRONI_CONFIG.format(name)
         patroni_config_path = os.path.join(self._output_dir, patroni_config_name)
 
@@ -150,6 +168,15 @@ class PatroniController(AbstractController):
 
         if tags:
             config['tags'] = tags
+
+        if custom_config is not None:
+            def recursive_update(dst, src):
+                for k, v in src.items():
+                    if k in dst and isinstance(dst[k], dict):
+                        recursive_update(dst[k], v)
+                    else:
+                        dst[k] = v
+            recursive_update(config, custom_config)
 
         with open(patroni_config_path, 'w') as f:
             yaml.safe_dump(config, f, default_flow_style=False)
@@ -187,6 +214,87 @@ class PatroniController(AbstractController):
                     return True
             time.sleep(1)
         return False
+
+    def get_watchdog(self):
+        return self.watchdog
+
+    def _get_pid(self):
+        try:
+            pidfile = os.path.join(self._data_dir, 'postmaster.pid')
+            if not os.path.exists(pidfile):
+                return None
+            return int(open(pidfile).readline().strip())
+        except:
+            return None
+
+    def database_is_running(self):
+        pid = self._get_pid()
+        if not pid:
+            return False
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        return True
+
+    def postmaster_hang(self, timeout):
+        hang = ProcessHang(self._get_pid(), timeout)
+        self._closables.append(hang)
+        hang.start()
+
+    def checkpoint_hang(self, timeout):
+        pid = self._get_pid()
+        if not pid:
+            return False
+        proc = psutil.Process(pid)
+        for child in proc.children():
+            if 'checkpoint' in child.cmdline()[0]:
+                checkpointer = child
+                break
+        else:
+            return False
+        hang = ProcessHang(checkpointer.pid, timeout)
+        self._closables.append(hang)
+        hang.start()
+        return True
+
+    def cancel_background(self):
+        for obj in self._closables:
+            obj.close()
+        self._closables = []
+
+    def terminate_backends(self):
+        pid = self._get_pid()
+        if not pid:
+            return False
+        proc = psutil.Process(pid)
+        for p in proc.children():
+            if 'process' not in p.cmdline()[0]:
+                p.terminate()
+
+class ProcessHang(object):
+
+    """A background thread implementing a cancelable process hang via SIGSTOP."""
+
+    def __init__(self, pid, timeout):
+        self._cancelled = threading.Event()
+        self._thread = threading.Thread(target=self.run)
+        self.pid = pid
+        self.timeout = timeout
+
+    def start(self):
+        self._thread.start()
+
+    def run(self):
+        os.kill(self.pid, signal.SIGSTOP)
+        try:
+            self._cancelled.wait(self.timeout)
+        finally:
+            os.kill(self.pid, signal.SIGCONT)
+
+    def close(self):
+        self._cancelled.set()
+        self._thread.join()
 
 
 class AbstractDcsController(AbstractController):
@@ -386,13 +494,15 @@ class PatroniPoolController(object):
     def output_dir(self):
         return self._output_dir
 
-    def start(self, name, max_wait_limit=20, tags=None):
+    def start(self, name, max_wait_limit=20, tags=None, with_watchdog=False):
         if name not in self._processes:
-            self._processes[name] = PatroniController(self._context, name, self.patroni_path, self._output_dir, tags)
+            self._processes[name] = PatroniController(self._context, name, self.patroni_path, self._output_dir, tags, with_watchdog=with_watchdog)
         self._processes[name].start(max_wait_limit)
 
     def __getattr__(self, func):
-        if func not in ['stop', 'query', 'write_label', 'read_label', 'check_role_has_changed_to', 'add_tag_to_config']:
+        if func not in ['stop', 'query', 'write_label', 'read_label', 'check_role_has_changed_to', 'add_tag_to_config',
+                        'get_watchdog', 'database_is_running', 'checkpoint_hang', 'postmaster_hang',
+                        'terminate_backends']:
             raise AttributeError("PatroniPoolController instance has no attribute '{0}'".format(func))
 
         def wrapper(name, *args, **kwargs):
@@ -401,6 +511,7 @@ class PatroniPoolController(object):
 
     def stop_all(self):
         for ctl in self._processes.values():
+            ctl.cancel_background()
             ctl.stop()
         self._processes.clear()
 
@@ -417,6 +528,123 @@ class PatroniPoolController(object):
             self._dcs = os.environ.pop('DCS', 'etcd')
             assert self._dcs in self.known_dcs, 'Unsupported dcs: ' + self._dcs
         return self._dcs
+
+
+class WatchdogMonitor(object):
+    """Testing harness for emulating a watchdog device as a named pipe. Because we can't easily emulate ioctl's we
+    require a custom driver on Patroni side. The device takes no action, only notes if it was pinged and/or triggered.
+    """
+    def __init__(self, name, work_directory, output_dir):
+        self.fifo_path = os.path.join(work_directory, 'data', 'watchdog.{0}.fifo'.format(name))
+        self.fifo_file = None
+        self._stop_requested = False # Relying on bool setting being atomic
+        self._thread = None
+        self.last_ping = None
+        self.was_pinged = False
+        self.was_closed = False
+        self._was_triggered = False
+        self.timeout = 60
+        self._log_file = open(os.path.join(output_dir, 'watchdog.{0}.log'.format(name)), 'w')
+        self._log("watchdog {0} initialized".format(name))
+
+    def _log(self, msg):
+        tstamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S,%f")
+        self._log_file.write("{0}: {1}\n".format(tstamp, msg))
+
+    def start(self):
+        assert self._thread is None
+        self._stop_requested = False
+        self._log("starting fifo {0}".format(self.fifo_path))
+        fifo_dir = os.path.dirname(self.fifo_path)
+        if os.path.exists(self.fifo_path):
+            os.unlink(self.fifo_path)
+        elif not os.path.exists(fifo_dir):
+            os.mkdir(fifo_dir)
+        os.mkfifo(self.fifo_path)
+        self.last_ping = time.time()
+
+        self._thread = threading.Thread(target=self.run)
+        self._thread.start()
+
+    def run(self):
+        try:
+            while not self._stop_requested:
+                self._log("opening")
+                self.fifo_file = os.open(self.fifo_path, os.O_RDONLY)
+                try:
+                    self._log("Fifo {0} connected".format(self.fifo_path))
+                    self.was_closed = False
+                    while not self._stop_requested:
+                        c = os.read(self.fifo_file, 1)
+
+                        if c == b'X':
+                            self._log("Stop requested")
+                            return
+                        elif c == b'':
+                            self._log("Pipe closed")
+                            break
+                        elif c == b'C':
+                            command = b''
+                            c = os.read(self.fifo_file, 1)
+                            while c != b'\n' and c != b'':
+                                command += c
+                                c = os.read(self.fifo_file, 1)
+                            command = command.decode('utf8')
+
+                            if command.startswith('timeout='):
+                                self.timeout = int(command.split('=')[1])
+                                self._log("timeout={0}".format(self.timeout))
+                        elif c in [b'V', b'1']:
+                            cur_time = time.time()
+                            if cur_time - self.last_ping > self.timeout:
+                                self._log("Triggered")
+                                self._was_triggered = True
+                            if c == b'V':
+                                self._log("magic close")
+                                self.was_closed = True
+                            elif c == b'1':
+                                self.was_pinged = True
+                                self._log("ping after {0} seconds".format(cur_time - (self.last_ping or cur_time)))
+                                self.last_ping = cur_time
+                        else:
+                            self._log('Unknown command {0} received from fifo'.format(c))
+                finally:
+                    self.was_closed = True
+                    self._log("closing")
+                    os.close(self.fifo_file)
+        except Exception as e:
+            self._log("Error {0}".format(e))
+        finally:
+            self._log("stopping")
+            self._log_file.flush()
+            if os.path.exists(self.fifo_path):
+                os.unlink(self.fifo_path)
+
+    def stop(self):
+        self._log("Monitor stop")
+        self._stop_requested = True
+        try:
+            if os.path.exists(self.fifo_path):
+                fd = os.open(self.fifo_path, os.O_WRONLY)
+                os.write(fd, b'X')
+                os.close(fd)
+        except Exception as e:
+            self._log("err while closing: {0}".format(str(e)))
+        if self._thread:
+            self._thread.join()
+            self._thread = None
+
+
+    def reset(self):
+        self._log("reset")
+        self.was_pinged = self.was_closed = self._was_triggered = False
+
+    @property
+    def was_triggered(self):
+        delta = time.time() - self.last_ping
+        triggered = self._was_triggered or not self.was_closed and delta > self.timeout
+        self._log("triggered={0}, {1}s left".format(triggered, self.timeout - delta))
+        return triggered
 
 
 # actions to execute on start/stop of the tests and before running invidual features

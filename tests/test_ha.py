@@ -10,6 +10,7 @@ from patroni.dcs.etcd import Client
 from patroni.exceptions import DCSError, PostgresException
 from patroni.ha import Ha, _MemberStatus
 from patroni.postgresql import Postgresql
+from patroni.watchdog import Watchdog
 from patroni.utils import tzutc
 from test_etcd import socket_getaddrinfo, etcd_read, etcd_write, requests_get
 from test_postgresql import psycopg2_connect
@@ -84,6 +85,8 @@ postgresql:
   pg_rewind:
     username: postgres
     password: postgres
+watchdog:
+  mode: off
 zookeeper:
   exhibitor:
     hosts: [localhost]
@@ -101,6 +104,7 @@ zookeeper:
         self.nosync = False
         self.scheduled_restart = {'schedule': future_restart_time,
                                   'postmaster_start_time': str(postmaster_start_time)}
+        self.watchdog = Watchdog(self.config)
 
 
 def run_async(self, func, args=()):
@@ -334,7 +338,7 @@ class TestHa(unittest.TestCase):
         with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)):
             self.ha.restart({}, run_async=True)
             self.assertTrue(self.ha.restart_scheduled())
-            self.assertEquals(self.ha.run_cycle(), 'not healthy enough for leader race')
+            self.assertEquals(self.ha.run_cycle(), 'restart in progress')
 
             self.ha.cluster = get_cluster_initialized_with_leader()
             self.assertEquals(self.ha.run_cycle(), 'restart in progress')
@@ -343,7 +347,10 @@ class TestHa(unittest.TestCase):
             self.assertEquals(self.ha.run_cycle(), 'updated leader lock during restart')
 
             self.ha.update_lock = false
-            self.assertEquals(self.ha.run_cycle(), 'failed to update leader lock during restart')
+            self.p.set_role('master')
+            with patch('patroni.postgresql.Postgresql.stop') as stop_mock:
+                self.assertEquals(self.ha.run_cycle(), 'lost leader lock during restart')
+                stop_mock.assert_called()
 
     @patch('requests.get', requests_get)
     def test_manual_failover_from_leader(self):

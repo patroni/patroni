@@ -1,9 +1,12 @@
 import logging
+import errno
 import os
 import psycopg2
+import psutil
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import tempfile
 import time
@@ -13,9 +16,9 @@ from contextlib import contextmanager
 from patroni import call_self
 from patroni.callback_executor import CallbackExecutor
 from patroni.exceptions import PostgresConnectionException, PostgresException
-from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop
+from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, null_context
 from six import string_types
-from threading import current_thread, Lock
+from threading import current_thread, Lock, Event
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +33,12 @@ STATE_REJECT = 'rejecting connections'
 STATE_NO_RESPONSE = 'not responding'
 STATE_UNKNOWN = 'unknown'
 
+STOP_SIGNALS = {
+    'smart': signal.SIGTERM,
+    'fast': signal.SIGINT,
+    'immediate': signal.SIGQUIT,
+}
+STOP_POLLING_INTERVAL = 1
 REWIND_STATUS = type('Enum', (), {'INITIAL': 0, 'CHECK': 1, 'NEED': 2, 'NOT_NEED': 3, 'SUCCESS': 4, 'FAILED': 5})
 
 
@@ -137,6 +146,12 @@ class Postgresql(object):
 
         self._state_entry_timestamp = None
 
+        # This event is set to true when no backends are running. Could be set in parallel by
+        # multiple processes, like when demote is racing with async restart. Needs to be cleared
+        # before invoking stop if wait for this event is desired.
+        self.stop_safepoint_reached = Event()
+        self.stop_safepoint_reached.set()
+
         if self.is_running():
             self.set_state('running')
             self.set_role('master' if self.is_leader() else 'replica')
@@ -219,14 +234,6 @@ class Postgresql(object):
         :returns: `!True` when return_code == 0, otherwise `!False`"""
 
         pg_ctl = [self._pgcommand('pg_ctl'), cmd]
-        if cmd == 'stop':
-            pg_ctl += ['-w']
-            timeout = self.config.get('pg_ctl_timeout')
-            if timeout:
-                try:
-                    pg_ctl += ['-t', str(int(timeout))]
-                except Exception:
-                    logger.error('Bad value of pg_ctl_timeout: %s', timeout)
         return subprocess.call(pg_ctl + ['-D', self._data_dir] + list(args), **kwargs) == 0
 
     def pg_isready(self):
@@ -603,8 +610,9 @@ class Postgresql(object):
 
     def is_running(self):
         if not (self._version_file_exists() and os.path.isfile(self._postmaster_pid)):
+            # XXX: This is dangerous in case somebody deletes the data directory while PostgreSQL is still running.
             return False
-        return self.is_pid_running(self.read_pid_file().get('pid', 0))
+        return self.is_pid_running(self.get_pid())
 
     def read_pid_file(self):
         """Reads and parses postmaster.pid from the data directory
@@ -618,10 +626,21 @@ class Postgresql(object):
         except IOError:
             return {}
 
+    def get_pid(self):
+        """Fetches pid value from postmaster.pid using read_pid_file
+
+        :returns pid if successful, 0 if pid file is not present"""
+        # TODO: figure out what to do on permission errors
+        pid = self.read_pid_file().get('pid', 0)
+        try:
+            return int(pid)
+        except ValueError:
+            logger.warning("Garbage pid in postmaster.pid: {0!r}".format(pid))
+            return 0
+
     @staticmethod
     def is_pid_running(pid):
         try:
-            pid = int(pid)
             if pid < 0:
                 pid = -pid
             return pid > 0 and pid != os.getpid() and pid != os.getppid() and (os.kill(pid, 0) or True)
@@ -697,7 +716,7 @@ class Postgresql(object):
         logger.warning("Timed out waiting for PostgreSQL to start")
         return False
 
-    def start(self, timeout=None, block_callbacks=False):
+    def start(self, timeout=None, block_callbacks=False, task=None):
         """Start PostgreSQL
 
         Waits for postmaster to open ports or terminate so pg_isready can be used to check startup completion
@@ -741,12 +760,21 @@ class Postgresql(object):
         # of init process to take care about postmaster.
         # In order to make everything portable we can't use fork&exec approach here, so  we will call
         # ourselves and pass list of arguments which must be used to start postgres.
-        proc = call_self(['pg_ctl_start', self._pgcommand('postgres'), '-D', self._data_dir] + options, close_fds=True,
-                         preexec_fn=os.setsid, stdout=subprocess.PIPE,
-                         env={p: os.environ[p] for p in ('PATH', 'LC_ALL', 'LANG') if p in os.environ})
-        pid = int(proc.stdout.readline().strip())
-        proc.wait()
-        logger.info('postmaster pid=%s', pid)
+        with task or null_context():
+            if task and task.is_cancelled:
+                logger.info("PostgreSQL start cancelled.")
+                return False
+
+            start_initiated = time.time()
+            proc = call_self(['pg_ctl_start', self._pgcommand('postgres'), '-D', self._data_dir] + options,
+                             close_fds=True, preexec_fn=os.setsid, stdout=subprocess.PIPE,
+                             env={p: os.environ[p] for p in ('PATH', 'LC_ALL', 'LANG') if p in os.environ})
+            pid = int(proc.stdout.readline().strip())
+            proc.wait()
+            logger.info('postmaster pid=%s', pid)
+
+            if task:
+                task.complete(pid)
 
         start_timeout = timeout
         if not start_timeout:
@@ -785,10 +813,23 @@ class Postgresql(object):
             return 'not accessible or not healty'
 
     def stop(self, mode='fast', block_callbacks=False, checkpoint=True):
-        if not self.is_running():
+        success, pg_signaled = self._do_stop(mode, block_callbacks, checkpoint)
+        if success:
+            self.stop_safepoint_reached.set()  # In case we exited early. Setting twice is not a problem.
+            # block_callbacks is used during restart to avoid
+            # running start/stop callbacks in addition to restart ones
             if not block_callbacks:
                 self.set_state('stopped')
-            return True
+                if pg_signaled:
+                    self.call_nowait(ACTION_ON_STOP)
+        else:
+            logger.warning('pg_ctl stop failed')
+            self.set_state('stop failed')
+        return success
+
+    def _do_stop(self, mode, block_callbacks, checkpoint):
+        if not self.is_running():
+            return True, False
 
         if checkpoint and not self.is_starting():
             self.checkpoint()
@@ -796,16 +837,87 @@ class Postgresql(object):
         if not block_callbacks:
             self.set_state('stopping')
 
-        ret = self.pg_ctl('stop', '-m', mode)
-        # block_callbacks is used during restart to avoid
-        # running start/stop callbacks in addition to restart ones
-        if not ret:
-            logger.warning('pg_ctl stop failed')
-            self.set_state('stop failed')
-        elif not block_callbacks:
-            self.set_state('stopped')
-            self.call_nowait(ACTION_ON_STOP)
-        return ret
+        # Send signal to postmaster to stop
+        pid, result = self._signal_postmaster_stop(mode)
+        if result is not None:
+            return result, True
+
+        # We can skip safepoint detection if nobody is waiting for it.
+        if not self.stop_safepoint_reached.is_set():
+            # Wait for our connection to terminate so we can be sure that no new connections are being initiated
+            self._wait_for_connection_close(pid)
+            self._wait_for_user_backends_to_close(pid)
+            self.stop_safepoint_reached.set()
+
+        self._wait_for_postmaster_stop(pid)
+
+        return True, True
+
+    def _wait_for_postmaster_stop(self, pid):
+        # This wait loop differs subtly from pg_ctl as we check for both the pid file going
+        # away and if the pid is running. This seems safer.
+        while pid == self.get_pid() and self.is_pid_running(pid):
+            time.sleep(STOP_POLLING_INTERVAL)
+
+    def _signal_postmaster_stop(self, mode):
+        pid = self.get_pid()
+        if pid == 0:
+            return None, True
+        elif pid < 0:
+            logger.warning("Cannot stop server; single-user server is running (PID: {0})".format(-pid))
+            return None, False
+        try:
+            os.kill(pid, STOP_SIGNALS[mode])
+        except OSError as e:
+            if e.errno == errno.ESRCH:
+                return None, True
+            else:
+                logger.warning("Could not send stop signal to PostgreSQL (error: {0})".format(e.errno))
+                return None, False
+        return pid, None
+
+    def terminate_starting_postmaster(self, pid):
+        """Terminates a postmaster that has not yet opened ports or possibly even written a pid file. Blocks
+        until the process goes away."""
+        try:
+            os.kill(pid, STOP_SIGNALS['immediate'])
+        except OSError as e:
+            if e.errno == errno.ESRCH:
+                return
+            logger.warning("Could not send stop signal to PostgreSQL (error: {0})".format(e.errno))
+
+        while self.is_pid_running(pid):
+            time.sleep(STOP_POLLING_INTERVAL)
+
+    def _wait_for_connection_close(self, pid):
+        try:
+            with self.connection().cursor() as cur:
+                while True:  # Need a timeout here?
+                    if pid == self.get_pid() and self.is_pid_running(pid):
+                        cur.execute("SELECT 1")
+                        time.sleep(STOP_POLLING_INTERVAL)
+                        continue
+                    else:
+                        break
+        except psycopg2.Error:
+            pass
+
+    @staticmethod
+    def _wait_for_user_backends_to_close(postmaster_pid):
+        # These regexps are cross checked against versions PostgreSQL 9.1 .. 9.6
+        aux_proc_re = re.compile("(?:postgres:)( .*:)? (?:""(?:startup|logger|checkpointer|writer|wal writer|"
+                                 "autovacuum launcher|autovacuum worker|stats collector|wal receiver|archiver|"
+                                 "wal sender) process|bgworker: )")
+
+        try:
+            postmaster = psutil.Process(postmaster_pid)
+            user_backends = [p for p in postmaster.children() if not aux_proc_re.match(p.cmdline()[0])]
+            logger.debug("Waiting for user backends {0} to close".format(
+                ",".join(p.cmdline()[0] for p in user_backends)))
+            psutil.wait_procs(user_backends)
+            logger.debug("Backends closed")
+        except psutil.NoSuchProcess:
+            return
 
     def reload(self):
         ret = self.pg_ctl('reload')
@@ -865,7 +977,7 @@ class Postgresql(object):
 
         return self.state == 'running'
 
-    def restart(self, timeout=None):
+    def restart(self, timeout=None, task=None):
         """Restarts PostgreSQL.
 
         When timeout parameter is set the call will block either until PostgreSQL has started, failed to start or
@@ -875,7 +987,7 @@ class Postgresql(object):
         """
         self.set_state('restarting')
         self.__cb_pending = ACTION_ON_RESTART
-        ret = self.stop(block_callbacks=True) and self.start(timeout=timeout, block_callbacks=True)
+        ret = self.stop(block_callbacks=True) and self.start(timeout=timeout, block_callbacks=True, task=task)
         if not ret and not self.is_starting():
             self.set_state('restart failed ({0})'.format(self.state))
         return ret
@@ -1126,6 +1238,50 @@ class Postgresql(object):
             # TODO: postpone this until start completes, or maybe do even earlier
             self.call_nowait(ACTION_ON_ROLE_CHANGE)
         return True
+
+    def _do_rewind(self, leader):
+        logger.info("rewind flag is set")
+
+        if self.is_running() and not self.stop(checkpoint=False):
+            logger.warning('Can not run pg_rewind because postgres is still running')
+            return False
+
+        # prepare pg_rewind connection
+        r = leader.conn_kwargs(self._superuser)
+
+        # first make sure that we are really trying to rewind
+        # from the master and run a checkpoint on a t in order to
+        # make it store the new timeline (5540277D.8020309@iki.fi)
+        leader_status = self.checkpoint(r)
+        if leader_status:
+            logger.warning('Can not use %s for rewind: %s', leader.name, leader_status)
+            return False
+
+        # at present, pg_rewind only runs when the cluster is shut down cleanly
+        # and not shutdown in recovery. We have to remove the recovery.conf if present
+        # and start/shutdown in a single user mode to emulate this.
+        # XXX: if recovery.conf is linked, it will be written anew as a normal file.
+        if os.path.isfile(self._recovery_conf) or os.path.islink(self._recovery_conf):
+            os.unlink(self._recovery_conf)
+
+        # Archived segments might be useful to pg_rewind,
+        # clean the flags that tell we should remove them.
+        self.cleanup_archive_status()
+
+        # Start in a single user mode and stop to produce a clean shutdown
+        opts = self.read_postmaster_opts()
+        opts.update({'archive_mode': 'on', 'archive_command': 'false'})
+        self.single_user_mode(options=opts)
+
+        try:
+            if not self.rewind(r):
+                logger.error('unable to rewind the former master')
+                if self.config.get('remove_data_directory_on_rewind_failure', False):
+                    self.remove_data_directory()
+                    return False
+            return True
+        finally:
+            self._need_rewind = False
 
     def save_configuration_files(self):
         """
