@@ -1,12 +1,12 @@
-import unittest
-from mock import patch
-import platform
 import ctypes
-
-from patroni.watchdog import Watchdog
 import patroni.watchdog.linux as linuxwd
-
+import platform
 import sys
+import unittest
+
+from mock import patch
+from patroni.watchdog import Watchdog
+
 
 class MockDevice(object):
     def __init__(self, fd, filename, flag):
@@ -20,18 +20,20 @@ class MockDevice(object):
 
 mock_devices = [None]
 
+
 def mock_open(filename, flag):
     fd = len(mock_devices)
     mock_devices.append(MockDevice(fd, filename, flag))
     return fd
 
+
 def mock_ioctl(fd, op, arg=None, mutate_flag=False):
     assert 0 < fd < len(mock_devices)
     dev = mock_devices[fd]
-    sys.stderr.write("Ioctl %d %d %r\n" %( fd, op, arg))
+    sys.stderr.write("Ioctl %d %d %r\n" % (fd, op, arg))
     if op == linuxwd.WDIOC_GETSUPPORT:
         sys.stderr.write("Get support\n")
-        assert(mutate_flag == True)
+        assert(mutate_flag is True)
         arg.options = sum(map(linuxwd.WDIOF.get, ['SETTIMEOUT', 'KEEPALIVEPING', 'MAGICCLOSE']))
         arg.identity = (ctypes.c_ubyte*32)(*map(ord, 'Mock Watchdog'))
     elif op == linuxwd.WDIOC_GETTIMEOUT:
@@ -39,10 +41,11 @@ def mock_ioctl(fd, op, arg=None, mutate_flag=False):
     elif op == linuxwd.WDIOC_SETTIMEOUT:
         sys.stderr.write("Set timeout called with %s\n" % arg.value)
         assert 0 < arg.value < 65535
-        dev.timeout  = arg.value
+        dev.timeout = arg.value
     else:
         raise Exception("Unknown op %d", op)
     return 0
+
 
 def mock_write(fd, string):
     assert 0 < fd < len(mock_devices)
@@ -50,10 +53,12 @@ def mock_write(fd, string):
     assert mock_devices[fd].open
     mock_devices[fd].writes.append(string)
 
+
 def mock_close(fd):
     assert 0 < fd < len(mock_devices)
     assert mock_devices[fd].open
     mock_devices[fd].open = False
+
 
 @patch('os.open', mock_open)
 @patch('os.write', mock_write)
