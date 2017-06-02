@@ -186,6 +186,9 @@ class TestPostgresql(unittest.TestCase):
         self.other = Member(0, 'test-1', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
                             'tags': {'replicatefrom': 'leader'}})
         self.me = Member(0, 'test0', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres'})
+        self.other_nofailover = Member(0, 'test-nofailover', 28,
+                                       {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
+                                        'tags': {'nofailover': True}})
 
     def tearDown(self):
         shutil.rmtree('data')
@@ -692,8 +695,8 @@ class TestPostgresql(unittest.TestCase):
         self.assertFalse(self.p.is_pid_running(None))
 
     def test_pick_sync_standby(self):
-        cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None,
-                          SyncState(0, self.me.name, self.leadermem.name))
+        cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem, self.other_nofailover],
+                          None, SyncState(0, self.me.name, self.leadermem.name))
 
         with patch.object(Postgresql, "query", return_value=[
                     (self.leadermem.name, 'streaming', 'sync'),
@@ -724,6 +727,11 @@ class TestPostgresql(unittest.TestCase):
 
         with patch.object(Postgresql, "query", return_value=[]):
             self.assertEquals(self.p.pick_synchronous_standby(cluster), (None, False))
+
+        with patch.object(Postgresql, "query", return_value=[
+                    (self.other_nofailover.name, 'streaming', 'sync'),
+                ]):
+            self.assertIsNone(self.p.pick_synchronous_standby(cluster)[0])
 
     def test_set_sync_standby(self):
         def value_in_conf():
