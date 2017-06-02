@@ -951,6 +951,8 @@ class Postgresql(object):
                 # Let the main loop of run cycle clean up the mess.
                 logger.warning("%s status returned from pg_isready",
                                "Unknown" if ready == STATE_UNKNOWN else "Invalid")
+                return False
+
             self.set_state('running')
             self._schedule_load_slots = self.use_slots
             self.save_configuration_files()
