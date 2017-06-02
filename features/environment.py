@@ -81,6 +81,7 @@ class AbstractController(object):
     def cancel_background(self):
         pass
 
+
 class PatroniController(AbstractController):
     __PORT = 5440
     PATRONI_CONFIG = '{}.yml'
@@ -271,6 +272,7 @@ class PatroniController(AbstractController):
         for p in proc.children():
             if 'process' not in p.cmdline()[0]:
                 p.terminate()
+
 
 class ProcessHang(object):
 
@@ -496,7 +498,8 @@ class PatroniPoolController(object):
 
     def start(self, name, max_wait_limit=20, tags=None, with_watchdog=False):
         if name not in self._processes:
-            self._processes[name] = PatroniController(self._context, name, self.patroni_path, self._output_dir, tags, with_watchdog=with_watchdog)
+            self._processes[name] = PatroniController(self._context, name, self.patroni_path,
+                                                      self._output_dir, tags, with_watchdog)
         self._processes[name].start(max_wait_limit)
 
     def __getattr__(self, func):
@@ -537,7 +540,7 @@ class WatchdogMonitor(object):
     def __init__(self, name, work_directory, output_dir):
         self.fifo_path = os.path.join(work_directory, 'data', 'watchdog.{0}.fifo'.format(name))
         self.fifo_file = None
-        self._stop_requested = False # Relying on bool setting being atomic
+        self._stop_requested = False  # Relying on bool setting being atomic
         self._thread = None
         self.last_ping = None
         self.was_pinged = False
@@ -633,7 +636,6 @@ class WatchdogMonitor(object):
         if self._thread:
             self._thread.join()
             self._thread = None
-
 
     def reset(self):
         self._log("reset")
