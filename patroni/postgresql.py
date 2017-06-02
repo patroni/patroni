@@ -892,13 +892,9 @@ class Postgresql(object):
     def _wait_for_connection_close(self, pid):
         try:
             with self.connection().cursor() as cur:
-                while True:  # Need a timeout here?
-                    if pid == self.get_pid() and self.is_pid_running(pid):
-                        cur.execute("SELECT 1")
-                        time.sleep(STOP_POLLING_INTERVAL)
-                        continue
-                    else:
-                        break
+                while pid == self.get_pid() and self.is_pid_running(pid):  # Need a timeout here?
+                    cur.execute("SELECT 1")
+                    time.sleep(STOP_POLLING_INTERVAL)
         except psycopg2.Error:
             pass
 
@@ -1238,50 +1234,6 @@ class Postgresql(object):
             # TODO: postpone this until start completes, or maybe do even earlier
             self.call_nowait(ACTION_ON_ROLE_CHANGE)
         return True
-
-    def _do_rewind(self, leader):
-        logger.info("rewind flag is set")
-
-        if self.is_running() and not self.stop(checkpoint=False):
-            logger.warning('Can not run pg_rewind because postgres is still running')
-            return False
-
-        # prepare pg_rewind connection
-        r = leader.conn_kwargs(self._superuser)
-
-        # first make sure that we are really trying to rewind
-        # from the master and run a checkpoint on a t in order to
-        # make it store the new timeline (5540277D.8020309@iki.fi)
-        leader_status = self.checkpoint(r)
-        if leader_status:
-            logger.warning('Can not use %s for rewind: %s', leader.name, leader_status)
-            return False
-
-        # at present, pg_rewind only runs when the cluster is shut down cleanly
-        # and not shutdown in recovery. We have to remove the recovery.conf if present
-        # and start/shutdown in a single user mode to emulate this.
-        # XXX: if recovery.conf is linked, it will be written anew as a normal file.
-        if os.path.isfile(self._recovery_conf) or os.path.islink(self._recovery_conf):
-            os.unlink(self._recovery_conf)
-
-        # Archived segments might be useful to pg_rewind,
-        # clean the flags that tell we should remove them.
-        self.cleanup_archive_status()
-
-        # Start in a single user mode and stop to produce a clean shutdown
-        opts = self.read_postmaster_opts()
-        opts.update({'archive_mode': 'on', 'archive_command': 'false'})
-        self.single_user_mode(options=opts)
-
-        try:
-            if not self.rewind(r):
-                logger.error('unable to rewind the former master')
-                if self.config.get('remove_data_directory_on_rewind_failure', False):
-                    self.remove_data_directory()
-                    return False
-            return True
-        finally:
-            self._need_rewind = False
 
     def save_configuration_files(self):
         """
