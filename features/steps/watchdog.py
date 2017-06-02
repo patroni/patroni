@@ -1,6 +1,7 @@
 from behave import step, then
 import time
 
+
 def polling_loop(timeout, interval=1):
     """Returns an iterator that returns values until timeout has passed. Timeout is measured from start of iteration."""
     start_time = time.time()
@@ -10,7 +11,6 @@ def polling_loop(timeout, interval=1):
         yield iteration
         iteration += 1
         time.sleep(interval)
-
 
 
 @step('I start {name:w} with watchdog')
