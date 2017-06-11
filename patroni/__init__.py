@@ -100,7 +100,6 @@ class Patroni(object):
             self.next_run = time.time()
 
     def run(self):
-        self.ha.start()
         self.api.start()
         self.next_run = time.time()
 
