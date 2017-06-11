@@ -3,6 +3,7 @@ import logging
 import platform
 import six
 import sys
+from threading import RLock
 
 from patroni.exceptions import WatchdogError
 
@@ -29,6 +30,13 @@ def parse_mode(mode):
         return MODE_OFF
 
 
+def synchronized(func):
+    def wrapped(self, *args, **kwargs):
+        with self._lock:
+            return func(self, *args, **kwargs)
+    return wrapped
+
+
 class Watchdog(object):
     """Facade to dynamically manage watchdog implementations and handle config changes."""
     def __init__(self, config):
@@ -37,6 +45,7 @@ class Watchdog(object):
         self.mode = parse_mode(config['watchdog'].get('mode', 'automatic'))
         self.driver = config['watchdog'].get('driver')
         self.config = config
+        self._lock = RLock()
 
         if self.mode == MODE_OFF:
             self.impl = NullWatchdog()
@@ -46,6 +55,7 @@ class Watchdog(object):
                 logger.error("Configuration requires a watchdog, but watchdog is not supported on this platform.")
                 sys.exit(1)
 
+    @synchronized
     def activate(self):
         """Activates the watchdog device with suitable timeouts. While watchdog is active keepalive needs
         to be called every time loop_wait expires.
@@ -98,6 +108,7 @@ class Watchdog(object):
                 logger.error("Configuration requires watchdog, but watchdog could not be activated")
                 sys.exit(1)
 
+    @synchronized
     def disable(self):
         try:
             if self.impl.is_running and not self.impl.can_be_disabled:
@@ -109,6 +120,7 @@ class Watchdog(object):
         except WatchdogError as e:
             logger.error("Error while disabling watchdog: %s", e)
 
+    @synchronized
     def keepalive(self):
         try:
             self.impl.keepalive()

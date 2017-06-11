@@ -13,7 +13,7 @@ from patroni.async_executor import AsyncExecutor
 from patroni.exceptions import DCSError, PostgresConnectionException
 from patroni.postgresql import ACTION_ON_START
 from patroni.utils import polling_loop, null_context, tzutc
-from threading import RLock, Event, Thread
+from threading import RLock
 
 logger = logging.getLogger(__name__)
 
@@ -46,53 +46,6 @@ class _MemberStatus(namedtuple('_MemberStatus', 'member,reachable,in_recovery,wa
         return None
 
 
-class BackgroundKeepaliveSender(object):
-    """A context manager that sends keepalives every loop_wait seconds in a background thread while the context is
-    running, but only after a safepoint has been reached. After the safepoint PostgreSQL must not be allowed to
-    transition to master before the context has ended. Intended use is for long operations that run in main HA loop.
-
-    If safe event is given it must be triggered when no client can be accessing PostgreSQL as master. If this condition
-    is already guaranteed before entering the context the safe event can be omitted.
-    """
-    def __init__(self, ha, safe_event=None):
-        """
-        :param safe_event: None or threading.Event that is cleared when context is entered.
-        """
-        self.ha = ha
-        self.safe_event = safe_event
-        self._stop_event = Event()
-        self._bg_thread = Thread(target=self.run)
-        self.loop_wait = ha.dcs.loop_wait
-
-    def __enter__(self):
-        if self.safe_event is not None:
-            self.safe_event.clear()
-        self._bg_thread.start()
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        # FIXME: Do we want to handle the case where the safe event was not set?
-        # e.g. stop failed with an exception, looks like witholding keepalives is ok then
-        # We do want to avoid it when we don't have keepalives enabled, but maybe we can
-        # avoid creating the thread in the first place.
-        # if not self.safe_event.is_set():
-        #     self.safe_event.set()????
-        self._stop_event.set()
-        self._bg_thread.join()
-        # Always send at least one keepalive
-        self.ha.keepalive()
-
-    def run(self):
-        if self.safe_event is not None:
-            self.safe_event.wait()
-            logger.debug("Background keepalive safe event reached")
-        while not self._stop_event.is_set():
-            logger.debug("Sending background keepalive")
-            self.ha.keepalive()
-            if not self._stop_event.wait(self.loop_wait):
-                self.ha.keepalive_sent = False
-        logger.debug("Stopping background keepalive")
-
-
 class Ha(object):
 
     def __init__(self, patroni):
@@ -112,10 +65,6 @@ class Ha(object):
         # Count of concurrent sync disabling requests. Value above zero means that we don't want to be synchronous
         # standby. Changes protected by _member_state_lock.
         self._disable_sync = 0
-        # We need to send keepalives at most once per lock update so it is guaranteed that keepalive expires before
-        # lock TTL runs out. However we want to do it as soon as we determine that it is safe to do so. This flag
-        # keeps track whether a keepalive has been sent in the current cycle.
-        self.keepalive_sent = False
 
     def is_paused(self):
         return self.cluster and self.cluster.is_paused()
@@ -134,7 +83,7 @@ class Ha(object):
     def update_lock(self, write_leader_optime=False):
         ret = self.dcs.update_leader()
         if ret:
-            self.keepalive()
+            self.watchdog.keepalive()
             if write_leader_optime:
                 try:
                     self.dcs.write_leader_optime(self.state_handler.last_operation())
@@ -592,11 +541,10 @@ class Ha(object):
             'immediate-nolock': dict(stop='immediate', checkpoint=False, release=False, offline=False, async=True),
         }[mode]
 
-        with self._background_keepalive_context() if mode != 'graceful' else null_context():
-            self.state_handler.trigger_check_diverged_lsn()
-            self.state_handler.stop(mode_control['stop'], checkpoint=mode_control['checkpoint'])
-            self.state_handler.set_role('demoted')
-        self.watchdog.disable()
+        self.state_handler.trigger_check_diverged_lsn()
+        self.state_handler.stop(mode_control['stop'], checkpoint=mode_control['checkpoint'],
+                                on_safepoint=self.watchdog.disable if self.watchdog.is_running else None)
+        self.state_handler.set_role('demoted')
 
         if mode_control['release']:
                 self.release_leader_key_voluntarily()
@@ -617,13 +565,6 @@ class Ha(object):
             if self.state_handler.rewind_needed_and_possible(leader):
                 return False  # do not start postgres, but run pg_rewind on the next iteration
             self.state_handler.follow(node_to_follow)
-
-    def _background_keepalive_context(self, wait_for_safepoint=True):
-        if self.watchdog.is_running:
-            safe_event = self.state_handler.stop_safepoint_reached if wait_for_safepoint else None
-            return BackgroundKeepaliveSender(self, safe_event)
-        else:
-            return null_context()
 
     def should_run_scheduled_action(self, action_name, scheduled_at, cleanup_fn):
         if scheduled_at and not self.is_paused():
@@ -976,14 +917,8 @@ class Ha(object):
         Must be called when async_executor is busy or in the main thread."""
         self._start_timeout = value
 
-    def keepalive(self):
-        if not self.keepalive_sent:
-            self.watchdog.keepalive()
-        self.keepalive_sent = True
-
     def _run_cycle(self):
         dcs_failed = False
-        self.keepalive_sent = False
         try:
             self.load_cluster_from_dcs()
 
@@ -1077,8 +1012,6 @@ class Ha(object):
         finally:
             if not dcs_failed:
                 self.touch_member()
-            if self.watchdog.is_running and not self.keepalive_sent:
-                logger.error("End of HA loop reached without sending keepalive")
 
     def run_cycle(self):
         with self._async_executor:
@@ -1094,11 +1027,10 @@ class Ha(object):
             # takes longer than ttl, then leader key is lost and replication might not have sent out all xlog.
             # This might not be the desired behavior of users, as a graceful shutdown of the host can mean lost data.
             # We probably need to something smarter here.
-            with self._background_keepalive_context(wait_for_safepoint=self.state_handler.is_leader):
-                self.while_not_sync_standby(lambda: self.state_handler.stop(checkpoint=False))
+            disable_wd = self.watchdog.disable if self.watchdog.is_running else None
+            self.while_not_sync_standby(lambda: self.state_handler.stop(checkpoint=False, on_safepoint=disable_wd))
             if not self.state_handler.is_running():
                 self.dcs.delete_leader()
-                self.watchdog.disable()
             else:
                 # XXX: what about when Patroni is started as the wrong user that has access to the watchdog device
                 # but cannot shut down PostgreSQL. Root would be the obvious example. Would be nice to not kill the
