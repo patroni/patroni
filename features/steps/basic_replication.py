@@ -11,7 +11,7 @@ def start_patroni(context, name):
 
 @step('I shut down {name:w}')
 def stop_patroni(context, name):
-    return context.pctl.stop(name)
+    return context.pctl.stop(name, timeout=60)
 
 
 @step('I kill {name:w}')
