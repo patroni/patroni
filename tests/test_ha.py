@@ -7,7 +7,7 @@ from mock import Mock, MagicMock, PropertyMock, patch
 from patroni.config import Config
 from patroni.dcs import Cluster, ClusterConfig, Failover, Leader, Member, get_dcs, SyncState
 from patroni.dcs.etcd import Client
-from patroni.exceptions import DCSError, PostgresException, PatroniException
+from patroni.exceptions import DCSError, PostgresConnectionException, PatroniException
 from patroni.ha import Ha, _MemberStatus
 from patroni.postgresql import Postgresql
 from patroni.watchdog import Watchdog
@@ -159,7 +159,7 @@ class TestHa(unittest.TestCase):
             self.ha.is_synchronous_mode = false
 
     def test_update_lock(self):
-        self.p.last_operation = Mock(side_effect=PostgresException(''))
+        self.p.last_operation = Mock(side_effect=PostgresConnectionException(''))
         self.assertTrue(self.ha.update_lock(True))
 
     def test_touch_member(self):
@@ -302,13 +302,13 @@ class TestHa(unittest.TestCase):
         self.ha.cluster = get_cluster_not_initialized_without_leader()
         self.e.initialize = true
         self.assertEquals(self.ha.bootstrap(), 'trying to bootstrap a new cluster')
+        self.assertEquals(self.ha.run_cycle(), 'running post_bootstrap')
         self.assertEquals(self.ha.run_cycle(), 'initialized a new cluster')
 
     def test_bootstrap_release_initialize_key_on_failure(self):
         self.ha.cluster = get_cluster_not_initialized_without_leader()
         self.e.initialize = true
-        self.p.bootstrap = Mock(side_effect=PostgresException("Could not bootstrap master PostgreSQL"))
-        self.assertRaises(PostgresException, self.ha.bootstrap)
+        self.ha.bootstrap()
         self.p.is_running = false
         self.assertRaises(PatroniException, self.ha.post_bootstrap)
 

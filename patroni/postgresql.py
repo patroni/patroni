@@ -15,7 +15,7 @@ from collections import defaultdict
 from contextlib import contextmanager
 from patroni import call_self
 from patroni.callback_executor import CallbackExecutor
-from patroni.exceptions import PostgresConnectionException, PostgresException
+from patroni.exceptions import PostgresConnectionException
 from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, null_context
 from six import string_types
 from threading import current_thread, Lock, Event
@@ -1431,14 +1431,22 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
     def bootstrap(self, config):
         """ Initialize a new node from scratch and start it. """
-        if self._initialize(config) and self.start() and self.run_bootstrap_post_init(config):
-            for name, value in (config.get('users') or {}).items():
-                if name not in (self._superuser.get('username'), self._replication['username']):
-                    self.create_or_update_role(name, value['password'], value.get('options', []))
-            self.create_or_update_role(self._replication['username'], self._replication['password'], ['REPLICATION'])
-            return True
-        else:
-            raise PostgresException("Could not bootstrap master PostgreSQL")
+        return self._initialize(config) and self.start()
+
+    def post_bootstrap(self, config, task):
+        try:
+            self.create_or_update_role(self._superuser['username'], self._superuser['password'], ['SUPERUSER'])
+            task.complete(self.run_bootstrap_post_init(config))
+            if task.result:
+                self.create_or_update_role(self._replication['username'],
+                                           self._replication['password'], ['REPLICATION'])
+                for name, value in (config.get('users') or {}).items():
+                    if name not in (self._superuser.get('username'), self._replication['username']):
+                        self.create_or_update_role(name, value['password'], value.get('options', []))
+        except Exception:
+            logger.exception('post_bootstrap')
+            task.complete(False)
+        return task.result
 
     def move_data_directory(self):
         if os.path.isdir(self._data_dir) and not self.is_running():

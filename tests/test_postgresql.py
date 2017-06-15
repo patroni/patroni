@@ -6,8 +6,9 @@ import subprocess
 import unittest
 
 from mock import Mock, MagicMock, PropertyMock, patch, mock_open
+from patroni.async_executor import CriticalTask
 from patroni.dcs import Cluster, Leader, Member, SyncState
-from patroni.exceptions import PostgresException, PostgresConnectionException
+from patroni.exceptions import PostgresConnectionException
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
 from patroni.utils import RetryFailedError
 from six.moves import builtins
@@ -490,10 +491,7 @@ class TestPostgresql(unittest.TestCase):
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def test_bootstrap(self):
         with patch('subprocess.call', Mock(return_value=1)):
-            self.assertRaises(PostgresException, self.p.bootstrap, {})
-
-        with patch.object(Postgresql, 'run_bootstrap_post_init', Mock(return_value=False)):
-            self.assertRaises(PostgresException, self.p.bootstrap, {})
+            self.assertFalse(self.p.bootstrap({}))
 
         self.p.bootstrap({'users': {'replicator': {'password': 'rep-pass', 'options': ['replication']}},
                           'pg_hba': ['host replication replicator 127.0.0.1/32 md5',
@@ -504,6 +502,12 @@ class TestPostgresql(unittest.TestCase):
             lines = f.readlines()
             assert 'host replication replicator 127.0.0.1/32 md5\n' in lines
             assert 'host all all 0.0.0.0/0 md5\n' in lines
+
+    @patch.object(Postgresql, 'run_bootstrap_post_init', Mock(side_effect=Exception))
+    def test_post_bootstrap(self):
+        task = CriticalTask()
+        self.p.post_bootstrap({}, task)
+        self.assertFalse(task.result)
 
     def test_run_bootstrap_post_init(self):
         with patch('subprocess.call', Mock(return_value=1)):
