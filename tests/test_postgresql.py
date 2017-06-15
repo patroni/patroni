@@ -295,9 +295,9 @@ class TestPostgresql(unittest.TestCase):
         self.assertFalse(self.p.pg_rewind(r))
 
     def test_check_recovery_conf(self):
-        self.p.write_recovery_conf('foo')
+        self.p.write_recovery_conf({'primary_conninfo': 'foo'})
         self.assertFalse(self.p.check_recovery_conf(None))
-        self.p.write_recovery_conf(None)
+        self.p.write_recovery_conf({})
         self.assertTrue(self.p.check_recovery_conf(None))
 
     @patch.object(Postgresql, 'start', Mock())

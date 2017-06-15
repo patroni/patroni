@@ -1034,16 +1034,12 @@ class Postgresql(object):
                     return primary_conninfo and (primary_conninfo in line)
         return not primary_conninfo
 
-    def write_recovery_conf(self, primary_conninfo):
+    def write_recovery_conf(self, recovery_params):
+        params = self.config.get('recovery_conf', {}).copy()
+        params.update(recovery_params)
         with open(self._recovery_conf, 'w') as f:
-            f.write("standby_mode = 'on'\nrecovery_target_timeline = 'latest'\n")
-            if primary_conninfo:
-                f.write("primary_conninfo = '{0}'\n".format(primary_conninfo))
-                if self.use_slots:
-                    f.write("primary_slot_name = '{0}'\n".format(slot_name_from_member_name(self.name)))
-            for name, value in self.config.get('recovery_conf', {}).items():
-                if name not in ('standby_mode', 'recovery_target_timeline', 'primary_conninfo', 'primary_slot_name'):
-                    f.write("{0} = '{1}'\n".format(name, value))
+            for name, value in params.items():
+                f.write("{0} = '{1}'\n".format(name, value))
 
     def pg_rewind(self, r):
         # prepare pg_rewind connection
@@ -1227,7 +1223,14 @@ class Postgresql(object):
         primary_conninfo = self.primary_conninfo(member)
         change_role = self.role in ('master', 'demoted')
 
-        self.write_recovery_conf(primary_conninfo)
+        recovery_params = {'standby_mode': 'on', 'recovery_target_timeline': 'latest'}
+        if primary_conninfo:
+            recovery_params['primary_conninfo'] = primary_conninfo
+        if self.use_slots:
+            recovery_params['primary_slot_name'] = slot_name_from_member_name(self.name)
+
+        self.write_recovery_conf(recovery_params)
+
         if self.is_running():
             self.restart()
         else:
