@@ -7,7 +7,7 @@ from mock import Mock, MagicMock, PropertyMock, patch
 from patroni.config import Config
 from patroni.dcs import Cluster, ClusterConfig, Failover, Leader, Member, get_dcs, SyncState
 from patroni.dcs.etcd import Client
-from patroni.exceptions import DCSError, PostgresException
+from patroni.exceptions import DCSError, PostgresException, PatroniException
 from patroni.ha import Ha, _MemberStatus
 from patroni.postgresql import Postgresql
 from patroni.watchdog import Watchdog
@@ -301,13 +301,16 @@ class TestHa(unittest.TestCase):
     def test_bootstrap_initialized_new_cluster(self):
         self.ha.cluster = get_cluster_not_initialized_without_leader()
         self.e.initialize = true
-        self.assertEquals(self.ha.bootstrap(), 'initialized a new cluster')
+        self.assertEquals(self.ha.bootstrap(), 'trying to bootstrap a new cluster')
+        self.assertEquals(self.ha.run_cycle(), 'initialized a new cluster')
 
     def test_bootstrap_release_initialize_key_on_failure(self):
         self.ha.cluster = get_cluster_not_initialized_without_leader()
         self.e.initialize = true
         self.p.bootstrap = Mock(side_effect=PostgresException("Could not bootstrap master PostgreSQL"))
         self.assertRaises(PostgresException, self.ha.bootstrap)
+        self.p.is_running = false
+        self.assertRaises(PatroniException, self.ha.post_bootstrap)
 
     @patch('psycopg2.connect', psycopg2_connect)
     def test_reinitialize(self):

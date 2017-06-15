@@ -1436,6 +1436,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
                 if name not in (self._superuser.get('username'), self._replication['username']):
                     self.create_or_update_role(name, value['password'], value.get('options', []))
             self.create_or_update_role(self._replication['username'], self._replication['password'], ['REPLICATION'])
+            return True
         else:
             raise PostgresException("Could not bootstrap master PostgreSQL")
 
