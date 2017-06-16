@@ -18,7 +18,7 @@ from threading import RLock
 logger = logging.getLogger(__name__)
 
 
-class _MemberStatus(namedtuple('_MemberStatus', 'member,reachable,in_recovery,wal_position,tags')):
+class _MemberStatus(namedtuple('_MemberStatus', 'member,reachable,in_recovery,wal_position,tags,watchdog_failed')):
     """Node status distilled from API response:
 
         member - dcs.Member object of the node
@@ -31,11 +31,11 @@ class _MemberStatus(namedtuple('_MemberStatus', 'member,reachable,in_recovery,wa
     def from_api_response(cls, member, json):
         is_master = json['role'] == 'master'
         wal = not is_master and max(json['xlog'].get('received_location', 0), json['xlog'].get('replayed_location', 0))
-        return cls(member, True, not is_master, wal, json.get('tags', {}))
+        return cls(member, True, not is_master, wal, json.get('tags', {}), json.get('watchdog_failed', False))
 
     @classmethod
     def unknown(cls, member):
-        return cls(member, False, None, 0, {})
+        return cls(member, False, None, 0, {}, False)
 
     def failover_limitation(self):
         """Returns reason why this node can't promote or None if everything is ok."""
@@ -43,6 +43,8 @@ class _MemberStatus(namedtuple('_MemberStatus', 'member,reachable,in_recovery,wa
             return 'not reachable'
         if self.tags.get('nofailover', False):
             return 'not allowed to promote'
+        if self.watchdog_failed:
+            return 'not watchdog capable'
         return None
 
 
@@ -349,7 +351,13 @@ class Ha(object):
 
     def enforce_master_role(self, message, promote_message):
         if not self.watchdog.is_running:
-            self.watchdog.activate()
+            if not self.watchdog.activate():
+                if self.state_handler.is_leader():
+                    self.demote('immediate')
+                    return 'Demoting self because watchdog could not be activated'
+                else:
+                    self.release_leader_key_voluntarily()
+                    return 'Not promoting self because watchdog could not be actived.'
 
         if self.state_handler.is_leader() or self.state_handler.role == 'master':
             # Inform the state handler about its master role.
@@ -503,6 +511,9 @@ class Ha(object):
 
         if self.cluster.failover:
             return self.manual_failover_process_no_leader()
+
+        if not self.watchdog.is_healthy:
+            return False
 
         # When in sync mode, only last known master and sync standby are allowed to promote automatically.
         all_known_members = self.cluster.members + self.old_cluster.members

@@ -37,9 +37,14 @@ class MockPostgresql(object):
         return str(postmaster_start_time)
 
 
+class MockWatchdog(object):
+    is_healthy = True
+
+
 class MockHa(object):
 
     state_handler = MockPostgresql()
+    watchdog = MockWatchdog()
 
     @staticmethod
     def reinitialize():

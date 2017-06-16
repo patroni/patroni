@@ -60,7 +60,7 @@ def get_node_status(reachable=True, in_recovery=True, wal_position=10, nofailove
         tags = {}
         if nofailover:
             tags['nofailover'] = True
-        return _MemberStatus(e, reachable, in_recovery, wal_position, tags)
+        return _MemberStatus(e, reachable, in_recovery, wal_position, tags, False)
     return fetch_node_status
 
 future_restart_time = datetime.datetime.now(tzutc) + datetime.timedelta(days=5)

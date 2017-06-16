@@ -37,34 +37,86 @@ def synchronized(func):
     return wrapped
 
 
+class WatchdogConfig(object):
+    """Helper to contain a snapshot of configuration"""
+    def __init__(self, config):
+        self.mode = parse_mode(config['watchdog'].get('mode', 'automatic'))
+        self.ttl = config['ttl']
+        self.loop_wait = config['loop_wait']
+        self.driver = config['watchdog'].get('driver')
+        self.driver_config = config['watchdog']
+
+    def __eq__(self, other):
+        return isinstance(other, WatchdogConfig) and \
+            all(getattr(self, attr) == getattr(other, attr) for attr in 
+                ['mode', 'ttl', 'loop_wait', 'driver', 'driver_config'])
+
+    def get_impl(self):
+        if self.driver == 'testing':
+            from patroni.watchdog.linux import TestingWatchdogDevice
+            return TestingWatchdogDevice.from_config(self.driver_config)
+        elif platform.system() == 'Linux':
+            from patroni.watchdog.linux import LinuxWatchdogDevice
+            return LinuxWatchdogDevice.from_config(self.driver_config)
+        else:
+            return NullWatchdog()
+
+    @property
+    def timeout(self):
+        return int(self.ttl // 2)
+
+    @property
+    def timing_slack(self):
+        return self.timeout - self.loop_wait
+
+
 class Watchdog(object):
     """Facade to dynamically manage watchdog implementations and handle config changes."""
     def __init__(self, config):
-        self.ttl = config['ttl']
-        self.loop_wait = config['loop_wait']
-        self.mode = parse_mode(config['watchdog'].get('mode', 'automatic'))
-        self.driver = config['watchdog'].get('driver')
-        self.config = config
+        self.active_config = self.config = WatchdogConfig(config)
         self._lock = RLock()
+        self.active = False
 
-        if self.mode == MODE_OFF:
+        if self.config.mode == MODE_OFF:
             self.impl = NullWatchdog()
         else:
-            self.impl = self._get_impl()
-            if self.mode == MODE_REQUIRED and isinstance(self.impl, NullWatchdog):
+            self.impl = self.config.get_impl()
+            if self.config.mode == MODE_REQUIRED and self.impl.is_null:
                 logger.error("Configuration requires a watchdog, but watchdog is not supported on this platform.")
                 sys.exit(1)
+
+    @synchronized
+    def reload_config(self, config):
+        self.config = WatchdogConfig(config)
+        # Turning a watchdog off can always be done immediately
+        if self.config.mode == MODE_OFF:
+            if self.active:
+                self.disable()
+            self.impl = NullWatchdog()
+        # If watchdog is not active we can apply config immediately to show any warnings early. Otherwise we need to
+        # delay until next time a keepalive is sent so timeout matches up with leader key update.
+        if not self.active:
+            if self.config.driver != self.active_config.driver or \
+                self.config.driver_config != self.active_config.driver_config:
+                self.impl = self.config.get_impl()
+            self.active_config = self.config
 
     @synchronized
     def activate(self):
         """Activates the watchdog device with suitable timeouts. While watchdog is active keepalive needs
         to be called every time loop_wait expires.
+
+        :returns False if a safe watchdog could not be configured, but is required.
         """
-        desired_timeout = int(self.ttl // 2)
-        slack = desired_timeout - self.loop_wait
-        if slack < 0:
+        self.active = True
+        return self._activate()
+
+    def _activate(self):
+        self.active_config = self.config
+
+        if self.config.timing_slack < 0:
             logger.warning('Watchdog not supported because leader TTL {0} is less than 2x loop_wait {1}'
-                           .format(self.ttl, self.loop_wait))
+                           .format(self.config.ttl, self.config.loop_wait))
             self.impl = NullWatchdog()
 
         try:
@@ -75,41 +127,55 @@ class Watchdog(object):
 
         if self.impl.is_running and not self.impl.can_be_disabled:
             logger.warning("Watchdog implementation can't be disabled."
-                           " Watchdog will trigger after Patroni is shut down.")
+                           " Watchdog will trigger after Patroni loses leader key.")
 
+        actual_timeout = self._set_timeout()
+
+        if not self.impl.is_running or actual_timeout > self.config.timeout:
+            if self.config.mode == MODE_REQUIRED:
+                if self.impl.is_null:
+                    logger.error("Configuration requires watchdog, but watchdog could not be configured.")
+                else:
+                    logger.error("Configuration requires watchdog, but a safe watchdog timeout {0} could"
+                             " not be configured. Watchdog timeout is {1}.".format(self.config.timeout, actual_timeout))
+                return False
+            else:
+                if not self.impl.is_null:
+                    logger.warning("Watchdog timeout {0} seconds does not ensure safe termination within {1} seconds"
+                                   .format(actual_timeout, self.config.timeout))
+
+        if self.is_running:
+            logger.info("{0} activated with {1} second timeout, timing slack {2} seconds"
+                        .format(self.impl.describe(), actual_timeout, self.config.timing_slack))
+        else:
+            if self.config.mode == MODE_REQUIRED:
+                logger.error("Configuration requires watchdog, but watchdog could not be activated")
+                return False
+
+        return True
+
+    def _set_timeout(self):
         if self.impl.has_set_timeout():
-            self.impl.set_timeout(desired_timeout)
+            self.impl.set_timeout(self.config.timeout)
 
         # Safety checks for watchdog implementations that don't support configurable timeouts
         actual_timeout = self.impl.get_timeout()
-        if self.impl.is_running and actual_timeout < self.loop_wait:
+        if self.impl.is_running and actual_timeout < self.config.loop_wait:
             logger.error('loop_wait of {0} seconds is too long for watchdog {1} second timeout'
-                         .format(self.loop_wait, actual_timeout))
+                         .format(self.config.loop_wait, actual_timeout))
             if self.impl.can_be_disabled:
                 logger.info('Disabling watchdog due to unsafe timeout.')
                 self.impl.close()
                 self.impl = NullWatchdog()
-
-        if not self.impl.is_running or actual_timeout > desired_timeout:
-            if self.mode == MODE_REQUIRED:
-                logger.error("Configuration requires watchdog, but a safe watchdog timeout {0} could"
-                             " not be configured. Watchdog timeout is {1}.".format(desired_timeout, actual_timeout))
-                sys.exit(1)
-            else:
-                if not isinstance(self.impl, NullWatchdog):
-                    logger.warning("Watchdog timeout {0} seconds does not ensure safe termination within {1} seconds"
-                                   .format(actual_timeout, desired_timeout))
-
-        if self.is_running:
-            logger.info("{0} activated with {1} second timeout, timing slack {2} seconds"
-                        .format(self.impl.describe(), actual_timeout, slack))
-        else:
-            if self.mode == MODE_REQUIRED:
-                logger.error("Configuration requires watchdog, but watchdog could not be activated")
-                sys.exit(1)
+                return None
+        return actual_timeout
 
     @synchronized
     def disable(self):
+        self._disable()
+        self.active = False
+
+    def _disable(self):
         try:
             if self.impl.is_running and not self.impl.can_be_disabled:
                 # Give sysadmin some extra time to clean stuff up.
@@ -124,35 +190,46 @@ class Watchdog(object):
     def keepalive(self):
         try:
             self.impl.keepalive()
+            # In case there are any pending configuration changes apply them now.
+            if self.active and self.config != self.active_config:
+                if self.config.mode != MODE_OFF and self.active_config.mode == MODE_OFF:
+                    self._activate()
+                if self.config.driver != self.active_config.driver \
+                    or self.config.driver_config != self.active_config.driver_config:
+                    self._disable()
+                    self._activate()
+                if self.config.timeout != self.active_config.timeout:
+                    self.impl.set_timeout(self.config.timeout)
         except WatchdogError as e:
             logger.error("Error while sending keepalive: %s", e)
 
-    def _get_impl(self):
-        if self.mode not in [MODE_AUTOMATIC, MODE_REQUIRED]:
-            return NullWatchdog()
-
-        if self.driver == 'testing':
-            from patroni.watchdog.linux import TestingWatchdogDevice
-            return TestingWatchdogDevice.from_config(self.config['watchdog'])
-        elif platform.system() == 'Linux':
-            from patroni.watchdog.linux import LinuxWatchdogDevice
-            return LinuxWatchdogDevice.from_config(self.config['watchdog'])
-        else:
-            return NullWatchdog()
-
     @property
+    @synchronized
     def is_running(self):
         return self.impl.is_running
+
+    @property
+    @synchronized
+    def is_healthy(self):
+        if self.config.mode != MODE_REQUIRED:
+            return True
+        return self.config.timing_slack >= 0 and self.impl.is_healthy
 
 
 @six.add_metaclass(abc.ABCMeta)
 class WatchdogBase(object):
     """A watchdog object when opened requires periodic calls to keepalive.
     When keepalive is not called within a timeout the system will be terminated."""
+    is_null = False
 
     @property
     def is_running(self):
         """Returns True when watchdog is activated and capable of performing it's task."""
+        return False
+
+    @property
+    def is_healthy(self):
+        """Returns False when calling open() is known to fail."""
         return False
 
     @property
@@ -205,6 +282,8 @@ class WatchdogBase(object):
 
 class NullWatchdog(WatchdogBase):
     """Null implementation when watchdog is not supported."""
+    is_null = True
+
     def open(self):
         return
 

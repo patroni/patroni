@@ -132,6 +132,10 @@ class LinuxWatchdogDevice(WatchdogBase):
     def is_running(self):
         return self._fd is not None
 
+    @property
+    def is_healthy(self):
+        return os.path.exists(self.device) and os.access(self.device, os.W_OK)
+
     def open(self):
         try:
             self._fd = os.open(self.device, os.O_WRONLY)
