@@ -102,9 +102,8 @@ class Postgresql(object):
         self.__thread_ident = current_thread().ident
 
         self._version_file = os.path.join(self._data_dir, 'PG_VERSION')
-        self._major_version = self.get_major_version()
         self._synchronous_standby_names = None
-        self._server_parameters = self.get_server_parameters(config)
+        self._configure_server_parameters()
 
         self._connect_address = config.get('connect_address')
         self._superuser = config['authentication'].get('superuser', {})
@@ -448,7 +447,7 @@ class Postgresql(object):
                 raise Exception('Unknown type of initdb option: {0}'.format(o))
         return options
 
-    def _initialize(self, config):
+    def _initdb(self, config):
         self.set_state('initalizing new cluster')
         options = self.get_initdb_options(config.get('initdb') or [])
         pwfile = None
@@ -468,11 +467,28 @@ class Postgresql(object):
             os.remove(pwfile)
         if ret:
             self.write_pg_hba(config.get('pg_hba', []))
-            self._major_version = self.get_major_version()
-            self._server_parameters = self.get_server_parameters(self.config)
         else:
             self.set_state('initdb failed')
         return ret
+
+    def _custom_bootstrap(self, config):
+        params = ['--scope=' + self.scope, '--datadir=' + self._data_dir]
+        try:
+            logger.info('Running custom bootstrap script: %s', config['command'])
+            if subprocess.call(shlex.split(config['command']) + params) != 0:
+                self.set_state('custom bootstrap failed')
+                return False
+        except Exception:
+            logger.exception('Exception during custom bootstrap')
+            return False
+
+        self.restore_configuration_files()
+
+        if 'recovery_conf' in config:
+            self.write_recovery_conf(config['recovery_conf'])
+        elif os.path.isfile(self._recovery_conf) or os.path.islink(self._recovery_conf):
+            os.unlink(self._recovery_conf)
+        return True
 
     def run_bootstrap_post_init(self, config):
         """
@@ -1035,10 +1051,8 @@ class Postgresql(object):
         return not primary_conninfo
 
     def write_recovery_conf(self, recovery_params):
-        params = self.config.get('recovery_conf', {}).copy()
-        params.update(recovery_params)
         with open(self._recovery_conf, 'w') as f:
-            for name, value in params.items():
+            for name, value in recovery_params.items():
                 f.write("{0} = '{1}'\n".format(name, value))
 
     def pg_rewind(self, r):
@@ -1224,7 +1238,8 @@ class Postgresql(object):
         primary_conninfo = self.primary_conninfo(member)
         change_role = self.role in ('master', 'demoted')
 
-        recovery_params = {'standby_mode': 'on', 'recovery_target_timeline': 'latest'}
+        recovery_params = self.config.get('recovery_conf', {}).copy()
+        recovery_params.update({'standby_mode': 'on', 'recovery_target_timeline': 'latest'})
         if primary_conninfo:
             recovery_params['primary_conninfo'] = primary_conninfo
         if self.use_slots:
@@ -1417,6 +1432,15 @@ $$""".format(name, ' '.join(options)), name, password, password)
     def last_operation(self):
         return str(self.wal_position())
 
+    def _post_restore(self):
+        self.delete_trigger_file()
+        self.restore_configuration_files()
+
+    def _configure_server_parameters(self):
+        self._major_version = self.get_major_version()
+        self._server_parameters = self.get_server_parameters(self.config)
+        return True
+
     def clone(self, clone_member):
         """
              - initialize the replica from an existing member (master or replica)
@@ -1427,15 +1451,19 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
         ret = self.create_replica(clone_member) == 0
         if ret:
-            self._major_version = self.get_major_version()
-            self._server_parameters = self.get_server_parameters(self.config)
-            self.delete_trigger_file()
-            self.restore_configuration_files()
+            self._post_restore()
+            self._configure_server_parameters()
         return ret
 
     def bootstrap(self, config):
         """ Initialize a new node from scratch and start it. """
-        return self._initialize(config) and self.start()
+        method = config.get('method') or 'initdb'
+        if method != 'initdb' and method in config and 'command' in config[method]:
+            do_initialize = self._custom_bootstrap
+            config = config[method]
+        else:
+            do_initialize = self._initdb
+        return do_initialize(config) and self._configure_server_parameters() and self.start()
 
     def post_bootstrap(self, config, task):
         try:

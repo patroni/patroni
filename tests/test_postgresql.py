@@ -503,6 +503,21 @@ class TestPostgresql(unittest.TestCase):
             assert 'host replication replicator 127.0.0.1/32 md5\n' in lines
             assert 'host all all 0.0.0.0/0 md5\n' in lines
 
+    def test_custom_bootstrap(self):
+        config = {'method': 'foo', 'foo': {'command': 'bar'}}
+        with patch('subprocess.call', Mock(return_value=1)):
+            self.assertFalse(self.p.bootstrap(config))
+        with patch('subprocess.call', Mock(side_effect=Exception)):
+            self.assertFalse(self.p.bootstrap(config))
+        with patch('subprocess.call', Mock(return_value=0)),\
+                patch('os.path.isfile', Mock(return_value=True)),\
+                patch('os.unlink', Mock()),\
+                patch.object(Postgresql, 'start', Mock(return_value=True)),\
+                patch.object(Postgresql, 'write_recovery_conf', Mock()):
+            self.assertTrue(self.p.bootstrap(config))
+            config['foo']['recovery_conf'] = {'foo': 'bar'}
+            self.assertTrue(self.p.bootstrap(config))
+
     @patch.object(Postgresql, 'run_bootstrap_post_init', Mock(side_effect=Exception))
     def test_post_bootstrap(self):
         task = CriticalTask()
