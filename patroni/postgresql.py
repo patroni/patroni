@@ -324,7 +324,7 @@ class Postgresql(object):
 
     @staticmethod
     def configuration_allows_rewind(data):
-        return data.get('Current wal_log_hints setting', 'off') == 'on' \
+        return data.get('wal_log_hints setting', 'off') == 'on' \
             or data.get('Data page checksum version', '0') != '0'
 
     @property
@@ -1076,7 +1076,8 @@ class Postgresql(object):
                                                env={'LANG': 'C', 'LC_ALL': 'C', 'PATH': os.environ['PATH']})
                 if data:
                     data = data.decode('utf-8').splitlines()
-                    result = {l.split(':', 1)[0]: l.split(':', 1)[1].strip() for l in data if l}
+                    # pg_controldata output depends on major verion. Some of parameters are prefixed by 'Current '
+                    result = {l.split(':')[0].replace('Current ', '', 1): l.split(':', 1)[1].strip() for l in data if l}
             except subprocess.CalledProcessError:
                 logger.exception("Error when calling pg_controldata")
         return result
