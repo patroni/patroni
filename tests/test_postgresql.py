@@ -375,7 +375,7 @@ class TestPostgresql(unittest.TestCase):
             self.assertFalse(self.p.can_rewind)
         with patch('subprocess.call', side_effect=OSError):
             self.assertFalse(self.p.can_rewind)
-        with patch.object(Postgresql, 'controldata', Mock(return_value={'Current wal_log_hints setting': 'on'})):
+        with patch.object(Postgresql, 'controldata', Mock(return_value={'wal_log_hints setting': 'on'})):
             self.assertTrue(self.p.can_rewind)
         self.p.config['use_pg_rewind'] = False
         self.assertFalse(self.p.can_rewind)
@@ -549,7 +549,7 @@ class TestPostgresql(unittest.TestCase):
             data = self.p.controldata()
             self.assertEquals(len(data), 50)
             self.assertEquals(data['Database cluster state'], 'shut down in recovery')
-            self.assertEquals(data['Current wal_log_hints setting'], 'on')
+            self.assertEquals(data['wal_log_hints setting'], 'on')
             self.assertEquals(int(data['Database block size']), 8192)
 
         with patch('subprocess.check_output', Mock(side_effect=subprocess.CalledProcessError(1, ''))):
