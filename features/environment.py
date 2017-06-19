@@ -156,6 +156,9 @@ class PatroniController(AbstractController):
         self._connkwargs = {k: user[n] for n, k in [('username', 'user'), ('password', 'password')] if n in user}
         self._connkwargs.update({'host': host, 'port': self.__PORT, 'database': 'postgres'})
 
+        self._replication = config['postgresql'].get('authentication', config['postgresql']).get('replication', {})
+        self._replication.update({'host': host, 'port': self.__PORT, 'database': 'postgres'})
+
         config['name'] = name
         config['postgresql']['data_dir'] = self._data_dir
         config['postgresql']['parameters'].update({
@@ -268,6 +271,16 @@ class PatroniController(AbstractController):
             if 'process' not in p.cmdline()[0]:
                 p.terminate()
 
+    @property
+    def backup_source(self):
+        return 'postgres://{username}:{password}@{host}:{port}/{database}'.format(**self._replication)
+
+    def backup(self, dest='basebackup'):
+        subprocess.call([PatroniPoolController.BACKUP_SCRIPT, '--walmethod=none',
+                         '--datadir=' + os.path.join(self._output_dir, dest),
+                         '--dbname=' + self.backup_source])
+
+
 class ProcessHang(object):
 
     """A background thread implementing a cancelable process hang via SIGSTOP."""
@@ -295,7 +308,7 @@ class ProcessHang(object):
 
 class AbstractDcsController(AbstractController):
 
-    _CLUSTER_NODE = '/service/batman'
+    _CLUSTER_NODE = '/service/{0}'
 
     def __init__(self, context, mktemp=True):
         work_directory = mktemp and tempfile.mkdtemp() or None
@@ -310,11 +323,11 @@ class AbstractDcsController(AbstractController):
         if self._work_directory:
             shutil.rmtree(self._work_directory)
 
-    def path(self, key=None):
-        return self._CLUSTER_NODE + (key and '/' + key or '')
+    def path(self, key=None, scope='batman'):
+        return self._CLUSTER_NODE.format(scope) + (key and '/' + key or '')
 
     @abc.abstractmethod
-    def query(self, key):
+    def query(self, key, scope='batman'):
         """ query for a value of a given key """
 
     @abc.abstractmethod
@@ -343,18 +356,19 @@ class ConsulController(AbstractDcsController):
         super(ConsulController, self).__init__(context)
         os.environ['PATRONI_CONSUL_HOST'] = 'localhost:8500'
         self._client = consul.Consul()
+        self._config_file = None
 
     def _start(self):
-        config_file = self._work_directory + '.json'
-        with open(config_file, 'wb') as f:
+        self._config_file = self._work_directory + '.json'
+        with open(self._config_file, 'wb') as f:
             f.write(b'{"session_ttl_min":"5s","server":true,"bootstrap":true,"advertise_addr":"127.0.0.1"}')
-        return subprocess.Popen(['consul', 'agent', '-config-file', config_file, '-data-dir', self._work_directory],
-                                stdout=self._log, stderr=subprocess.STDOUT)
+        return subprocess.Popen(['consul', 'agent', '-config-file', self._config_file, '-data-dir',
+                                 self._work_directory], stdout=self._log, stderr=subprocess.STDOUT)
 
     def stop(self, kill=False, timeout=15):
         super(ConsulController, self).stop(kill=kill, timeout=timeout)
-        if self._work_directory:
-            os.unlink(self._work_directory + '.json')
+        if self._config_file:
+            os.unlink(self._config_file)
 
     def _is_running(self):
         try:
@@ -362,18 +376,18 @@ class ConsulController(AbstractDcsController):
         except Exception:
             return False
 
-    def path(self, key=None):
-        return super(ConsulController, self).path(key)[1:]
+    def path(self, key=None, scope='batman'):
+        return super(ConsulController, self).path(key, scope)[1:]
 
-    def query(self, key):
-        _, value = self._client.kv.get(self.path(key))
+    def query(self, key, scope='batman'):
+        _, value = self._client.kv.get(self.path(key, scope))
         return value and value['Value'].decode('utf-8')
 
     def set(self, key, value):
         self._client.kv.put(self.path(key), value)
 
     def cleanup_service_tree(self):
-        self._client.kv.delete(self.path(), recurse=True)
+        self._client.kv.delete(self.path(scope=''), recurse=True)
 
     def start(self, max_wait_limit=15):
         super(ConsulController, self).start(max_wait_limit)
@@ -392,9 +406,9 @@ class EtcdController(AbstractDcsController):
         return subprocess.Popen(["etcd", "--debug", "--data-dir", self._work_directory],
                                 stdout=self._log, stderr=subprocess.STDOUT)
 
-    def query(self, key):
+    def query(self, key, scope='batman'):
         try:
-            return self._client.get(self.path(key)).value
+            return self._client.get(self.path(key, scope)).value
         except etcd.EtcdKeyNotFound:
             return None
 
@@ -403,7 +417,7 @@ class EtcdController(AbstractDcsController):
 
     def cleanup_service_tree(self):
         try:
-            self._client.delete(self.path(), recursive=True)
+            self._client.delete(self.path(scope=''), recursive=True)
         except (etcd.EtcdKeyNotFound, etcd.EtcdConnectionFailed):
             return
         except Exception as e:
@@ -430,9 +444,9 @@ class ZooKeeperController(AbstractDcsController):
     def _start(self):
         pass  # TODO: implement later
 
-    def query(self, key):
+    def query(self, key, scope='batman'):
         try:
-            return self._client.get(self.path(key))[0].decode('utf-8')
+            return self._client.get(self.path(key, scope))[0].decode('utf-8')
         except kazoo.exceptions.NoNodeError:
             return None
 
@@ -441,7 +455,7 @@ class ZooKeeperController(AbstractDcsController):
 
     def cleanup_service_tree(self):
         try:
-            self._client.delete(self.path(), recursive=True)
+            self._client.delete(self.path(scope=''), recursive=True)
         except (kazoo.exceptions.NoNodeError):
             return
         except Exception as e:
@@ -465,6 +479,8 @@ class ExhibitorController(ZooKeeperController):
 
 
 class PatroniPoolController(object):
+
+    BACKUP_SCRIPT = 'features/backup_create.sh'
 
     def __init__(self, context):
         self._context = context
@@ -492,13 +508,14 @@ class PatroniPoolController(object):
 
     def start(self, name, max_wait_limit=20, custom_config=None):
         if name not in self._processes:
-            self._processes[name] = PatroniController(self._context, name, self.patroni_path, self._output_dir, custom_config)
+            self._processes[name] = PatroniController(self._context, name, self.patroni_path,
+                                                      self._output_dir, custom_config)
         self._processes[name].start(max_wait_limit)
 
     def __getattr__(self, func):
         if func not in ['stop', 'query', 'write_label', 'read_label', 'check_role_has_changed_to', 'add_tag_to_config',
                         'get_watchdog', 'database_is_running', 'checkpoint_hang', 'postmaster_hang',
-                        'terminate_backends']:
+                        'terminate_backends', 'backup']:
             raise AttributeError("PatroniPoolController instance has no attribute '{0}'".format(func))
 
         def wrapper(name, *args, **kwargs):
@@ -517,6 +534,43 @@ class PatroniPoolController(object):
             shutil.rmtree(feature_dir)
         os.makedirs(feature_dir)
         self._output_dir = feature_dir
+
+    def clone(self, from_name, cluster_name, to_name):
+        f = self._processes[from_name]
+        custom_config = {
+            'scope': cluster_name,
+            'bootstrap': {
+                'method': 'pg_basebackup',
+                'pg_basebackup': {
+                    'command': self.BACKUP_SCRIPT + ' --walmethod=stream --dbname=' + f.backup_source
+                }
+            },
+            'postgresql': {
+                'parameters': {
+                    'archive_mode': 'on',
+                    'archive_command': 'mkdir -p {0} && test ! -f {0}/%f && cp %p {0}/%f'.format(
+                            os.path.join(self._output_dir, 'wal_archive'))
+                }
+            }
+        }
+        self.start(to_name, custom_config=custom_config)
+
+    def bootstrap_from_backup(self, name, cluster_name):
+        custom_config = {
+            'scope': cluster_name,
+            'bootstrap': {
+                'method': 'backup_restore',
+                'backup_restore': {
+                    'command': 'features/backup_restore.sh --source=' + os.path.join(self._output_dir, 'basebackup'),
+                    'recovery_conf': {
+                        'recovery_target_action': 'promote',
+                        'recovery_target_timeline': 'latest',
+                        'restore_command': 'cp {0}/wal_archive/%f %p'.format(self._output_dir)
+                    }
+                }
+            }
+        }
+        self.start(name, custom_config=custom_config)
 
     @property
     def dcs(self):
