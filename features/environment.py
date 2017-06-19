@@ -86,19 +86,18 @@ class PatroniController(AbstractController):
     PATRONI_CONFIG = '{}.yml'
     """ starts and stops individual patronis"""
 
-    def __init__(self, context, name, work_directory, output_dir, tags=None, with_watchdog=False):
+    def __init__(self, context, name, work_directory, output_dir, custom_config=None):
         super(PatroniController, self).__init__(context, 'patroni_' + name, work_directory, output_dir)
         PatroniController.__PORT += 1
         self._data_dir = os.path.join(work_directory, 'data', name)
         self._connstring = None
-        if with_watchdog:
+        if custom_config and 'watchdog' in custom_config:
             self.watchdog = WatchdogMonitor(name, work_directory, output_dir)
-            custom_config = {'watchdog': {'driver': 'testing', 'device': self.watchdog.fifo_path, 'mode': 'required'}}
+            custom_config['watchdog'] = {'driver': 'testing', 'device': self.watchdog.fifo_path, 'mode': 'required'}
         else:
             self.watchdog = None
-            custom_config = None
 
-        self._config = self._make_patroni_test_config(name, tags, custom_config)
+        self._config = self._make_patroni_test_config(name, custom_config)
         self._closables = []
 
         self._conn = None
@@ -141,7 +140,7 @@ class PatroniController(AbstractController):
             cursor.execute("SET synchronous_commit TO 'local'")
             return True
 
-    def _make_patroni_test_config(self, name, tags, custom_config):
+    def _make_patroni_test_config(self, name, custom_config):
         patroni_config_name = self.PATRONI_CONFIG.format(name)
         patroni_config_path = os.path.join(self._output_dir, patroni_config_name)
 
@@ -165,9 +164,6 @@ class PatroniController(AbstractController):
 
         if 'bootstrap' in config and 'initdb' in config['bootstrap']:
             config['bootstrap']['initdb'].extend([{'auth': 'md5'}, {'auth-host': 'md5'}])
-
-        if tags:
-            config['tags'] = tags
 
         if custom_config is not None:
             def recursive_update(dst, src):
@@ -494,9 +490,9 @@ class PatroniPoolController(object):
     def output_dir(self):
         return self._output_dir
 
-    def start(self, name, max_wait_limit=20, tags=None, with_watchdog=False):
+    def start(self, name, max_wait_limit=20, custom_config=None):
         if name not in self._processes:
-            self._processes[name] = PatroniController(self._context, name, self.patroni_path, self._output_dir, tags, with_watchdog=with_watchdog)
+            self._processes[name] = PatroniController(self._context, name, self.patroni_path, self._output_dir, custom_config)
         self._processes[name].start(max_wait_limit)
 
     def __getattr__(self, func):

@@ -15,7 +15,7 @@ def polling_loop(timeout, interval=1):
 
 @step('I start {name:w} with watchdog')
 def start_patroni_with_watchdog(context, name):
-    return context.pctl.start(name, with_watchdog=True)
+    return context.pctl.start(name, custom_config={'watchdog': True})
 
 
 @step('{name:w} watchdog has been pinged after {timeout:d} seconds')
