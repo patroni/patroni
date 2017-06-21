@@ -224,7 +224,18 @@ class Postgresql(object):
         port = self._server_parameters['port']
         tcp_local_address = self._get_tcp_local_address()
 
-        self._local_address = {'host': self._get_unix_local_address() or tcp_local_address, 'port': port}
+        local_address = {'port': port}
+        if self.config.get('use_unix_socket', True):
+            unix_local_address = self._get_unix_local_address()
+            # if unix_socket_directories is not specified, but use_unix_socket is set to true - do our best
+            # to use default value, i.e. don't specify a host neither in connection url nor arguments
+            if unix_local_address is not None:
+                # fallback to tcp if unix_socket_directories is set, but there are no sutable values
+                local_address['host'] = unix_local_address or tcp_local_address
+        else:
+            local_address['host'] = tcp_local_address
+
+        self._local_address = local_address
         self._local_replication_address = {'host': tcp_local_address, 'port': port}
 
         self.connection_string = 'postgres://{0}/{1}'.format(
@@ -247,10 +258,12 @@ class Postgresql(object):
 
         :returns: 'ok' if PostgreSQL is up, 'reject' if starting up, 'no_resopnse' if not up."""
 
-        cmd = [self._pgcommand('pg_isready'),
-               '-h', self._local_address['host'],
-               '-p', self._local_address['port'],
-               '-d', self._database]
+        cmd = [self._pgcommand('pg_isready'), '-p', self._local_address['port'], '-d', self._database]
+
+        # Host is not set if we are connecting via default unix socket
+        if 'host' in self._local_address:
+            cmd.extend(['-h', self._local_address['host']])
+
         # We only need the username because pg_isready does not try to authenticate
         if 'username' in self._superuser:
             cmd.extend(['-U', self._superuser['username']])
@@ -360,10 +373,12 @@ class Postgresql(object):
         return self._sysid
 
     def _get_unix_local_address(self):
-        for d in self._server_parameters.get('unix_socket_directories', '').split(','):
-            d = d.strip()
-            if d.startswith('/'):  # Only absolute path can be used to connect via unix-socket
-                return d
+        if 'unix_socket_directories' in self._server_parameters:
+            for d in self._server_parameters['unix_socket_directories'].split(','):
+                d = d.strip()
+                if d.startswith('/'):  # Only absolute path can be used to connect via unix-socket
+                    return d
+            return ''
 
     def _get_tcp_local_address(self):
         listen_addresses = self._server_parameters['listen_addresses'].split(',')
@@ -500,8 +515,16 @@ class Postgresql(object):
         if cmd:
             r = self._local_connect_kwargs
 
-            # '/tmp' => '%2Ftmp' for unix socket path
-            host = quote_plus(r['host']) if r['host'].startswith('/') else r['host']
+            if 'host' in r:
+                # '/tmp' => '%2Ftmp' for unix socket path
+                host = quote_plus(r['host']) if r['host'].startswith('/') else r['host']
+            else:
+                host = ''
+
+                # https://www.postgresql.org/docs/current/static/libpq-pgpass.html
+                # A host name of localhost matches both TCP (host name localhost) and Unix domain socket
+                # (pghost empty or the default socket directory) connections coming from the local machine.
+                r['host'] = 'localhost'  # set it to localhost to write into pgpass
 
             if 'user' in r:
                 user = r['user'] + '@'

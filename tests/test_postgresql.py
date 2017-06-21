@@ -517,11 +517,16 @@ class TestPostgresql(unittest.TestCase):
         with patch('subprocess.call', Mock(return_value=0)) as mock_method:
             self.p._superuser.pop('username')
             self.assertTrue(self.p.run_bootstrap_post_init({'post_init': '/bin/false'}))
-
             mock_method.assert_called()
             args, kwargs = mock_method.call_args
             self.assertTrue('PGPASSFILE' in kwargs['env'])
             self.assertEquals(args[0], ['/bin/false', 'postgres://%2Ftmp:5432/postgres'])
+
+            mock_method.reset_mock()
+            self.p._local_address.pop('host')
+            self.assertTrue(self.p.run_bootstrap_post_init({'post_init': '/bin/false'}))
+            mock_method.assert_called()
+            self.assertEquals(mock_method.call_args[0][0], ['/bin/false', 'postgres://:5432/postgres'])
 
     @patch('patroni.postgresql.Postgresql.create_replica', Mock(return_value=0))
     def test_clone(self):
@@ -589,6 +594,7 @@ class TestPostgresql(unittest.TestCase):
         parameters.pop('f.oo')
         config = {'authentication': {}, 'retry_timeout': 10, 'listen': '*', 'parameters': parameters}
         self.p.reload_config(config)
+        config['use_unix_socket'] = False
         parameters['b.ar'] = 'bar'
         self.p.reload_config(config)
         parameters['autovacuum'] = 'on'
