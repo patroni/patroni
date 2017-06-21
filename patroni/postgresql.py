@@ -225,13 +225,14 @@ class Postgresql(object):
         tcp_local_address = self._get_tcp_local_address()
 
         local_address = {'port': port}
-        if self.config.get('use_unix_socket', True):
-            unix_local_address = self._get_unix_local_address()
+        if self.config.get('use_unix_socket'):
+            unix_socket_directories = self._server_parameters.get('unix_socket_directories')
+            if unix_socket_directories:
+                # fallback to tcp if unix_socket_directories is set, but there are no sutable values
+                local_address['host'] = self._get_unix_local_address(unix_socket_directories) or tcp_local_address
+
             # if unix_socket_directories is not specified, but use_unix_socket is set to true - do our best
             # to use default value, i.e. don't specify a host neither in connection url nor arguments
-            if unix_local_address is not None:
-                # fallback to tcp if unix_socket_directories is set, but there are no sutable values
-                local_address['host'] = unix_local_address or tcp_local_address
         else:
             local_address['host'] = tcp_local_address
 
@@ -303,8 +304,8 @@ class Postgresql(object):
                         if new_value is None or not compare_values(r[3], unit, r[1], new_value):
                             if r[4] == 'postmaster':
                                 pending_restart = True
-                                if r[0] in ('listen_addresses', 'port') or\
-                                        config.get('use_unix_socket', True) and r[0] == 'unix_socket_directories':
+                                if config.get('use_unix_socket') and r[0] == 'unix_socket_directories'\
+                                        or r[0] in ('listen_addresses', 'port'):
                                     local_connection_address_changed = True
                             else:
                                 pending_reload = True
@@ -372,13 +373,13 @@ class Postgresql(object):
             self._sysid = data.get('Database system identifier', "")
         return self._sysid
 
-    def _get_unix_local_address(self):
-        if 'unix_socket_directories' in self._server_parameters:
-            for d in self._server_parameters['unix_socket_directories'].split(','):
-                d = d.strip()
-                if d.startswith('/'):  # Only absolute path can be used to connect via unix-socket
-                    return d
-            return ''
+    @staticmethod
+    def _get_unix_local_address(unix_socket_directories):
+        for d in unix_socket_directories.split(','):
+            d = d.strip()
+            if d.startswith('/'):  # Only absolute path can be used to connect via unix-socket
+                return d
+        return ''
 
     def _get_tcp_local_address(self):
         listen_addresses = self._server_parameters['listen_addresses'].split(',')

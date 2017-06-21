@@ -44,7 +44,8 @@ class MockCursor(object):
                             ('search_path', 'public', None, 'string', 'user'),
                             ('port', '5433', None, 'integer', 'postmaster'),
                             ('listen_addresses', '*', None, 'string', 'postmaster'),
-                            ('autovacuum', 'on', None, 'bool', 'sighup')]
+                            ('autovacuum', 'on', None, 'bool', 'sighup'),
+                            ('unix_socket_directories', '.', None, 'string', 'postmaster')]
         elif sql.startswith('IDENTIFY_SYSTEM'):
             self.results = [('1', 2, '0/402EEC0', '')]
         elif sql.startswith('TIMELINE_HISTORY '):
@@ -181,7 +182,7 @@ class TestPostgresql(unittest.TestCase):
                                            'on_restart': 'true', 'on_role_change': 'true',
                                            'on_reload': 'true'
                                            },
-                             'restore': 'true'})
+                             'use_unix_socket': True})
         self.p._callback_executor = Mock()
         self.leadermem = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres'})
         self.leader = Leader(-1, 28, self.leadermem)
@@ -592,9 +593,9 @@ class TestPostgresql(unittest.TestCase):
     def test_reload_config(self):
         parameters = self._PARAMETERS.copy()
         parameters.pop('f.oo')
-        config = {'authentication': {}, 'retry_timeout': 10, 'listen': '*', 'parameters': parameters}
+        config = {'use_unix_socket': True, 'authentication': {},
+                  'retry_timeout': 10, 'listen': '*', 'parameters': parameters}
         self.p.reload_config(config)
-        config['use_unix_socket'] = False
         parameters['b.ar'] = 'bar'
         self.p.reload_config(config)
         parameters['autovacuum'] = 'on'
@@ -602,6 +603,7 @@ class TestPostgresql(unittest.TestCase):
         parameters['autovacuum'] = 'off'
         parameters.pop('search_path')
         config['listen'] = '*:5433'
+        parameters['unix_socket_directories'] = '.'
         self.p.reload_config(config)
 
     @patch.object(Postgresql, '_version_file_exists', Mock(return_value=True))
