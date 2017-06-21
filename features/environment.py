@@ -161,10 +161,13 @@ class PatroniController(AbstractController):
         config['postgresql']['data_dir'] = self._data_dir
         config['postgresql']['parameters'].update({
             'logging_collector': 'on', 'log_destination': 'csvlog', 'log_directory': self._output_dir,
-            'log_filename': name + '.log', 'log_statement': 'all', 'log_min_messages': 'debug1'})
+            'log_filename': name + '.log', 'log_statement': 'all', 'log_min_messages': 'debug1',
+            'unix_socket_directories': self._data_dir})
 
-        if 'bootstrap' in config and 'initdb' in config['bootstrap']:
-            config['bootstrap']['initdb'].extend([{'auth': 'md5'}, {'auth-host': 'md5'}])
+        if 'bootstrap' in config:
+            config['bootstrap']['post_bootstrap'] = 'psql -w -c "SELECT 1"'
+            if 'initdb' in config['bootstrap']:
+                config['bootstrap']['initdb'].extend([{'auth': 'md5'}, {'auth-host': 'md5'}])
 
         if tags:
             config['tags'] = tags

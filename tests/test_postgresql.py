@@ -23,7 +23,9 @@ class MockCursor(object):
         self.results = []
 
     def execute(self, sql, *params):
-        if sql.startswith('blabla') or sql == 'CHECKPOINT':
+        if sql.startswith('blabla'):
+            raise psycopg2.ProgrammingError()
+        elif sql == 'CHECKPOINT':
             raise psycopg2.OperationalError()
         elif sql.startswith('RetryFailedError'):
             raise RetryFailedError('retry')
@@ -156,7 +158,7 @@ class TestPostgresql(unittest.TestCase):
                    'search_path': 'public', 'hot_standby': 'on', 'max_wal_senders': 5,
                    'wal_keep_segments': 8, 'wal_log_hints': 'on', 'max_locks_per_transaction': 64,
                    'max_worker_processes': 8, 'max_connections': 100, 'max_prepared_transactions': 0,
-                   'track_commit_timestamp': 'off'}
+                   'track_commit_timestamp': 'off', 'unix_socket_directories': '/tmp'}
 
     @patch('subprocess.call', Mock(return_value=0))
     @patch('psycopg2.connect', psycopg2_connect)
@@ -168,7 +170,7 @@ class TestPostgresql(unittest.TestCase):
         if not os.path.exists(self.data_dir):
             os.makedirs(self.data_dir)
         self.p = Postgresql({'name': 'test0', 'scope': 'batman', 'data_dir': self.data_dir, 'retry_timeout': 10,
-                             'listen': '127.0.0.1, *:5432', 'connect_address': '127.0.0.2:5432',
+                             'listen': '127.0.0.2, 127.0.0.3:5432', 'connect_address': '127.0.0.2:5432',
                              'authentication': {'superuser': {'username': 'test', 'password': 'test'},
                                                 'replication': {'username': 'replicator', 'password': 'rep-pass'}},
                              'remove_data_directory_on_rewind_failure': True,
@@ -420,7 +422,7 @@ class TestPostgresql(unittest.TestCase):
             assert "test-3" in errorlog_mock.call_args[0][1]
             assert "test.3" in errorlog_mock.call_args[0][1]
 
-    @patch.object(MockConnect, 'closed', 2)
+    @patch.object(MockCursor, 'execute', Mock(side_effect=psycopg2.OperationalError))
     def test__query(self):
         self.assertRaises(PostgresConnectionException, self.p._query, 'blabla')
         self.p._state = 'restarting'
@@ -429,7 +431,7 @@ class TestPostgresql(unittest.TestCase):
     def test_query(self):
         self.p.query('select 1')
         self.assertRaises(PostgresConnectionException, self.p.query, 'RetryFailedError')
-        self.assertRaises(psycopg2.OperationalError, self.p.query, 'blabla')
+        self.assertRaises(psycopg2.ProgrammingError, self.p.query, 'blabla')
 
     @patch.object(Postgresql, 'pg_isready', Mock(return_value=STATE_REJECT))
     def test_is_leader(self):
@@ -519,7 +521,7 @@ class TestPostgresql(unittest.TestCase):
         mock_method.assert_called()
         args, kwargs = mock_method.call_args
         assert 'PGPASSFILE' in kwargs['env'].keys()
-        self.assertEquals(args[0], ['/bin/false', 'postgres://localhost:5432/postgres'])
+        self.assertEquals(args[0], ['/bin/false', 'postgres://%2Ftmp:5432/postgres'])
 
     @patch('patroni.postgresql.Postgresql.create_replica', Mock(return_value=0))
     def test_clone(self):
