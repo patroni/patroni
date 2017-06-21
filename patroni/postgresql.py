@@ -227,7 +227,7 @@ class Postgresql(object):
         local_address = {'port': port}
         if self.config.get('use_unix_socket'):
             unix_socket_directories = self._server_parameters.get('unix_socket_directories')
-            if unix_socket_directories:
+            if unix_socket_directories is not None:
                 # fallback to tcp if unix_socket_directories is set, but there are no sutable values
                 local_address['host'] = self._get_unix_local_address(unix_socket_directories) or tcp_local_address
 
