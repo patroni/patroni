@@ -518,10 +518,10 @@ class TestPostgresql(unittest.TestCase):
             self.p._superuser.pop('username')
             self.assertTrue(self.p.run_bootstrap_post_init({'post_init': '/bin/false'}))
 
-        mock_method.assert_called()
-        args, kwargs = mock_method.call_args
-        assert 'PGPASSFILE' in kwargs['env'].keys()
-        self.assertEquals(args[0], ['/bin/false', 'postgres://%2Ftmp:5432/postgres'])
+            mock_method.assert_called()
+            args, kwargs = mock_method.call_args
+            self.assertTrue('PGPASSFILE' in kwargs['env'])
+            self.assertEquals(args[0], ['/bin/false', 'postgres://%2Ftmp:5432/postgres'])
 
     @patch('patroni.postgresql.Postgresql.create_replica', Mock(return_value=0))
     def test_clone(self):
