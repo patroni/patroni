@@ -1047,7 +1047,8 @@ class Ha(object):
                         self.dcs.delete_leader()
                         self.dcs.reset_cluster()
                         return 'removed leader lock because postgres is not running'
-                    elif not (self.state_handler.need_rewind and self.state_handler.can_rewind):
+                    elif not (self.state_handler.rewind_executed or
+                              self.state_handler.need_rewind and self.state_handler.can_rewind):
                         return 'postgres is not running'
 
                 # try to start dead postgres
