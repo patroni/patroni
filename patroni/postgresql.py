@@ -18,6 +18,7 @@ from patroni.callback_executor import CallbackExecutor
 from patroni.exceptions import PostgresConnectionException
 from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, null_context
 from six import string_types
+from six.moves.urllib.parse import quote_plus
 from threading import current_thread, Lock, Event
 
 logger = logging.getLogger(__name__)
@@ -155,6 +156,8 @@ class Postgresql(object):
             self.set_state('running')
             self.set_role('master' if self.is_leader() else 'replica')
             self._write_postgresql_conf()  # we are "joining" already running postgres
+            if self._replace_pg_hba():
+                self.reload()
 
     @property
     def _configuration_to_save(self):
@@ -219,9 +222,26 @@ class Postgresql(object):
                 self._major_version >= self.CMDLINE_OPTIONS.get(k, (0, 1, 90100))[2]}
 
     def resolve_connection_addresses(self):
-        self._local_address = self.get_local_address()
+        port = self._server_parameters['port']
+        tcp_local_address = self._get_tcp_local_address()
+
+        local_address = {'port': port}
+        if self.config.get('use_unix_socket'):
+            unix_socket_directories = self._server_parameters.get('unix_socket_directories')
+            if unix_socket_directories is not None:
+                # fallback to tcp if unix_socket_directories is set, but there are no sutable values
+                local_address['host'] = self._get_unix_local_address(unix_socket_directories) or tcp_local_address
+
+            # if unix_socket_directories is not specified, but use_unix_socket is set to true - do our best
+            # to use default value, i.e. don't specify a host neither in connection url nor arguments
+        else:
+            local_address['host'] = tcp_local_address
+
+        self._local_address = local_address
+        self._local_replication_address = {'host': tcp_local_address, 'port': port}
+
         self.connection_string = 'postgres://{0}/{1}'.format(
-            self._connect_address or self._local_address['host'] + ':' + self._local_address['port'], self._database)
+            self._connect_address or tcp_local_address + ':' + port, self._database)
 
     def _pgcommand(self, cmd):
         """Returns path to the specified PostgreSQL command"""
@@ -240,10 +260,12 @@ class Postgresql(object):
 
         :returns: 'ok' if PostgreSQL is up, 'reject' if starting up, 'no_resopnse' if not up."""
 
-        cmd = [self._pgcommand('pg_isready'),
-               '-h', self._local_address['host'],
-               '-p', self._local_address['port'],
-               '-d', self._database]
+        cmd = [self._pgcommand('pg_isready'), '-p', self._local_address['port'], '-d', self._database]
+
+        # Host is not set if we are connecting via default unix socket
+        if 'host' in self._local_address:
+            cmd.extend(['-h', self._local_address['host']])
+
         # We only need the username because pg_isready does not try to authenticate
         if 'username' in self._superuser:
             cmd.extend(['-U', self._superuser['username']])
@@ -259,7 +281,7 @@ class Postgresql(object):
         self._superuser = config['authentication'].get('superuser', {})
         server_parameters = self.get_server_parameters(config)
 
-        listen_address_changed = pending_reload = pending_restart = False
+        conf_changed = hba_changed = local_connection_address_changed = pending_restart = False
         if self.state == 'running':
             changes = {p: v for p, v in server_parameters.items() if '.' not in p}
             changes.update({p: None for p, v in self._server_parameters.items() if not ('.' in p or p in changes)})
@@ -283,38 +305,48 @@ class Postgresql(object):
                         if new_value is None or not compare_values(r[3], unit, r[1], new_value):
                             if r[4] == 'postmaster':
                                 pending_restart = True
-                                if r[0] in ('listen_addresses', 'port'):
-                                    listen_address_changed = True
+                                if config.get('use_unix_socket') and r[0] == 'unix_socket_directories'\
+                                        or r[0] in ('listen_addresses', 'port'):
+                                    local_connection_address_changed = True
                             else:
-                                pending_reload = True
+                                conf_changed = True
                 for param in changes:
                     if param in server_parameters:
                         logger.warning('Removing invalid parameter `%s` from postgresql.parameters', param)
                         server_parameters.pop(param)
 
             # Check that user-defined-paramters have changed (parameters with period in name)
-            if not pending_reload:
+            if not conf_changed:
                 for p, v in server_parameters.items():
                     if '.' in p and (p not in self._server_parameters or str(v) != str(self._server_parameters[p])):
-                        pending_reload = True
+                        conf_changed = True
                         break
-                if not pending_reload:
+                if not conf_changed:
                     for p, v in self._server_parameters.items():
                         if '.' in p and (p not in server_parameters or str(v) != str(server_parameters[p])):
-                            pending_reload = True
+                            conf_changed = True
                             break
+
+            if not config['parameters'].get('hba_file') and config.get('pg_hba'):
+                hba_changed = self.config.get('pg_hba', []) != config['pg_hba']
 
         self.config = config
         self._pending_restart = pending_restart
         self._server_parameters = server_parameters
         self._connect_address = config.get('connect_address')
 
-        if not listen_address_changed:
+        if not local_connection_address_changed:
             self.resolve_connection_addresses()
 
-        if pending_reload:
+        if conf_changed:
             self._write_postgresql_conf()
+
+        if hba_changed:
+            self._replace_pg_hba()
+
+        if conf_changed or hba_changed:
             self.reload()
+
         self._is_leader_retry.deadline = self.retry.deadline = config['retry_timeout']/2.0
 
     @property
@@ -351,15 +383,21 @@ class Postgresql(object):
             self._sysid = data.get('Database system identifier', "")
         return self._sysid
 
-    def get_local_address(self):
+    @staticmethod
+    def _get_unix_local_address(unix_socket_directories):
+        for d in unix_socket_directories.split(','):
+            d = d.strip()
+            if d.startswith('/'):  # Only absolute path can be used to connect via unix-socket
+                return d
+        return ''
+
+    def _get_tcp_local_address(self):
         listen_addresses = self._server_parameters['listen_addresses'].split(',')
-        local_address = listen_addresses[0].strip()  # take first address from listen_addresses
 
         for la in listen_addresses:
             if la.strip().lower() in ('*', '0.0.0.0', '127.0.0.1', 'localhost'):  # we are listening on '*' or localhost
-                local_address = 'localhost'  # connection via localhost is preferred
-                break
-        return {'host': local_address, 'port': self._server_parameters['port']}
+                return 'localhost'  # connection via localhost is preferred
+        return listen_addresses[0].strip()  # can't use localhost, take first address from listen_addresses
 
     def get_postgres_role_from_data_directory(self):
         if self.data_directory_empty():
@@ -413,7 +451,14 @@ class Postgresql(object):
             return cursor
         except psycopg2.Error as e:
             if cursor and cursor.connection.closed == 0:
-                raise e
+                # When connected via unix socket, psycopg2 can't recoginze 'connection lost'
+                # and leaves `_cursor_holder.connection.closed == 0`, but psycopg2.OperationalError
+                # is still raised (what is correct). It doesn't make sense to continiue with existing
+                # connection and we will close it, to avoid its reuse by the `_cursor` method.
+                if isinstance(e, psycopg2.OperationalError):
+                    self.close_connection()
+                else:
+                    raise e
             if self.state == 'restarting':
                 raise RetryFailedError('cluster is being restarted')
             raise PostgresConnectionException('connection problems')
@@ -466,7 +511,10 @@ class Postgresql(object):
         if pwfile:
             os.remove(pwfile)
         if ret:
-            self.write_pg_hba(config.get('pg_hba', []))
+            if not self.config['parameters'].get('hba_file') and not self.config.get('pg_hba'):
+                self.write_pg_hba(config.get('pg_hba', []))
+            self._major_version = self.get_major_version()
+            self._server_parameters = self.get_server_parameters(self.config)
         else:
             self.set_state('initdb failed')
         return ret
@@ -492,21 +540,34 @@ class Postgresql(object):
 
     def run_bootstrap_post_init(self, config):
         """
-        runs a script after initdb is called and waits until completion.
-        passed: cluster name, parameters
+        runs a script after initdb or custom bootstrap script is called and waits until completion.
         """
-        if 'post_init' in config:
-            cmd = config['post_init']
+        cmd = config.get('post_bootstrap') or config.get('post_init')
+        if cmd:
             r = self._local_connect_kwargs
-            if 'user' in r:
-                connstring = 'postgres://{user}@{host}:{port}/{database}'.format(**r)
+
+            if 'host' in r:
+                # '/tmp' => '%2Ftmp' for unix socket path
+                host = quote_plus(r['host']) if r['host'].startswith('/') else r['host']
             else:
-                connstring = 'postgres://{host}:{port}/{database}'.format(**r)
+                host = ''
+
+                # https://www.postgresql.org/docs/current/static/libpq-pgpass.html
+                # A host name of localhost matches both TCP (host name localhost) and Unix domain socket
+                # (pghost empty or the default socket directory) connections coming from the local machine.
+                r['host'] = 'localhost'  # set it to localhost to write into pgpass
+
+            if 'user' in r:
+                user = r['user'] + '@'
+            else:
+                user = ''
                 if 'password' in r:
                     import getpass
                     r.setdefault('user', os.environ.get('PGUSER', getpass.getuser()))
 
+            connstring = 'postgres://{0}{1}:{2}/{3}'.format(user, host, r['port'], r['database'])
             env = self.write_pgpass(r) if 'password' in r else None
+
             try:
                 ret = subprocess.call(shlex.split(cmd) + [connstring], env=env)
             except OSError:
@@ -758,6 +819,7 @@ class Postgresql(object):
         self._pending_restart = False
 
         self._write_postgresql_conf()
+        self._replace_pg_hba()
         self.resolve_connection_addresses()
 
         opts = {p: self._server_parameters[p] for p in self.CMDLINE_OPTIONS if p in self._server_parameters}
@@ -1029,6 +1091,20 @@ class Postgresql(object):
         with open(os.path.join(self._data_dir, 'pg_hba.conf'), 'a') as f:
             f.write('\n{}\n'.format('\n'.join(config)))
 
+    def _replace_pg_hba(self):
+        """
+        Replace pg_hba.conf content in the PGDATA if hba_file is not defined in the
+        `postgresql.parameters` and pg_hba is defined in `postgresql` configuration section.
+
+        :returns: True if pg_hba.conf was rewritten.
+        """
+        if not self.config['parameters'].get('hba_file') and self.config.get('pg_hba'):
+            with open(os.path.join(self._data_dir, 'pg_hba.conf'), 'w') as f:
+                f.write('# Do not edit this file manually!\n# It will be overwritten by Patroni!\n')
+                for line in self.config['pg_hba']:
+                    f.write('{0}\n'.format(line))
+            return True
+
     def primary_conninfo(self, member):
         if not (member and member.conn_url) or member.name == self.name:
             return None
@@ -1125,7 +1201,7 @@ class Postgresql(object):
         timeline = lsn = None
         if self.is_running():  # if postgres is running - get timeline and lsn from replication connection
             try:
-                with self._get_replication_connection_cursor(**self._local_address) as cur:
+                with self._get_replication_connection_cursor(**self._local_replication_address) as cur:
                     cur.execute('IDENTIFY_SYSTEM')
                     timeline, lsn = cur.fetchone()[1:3]
             except Exception:
