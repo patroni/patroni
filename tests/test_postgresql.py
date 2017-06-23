@@ -178,6 +178,7 @@ class TestPostgresql(unittest.TestCase):
                              'use_pg_rewind': True, 'pg_ctl_timeout': 'bla',
                              'parameters': self._PARAMETERS,
                              'recovery_conf': {'foo': 'bar'},
+                             'pg_hba': ['host all all 0.0.0.0/0 md5'],
                              'callbacks': {'on_start': 'true', 'on_stop': 'true',
                                            'on_restart': 'true', 'on_role_change': 'true',
                                            'on_reload': 'true'
@@ -498,15 +499,22 @@ class TestPostgresql(unittest.TestCase):
         with patch.object(Postgresql, 'run_bootstrap_post_init', Mock(return_value=False)):
             self.assertRaises(PostgresException, self.p.bootstrap, {})
 
-        self.p.bootstrap({'users': {'replicator': {'password': 'rep-pass', 'options': ['replication']}},
-                          'pg_hba': ['host replication replicator 127.0.0.1/32 md5',
-                                     'hostssl all all 0.0.0.0/0 md5',
-                                     'host all all 0.0.0.0/0 md5'],
-                          'post_init': '/bin/false'})
+        config = {'users': {'replicator': {'password': 'rep-pass', 'options': ['replication']}}}
+
+        self.p.bootstrap(config)
         with open(os.path.join(self.data_dir, 'pg_hba.conf')) as f:
             lines = f.readlines()
-            assert 'host replication replicator 127.0.0.1/32 md5\n' in lines
-            assert 'host all all 0.0.0.0/0 md5\n' in lines
+            self.assertTrue('host all all 0.0.0.0/0 md5\n' in lines)
+
+        self.p.config.pop('pg_hba')
+        config.update({'post_init': '/bin/false',
+                       'pg_hba': ['host replication replicator 127.0.0.1/32 md5',
+                                  'hostssl all all 0.0.0.0/0 md5',
+                                  'host all all 0.0.0.0/0 md5']})
+        self.p.bootstrap(config)
+        with open(os.path.join(self.data_dir, 'pg_hba.conf')) as f:
+            lines = f.readlines()
+            self.assertTrue('host replication replicator 127.0.0.1/32 md5\n' in lines)
 
     def test_run_bootstrap_post_init(self):
         with patch('subprocess.call', Mock(return_value=1)):
@@ -593,7 +601,7 @@ class TestPostgresql(unittest.TestCase):
     def test_reload_config(self):
         parameters = self._PARAMETERS.copy()
         parameters.pop('f.oo')
-        config = {'use_unix_socket': True, 'authentication': {},
+        config = {'pg_hba': [''], 'use_unix_socket': True, 'authentication': {},
                   'retry_timeout': 10, 'listen': '*', 'parameters': parameters}
         self.p.reload_config(config)
         parameters['b.ar'] = 'bar'
