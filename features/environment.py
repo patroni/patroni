@@ -152,15 +152,9 @@ class PatroniController(AbstractController):
 
         config['postgresql']['listen'] = config['postgresql']['connect_address'] = '{0}:{1}'.format(host, self.__PORT)
 
-        user = config['postgresql'].get('authentication', config['postgresql']).get('superuser', {})
-        self._connkwargs = {k: user[n] for n, k in [('username', 'user'), ('password', 'password')] if n in user}
-        self._connkwargs.update({'host': host, 'port': self.__PORT, 'database': 'postgres'})
-
-        self._replication = config['postgresql'].get('authentication', config['postgresql']).get('replication', {})
-        self._replication.update({'host': host, 'port': self.__PORT, 'database': 'postgres'})
-
         config['name'] = name
         config['postgresql']['data_dir'] = self._data_dir
+        config['postgresql']['use_unix_socket'] = True
         config['postgresql']['parameters'].update({
             'logging_collector': 'on', 'log_destination': 'csvlog', 'log_directory': self._output_dir,
             'log_filename': name + '.log', 'log_statement': 'all', 'log_min_messages': 'debug1',
@@ -182,6 +176,13 @@ class PatroniController(AbstractController):
 
         with open(patroni_config_path, 'w') as f:
             yaml.safe_dump(config, f, default_flow_style=False)
+
+        user = config['postgresql'].get('authentication', config['postgresql']).get('superuser', {})
+        self._connkwargs = {k: user[n] for n, k in [('username', 'user'), ('password', 'password')] if n in user}
+        self._connkwargs.update({'host': host, 'port': self.__PORT, 'database': 'postgres'})
+
+        self._replication = config['postgresql'].get('authentication', config['postgresql']).get('replication', {})
+        self._replication.update({'host': host, 'port': self.__PORT, 'database': 'postgres'})
 
         return patroni_config_path
 
@@ -553,6 +554,10 @@ class PatroniPoolController(object):
                     'archive_mode': 'on',
                     'archive_command': 'mkdir -p {0} && test ! -f {0}/%f && cp %p {0}/%f'.format(
                             os.path.join(self._output_dir, 'wal_archive'))
+                },
+                'authentication': {
+                    'superuser': {'password': 'zalando1'},
+                    'replication': {'password': 'rep-pass1'}
                 }
             }
         }
@@ -570,6 +575,12 @@ class PatroniPoolController(object):
                         'recovery_target_timeline': 'latest',
                         'restore_command': 'cp {0}/wal_archive/%f %p'.format(self._output_dir)
                     }
+                }
+            },
+            'postgresql': {
+                'authentication': {
+                    'superuser': {'password': 'zalando2'},
+                    'replication': {'password': 'rep-pass2'}
                 }
             }
         }

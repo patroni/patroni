@@ -46,7 +46,7 @@ class MockCursor(object):
                             ('port', '5433', None, 'integer', 'postmaster'),
                             ('listen_addresses', '*', None, 'string', 'postmaster'),
                             ('autovacuum', 'on', None, 'bool', 'sighup'),
-                            ('unix_socket_directories', '.', None, 'string', 'postmaster')]
+                            ('unix_socket_directories', '/tmp', None, 'string', 'postmaster')]
         elif sql.startswith('IDENTIFY_SYSTEM'):
             self.results = [('1', 2, '0/402EEC0', '')]
         elif sql.startswith('TIMELINE_HISTORY '):
@@ -180,11 +180,8 @@ class TestPostgresql(unittest.TestCase):
                              'parameters': self._PARAMETERS,
                              'recovery_conf': {'foo': 'bar'},
                              'pg_hba': ['host all all 0.0.0.0/0 md5'],
-                             'callbacks': {'on_start': 'true', 'on_stop': 'true',
-                                           'on_restart': 'true', 'on_role_change': 'true',
-                                           'on_reload': 'true'
-                                           },
-                             'use_unix_socket': True})
+                             'callbacks': {'on_start': 'true', 'on_stop': 'true', 'on_reload': 'true',
+                                           'on_restart': 'true', 'on_role_change': 'true'}})
         self.p._callback_executor = Mock()
         self.leadermem = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres'})
         self.leader = Leader(-1, 28, self.leadermem)
@@ -523,14 +520,22 @@ class TestPostgresql(unittest.TestCase):
         with patch('subprocess.call', Mock(return_value=0)),\
                 patch('os.path.isfile', Mock(return_value=True)),\
                 patch('os.unlink', Mock()),\
-                patch.object(Postgresql, 'start', Mock(return_value=True)),\
                 patch.object(Postgresql, 'write_recovery_conf', Mock()):
-            self.assertTrue(self.p.bootstrap(config))
+            self.assertRaises(ValueError, self.p.bootstrap, config)
             config['foo']['recovery_conf'] = {'foo': 'bar'}
-            self.assertTrue(self.p.bootstrap(config))
+            self.assertRaises(ValueError, self.p.bootstrap, config)
 
+    @patch('time.sleep', Mock())
     @patch.object(Postgresql, 'run_bootstrap_post_init', Mock(side_effect=Exception))
     def test_post_bootstrap(self):
+        config = {'method': 'foo', 'foo': {'command': 'bar'}}
+        with patch('subprocess.call', Mock(return_value=0)),\
+                patch('os.path.isfile', Mock(return_value=True)),\
+                patch('os.unlink', Mock()),\
+                patch.object(Postgresql, 'write_recovery_conf', Mock()):
+            self.assertRaises(ValueError, self.p.bootstrap, config)
+
+        self.p.config.pop('pg_hba')
         task = CriticalTask()
         self.p.post_bootstrap({}, task)
         self.assertFalse(task.result)
@@ -548,7 +553,7 @@ class TestPostgresql(unittest.TestCase):
             mock_method.assert_called()
             args, kwargs = mock_method.call_args
             self.assertTrue('PGPASSFILE' in kwargs['env'])
-            self.assertEquals(args[0], ['/bin/false', 'postgres://%2Ftmp:5432/postgres'])
+            self.assertEquals(args[0], ['/bin/false', 'postgres://127.0.0.2:5432/postgres'])
 
             mock_method.reset_mock()
             self.p._local_address.pop('host')
@@ -630,8 +635,10 @@ class TestPostgresql(unittest.TestCase):
         parameters['autovacuum'] = 'off'
         parameters.pop('search_path')
         config['listen'] = '*:5433'
+        self.p.reload_config(config)
         parameters['unix_socket_directories'] = '.'
         self.p.reload_config(config)
+        self.p.resolve_connection_addresses()
 
     @patch.object(Postgresql, '_version_file_exists', Mock(return_value=True))
     def test_get_major_version(self):
