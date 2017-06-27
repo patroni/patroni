@@ -804,8 +804,8 @@ class Postgresql(object):
         self._replace_pg_hba()
         self.resolve_connection_addresses()
 
-        opts = {p: self._server_parameters[p] for p in self.CMDLINE_OPTIONS if p in self._server_parameters}
-        options = ['--{0}={1}'.format(p, v) for p, v in opts.items()]
+        options = ['--{0}={1}'.format(p, self._server_parameters[p]) for p in self.CMDLINE_OPTIONS
+                   if p in self._server_parameters and p != 'wal_keep_segments']
 
         start_initiated = time.time()
 
