@@ -71,7 +71,10 @@ class WatchdogConfig(object):
 
 
 class Watchdog(object):
-    """Facade to dynamically manage watchdog implementations and handle config changes."""
+    """Facade to dynamically manage watchdog implementations and handle config changes.
+
+    When activation fails underlying implementation will be switched to a Null implementation. To avoid log spam
+    activation will only be retried when watchdog configuration is changed."""
     def __init__(self, config):
         self.active_config = self.config = WatchdogConfig(config)
         self._lock = RLock()
@@ -197,6 +200,7 @@ class Watchdog(object):
                 if self.config.driver != self.active_config.driver \
                     or self.config.driver_config != self.active_config.driver_config:
                     self._disable()
+                    self.impl = self.config.get_impl()
                     self._activate()
                 if self.config.timeout != self.active_config.timeout:
                     self.impl.set_timeout(self.config.timeout)
