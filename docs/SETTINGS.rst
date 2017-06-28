@@ -108,3 +108,9 @@ REST API
 ZooKeeper
 ----------
 -  **hosts**: list of ZooKeeper cluster members in format: ['host1:port1', 'host2:port2', 'etc...'].
+
+Watchdog
+--------
+- **mode**: ``off``, ``automatic`` or ``required``. When ``off`` watchdog is disabled. When ``automatic`` watchdog will be used if available, but ignored if it is not. When ``required`` the node will not become a leader unless watchdog can be succesfully enabled.
+- **device**: Path to watchdog device. Defaults to ``/dev/watchdog``.
+- **safety_margin**: Number of seconds of safety margin between watchdog triggering and leader key expiration.
