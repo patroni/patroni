@@ -43,12 +43,13 @@ class WatchdogConfig(object):
         self.mode = parse_mode(config['watchdog'].get('mode', 'automatic'))
         self.ttl = config['ttl']
         self.loop_wait = config['loop_wait']
+        self.safety_margin = config['watchdog'].get('safety_margin', 5)
         self.driver = config['watchdog'].get('driver')
         self.driver_config = config['watchdog']
 
     def __eq__(self, other):
         return isinstance(other, WatchdogConfig) and \
-            all(getattr(self, attr) == getattr(other, attr) for attr in 
+            all(getattr(self, attr) == getattr(other, attr) for attr in
                 ['mode', 'ttl', 'loop_wait', 'driver', 'driver_config'])
 
     def get_impl(self):
@@ -63,7 +64,10 @@ class WatchdogConfig(object):
 
     @property
     def timeout(self):
-        return int(self.ttl // 2)
+        if self.safety_margin == -1:
+            return int(self.ttl // 2)
+        else:
+            return self.ttl - self.safety_margin
 
     @property
     def timing_slack(self):
