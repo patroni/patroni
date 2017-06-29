@@ -741,8 +741,6 @@ class Postgresql(object):
         opts = {p: self._server_parameters[p] for p in self.CMDLINE_OPTIONS if p in self._server_parameters}
         options = ['--{0}={1}'.format(p, v) for p, v in opts.items()]
 
-        start_initiated = time.time()
-
         # Unfortunately `pg_ctl start` does not return postmaster pid to us. Without this information
         # it is hard to know the current state of postgres startup, so we had to reimplement pg_ctl start
         # in python. It will start postgres, wait for port to be open and wait until postgres will start
