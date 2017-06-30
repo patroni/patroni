@@ -25,7 +25,9 @@ class MockCursor(object):
         self.results = []
 
     def execute(self, sql, *params):
-        if sql.startswith('blabla') or sql == 'CHECKPOINT':
+        if sql.startswith('blabla'):
+            raise psycopg2.ProgrammingError()
+        elif sql == 'CHECKPOINT':
             raise psycopg2.OperationalError()
         elif sql.startswith('RetryFailedError'):
             raise RetryFailedError('retry')
@@ -44,7 +46,8 @@ class MockCursor(object):
                             ('search_path', 'public', None, 'string', 'user'),
                             ('port', '5433', None, 'integer', 'postmaster'),
                             ('listen_addresses', '*', None, 'string', 'postmaster'),
-                            ('autovacuum', 'on', None, 'bool', 'sighup')]
+                            ('autovacuum', 'on', None, 'bool', 'sighup'),
+                            ('unix_socket_directories', '.', None, 'string', 'postmaster')]
         elif sql.startswith('IDENTIFY_SYSTEM'):
             self.results = [('1', 2, '0/402EEC0', '')]
         elif sql.startswith('TIMELINE_HISTORY '):
@@ -158,7 +161,7 @@ class TestPostgresql(unittest.TestCase):
                    'search_path': 'public', 'hot_standby': 'on', 'max_wal_senders': 5,
                    'wal_keep_segments': 8, 'wal_log_hints': 'on', 'max_locks_per_transaction': 64,
                    'max_worker_processes': 8, 'max_connections': 100, 'max_prepared_transactions': 0,
-                   'track_commit_timestamp': 'off'}
+                   'track_commit_timestamp': 'off', 'unix_socket_directories': '/tmp'}
 
     @patch('subprocess.call', Mock(return_value=0))
     @patch('psycopg2.connect', psycopg2_connect)
@@ -170,18 +173,19 @@ class TestPostgresql(unittest.TestCase):
         if not os.path.exists(self.data_dir):
             os.makedirs(self.data_dir)
         self.p = Postgresql({'name': 'test0', 'scope': 'batman', 'data_dir': self.data_dir, 'retry_timeout': 10,
-                             'listen': '127.0.0.1, *:5432', 'connect_address': '127.0.0.2:5432',
+                             'listen': '127.0.0.2, 127.0.0.3:5432', 'connect_address': '127.0.0.2:5432',
                              'authentication': {'superuser': {'username': 'test', 'password': 'test'},
                                                 'replication': {'username': 'replicator', 'password': 'rep-pass'}},
                              'remove_data_directory_on_rewind_failure': True,
                              'use_pg_rewind': True, 'pg_ctl_timeout': 'bla',
                              'parameters': self._PARAMETERS,
                              'recovery_conf': {'foo': 'bar'},
+                             'pg_hba': ['host all all 0.0.0.0/0 md5'],
                              'callbacks': {'on_start': 'true', 'on_stop': 'true',
                                            'on_restart': 'true', 'on_role_change': 'true',
                                            'on_reload': 'true'
                                            },
-                             'restore': 'true'})
+                             'use_unix_socket': True})
         self.p._callback_executor = Mock()
         self.leadermem = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres'})
         self.leader = Leader(-1, 28, self.leadermem)
@@ -389,7 +393,7 @@ class TestPostgresql(unittest.TestCase):
             self.assertFalse(self.p.can_rewind)
         with patch('subprocess.call', side_effect=OSError):
             self.assertFalse(self.p.can_rewind)
-        with patch.object(Postgresql, 'controldata', Mock(return_value={'Current wal_log_hints setting': 'on'})):
+        with patch.object(Postgresql, 'controldata', Mock(return_value={'wal_log_hints setting': 'on'})):
             self.assertTrue(self.p.can_rewind)
         self.p.config['use_pg_rewind'] = False
         self.assertFalse(self.p.can_rewind)
@@ -435,7 +439,7 @@ class TestPostgresql(unittest.TestCase):
             assert "test-3" in errorlog_mock.call_args[0][1]
             assert "test.3" in errorlog_mock.call_args[0][1]
 
-    @patch.object(MockConnect, 'closed', 2)
+    @patch.object(MockCursor, 'execute', Mock(side_effect=psycopg2.OperationalError))
     def test__query(self):
         self.assertRaises(PostgresConnectionException, self.p._query, 'blabla')
         self.p._state = 'restarting'
@@ -444,7 +448,7 @@ class TestPostgresql(unittest.TestCase):
     def test_query(self):
         self.p.query('select 1')
         self.assertRaises(PostgresConnectionException, self.p.query, 'RetryFailedError')
-        self.assertRaises(psycopg2.OperationalError, self.p.query, 'blabla')
+        self.assertRaises(psycopg2.ProgrammingError, self.p.query, 'blabla')
 
     @patch.object(Postgresql, 'pg_isready', Mock(return_value=STATE_REJECT))
     def test_is_leader(self):
@@ -510,15 +514,22 @@ class TestPostgresql(unittest.TestCase):
         with patch.object(Postgresql, 'run_bootstrap_post_init', Mock(return_value=False)):
             self.assertRaises(PostgresException, self.p.bootstrap, {})
 
-        self.p.bootstrap({'users': {'replicator': {'password': 'rep-pass', 'options': ['replication']}},
-                          'pg_hba': ['host replication replicator 127.0.0.1/32 md5',
-                                     'hostssl all all 0.0.0.0/0 md5',
-                                     'host all all 0.0.0.0/0 md5'],
-                          'post_init': '/bin/false'})
+        config = {'users': {'replicator': {'password': 'rep-pass', 'options': ['replication']}}}
+
+        self.p.bootstrap(config)
         with open(os.path.join(self.data_dir, 'pg_hba.conf')) as f:
             lines = f.readlines()
-            assert 'host replication replicator 127.0.0.1/32 md5\n' in lines
-            assert 'host all all 0.0.0.0/0 md5\n' in lines
+            self.assertTrue('host all all 0.0.0.0/0 md5\n' in lines)
+
+        self.p.config.pop('pg_hba')
+        config.update({'post_init': '/bin/false',
+                       'pg_hba': ['host replication replicator 127.0.0.1/32 md5',
+                                  'hostssl all all 0.0.0.0/0 md5',
+                                  'host all all 0.0.0.0/0 md5']})
+        self.p.bootstrap(config)
+        with open(os.path.join(self.data_dir, 'pg_hba.conf')) as f:
+            lines = f.readlines()
+            self.assertTrue('host replication replicator 127.0.0.1/32 md5\n' in lines)
 
     def test_run_bootstrap_post_init(self):
         with patch('subprocess.call', Mock(return_value=1)):
@@ -530,11 +541,16 @@ class TestPostgresql(unittest.TestCase):
         with patch('subprocess.call', Mock(return_value=0)) as mock_method:
             self.p._superuser.pop('username')
             self.assertTrue(self.p.run_bootstrap_post_init({'post_init': '/bin/false'}))
+            mock_method.assert_called()
+            args, kwargs = mock_method.call_args
+            self.assertTrue('PGPASSFILE' in kwargs['env'])
+            self.assertEquals(args[0], ['/bin/false', 'postgres://%2Ftmp:5432/postgres'])
 
-        mock_method.assert_called()
-        args, kwargs = mock_method.call_args
-        assert 'PGPASSFILE' in kwargs['env'].keys()
-        self.assertEquals(args[0], ['/bin/false', 'postgres://localhost:5432/postgres'])
+            mock_method.reset_mock()
+            self.p._local_address.pop('host')
+            self.assertTrue(self.p.run_bootstrap_post_init({'post_init': '/bin/false'}))
+            mock_method.assert_called()
+            self.assertEquals(mock_method.call_args[0][0], ['/bin/false', 'postgres://:5432/postgres'])
 
     @patch('patroni.postgresql.Postgresql.create_replica', Mock(return_value=0))
     def test_clone(self):
@@ -560,7 +576,7 @@ class TestPostgresql(unittest.TestCase):
             data = self.p.controldata()
             self.assertEquals(len(data), 50)
             self.assertEquals(data['Database cluster state'], 'shut down in recovery')
-            self.assertEquals(data['Current wal_log_hints setting'], 'on')
+            self.assertEquals(data['wal_log_hints setting'], 'on')
             self.assertEquals(int(data['Database block size']), 8192)
 
         with patch('subprocess.check_output', Mock(side_effect=subprocess.CalledProcessError(1, ''))):
@@ -600,7 +616,8 @@ class TestPostgresql(unittest.TestCase):
     def test_reload_config(self):
         parameters = self._PARAMETERS.copy()
         parameters.pop('f.oo')
-        config = {'authentication': {}, 'retry_timeout': 10, 'listen': '*', 'parameters': parameters}
+        config = {'pg_hba': [''], 'use_unix_socket': True, 'authentication': {},
+                  'retry_timeout': 10, 'listen': '*', 'parameters': parameters}
         self.p.reload_config(config)
         parameters['b.ar'] = 'bar'
         self.p.reload_config(config)
@@ -609,6 +626,7 @@ class TestPostgresql(unittest.TestCase):
         parameters['autovacuum'] = 'off'
         parameters.pop('search_path')
         config['listen'] = '*:5433'
+        parameters['unix_socket_directories'] = '.'
         self.p.reload_config(config)
 
     @patch.object(Postgresql, '_version_file_exists', Mock(return_value=True))

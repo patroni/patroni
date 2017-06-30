@@ -10,27 +10,27 @@ from patroni.utils import Retry, RetryFailedError
 
 logger = logging.getLogger(__name__)
 
-retry_timeout = 15
-
 
 class AWSConnection(object):
+
     def __init__(self, cluster_name):
         self.available = False
         self.cluster_name = cluster_name if cluster_name is not None else 'unknown'
-        self._retry = Retry(deadline=retry_timeout, max_delay=5, max_tries=-1, retry_exceptions=(boto.exception,))
+        self._retry = Retry(deadline=300, max_delay=30, max_tries=-1, retry_exceptions=(boto.exception.StandardError,))
         try:
             # get the instance id
-            r = requests.get('http://169.254.169.254/latest/dynamic/instance-identity/document', timeout=0.1)
+            r = requests.get('http://169.254.169.254/latest/dynamic/instance-identity/document', timeout=2.1)
         except RequestException:
-            logger.info("cannot query AWS meta-data")
+            logger.error('cannot query AWS meta-data')
             return
+
         if r.ok:
             try:
                 content = r.json()
                 self.instance_id = content['instanceId']
                 self.region = content['region']
-            except Exception as e:
-                logger.info('unable to fetch instance id and region from AWS meta-data: {}'.format(e))
+            except Exception:
+                logger.exception('unable to fetch instance id and region from AWS meta-data')
                 return
             self.available = True
 
