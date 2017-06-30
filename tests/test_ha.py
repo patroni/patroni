@@ -1,6 +1,7 @@
 import datetime
 import etcd
 import os
+import time
 import unittest
 
 from mock import Mock, MagicMock, PropertyMock, patch
@@ -245,7 +246,8 @@ class TestHa(unittest.TestCase):
 
     def test_demote_because_not_having_lock(self):
         self.ha.cluster.is_unlocked = false
-        self.assertEquals(self.ha.run_cycle(), 'demoting self because i do not have the lock and i was a leader')
+        with patch.object(Watchdog, 'is_running', PropertyMock(return_value=True)):
+            self.assertEquals(self.ha.run_cycle(), 'demoting self because i do not have the lock and i was a leader')
 
     def test_demote_because_update_lock_failed(self):
         self.ha.cluster.is_unlocked = false
@@ -334,6 +336,7 @@ class TestHa(unittest.TestCase):
         with patch.object(self.ha, "restart_matches", return_value=False):
             self.assertEquals(self.ha.restart({'foo': 'bar'}), (False, "restart conditions are not satisfied"))
 
+    @patch('os.kill', Mock())
     def test_restart_in_progress(self):
         with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)):
             self.ha.restart({}, run_async=True)
@@ -348,9 +351,10 @@ class TestHa(unittest.TestCase):
 
             self.ha.update_lock = false
             self.p.set_role('master')
-            with patch('patroni.postgresql.Postgresql.stop') as stop_mock:
-                self.assertEquals(self.ha.run_cycle(), 'lost leader lock during restart')
-                stop_mock.assert_called()
+            with patch('patroni.async_executor.CriticalTask.cancel', Mock(return_value=False)):
+                with patch('patroni.postgresql.Postgresql.stop') as stop_mock:
+                    self.assertEquals(self.ha.run_cycle(), 'lost leader lock during restart')
+                    stop_mock.assert_called()
 
     @patch('requests.get', requests_get)
     def test_manual_failover_from_leader(self):
@@ -795,6 +799,10 @@ class TestHa(unittest.TestCase):
 
     def test_wakup(self):
         self.ha.wakeup()
+
+    def test_shutdown(self):
+        self.p.is_running = false
+        self.ha.shutdown()
 
     @patch('time.sleep', Mock())
     def test_leader_with_empty_directory(self):
