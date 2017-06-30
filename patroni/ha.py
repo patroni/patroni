@@ -357,7 +357,7 @@ class Ha(object):
                     return 'Demoting self because watchdog could not be activated'
                 else:
                     self.release_leader_key_voluntarily()
-                    return 'Not promoting self because watchdog could not be actived.'
+                    return 'Not promoting self because watchdog could not be actived'
 
         if self.state_handler.is_leader() or self.state_handler.role == 'master':
             # Inform the state handler about its master role.

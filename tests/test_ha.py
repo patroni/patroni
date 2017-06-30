@@ -239,6 +239,15 @@ class TestHa(unittest.TestCase):
         self.p.is_leader = false
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader because i had the session lock')
 
+    def test_promote_without_watchdog(self):
+        self.ha.cluster.is_unlocked = false
+        self.ha.has_lock = true
+        self.p.is_leader = true
+        with patch.object(Watchdog, 'activate', Mock(return_value=False)):
+            self.assertEquals(self.ha.run_cycle(), 'Demoting self because watchdog could not be activated')
+            self.p.is_leader = false
+            self.assertEquals(self.ha.run_cycle(), 'Not promoting self because watchdog could not be actived')
+
     def test_leader_with_lock(self):
         self.ha.cluster.is_unlocked = false
         self.ha.has_lock = true

@@ -149,7 +149,7 @@ class LinuxWatchdogDevice(WatchdogBase):
                 os.close(self._fd)
                 self._fd = None
             except OSError as e:
-                return WatchdogError("Error while closing {0}: {1}".format(self.describe(), e))
+                raise WatchdogError("Error while closing {0}: {1}".format(self.describe(), e))
 
     @property
     def can_be_disabled(self):

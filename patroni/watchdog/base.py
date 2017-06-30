@@ -44,19 +44,19 @@ class WatchdogConfig(object):
         self.ttl = config['ttl']
         self.loop_wait = config['loop_wait']
         self.safety_margin = config['watchdog'].get('safety_margin', 5)
-        self.driver = config['watchdog'].get('driver')
+        self.driver = config['watchdog'].get('driver', 'default')
         self.driver_config = config['watchdog']
 
     def __eq__(self, other):
         return isinstance(other, WatchdogConfig) and \
             all(getattr(self, attr) == getattr(other, attr) for attr in
-                ['mode', 'ttl', 'loop_wait', 'driver', 'driver_config'])
+                ['mode', 'ttl', 'loop_wait', 'safety_margin', 'driver', 'driver_config'])
 
     def get_impl(self):
         if self.driver == 'testing':
             from patroni.watchdog.linux import TestingWatchdogDevice
             return TestingWatchdogDevice.from_config(self.driver_config)
-        elif platform.system() == 'Linux':
+        elif platform.system() == 'Linux' and self.driver == 'default':
             from patroni.watchdog.linux import LinuxWatchdogDevice
             return LinuxWatchdogDevice.from_config(self.driver_config)
         else:
@@ -98,7 +98,8 @@ class Watchdog(object):
         # Turning a watchdog off can always be done immediately
         if self.config.mode == MODE_OFF:
             if self.active:
-                self.disable()
+                self._disable()
+            self.active_config = self.config
             self.impl = NullWatchdog()
         # If watchdog is not active we can apply config immediately to show any warnings early. Otherwise we need to
         # delay until next time a keepalive is sent so timeout matches up with leader key update.
@@ -201,6 +202,7 @@ class Watchdog(object):
             # In case there are any pending configuration changes apply them now.
             if self.active and self.config != self.active_config:
                 if self.config.mode != MODE_OFF and self.active_config.mode == MODE_OFF:
+                    self.impl = self.config.get_impl()
                     self._activate()
                 if self.config.driver != self.active_config.driver \
                    or self.config.driver_config != self.active_config.driver_config:
