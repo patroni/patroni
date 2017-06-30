@@ -45,7 +45,8 @@ class WatchdogConfig(object):
         self.loop_wait = config['loop_wait']
         self.safety_margin = config['watchdog'].get('safety_margin', 5)
         self.driver = config['watchdog'].get('driver', 'default')
-        self.driver_config = config['watchdog']
+        self.driver_config = dict((k, v) for k, v in config['watchdog'].items()
+                                  if k not in ['mode', 'safety_margin', 'driver'])
 
     def __eq__(self, other):
         return isinstance(other, WatchdogConfig) and \
