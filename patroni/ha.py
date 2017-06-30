@@ -12,7 +12,7 @@ from multiprocessing.pool import ThreadPool
 from patroni.async_executor import AsyncExecutor
 from patroni.exceptions import DCSError, PostgresConnectionException
 from patroni.postgresql import ACTION_ON_START
-from patroni.utils import polling_loop, null_context, tzutc
+from patroni.utils import polling_loop, tzutc
 from threading import RLock
 
 logger = logging.getLogger(__name__)
@@ -163,7 +163,7 @@ class Ha(object):
                     self.state_handler.move_data_directory()
                     raise
                 self.dcs.set_config_value(json.dumps(self.patroni.config.dynamic_configuration,
-                                                        separators=(',', ':')))
+                                                     separators=(',', ':')))
                 self.watchdog.activate()
                 self.dcs.take_leader()
                 self.load_cluster_from_dcs()

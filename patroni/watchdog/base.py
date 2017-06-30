@@ -104,7 +104,7 @@ class Watchdog(object):
         # delay until next time a keepalive is sent so timeout matches up with leader key update.
         if not self.active:
             if self.config.driver != self.active_config.driver or \
-                self.config.driver_config != self.active_config.driver_config:
+               self.config.driver_config != self.active_config.driver_config:
                 self.impl = self.config.get_impl()
             self.active_config = self.config
 
@@ -144,7 +144,8 @@ class Watchdog(object):
                     logger.error("Configuration requires watchdog, but watchdog could not be configured.")
                 else:
                     logger.error("Configuration requires watchdog, but a safe watchdog timeout {0} could"
-                             " not be configured. Watchdog timeout is {1}.".format(self.config.timeout, actual_timeout))
+                                 " not be configured. Watchdog timeout is {1}.".format(
+                                     self.config.timeout, actual_timeout))
                 return False
             else:
                 if not self.impl.is_null:
@@ -202,7 +203,7 @@ class Watchdog(object):
                 if self.config.mode != MODE_OFF and self.active_config.mode == MODE_OFF:
                     self._activate()
                 if self.config.driver != self.active_config.driver \
-                    or self.config.driver_config != self.active_config.driver_config:
+                   or self.config.driver_config != self.active_config.driver_config:
                     self._disable()
                     self.impl = self.config.get_impl()
                     self._activate()
