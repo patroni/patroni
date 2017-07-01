@@ -168,9 +168,11 @@ class TestPostgresql(unittest.TestCase):
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def setUp(self):
         self.data_dir = 'data/test0'
+        self.config_dir = self.data_dir
         if not os.path.exists(self.data_dir):
             os.makedirs(self.data_dir)
-        self.p = Postgresql({'name': 'test0', 'scope': 'batman', 'data_dir': self.data_dir, 'retry_timeout': 10,
+        self.p = Postgresql({'name': 'test0', 'scope': 'batman', 'data_dir': self.data_dir,
+                             'config_dir': self.config_dir, 'retry_timeout': 10,
                              'listen': '127.0.0.2, 127.0.0.3:5432', 'connect_address': '127.0.0.2:5432',
                              'authentication': {'superuser': {'username': 'test', 'password': 'test'},
                                                 'replication': {'username': 'replicator', 'password': 'rep-pass'}},
@@ -502,7 +504,7 @@ class TestPostgresql(unittest.TestCase):
         config = {'users': {'replicator': {'password': 'rep-pass', 'options': ['replication']}}}
 
         self.p.bootstrap(config)
-        with open(os.path.join(self.data_dir, 'pg_hba.conf')) as f:
+        with open(os.path.join(self.config_dir, 'pg_hba.conf')) as f:
             lines = f.readlines()
             self.assertTrue('host all all 0.0.0.0/0 md5\n' in lines)
 

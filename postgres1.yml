@@ -64,6 +64,7 @@ postgresql:
   connect_address: 127.0.0.1:5433
   data_dir: data/postgresql1
 #  bin_dir:
+#  config_dir:
   pgpass: /tmp/pgpass1
   authentication:
     replication:
