@@ -116,7 +116,8 @@ class ZooKeeper(AbstractDCS):
             return True
 
     def set_retry_timeout(self, retry_timeout):
-        self._client._retry.deadline = retry_timeout
+        retry = self._client.retry if isinstance(self._client.retry, KazooRetry) else self._client._retry
+        retry.deadline = retry_timeout
 
     def get_node(self, key, watch=None):
         try:
