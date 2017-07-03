@@ -135,6 +135,7 @@ class TestHa(unittest.TestCase):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
     @patch('psycopg2.connect', psycopg2_connect)
+    @patch('patroni.dcs.dcs_modules', Mock(return_value=['foo', 'patroni.dcs.etcd']))
     @patch.object(etcd.Client, 'read', etcd_read)
     def setUp(self):
         with patch.object(Client, 'machines') as mock_machines:
