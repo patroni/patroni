@@ -56,7 +56,7 @@ def slot_name_from_member_name(member_name):
         return '_' if c in '-.' else "u{:04d}".format(ord(c))
 
     slot_name = re.sub('[^a-z0-9_]', replace_char, member_name.lower())
-    return slot_name[0:64]
+    return slot_name[0:63]
 
 
 class Postgresql(object):
