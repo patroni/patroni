@@ -94,7 +94,7 @@ class Watchdog(object):
             logger.info("{0} activated with {1} second timeout, timing slack {2} seconds"
                         .format(self.impl.describe(), actual_timeout, slack))
         else:
-            if self.mode == MODE_REQUIRED:
+            if self.mode == MODE_REQUIRED:  # XXX: can we really get here?
                 logger.error("Configuration requires watchdog, but watchdog could not be activated")
                 sys.exit(1)
 
@@ -116,7 +116,7 @@ class Watchdog(object):
             logger.error("Error while sending keepalive: %s", e)
 
     def _get_impl(self):
-        if self.mode not in [MODE_AUTOMATIC, MODE_REQUIRED]:
+        if self.mode not in [MODE_AUTOMATIC, MODE_REQUIRED]:  # XXX: can't be reached
             return NullWatchdog()
 
         if self.driver == 'testing':
