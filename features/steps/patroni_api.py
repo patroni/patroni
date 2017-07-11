@@ -111,7 +111,8 @@ def check_response(context, component, data):
         assert context.status_code == int(data),\
             "status code {0} != {1}, response: {2}".format(context.status_code, data, context.response)
     elif component == 'returncode':
-        assert context.status_code == int(data), "return code {0} != {1}, {2}".format(context.status_code, data, context.response)
+        assert context.status_code == int(data), "return code {0} != {1}, {2}".format(context.status_code,
+                                                                                      data, context.response)
     elif component == 'text':
         assert context.response == data.strip('"'), "response {0} does not contain {1}".format(context.response, data)
     elif component == 'output':

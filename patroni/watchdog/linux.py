@@ -145,7 +145,7 @@ class LinuxWatchdogDevice(WatchdogBase):
                 os.close(self._fd)
                 self._fd = None
             except OSError as e:
-                return WatchdogError("Error while closing {0}: {1}".format(self.describe(), e))
+                raise WatchdogError("Error while closing {0}: {1}".format(self.describe(), e))
 
     @property
     def can_be_disabled(self):
@@ -176,7 +176,7 @@ class LinuxWatchdogDevice(WatchdogBase):
             try:
                 _, version, identity = self.get_support()
                 ver_str = " (firmware {0})".format(version) if version else ""
-            except WatchdogError:
+            except WatchdogError:  # XXX: Can it really be raise when self._fd is not None?
                 pass
 
         return identity + ver_str + dev_str
