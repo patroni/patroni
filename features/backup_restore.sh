@@ -1,22 +1,17 @@
 #!/bin/bash
 
-PARSED=$(getopt --options v --longoptions datadir:,sourcedir: --name "$0" -- "$@" 2> /dev/null)
-eval set -- "$PARSED"
+set -x
 
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        --datadir )
-            PGDATA=$2
-            shift
+while getopts ":-:" optchar; do
+    [[ "${optchar}" == "-" ]] || continue
+    case "${OPTARG}" in
+        datadir=* )
+            PGDATA=${OPTARG#*=}
             ;;
-        --sourcedir )
-            SOURCE=$2
-            shift
-            ;;
-        * )
+        sourcedir=* )
+            SOURCE=${OPTARG#*=}
             ;;
     esac
-    shift
 done
 
 [[ -z $PGDATA || -z $SOURCE ]] && exit 1

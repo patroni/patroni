@@ -570,7 +570,7 @@ class PatroniPoolController(object):
             'bootstrap': {
                 'method': 'backup_restore',
                 'backup_restore': {
-                    'command': 'features/backup_restore.sh --source=' + os.path.join(self._output_dir, 'basebackup'),
+                    'command': 'features/backup_restore.sh --sourcedir=' + os.path.join(self._output_dir, 'basebackup'),
                     'recovery_conf': {
                         'recovery_target_action': 'promote',
                         'recovery_target_timeline': 'latest',
