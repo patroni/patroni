@@ -56,7 +56,7 @@ def slot_name_from_member_name(member_name):
         return '_' if c in '-.' else "u{:04d}".format(ord(c))
 
     slot_name = re.sub('[^a-z0-9_]', replace_char, member_name.lower())
-    return slot_name[0:64]
+    return slot_name[0:63]
 
 
 class Postgresql(object):
@@ -99,6 +99,7 @@ class Postgresql(object):
         self._bin_dir = config.get('bin_dir') or ''
         self._database = config.get('database', 'postgres')
         self._data_dir = config['data_dir']
+        self._config_dir = config.get('config_dir') or self._data_dir
         self._pending_restart = False
         self.__thread_ident = current_thread().ident
 
@@ -120,9 +121,9 @@ class Postgresql(object):
         self.__cb_called = False
         self.__cb_pending = None
         config_base_name = config.get('config_base_name', 'postgresql')
-        self._postgresql_conf = os.path.join(self._data_dir, config_base_name + '.conf')
+        self._postgresql_conf = os.path.join(self._config_dir, config_base_name + '.conf')
         self._postgresql_base_conf_name = config_base_name + '.base.conf'
-        self._postgresql_base_conf = os.path.join(self._data_dir, self._postgresql_base_conf_name)
+        self._postgresql_base_conf = os.path.join(self._config_dir, self._postgresql_base_conf_name)
         self._recovery_conf = os.path.join(self._data_dir, 'recovery.conf')
         self._postmaster_pid = os.path.join(self._data_dir, 'postmaster.pid')
         self._trigger_file = config.get('recovery_conf', {}).get('trigger_file') or 'promote'
@@ -157,14 +158,16 @@ class Postgresql(object):
             self.set_state('running')
             self.set_role('master' if self.is_leader() else 'replica')
             self._write_postgresql_conf()  # we are "joining" already running postgres
+            if self._replace_pg_hba():
+                self.reload()
 
     @property
     def _configuration_to_save(self):
-        configuration = [self._postgresql_conf]
+        configuration = [os.path.basename(self._postgresql_conf)]
         if 'custom_conf' not in self.config:
-            configuration.append(self._postgresql_base_conf)
+            configuration.append(os.path.basename(self._postgresql_base_conf))
         if not self.config['parameters'].get('hba_file'):
-            configuration.append(os.path.join(self._data_dir, 'pg_hba.conf'))
+            configuration.append('pg_hba.conf')
         return configuration
 
     @property
@@ -280,7 +283,7 @@ class Postgresql(object):
         self._superuser = config['authentication'].get('superuser', {})
         server_parameters = self.get_server_parameters(config)
 
-        local_connection_address_changed = pending_reload = pending_restart = False
+        conf_changed = hba_changed = local_connection_address_changed = pending_restart = False
         if self.state == 'running':
             changes = {p: v for p, v in server_parameters.items() if '.' not in p}
             changes.update({p: None for p, v in self._server_parameters.items() if not ('.' in p or p in changes)})
@@ -308,23 +311,26 @@ class Postgresql(object):
                                         or r[0] in ('listen_addresses', 'port'):
                                     local_connection_address_changed = True
                             else:
-                                pending_reload = True
+                                conf_changed = True
                 for param in changes:
                     if param in server_parameters:
                         logger.warning('Removing invalid parameter `%s` from postgresql.parameters', param)
                         server_parameters.pop(param)
 
             # Check that user-defined-paramters have changed (parameters with period in name)
-            if not pending_reload:
+            if not conf_changed:
                 for p, v in server_parameters.items():
                     if '.' in p and (p not in self._server_parameters or str(v) != str(self._server_parameters[p])):
-                        pending_reload = True
+                        conf_changed = True
                         break
-                if not pending_reload:
+                if not conf_changed:
                     for p, v in self._server_parameters.items():
                         if '.' in p and (p not in server_parameters or str(v) != str(server_parameters[p])):
-                            pending_reload = True
+                            conf_changed = True
                             break
+
+            if not config['parameters'].get('hba_file') and config.get('pg_hba'):
+                hba_changed = self.config.get('pg_hba', []) != config['pg_hba']
 
         self.config = config
         self._pending_restart = pending_restart
@@ -334,9 +340,15 @@ class Postgresql(object):
         if not local_connection_address_changed:
             self.resolve_connection_addresses()
 
-        if pending_reload:
+        if conf_changed:
             self._write_postgresql_conf()
+
+        if hba_changed:
+            self._replace_pg_hba()
+
+        if conf_changed or hba_changed:
             self.reload()
+
         self._is_leader_retry.deadline = self.retry.deadline = config['retry_timeout']/2.0
 
     @property
@@ -501,7 +513,8 @@ class Postgresql(object):
         if pwfile:
             os.remove(pwfile)
         if ret:
-            self.write_pg_hba(config.get('pg_hba', []))
+            if not self.config['parameters'].get('hba_file') and not self.config.get('pg_hba'):
+                self.write_pg_hba(config.get('pg_hba', []))
             self._major_version = self.get_major_version()
             self._server_parameters = self.get_server_parameters(self.config)
         else:
@@ -789,10 +802,11 @@ class Postgresql(object):
         self._pending_restart = False
 
         self._write_postgresql_conf()
+        self._replace_pg_hba()
         self.resolve_connection_addresses()
 
-        opts = {p: self._server_parameters[p] for p in self.CMDLINE_OPTIONS if p in self._server_parameters}
-        options = ['--{0}={1}'.format(p, v) for p, v in opts.items()]
+        options = ['--{0}={1}'.format(p, self._server_parameters[p]) for p in self.CMDLINE_OPTIONS
+                   if p in self._server_parameters and p != 'wal_keep_segments']
 
         start_initiated = time.time()
 
@@ -813,8 +827,9 @@ class Postgresql(object):
                 return False
 
             start_initiated = time.time()
-            proc = call_self(['pg_ctl_start', self._pgcommand('postgres'), '-D', self._data_dir] + options,
-                             close_fds=True, preexec_fn=os.setsid, stdout=subprocess.PIPE,
+            proc = call_self(['pg_ctl_start', self._pgcommand('postgres'), '-D', self._data_dir,
+                             '--config-file={}'.format(self._postgresql_conf)] + options, close_fds=True,
+                             preexec_fn=os.setsid, stdout=subprocess.PIPE,
                              env={p: os.environ[p] for p in ('PATH', 'LC_ALL', 'LANG') if p in os.environ})
             pid = int(proc.stdout.readline().strip())
             proc.wait()
@@ -939,13 +954,9 @@ class Postgresql(object):
     def _wait_for_connection_close(self, pid):
         try:
             with self.connection().cursor() as cur:
-                while True:  # Need a timeout here?
-                    if pid == self.get_pid() and self.is_pid_running(pid):
-                        cur.execute("SELECT 1")
-                        time.sleep(STOP_POLLING_INTERVAL)
-                        continue
-                    else:
-                        break
+                while pid == self.get_pid() and self.is_pid_running(pid):  # Need a timeout here?
+                    cur.execute("SELECT 1")
+                    time.sleep(STOP_POLLING_INTERVAL)
         except psycopg2.Error:
             pass
 
@@ -1047,6 +1058,9 @@ class Postgresql(object):
         with open(self._postgresql_conf, 'w') as f:
             f.write('# Do not edit this file manually!\n# It will be overwritten by Patroni!\n')
             f.write("include '{0}'\n\n".format(self.config.get('custom_conf') or self._postgresql_base_conf_name))
+            f.write("data_directory = '{}'\n".format(self._data_dir))
+            f.write("hba_file = '{}'\n".format(os.path.join(self._config_dir, 'pg_hba.conf')))
+            f.write("ident_file = '{}'\n".format(os.path.join(self._config_dir, 'pg_ident.conf')))
             for name, value in sorted(self._server_parameters.items()):
                 f.write("{0} = '{1}'\n".format(name, value))
 
@@ -1057,8 +1071,22 @@ class Postgresql(object):
         return True
 
     def write_pg_hba(self, config):
-        with open(os.path.join(self._data_dir, 'pg_hba.conf'), 'a') as f:
+        with open(os.path.join(self._config_dir, 'pg_hba.conf'), 'a') as f:
             f.write('\n{}\n'.format('\n'.join(config)))
+
+    def _replace_pg_hba(self):
+        """
+        Replace pg_hba.conf content in the PGDATA if hba_file is not defined in the
+        `postgresql.parameters` and pg_hba is defined in `postgresql` configuration section.
+
+        :returns: True if pg_hba.conf was rewritten.
+        """
+        if not self.config['parameters'].get('hba_file') and self.config.get('pg_hba'):
+            with open(os.path.join(self._config_dir, 'pg_hba.conf'), 'w') as f:
+                f.write('# Do not edit this file manually!\n# It will be overwritten by Patroni!\n')
+                for line in self.config['pg_hba']:
+                    f.write('{0}\n'.format(line))
+            return True
 
     def primary_conninfo(self, member):
         if not (member and member.conn_url) or member.name == self.name:
@@ -1287,50 +1315,6 @@ class Postgresql(object):
             self.call_nowait(ACTION_ON_ROLE_CHANGE)
         return True
 
-    def _do_rewind(self, leader):
-        logger.info("rewind flag is set")
-
-        if self.is_running() and not self.stop(checkpoint=False):
-            logger.warning('Can not run pg_rewind because postgres is still running')
-            return False
-
-        # prepare pg_rewind connection
-        r = leader.conn_kwargs(self._superuser)
-
-        # first make sure that we are really trying to rewind
-        # from the master and run a checkpoint on a t in order to
-        # make it store the new timeline (5540277D.8020309@iki.fi)
-        leader_status = self.checkpoint(r)
-        if leader_status:
-            logger.warning('Can not use %s for rewind: %s', leader.name, leader_status)
-            return False
-
-        # at present, pg_rewind only runs when the cluster is shut down cleanly
-        # and not shutdown in recovery. We have to remove the recovery.conf if present
-        # and start/shutdown in a single user mode to emulate this.
-        # XXX: if recovery.conf is linked, it will be written anew as a normal file.
-        if os.path.isfile(self._recovery_conf) or os.path.islink(self._recovery_conf):
-            os.unlink(self._recovery_conf)
-
-        # Archived segments might be useful to pg_rewind,
-        # clean the flags that tell we should remove them.
-        self.cleanup_archive_status()
-
-        # Start in a single user mode and stop to produce a clean shutdown
-        opts = self.read_postmaster_opts()
-        opts.update({'archive_mode': 'on', 'archive_command': 'false'})
-        self.single_user_mode(options=opts)
-
-        try:
-            if not self.rewind(r):
-                logger.error('unable to rewind the former master')
-                if self.config.get('remove_data_directory_on_rewind_failure', False):
-                    self.remove_data_directory()
-                    return False
-            return True
-        finally:
-            self._need_rewind = False
-
     def save_configuration_files(self):
         """
             copy postgresql.conf to postgresql.conf.backup to be able to retrive configuration files
@@ -1339,8 +1323,10 @@ class Postgresql(object):
         """
         try:
             for f in self._configuration_to_save:
-                if os.path.isfile(f):
-                    shutil.copy(f, f + '.backup')
+                config_file = os.path.join(self._config_dir, f)
+                backup_file = os.path.join(self._data_dir, f + '.backup')
+                if os.path.isfile(config_file):
+                    shutil.copy(config_file, backup_file)
         except IOError:
             logger.exception('unable to create backup copies of configuration files')
 
@@ -1348,8 +1334,10 @@ class Postgresql(object):
         """ restore a previously saved postgresql.conf """
         try:
             for f in self._configuration_to_save:
-                if not os.path.isfile(f) and os.path.isfile(f + '.backup'):
-                    shutil.copy(f + '.backup', f)
+                config_file = os.path.join(self._config_dir, f)
+                backup_file = os.path.join(self._data_dir, f + '.backup')
+                if not os.path.isfile(config_file) and os.path.isfile(backup_file):
+                    shutil.copy(backup_file, config_file)
         except IOError:
             logger.exception('unable to restore configuration files from backup')
 

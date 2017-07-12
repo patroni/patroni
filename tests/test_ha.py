@@ -1,6 +1,7 @@
 import datetime
 import etcd
 import os
+import time
 import unittest
 
 from mock import Mock, MagicMock, PropertyMock, patch
@@ -8,12 +9,13 @@ from patroni.config import Config
 from patroni.dcs import Cluster, ClusterConfig, Failover, Leader, Member, get_dcs, SyncState
 from patroni.dcs.etcd import Client
 from patroni.exceptions import DCSError, PostgresException
-from patroni.ha import Ha, _MemberStatus
+from patroni.ha import Ha, _MemberStatus, BackgroundKeepaliveSender
 from patroni.postgresql import Postgresql
 from patroni.watchdog import Watchdog
 from patroni.utils import tzutc
 from test_etcd import socket_getaddrinfo, etcd_read, etcd_write, requests_get
 from test_postgresql import psycopg2_connect
+from threading import Event
 
 
 def true(*args, **kwargs):
@@ -135,6 +137,7 @@ class TestHa(unittest.TestCase):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
     @patch('psycopg2.connect', psycopg2_connect)
+    @patch('patroni.dcs.dcs_modules', Mock(return_value=['foo', 'patroni.dcs.etcd']))
     @patch.object(etcd.Client, 'read', etcd_read)
     def setUp(self):
         with patch.object(Client, 'machines') as mock_machines:
@@ -245,7 +248,8 @@ class TestHa(unittest.TestCase):
 
     def test_demote_because_not_having_lock(self):
         self.ha.cluster.is_unlocked = false
-        self.assertEquals(self.ha.run_cycle(), 'demoting self because i do not have the lock and i was a leader')
+        with patch.object(Watchdog, 'is_running', PropertyMock(return_value=True)):
+            self.assertEquals(self.ha.run_cycle(), 'demoting self because i do not have the lock and i was a leader')
 
     def test_demote_because_update_lock_failed(self):
         self.ha.cluster.is_unlocked = false
@@ -334,6 +338,7 @@ class TestHa(unittest.TestCase):
         with patch.object(self.ha, "restart_matches", return_value=False):
             self.assertEquals(self.ha.restart({'foo': 'bar'}), (False, "restart conditions are not satisfied"))
 
+    @patch('os.kill', Mock())
     def test_restart_in_progress(self):
         with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)):
             self.ha.restart({}, run_async=True)
@@ -348,9 +353,10 @@ class TestHa(unittest.TestCase):
 
             self.ha.update_lock = false
             self.p.set_role('master')
-            with patch('patroni.postgresql.Postgresql.stop') as stop_mock:
-                self.assertEquals(self.ha.run_cycle(), 'lost leader lock during restart')
-                stop_mock.assert_called()
+            with patch('patroni.async_executor.CriticalTask.cancel', Mock(return_value=False)):
+                with patch('patroni.postgresql.Postgresql.stop') as stop_mock:
+                    self.assertEquals(self.ha.run_cycle(), 'lost leader lock during restart')
+                    stop_mock.assert_called()
 
     @patch('requests.get', requests_get)
     def test_manual_failover_from_leader(self):
@@ -796,6 +802,10 @@ class TestHa(unittest.TestCase):
     def test_wakup(self):
         self.ha.wakeup()
 
+    def test_shutdown(self):
+        self.p.is_running = false
+        self.ha.shutdown()
+
     @patch('time.sleep', Mock())
     def test_leader_with_empty_directory(self):
         self.ha.cluster = get_cluster_initialized_with_leader()
@@ -807,3 +817,16 @@ class TestHa(unittest.TestCase):
         self.ha.has_lock = false
         # will not say bootstrap from leader as replica can't self elect
         self.assertEquals(self.ha.run_cycle(), "trying to bootstrap from replica 'other'")
+
+
+class TestBackgroundKeepaliveSender(unittest.TestCase):
+
+    def test_run(self):
+        safe_event = Event()
+        ha = Mock()
+        ha.dcs.loop_wait = 0.1
+        with BackgroundKeepaliveSender(ha, safe_event):
+            time.sleep(1)
+            safe_event.set()
+            time.sleep(1)
+        self.assertTrue(ha.keepalive.call_count > 2)

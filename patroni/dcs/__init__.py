@@ -3,6 +3,7 @@ import dateutil
 import importlib
 import inspect
 import json
+import logging
 import os
 import pkgutil
 import six
@@ -13,6 +14,8 @@ from patroni.exceptions import PatroniException
 from random import randint
 from six.moves.urllib_parse import urlparse, urlunparse, parse_qsl
 from threading import Event, Lock
+
+logger = logging.getLogger(__name__)
 
 
 def parse_connection_string(value):
@@ -51,18 +54,22 @@ def dcs_modules():
 def get_dcs(config):
     available_implementations = set()
     for module_name in dcs_modules():
-        module = importlib.import_module(module_name)
-        for name in filter(lambda name: not name.startswith('__'), dir(module)):  # iterate through module content
-            value = getattr(module, name)
-            name = name.lower()
-            # try to find implementation of AbstractDCS interface, class name must match with module_name
-            if inspect.isclass(value) and issubclass(value, AbstractDCS) and __package__ + '.' + name == module_name:
-                available_implementations.add(name)
-                if name in config:  # which has configuration section in the config file
-                    # propagate some parameters
-                    config[name].update({p: config[p] for p in ('namespace', 'name', 'scope', 'loop_wait',
-                                         'patronictl', 'ttl', 'retry_timeout') if p in config})
-                    return value(config[name])
+        try:
+            module = importlib.import_module(module_name)
+            for name in filter(lambda name: not name.startswith('__'), dir(module)):  # iterate through module content
+                item = getattr(module, name)
+                name = name.lower()
+                # try to find implementation of AbstractDCS interface, class name must match with module_name
+                if inspect.isclass(item) and issubclass(item, AbstractDCS) and __package__ + '.' + name == module_name:
+                    available_implementations.add(name)
+                    if name in config:  # which has configuration section in the config file
+                        # propagate some parameters
+                        config[name].update({p: config[p] for p in ('namespace', 'name', 'scope', 'loop_wait',
+                                             'patronictl', 'ttl', 'retry_timeout') if p in config})
+                        return item(config[name])
+        except ImportError:
+            if not config.get('patronictl'):
+                logger.info('Failed to import %s', module_name)
     raise PatroniException("""Can not find suitable configuration of distributed configuration store
 Available implementations: """ + ', '.join(available_implementations))
 
