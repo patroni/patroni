@@ -1604,19 +1604,13 @@ $$""".format(name, ' '.join(options)), name, password, password)
                 self.remove_data_directory()
 
             try:
-                version = 0
-                with psycopg2.connect(conn_url + '?replication=1') as c:
-                    version = c.server_version
-
                 ret = subprocess.call([self._pgcommand('pg_basebackup'), '--pgdata=' + self._data_dir,
-                                       '--{0}-method=stream'.format(self._wal_name(version)), '--dbname=' + conn_url])
+                                       '-X', 'stream', '--dbname=' + conn_url])
                 if ret == 0:
                     break
                 else:
                     logger.error('Error when fetching backup: pg_basebackup exited with code=%s', ret)
 
-            except psycopg2.Error:
-                logger.error('Can not connect to %s', conn_url)
             except Exception as e:
                 logger.error('Error when fetching backup with pg_basebackup: %s', e)
 
