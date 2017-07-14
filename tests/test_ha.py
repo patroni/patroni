@@ -306,6 +306,9 @@ class TestHa(unittest.TestCase):
         self.ha.cluster = get_cluster_not_initialized_without_leader()
         self.e.initialize = true
         self.assertEquals(self.ha.bootstrap(), 'trying to bootstrap a new cluster')
+        self.p.is_leader = false
+        self.assertEquals(self.ha.run_cycle(), 'waiting for end of recovery after bootstrap')
+        self.p.is_leader = true
         self.assertEquals(self.ha.run_cycle(), 'running post_bootstrap')
         self.assertEquals(self.ha.run_cycle(), 'initialized a new cluster')
 

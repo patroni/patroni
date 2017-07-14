@@ -102,7 +102,7 @@ class Ha(object):
         self.cluster = None
         self.old_cluster = None
         self.recovering = False
-        self._bootstraping = False
+        self._bootstrapping = False
         self._post_bootstrap_task = None
         self._start_timeout = None
         self._async_executor = AsyncExecutor(self.wakeup)
@@ -206,7 +206,7 @@ class Ha(object):
         # no initialize key and node is allowed to be master and has 'bootstrap' section in a configuration file
         elif self.cluster.initialize is None and not self.patroni.nofailover and 'bootstrap' in self.patroni.config:
             if self.dcs.initialize(create_new=True):  # race for initialization
-                self._bootstraping = True
+                self._bootstrapping = True
                 self._post_bootstrap_task = CriticalTask()
                 self._async_executor.schedule('bootstrap')
                 self._async_executor.run_async(self.state_handler.bootstrap, args=(self.patroni.config['bootstrap'],))
@@ -890,7 +890,7 @@ class Ha(object):
         try:
             if self.has_lock() and self.update_lock():
                 return 'updated leader lock during ' + self._async_executor.scheduled_action
-            elif not self._bootstraping:
+            elif not self._bootstrapping:
                 # Don't have lock, make sure we are not starting up a master in the background
                 if self.state_handler.role == 'master':
                     logger.info("Demoting master during " + self._async_executor.scheduled_action)
@@ -942,13 +942,16 @@ class Ha(object):
 
         self.keepalive()
 
-        if self._post_bootstrap_task.result is None and self.state_handler.is_leader():
+        if self._post_bootstrap_task.result is None:
+            if not self.state_handler.is_leader():
+                return 'waiting for end of recovery after bootstrap'
+
             self._async_executor.schedule('post_bootstrap')
             self._async_executor.run_async(self.state_handler.post_bootstrap,
                                            args=(self.patroni.config['bootstrap'], self._post_bootstrap_task))
             return 'running post_bootstrap'
 
-        self._bootstraping = False
+        self._bootstrapping = False
         self.dcs.set_config_value(json.dumps(self.patroni.config.dynamic_configuration, separators=(',', ':')))
         self.dcs.take_leader()
         self.load_cluster_from_dcs()
@@ -1027,7 +1030,7 @@ class Ha(object):
                 return msg
 
             # we've got here, so any async action has finished.
-            if self._bootstraping:
+            if self._bootstrapping:
                 return self.post_bootstrap()
 
             if self.recovering and not self.state_handler.need_rewind:
