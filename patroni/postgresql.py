@@ -537,7 +537,6 @@ class Postgresql(object):
         except Exception:
             logger.exception('Exception during custom bootstrap')
             return False
-
         self._post_restore()
         self.save_configuration_files()
 
