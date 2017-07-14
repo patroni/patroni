@@ -1,6 +1,7 @@
 import errno
 import mock  # for the mock.call method, importing it without a namespace breaks python3
 import os
+import psutil
 import psycopg2
 import shutil
 import subprocess
@@ -278,7 +279,8 @@ class TestPostgresql(unittest.TestCase):
         mock_get_pid.return_value = -1
         self.assertFalse(self.p.stop())
         mock_get_pid.return_value = 123
-        with patch('os.kill', Mock(side_effect=[OSError(errno.ESRCH, ''), OSError, None])):
+        with patch('os.kill', Mock(side_effect=[OSError(errno.ESRCH, ''), OSError, None])),\
+             patch('psutil.Process', Mock(side_effect=psutil.NoSuchProcess(123))):
             self.assertTrue(self.p.stop())
             self.assertFalse(self.p.stop())
             self.p.stop_safepoint_reached.clear()
@@ -535,22 +537,36 @@ class TestPostgresql(unittest.TestCase):
         with patch('subprocess.call', Mock(side_effect=Exception)):
             self.assertFalse(self.p.bootstrap(config))
         with patch('subprocess.call', Mock(return_value=0)),\
+                patch('subprocess.Popen', Mock(side_effect=Exception("42"))),\
                 patch('os.path.isfile', Mock(return_value=True)),\
                 patch('os.unlink', Mock()),\
-                patch.object(Postgresql, 'write_recovery_conf', Mock()):
-            self.assertRaises(ValueError, self.p.bootstrap, config)
+                patch.object(Postgresql, 'save_configuration_files', Mock()),\
+                patch.object(Postgresql, 'restore_configuration_files', Mock()),\
+             patch.object(Postgresql, 'write_recovery_conf', Mock()):
+            with self.assertRaises(Exception) as e:
+                self.p.bootstrap(config)
+            self.assertEqual(str(e.exception), '42')
+
             config['foo']['recovery_conf'] = {'foo': 'bar'}
-            self.assertRaises(ValueError, self.p.bootstrap, config)
+
+            with self.assertRaises(Exception) as e:
+                self.p.bootstrap(config)
+            self.assertEqual(str(e.exception), '42')
 
     @patch('time.sleep', Mock())
     @patch.object(Postgresql, 'run_bootstrap_post_init', Mock(side_effect=Exception))
     def test_post_bootstrap(self):
         config = {'method': 'foo', 'foo': {'command': 'bar'}}
-        with patch('subprocess.call', Mock(return_value=0)),\
+        with patch('subprocess.call', Mock(return_value=0)), \
+                patch('subprocess.Popen', Mock(side_effect=Exception("42"))), \
                 patch('os.path.isfile', Mock(return_value=True)),\
-                patch('os.unlink', Mock()),\
-                patch.object(Postgresql, 'write_recovery_conf', Mock()):
-            self.assertRaises(ValueError, self.p.bootstrap, config)
+                patch('os.unlink', Mock()), \
+                patch.object(Postgresql, 'save_configuration_files', Mock()), \
+                patch.object(Postgresql, 'restore_configuration_files', Mock()), \
+             patch.object(Postgresql, 'write_recovery_conf', Mock()):
+            with self.assertRaises(Exception) as e:
+                self.p.bootstrap(config)
+            self.assertEqual(str(e.exception), '42')
 
         self.p.config.pop('pg_hba')
         task = CriticalTask()
