@@ -7,10 +7,10 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     && echo 'APT::Install-Recommends "0";\nAPT::Install-Suggests "0";' > /etc/apt/apt.conf.d/01norecommend \
     && apt-get update -y \
     && apt-get upgrade -y \
-    && apt-get install -y curl jq haproxy python-psycopg2 python-yaml python-requests python-six \
-        python-dateutil python-pip python-setuptools python-prettytable python-wheel python \
+    && apt-get install -y curl jq haproxy python-psycopg2 python-yaml python-requests python-six python-pysocks \
+        python-dateutil python-pip python-setuptools python-prettytable python-wheel python-psutil python \
 
-    && pip install python-etcd>=0.4.3 click tzlocal --upgrade \
+    && pip install 'python-etcd>=0.4.3,<0.5' click tzlocal cdiff \
 
     && mkdir -p /home/postgres \
     && chown postgres:postgres /home/postgres \
