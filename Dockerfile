@@ -3,14 +3,14 @@
 FROM postgres:9.6
 MAINTAINER Alexander Kukushkin <alexander.kukushkin@zalando.de>
 
-RUN echo 'APT::Install-Recommends "0";\nAPT::Install-Suggests "0";' > /etc/apt/apt.conf.d/01norecommend \
+RUN export DEBIAN_FRONTEND=noninteractive \
+    && echo 'APT::Install-Recommends "0";\nAPT::Install-Suggests "0";' > /etc/apt/apt.conf.d/01norecommend \
     && apt-get update -y \
     && apt-get upgrade -y \
-    && apt-get install -y curl jq haproxy python-psycopg2 python-yaml python-requests \
-        python-six python-dateutil python-urllib3 python-dnspython \
-        python-pip python-setuptools python-kazoo python-prettytable python-wheel python \
+    && apt-get install -y curl jq haproxy python-psycopg2 python-yaml python-requests python-six \
+        python-dateutil python-pip python-setuptools python-prettytable python-wheel python \
 
-    && pip install python-etcd==0.4.3 python-consul==0.7.0 click tzlocal --upgrade \
+    && pip install python-etcd>=0.4.3 click tzlocal --upgrade \
 
     && mkdir -p /home/postgres \
     && chown postgres:postgres /home/postgres \
@@ -21,7 +21,7 @@ RUN echo 'APT::Install-Recommends "0";\nAPT::Install-Suggests "0";' > /etc/apt/a
     && apt-get clean -y \
     && rm -rf /var/lib/apt/lists/* /root/.cache
 
-ENV ETCDVERSION 3.1.2
+ENV ETCDVERSION 3.2.3
 RUN curl -L https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v${ETCDVERSION}-linux-amd64.tar.gz \
     | tar xz -C /usr/local/bin --strip=1 --wildcards --no-anchored etcd etcdctl
 
