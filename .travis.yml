@@ -65,6 +65,7 @@ install:
                 echo -e 'HTTP/1.0 200 OK\nContent-Type: application/json\n\n{"servers":["127.0.0.1"],"port":2181}' \
                     | nc -l 8181 &> /dev/null
             done&
+            ZK_PID=$!
         }
 
         attempt_num=1
@@ -114,3 +115,4 @@ after_success:
   - fpv=$(basename $(readlink $HOME/virtualenv/python3.5)) && mv $HOME/mycache/${fpv} $HOME/virtualenv/${fpv}
   - coveralls
   - if [[ $TEST_SUITE != "behave" ]]; then python-codacy-coverage -r coverage.xml; fi
+  - if [[ $DCS == "exhibitor" ]]; then ~/mycache/zookeeper-${ZKVERSION}/bin/zkServer.sh stop; kill -9 $ZK_PID; fi
