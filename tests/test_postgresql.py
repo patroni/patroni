@@ -1,6 +1,7 @@
 import errno
 import mock  # for the mock.call method, importing it without a namespace breaks python3
 import os
+import psutil
 import psycopg2
 import shutil
 import subprocess
@@ -9,7 +10,7 @@ import unittest
 from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.async_executor import CriticalTask
 from patroni.dcs import Cluster, Leader, Member, SyncState
-from patroni.exceptions import PostgresException, PostgresConnectionException
+from patroni.exceptions import PostgresConnectionException
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
 from patroni.utils import RetryFailedError
 from six.moves import builtins
@@ -47,7 +48,7 @@ class MockCursor(object):
                             ('port', '5433', None, 'integer', 'postmaster'),
                             ('listen_addresses', '*', None, 'string', 'postmaster'),
                             ('autovacuum', 'on', None, 'bool', 'sighup'),
-                            ('unix_socket_directories', '.', None, 'string', 'postmaster')]
+                            ('unix_socket_directories', '/tmp', None, 'string', 'postmaster')]
         elif sql.startswith('IDENTIFY_SYSTEM'):
             self.results = [('1', 2, '0/402EEC0', '')]
         elif sql.startswith('TIMELINE_HISTORY '):
@@ -183,11 +184,8 @@ class TestPostgresql(unittest.TestCase):
                              'parameters': self._PARAMETERS,
                              'recovery_conf': {'foo': 'bar'},
                              'pg_hba': ['host all all 0.0.0.0/0 md5'],
-                             'callbacks': {'on_start': 'true', 'on_stop': 'true',
-                                           'on_restart': 'true', 'on_role_change': 'true',
-                                           'on_reload': 'true'
-                                           },
-                             'use_unix_socket': True})
+                             'callbacks': {'on_start': 'true', 'on_stop': 'true', 'on_reload': 'true',
+                                           'on_restart': 'true', 'on_role_change': 'true'}})
         self.p._callback_executor = Mock()
         self.leadermem = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres'})
         self.leader = Leader(-1, 28, self.leadermem)
@@ -281,7 +279,8 @@ class TestPostgresql(unittest.TestCase):
         mock_get_pid.return_value = -1
         self.assertFalse(self.p.stop())
         mock_get_pid.return_value = 123
-        with patch('os.kill', Mock(side_effect=[OSError(errno.ESRCH, ''), OSError, None])):
+        with patch('os.kill', Mock(side_effect=[OSError(errno.ESRCH, ''), OSError, None])),\
+             patch('psutil.Process', Mock(side_effect=psutil.NoSuchProcess(123))):
             self.assertTrue(self.p.stop())
             self.assertFalse(self.p.stop())
             self.p.stop_safepoint_reached.clear()
@@ -316,9 +315,9 @@ class TestPostgresql(unittest.TestCase):
         self.assertFalse(self.p.pg_rewind(r))
 
     def test_check_recovery_conf(self):
-        self.p.write_recovery_conf('foo')
+        self.p.write_recovery_conf({'primary_conninfo': 'foo'})
         self.assertFalse(self.p.check_recovery_conf(None))
-        self.p.write_recovery_conf(None)
+        self.p.write_recovery_conf({})
         self.assertTrue(self.p.check_recovery_conf(None))
 
     @patch.object(Postgresql, 'start', Mock())
@@ -512,10 +511,7 @@ class TestPostgresql(unittest.TestCase):
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def test_bootstrap(self):
         with patch('subprocess.call', Mock(return_value=1)):
-            self.assertRaises(PostgresException, self.p.bootstrap, {})
-
-        with patch.object(Postgresql, 'run_bootstrap_post_init', Mock(return_value=False)):
-            self.assertRaises(PostgresException, self.p.bootstrap, {})
+            self.assertFalse(self.p.bootstrap({}))
 
         config = {'users': {'replicator': {'password': 'rep-pass', 'options': ['replication']}}}
 
@@ -534,6 +530,49 @@ class TestPostgresql(unittest.TestCase):
             lines = f.readlines()
             self.assertTrue('host replication replicator 127.0.0.1/32 md5\n' in lines)
 
+    def test_custom_bootstrap(self):
+        config = {'method': 'foo', 'foo': {'command': 'bar'}}
+        with patch('subprocess.call', Mock(return_value=1)):
+            self.assertFalse(self.p.bootstrap(config))
+        with patch('subprocess.call', Mock(side_effect=Exception)):
+            self.assertFalse(self.p.bootstrap(config))
+        with patch('subprocess.call', Mock(return_value=0)),\
+                patch('subprocess.Popen', Mock(side_effect=Exception("42"))),\
+                patch('os.path.isfile', Mock(return_value=True)),\
+                patch('os.unlink', Mock()),\
+                patch.object(Postgresql, 'save_configuration_files', Mock()),\
+                patch.object(Postgresql, 'restore_configuration_files', Mock()),\
+             patch.object(Postgresql, 'write_recovery_conf', Mock()):
+            with self.assertRaises(Exception) as e:
+                self.p.bootstrap(config)
+            self.assertEqual(str(e.exception), '42')
+
+            config['foo']['recovery_conf'] = {'foo': 'bar'}
+
+            with self.assertRaises(Exception) as e:
+                self.p.bootstrap(config)
+            self.assertEqual(str(e.exception), '42')
+
+    @patch('time.sleep', Mock())
+    @patch.object(Postgresql, 'run_bootstrap_post_init', Mock(side_effect=Exception))
+    def test_post_bootstrap(self):
+        config = {'method': 'foo', 'foo': {'command': 'bar'}}
+        with patch('subprocess.call', Mock(return_value=0)), \
+                patch('subprocess.Popen', Mock(side_effect=Exception("42"))), \
+                patch('os.path.isfile', Mock(return_value=True)),\
+                patch('os.unlink', Mock()), \
+                patch.object(Postgresql, 'save_configuration_files', Mock()), \
+                patch.object(Postgresql, 'restore_configuration_files', Mock()), \
+             patch.object(Postgresql, 'write_recovery_conf', Mock()):
+            with self.assertRaises(Exception) as e:
+                self.p.bootstrap(config)
+            self.assertEqual(str(e.exception), '42')
+
+        self.p.config.pop('pg_hba')
+        task = CriticalTask()
+        self.p.post_bootstrap({}, task)
+        self.assertFalse(task.result)
+
     def test_run_bootstrap_post_init(self):
         with patch('subprocess.call', Mock(return_value=1)):
             self.assertFalse(self.p.run_bootstrap_post_init({'post_init': '/bin/false'}))
@@ -547,7 +586,7 @@ class TestPostgresql(unittest.TestCase):
             mock_method.assert_called()
             args, kwargs = mock_method.call_args
             self.assertTrue('PGPASSFILE' in kwargs['env'])
-            self.assertEquals(args[0], ['/bin/false', 'postgres://%2Ftmp:5432/postgres'])
+            self.assertEquals(args[0], ['/bin/false', 'postgres://127.0.0.2:5432/postgres'])
 
             mock_method.reset_mock()
             self.p._local_address.pop('host')
@@ -629,8 +668,10 @@ class TestPostgresql(unittest.TestCase):
         parameters['autovacuum'] = 'off'
         parameters.pop('search_path')
         config['listen'] = '*:5433'
+        self.p.reload_config(config)
         parameters['unix_socket_directories'] = '.'
         self.p.reload_config(config)
+        self.p.resolve_connection_addresses()
 
     @patch.object(Postgresql, '_version_file_exists', Mock(return_value=True))
     def test_get_major_version(self):

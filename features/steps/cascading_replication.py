@@ -6,7 +6,7 @@ from behave import step, then
 
 @step('I configure and start {name:w} with a tag {tag_name:w} {tag_value:w}')
 def start_patroni_with_a_name_value_tag(context, name, tag_name, tag_value):
-    return context.pctl.start(name, tags={tag_name: tag_value})
+    return context.pctl.start(name, custom_config={'tags': {tag_name: tag_value}})
 
 
 @then('There is a label with "{content:w}" in {name:w} data directory')

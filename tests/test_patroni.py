@@ -105,6 +105,7 @@ class TestPatroni(unittest.TestCase):
     @patch('patroni.config.Config.reload_local_configuration', Mock(return_value=True))
     @patch.object(Postgresql, 'state', PropertyMock(return_value='running'))
     def test_run(self):
+        self.p.postgresql.set_role('replica')
         self.p.sighup_handler()
         self.p.ha.dcs.watch = Mock(side_effect=SleepException)
         self.p.api.start = Mock()

@@ -9,8 +9,8 @@ import time
 
 from collections import namedtuple
 from multiprocessing.pool import ThreadPool
-from patroni.async_executor import AsyncExecutor
-from patroni.exceptions import DCSError, PostgresConnectionException
+from patroni.async_executor import AsyncExecutor, CriticalTask
+from patroni.exceptions import DCSError, PostgresConnectionException, PatroniException
 from patroni.postgresql import ACTION_ON_START
 from patroni.utils import polling_loop, null_context, tzutc
 from threading import RLock, Event, Thread
@@ -102,6 +102,8 @@ class Ha(object):
         self.cluster = None
         self.old_cluster = None
         self.recovering = False
+        self._bootstrapping = False
+        self._post_bootstrap_task = None
         self._start_timeout = None
         self._async_executor = AsyncExecutor(self.wakeup)
         self.watchdog = patroni.watchdog
@@ -204,22 +206,11 @@ class Ha(object):
         # no initialize key and node is allowed to be master and has 'bootstrap' section in a configuration file
         elif self.cluster.initialize is None and not self.patroni.nofailover and 'bootstrap' in self.patroni.config:
             if self.dcs.initialize(create_new=True):  # race for initialization
-                with self._background_keepalive_context(wait_for_safepoint=False):
-                    try:
-                        self.state_handler.bootstrap(self.patroni.config['bootstrap'])
-                        self.dcs.initialize(create_new=False, sysid=self.state_handler.sysid)
-                    except:  # initdb or start failed
-                        # remove initialization key and give a chance to other members
-                        logger.info("removing initialize key after failed attempt to initialize the cluster")
-                        self.dcs.cancel_initialization()
-                        self.state_handler.stop('immediate')
-                        self.state_handler.move_data_directory()
-                        raise
-                    self.dcs.set_config_value(json.dumps(self.patroni.config.dynamic_configuration,
-                                                         separators=(',', ':')))
-                    self.dcs.take_leader()
-                    self.load_cluster_from_dcs()
-                    return 'initialized a new cluster'
+                self._bootstrapping = True
+                self._post_bootstrap_task = CriticalTask()
+                self._async_executor.schedule('bootstrap')
+                self._async_executor.run_async(self.state_handler.bootstrap, args=(self.patroni.config['bootstrap'],))
+                return 'trying to bootstrap a new cluster'
             else:
                 return 'failed to acquire initialize lock'
         else:
@@ -899,7 +890,7 @@ class Ha(object):
         try:
             if self.has_lock() and self.update_lock():
                 return 'updated leader lock during ' + self._async_executor.scheduled_action
-            else:
+            elif not self._bootstrapping:
                 # Don't have lock, make sure we are not starting up a master in the background
                 if self.state_handler.role == 'master':
                     logger.info("Demoting master during " + self._async_executor.scheduled_action)
@@ -936,6 +927,35 @@ class Ha(object):
                 return 'removed leader key after trying and failing to start postgres'
             return 'failed to start postgres'
         return None
+
+    def cancel_initialization(self):
+        logger.info('removing initialize key after failed attempt to bootstrap the cluster')
+        self.dcs.cancel_initialization()
+        self.state_handler.stop('immediate')
+        self.state_handler.move_data_directory()
+        raise PatroniException('Failed to bootstrap cluster')
+
+    def post_bootstrap(self):
+        # bootstrap has failed if postgres is not running
+        if not self.state_handler.is_running() or self._post_bootstrap_task.result is False:
+            self.cancel_initialization()
+
+        self.keepalive()
+
+        if self._post_bootstrap_task.result is None:
+            if not self.state_handler.is_leader():
+                return 'waiting for end of recovery after bootstrap'
+
+            self._async_executor.schedule('post_bootstrap')
+            self._async_executor.run_async(self.state_handler.post_bootstrap,
+                                           args=(self.patroni.config['bootstrap'], self._post_bootstrap_task))
+            return 'running post_bootstrap'
+
+        self._bootstrapping = False
+        self.dcs.set_config_value(json.dumps(self.patroni.config.dynamic_configuration, separators=(',', ':')))
+        self.dcs.take_leader()
+        self.load_cluster_from_dcs()
+        return 'initialized a new cluster'
 
     def handle_starting_instance(self):
         """Starting up PostgreSQL may take a long time. In case we are the leader we may want to
@@ -1010,6 +1030,9 @@ class Ha(object):
                 return msg
 
             # we've got here, so any async action has finished.
+            if self._bootstrapping:
+                return self.post_bootstrap()
+
             if self.recovering and not self.state_handler.need_rewind:
                 self.recovering = False
                 # Check if we tried to recover and failed
