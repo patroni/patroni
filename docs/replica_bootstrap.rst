@@ -1,4 +1,4 @@
-.. _replica_bootstrap
+.. _replica_bootstrap:
 
 
 Replica imaging and bootstrap
