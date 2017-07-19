@@ -30,7 +30,7 @@ arguments to them, i.e. the name of the cluster and the path to the data directo
 
 
 Each bootstrap method must define at least a ``name`` and a ``command``. A special ``initdb`` method is available to trigger
-the default behavior, in which case method parameter can be omitted altogether. The ``command`` can be specified using either
+the default behavior, in which case ``method`` parameter can be omitted altogether. The ``command`` can be specified using either
 an absolute path, or the one relative to the ``patroni`` command location. In addition to the fixed parameters defined
 in the configuration files, Patroni supplies two cluster-specific ones:
 
@@ -47,7 +47,7 @@ If a ``recovery_conf`` block is defined in the same section as the custom bootst
 ``recovery.conf`` before starting the newly bootstrapped instance. Typically, such recovery.conf should contain at least
 one of the ``recovery_target_*`` parameters, together with the ``recovery_target_timeline`` set to ``promote``.
 
- .. note:: Bootstrap methods are neither chained, nor fallen-back to the default one
+ .. note:: Bootstrap methods are neither chained, nor fallen-back to the default one in case the primary one fails
 
 
 .. _custom_replica_creation:

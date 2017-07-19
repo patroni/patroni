@@ -25,7 +25,8 @@ Bootstrap configuration
         -  **parameters**: list of configuration settings for Postgres. Many of these are required for replication to work.
 -  **method**: custom script to use for bootstrpapping this cluster.
    See :ref:`custom bootstrap methods documentation <custom_bootstrap>` for details.
-   When ``initdb`` is specified revert to the default ``initdb`` command.
+   When ``initdb`` is specified revert to the default ``initdb`` command. ``initdb`` is also triggered when no ``method``
+   parameter is present in the configuration file.
 -  **initdb**: List options to be passed on to initdb.
         -  **- data-checksums**: Must be enabled when pg_rewind is needed on 9.3.
         -  **- encoding: UTF8**: default encoding for new databases.
