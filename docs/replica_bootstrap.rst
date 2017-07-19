@@ -4,7 +4,7 @@
 Replica imaging and bootstrap
 =============================
 
-Patorni allows customizing creation of a new replica. It also supports defining what happens when the new empty cluster
+Patroni allows customizing creation of a new replica. It also supports defining what happens when the new empty cluster
 is being bootstrapped. The distinction between two is well defined: Patroni creates replicas only if the ``initialize``
 key is present in Etcd for the cluster. If there is no ``initialize`` key - Patroni calls bootstrap exclusively on the
 first node that takes the initialize key lock.
@@ -12,7 +12,7 @@ first node that takes the initialize key lock.
 Bootstrap
 =========
 
-PostgreSQL provides ```initdb`` command to initialize a new cluster and Patroni calls it by default. In certain cases,
+PostgreSQL provides ``initdb`` command to initialize a new cluster and Patroni calls it by default. In certain cases,
 particularly when creating a new cluster as a copy of an existing one, it is necessary to replace a built-in method with
 custom actions. Patroni supports executing user-defined scripts to bootstrap new clusters, supplying some required
 arguments to them, i.e. the name of the cluster and the path to the data directory. This is configured in the
@@ -55,7 +55,7 @@ one of the ``recovery_target_*`` parameters, together with the ``recovery_target
 Building replicas
 =================
 
-Patroni uses tried and proven``pg_basebackup`` in order to create new replicas. One downside of it is that it requires
+Patroni uses tried and proven ``pg_basebackup`` in order to create new replicas. One downside of it is that it requires
 a running master node. Another one is the lack of 'on-the-fly' compression for the backup data and no built-in cleanup
 for outdated backup files. Some people prefer other backup solutions, such as ``WAL-E``, ``pgBackRest``, ``Barman`` and
 others, or simply roll their own scripts. In order to accommodate all those use-cases Patroni supports running custom
@@ -74,10 +74,10 @@ scripts to clone a new replica. Those are configured in the ``postgresql`` confi
             use_iam: 1
 
 
-The ``create_replica_method`` defines available replica creation methods and the order of executing them. Patroni wille
+The ``create_replica_method`` defines available replica creation methods and the order of executing them. Patroni will
 stop on the first one that returns 0. The basebackup is the built-in method and doesn't require any configuration. The
 rest of the methods should define a separate section in the configuration file, listing the command to execute and any
-custom parameters that should be passed to that command. All parameters will be passed with in a format ``--name=value``.
+custom parameters that should be passed to that command. All parameters will be passed in a ``--name=value`` format.
 Besides user-defined parameters, Patroni supplies a couple of cluster-specific ones:
 
 --scope
