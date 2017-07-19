@@ -1,6 +1,3 @@
-.. _custom_bootstrap:
-
-
 Replica imaging and bootstrap
 =============================
 
@@ -9,8 +6,10 @@ is being bootstrapped. The distinction between two is well defined: Patroni crea
 key is present in Etcd for the cluster. If there is no ``initialize`` key - Patroni calls bootstrap exclusively on the
 first node that takes the initialize key lock.
 
+.. _custom_bootstrap:
+
 Bootstrap
-=========
+---------
 
 PostgreSQL provides ``initdb`` command to initialize a new cluster and Patroni calls it by default. In certain cases,
 particularly when creating a new cluster as a copy of an existing one, it is necessary to replace a built-in method with
@@ -54,7 +53,7 @@ one of the ``recovery_target_*`` parameters, together with the ``recovery_target
 .. _custom_replica_creation:
 
 Building replicas
-=================
+-----------------
 
 Patroni uses tried and proven ``pg_basebackup`` in order to create new replicas. One downside of it is that it requires
 a running master node. Another one is the lack of 'on-the-fly' compression for the backup data and no built-in cleanup
