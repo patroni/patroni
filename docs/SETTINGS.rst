@@ -25,7 +25,7 @@ Bootstrap configuration
         -  **parameters**: list of configuration settings for Postgres. Many of these are required for replication to work.
 -  **method**: custom script to use for bootstrpapping this cluster.
    See :ref:`custom bootstrap methods documentation <custom_bootstrap>` for details.
-              When ``initdb`` is specified revert to the default ``initdb`` command.
+   When ``initdb`` is specified revert to the default ``initdb`` command.
 -  **initdb**: List options to be passed on to initdb.
         -  **- data-checksums**: Must be enabled when pg_rewind is needed on 9.3.
         -  **- encoding: UTF8**: default encoding for new databases.
@@ -95,7 +95,7 @@ PostgreSQL
 -  **recovery\_conf**: additional configuration settings written to recovery.conf when configuring follower.
 -  **custom\_conf** : path to an optional custom ``postgresql.conf`` file, that will be used in place of ``postgresql.base.conf``. The file must exist on all cluster nodes, be readable by PostgreSQL and will be included from its location on the real ``postgresql.conf``. Note that Patroni will not monitor this file for changes, nor backup it. However, its settings can still be overriden by Patroni's own configuration facilities - see `dynamic configuration <https://github.com/zalando/patroni/blob/master/docs/dynamic_configuration.rst>`__ for details.
 -  **parameters**: list of configuration settings for Postgres. Many of these are required for replication to work.
--  **pg\_hba**: list of lines that Patroni will use to generate ``pg_hba.conf``. This parameter has higher priority than ``bootstrap.pg_hba``. Together with `dynamic configuration <https://github.com/zalando/patroni/blob/master/docs/dynamic_configuration.rst>`__ it simplifies management of ``pg_hba.conf``.
+-  **pg\_hba**: list of lines that Patroni will use to generate ``pg_hba.conf``. This parameter has higher priority than ``bootstrap.pg_hba``. Together with :ref:`dynamic configuration <dynamic_configuration>` it simplifies management of ``pg_hba.conf``.
         -  **- host all all 0.0.0.0/0 md5**.
         -  **- host replication replicator 127.0.0.1/32 md5**: A line like this is required for replication.
 -  **pg\_ctl\_timeout**: How long should pg_ctl wait when doing ``start``, ``stop`` or ``restart``. Default value is 60 seconds.
