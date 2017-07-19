@@ -44,7 +44,7 @@ When ``synchronous_mode`` is on and a standby crashes, commits will block until 
 
 You can ensure that a standby never becomes the synchronous standby by setting ``nosync`` tag to true. This is recommended to set for standbys that are behind slow network connections and would cause performance degradation when becoming a synchronous standby.
 
-Synchronous mode can be switched on and off via Patroni REST interface. See `dynamic configuration <https://github.com/zalando/patroni/blob/master/docs/dynamic_configuration.rst>`__ for instructions.
+Synchronous mode can be switched on and off via Patroni REST interface. See :ref:`dynamic configuration <dynamic_configuration>` for instructions.
 
 
 Synchronous mode implementation

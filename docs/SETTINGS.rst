@@ -24,6 +24,10 @@ Bootstrap configuration
         -  **use\_slots**: whether or not to use replication_slots. Must be False for PostgreSQL 9.3. You should comment out max_replication_slots before it becomes ineligible for leader status.
         -  **recovery\_conf**: additional configuration settings written to recovery.conf when configuring follower. 
         -  **parameters**: list of configuration settings for Postgres. Many of these are required for replication to work.
+-  **method**: custom script to use for bootstrpapping this cluster.
+   See :ref:`custom bootstrap methods documentation <custom_bootstrap>` for details.
+   When ``initdb`` is specified revert to the default ``initdb`` command. ``initdb`` is also triggered when no ``method``
+   parameter is present in the configuration file.
 -  **initdb**: List options to be passed on to initdb.
         -  **- data-checksums**: Must be enabled when pg_rewind is needed on 9.3.
         -  **- encoding: UTF8**: default encoding for new databases.
@@ -81,7 +85,9 @@ PostgreSQL
         -  **on\_start**: run this script when the cluster starts.
         -  **on\_stop**: run this script when the cluster stops.
 -  **connect\_address**: IP address + port through which Postgres is accessible from other nodes and applications.
--  **create\_replica\_methods**: an ordered list of the create methods for turning a Patroni node into a new replica. "basebackup" is the default method; other methods are assumed to refer to scripts, each of which is configured as its own config item.
+-  **create\_replica\_method**: an ordered list of the create methods for turning a Patroni node into a new replica.
+   "basebackup" is the default method; other methods are assumed to refer to scripts, each of which is configured as its
+   own config item. See :ref:`custom replica creation methods documentation <custom_replica_creation>` for further explanation.
 -  **data\_dir**: The location of the Postgres data directory, either existing or to be initialized by Patroni.
 -  **config\_dir**: The location of the Postgres configuration directory, defaults to the data directory. Must be writable by Patroni.
 -  **bin\_dir**: Path to PostgreSQL binaries. (pg_ctl, pg_rewind, pg_basebackup, postgres) The  default value is an empty string meaning that PATH environment variable will be used to find the executables.
@@ -91,7 +97,7 @@ PostgreSQL
 -  **recovery\_conf**: additional configuration settings written to recovery.conf when configuring follower.
 -  **custom\_conf** : path to an optional custom ``postgresql.conf`` file, that will be used in place of ``postgresql.base.conf``. The file must exist on all cluster nodes, be readable by PostgreSQL and will be included from its location on the real ``postgresql.conf``. Note that Patroni will not monitor this file for changes, nor backup it. However, its settings can still be overriden by Patroni's own configuration facilities - see `dynamic configuration <https://github.com/zalando/patroni/blob/master/docs/dynamic_configuration.rst>`__ for details.
 -  **parameters**: list of configuration settings for Postgres. Many of these are required for replication to work.
--  **pg\_hba**: list of lines that Patroni will use to generate ``pg_hba.conf``. This parameter has higher priority than ``bootstrap.pg_hba``. Together with `dynamic configuration <https://github.com/zalando/patroni/blob/master/docs/dynamic_configuration.rst>`__ it simplifies management of ``pg_hba.conf``.
+-  **pg\_hba**: list of lines that Patroni will use to generate ``pg_hba.conf``. This parameter has higher priority than ``bootstrap.pg_hba``. Together with :ref:`dynamic configuration <dynamic_configuration>` it simplifies management of ``pg_hba.conf``.
         -  **- host all all 0.0.0.0/0 md5**.
         -  **- host replication replicator 127.0.0.1/32 md5**: A line like this is required for replication.
 -  **pg\_ctl\_timeout**: How long should pg_ctl wait when doing ``start``, ``stop`` or ``restart``. Default value is 60 seconds.

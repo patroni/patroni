@@ -117,7 +117,7 @@ class Patroni(object):
             if cluster and cluster.config and self.config.set_dynamic_configuration(cluster.config):
                 self.reload_config()
 
-            if not self.postgresql.data_directory_empty():
+            if self.postgresql.role != 'uninitialized':
                 self.config.save_cache()
 
             self.schedule_next_run()
