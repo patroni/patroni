@@ -21,6 +21,7 @@ We call Patroni a "template" because it is far from being a one-size-fits-all or
    dynamic_configuration
    ENVIRONMENT
    SETTINGS
+   replica_bootstrap
    replication_modes
    pause
    releases

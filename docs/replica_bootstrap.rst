@@ -1,4 +1,4 @@
-.. _replica_bootstrap:
+.. _custom_bootstrap:
 
 
 Replica imaging and bootstrap
@@ -51,6 +51,7 @@ one of the ``recovery_target_*`` parameters, together with the ``recovery_target
  .. note:: Bootstrap methods are neither chained, nor fallen-back to the default one
 
 
+.. _custom_replica_creation:
 
 Building replicas
 =================

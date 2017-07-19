@@ -23,7 +23,8 @@ Bootstrap configuration
         -  **use\_slots**: whether or not to use replication_slots. Must be False for PostgreSQL 9.3. You should comment out max_replication_slots before it becomes ineligible for leader status.
         -  **recovery\_conf**: additional configuration settings written to recovery.conf when configuring follower. 
         -  **parameters**: list of configuration settings for Postgres. Many of these are required for replication to work.
-- **method**: custom script to use for bootstrpapping this cluster. See :ref: `custom bootstrap methods documentation <replica_bootstrap>` for details.
+-  **method**: custom script to use for bootstrpapping this cluster.
+   See :ref:`custom bootstrap methods documentation <custom_bootstrap>` for details.
               When ``initdb`` is specified revert to the default ``initdb`` command.
 -  **initdb**: List options to be passed on to initdb.
         -  **- data-checksums**: Must be enabled when pg_rewind is needed on 9.3.
@@ -84,7 +85,7 @@ PostgreSQL
 -  **connect\_address**: IP address + port through which Postgres is accessible from other nodes and applications.
 -  **create\_replica\_method**: an ordered list of the create methods for turning a Patroni node into a new replica.
    "basebackup" is the default method; other methods are assumed to refer to scripts, each of which is configured as its
-    own config item. See :ref:`custom replica creation methods documentation <replica_bootstrap>` for further explanation.
+   own config item. See :ref:`custom replica creation methods documentation <custom_replica_creation>` for further explanation.
 -  **data\_dir**: The location of the Postgres data directory, either existing or to be initialized by Patroni.
 -  **config\_dir**: The location of the Postgres configuration directory, defaults to the data directory. Must be writable by Patroni.
 -  **bin\_dir**: Path to PostgreSQL binaries. (pg_ctl, pg_rewind, pg_basebackup, postgres) The  default value is an empty string meaning that PATH environment variable will be used to find the executables.
