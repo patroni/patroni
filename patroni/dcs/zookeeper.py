@@ -1,6 +1,7 @@
 import logging
+import time
 
-from kazoo.client import KazooClient, KazooState
+from kazoo.client import KazooClient, KazooState, KazooRetry
 from kazoo.exceptions import NoNodeError, NodeExistsError
 from kazoo.handlers.threading import SequentialThreadingHandler
 from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState
@@ -51,8 +52,9 @@ class ZooKeeper(AbstractDCS):
             hosts = ','.join(hosts)
 
         self._client = KazooClient(hosts, handler=PatroniSequentialThreadingHandler(config['retry_timeout']),
-                                   timeout=config['ttl'], connection_retry={'max_delay': 1, 'max_tries': -1},
-                                   command_retry={'deadline': config['retry_timeout'], 'max_delay': 1, 'max_tries': -1})
+                                   timeout=config['ttl'], connection_retry=KazooRetry(max_delay=1, max_tries=-1,
+                                   sleep_func=time.sleep), command_retry=KazooRetry(deadline=config['retry_timeout'],
+                                   max_delay=1, max_tries=-1, sleep_func=time.sleep))
         self._client.add_listener(self.session_listener)
 
         self._my_member_data = None
@@ -114,7 +116,8 @@ class ZooKeeper(AbstractDCS):
             return True
 
     def set_retry_timeout(self, retry_timeout):
-        self._client._retry.deadline = retry_timeout
+        retry = self._client.retry if isinstance(self._client.retry, KazooRetry) else self._client._retry
+        retry.deadline = retry_timeout
 
     def get_node(self, key, watch=None):
         try:

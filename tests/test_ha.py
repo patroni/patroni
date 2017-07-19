@@ -15,6 +15,7 @@ from patroni.watchdog import Watchdog
 from patroni.utils import tzutc
 from test_etcd import socket_getaddrinfo, etcd_read, etcd_write, requests_get
 from test_postgresql import psycopg2_connect
+from threading import Event
 
 
 def true(*args, **kwargs):
@@ -136,6 +137,7 @@ class TestHa(unittest.TestCase):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
     @patch('psycopg2.connect', psycopg2_connect)
+    @patch('patroni.dcs.dcs_modules', Mock(return_value=['foo', 'patroni.dcs.etcd']))
     @patch.object(etcd.Client, 'read', etcd_read)
     def setUp(self):
         with patch.object(Client, 'machines') as mock_machines:

@@ -180,7 +180,7 @@ class LinuxWatchdogDevice(WatchdogBase):
             try:
                 _, version, identity = self.get_support()
                 ver_str = " (firmware {0})".format(version) if version else ""
-            except WatchdogError:
+            except WatchdogError:  # XXX: Can it really be raise when self._fd is not None?
                 pass
 
         return identity + ver_str + dev_str
