@@ -8,7 +8,10 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     && apt-get update -y \
     && apt-get upgrade -y \
     && apt-get install -y curl jq haproxy python-psycopg2 python-yaml python-requests python-six python-pysocks \
-        python-dateutil python-pip python-setuptools python-prettytable python-wheel python-psutil python \
+        python-dateutil python-pip python-setuptools python-prettytable python-wheel python-psutil python locales \
+
+    ## Make sure we have a en_US.UTF-8 locale available
+    && localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8 \
 
     && pip install 'python-etcd>=0.4.3,<0.5' click tzlocal cdiff \
 
@@ -40,5 +43,6 @@ RUN mkdir /data/ && touch /pgpass /patroni.yml \
 
 EXPOSE 2379 5432 8008
 
+ENV LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
 ENTRYPOINT ["/bin/bash", "/entrypoint.sh"]
 USER postgres
