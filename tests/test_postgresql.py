@@ -487,9 +487,10 @@ class TestPostgresql(unittest.TestCase):
         self.assertFalse(self.p.is_running())
 
     @patch('shlex.split', Mock(side_effect=OSError))
-    @patch.object(Postgresql, 'can_rewind', PropertyMock(return_value=True))
     def test_call_nowait(self):
         self.p.set_role('replica')
+        self.assertIsNone(self.p.call_nowait('on_start'))
+        self.p.bootstrapping = True
         self.assertIsNone(self.p.call_nowait('on_start'))
 
     def test_non_existing_callback(self):
