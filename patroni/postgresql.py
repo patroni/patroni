@@ -104,6 +104,7 @@ class Postgresql(object):
         self._data_dir = config['data_dir']
         self._config_dir = os.path.abspath(config.get('config_dir') or self._data_dir)
         self._pending_restart = False
+        self.bootstrapping = False
         self._running_custom_bootstrap = False
         self.__thread_ident = current_thread().ident
 
@@ -742,6 +743,8 @@ class Postgresql(object):
 
     def call_nowait(self, cb_name):
         """ pick a callback command and call it without waiting for it to finish """
+        if self.bootstrapping:
+            return
         if cb_name in (ACTION_ON_START, ACTION_ON_STOP, ACTION_ON_RESTART, ACTION_ON_ROLE_CHANGE):
             self.__cb_called = True
 
