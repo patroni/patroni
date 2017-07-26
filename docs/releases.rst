@@ -6,9 +6,14 @@ Release notes
 Version 1.3
 -----------
 
-Version 1.3 adds custom bootstap possibility, significantly improves support for pg_rewind, enhances the
+Version 1.3 adds custom bootstrap possibility, significantly improves support for pg_rewind, enhances the
 synchronous mode support, adds configuration editing to patronictl and implements watchdog support on Linux.
 In addition, this is the first version to work correctly with PostgreSQL 10.
+
+**Upgrade notice**
+
+There are no known compatibility issues with the new version of Patroni. Configuration from version 1.2 should work
+without any changes.
 
 **Custom bootstrap**
 
@@ -16,8 +21,8 @@ In addition, this is the first version to work correctly with PostgreSQL 10.
 
   Allow custom bootstrap scripts instead of ``initdb`` when initializing the very first node in the cluster.
   The bootstrap command receives the name of the cluster and the path to the data directory. The resulting cluster can
-  be configured to start in recovery, making it possible to bootstrap a new cluster from the point in the timeline
-  of an existing one. Refer to the :ref:`documentaton page <custom_bootstap>` for more detailed description of this feature.
+  be configured to perform recovery, making it possible to bootstrap from a backup and do point in time recovery. Refer
+  to the :ref:`documentaton page <custom_bootstrap>` for more detailed description of this feature.
 
 **Smarter pg_rewind support**
 
@@ -43,14 +48,14 @@ In addition, this is the first version to work correctly with PostgreSQL 10.
 
 **Configuration editing with patronictl**
 
-- Add configruation editing to patronictl (Ants Aasma, Alexander)
+- Add configuration editing to patronictl (Ants Aasma, Alexander)
 
   Add the ability to patronictl of editing dynamic cluster configuration stored in DCS. Support either specifying the
   parameter/values from the command-line, invoking the $EDITOR, or applying configuration from the yaml file.
 
 **Linux watchdog support**
 
-- Implement wachdog support for Linux (Ants)
+- Implement watchdog support for Linux (Ants)
 
   Support Linux software watchdog in order to reboot the node where Patroni is not running or not responding (e.g because
   of the high load) The Linux software watchdog reboots the non-responsive node. It is possible to configure the watchdog
@@ -71,12 +76,12 @@ In addition, this is the first version to work correctly with PostgreSQL 10.
   instead of logging to every node, changing it manually and reload the configuration.
 
   When defined, the contents of this section will replace the current ``pg_hba.conf`` completely. Patroni ignores it
-  if ``hba_file`` postgresql paramerer is set.
+  if ``hba_file`` PostgreSQL parameter is set.
 
-- Support connecting via a unix socket to the local PostgreSQL cluster (Alexander)
+- Support connecting via a UNIX socket to the local PostgreSQL cluster (Alexander)
 
-  Add the ``use_unix_socket`` option to the postgresql section of Patroni configuration. When set to true and the
-  Postgresql ``unix_socket_directories`` option is not empty, enables Patroni to use the first value from it to connect
+  Add the ``use_unix_socket`` option to the ``postgresql`` section of Patroni configuration. When set to true and the
+  PostgreSQL ``unix_socket_directories`` option is not empty, enables Patroni to use the first value from it to connect
   to the local PostgreSQL cluster. If ``unix_socket_directories`` is not defined, Patroni will assume its default value
   and omit the ``host`` parameter in the PostgreSQL connection string altogether.
 
@@ -84,7 +89,7 @@ In addition, this is the first version to work correctly with PostgreSQL 10.
 
 - Support storing of configuration files outside of PostgreSQL data directory (@jouir)
 
-  Add the new configuration ``postgresql`` configuration directive ``config_dif``.
+  Add the new configuration ``postgresql`` configuration directive ``config_dir``.
   It defaults to the data directory and must be writable by Patroni.
 
 **Bug fixes and stability improvements**
@@ -93,7 +98,7 @@ In addition, this is the first version to work correctly with PostgreSQL 10.
 
   Faster recovery when the watch operation is ended by Etcd by avoiding useless retries.
 
-- Remove error spinning on etcd failure and reduce log spam (Ants)
+- Remove error spinning on Etcd failure and reduce log spam (Ants)
 
   Avoid immediate retrying and emitting stack traces in the log on the second and subsequent Etcd connection failures.
 
@@ -103,7 +108,7 @@ In addition, this is the first version to work correctly with PostgreSQL 10.
 
 - Extra checks when dropping the replication slot (Alexander)
 
-  In some cases Patroni is prevented from dropping the replication slot by the wal sender.
+  In some cases Patroni is prevented from dropping the replication slot by the WAL sender.
 
 - Truncate the replication slot name to 63  (NAMEDATALEN - 1) characters to comply with PostgreSQL naming rules (Nick Scott)
 
@@ -111,7 +116,7 @@ In addition, this is the first version to work correctly with PostgreSQL 10.
 
 - Release the leader key when the node restarts with an empty data directory (Alex Kerney)
 
-- Set async executor busy when running bootstrap without a leader (Alexander)
+- Set asynchronous executor busy when running bootstrap without a leader (Alexander)
 
   Failure to do so could have resulted in errors stating the node belonged to a different cluster, as Patroni proceeded with
   the normal business while being bootstrapped by a bootstrap method that doesn't require a leader to be present in the
@@ -119,8 +124,8 @@ In addition, this is the first version to work correctly with PostgreSQL 10.
 
 - Improve WAL-E replica creation method (Joar Wandborg, Alexander).
 
-  - Use csv.DictReader when parsing WAL-E base backup, accepting ISO dates with space-delimiated date and time.
-  - Allow replica as a node to compare WAL segments against for making decision on whether to proceed with restoring from S3.
+  - Use csv.DictReader when parsing WAL-E base backup, accepting ISO dates with space-delimited date and time.
+  - Support fetching current WAL position from the replica to estimate the amount of WAL to restore. Previously, the code used to call system information functions that were available only on the master node.
 
 
 Version 1.2
