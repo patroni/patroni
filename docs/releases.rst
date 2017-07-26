@@ -37,7 +37,9 @@ In addition, this is the first version to work correctly with PostgreSQL 10.
    Normally, when ``synchronous_mode`` is enabled and there are no replicas attached to the master, Patroni will disable
    synchronous replication in order to keep the master available for writes. The ``synchronous_mode_strict`` option
    changes that, when it is set Patroni will not disable the synchronous replication in a lack of replicas, effectively
-   blocking all clients writing data to the master.
+   blocking all clients writing data to the master. In addition to the synchronous mode guarantee of preventing any data
+   loss due to automatic failover, the strict mode ensures that each write is either durably stored on two nodes or not
+   happening altogether if there is only one node in the cluster.
 
 **Configuration editing with patronictl**
 
@@ -50,9 +52,9 @@ In addition, this is the first version to work correctly with PostgreSQL 10.
 
 - Implement wachdog support for Linux (Ants)
 
-  Support Linux software watchdog in order to reboot the not where Patroni is not running or not responding (e.g because
+  Support Linux software watchdog in order to reboot the node where Patroni is not running or not responding (e.g because
   of the high load) The Linux software watchdog reboots the non-responsive node. It is possible to configure the watchdog
-  device (`/dev/watchdog` by default) and the mode (on, automatic, off) from the watchdog section of the Patroni
+  device to use (`/dev/watchdog` by default) and the mode (on, automatic, off) from the watchdog section of the Patroni
   configuration. You can get more information from the :ref:`watchdog documentation <watchdog>`.
 
 **Add support for PostgreSQL 10**
