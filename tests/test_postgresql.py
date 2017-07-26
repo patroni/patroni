@@ -280,7 +280,7 @@ class TestPostgresql(unittest.TestCase):
         self.assertFalse(self.p.stop())
         mock_get_pid.return_value = 123
         with patch('os.kill', Mock(side_effect=[OSError(errno.ESRCH, ''), OSError, None])),\
-             patch('psutil.Process', Mock(side_effect=psutil.NoSuchProcess(123))):
+                patch('psutil.Process', Mock(side_effect=psutil.NoSuchProcess(123))):
             self.assertTrue(self.p.stop())
             self.assertFalse(self.p.stop())
             self.p.stop_safepoint_reached.clear()
@@ -487,9 +487,10 @@ class TestPostgresql(unittest.TestCase):
         self.assertFalse(self.p.is_running())
 
     @patch('shlex.split', Mock(side_effect=OSError))
-    @patch.object(Postgresql, 'can_rewind', PropertyMock(return_value=True))
     def test_call_nowait(self):
         self.p.set_role('replica')
+        self.assertIsNone(self.p.call_nowait('on_start'))
+        self.p.bootstrapping = True
         self.assertIsNone(self.p.call_nowait('on_start'))
 
     def test_non_existing_callback(self):
@@ -542,7 +543,7 @@ class TestPostgresql(unittest.TestCase):
                 patch('os.unlink', Mock()),\
                 patch.object(Postgresql, 'save_configuration_files', Mock()),\
                 patch.object(Postgresql, 'restore_configuration_files', Mock()),\
-             patch.object(Postgresql, 'write_recovery_conf', Mock()):
+                patch.object(Postgresql, 'write_recovery_conf', Mock()):
             with self.assertRaises(Exception) as e:
                 self.p.bootstrap(config)
             self.assertEqual(str(e.exception), '42')
@@ -554,24 +555,31 @@ class TestPostgresql(unittest.TestCase):
             self.assertEqual(str(e.exception), '42')
 
     @patch('time.sleep', Mock())
-    @patch.object(Postgresql, 'run_bootstrap_post_init', Mock(side_effect=Exception))
+    @patch('os.unlink', Mock())
+    @patch.object(Postgresql, 'run_bootstrap_post_init', Mock(return_value=True))
+    @patch.object(Postgresql, '_custom_bootstrap', Mock(return_value=True))
+    @patch.object(Postgresql, 'start', Mock(return_value=True))
     def test_post_bootstrap(self):
         config = {'method': 'foo', 'foo': {'command': 'bar'}}
-        with patch('subprocess.call', Mock(return_value=0)), \
-                patch('subprocess.Popen', Mock(side_effect=Exception("42"))), \
-                patch('os.path.isfile', Mock(return_value=True)),\
-                patch('os.unlink', Mock()), \
-                patch.object(Postgresql, 'save_configuration_files', Mock()), \
-                patch.object(Postgresql, 'restore_configuration_files', Mock()), \
-             patch.object(Postgresql, 'write_recovery_conf', Mock()):
-            with self.assertRaises(Exception) as e:
-                self.p.bootstrap(config)
-            self.assertEqual(str(e.exception), '42')
+        self.p.bootstrap(config)
+
+        task = CriticalTask()
+        with patch.object(Postgresql, 'create_or_update_role', Mock(side_effect=Exception)):
+            self.p.post_bootstrap({}, task)
+            self.assertFalse(task.result)
 
         self.p.config.pop('pg_hba')
-        task = CriticalTask()
         self.p.post_bootstrap({}, task)
-        self.assertFalse(task.result)
+        self.assertTrue(task.result)
+
+        self.p.bootstrap(config)
+        self.p.set_state('stopped')
+        self.p.reload_config({'authentication': {'superuser': {'username': 'p', 'password': 'p'},
+                                                 'replication': {'username': 'r', 'password': 'r'}},
+                              'listen': '*', 'retry_timeout': 10, 'parameters': {'hba_file': 'foo'}})
+        with patch.object(Postgresql, 'restart', Mock()) as mock_restart:
+            self.p.post_bootstrap({}, task)
+            mock_restart.assert_called_once()
 
     def test_run_bootstrap_post_init(self):
         with patch('subprocess.call', Mock(return_value=1)):

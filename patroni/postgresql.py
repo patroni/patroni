@@ -102,8 +102,9 @@ class Postgresql(object):
         self._bin_dir = config.get('bin_dir') or ''
         self._database = config.get('database', 'postgres')
         self._data_dir = config['data_dir']
-        self._config_dir = config.get('config_dir') or self._data_dir
+        self._config_dir = os.path.abspath(config.get('config_dir') or self._data_dir)
         self._pending_restart = False
+        self.bootstrapping = False
         self._running_custom_bootstrap = False
         self.__thread_ident = current_thread().ident
 
@@ -170,9 +171,9 @@ class Postgresql(object):
         configuration = [os.path.basename(self._postgresql_conf)]
         if 'custom_conf' not in self.config:
             configuration.append(os.path.basename(self._postgresql_base_conf))
-        if not self.config['parameters'].get('hba_file'):
+        if not self._server_parameters.get('hba_file'):
             configuration.append('pg_hba.conf')
-        if not self.config['parameters'].get('ident_file'):
+        if not self._server_parameters.get('ident_file'):
             configuration.append('pg_ident.conf')
         return configuration
 
@@ -226,8 +227,12 @@ class Postgresql(object):
                 parameters['synchronous_standby_names'] = self._synchronous_standby_names
         if self._major_version >= 90600 and parameters['wal_level'] == 'hot_standby':
             parameters['wal_level'] = 'replica'
-        return {k: v for k, v in parameters.items() if not self._major_version or
-                self._major_version >= self.CMDLINE_OPTIONS.get(k, (0, 1, 90100))[2]}
+        ret = {k: v for k, v in parameters.items() if not self._major_version or
+               self._major_version >= self.CMDLINE_OPTIONS.get(k, (0, 1, 90100))[2]}
+        for k in ('hba_file', 'ident_file'):
+            if k in ret:
+                ret[k] = os.path.join(self._config_dir, ret[k])
+        return ret
 
     def resolve_connection_addresses(self):
         port = self._server_parameters['port']
@@ -335,7 +340,7 @@ class Postgresql(object):
                             conf_changed = True
                             break
 
-            if not config['parameters'].get('hba_file') and config.get('pg_hba'):
+            if not server_parameters.get('hba_file') and config.get('pg_hba'):
                 hba_changed = self.config.get('pg_hba', []) != config['pg_hba']
 
         self.config = config
@@ -519,7 +524,7 @@ class Postgresql(object):
         if pwfile:
             os.remove(pwfile)
         if ret:
-            if not self.config['parameters'].get('hba_file') and not self.config.get('pg_hba'):
+            if not self._server_parameters.get('hba_file') and not self.config.get('pg_hba'):
                 self.write_pg_hba(config.get('pg_hba', []))
             self._major_version = self.get_major_version()
             self._server_parameters = self.get_server_parameters(self.config)
@@ -738,6 +743,8 @@ class Postgresql(object):
 
     def call_nowait(self, cb_name):
         """ pick a callback command and call it without waiting for it to finish """
+        if self.bootstrapping:
+            return
         if cb_name in (ACTION_ON_START, ACTION_ON_STOP, ACTION_ON_RESTART, ACTION_ON_ROLE_CHANGE):
             self.__cb_called = True
 
@@ -1085,7 +1092,6 @@ class Postgresql(object):
         with open(self._postgresql_conf, 'w') as f:
             f.write(self._CONFIG_WARNING_HEADER)
             f.write("include '{0}'\n\n".format(self.config.get('custom_conf') or self._postgresql_base_conf_name))
-            f.write("data_directory = '{0}'\n".format(self._data_dir))
             for name, value in sorted(self._server_parameters.items()):
                 if not self._running_custom_bootstrap or name != 'hba_file':
                     f.write("{0} = '{1}'\n".format(name, value))
@@ -1130,7 +1136,7 @@ class Postgresql(object):
                 for address, t in addresses.items():
                     f.write('{0}\t{1}\t{2}\t{3}\ttrust\n'.format(t, self._database,
                                                                  self._superuser.get('username') or 'all', address))
-        elif not self.config['parameters'].get('hba_file') and self.config.get('pg_hba'):
+        elif not self._server_parameters.get('hba_file') and self.config.get('pg_hba'):
             with open(self._pg_hba_conf, 'w') as f:
                 f.write(self._CONFIG_WARNING_HEADER)
                 for line in self.config['pg_hba']:
@@ -1538,20 +1544,6 @@ $$""".format(name, ' '.join(options)), name, password, password)
         try:
             self.create_or_update_role(self._superuser['username'], self._superuser['password'], ['SUPERUSER'])
 
-            # We were doing a custom bootstrap instead of running initdb, therefore we opened trust
-            # access from certain addresses to be able to reach cluster and change password
-            if self._running_custom_bootstrap:
-                self._running_custom_bootstrap = False
-                # If we don't have custom configuration for pg_hba.conf we need to restore original file
-                if not self.config.get('pg_hba'):
-                    os.unlink(self._pg_hba_conf)
-                    self.restore_configuration_files()
-                self._write_postgresql_conf()
-                self._replace_pg_hba()
-                self.reload()
-                time.sleep(1)  # give a time to postgres to "reload" configuration files
-                self.close_connection()  # close connection to reconnect with a new password
-
             task.complete(self.run_bootstrap_post_init(config))
             if task.result:
                 self.create_or_update_role(self._replication['username'],
@@ -1559,6 +1551,24 @@ $$""".format(name, ' '.join(options)), name, password, password)
                 for name, value in (config.get('users') or {}).items():
                     if name not in (self._superuser.get('username'), self._replication['username']):
                         self.create_or_update_role(name, value['password'], value.get('options', []))
+
+                # We were doing a custom bootstrap instead of running initdb, therefore we opened trust
+                # access from certain addresses to be able to reach cluster and change password
+                if self._running_custom_bootstrap:
+                    self._running_custom_bootstrap = False
+                    # If we don't have custom configuration for pg_hba.conf we need to restore original file
+                    if not self.config.get('pg_hba'):
+                        os.unlink(self._pg_hba_conf)
+                        self.restore_configuration_files()
+                    self._write_postgresql_conf()
+                    if self._server_parameters.get('hba_file') and \
+                            self._server_parameters['hba_file'] != self._pg_hba_conf:
+                        self.restart()
+                    else:
+                        self._replace_pg_hba()
+                        self.reload()
+                        time.sleep(1)  # give a time to postgres to "reload" configuration files
+                        self.close_connection()  # close connection to reconnect with a new password
         except Exception:
             logger.exception('post_bootstrap')
             task.complete(False)
