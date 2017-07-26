@@ -55,8 +55,8 @@ def checkpoint_hang(context, name, timeout):
 
 
 @step('{name:w} hangs for {timeout:d} seconds')
-def postmaster_hang(context, name, timeout):
-    return context.pctl.postmaster_hang(name, timeout)
+def patroni_hang(context, name, timeout):
+    return context.pctl.patroni_hang(name, timeout)
 
 
 @step('I terminate {name:w} user processes')
