@@ -899,8 +899,10 @@ class Ha(object):
 
         self._bootstrapping = False
         self.dcs.set_config_value(json.dumps(self.patroni.config.dynamic_configuration, separators=(',', ':')))
+        if not self.watchdog.activate():
+            logger.error('Cancelling bootstrap because watchdog activation failed')
+            self.cancel_initialization()
         self.dcs.take_leader()
-        self.watchdog.activate()
         self.load_cluster_from_dcs()
         return 'initialized a new cluster'
 
