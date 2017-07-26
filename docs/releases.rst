@@ -3,6 +3,133 @@
 Release notes
 =============
 
+Version 1.3
+-----------
+
+Version 1.3 adds custom bootstap possibility, significantly improves support for pg_rewind, enhances the
+synchronous mode support, adds configuration editing to patronictl and implements watchdog support on Linux.
+In addition, this is the first version to work correctly with PostgreSQL 10.
+
+**Custom bootstrap**
+
+- Make the process of bootstrapping the cluster configurable (Alexander Kukushkin)
+
+  Allow custom bootstrap scripts instead of ``initdb`` when initializing the very first node in the cluster.
+  The bootstrap command receives the name of the cluster and the path to the data directory. The resulting cluster can
+  be configured to start in recovery, making it possible to bootstrap a new cluster from the point in the timeline
+  of an existing one. Refer to the :ref:`documentaton page<custom_bootstap>` for more detailed description of this feature.
+
+**Smarter pg_rewind support**
+
+-  Decide on whether to run pg_rewind by looking at the timeline differences from the current master (Alexander)
+
+   Previously, Patroni had a fixed set of conditions to trigger pg_rewind, namely when starting a former master, when
+   doing a switchover to the designated node that is not a master or when there is a replica with the nofailover tag,
+   basically those cases when there is a chance that a replica may be ahead of the new master. In some cases, pg_rewind
+   did nothing, in some other ones it was not running when necessary. Instead of relying on this limited list of rules
+   this change makes Patroni compare the master and the replica WAL positions (using the streaming replication protocol)
+   in order to reliably decide if the replica to join is ahead of the new master.
+
+**Synchronous replication mode strict**
+
+-  Enhance synchronous replication support by adding the strict mode (James Sewell, Alexander)
+
+   When the new configuration option ``synchronous_mode_strict`` is set, Patroni will not let the master accept write
+   requests if there are no replicas attached . This option provides the guarantee that no writes will be lost because
+   of the failover. When a new replica attaches to the cluster running in the strict synchronous mode, Patroni changes its
+   synchronous standby names to point to that replica and shortly afterwards sets it as a synchronous replica in DCS.
+   If the master dies in-between, there will be a synchronous replica retaining the writes, but Patroni will not be able
+   to pick that replica for the failover. In that case, one should perform a manual promotion to such a replica.
+
+**Configuration editing with patronictl**
+
+- Add configruation editing to patronictl (Ants Aasma, Alexander)
+
+  Add the ability to patronictl of editing dynamic cluster configuration stored in DCS. Support either specifying the
+  parameter/values from the command-line, involing the $EDITOR, or applying configuration from the yaml file.
+
+**Linux watchdog support**
+
+- Implement wachdog support for Linux (Ants)
+
+  Support Linux software watchdog in order to reboot the master node that losses the lock in Etcd. Normally, Patroni will
+  demote such a node right after figuring out it doesn't have a lock. The watchdog brings in an additional guarantee
+  that in the case of the Patroni crash the node will be rebooted and the database instance will not continue to run as a
+  master. It is possible to configure the watchdog device (`/dev/watchdog` by default) and the mode (on, automatic, off)
+  from the watchdog section of the Patroni configuration. You can get more information from the
+  :ref:`watchdog documentation<watchdog>`.
+
+**Add support for PostgreSQL 10**
+
+- Patroni is compatible with all beta versions of PostgreSQL 10 released so far and we expect it to be compatible with
+  the PostgreSQL 10 when it will be released.
+
+**PostgreSQL-related minor improvements**
+
+- Define pg_hba.conf via the Patroni configuration file or the dynamic configuration in DCS (Alexander)
+
+  Allow to define the contents of ``pg_hba.conf`` in the ``pg_hba`` sub-section of the ``postgresql`` section of the
+  configuration. This simplifies managing ``pg_hba.conf`` on multiple nodes, as one needs to define it only ones in DCS
+  instead of logging to every node, changing it manually and reload the configuration.
+
+  When defined, the contents of this section will replace the current ``pg_hba.conf`` completely. Patroni ignores it
+  if ``hba_file`` postgresql paramerer is set.
+
+- Support connecting via a unix socket to the local PostgreSQL cluster (Alexander)
+
+  Add the ``use_unix_socket`` option to the postgresql section of Patroni configuration. When set to true and the
+  Postgresql ``unix_socket_directories`` option is not empty, enables Patroni to use the first value from it to connect
+  to the local PostgreSQL cluster. If ``unix_socket_directories`` is not defined, Patroni will assume its default value
+  and omit the ``host`` parameter in the PostgreSQL connection string altogether.
+
+- Support change of superuser and replication credentials on reload (Alexander)
+
+- Support storing of configuration files outside of PostgreSQL data directory (@jouir)
+
+  Add the new configuration ``postgresql`` configuration directive ``config_dif``.
+  It defaults to the data directory and must be writable by Patroni.
+
+**Bug fixes and stability improvements**
+
+- Handle EtcdEventIndexCleared and EtcdWatcherCleared exceptions (Alexander)
+
+  Faster recovery when the watch operation is ended by Etcd by avoiding useless retries (Alexander)
+
+- Remove error spinning on etcd failure and reduce log spam (Ants)
+
+  Avoid immediate retrying and emitting stack traces in the log on the second and subsequent Etcd connection failures.
+
+- Export locale variables when forking PostgreSQL processes (Oleksii Kliukin)
+
+  Avoid the `postmaster became multithreaded during startup` fatal error on non-English locales for PostgreSQL built with NLS.
+
+- Extra checks when dropping the replication slot (Alexander)
+
+  In some cases Patroni is prevented from dropping the replication slot by the wal sender.
+
+- Truncate the replication slot name to 63  (NAMEDATALEN - 1) characters to comply with PostgreSQL naming rules (Nick Scott)
+
+- Fix a race condition resulting in extra connections being opened to the PostgreSQL cluster from Patroni (Alexander)
+
+- Release the leader key when the node restarts with an empty data directory (Alex Kerney)
+
+- Set async executor busy when running bootstrap without a leader (Alexander)
+
+  Failure to do so could have resulted in errors stating the node belonged to a different cluster, as Patroni proceeded with
+  the normal business while being bootstrapped by a bootstrap method that doesn't require a leader to be present in the
+  cluster.
+
+- Improve WAL-E replica creation method (Joar Wandborg, Alexander).
+
+  - Use csv.DictReader when parsing WAL-E base backup, accepting ISO dates with space-delimiated date and time.
+  - Extra logging when deciding between restoring from S3 or continuing with another replica method.
+  - Allow replica as a node to compare WAL segments against for making decision on whether to proceed with restoring from S3.
+
+- Fix pg_rewind invocation after as manual failover for Patroni is a paused state (Alexander)
+
+- Alleviate the issues with unix socket connections not marked as closed when unix sockets are used (Alexander)
+
+
 Version 1.2
 -----------
 
