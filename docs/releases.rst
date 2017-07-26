@@ -17,47 +17,43 @@ In addition, this is the first version to work correctly with PostgreSQL 10.
   Allow custom bootstrap scripts instead of ``initdb`` when initializing the very first node in the cluster.
   The bootstrap command receives the name of the cluster and the path to the data directory. The resulting cluster can
   be configured to start in recovery, making it possible to bootstrap a new cluster from the point in the timeline
-  of an existing one. Refer to the :ref:`documentaton page<custom_bootstap>` for more detailed description of this feature.
+  of an existing one. Refer to the :ref:`documentaton page <custom_bootstap>` for more detailed description of this feature.
 
 **Smarter pg_rewind support**
 
 -  Decide on whether to run pg_rewind by looking at the timeline differences from the current master (Alexander)
 
    Previously, Patroni had a fixed set of conditions to trigger pg_rewind, namely when starting a former master, when
-   doing a switchover to the designated node that is not a master or when there is a replica with the nofailover tag,
-   basically those cases when there is a chance that a replica may be ahead of the new master. In some cases, pg_rewind
-   did nothing, in some other ones it was not running when necessary. Instead of relying on this limited list of rules
-   this change makes Patroni compare the master and the replica WAL positions (using the streaming replication protocol)
-   in order to reliably decide if the replica to join is ahead of the new master.
+   doing a switchover to the designated node for every other node in the cluster or when there is a replica with the
+   nofailover tag. All those cases have in common a chance that some replica may be ahead of the new master. In some cases,
+   pg_rewind did nothing, in some other ones it was not running when necessary. Instead of relying on this limited list
+   of rules make Patroni compare the master and the replica WAL positions (using the streaming replication protocol)
+   in order to reliably decide if rewind is necessary for the replica.
 
 **Synchronous replication mode strict**
 
 -  Enhance synchronous replication support by adding the strict mode (James Sewell, Alexander)
 
-   When the new configuration option ``synchronous_mode_strict`` is set, Patroni will not let the master accept write
-   requests if there are no replicas attached . This option provides the guarantee that no writes will be lost because
-   of the failover. When a new replica attaches to the cluster running in the strict synchronous mode, Patroni changes its
-   synchronous standby names to point to that replica and shortly afterwards sets it as a synchronous replica in DCS.
-   If the master dies in-between, there will be a synchronous replica retaining the writes, but Patroni will not be able
-   to pick that replica for the failover. In that case, one should perform a manual promotion to such a replica.
+   Normally, when ``synchronous_mode`` is enabled and there are no replicas attached to the master, Patroni will disable
+   synchronous replication in order to keep the master available for writes. The ``synchronous_mode_strict`` option
+   changes that, when it is set Patroni will not disable the synchronous replication in a lack of replicas, effectively
+   blocking all clients writing data to the master.
 
 **Configuration editing with patronictl**
 
 - Add configruation editing to patronictl (Ants Aasma, Alexander)
 
   Add the ability to patronictl of editing dynamic cluster configuration stored in DCS. Support either specifying the
-  parameter/values from the command-line, involing the $EDITOR, or applying configuration from the yaml file.
+  parameter/values from the command-line, invoking the $EDITOR, or applying configuration from the yaml file.
 
 **Linux watchdog support**
 
 - Implement wachdog support for Linux (Ants)
 
-  Support Linux software watchdog in order to reboot the master node that losses the lock in Etcd. Normally, Patroni will
-  demote such a node right after figuring out it doesn't have a lock. The watchdog brings in an additional guarantee
-  that in the case of the Patroni crash the node will be rebooted and the database instance will not continue to run as a
-  master. It is possible to configure the watchdog device (`/dev/watchdog` by default) and the mode (on, automatic, off)
-  from the watchdog section of the Patroni configuration. You can get more information from the
-  :ref:`watchdog documentation<watchdog>`.
+  Support Linux software watchdog in order to reboot the not where Patroni is not running or not responding (e.g because
+  of the high load) The Linux software watchdog reboots the non-responsive node. It is possible to configure the watchdog
+  device (`/dev/watchdog` by default) and the mode (on, automatic, off) from the watchdog section of the Patroni
+  configuration. You can get more information from the :ref:`watchdog documentation <watchdog>`.
 
 **Add support for PostgreSQL 10**
 
@@ -93,7 +89,7 @@ In addition, this is the first version to work correctly with PostgreSQL 10.
 
 - Handle EtcdEventIndexCleared and EtcdWatcherCleared exceptions (Alexander)
 
-  Faster recovery when the watch operation is ended by Etcd by avoiding useless retries (Alexander)
+  Faster recovery when the watch operation is ended by Etcd by avoiding useless retries.
 
 - Remove error spinning on etcd failure and reduce log spam (Ants)
 
@@ -122,12 +118,7 @@ In addition, this is the first version to work correctly with PostgreSQL 10.
 - Improve WAL-E replica creation method (Joar Wandborg, Alexander).
 
   - Use csv.DictReader when parsing WAL-E base backup, accepting ISO dates with space-delimiated date and time.
-  - Extra logging when deciding between restoring from S3 or continuing with another replica method.
   - Allow replica as a node to compare WAL segments against for making decision on whether to proceed with restoring from S3.
-
-- Fix pg_rewind invocation after as manual failover for Patroni is a paused state (Alexander)
-
-- Alleviate the issues with unix socket connections not marked as closed when unix sockets are used (Alexander)
 
 
 Version 1.2
@@ -518,4 +509,4 @@ This release adds support for *cascading replication* and simplifies Patroni man
 
   The tests can be launched manually using the *behave* command. They are also launched automatically for pull requests and after commits.
 
-  Releases notes for some older versions can be found on `project's github page <https://github.com/zalando/patroni/releases>`__.
+  Release notes for some older versions can be found on `project's github page <https://github.com/zalando/patroni/releases>`__.
