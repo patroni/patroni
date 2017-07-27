@@ -53,6 +53,9 @@ class WatchdogConfig(object):
             all(getattr(self, attr) == getattr(other, attr) for attr in
                 ['mode', 'ttl', 'loop_wait', 'safety_margin', 'driver', 'driver_config'])
 
+    def __ne__(self, other):
+        return not self == other
+
     def get_impl(self):
         if self.driver == 'testing':
             from patroni.watchdog.linux import TestingWatchdogDevice
