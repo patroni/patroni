@@ -85,7 +85,14 @@ class TestWatchdog(unittest.TestCase):
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(Watchdog, 'is_running', PropertyMock(return_value=False))
     def test_watchdog_not_activated(self):
-        self.assertEquals(Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'}}).activate(), False)
+        self.assertFalse(Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'}}).activate())
+
+    @patch('platform.system', Mock(return_value='Linux'))
+    @patch.object(LinuxWatchdogDevice, 'is_running', PropertyMock(return_value=False))
+    def test_watchdog_activate(self):
+        with patch.object(LinuxWatchdogDevice, 'open', Mock(side_effect=WatchdogError(''))):
+            self.assertTrue(Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'auto'}}).activate())
+        self.assertFalse(Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'}}).activate())
 
     @patch('platform.system', Mock(return_value='Linux'))
     def test_basic_operation(self):
@@ -119,7 +126,8 @@ class TestWatchdog(unittest.TestCase):
 
     @patch('platform.system', Mock(return_value='Unknown'))
     def test_unsupported_platform(self):
-        self.assertRaises(SystemExit, Watchdog, {'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required', 'driver': 'bad'}})
+        self.assertRaises(SystemExit, Watchdog, {'ttl': 30, 'loop_wait': 10,
+                                                 'watchdog': {'mode': 'required', 'driver': 'bad'}})
 
     def test_exceptions(self):
         wd = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'bad'}})
@@ -152,6 +160,7 @@ class TestWatchdog(unittest.TestCase):
 
         watchdog.reload_config({'ttl': 60, 'loop_wait': 15, 'watchdog': {'mode': 'required'}})
         watchdog.keepalive()
+
 
 class TestNullWatchdog(unittest.TestCase):
 
@@ -188,3 +197,10 @@ class TestLinuxWatchdogDevice(unittest.TestCase):
         self.assertRaises(WatchdogError, self.impl.get_support)
         self.impl.open()
         self.assertRaises(IOError, self.impl.get_support)
+
+    def test_is_healthy(self):
+        self.assertFalse(self.impl.is_healthy)
+
+    @patch('os.open', Mock(side_effect=OSError))
+    def test_open(self):
+        self.assertRaises(WatchdogError, self.impl.open)
