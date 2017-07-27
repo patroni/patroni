@@ -68,6 +68,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
             response['scheduled_restart'] = patroni.scheduled_restart.copy()
             del response['scheduled_restart']['postmaster_start_time']
             response['scheduled_restart']['schedule'] = (response['scheduled_restart']['schedule']).isoformat()
+        if not patroni.ha.watchdog.is_healthy:
+            response['watchdog_failed'] = True
         self._write_json_response(status_code, response)
 
     def do_GET(self, write_status_code_only=False):

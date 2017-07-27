@@ -20,7 +20,7 @@ from patroni.exceptions import PostgresConnectionException
 from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, null_context
 from six import string_types
 from six.moves.urllib.parse import quote_plus
-from threading import current_thread, Lock, Event
+from threading import current_thread, Lock
 
 logger = logging.getLogger(__name__)
 
@@ -152,12 +152,6 @@ class Postgresql(object):
         self.set_role(self.get_postgres_role_from_data_directory())
 
         self._state_entry_timestamp = None
-
-        # This event is set to true when no backends are running. Could be set in parallel by
-        # multiple processes, like when demote is racing with async restart. Needs to be cleared
-        # before invoking stop if wait for this event is desired.
-        self.stop_safepoint_reached = Event()
-        self.stop_safepoint_reached.set()
 
         if self.is_running():
             self.set_state('running')
@@ -840,8 +834,6 @@ class Postgresql(object):
         options = ['--{0}={1}'.format(p, self._server_parameters[p]) for p in self.CMDLINE_OPTIONS
                    if p in self._server_parameters and p != 'wal_keep_segments']
 
-        start_initiated = time.time()
-
         # Unfortunately `pg_ctl start` does not return postmaster pid to us. Without this information
         # it is hard to know the current state of postgres startup, so we had to reimplement pg_ctl start
         # in python. It will start postgres, wait for port to be open and wait until postgres will start
@@ -906,10 +898,17 @@ class Postgresql(object):
             logging.exception('Exception during CHECKPOINT')
             return 'not accessible or not healty'
 
-    def stop(self, mode='fast', block_callbacks=False, checkpoint=True):
-        success, pg_signaled = self._do_stop(mode, block_callbacks, checkpoint)
+    def stop(self, mode='fast', block_callbacks=False, checkpoint=True, on_safepoint=None):
+        """Stop PostgreSQL
+
+        Supports a callback when a safepoint is reached. A safepoint is when no user backend can return a successful
+        commit to users. Currently this means we wait for user backends to close. But in the future alternate mechanisms
+        could be added.
+
+        :param on_safepoint: This callback is called when no user backends are running.
+        """
+        success, pg_signaled = self._do_stop(mode, block_callbacks, checkpoint, on_safepoint)
         if success:
-            self.stop_safepoint_reached.set()  # In case we exited early. Setting twice is not a problem.
             # block_callbacks is used during restart to avoid
             # running start/stop callbacks in addition to restart ones
             if not block_callbacks:
@@ -921,8 +920,10 @@ class Postgresql(object):
             self.set_state('stop failed')
         return success
 
-    def _do_stop(self, mode, block_callbacks, checkpoint):
+    def _do_stop(self, mode, block_callbacks, checkpoint, on_safepoint):
         if not self.is_running():
+            if on_safepoint:
+                on_safepoint()
             return True, False
 
         if checkpoint and not self.is_starting():
@@ -934,14 +935,16 @@ class Postgresql(object):
         # Send signal to postmaster to stop
         pid, result = self._signal_postmaster_stop(mode)
         if result is not None:
+            if result and on_safepoint:
+                on_safepoint()
             return result, True
 
-        # We can skip safepoint detection if nobody is waiting for it.
-        if not self.stop_safepoint_reached.is_set():
+        # We can skip safepoint detection if we don't have a callback
+        if on_safepoint:
             # Wait for our connection to terminate so we can be sure that no new connections are being initiated
             self._wait_for_connection_close(pid)
             self._wait_for_user_backends_to_close(pid)
-            self.stop_safepoint_reached.set()
+            on_safepoint()
 
         self._wait_for_postmaster_stop(pid)
 

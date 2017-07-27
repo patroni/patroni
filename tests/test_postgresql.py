@@ -1,7 +1,6 @@
 import errno
 import mock  # for the mock.call method, importing it without a namespace breaks python3
 import os
-import psutil
 import psycopg2
 import shutil
 import subprocess
@@ -273,17 +272,21 @@ class TestPostgresql(unittest.TestCase):
     @patch.object(Postgresql, 'is_running')
     @patch.object(Postgresql, 'get_pid')
     def test_stop(self, mock_get_pid, mock_is_running):
+        mock_callback = Mock()
+        mock_is_running.return_value = False
+        self.assertTrue(self.p.stop(on_safepoint=mock_callback))
+        mock_callback.assert_called()
         mock_is_running.return_value = True
         mock_get_pid.return_value = 0
-        self.assertTrue(self.p.stop())
+        mock_callback.reset_mock()
+        self.assertTrue(self.p.stop(on_safepoint=mock_callback))
+        mock_callback.assert_called()
         mock_get_pid.return_value = -1
         self.assertFalse(self.p.stop())
         mock_get_pid.return_value = 123
-        with patch('os.kill', Mock(side_effect=[OSError(errno.ESRCH, ''), OSError, None])),\
-                patch('psutil.Process', Mock(side_effect=psutil.NoSuchProcess(123))):
+        with patch('os.kill', Mock(side_effect=[OSError(errno.ESRCH, ''), OSError, None])):
             self.assertTrue(self.p.stop())
             self.assertFalse(self.p.stop())
-            self.p.stop_safepoint_reached.clear()
             self.assertTrue(self.p.stop())
         with patch.object(Postgresql, '_signal_postmaster_stop', Mock(return_value=(123, None))):
             with patch.object(Postgresql, 'is_pid_running', Mock(side_effect=[True, False, False])):
@@ -855,13 +858,12 @@ class TestPostgresql(unittest.TestCase):
     @patch.object(Postgresql, 'is_pid_running')
     def test__wait_for_connection_close(self, mock_is_pid_running):
         mock_is_pid_running.side_effect = [True, False, False]
-        self.p.stop_safepoint_reached.clear()
-        self.p.stop()
+        mock_callback = Mock()
+        self.p.stop(on_safepoint=mock_callback)
 
         mock_is_pid_running.side_effect = [True, False, False]
-        self.p.stop_safepoint_reached.clear()
         with patch.object(MockCursor, "execute", Mock(side_effect=psycopg2.Error)):
-            self.p.stop()
+            self.p.stop(on_safepoint=mock_callback)
 
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     @patch.object(Postgresql, '_signal_postmaster_stop', Mock(return_value=(123, None)))
@@ -872,8 +874,8 @@ class TestPostgresql(unittest.TestCase):
         child = Mock()
         child.cmdline.return_value = ['foo']
         mock_psutil.return_value.children.return_value = [child]
-        self.p.stop_safepoint_reached.clear()
-        self.p.stop()
+        mock_callback = Mock()
+        self.p.stop(on_safepoint=mock_callback)
 
     @patch('os.kill', Mock(side_effect=[OSError(errno.ESRCH, ''), OSError]))
     @patch('time.sleep', Mock())

@@ -241,8 +241,8 @@ class PatroniController(AbstractController):
             return False
         return True
 
-    def postmaster_hang(self, timeout):
-        hang = ProcessHang(self._get_pid(), timeout)
+    def patroni_hang(self, timeout):
+        hang = ProcessHang(self._handle.pid, timeout)
         self._closables.append(hang)
         hang.start()
 
@@ -519,7 +519,7 @@ class PatroniPoolController(object):
 
     def __getattr__(self, func):
         if func not in ['stop', 'query', 'write_label', 'read_label', 'check_role_has_changed_to', 'add_tag_to_config',
-                        'get_watchdog', 'database_is_running', 'checkpoint_hang', 'postmaster_hang',
+                        'get_watchdog', 'database_is_running', 'checkpoint_hang', 'patroni_hang',
                         'terminate_backends', 'backup']:
             raise AttributeError("PatroniPoolController instance has no attribute '{0}'".format(func))
 
