@@ -9,7 +9,7 @@ from patroni.config import Config
 from patroni.dcs import Cluster, ClusterConfig, Failover, Leader, Member, get_dcs, SyncState
 from patroni.dcs.etcd import Client
 from patroni.exceptions import DCSError, PostgresConnectionException, PatroniException
-from patroni.ha import Ha, _MemberStatus, BackgroundKeepaliveSender
+from patroni.ha import Ha, _MemberStatus
 from patroni.postgresql import Postgresql
 from patroni.watchdog import Watchdog
 from patroni.utils import tzutc
@@ -62,7 +62,7 @@ def get_node_status(reachable=True, in_recovery=True, wal_position=10, nofailove
         tags = {}
         if nofailover:
             tags['nofailover'] = True
-        return _MemberStatus(e, reachable, in_recovery, wal_position, tags)
+        return _MemberStatus(e, reachable, in_recovery, wal_position, tags, False)
     return fetch_node_status
 
 future_restart_time = datetime.datetime.now(tzutc) + datetime.timedelta(days=5)
@@ -240,6 +240,15 @@ class TestHa(unittest.TestCase):
         self.ha.has_lock = true
         self.p.is_leader = false
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader because i had the session lock')
+
+    def test_promote_without_watchdog(self):
+        self.ha.cluster.is_unlocked = false
+        self.ha.has_lock = true
+        self.p.is_leader = true
+        with patch.object(Watchdog, 'activate', Mock(return_value=False)):
+            self.assertEquals(self.ha.run_cycle(), 'Demoting self because watchdog could not be activated')
+            self.p.is_leader = false
+            self.assertEquals(self.ha.run_cycle(), 'Not promoting self because watchdog could not be actived')
 
     def test_leader_with_lock(self):
         self.ha.cluster.is_unlocked = false
@@ -823,16 +832,3 @@ class TestHa(unittest.TestCase):
         self.ha.has_lock = false
         # will not say bootstrap from leader as replica can't self elect
         self.assertEquals(self.ha.run_cycle(), "trying to bootstrap from replica 'other'")
-
-
-class TestBackgroundKeepaliveSender(unittest.TestCase):
-
-    def test_run(self):
-        safe_event = Event()
-        ha = Mock()
-        ha.dcs.loop_wait = 0.1
-        with BackgroundKeepaliveSender(ha, safe_event):
-            time.sleep(1)
-            safe_event.set()
-            time.sleep(1)
-        self.assertTrue(ha.keepalive.call_count > 2)

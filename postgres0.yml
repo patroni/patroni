@@ -81,6 +81,7 @@ postgresql:
 #watchdog:
 #  mode: automatic # Allowed values: off, automatic, required
 #  device: /dev/watchdog
+#  safety_margin: 5
 
 tags:
     nofailover: false

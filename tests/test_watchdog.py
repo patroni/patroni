@@ -72,18 +72,20 @@ class TestWatchdog(unittest.TestCase):
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
     def test_unsafe_timeout_disable_watchdog_and_exit(self):
-        self.assertRaises(SystemExit, Watchdog({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'required'}}).activate)
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'required', 'safety_margin': -1}})
+        self.assertEquals(watchdog.activate(), False)
+        self.assertEquals(watchdog.is_running, False)
 
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'get_timeout', Mock(return_value=16))
     def test_timeout_does_not_ensure_safe_termination(self):
-        Watchdog({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'auto'}}).activate()
+        Watchdog({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'auto', 'safety_margin': -1}}).activate()
         self.assertEquals(len(mock_devices), 2)
 
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(Watchdog, 'is_running', PropertyMock(return_value=False))
     def test_watchdog_not_activated(self):
-        self.assertRaises(SystemExit, Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'}}).activate)
+        self.assertEquals(Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'}}).activate(), False)
 
     @patch('platform.system', Mock(return_value='Linux'))
     def test_basic_operation(self):
@@ -94,7 +96,7 @@ class TestWatchdog(unittest.TestCase):
         device = mock_devices[-1]
         self.assertTrue(device.open)
 
-        self.assertEquals(device.timeout, 14)
+        self.assertEquals(device.timeout, 24)
 
         watchdog.keepalive()
         self.assertEquals(len(device.writes), 1)
@@ -104,7 +106,7 @@ class TestWatchdog(unittest.TestCase):
         self.assertEquals(device.writes[-1], b'V')
 
     def test_invalid_timings(self):
-        watchdog = Watchdog({'ttl': 30, 'loop_wait': 20, 'watchdog': {'mode': 'automatic'}})
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 20, 'watchdog': {'mode': 'automatic', 'safety_margin': -1}})
         watchdog.activate()
         self.assertEquals(len(mock_devices), 1)
         self.assertFalse(watchdog.is_running)
@@ -112,12 +114,12 @@ class TestWatchdog(unittest.TestCase):
     def test_parse_mode(self):
         with patch('patroni.watchdog.base.logger.warning', new_callable=Mock()) as warning_mock:
             watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'bad'}})
-            self.assertEquals(watchdog.mode, 'off')
+            self.assertEquals(watchdog.config.mode, 'off')
             warning_mock.assert_called_once()
 
     @patch('platform.system', Mock(return_value='Unknown'))
     def test_unsupported_platform(self):
-        self.assertRaises(SystemExit, Watchdog, {'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'}})
+        self.assertRaises(SystemExit, Watchdog, {'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required', 'driver': 'bad'}})
 
     def test_exceptions(self):
         wd = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'bad'}})
@@ -125,6 +127,31 @@ class TestWatchdog(unittest.TestCase):
         self.assertIsNone(wd.disable())
         self.assertIsNone(wd.keepalive())
 
+    def test_config_reload(self):
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'required'}})
+        self.assertTrue(watchdog.activate())
+        self.assertTrue(watchdog.is_running)
+
+        watchdog.reload_config({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'off'}})
+        self.assertFalse(watchdog.is_running)
+
+        watchdog.reload_config({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'required'}})
+        self.assertFalse(watchdog.is_running)
+        watchdog.keepalive()
+        self.assertTrue(watchdog.is_running)
+
+        watchdog.disable()
+        watchdog.reload_config({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'required', 'driver': 'unknown'}})
+        self.assertFalse(watchdog.is_healthy)
+
+        self.assertFalse(watchdog.activate())
+        watchdog.reload_config({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'required'}})
+        self.assertFalse(watchdog.is_running)
+        watchdog.keepalive()
+        self.assertTrue(watchdog.is_running)
+
+        watchdog.reload_config({'ttl': 60, 'loop_wait': 15, 'watchdog': {'mode': 'required'}})
+        watchdog.keepalive()
 
 class TestNullWatchdog(unittest.TestCase):
 
