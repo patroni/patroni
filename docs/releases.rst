@@ -13,7 +13,10 @@ In addition, this is the first version to work correctly with PostgreSQL 10.
 **Upgrade notice**
 
 There are no known compatibility issues with the new version of Patroni. Configuration from version 1.2 should work
-without any changes.
+without any changes. It is possible to upgrade by installing new packages and either  restarting Patroni (will cause
+PostgreSQL restart), or by putting Patroni into a :ref:`pause mode <pause>` first and then restarting Patroni on all
+nodes in the cluster (Patroni in a pause mode will not attempt to stop/start PostgreSQL), resuming from the pause mode
+at the end.
 
 **Custom bootstrap**
 
