@@ -26,6 +26,7 @@ class _MemberStatus(namedtuple('_MemberStatus', 'member,reachable,in_recovery,wa
         in_recovery - `!True` if pg_is_in_recovery() == true
         wal_position - value of `replayed_location` or `location` from JSON, dependin on its role.
         tags - dictionary with values of different tags (i.e. nofailover)
+        watchdog_failed - indicates that watchdog is required by configuration but not available or failed
     """
     @classmethod
     def from_api_response(cls, member, json):
