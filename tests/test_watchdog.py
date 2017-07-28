@@ -135,6 +135,7 @@ class TestWatchdog(unittest.TestCase):
         self.assertIsNone(wd.disable())
         self.assertIsNone(wd.keepalive())
 
+    @patch('platform.system', Mock(return_value='Linux'))
     def test_config_reload(self):
         watchdog = Watchdog({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'required'}})
         self.assertTrue(watchdog.activate())
