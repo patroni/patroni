@@ -6,6 +6,7 @@ import unittest
 from mock import Mock, patch
 from patroni.api import RestApiHandler, RestApiServer
 from patroni.dcs import ClusterConfig, Member
+from patroni.ha import _MemberStatus
 from patroni.utils import tzutc
 from six import BytesIO as IO
 from six.moves import BaseHTTPServer
@@ -38,7 +39,7 @@ class MockPostgresql(object):
 
 
 class MockWatchdog(object):
-    is_healthy = True
+    is_healthy = False
 
 
 class MockHa(object):
@@ -64,7 +65,7 @@ class MockHa(object):
 
     @staticmethod
     def fetch_nodes_statuses(members):
-        return [[None, True, None, None, {}]]
+        return [_MemberStatus(None, True, None, None, {}, False)]
 
     @staticmethod
     def schedule_future_restart(data):
