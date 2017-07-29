@@ -65,8 +65,8 @@ Scenario: check API requests for the primary-replica pair in the pause mode
 	Then postgres1 role is the secondary after 15 seconds
 
 Scenario: check the failover via the API in the pause mode
-	Given I run patronictl.py failover batman --master postgres0 --candidate postgres1 --force
-	Then I receive a response returncode 0
+	Given I issue a POST request to http://127.0.0.1:8008/failover with {"leader": "postgres0", "candidate": "postgres1"}
+	Then I receive a response code 200
 	And postgres1 is a leader after 5 seconds
 	And postgres1 role is the primary after 10 seconds
 	And postgres0 role is the secondary after 10 seconds
