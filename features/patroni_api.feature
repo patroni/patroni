@@ -34,9 +34,9 @@ Scenario: check local configuration reload
 	Then I receive a response code 202
 
 Scenario: check dynamic configuration change via DCS
-	Given I issue a PATCH request to http://127.0.0.1:8008/config with {"ttl": 10, "loop_wait": 2, "postgresql": {"parameters": {"max_connections": 101}}}
-	Then I receive a response code 200
-	And I receive a response loop_wait 2
+	Given I run patronictl.py edit-config -s 'ttl=10' -s 'loop_wait=2' -p 'max_connections=101' --force batman
+	Then I receive a response returncode 0
+	And I receive a response output "+loop_wait: 2"
 	And Response on GET http://127.0.0.1:8008/patroni contains pending_restart after 11 seconds
 	When I issue a GET request to http://127.0.0.1:8008/config
 	Then I receive a response code 200
