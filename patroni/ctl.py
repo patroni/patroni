@@ -903,14 +903,14 @@ def apply_config_changes(before_editing, data, kvpairs):
         if prefix == ('postgresql', 'parameters'):
             path = ['.'.join(path)]
 
+        key = path[0]
         if len(path) == 1:
             if value is None:
-                config.pop(path[0], None)
+                config.pop(key, None)
             else:
-                config[path[0]] = value
+                config[key] = value
         else:
-            key = path[0]
-            if key not in config:
+            if not isinstance(config.get(key), dict):
                 config[key] = {}
             set_path_value(config[key], path[1:], value, prefix + (key,))
             if config[key] == {}:
@@ -1017,7 +1017,7 @@ def edit_config(obj, cluster_name, force, quiet, kvpairs, pgkvpairs, apply_filen
         return
 
     if force or click.confirm('Apply these changes?'):
-        if not dcs.set_config_value(json.dumps(changed_data), cluster.config.modify_index):
+        if not dcs.set_config_value(json.dumps(changed_data), cluster.config.index):
             raise PatroniCtlException("Config modification aborted due to concurrent changes")
         click.echo("Configuration changed")
 
