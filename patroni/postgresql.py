@@ -1137,7 +1137,7 @@ class Postgresql(object):
             with open(self._pg_hba_conf, 'w') as f:
                 f.write(self._CONFIG_WARNING_HEADER)
                 for address, t in addresses.items():
-                    f.write('{0}\t{1}\t{2}\t{3}\ttrust\n'.format(t, self._database,
+                    f.write('{0}\t{1}\t{2}\t{3}\ttrust\n'.format(t, 'all',
                                                                  self._superuser.get('username') or 'all', address))
         elif not self._server_parameters.get('hba_file') and self.config.get('pg_hba'):
             with open(self._pg_hba_conf, 'w') as f:
