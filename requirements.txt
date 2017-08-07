@@ -13,3 +13,4 @@ tzlocal
 python-dateutil
 psutil
 cdiff
+kubernetes

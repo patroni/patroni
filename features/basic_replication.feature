@@ -23,7 +23,8 @@ Feature: basic replication
   Scenario: check the basic failover in synchronous mode
     Given I run patronictl.py pause batman
     Then I receive a response returncode 0
-    When I shut down postgres0
+    When I sleep for 2 seconds
+    And I shut down postgres0
     And I run patronictl.py resume batman 
     Then I receive a response returncode 0
     And postgres2 role is the primary after 24 seconds

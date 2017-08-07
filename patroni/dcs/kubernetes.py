@@ -20,13 +20,12 @@ class Kubernetes(AbstractDCS):
     def __init__(self, config):
         self._labels = config['labels']
         self._label_selector = ','.join('{0}={1}'.format(k, v) for k, v in self._labels.items())
-        logger.info('config=%s', config)
         self._namespace = config.get('namespace') or 'default'
         config['namespace'] = ''
         super(Kubernetes, self).__init__(config)
         self._ttl = None
 #        k8s_config.load_incluster_config()
-        k8s_config.load_kube_config(context='minikube')
+        k8s_config.load_kube_config(context='local')
         self._api = k8s_client.CoreV1Api()
         self.set_retry_timeout(config['retry_timeout'])
         self.set_ttl(config.get('ttl') or 30)
