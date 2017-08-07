@@ -291,7 +291,7 @@ class ZooKeeper(AbstractDCS):
             logger.exception('Failed to update %s', self.leader_optime_path)
         return False
 
-    def update_leader(self):
+    def _update_leader(self):
         return True
 
     def delete_leader(self):

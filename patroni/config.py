@@ -242,13 +242,21 @@ class Config(object):
                 name, suffix = (param[8:].rsplit('_', 1) + [''])[:2]
                 if name and suffix:
                     # PATRONI_(ETCD|CONSUL|ZOOKEEPER|EXHIBITOR|...)_(HOSTS?|PORT|..)
-                    if suffix in ('HOST', 'HOSTS', 'PORT', 'SRV', 'URL', 'PROXY', 'CACERT', 'CERT', 'KEY') \
-                            and '_' not in name:
+                    if suffix in ('HOST', 'HOSTS', 'PORT', 'SRV', 'URL', 'PROXY', 'CACERT', 'CERT', 'KEY',
+                                  'NAMESPACE', 'LABELS') and '_' not in name:
                         value = os.environ.pop(param)
                         if suffix == 'PORT':
                             value = value and parse_int(value)
                         elif suffix == 'HOSTS':
                             value = value and _parse_list(value)
+                        elif suffix == 'LABELS':
+                            if not value.strip().startswith('{'):
+                                value = '{{{0}}}'.format(value)
+                            try:
+                                value = yaml.safe_load(value)
+                            except Exception:
+                                logger.exception('Exception when parsing dict %s', value)
+                                value = None
                         if value:
                             ret[name.lower()][suffix.lower()] = value
                     # PATRONI_<username>_PASSWORD=<password>, PATRONI_<username>_OPTIONS=<option1,option2,...>

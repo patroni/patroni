@@ -183,34 +183,38 @@ class Failover(namedtuple('Failover', 'index,leader,candidate,scheduled_at')):
     """
     >>> 'Failover' in str(Failover.from_node(1, '{"leader": "cluster_leader"}'))
     True
+    >>> 'Failover' in str(Failover.from_node(1, {"leader": "cluster_leader"}))
+    True
     >>> 'Failover' in str(Failover.from_node(1, '{"leader": "cluster_leader", "member": "cluster_candidate"}'))
     True
     >>> Failover.from_node(1, 'null') is None
-    True
+    False
     >>> n = '{"leader": "cluster_leader", "member": "cluster_candidate", "scheduled_at": "2016-01-14T10:09:57.1394Z"}'
     >>> 'tzinfo=' in str(Failover.from_node(1, n))
     True
     >>> Failover.from_node(1, None) is None
-    True
+    False
     >>> Failover.from_node(1, '{}') is None
-    True
+    False
     >>> 'abc' in Failover.from_node(1, 'abc:def')
     True
     """
     @staticmethod
     def from_node(index, value):
-        if not value:
-            return None
-
-        try:
-            data = json.loads(value)
-            if not data:
-                return None
-        except ValueError:
-            t = [a.strip() for a in value.split(':')]
-            leader = t[0]
-            candidate = t[1] if len(t) > 1 else None
-            return Failover(index, leader, candidate, None) if leader or candidate else None
+        if isinstance(value, dict):
+            data = value
+        elif value:
+            try:
+                data = json.loads(value)
+                if not isinstance(data, dict):
+                    data = {}
+            except ValueError:
+                t = [a.strip() for a in value.split(':')]
+                leader = t[0]
+                candidate = t[1] if len(t) > 1 else None
+                return Failover(index, leader, candidate, None) if leader or candidate else None
+        else:
+            data = {}
 
         if data.get('scheduled_at'):
             data['scheduled_at'] = dateutil.parser.parse(data['scheduled_at'])
@@ -258,8 +262,12 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
         True
         >>> SyncState.from_node(1, '{"leader": "leader"}').leader == "leader"
         True
+        >>> SyncState.from_node(1, {"leader": "leader"}).leader == "leader"
+        True
         """
-        if value:
+        if isinstance(value, dict):
+            data = value
+        elif value:
             try:
                 data = json.loads(value)
                 if not isinstance(data, dict):
@@ -339,8 +347,7 @@ class AbstractDCS(object):
             i.e.: `zookeeper` for zookeeper, `etcd` for etcd, etc...
         """
         self._name = config['name']
-        self._namespace = '/{0}'.format(config.get('namespace', '/service/').strip('/'))
-        self._base_path = '/'.join([self._namespace, config['scope']])
+        self._base_path = os.path.join('/', config.get('namespace', '/service/').strip('/'), config['scope'])
         self._set_loop_wait(config.get('loop_wait', 10))
 
         self._ctl = bool(config.get('patronictl', False))
@@ -443,7 +450,7 @@ class AbstractDCS(object):
             self._last_leader_operation = last_operation
 
     @abc.abstractmethod
-    def update_leader(self):
+    def _update_leader(self):
         """Update leader key (or session) ttl
 
         :returns: `!True` if leader key (or session) has been updated successfully.
@@ -451,6 +458,18 @@ class AbstractDCS(object):
 
         You have to use CAS (Compare And Swap) operation in order to update leader key,
         for example for etcd `prevValue` parameter must be used."""
+
+    def update_leader(self, last_operation):
+        """Update leader key (or session) ttl and optime/leader
+
+        :param last_operation: absolute xlog location in bytes
+        :returns: `!True` if leader key (or session) has been updated successfully.
+            If not, `!False` must be returned and current instance would be demoted."""
+
+        ret = self._update_leader()
+        if ret and last_operation:
+            self.write_leader_optime(last_operation)
+        return ret
 
     @abc.abstractmethod
     def attempt_to_acquire_leader(self, permanent=False):

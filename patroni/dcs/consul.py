@@ -271,7 +271,7 @@ class Consul(AbstractDCS):
         return self._client.kv.put(self.leader_optime_path, last_operation)
 
     @catch_consul_errors
-    def update_leader(self):
+    def _update_leader(self):
         if self._session:
             self.retry(self._client.session.renew, self._session)
             self._last_session_refresh = time.time()

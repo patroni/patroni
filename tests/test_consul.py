@@ -128,7 +128,7 @@ class TestConsul(unittest.TestCase):
 
     @patch.object(consul.Consul.Session, 'renew', Mock())
     def test_update_leader(self):
-        self.c.update_leader()
+        self.c.update_leader(None)
 
     @patch.object(consul.Consul.KV, 'delete', Mock(return_value=True))
     def test_delete_leader(self):

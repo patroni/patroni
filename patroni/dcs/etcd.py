@@ -499,7 +499,7 @@ class Etcd(AbstractDCS):
         return self._client.set(self.leader_optime_path, last_operation)
 
     @catch_etcd_errors
-    def update_leader(self):
+    def _update_leader(self):
         return self.retry(self._client.test_and_set, self.leader_path, self._name, self._name, self._ttl)
 
     @catch_etcd_errors

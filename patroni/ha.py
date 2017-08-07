@@ -85,15 +85,13 @@ class Ha(object):
         return self.dcs.attempt_to_acquire_leader()
 
     def update_lock(self, write_leader_optime=False):
-        ret = self.dcs.update_leader()
-        if ret:
-            self.watchdog.keepalive()
-            if write_leader_optime:
-                try:
-                    self.dcs.write_leader_optime(self.state_handler.last_operation())
-                except:
-                    pass
-        return ret
+        last_operation = None
+        if write_leader_optime:
+            try:
+                last_operation = self.state_handler.last_operation()
+            except Exception:
+                logger.exception('Exception when called state_handler.last_operation()')
+        return self.dcs.update_leader(last_operation)
 
     def has_lock(self):
         lock_owner = self.cluster.leader and self.cluster.leader.name
