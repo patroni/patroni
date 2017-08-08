@@ -486,7 +486,9 @@ class AbstractDCS(object):
     def set_failover_value(self, value, index=None):
         """Create or update `/failover` key"""
 
-    def manual_failover(self, leader, candidate, scheduled_at=None, index=None):
+    @staticmethod
+    def failover_state(leader, candidate, scheduled_at=None):
+        """Build failover_state dict"""
         failover_value = {}
         if leader:
             failover_value['leader'] = leader
@@ -496,7 +498,10 @@ class AbstractDCS(object):
 
         if scheduled_at:
             failover_value['scheduled_at'] = scheduled_at.isoformat()
+        return failover_value
 
+    def manual_failover(self, leader, candidate, scheduled_at=None, index=None):
+        failover_value = self.failover_state(leader, candidate, scheduled_at)
         return self.set_failover_value(json.dumps(failover_value, separators=(',', ':')), index)
 
     @abc.abstractmethod
@@ -546,8 +551,14 @@ class AbstractDCS(object):
     def delete_cluster(self):
         """Delete cluster from DCS"""
 
+    @staticmethod
+    def sync_state(leader, sync_standby):
+        """Build sync_state dict"""
+        return {'leader': leader, 'sync_standby': sync_standby}
+
     def write_sync_state(self, leader, sync_standby, index=None):
-        return self.set_sync_state_value(json.dumps({'leader': leader, 'sync_standby': sync_standby}), index=index)
+        sync_value = self.sync_state(leader, sync_standby)
+        return self.set_sync_state_value(json.dumps(sync_value, separators=(',', ':')), index)
 
     @abc.abstractmethod
     def set_sync_state_value(self, value, index=None):

@@ -36,7 +36,6 @@ class Kubernetes(AbstractDCS):
 
     def retry(self, func, *args, **kwargs):
         ret = func(*args, **kwargs)
-#        print(func, args, kwargs, ret)
         return ret
 
     def client_path(self, path):
@@ -84,13 +83,18 @@ class Kubernetes(AbstractDCS):
 
             # get leader
             leader_record = {n: annotations.get(n) for n in (self._LEADER, 'acquireTime',
-                             'renewTime', 'transitions') if n in annotations}
+                             'ttl', 'renewTime', 'transitions') if n in annotations}
             if (leader_record or self._leader_observed_record) and leader_record != self._leader_observed_record:
                 self._leader_observed_record = leader_record
                 self._leader_observed_time = time.time()
 
             leader = leader_record.get(self._LEADER)
-            if not metadata or not self._leader_observed_time or self._leader_observed_time + self._ttl < time.time():
+            try:
+                ttl = int(leader_record.get('ttl')) or self._ttl
+            except (TypeError, ValueError):
+                ttl = self._ttl
+
+            if not metadata or not self._leader_observed_time or self._leader_observed_time + ttl < time.time():
                 leader = None
 
             if metadata:
@@ -112,10 +116,11 @@ class Kubernetes(AbstractDCS):
             logger.exception('get_cluster')
             raise KubernetesError('Kubernetes API is not responding properly')
 
-    def patch_or_create(self, name, annotations, resource_version=None):
+    def patch_or_create(self, name, annotations, resource_version=None, patch=False):
         metadata = {'namespace': self._namespace, 'name': name, 'labels': self._labels, 'annotations': annotations}
-        if resource_version is not None:
-            metadata['resource_version'] = resource_version
+        if patch or resource_version:
+            if resource_version is not None:
+                metadata['resource_version'] = resource_version
             body = k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata))
             return self.retry(self._api.patch_namespaced_config_map, name, self._namespace, body)
         else:
@@ -123,33 +128,32 @@ class Kubernetes(AbstractDCS):
             return self.retry(self._api.create_namespaced_config_map, self._namespace, body)
 
     def _write_leader_optime(self, last_operation):
-        """"""
+        """Unused"""
 
     def _update_leader(self):
-        """"""
+        """Unused"""
 
     def update_leader(self, last_operation):
         now = datetime.datetime.now(tzutc).isoformat()
-        annotations = {self._LEADER: self._name, 'renewTime': now,
+        annotations = {self._LEADER: self._name, 'ttl': str(self._ttl), 'renewTime': now,
                        'acquireTime': self._leader_observed_record.get('acquireTime') or now,
                        'transitions': self._leader_observed_record.get('transitions') or '0'}
         if last_operation:
             annotations[self._OPTIME] = last_operation
-        metadata = k8s_client.V1ObjectMeta(namespace=self._namespace, name=self.leader_path, annotations=annotations,
-                                           resource_version=self._leader_resource_version)
-        body = k8s_client.V1ConfigMap(metadata=metadata)
-        ret = self.retry(self._api.patch_namespaced_config_map, self.leader_path, self._namespace, body)
+
+        ret = self.patch_or_create(self.leader_path, annotations, self._leader_resource_version)
         if ret:
             self._leader_resource_version = ret.metadata.resource_version
         return ret
 
     def attempt_to_acquire_leader(self, permanent=False):
         now = datetime.datetime.now(tzutc).isoformat()
-        annotations = {self._LEADER: self._name, 'renewTime': now, 'acquireTime': now, 'transitions': '0'}
+        annotations = {self._LEADER: self._name, 'ttl': str(self._ttl),
+                       'renewTime': now, 'acquireTime': now, 'transitions': '0'}
         if self._leader_observed_record:
             try:
-                transitions = int(self._leader_observed_record['transitions'])
-            except:
+                transitions = int(self._leader_observed_record.get('transitions'))
+            except (TypeError, ValueError):
                 transitions = 0
 
             if self._leader_observed_record.get(self._LEADER) != self._name:
@@ -166,29 +170,16 @@ class Kubernetes(AbstractDCS):
         return self.attempt_to_acquire_leader()
 
     def set_failover_value(self, value, index=None):
-        """"""
+        """Unused"""
 
     def manual_failover(self, leader, candidate, scheduled_at=None, index=None):
-        annotations = {}
-        if leader:
-            annotations['leader'] = leader
-
-        if candidate:
-            annotations['member'] = candidate
-
-        if scheduled_at:
-            annotations['scheduled_at'] = scheduled_at.isoformat()
-
-        if not index and self.cluster and self.cluster.failover and self.cluster.failover.index:
-            index = self.cluster.failover.index
-
-        return self.patch_or_create(self.failover_path, annotations, index)
+        annotations = self.failover_state(leader, candidate, scheduled_at)
+        patch = bool(index or self.cluster and self.cluster.failover and self.cluster.failover.index)
+        return self.patch_or_create(self.failover_path, annotations, index, patch)
 
     def set_config_value(self, value, index=None):
-        resource_version = None
-        if self.cluster and self.cluster.config and self.cluster.config.index:
-            resource_version = self.cluster.config.index
-        return self.patch_or_create(self.config_path, {self._CONFIG: value}, resource_version)
+        patch = bool(index or self.cluster and self.cluster.config and self.cluster.config.index)
+        return self.patch_or_create(self.config_path, {self._CONFIG: value}, index, patch)
 
     def touch_member(self, data, ttl=None, permanent=False):
         metadata = k8s_client.V1ObjectMeta(namespace=self._namespace, name=self._name, annotations={'status': data})
@@ -196,34 +187,26 @@ class Kubernetes(AbstractDCS):
         return self.retry(self._api.patch_namespaced_pod, self._name, self._namespace, body)
 
     def initialize(self, create_new=True, sysid=""):
-        resource_version = None
-        if self.cluster and self.cluster.config and self.cluster.config.index:
-            resource_version = self.cluster.config.index
+        cluster = self.cluster
+        resource_version = cluster.config.index if cluster and cluster.config and cluster.config.index else None
         return self.patch_or_create(self.config_path, {self._INITIALIZE: sysid}, resource_version)
 
     def delete_leader(self):
         if self.cluster and isinstance(self.cluster.leader, Leader) and self.cluster.leader.name == self._name:
-            metadata = k8s_client.V1ObjectMeta(namespace=self._namespace, name=self.leader_path,
-                                               annotations={self._LEADER: None},
-                                               resource_version=self._leader_resource_version)
-            body = k8s_client.V1ConfigMap(metadata=metadata)
-            self.retry(self._api.patch_namespaced_config_map, self.leader_path, self._namespace, body)
+            self.patch_or_create(self.leader_path, {self._LEADER: None}, self._leader_resource_version, True)
 
     def cancel_initialization(self):
-        metadata = k8s_client.V1ObjectMeta(namespace=self._namespace, name=self.config_path,
-                                           annotations={self._INITIALIZE: None})
-        body = k8s_client.V1ConfigMap(metadata=metadata)
-        self.retry(self._api.patch_namespaced_config_map, self.config_path, self._namespace, body)
+        self.patch_or_create(self.config_path, {self._INITIALIZE: None}, self.cluster.config.index, True)
 
     def delete_cluster(self):
         self.retry(self._api.delete_collection_namespaced_config_map,
                    self._namespace, label_selector=self._label_selector)
 
     def set_sync_state_value(self, value, index=None):
-        """"""
+        """Unused"""
 
     def write_sync_state(self, leader, sync_standby, index=None):
-        return self.patch_or_create(self.sync_path, {'leader': leader, 'sync_standby': sync_standby}, index)
+        return self.patch_or_create(self.sync_path, self.sync_state(leader, sync_standby), index)
 
     def delete_sync_state(self, index=None):
         self.write_sync_state('', '', index)
