@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 import datetime
+import functools
 import logging
 import time
 
@@ -116,16 +117,17 @@ class Kubernetes(AbstractDCS):
             logger.exception('get_cluster')
             raise KubernetesError('Kubernetes API is not responding properly')
 
-    def patch_or_create(self, name, annotations, resource_version=None, patch=False):
+    def patch_or_create(self, name, annotations, resource_version=None, patch=False, retry=True):
         metadata = {'namespace': self._namespace, 'name': name, 'labels': self._labels, 'annotations': annotations}
         if patch or resource_version:
             if resource_version is not None:
                 metadata['resource_version'] = resource_version
-            body = k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata))
-            return self.retry(self._api.patch_namespaced_config_map, name, self._namespace, body)
+            func = functools.partial(self._api.patch_namespaced_config_map, name)
         else:
-            body = k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata))
-            return self.retry(self._api.create_namespaced_config_map, self._namespace, body)
+            func = functools.partial(self._api.create_namespaced_config_map)
+
+        body = k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata))
+        return self.retry(func, self._namespace, body) if retry else func(self._namespace, body)
 
     def _write_leader_optime(self, last_operation):
         """Unused"""
@@ -175,16 +177,16 @@ class Kubernetes(AbstractDCS):
     def manual_failover(self, leader, candidate, scheduled_at=None, index=None):
         annotations = self.failover_state(leader, candidate, scheduled_at)
         patch = bool(index or self.cluster and self.cluster.failover and self.cluster.failover.index)
-        return self.patch_or_create(self.failover_path, annotations, index, patch)
+        return self.patch_or_create(self.failover_path, annotations, index, patch, False)
 
     def set_config_value(self, value, index=None):
         patch = bool(index or self.cluster and self.cluster.config and self.cluster.config.index)
-        return self.patch_or_create(self.config_path, {self._CONFIG: value}, index, patch)
+        return self.patch_or_create(self.config_path, {self._CONFIG: value}, index, patch, False)
 
     def touch_member(self, data, ttl=None, permanent=False):
         metadata = k8s_client.V1ObjectMeta(namespace=self._namespace, name=self._name, annotations={'status': data})
         body = k8s_client.V1Pod(metadata=metadata)
-        return self.retry(self._api.patch_namespaced_pod, self._name, self._namespace, body)
+        return self._api.patch_namespaced_pod(self._name, self._namespace, body)
 
     def initialize(self, create_new=True, sysid=""):
         cluster = self.cluster
@@ -193,7 +195,7 @@ class Kubernetes(AbstractDCS):
 
     def delete_leader(self):
         if self.cluster and isinstance(self.cluster.leader, Leader) and self.cluster.leader.name == self._name:
-            self.patch_or_create(self.leader_path, {self._LEADER: None}, self._leader_resource_version, True)
+            self.patch_or_create(self.leader_path, {self._LEADER: None}, self._leader_resource_version, True, False)
 
     def cancel_initialization(self):
         self.patch_or_create(self.config_path, {self._INITIALIZE: None}, self.cluster.config.index, True)
@@ -206,7 +208,7 @@ class Kubernetes(AbstractDCS):
         """Unused"""
 
     def write_sync_state(self, leader, sync_standby, index=None):
-        return self.patch_or_create(self.sync_path, self.sync_state(leader, sync_standby), index)
+        return self.patch_or_create(self.sync_path, self.sync_state(leader, sync_standby), index, False)
 
     def delete_sync_state(self, index=None):
         self.write_sync_state('', '', index)
