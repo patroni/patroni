@@ -2,18 +2,75 @@ from __future__ import absolute_import
 import datetime
 import functools
 import logging
+import socket
 import time
 
 from kubernetes import client as k8s_client, config as k8s_config, watch as k8s_watch
 from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState
 from patroni.exceptions import DCSError
-from patroni.utils import tzutc
+from patroni.utils import tzutc, Retry, RetryFailedError
+from urllib3.exceptions import HTTPError
+from six.moves.http_client import HTTPException
 
 logger = logging.getLogger(__name__)
 
 
 class KubernetesError(DCSError):
     pass
+
+
+class KubernetesRetriableException(k8s_client.rest.ApiException):
+
+    def __init__(self, orig):
+        super(KubernetesRetriableException, self).__init__(orig.status, orig.reason)
+        self.body = orig.body
+        self.headers = orig.headers
+
+
+class CoreV1Api(k8s_client.CoreV1Api):
+
+    def __init__(self, *args, **kwargs):
+        super(CoreV1Api, self).__init__(*args, **kwargs)
+        self._request_timeout = None
+
+    def set_timeout(self, timeout):
+        self._request_timeout = (1, timeout/3.0)
+
+    def _wrap(func):
+        def wrapper(self, *args, **kwargs):
+            if '_request_timeout' not in kwargs:
+                kwargs['_request_timeout'] = self._request_timeout
+            try:
+                return func(self, *args, **kwargs)
+            except k8s_client.rest.ApiException as e:
+                if e.status in (502, 503, 504):  # XXX
+                    raise KubernetesRetriableException(e)
+                raise
+        return wrapper
+
+    @_wrap
+    def list_namespaced_config_map(self, *args, **kwargs):
+        return super(CoreV1Api, self).list_namespaced_config_map(*args, **kwargs)
+
+    @_wrap
+    def list_namespaced_pod(self, *args, **kwargs):
+        return super(CoreV1Api, self).list_namespaced_pod(*args, **kwargs)
+
+    @_wrap
+    def delete_collection_namespaced_config_map(self, *args, **kwargs):
+        return super(CoreV1Api, self).delete_collection_namespaced_config_map(*args, **kwargs)
+
+    @_wrap
+    def patch_namespaced_pod(self, *args, **kwargs):
+        return super(CoreV1Api, self).patch_namespaced_pod(*args, **kwargs)
+
+    @_wrap
+    def patch_namespaced_config_map(self, *args, **kwargs):
+        return super(CoreV1Api, self).patch_namespaced_config_map(*args, **kwargs)
+
+    @_wrap
+    def create_namespaced_config_map(self, *args, **kwargs):
+        return super(CoreV1Api, self).create_namespaced_config_map(*args, **kwargs)
 
 
 class Kubernetes(AbstractDCS):
@@ -24,10 +81,13 @@ class Kubernetes(AbstractDCS):
         self._namespace = config.get('namespace') or 'default'
         config['namespace'] = ''
         super(Kubernetes, self).__init__(config)
+        self._retry = Retry(deadline=config['retry_timeout'], max_delay=1, max_tries=-1,
+                            retry_exceptions=(KubernetesRetriableException, HTTPException,
+                                              HTTPError, socket.error, socket.timeout))
         self._ttl = None
 #        k8s_config.load_incluster_config()
         k8s_config.load_kube_config(context='local')
-        self._api = k8s_client.CoreV1Api()
+        self._api = CoreV1Api()
         self.set_retry_timeout(config['retry_timeout'])
         self.set_ttl(config.get('ttl') or 30)
         self._leader_observed_record = {}
@@ -35,9 +95,17 @@ class Kubernetes(AbstractDCS):
         self._leader_resource_version = None
         self.__do_not_watch = False
 
-    def retry(self, func, *args, **kwargs):
-        ret = func(*args, **kwargs)
-        return ret
+    def retry(self, *args, **kwargs):
+        return self._retry.copy()(*args, **kwargs)
+
+    def catch_kubernetes_errors(func):
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except (RetryFailedError, k8s_client.rest.ApiException,
+                    HTTPException, HTTPError, socket.error, socket.timeout):
+                return False
+        return wrapper
 
     def client_path(self, path):
         return super(Kubernetes, self).client_path(path)[1:].replace('/', '-')
@@ -48,7 +116,8 @@ class Kubernetes(AbstractDCS):
         self._ttl = ttl
 
     def set_retry_timeout(self, retry_timeout):
-        pass
+        self._retry.deadline = retry_timeout
+        self._api.set_timeout(retry_timeout)
 
     @staticmethod
     def member(pod):
@@ -117,6 +186,7 @@ class Kubernetes(AbstractDCS):
             logger.exception('get_cluster')
             raise KubernetesError('Kubernetes API is not responding properly')
 
+    @catch_kubernetes_errors
     def patch_or_create(self, name, annotations, resource_version=None, patch=False, retry=True):
         metadata = {'namespace': self._namespace, 'name': name, 'labels': self._labels, 'annotations': annotations}
         if patch or resource_version:
@@ -166,6 +236,8 @@ class Kubernetes(AbstractDCS):
         ret = self.patch_or_create(self.leader_path, annotations, self._leader_resource_version)
         if ret:
             self._leader_resource_version = ret.metadata.resource_version
+        else:
+            logger.info('Could not take out TTL lock')
         return ret
 
     def take_leader(self):
@@ -183,6 +255,7 @@ class Kubernetes(AbstractDCS):
         patch = bool(index or self.cluster and self.cluster.config and self.cluster.config.index)
         return self.patch_or_create(self.config_path, {self._CONFIG: value}, index, patch, False)
 
+    @catch_kubernetes_errors
     def touch_member(self, data, ttl=None, permanent=False):
         metadata = k8s_client.V1ObjectMeta(namespace=self._namespace, name=self._name, annotations={'status': data})
         body = k8s_client.V1Pod(metadata=metadata)
@@ -200,6 +273,7 @@ class Kubernetes(AbstractDCS):
     def cancel_initialization(self):
         self.patch_or_create(self.config_path, {self._INITIALIZE: None}, self.cluster.config.index, True)
 
+    @catch_kubernetes_errors
     def delete_cluster(self):
         self.retry(self._api.delete_collection_namespaced_config_map,
                    self._namespace, label_selector=self._label_selector)
@@ -211,7 +285,7 @@ class Kubernetes(AbstractDCS):
         return self.patch_or_create(self.sync_path, self.sync_state(leader, sync_standby), index, False)
 
     def delete_sync_state(self, index=None):
-        self.write_sync_state('', '', index)
+        return self.write_sync_state('', '', index)
 
     def watch(self, leader_index, timeout):
         if self.__do_not_watch:
@@ -225,8 +299,9 @@ class Kubernetes(AbstractDCS):
                 try:
                     for event in w.stream(self._api.list_namespaced_config_map, self._namespace,
                                           resource_version=leader_index, timeout_seconds=int(timeout + 0.5),
-                                          field_selector='metadata.name=' + self.leader_path):
-                        return event['object'].metadata.resource_version != leader_index
+                                          field_selector='metadata.name=' + self.leader_path,
+                                          _request_timeout=(1, timeout + 1)):
+                        return event['object']['metadata']['resourceVersion'] != leader_index
                     return False
                 except:
                     logging.exception('watch')
