@@ -121,14 +121,14 @@ def setup_package():
     version = os.getenv('GO_PIPELINE_LABEL', VERSION)
 
     install_requires = []
-    extras_require = {'aws': ['boto'], 'etcd': ['python-etcd'], 'consul': ['python-consul'],
-                      'kubernetes': ['kubernetes'], 'exhibitor': ['kazoo'], 'zookeeper': ['kazoo']}
+    extras_require = {'aws': ['boto'], 'etcd': ['python-etcd'], 'consul': ['python-consul'], 'exhibitor': ['kazoo'],
+                      'zookeeper': ['kazoo'], 'kubernetes': ['kubernetes', 'urllib3>=1.19.1,!=1.21']}
 
     for r in get_install_requirements('requirements.txt'):
         extra = False
         for e, v in extras_require.items():
             if r.startswith(v[0]):
-                extras_require[e] = [r]
+                extras_require[e] = [r] + v[1:]
                 extra = True
         if not extra:
             install_requires.append(r)

@@ -85,8 +85,10 @@ class Kubernetes(AbstractDCS):
                             retry_exceptions=(KubernetesRetriableException, HTTPException,
                                               HTTPError, socket.error, socket.timeout))
         self._ttl = None
-#        k8s_config.load_incluster_config()
-        k8s_config.load_kube_config(context='local')
+        try:
+            k8s_config.load_incluster_config()
+        except k8s_config.ConfigException:
+            k8s_config.load_kube_config(context='local')
         self._api = CoreV1Api()
         self.set_retry_timeout(config['retry_timeout'])
         self.set_ttl(config.get('ttl') or 30)
