@@ -23,10 +23,10 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     && apt-get clean -y \
     && rm -rf /var/lib/apt/lists/* /root/.cache
 
-ADD entrypoint.sh /
+ADD entrypoint.sh callback.py /
 
 EXPOSE 5432 8008
 ENV LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
 USER postgres
 WORKDIR /home/postgres
-ENTRYPOINT "/entrypoint.sh"
+CMD ["/bin/bash", "/entrypoint.sh"]

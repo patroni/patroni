@@ -17,8 +17,14 @@ postgresql:
       password: '${PATRONI_SUPERUSER_PASSWORD}'
     replication:
       password: '${PATRONI_REPLICATION_PASSWORD}'
+  callbacks:
+    on_start: /callback.py
+    on_stop: /callback.py
+    on_role_change: /callback.py
 __EOF__
 
 unset PATRONI_SUPERUSER_PASSWORD PATRONI_REPLICATION_PASSWORD
+export KUBERNETES_NAMESPACE=$PATRONI_KUBERNETES_NAMESPACE
+export POD_NAME=$PATRONI_NAME
 
-exec patroni /home/postgres/patroni.yml
+exec /usr/bin/python /usr/local/bin/patroni /home/postgres/patroni.yml
