@@ -49,6 +49,7 @@ class TestConfig(unittest.TestCase):
             'PATRONI_ETCD_CERT': '/cert',
             'PATRONI_ETCD_KEY': '/key',
             'PATRONI_CONSUL_HOST': '127.0.0.1:8500',
+            'PATRONI_KUBERNETES_LABELS': 'a:b:c',
             'PATRONI_ZOOKEEPER_HOSTS': "'host1:2181','host2:2181'",
             'PATRONI_EXHIBITOR_HOSTS': 'host1,host2',
             'PATRONI_EXHIBITOR_PORT': '8181',
