@@ -121,8 +121,8 @@ def setup_package():
     version = os.getenv('GO_PIPELINE_LABEL', VERSION)
 
     install_requires = []
-    extras_require = {'etcd': ['python-etcd'], 'consul': ['python-consul'], 'kubernetes': ['kubernetes'],
-                      'exhibitor': ['kazoo'], 'zookeeper': ['kazoo']}
+    extras_require = {'aws': ['boto'], 'etcd': ['python-etcd'], 'consul': ['python-consul'],
+                      'kubernetes': ['kubernetes'], 'exhibitor': ['kazoo'], 'zookeeper': ['kazoo']}
 
     for r in get_install_requirements('requirements.txt'):
         extra = False
@@ -157,9 +157,8 @@ def setup_package():
         package_data={MAIN_PACKAGE: ["*.json"]},
         install_requires=install_requires,
         extras_require=extras_require,
-        setup_requires=['flake8'],
         cmdclass=cmdclass,
-        tests_require=['mock>=2.0.0', 'pytest-cov', 'pytest'],
+        tests_require=['flake8', 'mock>=2.0.0', 'pytest-cov', 'pytest'],
         command_options=command_options,
         entry_points={'console_scripts': CONSOLE_SCRIPTS},
     )
