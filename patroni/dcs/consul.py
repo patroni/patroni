@@ -245,12 +245,14 @@ class Consul(AbstractDCS):
         return False
 
     @catch_consul_errors
+    def _do_attempt_to_acquire_leader(self, kwargs):
+        return self.retry(self._client.kv.put, self.leader_path, self._name, **kwargs)
+
     def attempt_to_acquire_leader(self, permanent=False):
         if not self._session and not permanent:
             self.refresh_session()
 
-        args = {} if permanent else {'acquire': self._session}
-        ret = self.retry(self._client.kv.put, self.leader_path, self._name, **args)
+        ret = self._do_attempt_to_acquire_leader({} if permanent else {'acquire': self._session})
         if not ret:
             logger.info('Could not take out TTL lock')
         return ret
