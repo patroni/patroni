@@ -1663,12 +1663,13 @@ $$""".format(name, ' '.join(options)), name, password, password)
         :returns tuple of candidate name or None, and bool showing if the member is the active synchronous standby.
         """
         current = cluster.sync.sync_standby
-        members = {m.name: m for m in cluster.members}
+        current = current.lower() if current else current
+        members = {m.name.lower(): m for m in cluster.members}
         candidates = []
         # Pick candidates based on who has flushed WAL farthest.
         # TODO: for synchronous_commit = remote_write we actually want to order on write_location
         for app_name, state, sync_state in self.query(
-                """SELECT application_name, state, sync_state
+                """SELECT LOWER(application_name), state, sync_state
                      FROM pg_stat_replication
                     ORDER BY flush_{0} DESC""".format(self.lsn_name)):
             member = members.get(app_name)
