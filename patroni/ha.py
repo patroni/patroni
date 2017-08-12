@@ -184,7 +184,10 @@ class Ha(object):
             if timeout == 0:
                 # We are requested to prefer failing over to restarting master. But see first if there
                 # is anyone to fail over to.
-                if self.is_failover_possible(self.cluster.members):
+                members = self.cluster.members
+                if self.is_synchronous_mode():
+                    members = [m for m in members if self.cluster.sync.matches(m.name)]
+                if self.is_failover_possible(members):
                     logger.info("Master crashed. Failing over.")
                     self.demote('immediate')
                     return 'stopped PostgreSQL to fail over after a crash'
@@ -249,10 +252,10 @@ class Ha(object):
         return follow_reason
 
     def is_synchronous_mode(self):
-        return bool(self.cluster and self.cluster.config and self.cluster.config.data.get('synchronous_mode'))
+        return bool(self.cluster and self.cluster.is_synchronous_mode())
 
     def is_synchronous_mode_strict(self):
-        return bool(self.cluster and self.cluster.config and self.cluster.config.data.get('synchronous_mode_strict'))
+        return bool(self.cluster and self.cluster.is_synchronous_mode_strict())
 
     def process_sync_replication(self):
         """Process synchronous standby beahvior.
@@ -549,8 +552,8 @@ class Ha(object):
         self.state_handler.set_role('demoted')
 
         if mode_control['release']:
-                self.release_leader_key_voluntarily()
-                time.sleep(2)  # Give a time to somebody to take the leader lock
+            self.release_leader_key_voluntarily()
+            time.sleep(2)  # Give a time to somebody to take the leader lock
         if mode_control['offline']:
             node_to_follow, leader = None, None
         else:
@@ -564,6 +567,8 @@ class Ha(object):
             self._async_executor.schedule('starting after demotion')
             self._async_executor.run_async(self.state_handler.follow, (node_to_follow,))
         else:
+            if self.is_synchronous_mode():
+                self.state_handler.set_synchronous_standby(None)
             if self.state_handler.rewind_needed_and_possible(leader):
                 return False  # do not start postgres, but run pg_rewind on the next iteration
             self.state_handler.follow(node_to_follow)
@@ -622,8 +627,16 @@ class Ha(object):
                 if not failover.candidate and self.is_paused():
                     logger.warning('Failover is possible only to a specific candidate in a paused state')
                 else:
-                    members = [m for m in self.cluster.members
-                               if not failover.candidate or m.name == failover.candidate]
+                    if self.is_synchronous_mode():
+                        if failover.candidate and not self.cluster.sync.matches(failover.candidate):
+                            logger.warning('Failover candidate=%s does not match with sync_standby=%s',
+                                           failover.candidate, self.cluster.sync.sync_standby)
+                            members = []
+                        else:
+                            members = [m for m in self.cluster.members if self.cluster.sync.matches(m.name)]
+                    else:
+                        members = [m for m in self.cluster.members
+                                   if not failover.candidate or m.name == failover.candidate]
                     if self.is_failover_possible(members):  # check that there are healthy members
                         self._async_executor.schedule('manual failover: demote')
                         self._async_executor.run_async(self.demote, ('graceful',))

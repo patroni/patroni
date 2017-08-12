@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from patroni import call_self
 from patroni.callback_executor import CallbackExecutor
 from patroni.exceptions import PostgresConnectionException
-from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, null_context
+from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop
 from six import string_types
 from six.moves.urllib.parse import quote_plus
 from threading import current_thread, Lock
@@ -42,6 +42,12 @@ STOP_SIGNALS = {
 }
 STOP_POLLING_INTERVAL = 1
 REWIND_STATUS = type('Enum', (), {'INITIAL': 0, 'CHECK': 1, 'NEED': 2, 'NOT_NEED': 3, 'SUCCESS': 4, 'FAILED': 5})
+sync_standby_name_re = re.compile('^[A-Za-z_][A-Za-z_0-9\$]*$')
+
+
+def quote_ident(value):
+    """Very simplified version of quote_ident"""
+    return value if sync_standby_name_re.match(value) else '"' + value + '"'
 
 
 def slot_name_from_member_name(member_name):
@@ -58,6 +64,11 @@ def slot_name_from_member_name(member_name):
 
     slot_name = re.sub('[^a-z0-9_]', replace_char, member_name.lower())
     return slot_name[0:63]
+
+
+@contextmanager
+def null_context():
+    yield
 
 
 class Postgresql(object):
@@ -1677,14 +1688,17 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
     def set_synchronous_standby(self, name):
         """Sets a node to be synchronous standby and if changed does a reload for PostgreSQL."""
+        if name and name != '*':
+            name = quote_ident(name)
         if name != self._synchronous_standby_names:
             if name is None:
                 self._server_parameters.pop('synchronous_standby_names', None)
             else:
                 self._server_parameters['synchronous_standby_names'] = name
             self._synchronous_standby_names = name
-            self._write_postgresql_conf()
-            self.reload()
+            if self.state == 'running':
+                self._write_postgresql_conf()
+                self.reload()
 
     @staticmethod
     def postgres_version_to_int(pg_version):
