@@ -69,6 +69,10 @@ class TestConsul(unittest.TestCase):
     @patch.object(consul.Consul.KV, 'get', kv_get)
     @patch.object(consul.Consul.KV, 'delete', Mock())
     def setUp(self):
+        Consul({'ttl': 30, 'scope': 't', 'name': 'p', 'url': 'https://l:1', 'retry_timeout': 10,
+                'verify': 'on', 'key': 'foo', 'cert': 'bar', 'cacert': 'buz'})
+        Consul({'ttl': 30, 'scope': 't', 'name': 'p', 'url': 'https://l:1', 'retry_timeout': 10,
+                'verify': 'on', 'cert': 'bar', 'cacert': 'buz'})
         self.c = Consul({'ttl': 30, 'scope': 'test', 'name': 'postgresql1', 'host': 'localhost:1', 'retry_timeout': 10})
         self.c._base_path = '/service/good'
         self.c._load_cluster()
