@@ -37,6 +37,7 @@ class CoreV1Api(k8s_client.CoreV1Api):
         self._request_timeout = (1, timeout/3.0)
 
     def _wrap(func):
+        @functools.wraps(func)
         def wrapper(self, *args, **kwargs):
             if '_request_timeout' not in kwargs:
                 kwargs['_request_timeout'] = self._request_timeout
@@ -101,9 +102,10 @@ class Kubernetes(AbstractDCS):
         return self._retry.copy()(*args, **kwargs)
 
     def catch_kubernetes_errors(func):
-        def wrapper(self, *args, **kwargs):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
             try:
-                return func(self, *args, **kwargs)
+                return func(*args, **kwargs)
             except (RetryFailedError, k8s_client.rest.ApiException,
                     HTTPException, HTTPError, socket.error, socket.timeout):
                 return False
@@ -249,9 +251,9 @@ class Kubernetes(AbstractDCS):
         """Unused"""
 
     def manual_failover(self, leader, candidate, scheduled_at=None, index=None):
-        annotations = self.failover_state(leader, candidate, scheduled_at)
-        patch = bool(index or self.cluster and self.cluster.failover and self.cluster.failover.index)
-        return self.patch_or_create(self.failover_path, annotations, index, patch, False)
+        annotations = {'leader': leader or None, 'member': candidate or None, 'scheduled_at': scheduled_at}
+        patch = bool(self.cluster and isinstance(self.cluster.failover, Failover) and self.cluster.failover.index)
+        return self.patch_or_create(self.failover_path, annotations, index, bool(index or patch), False)
 
     def set_config_value(self, value, index=None):
         patch = bool(index or self.cluster and self.cluster.config and self.cluster.config.index)
@@ -305,7 +307,9 @@ class Kubernetes(AbstractDCS):
                                           _request_timeout=(1, timeout + 1)):
                         return event['object']['metadata']['resourceVersion'] != leader_index
                     return False
-                except:
+                except KeyboardInterrupt:
+                    raise
+                except Exception:
                     logging.exception('watch')
 
                 timeout = end_time - time.time()

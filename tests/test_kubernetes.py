@@ -83,6 +83,8 @@ class TestKubernetes(unittest.TestCase):
         self.k.watch(None, 0)
         self.k.watch(None, 0)
         with patch.object(k8s_watch.Watch, 'stream',
-                          Mock(side_effect=[Exception, [], [{'object': {'metadata': {'resourceVersion': '2'}}}]])):
+                          Mock(side_effect=[Exception, [], KeyboardInterrupt,
+                                            [{'object': {'metadata': {'resourceVersion': '2'}}}]])):
             self.assertFalse(self.k.watch('1', 2))
+            self.assertRaises(KeyboardInterrupt, self.k.watch, '1', 2)
             self.assertTrue(self.k.watch('1', 2))
