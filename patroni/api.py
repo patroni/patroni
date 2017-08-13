@@ -382,6 +382,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     def get_postgresql_status(self, retry=False):
         try:
+            if self.server.patroni.postgresql.state not in ('running', 'restarting', 'starting'):
+                raise RetryFailedError('')
             row = self.query("""WITH replication_info AS (
                                     SELECT usename, application_name, client_addr, state, sync_state, sync_priority
                                       FROM pg_stat_replication

@@ -342,14 +342,13 @@ class Ha(object):
                 self._disable_sync -= 1
 
     def enforce_master_role(self, message, promote_message):
-        if not self.watchdog.is_running:
-            if not self.watchdog.activate():
-                if self.state_handler.is_leader():
-                    self.demote('immediate')
-                    return 'Demoting self because watchdog could not be activated'
-                else:
-                    self.release_leader_key_voluntarily()
-                    return 'Not promoting self because watchdog could not be actived'
+        if not self.is_paused() and not self.watchdog.is_running and not self.watchdog.activate():
+            if self.state_handler.is_leader():
+                self.demote('immediate')
+                return 'Demoting self because watchdog could not be activated'
+            else:
+                self.release_leader_key_voluntarily()
+                return 'Not promoting self because watchdog could not be activated'
 
         if self.state_handler.is_leader() or self.state_handler.role == 'master':
             # Inform the state handler about its master role.
@@ -926,6 +925,8 @@ class Ha(object):
         # Check if we are in startup, when paused defer to main loop for manual failovers.
         if not self.state_handler.check_for_startup() or self.is_paused():
             self.set_start_timeout(None)
+            if self.is_paused():
+                self.state_handler.set_state(self.state_handler.is_running() and 'running' or 'stopped')
             return None
 
         # state_handler.state == 'starting' here

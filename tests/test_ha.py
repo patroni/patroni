@@ -246,7 +246,7 @@ class TestHa(unittest.TestCase):
         with patch.object(Watchdog, 'activate', Mock(return_value=False)):
             self.assertEquals(self.ha.run_cycle(), 'Demoting self because watchdog could not be activated')
             self.p.is_leader = false
-            self.assertEquals(self.ha.run_cycle(), 'Not promoting self because watchdog could not be actived')
+            self.assertEquals(self.ha.run_cycle(), 'Not promoting self because watchdog could not be activated')
 
     def test_leader_with_lock(self):
         self.ha.cluster.is_unlocked = false
