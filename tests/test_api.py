@@ -3,7 +3,7 @@ import json
 import psycopg2
 import unittest
 
-from mock import Mock, patch
+from mock import Mock, PropertyMock, patch
 from patroni.api import RestApiHandler, RestApiServer
 from patroni.dcs import ClusterConfig, Member
 from patroni.ha import _MemberStatus
@@ -152,6 +152,7 @@ class TestRestApiHandler(unittest.TestCase):
     def test_do_OPTIONS(self):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'OPTIONS / HTTP/1.0'))
 
+    @patch.object(MockPostgresql, 'state', PropertyMock(return_value='stopped'))
     def test_do_GET_patroni(self):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /patroni'))
 
