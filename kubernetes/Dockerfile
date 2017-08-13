@@ -13,7 +13,7 @@ RUN export DEBIAN_FRONTEND=noninteractive \
 
     && pip install setuptools pip --upgrade \
     && pip install 'git+https://github.com/zalando/patroni.git@feature/k8s#egg=patroni[kubernetes]' \
-    
+
     && mkdir -p /home/postgres \
     && chown postgres:postgres /home/postgres \
 

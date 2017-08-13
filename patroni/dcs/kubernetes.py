@@ -101,9 +101,9 @@ class Kubernetes(AbstractDCS):
         return self._retry.copy()(*args, **kwargs)
 
     def catch_kubernetes_errors(func):
-        def wrapper(*args, **kwargs):
+        def wrapper(self, *args, **kwargs):
             try:
-                return func(*args, **kwargs)
+                return func(self, *args, **kwargs)
             except (RetryFailedError, k8s_client.rest.ApiException,
                     HTTPException, HTTPError, socket.error, socket.timeout):
                 return False
@@ -184,7 +184,7 @@ class Kubernetes(AbstractDCS):
             sync = SyncState.from_node(metadata and metadata.resource_version,  metadata and metadata.annotations)
 
             self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync)
-        except:
+        except Exception:
             logger.exception('get_cluster')
             raise KubernetesError('Kubernetes API is not responding properly')
 
