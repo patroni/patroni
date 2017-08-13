@@ -10,7 +10,8 @@ Feature: watchdog
   Scenario: watchdog is disabled during pause
     Given I run patronictl.py pause batman
     Then I receive a response returncode 0
-    And postgres0 watchdog has been closed
+    When I sleep for 2 seconds
+    Then postgres0 watchdog has been closed
 
   Scenario: watchdog is opened and pinged after resume
     Given I run patronictl.py resume batman
