@@ -362,7 +362,7 @@ class Ha(object):
                     # Somebody else updated sync state, it may be due to us losing the lock. To be safe, postpone
                     # promotion until next cycle. TODO: trigger immediate retry of run_cycle
                     return 'Postponing promotion because synchronous replication state was updated by somebody else'
-                self.state_handler.set_synchronous_standby(None)
+                self.state_handler.set_synchronous_standby('*' if self.is_synchronous_mode_strict() else None)
             self.state_handler.promote()
             return promote_message
 
