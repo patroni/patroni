@@ -328,6 +328,12 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
     def is_paused(self):
         return self.config and self.config.data.get('pause', False) or False
 
+    def is_synchronous_mode(self):
+        return bool(self.config and self.config.data.get('synchronous_mode'))
+
+    def is_synchronous_mode_strict(self):
+        return bool(self.config and self.config.data.get('synchronous_mode_strict'))
+
 
 @six.add_metaclass(abc.ABCMeta)
 class AbstractDCS(object):

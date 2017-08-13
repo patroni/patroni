@@ -280,6 +280,7 @@ class TestRestApiHandler(unittest.TestCase):
     def test_do_POST_failover(self, dcs):
         dcs.loop_wait = 10
         cluster = dcs.get_cluster.return_value
+        cluster.is_synchronous_mode.return_value = False
 
         post = 'POST /failover HTTP/1.0' + self._authorization + '\nContent-Length: '
 
@@ -291,14 +292,16 @@ class TestRestApiHandler(unittest.TestCase):
         cluster.leader.name = 'postgresql1'
         MockRestApiServer(RestApiHandler, request)
 
-        MockRestApiServer(RestApiHandler, post + '25\n\n{"leader": "postgresql1"}')
+        for cluster.is_synchronous_mode.return_value in (True, False):
+            MockRestApiServer(RestApiHandler, post + '25\n\n{"leader": "postgresql1"}')
 
         cluster.leader.name = 'postgresql2'
         request = post + '53\n\n{"leader": "postgresql1", "candidate": "postgresql2"}'
         MockRestApiServer(RestApiHandler, request)
 
         cluster.leader.name = 'postgresql1'
-        MockRestApiServer(RestApiHandler, request)
+        for cluster.is_synchronous_mode.return_value in (True, False):
+            MockRestApiServer(RestApiHandler, request)
 
         cluster.members = [Member(0, 'postgresql0', 30, {'api_url': 'http'}),
                            Member(0, 'postgresql2', 30, {'api_url': 'http'})]
