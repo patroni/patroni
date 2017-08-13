@@ -202,7 +202,8 @@ class Watchdog(object):
     @synchronized
     def keepalive(self):
         try:
-            self.impl.keepalive()
+            if self.active:
+                self.impl.keepalive()
             # In case there are any pending configuration changes apply them now.
             if self.active and self.config != self.active_config:
                 if self.config.mode != MODE_OFF and self.active_config.mode == MODE_OFF:
