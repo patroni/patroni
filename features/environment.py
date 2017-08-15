@@ -497,8 +497,8 @@ class RaftController(AbstractDcsController):
     def _start(self):
         pass
 
-    def query(self, key):
-        ret = self._raft.get(self.path(key))
+    def query(self, key, scope='batman'):
+        ret = self._raft.get(self.path(key, scope))
         return ret and ret['value']
 
     def set(self, key, value):

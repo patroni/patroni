@@ -4,7 +4,7 @@ import time
 
 from mock import Mock, patch
 from patroni.dcs.raft import DynMemberSyncObj, KVStoreTTL, Raft
-from pysyncobj import SyncObjConf
+from pysyncobj import SyncObjConf, FAIL_REASON
 
 
 @patch('pysyncobj.tcp_server.TcpServer.bind', Mock())
@@ -16,9 +16,10 @@ class TestDynMemberSyncObj(unittest.TestCase):
         self.conf = SyncObjConf(appendEntriesUseBatch=False, dynamicMembershipChange=True, autoTick=False)
         self.so = DynMemberSyncObj('127.0.0.1:1234', ['127.0.0.1:1235'], self.conf)
 
-    @patch.object(DynMemberSyncObj, '_DynMemberSyncObj__utility_message',
-                  Mock(return_value=[{'addr': '127.0.0.1:1235'}, {'addr': '127.0.0.1:1236'}]))
-    def test_add_member(self):
+    @patch.object(DynMemberSyncObj, '_DynMemberSyncObj__utility_message')
+    def test_add_member(self, mock_utility_message):
+        mock_utility_message.return_value = [{'addr': '127.0.0.1:1235'}, {'addr': '127.0.0.1:1236'}]
+        mock_utility_message.replicated = False
         DynMemberSyncObj('127.0.0.1:1234', ['127.0.0.1:1235'], self.conf)
         self.conf.dynamicMembershipChange = False
         DynMemberSyncObj('127.0.0.1:1234', ['127.0.0.1:1235'], self.conf)
@@ -44,7 +45,9 @@ class TestKVStoreTTL(unittest.TestCase):
 
     def setUp(self):
         self.conf = SyncObjConf(appendEntriesUseBatch=False)
-        self.so = KVStoreTTL('127.0.0.1:1234', [], self.conf, on_set=Mock(), on_delete=Mock())
+        callback = Mock()
+        callback.replicated = False
+        self.so = KVStoreTTL('127.0.0.1:1234', [], self.conf, on_set=callback, on_delete=callback)
         self.so.set_retry_timeout(10)
 
     def tearDown(self):
@@ -71,6 +74,14 @@ class TestKVStoreTTL(unittest.TestCase):
         time.sleep(1)
         self.assertIsNone(self.so.get('foo'))
         self.assertEquals(self.so.get('foo', recursive=True), {})
+
+    @patch('time.sleep', Mock())
+    def test_retry(self):
+        return_values = [FAIL_REASON.QUEUE_FULL, FAIL_REASON.SUCCESS]
+
+        def test(callback):
+            callback(None, return_values.pop(0))
+        self.so.retry(test)
 
 
 class TestRaft(unittest.TestCase):
@@ -106,3 +117,9 @@ class TestRaft(unittest.TestCase):
 
     def setUp(self):
         self.tearDown()
+
+    @patch('patroni.dcs.raft.KVStoreTTL', Mock())
+    @patch('threading.Event')
+    def test_init(self, mock_event):
+        mock_event.return_value.isSet.side_effect = [False, True]
+        Raft({'ttl': 30, 'scope': 'test', 'name': 'pg', 'self_addr': '127.0.0.1:1234', 'retry_timeout': 10})
