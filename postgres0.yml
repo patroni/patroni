@@ -73,6 +73,7 @@ postgresql:
   connect_address: 127.0.0.1:5432
   data_dir: data/postgresql0
 #  bin_dir:
+#  config_dir:
   pgpass: /tmp/pgpass0
   authentication:
     replication:
@@ -83,6 +84,12 @@ postgresql:
       password: zalando
   parameters:
     unix_socket_directories: '.'
+
+#watchdog:
+#  mode: automatic # Allowed values: off, automatic, required
+#  device: /dev/watchdog
+#  safety_margin: 5
+
 tags:
     nofailover: false
     noloadbalance: false

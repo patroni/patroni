@@ -50,8 +50,8 @@ haproxy:
     links:
         - patroni_etcd:patroni_etcd
     ports:
-        - "5000"
-        - "5001"
+        - "5000:5000"
+        - "5001:5001"
     environment:
         PATRONI_ETCD_HOST: patroni_etcd:2379
         PATRONI_SCOPE: testcluster

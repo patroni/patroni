@@ -23,3 +23,7 @@ class DCSError(PatroniException):
 
 class PostgresConnectionException(PostgresException):
     pass
+
+
+class WatchdogError(PatroniException):
+    pass

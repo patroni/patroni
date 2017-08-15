@@ -1,5 +1,6 @@
 import etcd
 import json
+import urllib3.util.connection
 import requests
 import socket
 import unittest
@@ -58,8 +59,10 @@ def etcd_watch(self, key, index=None, timeout=None, recursive=None):
         raise etcd.EtcdWatchTimedOut
     elif timeout == 5.0:
         return etcd.EtcdResult('delete', {})
-    elif timeout == 10.0:
+    elif 5 < timeout <= 10.0:
         raise etcd.EtcdException
+    elif timeout == 20.0:
+        raise etcd.EtcdEventIndexCleared
 
 
 def etcd_write(self, key, value, **kwargs):
@@ -134,13 +137,13 @@ def socket_getaddrinfo(*args):
 
 
 def http_request(method, url, **kwargs):
-    if url in ('http://127.0.0.1:2379/timeout', 'http://[::1]:2379/timeout'):
+    if url == 'http://localhost:2379/timeout':
         raise ReadTimeoutError(None, None, None)
-    if url in ('http://127.0.0.1:2379/v2/machines', 'http://[::1]:2379/v2/machines'):
+    if url == 'http://localhost:2379/v2/machines':
         ret = MockResponse()
         ret.content = 'http://localhost:2379,http://localhost:4001'
         return ret
-    if url in ('http://127.0.0.1:2379/', 'http://[::1]:2379/'):
+    if url == 'http://localhost:2379/':
         return MockResponse()
     raise socket.error
 
@@ -151,7 +154,7 @@ class TestDnsCachingResolver(unittest.TestCase):
     @patch('socket.getaddrinfo', Mock(side_effect=socket.gaierror))
     def test_run(self):
         r = DnsCachingResolver()
-        self.assertIsNone(r.resolve_async(''))
+        self.assertIsNone(r.resolve_async('', 0))
         r.join()
 
 
@@ -166,7 +169,7 @@ class TestClient(unittest.TestCase):
     def setUp(self):
         with patch.object(Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://localhost:2379', 'http://localhost:4001'])
-            self.client = Client({'srv': 'test', 'retry_timeout': 3})
+            self.client = Client({'srv': 'test', 'retry_timeout': 3}, DnsCachingResolver())
             self.client.http.request = http_request
             self.client.http.request_encode_body = http_request
 
@@ -191,6 +194,9 @@ class TestClient(unittest.TestCase):
         self.assertRaises(ValueError, self.client.api_execute, '', '')
         self.client._base_uri = 'http://localhost:4001'
         self.client._machines_cache = ['http://localhost:2379']
+        self.client.api_execute('/', 'POST', timeout=0)
+        mock_machines.__get__ = Mock(return_value=['http://localhost:2379'])
+        self.client._machines_cache_updated = 0
         self.client.api_execute('/', 'POST', timeout=0)
         self.assertRaises(etcd.EtcdWatchTimedOut, self.client.api_execute, '/timeout', 'POST', params={'wait': 'true'})
         self.assertRaises(etcd.EtcdException, self.client.api_execute, '/', '')
@@ -217,6 +223,15 @@ class TestClient(unittest.TestCase):
         self.assertRaises(Exception, self.client._load_machines_cache)
         self.client._config = {'srv': 'blabla'}
         self.assertRaises(etcd.EtcdException, self.client._load_machines_cache)
+
+    @patch.object(socket.socket, 'connect')
+    def test_create_connection_patched(self, mock_connect):
+        self.assertRaises(socket.error, urllib3.util.connection.create_connection, ('fail', 2379))
+        urllib3.util.connection.create_connection(('[localhost]', 2379))
+        mock_connect.side_effect = socket.error
+        self.assertRaises(socket.error, urllib3.util.connection.create_connection, ('[localhost]', 2379),
+                          timeout=1, source_address=('localhost', 53333),
+                          socket_options=[(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)])
 
 
 @patch('requests.get', requests_get)
@@ -287,6 +302,7 @@ class TestEtcd(unittest.TestCase):
     def test_delete_cluster(self):
         self.assertFalse(self.etcd.delete_cluster())
 
+    @patch('time.sleep', Mock(side_effect=SleepException))
     @patch.object(etcd.Client, 'watch', etcd_watch)
     def test_watch(self):
         self.etcd.watch(None, 0)
@@ -294,7 +310,8 @@ class TestEtcd(unittest.TestCase):
         self.etcd.watch(20729, 1.5)
         self.etcd.watch(20729, 4.5)
         with patch.object(AbstractDCS, 'watch', Mock()):
-            self.etcd.watch(20729, 9.5)
+            self.assertTrue(self.etcd.watch(20729, 19.5))
+            self.assertRaises(SleepException, self.etcd.watch, 20729, 9.5)
 
     def test_other_exceptions(self):
         self.etcd.retry = Mock(side_effect=AttributeError('foo'))

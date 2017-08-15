@@ -15,6 +15,7 @@ Bootstrap configuration
 -  **dcs**: This section will be written into `/<namespace>/<scope>/config` of a given configuration store after initializing of new cluster. This is the global configuration for the cluster. If you want to change some parameters for all cluster nodes - just do it in DCS (or via Patroni API) and all nodes will apply this configuration.
     -  **loop\_wait**: the number of seconds the loop will sleep. Default value: 10
     -  **ttl**: the TTL to acquire the leader lock. Think of it as the length of time before initiation of the automatic failover process. Default value: 30
+    -  **retry\_timeout**: timeout for DCS and PostgreSQL operation retries. DCS or network issues shorter than this will not cause Patroni to demote the leader. Default value: 10
     -  **maximum\_lag\_on\_failover**: the maximum bytes a follower may lag to be able to participate in leader election.
     -  **master\_start\_timeout**: the amount of time a master is allowed to recover from failures before failover is triggered. Default is 300 seconds. When set to 0 failover is done immediately after a crash is detected if possible. When using asynchronous replication a failover can cause lost transactions. Best worst case failover time for master failure is: loop\_wait + master\_start\_timeout + loop\_wait, unless master\_start\_timeout is zero, in which case it's just loop\_wait. Set the value according to your durability/availability tradeoff.
     -  **synchronous\_mode**: turns on synchronous replication mode. In this mode a replica will be chosen as synchronous and only the latest leader and synchronous replica are able to participate in leader election. Synchronous mode makes sure that succesfully committed transactions will not be lost at failover, at the cost of losing availability for writes when Patroni cannot ensure transaction durability. See `replication modes documentation <https://github.com/zalando/patroni/blob/master/docs/replication_modes.rst>`__ for details.
@@ -23,6 +24,10 @@ Bootstrap configuration
         -  **use\_slots**: whether or not to use replication_slots. Must be False for PostgreSQL 9.3. You should comment out max_replication_slots before it becomes ineligible for leader status.
         -  **recovery\_conf**: additional configuration settings written to recovery.conf when configuring follower. 
         -  **parameters**: list of configuration settings for Postgres. Many of these are required for replication to work.
+-  **method**: custom script to use for bootstrpapping this cluster.
+   See :ref:`custom bootstrap methods documentation <custom_bootstrap>` for details.
+   When ``initdb`` is specified revert to the default ``initdb`` command. ``initdb`` is also triggered when no ``method``
+   parameter is present in the configuration file.
 -  **initdb**: List options to be passed on to initdb.
         -  **- data-checksums**: Must be enabled when pg_rewind is needed on 9.3.
         -  **- encoding: UTF8**: default encoding for new databases.
@@ -36,7 +41,7 @@ Bootstrap configuration
         -  **options**: list of options for CREATE USER statement
             -  **- createrole**
             -  **- createdb**
--  **post_init**: An additional script that will be executed after initializing the cluster. The script receives a connection string URL (with the cluster superuser as a user name). The PGPASSFILE variable is set to the location of pgpass file.
+-  **post\_bootstrap** or **post\_init**: An additional script that will be executed after initializing the cluster. The script receives a connection string URL (with the cluster superuser as a user name). The PGPASSFILE variable is set to the location of pgpass file.
 
 Consul
 ------
@@ -80,14 +85,21 @@ PostgreSQL
         -  **on\_start**: run this script when the cluster starts.
         -  **on\_stop**: run this script when the cluster stops.
 -  **connect\_address**: IP address + port through which Postgres is accessible from other nodes and applications.
--  **create\_replica\_methods**: an ordered list of the create methods for turning a Patroni node into a new replica. "basebackup" is the default method; other methods are assumed to refer to scripts, each of which is configured as its own config item.
+-  **create\_replica\_method**: an ordered list of the create methods for turning a Patroni node into a new replica.
+   "basebackup" is the default method; other methods are assumed to refer to scripts, each of which is configured as its
+   own config item. See :ref:`custom replica creation methods documentation <custom_replica_creation>` for further explanation.
 -  **data\_dir**: The location of the Postgres data directory, either existing or to be initialized by Patroni.
+-  **config\_dir**: The location of the Postgres configuration directory, defaults to the data directory. Must be writable by Patroni.
 -  **bin\_dir**: Path to PostgreSQL binaries. (pg_ctl, pg_rewind, pg_basebackup, postgres) The  default value is an empty string meaning that PATH environment variable will be used to find the executables.
 -  **listen**: IP address + port that Postgres listens to; must be accessible from other nodes in the cluster, if you're using streaming replication. Multiple comma-separated addresses are permitted, as long as the port component is appended after to the last one with a colon, i.e. ``listen: 127.0.0.1,127.0.0.2:5432``. Patroni will use the first address from this list to establish local connections to the PostgreSQL node.
+-  **use\_unix\_socket**: specifies that Patroni should prefer to use unix sockets to connect to the cluster. Default value is ``false``. If ``unix_socket_directories`` is definded, Patroni will use first suitable value from it to connect to the cluster and fallback to tcp if nothing is suitable. If ``unix_socket_directories`` is not specified in ``postgresql.parameters``, Patroni will assume that default value should be used and omit ``host`` from connection parameters.
 -  **pgpass**: path to the `.pgpass <https://www.postgresql.org/docs/current/static/libpq-pgpass.html>`__ password file. Patroni creates this file before executing pg\_basebackup, the post_init script and under some other circumstances. The location must be writable by Patroni.
 -  **recovery\_conf**: additional configuration settings written to recovery.conf when configuring follower.
--  **custom_conf** : path to an optional custom ``postgresql.conf`` file, that will be used in place of ``postgresql.base.conf``. The file must exist on all cluster nodes, be readable by PostgreSQL and will be included from its location on the real ``postgresql.conf``. Note that Patroni will not monitor this file for changes, nor backup it. However, its settings can still be overriden by Patroni's own configuration facilities - see `dynamic configuration <https://github.com/zalando/patroni/blob/master/docs/dynamic_configuration.rst>`__ for details.
+-  **custom\_conf** : path to an optional custom ``postgresql.conf`` file, that will be used in place of ``postgresql.base.conf``. The file must exist on all cluster nodes, be readable by PostgreSQL and will be included from its location on the real ``postgresql.conf``. Note that Patroni will not monitor this file for changes, nor backup it. However, its settings can still be overriden by Patroni's own configuration facilities - see `dynamic configuration <https://github.com/zalando/patroni/blob/master/docs/dynamic_configuration.rst>`__ for details.
 -  **parameters**: list of configuration settings for Postgres. Many of these are required for replication to work.
+-  **pg\_hba**: list of lines that Patroni will use to generate ``pg_hba.conf``. This parameter has higher priority than ``bootstrap.pg_hba``. Together with :ref:`dynamic configuration <dynamic_configuration>` it simplifies management of ``pg_hba.conf``.
+        -  **- host all all 0.0.0.0/0 md5**.
+        -  **- host replication replicator 127.0.0.1/32 md5**: A line like this is required for replication.
 -  **pg\_ctl\_timeout**: How long should pg_ctl wait when doing ``start``, ``stop`` or ``restart``. Default value is 60 seconds.
 -  **use\_pg\_rewind**: try to use pg\_rewind on the former leader when it joins cluster as a replica.
 -  **remove\_data\_directory\_on\_rewind\_failure**: If this option is enabled, Patroni will remove postgres data directory and recreate replica. Otherwise it will try to follow the new leader. Default value is **false**.
@@ -108,3 +120,9 @@ REST API
 ZooKeeper
 ----------
 -  **hosts**: list of ZooKeeper cluster members in format: ['host1:port1', 'host2:port2', 'etc...'].
+
+Watchdog
+--------
+- **mode**: ``off``, ``automatic`` or ``required``. When ``off`` watchdog is disabled. When ``automatic`` watchdog will be used if available, but ignored if it is not. When ``required`` the node will not become a leader unless watchdog can be succesfully enabled.
+- **device**: Path to watchdog device. Defaults to ``/dev/watchdog``.
+- **safety_margin**: Number of seconds of safety margin between watchdog triggering and leader key expiration.

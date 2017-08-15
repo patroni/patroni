@@ -22,7 +22,7 @@ __EOF__
 
 DOCKER_IP=$(hostname --ip-address)
 PATRONI_SCOPE=${PATRONI_SCOPE:-batman}
-ETCD_ARGS="--data-dir /tmp/etcd.data -advertise-client-urls=http://${DOCKER_IP}:2379 -listen-client-urls=http://0.0.0.0:2379 -listen-peer-urls=http://0.0.0.0:2380"
+ETCD_ARGS="--data-dir /tmp/etcd.data -advertise-client-urls=http://${DOCKER_IP}:2379 -listen-client-urls=http://0.0.0.0:2379"
 
 optspec=":vh-:"
 while getopts "$optspec" optchar; do

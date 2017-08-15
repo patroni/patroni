@@ -68,6 +68,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
             response['scheduled_restart'] = patroni.scheduled_restart.copy()
             del response['scheduled_restart']['postmaster_start_time']
             response['scheduled_restart']['schedule'] = (response['scheduled_restart']['schedule']).isoformat()
+        if not patroni.ha.watchdog.is_healthy:
+            response['watchdog_failed'] = True
         self._write_json_response(status_code, response)
 
     def do_GET(self, write_status_code_only=False):
@@ -298,8 +300,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
             members = [m for m in cluster.members if m.name != cluster.leader.name and m.api_url]
             if not members:
                 return 'failover is not possible: cluster does not have members except leader'
-        for _, reachable, _, _, tags in self.server.patroni.ha.fetch_nodes_statuses(members):
-            if reachable and not tags.get('nofailover', False):
+        for st in self.server.patroni.ha.fetch_nodes_statuses(members):
+            if st.failover_limitation() is None:
                 return None
         return 'failover is not possible: no good candidates have been found'
 
@@ -382,14 +384,16 @@ class RestApiHandler(BaseHTTPRequestHandler):
                                        pg_is_in_recovery(),
                                        CASE WHEN pg_is_in_recovery()
                                             THEN 0
-                                            ELSE pg_xlog_location_diff(pg_current_xlog_location(), '0/0')::bigint
+                                            ELSE pg_{0}_{1}_diff(pg_current_{0}_{1}(), '0/0')::bigint
                                        END,
-                                       pg_xlog_location_diff(COALESCE(pg_last_xlog_receive_location(),
-                                                                      pg_last_xlog_replay_location()), '0/0')::bigint,
-                                       pg_xlog_location_diff(pg_last_xlog_replay_location(), '0/0')::bigint,
+                                       pg_{0}_{1}_diff(COALESCE(pg_last_{0}_receive_{1}(),
+                                                                      pg_last_{0}_replay_{1}()), '0/0')::bigint,
+                                       pg_{0}_{1}_diff(pg_last_{0}_replay_{1}(), '0/0')::bigint,
                                        to_char(pg_last_xact_replay_timestamp(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),
-                                       pg_is_in_recovery() AND pg_is_xlog_replay_paused(),
-                                       (SELECT array_to_json(array_agg(row_to_json(ri))) FROM replication_info ri)""",
+                                       pg_is_in_recovery() AND pg_is_{0}_replay_paused(),
+                                       (SELECT array_to_json(array_agg(row_to_json(ri)))
+                                          FROM replication_info ri)""".format(self.server.patroni.postgresql.wal_name,
+                                                                              self.server.patroni.postgresql.lsn_name),
                              retry=retry)[0]
 
             result = {

@@ -6,6 +6,7 @@ import unittest
 from mock import Mock, patch
 from patroni.api import RestApiHandler, RestApiServer
 from patroni.dcs import ClusterConfig, Member
+from patroni.ha import _MemberStatus
 from patroni.utils import tzutc
 from six import BytesIO as IO
 from six.moves import BaseHTTPServer
@@ -25,6 +26,8 @@ class MockPostgresql(object):
     sysid = 'dummysysid'
     scope = 'dummy'
     pending_restart = True
+    wal_name = 'wal'
+    lsn_name = 'lsn'
 
     @staticmethod
     def connection():
@@ -35,9 +38,14 @@ class MockPostgresql(object):
         return str(postmaster_start_time)
 
 
+class MockWatchdog(object):
+    is_healthy = False
+
+
 class MockHa(object):
 
     state_handler = MockPostgresql()
+    watchdog = MockWatchdog()
 
     @staticmethod
     def reinitialize():
@@ -57,14 +65,14 @@ class MockHa(object):
 
     @staticmethod
     def fetch_nodes_statuses(members):
-        return [[None, True, None, None, {}]]
+        return [_MemberStatus(None, True, None, None, {}, False)]
 
     @staticmethod
     def schedule_future_restart(data):
         return True
 
     @staticmethod
-    def is_lagging(xlog):
+    def is_lagging(wal):
         return False
 
     @staticmethod
@@ -100,6 +108,9 @@ class MockRequest(object):
 
     def makefile(self, *args, **kwargs):
         return IO(self.request)
+
+    def sendall(self, *args, **kwargs):
+        pass
 
 
 class MockRestApiServer(RestApiServer):

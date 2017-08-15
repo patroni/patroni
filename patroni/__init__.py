@@ -16,12 +16,14 @@ class Patroni(object):
         from patroni.ha import Ha
         from patroni.postgresql import Postgresql
         from patroni.version import __version__
+        from patroni.watchdog import Watchdog
 
         self.setup_signal_handlers()
 
         self.version = __version__
         self.config = Config()
         self.dcs = get_dcs(self.config)
+        self.watchdog = Watchdog(self.config)
         self.load_dynamic_configuration()
 
         self.postgresql = Postgresql(self.config['postgresql'])
@@ -40,6 +42,7 @@ class Patroni(object):
                 if cluster and cluster.config:
                     if self.config.set_dynamic_configuration(cluster.config):
                         self.dcs.reload_config(self.config)
+                        self.watchdog.reload_config(self.config)
                 elif not self.config.dynamic_configuration and 'bootstrap' in self.config:
                     if self.config.set_dynamic_configuration(self.config['bootstrap']['dcs']):
                         self.dcs.reload_config(self.config)
@@ -63,6 +66,7 @@ class Patroni(object):
         try:
             self.tags = self.get_tags()
             self.dcs.reload_config(self.config)
+            self.watchdog.reload_config(self.config)
             self.api.reload_config(self.config['restapi'])
             self.postgresql.reload_config(self.config['postgresql'])
         except Exception:
@@ -113,7 +117,7 @@ class Patroni(object):
             if cluster and cluster.config and self.config.set_dynamic_configuration(cluster.config):
                 self.reload_config()
 
-            if not self.postgresql.data_directory_empty():
+            if self.postgresql.role != 'uninitialized':
                 self.config.save_cache()
 
             self.schedule_next_run()
@@ -123,6 +127,10 @@ class Patroni(object):
         self._received_sigterm = False
         signal.signal(signal.SIGHUP, self.sighup_handler)
         signal.signal(signal.SIGTERM, self.sigterm_handler)
+
+    def shutdown(self):
+        self.api.shutdown()
+        self.ha.shutdown()
 
 
 def patroni_main():
@@ -135,12 +143,7 @@ def patroni_main():
     except KeyboardInterrupt:
         pass
     finally:
-        patroni.api.shutdown()
-        if patroni.ha.is_paused():
-            logger.info('Leader key is not deleted and Postgresql is not stopped due paused state')
-        else:
-            patroni.ha.while_not_sync_standby(lambda: patroni.postgresql.stop(checkpoint=False))
-            patroni.dcs.delete_leader()
+        patroni.shutdown()
 
 
 def pg_ctl_start(args):

@@ -1,14 +1,18 @@
 import abc
 import consul
+import datetime
 import etcd
 import kazoo.client
 import kazoo.exceptions
 import os
+import psutil
 import psycopg2
 import shutil
+import signal
 import six
 import subprocess
 import tempfile
+import threading
 import time
 import yaml
 
@@ -74,18 +78,28 @@ class AbstractController(object):
         if self._log:
             self._log.close()
 
+    def cancel_background(self):
+        pass
+
 
 class PatroniController(AbstractController):
     __PORT = 5440
     PATRONI_CONFIG = '{}.yml'
     """ starts and stops individual patronis"""
 
-    def __init__(self, context, name, work_directory, output_dir, tags=None):
+    def __init__(self, context, name, work_directory, output_dir, custom_config=None):
         super(PatroniController, self).__init__(context, 'patroni_' + name, work_directory, output_dir)
         PatroniController.__PORT += 1
         self._data_dir = os.path.join(work_directory, 'data', name)
         self._connstring = None
-        self._config = self._make_patroni_test_config(name, tags)
+        if custom_config and 'watchdog' in custom_config:
+            self.watchdog = WatchdogMonitor(name, work_directory, output_dir)
+            custom_config['watchdog'] = {'driver': 'testing', 'device': self.watchdog.fifo_path, 'mode': 'required'}
+        else:
+            self.watchdog = None
+
+        self._config = self._make_patroni_test_config(name, custom_config)
+        self._closables = []
 
         self._conn = None
         self._curs = None
@@ -109,6 +123,8 @@ class PatroniController(AbstractController):
                 yaml.safe_dump(config, w, default_flow_style=False)
 
     def _start(self):
+        if self.watchdog:
+            self.watchdog.start()
         return subprocess.Popen(['coverage', 'run', '--source=patroni', '-p', 'patroni.py', self._config],
                                 stdout=self._log, stderr=subprocess.STDOUT, cwd=self._work_directory)
 
@@ -116,11 +132,16 @@ class PatroniController(AbstractController):
         if postgres:
             return subprocess.call(['pg_ctl', '-D', self._data_dir, 'stop', '-mi', '-w'])
         super(PatroniController, self).stop(kill, timeout)
+        if self.watchdog:
+            self.watchdog.stop()
 
     def _is_accessible(self):
-        return self.query("SELECT 1", fail_ok=True) is not None
+        cursor = self.query("SELECT 1", fail_ok=True)
+        if cursor is not None:
+            cursor.execute("SET synchronous_commit TO 'local'")
+            return True
 
-    def _make_patroni_test_config(self, name, tags):
+    def _make_patroni_test_config(self, name, custom_config):
         patroni_config_name = self.PATRONI_CONFIG.format(name)
         patroni_config_path = os.path.join(self._output_dir, patroni_config_name)
 
@@ -137,24 +158,37 @@ class PatroniController(AbstractController):
 
         config['postgresql']['listen'] = config['postgresql']['connect_address'] = '{0}:{1}'.format(host, self.__PORT)
 
+        config['name'] = name
+        config['postgresql']['data_dir'] = self._data_dir
+        config['postgresql']['use_unix_socket'] = True
+        config['postgresql']['parameters'].update({
+            'logging_collector': 'on', 'log_destination': 'csvlog', 'log_directory': self._output_dir,
+            'log_filename': name + '.log', 'log_statement': 'all', 'log_min_messages': 'debug1',
+            'unix_socket_directories': self._data_dir})
+
+        if 'bootstrap' in config:
+            config['bootstrap']['post_bootstrap'] = 'psql -w -c "SELECT 1"'
+            if 'initdb' in config['bootstrap']:
+                config['bootstrap']['initdb'].extend([{'auth': 'md5'}, {'auth-host': 'md5'}])
+
+        if custom_config is not None:
+            def recursive_update(dst, src):
+                for k, v in src.items():
+                    if k in dst and isinstance(dst[k], dict):
+                        recursive_update(dst[k], v)
+                    else:
+                        dst[k] = v
+            recursive_update(config, custom_config)
+
+        with open(patroni_config_path, 'w') as f:
+            yaml.safe_dump(config, f, default_flow_style=False)
+
         user = config['postgresql'].get('authentication', config['postgresql']).get('superuser', {})
         self._connkwargs = {k: user[n] for n, k in [('username', 'user'), ('password', 'password')] if n in user}
         self._connkwargs.update({'host': host, 'port': self.__PORT, 'database': 'postgres'})
 
-        config['name'] = name
-        config['postgresql']['data_dir'] = self._data_dir
-        config['postgresql']['parameters'].update({
-            'logging_collector': 'on', 'log_destination': 'csvlog', 'log_directory': self._output_dir,
-            'log_filename': name + '.log', 'log_statement': 'all', 'log_min_messages': 'debug1'})
-
-        if 'bootstrap' in config and 'initdb' in config['bootstrap']:
-            config['bootstrap']['initdb'].extend([{'auth': 'md5'}, {'auth-host': 'md5'}])
-
-        if tags:
-            config['tags'] = tags
-
-        with open(patroni_config_path, 'w') as f:
-            yaml.safe_dump(config, f, default_flow_style=False)
+        self._replication = config['postgresql'].get('authentication', config['postgresql']).get('replication', {})
+        self._replication.update({'host': host, 'port': self.__PORT, 'database': 'postgres'})
 
         return patroni_config_path
 
@@ -190,10 +224,101 @@ class PatroniController(AbstractController):
             time.sleep(1)
         return False
 
+    def get_watchdog(self):
+        return self.watchdog
+
+    def _get_pid(self):
+        try:
+            pidfile = os.path.join(self._data_dir, 'postmaster.pid')
+            if not os.path.exists(pidfile):
+                return None
+            return int(open(pidfile).readline().strip())
+        except:
+            return None
+
+    def database_is_running(self):
+        pid = self._get_pid()
+        if not pid:
+            return False
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        return True
+
+    def patroni_hang(self, timeout):
+        hang = ProcessHang(self._handle.pid, timeout)
+        self._closables.append(hang)
+        hang.start()
+
+    def checkpoint_hang(self, timeout):
+        pid = self._get_pid()
+        if not pid:
+            return False
+        proc = psutil.Process(pid)
+        for child in proc.children():
+            if 'checkpoint' in child.cmdline()[0]:
+                checkpointer = child
+                break
+        else:
+            return False
+        hang = ProcessHang(checkpointer.pid, timeout)
+        self._closables.append(hang)
+        hang.start()
+        return True
+
+    def cancel_background(self):
+        for obj in self._closables:
+            obj.close()
+        self._closables = []
+
+    def terminate_backends(self):
+        pid = self._get_pid()
+        if not pid:
+            return False
+        proc = psutil.Process(pid)
+        for p in proc.children():
+            if 'process' not in p.cmdline()[0]:
+                p.terminate()
+
+    @property
+    def backup_source(self):
+        return 'postgres://{username}:{password}@{host}:{port}/{database}'.format(**self._replication)
+
+    def backup(self, dest='basebackup'):
+        subprocess.call([PatroniPoolController.BACKUP_SCRIPT, '--walmethod=none',
+                         '--datadir=' + os.path.join(self._output_dir, dest),
+                         '--dbname=' + self.backup_source])
+
+
+class ProcessHang(object):
+
+    """A background thread implementing a cancelable process hang via SIGSTOP."""
+
+    def __init__(self, pid, timeout):
+        self._cancelled = threading.Event()
+        self._thread = threading.Thread(target=self.run)
+        self.pid = pid
+        self.timeout = timeout
+
+    def start(self):
+        self._thread.start()
+
+    def run(self):
+        os.kill(self.pid, signal.SIGSTOP)
+        try:
+            self._cancelled.wait(self.timeout)
+        finally:
+            os.kill(self.pid, signal.SIGCONT)
+
+    def close(self):
+        self._cancelled.set()
+        self._thread.join()
+
 
 class AbstractDcsController(AbstractController):
 
-    _CLUSTER_NODE = '/service/batman'
+    _CLUSTER_NODE = '/service/{0}'
 
     def __init__(self, context, mktemp=True):
         work_directory = mktemp and tempfile.mkdtemp() or None
@@ -208,11 +333,11 @@ class AbstractDcsController(AbstractController):
         if self._work_directory:
             shutil.rmtree(self._work_directory)
 
-    def path(self, key=None):
-        return self._CLUSTER_NODE + (key and '/' + key or '')
+    def path(self, key=None, scope='batman'):
+        return self._CLUSTER_NODE.format(scope) + (key and '/' + key or '')
 
     @abc.abstractmethod
-    def query(self, key):
+    def query(self, key, scope='batman'):
         """ query for a value of a given key """
 
     @abc.abstractmethod
@@ -241,18 +366,19 @@ class ConsulController(AbstractDcsController):
         super(ConsulController, self).__init__(context)
         os.environ['PATRONI_CONSUL_HOST'] = 'localhost:8500'
         self._client = consul.Consul()
+        self._config_file = None
 
     def _start(self):
-        config_file = self._work_directory + '.json'
-        with open(config_file, 'wb') as f:
+        self._config_file = self._work_directory + '.json'
+        with open(self._config_file, 'wb') as f:
             f.write(b'{"session_ttl_min":"5s","server":true,"bootstrap":true,"advertise_addr":"127.0.0.1"}')
-        return subprocess.Popen(['consul', 'agent', '-config-file', config_file, '-data-dir', self._work_directory],
-                                stdout=self._log, stderr=subprocess.STDOUT)
+        return subprocess.Popen(['consul', 'agent', '-config-file', self._config_file, '-data-dir',
+                                 self._work_directory], stdout=self._log, stderr=subprocess.STDOUT)
 
     def stop(self, kill=False, timeout=15):
         super(ConsulController, self).stop(kill=kill, timeout=timeout)
-        if self._work_directory:
-            os.unlink(self._work_directory + '.json')
+        if self._config_file:
+            os.unlink(self._config_file)
 
     def _is_running(self):
         try:
@@ -260,18 +386,18 @@ class ConsulController(AbstractDcsController):
         except Exception:
             return False
 
-    def path(self, key=None):
-        return super(ConsulController, self).path(key)[1:]
+    def path(self, key=None, scope='batman'):
+        return super(ConsulController, self).path(key, scope)[1:]
 
-    def query(self, key):
-        _, value = self._client.kv.get(self.path(key))
+    def query(self, key, scope='batman'):
+        _, value = self._client.kv.get(self.path(key, scope))
         return value and value['Value'].decode('utf-8')
 
     def set(self, key, value):
         self._client.kv.put(self.path(key), value)
 
     def cleanup_service_tree(self):
-        self._client.kv.delete(self.path(), recurse=True)
+        self._client.kv.delete(self.path(scope=''), recurse=True)
 
     def start(self, max_wait_limit=15):
         super(ConsulController, self).start(max_wait_limit)
@@ -290,9 +416,9 @@ class EtcdController(AbstractDcsController):
         return subprocess.Popen(["etcd", "--debug", "--data-dir", self._work_directory],
                                 stdout=self._log, stderr=subprocess.STDOUT)
 
-    def query(self, key):
+    def query(self, key, scope='batman'):
         try:
-            return self._client.get(self.path(key)).value
+            return self._client.get(self.path(key, scope)).value
         except etcd.EtcdKeyNotFound:
             return None
 
@@ -301,7 +427,7 @@ class EtcdController(AbstractDcsController):
 
     def cleanup_service_tree(self):
         try:
-            self._client.delete(self.path(), recursive=True)
+            self._client.delete(self.path(scope=''), recursive=True)
         except (etcd.EtcdKeyNotFound, etcd.EtcdConnectionFailed):
             return
         except Exception as e:
@@ -328,9 +454,9 @@ class ZooKeeperController(AbstractDcsController):
     def _start(self):
         pass  # TODO: implement later
 
-    def query(self, key):
+    def query(self, key, scope='batman'):
         try:
-            return self._client.get(self.path(key))[0].decode('utf-8')
+            return self._client.get(self.path(key, scope))[0].decode('utf-8')
         except kazoo.exceptions.NoNodeError:
             return None
 
@@ -339,7 +465,7 @@ class ZooKeeperController(AbstractDcsController):
 
     def cleanup_service_tree(self):
         try:
-            self._client.delete(self.path(), recursive=True)
+            self._client.delete(self.path(scope=''), recursive=True)
         except (kazoo.exceptions.NoNodeError):
             return
         except Exception as e:
@@ -395,6 +521,8 @@ class RaftController(AbstractDcsController):
 
 class PatroniPoolController(object):
 
+    BACKUP_SCRIPT = 'features/backup_create.sh'
+
     def __init__(self, context):
         self._context = context
         self._dcs = None
@@ -419,13 +547,16 @@ class PatroniPoolController(object):
     def output_dir(self):
         return self._output_dir
 
-    def start(self, name, max_wait_limit=20, tags=None):
+    def start(self, name, max_wait_limit=20, custom_config=None):
         if name not in self._processes:
-            self._processes[name] = PatroniController(self._context, name, self.patroni_path, self._output_dir, tags)
+            self._processes[name] = PatroniController(self._context, name, self.patroni_path,
+                                                      self._output_dir, custom_config)
         self._processes[name].start(max_wait_limit)
 
     def __getattr__(self, func):
-        if func not in ['stop', 'query', 'write_label', 'read_label', 'check_role_has_changed_to', 'add_tag_to_config']:
+        if func not in ['stop', 'query', 'write_label', 'read_label', 'check_role_has_changed_to', 'add_tag_to_config',
+                        'get_watchdog', 'database_is_running', 'checkpoint_hang', 'patroni_hang',
+                        'terminate_backends', 'backup']:
             raise AttributeError("PatroniPoolController instance has no attribute '{0}'".format(func))
 
         def wrapper(name, *args, **kwargs):
@@ -434,6 +565,7 @@ class PatroniPoolController(object):
 
     def stop_all(self):
         for ctl in self._processes.values():
+            ctl.cancel_background()
             ctl.stop()
         self._processes.clear()
 
@@ -444,12 +576,175 @@ class PatroniPoolController(object):
         os.makedirs(feature_dir)
         self._output_dir = feature_dir
 
+    def clone(self, from_name, cluster_name, to_name):
+        f = self._processes[from_name]
+        custom_config = {
+            'scope': cluster_name,
+            'bootstrap': {
+                'method': 'pg_basebackup',
+                'pg_basebackup': {
+                    'command': self.BACKUP_SCRIPT + ' --walmethod=stream --dbname=' + f.backup_source
+                }
+            },
+            'postgresql': {
+                'parameters': {
+                    'archive_mode': 'on',
+                    'archive_command': 'mkdir -p {0} && test ! -f {0}/%f && cp %p {0}/%f'.format(
+                            os.path.join(self._output_dir, 'wal_archive'))
+                },
+                'authentication': {
+                    'superuser': {'password': 'zalando1'},
+                    'replication': {'password': 'rep-pass1'}
+                }
+            }
+        }
+        self.start(to_name, custom_config=custom_config)
+
+    def bootstrap_from_backup(self, name, cluster_name):
+        custom_config = {
+            'scope': cluster_name,
+            'bootstrap': {
+                'method': 'backup_restore',
+                'backup_restore': {
+                    'command': 'features/backup_restore.sh --sourcedir=' + os.path.join(self._output_dir, 'basebackup'),
+                    'recovery_conf': {
+                        'recovery_target_action': 'promote',
+                        'recovery_target_timeline': 'latest',
+                        'restore_command': 'cp {0}/wal_archive/%f %p'.format(self._output_dir)
+                    }
+                }
+            },
+            'postgresql': {
+                'authentication': {
+                    'superuser': {'password': 'zalando2'},
+                    'replication': {'password': 'rep-pass2'}
+                }
+            }
+        }
+        self.start(name, custom_config=custom_config)
+
     @property
     def dcs(self):
         if self._dcs is None:
             self._dcs = os.environ.pop('DCS', 'etcd')
             assert self._dcs in self.known_dcs, 'Unsupported dcs: ' + self._dcs
         return self._dcs
+
+
+class WatchdogMonitor(object):
+    """Testing harness for emulating a watchdog device as a named pipe. Because we can't easily emulate ioctl's we
+    require a custom driver on Patroni side. The device takes no action, only notes if it was pinged and/or triggered.
+    """
+    def __init__(self, name, work_directory, output_dir):
+        self.fifo_path = os.path.join(work_directory, 'data', 'watchdog.{0}.fifo'.format(name))
+        self.fifo_file = None
+        self._stop_requested = False  # Relying on bool setting being atomic
+        self._thread = None
+        self.last_ping = None
+        self.was_pinged = False
+        self.was_closed = False
+        self._was_triggered = False
+        self.timeout = 60
+        self._log_file = open(os.path.join(output_dir, 'watchdog.{0}.log'.format(name)), 'w')
+        self._log("watchdog {0} initialized".format(name))
+
+    def _log(self, msg):
+        tstamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S,%f")
+        self._log_file.write("{0}: {1}\n".format(tstamp, msg))
+
+    def start(self):
+        assert self._thread is None
+        self._stop_requested = False
+        self._log("starting fifo {0}".format(self.fifo_path))
+        fifo_dir = os.path.dirname(self.fifo_path)
+        if os.path.exists(self.fifo_path):
+            os.unlink(self.fifo_path)
+        elif not os.path.exists(fifo_dir):
+            os.mkdir(fifo_dir)
+        os.mkfifo(self.fifo_path)
+        self.last_ping = time.time()
+
+        self._thread = threading.Thread(target=self.run)
+        self._thread.start()
+
+    def run(self):
+        try:
+            while not self._stop_requested:
+                self._log("opening")
+                self.fifo_file = os.open(self.fifo_path, os.O_RDONLY)
+                try:
+                    self._log("Fifo {0} connected".format(self.fifo_path))
+                    self.was_closed = False
+                    while not self._stop_requested:
+                        c = os.read(self.fifo_file, 1)
+
+                        if c == b'X':
+                            self._log("Stop requested")
+                            return
+                        elif c == b'':
+                            self._log("Pipe closed")
+                            break
+                        elif c == b'C':
+                            command = b''
+                            c = os.read(self.fifo_file, 1)
+                            while c != b'\n' and c != b'':
+                                command += c
+                                c = os.read(self.fifo_file, 1)
+                            command = command.decode('utf8')
+
+                            if command.startswith('timeout='):
+                                self.timeout = int(command.split('=')[1])
+                                self._log("timeout={0}".format(self.timeout))
+                        elif c in [b'V', b'1']:
+                            cur_time = time.time()
+                            if cur_time - self.last_ping > self.timeout:
+                                self._log("Triggered")
+                                self._was_triggered = True
+                            if c == b'V':
+                                self._log("magic close")
+                                self.was_closed = True
+                            elif c == b'1':
+                                self.was_pinged = True
+                                self._log("ping after {0} seconds".format(cur_time - (self.last_ping or cur_time)))
+                                self.last_ping = cur_time
+                        else:
+                            self._log('Unknown command {0} received from fifo'.format(c))
+                finally:
+                    self.was_closed = True
+                    self._log("closing")
+                    os.close(self.fifo_file)
+        except Exception as e:
+            self._log("Error {0}".format(e))
+        finally:
+            self._log("stopping")
+            self._log_file.flush()
+            if os.path.exists(self.fifo_path):
+                os.unlink(self.fifo_path)
+
+    def stop(self):
+        self._log("Monitor stop")
+        self._stop_requested = True
+        try:
+            if os.path.exists(self.fifo_path):
+                fd = os.open(self.fifo_path, os.O_WRONLY)
+                os.write(fd, b'X')
+                os.close(fd)
+        except Exception as e:
+            self._log("err while closing: {0}".format(str(e)))
+        if self._thread:
+            self._thread.join()
+            self._thread = None
+
+    def reset(self):
+        self._log("reset")
+        self.was_pinged = self.was_closed = self._was_triggered = False
+
+    @property
+    def was_triggered(self):
+        delta = time.time() - self.last_ping
+        triggered = self._was_triggered or not self.was_closed and delta > self.timeout
+        self._log("triggered={0}, {1}s left".format(triggered, self.timeout - delta))
+        return triggered
 
 
 # actions to execute on start/stop of the tests and before running invidual features

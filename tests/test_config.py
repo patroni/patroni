@@ -39,6 +39,7 @@ class TestConfig(unittest.TestCase):
             'PATRONI_POSTGRESQL_LISTEN': '0.0.0.0:5432',
             'PATRONI_POSTGRESQL_CONNECT_ADDRESS': '127.0.0.1:5432',
             'PATRONI_POSTGRESQL_DATA_DIR': 'data/postgres0',
+            'PATRONI_POSTGRESQL_CONFIG_DIR': 'data/postgres0',
             'PATRONI_POSTGRESQL_PGPASS': '/tmp/pgpass0',
             'PATRONI_ETCD_HOST': '127.0.0.1:2379',
             'PATRONI_ETCD_URL': 'https://127.0.0.1:2379',
