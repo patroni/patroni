@@ -122,4 +122,4 @@ class TestRaft(unittest.TestCase):
     @patch('threading.Event')
     def test_init(self, mock_event):
         mock_event.return_value.isSet.side_effect = [False, True]
-        Raft({'ttl': 30, 'scope': 'test', 'name': 'pg', 'self_addr': '127.0.0.1:1234', 'retry_timeout': 10})
+        self.assertIsNotNone(Raft({'ttl': 30, 'scope': 'test', 'name': 'pg', 'self_addr': '127.0.0.1:1234'}))
