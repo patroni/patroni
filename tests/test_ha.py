@@ -63,6 +63,7 @@ def get_node_status(reachable=True, in_recovery=True, wal_position=10, nofailove
         return _MemberStatus(e, reachable, in_recovery, wal_position, tags, watchdog_failed)
     return fetch_node_status
 
+
 future_restart_time = datetime.datetime.now(tzutc) + datetime.timedelta(days=5)
 postmaster_start_time = datetime.datetime.now(tzutc)
 
@@ -157,7 +158,6 @@ class TestHa(unittest.TestCase):
             self.ha.old_cluster = self.e.get_cluster()
             self.ha.cluster = get_cluster_not_initialized_without_leader()
             self.ha.load_cluster_from_dcs = Mock()
-            self.ha.is_synchronous_mode = false
 
     def test_update_lock(self):
         self.p.last_operation = Mock(side_effect=PostgresConnectionException(''))
@@ -246,7 +246,7 @@ class TestHa(unittest.TestCase):
         with patch.object(Watchdog, 'activate', Mock(return_value=False)):
             self.assertEquals(self.ha.run_cycle(), 'Demoting self because watchdog could not be activated')
             self.p.is_leader = false
-            self.assertEquals(self.ha.run_cycle(), 'Not promoting self because watchdog could not be actived')
+            self.assertEquals(self.ha.run_cycle(), 'Not promoting self because watchdog could not be activated')
 
     def test_leader_with_lock(self):
         self.ha.cluster.is_unlocked = false
@@ -436,6 +436,19 @@ class TestHa(unittest.TestCase):
         self.assertEquals('PAUSE: no action.  i am the leader with the lock', self.ha.run_cycle())
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, self.p.name, '', None))
         self.assertEquals('PAUSE: no action.  i am the leader with the lock', self.ha.run_cycle())
+
+    @patch('requests.get', requests_get)
+    def test_manual_failover_from_leader_in_synchronous_mode(self):
+        self.p.is_leader = true
+        self.ha.has_lock = true
+        self.ha.is_synchronous_mode = true
+        self.ha.is_failover_possible = false
+        self.ha.process_sync_replication = Mock()
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, self.p.name, 'a', None), (self.p.name, None))
+        self.assertEquals('no action.  i am the leader with the lock', self.ha.run_cycle())
+        self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, self.p.name, 'a', None), (self.p.name, 'a'))
+        self.ha.is_failover_possible = true
+        self.assertEquals('manual failover: demoting myself', self.ha.run_cycle())
 
     @patch('requests.get', requests_get)
     def test_manual_failover_process_no_leader(self):
@@ -634,7 +647,8 @@ class TestHa(unittest.TestCase):
     @patch('patroni.ha.Ha.demote')
     def test_failover_immediately_on_zero_master_start_timeout(self, demote):
         self.p.is_running = false
-        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.ha.cluster = get_cluster_initialized_with_leader(sync=(self.p.name, 'other'))
+        self.ha.cluster.config.data['synchronous_mode'] = True
         self.ha.patroni.config.set_dynamic_configuration({'master_start_timeout': 0})
         self.ha.has_lock = true
         self.ha.update_lock = true

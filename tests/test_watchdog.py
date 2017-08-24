@@ -132,8 +132,9 @@ class TestWatchdog(unittest.TestCase):
     def test_exceptions(self):
         wd = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'bad'}})
         wd.impl.close = wd.impl.keepalive = Mock(side_effect=WatchdogError(''))
-        self.assertIsNone(wd.disable())
+        self.assertTrue(wd.activate())
         self.assertIsNone(wd.keepalive())
+        self.assertIsNone(wd.disable())
 
     @patch('platform.system', Mock(return_value='Linux'))
     def test_config_reload(self):
