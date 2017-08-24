@@ -25,6 +25,14 @@ Example: defining ``PATRONI_admin_PASSWORD=strongpasswd`` and ``PATRONI_admin_OP
 Consul
 ------
 -  **PATRONI\_CONSUL\_HOST**: the host:port for the Consul endpoint.
+-  **PATRONI\_CONSUL\_URL**: url for the Consul, in format: http(s)://host:port
+-  **PATRONI\_CONSUL\_PORT**: (optional) Consul port
+-  **PATRONI\_CONSUL\_SCHEME**: (optional) **http** or **https**, defaults to **http**
+-  **PATRONI\_CONSUL\_TOKEN**: (optional) ACL token
+-  **PATRONI\_CONSUL\_VERIFY**: (optional) whether to verify the SSL certificate for HTTPS requests
+-  **PATRONI\_CONSUL\_CACERT**: (optional) The ca certificate. If pressent it will enable validation.
+-  **PATRONI\_CONSUL\_CERT**: (optional) File with the client certificate
+-  **PATRONI\_CONSUL\_KEY**: (optional) File with the client key. Can be empty if the key is part of certificate.
 
 Etcd
 ----

@@ -2,15 +2,16 @@ from __future__ import absolute_import
 import logging
 import os
 import socket
+import ssl
 import time
 import urllib3
 
 from consul import ConsulException, NotFound, base
 from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState
 from patroni.exceptions import DCSError
-from patroni.utils import Retry, RetryFailedError
+from patroni.utils import parse_bool, Retry, RetryFailedError
 from urllib3.exceptions import HTTPError
-from six.moves.urllib.parse import urlencode
+from six.moves.urllib.parse import urlencode, urlparse
 from six.moves.http_client import HTTPException
 
 logger = logging.getLogger(__name__)
@@ -26,14 +27,23 @@ class ConsulInternalError(ConsulException):
 
 class HTTPClient(object):
 
-    def __init__(self, host='127.0.0.1', port=8500, scheme='http', verify=True, timeout=10):
-        self.host = host
-        self.port = port
-        self.scheme = scheme
-        self.verify = verify
-        self.set_read_timeout(timeout)
-        self.base_uri = '{0}://{1}:{2}'.format(self.scheme, self.host, self.port)
-        self.http = urllib3.PoolManager(num_pools=10)
+    def __init__(self, host='127.0.0.1', port=8500, scheme='http', verify=True, cert=None, ca_cert=None):
+        self._read_timeout = 10
+        self.base_uri = '{0}://{1}:{2}'.format(scheme, host, port)
+        kwargs = {}
+        if cert:
+            if isinstance(cert, tuple):
+                # Key and cert are separate
+                kwargs['cert_file'] = cert[0]
+                kwargs['key_file'] = cert[1]
+            else:
+                # combined certificate
+                kwargs['cert_file'] = cert
+        if ca_cert:
+            kwargs['ca_certs'] = ca_cert
+        if verify or ca_cert:
+            kwargs['cert_reqs'] = ssl.CERT_REQUIRED
+        self.http = urllib3.PoolManager(num_pools=10, **kwargs)
         self._ttl = None
 
     def set_read_timeout(self, timeout):
@@ -78,9 +88,18 @@ class HTTPClient(object):
 
 class ConsulClient(base.Consul):
 
-    @staticmethod
-    def connect(host, port, scheme, verify=True):
-        return HTTPClient(host, port, scheme, verify)
+    def __init__(self, *args, **kwargs):
+        self._cert = kwargs.pop('cert', None)
+        self._ca_cert = kwargs.pop('ca_cert', None)
+        super(ConsulClient, self).__init__(*args, **kwargs)
+
+    def connect(self, *args, **kwargs):
+        kwargs.update(dict(zip(['host', 'port', 'scheme', 'verify'], args)))
+        if self._cert:
+            kwargs['cert'] = self._cert
+        if self._ca_cert:
+            kwargs['ca_cert'] = self._ca_cert
+        return HTTPClient(**kwargs)
 
 
 def catch_consul_errors(func):
@@ -104,8 +123,31 @@ class Consul(AbstractDCS):
                                               HTTPError, socket.error, socket.timeout))
 
         self._my_member_data = None
-        host, port = config.get('host', '127.0.0.1:8500').split(':')
-        self._client = ConsulClient(host=host, port=port)
+        kwargs = {}
+        if 'url' in config:
+            r = urlparse(config['url'])
+            config.update({'scheme': r.scheme, 'host': r.hostname, 'port': r.port or 8500})
+        elif 'host' in config:
+            host, port = (config.get('host', '127.0.0.1:8500') + ':8500').split(':')[:2]
+            config['host'] = host
+            if 'port' not in config:
+                config['port'] = int(port)
+
+        if config.get('cacert'):
+            config['ca_cert'] = config.pop('cacert')
+
+        if config.get('key') and config.get('cert'):
+            config['cert'] = (config['cert'], config['key'])
+
+        kwargs = {p: config.get(p) for p in ('host', 'port', 'token', 'scheme', 'cert', 'ca_cert') if config.get(p)}
+
+        verify = config.get('verify')
+        if not isinstance(verify, bool):
+            verify = parse_bool(verify)
+        if isinstance(verify, bool):
+            kwargs['verify'] = verify
+
+        self._client = ConsulClient(**kwargs)
         self.set_retry_timeout(config['retry_timeout'])
         self.set_ttl(config.get('ttl') or 30)
         self._last_session_refresh = 0

@@ -45,7 +45,16 @@ Bootstrap configuration
 
 Consul
 ------
--  **host**: the host:port for the Consul endpoint.
+Most of the parameters are optional, but you have to specify one of the **host** or **url**
+-  **host**: the host:port for the Consul endpoint, in format: http(s)://host:port
+-  **url**: url for the Consul endpoint
+-  **port**: (optional) Consul port
+-  **scheme**: (optional) **http** or **https**, defaults to **http**
+-  **token**: (optional) ACL token
+-  **verify** (optional) whether to verify the SSL certificate for HTTPS requests
+-  **cacert**: (optional) The ca certificate. If pressent it will enable validation.
+-  **cert**: (optional) file with the client certificate
+-  **key**: (optional) file with the client key. Can be empty if the key is part of **cert**.
 
 Etcd
 ----
