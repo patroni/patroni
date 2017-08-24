@@ -63,6 +63,7 @@ def get_node_status(reachable=True, in_recovery=True, wal_position=10, nofailove
         return _MemberStatus(e, reachable, in_recovery, wal_position, tags, watchdog_failed)
     return fetch_node_status
 
+
 future_restart_time = datetime.datetime.now(tzutc) + datetime.timedelta(days=5)
 postmaster_start_time = datetime.datetime.now(tzutc)
 
@@ -246,7 +247,7 @@ class TestHa(unittest.TestCase):
         with patch.object(Watchdog, 'activate', Mock(return_value=False)):
             self.assertEquals(self.ha.run_cycle(), 'Demoting self because watchdog could not be activated')
             self.p.is_leader = false
-            self.assertEquals(self.ha.run_cycle(), 'Not promoting self because watchdog could not be actived')
+            self.assertEquals(self.ha.run_cycle(), 'Not promoting self because watchdog could not be activated')
 
     def test_leader_with_lock(self):
         self.ha.cluster.is_unlocked = false
