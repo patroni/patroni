@@ -293,9 +293,15 @@ class RestApiHandler(BaseHTTPRequestHandler):
         if leader and (not cluster.leader or cluster.leader.name != leader):
             return 'leader name does not match'
         if candidate:
+            if cluster.is_synchronous_mode() and cluster.sync.sync_standby != candidate:
+                return 'candidate name does not match with sync_standby'
             members = [m for m in cluster.members if m.name == candidate]
             if not members:
                 return 'candidate does not exists'
+        elif cluster.is_synchronous_mode():
+            members = [m for m in cluster.members if m.name == cluster.sync.sync_standby]
+            if not members:
+                return 'failover is not possible: can not find sync_standby'
         else:
             members = [m for m in cluster.members if m.name != cluster.leader.name and m.api_url]
             if not members:
