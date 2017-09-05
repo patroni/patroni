@@ -83,8 +83,7 @@ class HTTPClient(object):
             else:
                 kwargs['timeout'] = self._read_timeout
             if isinstance(params, dict) and 'token' in params and params['token']:
-                kwargs['headers'] = {'X-Consul-Token': params['token']}
-                del params['token']
+                kwargs['headers'] = {'X-Consul-Token': params.pop('token')}
             return callback(self.response(self.http.request(method.upper(), self.uri(path, params), **kwargs)))
         return wrapper
 
