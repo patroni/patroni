@@ -97,7 +97,7 @@ def store_config(config, path):
         yaml.dump(config, fd)
 
 
-option_format = click.option('--format', '-f', 'fmt', help='Output format (pretty, json)', default='pretty')
+option_format = click.option('--format', '-f', 'fmt', help='Output format (pretty, json, yaml)', default='pretty')
 option_watchrefresh = click.option('-w', '--watch', type=float, help='Auto update the screen every X seconds')
 option_watch = click.option('-W', is_flag=True, help='Auto update the screen every 2 seconds')
 option_force = click.option('--force', is_flag=True, help='Do not ask for confirmation at any point')
@@ -150,9 +150,12 @@ def print_output(columns, rows=None, alignment=None, fmt='pretty', header=True, 
         click.echo(t)
         return
 
-    if fmt == 'json':
+    if fmt in ['json', 'yaml']:
         elements = [dict(zip(columns, r)) for r in rows]
-        click.echo(json.dumps(elements))
+        if fmt == 'json':
+            click.echo(json.dumps(elements))
+        elif fmt == 'yaml':
+            click.echo(yaml.safe_dump(elements, encoding=None, allow_unicode=True, width=200))
 
     if fmt == 'tsv':
         if columns is not None and header:

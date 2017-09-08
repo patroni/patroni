@@ -70,6 +70,7 @@ class TestCtl(unittest.TestCase):
         cluster = get_cluster_initialized_with_leader(Failover(1, 'foo', 'bar', scheduled_at))
         self.assertIsNone(output_members(cluster, name='abc', fmt='pretty'))
         self.assertIsNone(output_members(cluster, name='abc', fmt='json'))
+        self.assertIsNone(output_members(cluster, name='abc', fmt='yaml'))
         self.assertIsNone(output_members(cluster, name='abc', fmt='tsv'))
 
     @patch('patroni.ctl.get_dcs')
