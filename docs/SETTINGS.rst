@@ -43,9 +43,12 @@ Bootstrap configuration
             -  **- createdb**
 -  **post\_bootstrap** or **post\_init**: An additional script that will be executed after initializing the cluster. The script receives a connection string URL (with the cluster superuser as a user name). The PGPASSFILE variable is set to the location of pgpass file.
 
+.. _consul_settings:
+
 Consul
 ------
 Most of the parameters are optional, but you have to specify one of the **host** or **url**
+
 -  **host**: the host:port for the Consul endpoint, in format: http(s)://host:port
 -  **url**: url for the Consul endpoint
 -  **port**: (optional) Consul port
@@ -59,6 +62,7 @@ Most of the parameters are optional, but you have to specify one of the **host**
 Etcd
 ----
 Most of the parameters are optional, but you have to specify one of the **host**, **url**, **proxy** or **srv**
+
 -  **host**: the host:port for the etcd endpoint.
 -  **url**: url for the etcd
 -  **proxy**: proxy url for the etcd. If you are connecting to the etcd using proxy, use this parameter instead of **url**
