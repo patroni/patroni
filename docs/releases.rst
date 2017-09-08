@@ -28,7 +28,7 @@ Version 1.3.4
 
 **Quote synchronous_standby_names using quote_ident**
 
-- When writing ``synchronous_standby_names`` into the ``postgresql.conf`` it's value must be quoted (Alexander)
+- When writing ``synchronous_standby_names`` into the ``postgresql.conf`` its value must be quoted (Alexander)
 
   If it is not quoted properly, PostgreSQL will effectively disable synchronous replication and continue to work.
 
@@ -46,7 +46,7 @@ Version 1.3.3
 
 **Bugfixes**
 
-- short after promote synchronous replication was disabled even is synchronous_mode_strict is set (Alexander Kukushkin)
+- synchronous replication was disabled shortly after promotion even when synchronous_mode_strict was turned on (Alexander Kukushkin)
 - create empty ``pg_ident.conf`` file if it is missing after restoring from the backup (Alexander)
 - open access in ``pg_hba.conf`` to all databases, not only postgres (Franco Bellagamba)
 
@@ -56,7 +56,7 @@ Version 1.3.2
 
 **Bugfix**
 
-- patronictl edit-config didn't worked with ZooKeeper (Alexander Kukushkin)
+- patronictl edit-config didn't work with ZooKeeper (Alexander Kukushkin)
 
 
 Version 1.3.1
