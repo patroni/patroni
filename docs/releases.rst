@@ -10,7 +10,8 @@ Version 1.3.4
 
 - Pass the consul token as a header (Andrew Colin Kissa)
 
-  Headers are now the prefered way to pass the token to the consul `API <https://www.consul.io/api/index.html#authentication`__.
+  Headers are now the prefered way to pass the token to the consul `API <https://www.consul.io/api/index.html#authentication>`__.
+  
 
 - Advanced configuration for Consul (Alexander Kukushkin)
 
@@ -22,12 +23,13 @@ Version 1.3.4
 
 - "Could not take out TTL lock" message was never logged (Alexander)
 
-  This is not a critical bug, but lack of proper logging complicates investigation in case of problems.
+  Not a critical bug, but lack of proper logging complicates investigation in case of problems.
 
 
 **Quote synchronous_standby_names using quote_ident**
 
 - When writing ``synchronous_standby_names`` into the ``postgresql.conf`` it's value must be quoted (Alexander)
+
   If it is not quoted properly, PostgreSQL will effectively disable synchronous replication and continue to work.
 
 
@@ -42,21 +44,27 @@ Version 1.3.4
 Version 1.3.3
 -------------
 
-Bugfix: short after promote synchronous replication was disabled even is synchronous_mode_strict is set (Alexander Kukushkin)
-Bugfix: create empty ``pg_ident.conf`` file if it is missing after restoring from the backup (Alexander)
-Bugfix: open access in ``pg_hba.conf`` to all databases, not only postgres (Franco Bellagamba)
+**Bugfixes**
+
+- short after promote synchronous replication was disabled even is synchronous_mode_strict is set (Alexander Kukushkin)
+- create empty ``pg_ident.conf`` file if it is missing after restoring from the backup (Alexander)
+- open access in ``pg_hba.conf`` to all databases, not only postgres (Franco Bellagamba)
 
 
 Version 1.3.2
 -------------
 
-Bugfix: patronictl edit-config didn't worked with zookeeper (Alexander Kukushkin)
+**Bugfix**
+
+- patronictl edit-config didn't worked with ZooKeeper (Alexander Kukushkin)
 
 
 Version 1.3.1
 -------------
 
-Bugfix: failover via API was broken due to change in ``_MemberStatus`` (Alexander Kukushkin)
+**Bugfix**
+
+- failover via API was broken due to change in ``_MemberStatus`` (Alexander Kukushkin)
 
 
 Version 1.3
