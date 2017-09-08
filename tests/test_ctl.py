@@ -383,7 +383,7 @@ class TestCtl(unittest.TestCase):
         cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
         mock_get_dcs.return_value.get_cluster = Mock(return_value=cluster)
 
-        result = self.runner.invoke(ctl, ['list', 'dummy', '--extended'])
+        result = self.runner.invoke(ctl, ['list', 'dummy', '--extended', '--timestamp'])
         assert '2100' in result.output
         assert 'Scheduled restart' in result.output
 

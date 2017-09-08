@@ -691,11 +691,12 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
 @ctl.command('list', help='List the Patroni members for a given Patroni')
 @click.argument('cluster_names', nargs=-1)
 @click.option('--extended', '-e', help='Show some extra information', is_flag=True)
+@click.option('--timestamp', '-t', help='Print timestamp', is_flag=True)
 @option_format
 @option_watch
 @option_watchrefresh
 @click.pass_obj
-def members(obj, cluster_names, fmt, watch, w, extended):
+def members(obj, cluster_names, fmt, watch, w, extended, timestamp):
     if not cluster_names:
         if 'scope' not in obj:
             logging.warning('Listing members: No cluster names were provided')
@@ -707,6 +708,9 @@ def members(obj, cluster_names, fmt, watch, w, extended):
         dcs = get_dcs(obj, cluster_name)
 
         for _ in watching(w, watch):
+            if timestamp:
+                click.echo(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
             cluster = dcs.get_cluster()
             output_members(cluster, cluster_name, extended, fmt)
 
