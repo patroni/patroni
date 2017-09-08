@@ -1104,7 +1104,8 @@ class Ha(object):
             disable_wd = self.watchdog.disable if self.watchdog.is_running else None
             self.while_not_sync_standby(lambda: self.state_handler.stop(checkpoint=False, on_safepoint=disable_wd))
             if not self.state_handler.is_running():
-                self.dcs.delete_leader()
+                if self.has_lock():
+                    self.dcs.delete_leader()
             else:
                 # XXX: what about when Patroni is started as the wrong user that has access to the watchdog device
                 # but cannot shut down PostgreSQL. Root would be the obvious example. Would be nice to not kill the
