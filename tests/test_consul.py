@@ -45,7 +45,7 @@ class TestHTTPClient(unittest.TestCase):
 
     def test_get(self):
         self.client.get(Mock(), '')
-        self.client.get(Mock(), '', {'wait': '1s', 'index': 1})
+        self.client.get(Mock(), '', {'wait': '1s', 'index': 1, 'token': 'foo'})
         self.client.http.request.return_value.status = 500
         self.assertRaises(ConsulInternalError, self.client.get, Mock(), '')
 
