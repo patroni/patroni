@@ -14,7 +14,8 @@ def mock_list_namespaced_config_map(self, *args, **kwargs):
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
     metadata.update({'name': 'test-sync', 'annotations': {'leader': 'p-0'}})
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
-    return k8s_client.V1ConfigMapList(items=items)
+    metadata = k8s_client.V1ObjectMeta(resource_version='1')
+    return k8s_client.V1ConfigMapList(metadata=metadata, items=items)
 
 
 def mock_list_namespaced_pod(self, *args, **kwargs):
@@ -82,9 +83,9 @@ class TestKubernetes(unittest.TestCase):
         self.k.set_ttl(10)
         self.k.watch(None, 0)
         self.k.watch(None, 0)
+        leader_cm = k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(resource_version='2'))
         with patch.object(k8s_watch.Watch, 'stream',
-                          Mock(side_effect=[Exception, [], KeyboardInterrupt,
-                                            [{'object': {'metadata': {'resourceVersion': '2'}}}]])):
+                          Mock(side_effect=[Exception, [], KeyboardInterrupt, [{'object': leader_cm}]])):
             self.assertFalse(self.k.watch('1', 2))
             self.assertRaises(KeyboardInterrupt, self.k.watch, '1', 2)
             self.assertTrue(self.k.watch('1', 2))

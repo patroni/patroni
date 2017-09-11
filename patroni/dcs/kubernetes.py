@@ -175,7 +175,7 @@ class Kubernetes(AbstractDCS):
                 self._leader_resource_version = metadata.resource_version
                 member = Member(-1, leader, None, {})
                 member = ([m for m in members if m.name == leader] or [member])[0]
-                leader = Leader(metadata and metadata.resource_version, None, member)
+                leader = Leader(response.metadata.resource_version, None, member)
 
             # failover key
             metadata = nodes.get(self.failover_path)
@@ -305,7 +305,7 @@ class Kubernetes(AbstractDCS):
                                           resource_version=leader_index, timeout_seconds=int(timeout + 0.5),
                                           field_selector='metadata.name=' + self.leader_path,
                                           _request_timeout=(1, timeout + 1)):
-                        return event['object']['metadata']['resourceVersion'] != leader_index
+                        return event['object'].metadata.resource_version != leader_index
                     return False
                 except KeyboardInterrupt:
                     raise
