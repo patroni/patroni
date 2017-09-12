@@ -83,9 +83,9 @@ class TestKubernetes(unittest.TestCase):
         self.k.set_ttl(10)
         self.k.watch(None, 0)
         self.k.watch(None, 0)
-        leader_cm = k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(resource_version='2'))
         with patch.object(k8s_watch.Watch, 'stream',
-                          Mock(side_effect=[Exception, [], KeyboardInterrupt, [{'object': leader_cm}]])):
+                          Mock(side_effect=[Exception, [], KeyboardInterrupt,
+                                            [{'raw_object': {'metadata': {'resourceVersion': '2'}}}]])):
             self.assertFalse(self.k.watch('1', 2))
             self.assertRaises(KeyboardInterrupt, self.k.watch, '1', 2)
             self.assertTrue(self.k.watch('1', 2))
