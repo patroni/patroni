@@ -99,6 +99,7 @@ class PatroniController(AbstractController):
         else:
             self.watchdog = None
 
+        self._scope = (custom_config or {}).get('scope', 'batman')
         self._config = self._make_patroni_test_config(name, custom_config)
         self._closables = []
 
@@ -127,7 +128,7 @@ class PatroniController(AbstractController):
         if self.watchdog:
             self.watchdog.start()
         if isinstance(self._context.dcs_ctl, KubernetesController):
-            self._context.dcs_ctl.create_pod(self._name[8:])
+            self._context.dcs_ctl.create_pod(self._name[8:], self._scope)
         return subprocess.Popen(['coverage', 'run', '--source=patroni', '-p', 'patroni.py', self._config],
                                 stdout=self._log, stderr=subprocess.STDOUT, cwd=self._work_directory)
 
@@ -448,8 +449,10 @@ class KubernetesController(AbstractDcsController):
     def _start(self):
         pass
 
-    def create_pod(self, name):
-        metadata = self._client.V1ObjectMeta(namespace=self._namespace, name=name, labels=self._labels)
+    def create_pod(self, name, scope):
+        labels = self._labels.copy()
+        labels['cluster-name'] = scope
+        metadata = self._client.V1ObjectMeta(namespace=self._namespace, name=name, labels=labels)
         spec = self._client.V1PodSpec(containers=[self._client.V1Container(name=name, image='empty')])
         body = self._client.V1Pod(metadata=metadata, spec=spec)
         self._api.create_namespaced_pod(self._namespace, body)

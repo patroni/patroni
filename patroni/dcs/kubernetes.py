@@ -78,6 +78,7 @@ class Kubernetes(AbstractDCS):
 
     def __init__(self, config):
         self._labels = config['labels']
+        self._labels[config.get('scope_label', 'cluster-name')] = config['scope']
         self._label_selector = ','.join('{0}={1}'.format(k, v) for k, v in self._labels.items())
         self._namespace = config.get('namespace') or 'default'
         config['namespace'] = ''

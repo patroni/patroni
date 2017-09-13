@@ -239,11 +239,11 @@ class Config(object):
 
         for param in list(os.environ.keys()):
             if param.startswith(Config.PATRONI_ENV_PREFIX):
-                name, suffix = (param[8:].rsplit('_', 1) + [''])[:2]
+                name, suffix = (param[8:].split('_', 1) + [''])[:2]
                 if name and suffix:
                     # PATRONI_(ETCD|CONSUL|ZOOKEEPER|EXHIBITOR|...)_(HOSTS?|PORT|..)
                     if suffix in ('HOST', 'HOSTS', 'PORT', 'SRV', 'URL', 'PROXY', 'CACERT', 'CERT', 'KEY',
-                                  'VERIFY', 'TOKEN', 'NAMESPACE', 'LABELS') and '_' not in name:
+                                  'VERIFY', 'TOKEN', 'NAMESPACE', 'SCOPE_LABEL', 'LABELS'):
                         value = os.environ.pop(param)
                         if suffix == 'PORT':
                             value = value and parse_int(value)
