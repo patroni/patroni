@@ -134,8 +134,13 @@ class Patroni(object):
 
 
 def patroni_main():
-    logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
+    logformat_env_variable = 'PATRONI_LOGFORMAT'
+    logformat = r'%(asctime)s %(levelname)s: %(message)s'
+    if logformat_env_variable in os.environ:
+        logformat = os.environ[logformat_env_variable]
+    logging.basicConfig(format=logformat, level=logging.INFO)
     logging.getLogger('requests').setLevel(logging.WARNING)
+
 
     patroni = Patroni()
     try:
