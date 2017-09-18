@@ -327,10 +327,10 @@ class TestPostgresql(unittest.TestCase):
     @patch.object(Postgresql, 'can_rewind', PropertyMock(return_value=True))
     def test__get_local_timeline_lsn(self):
         self.p.trigger_check_diverged_lsn()
-        with patch.object(Postgresql, 'controldata', Mock(return_value={'Database cluster state': 'shut down'})):
-            self.p.rewind_needed_and_possible(self.leader)
         with patch.object(Postgresql, 'controldata',
-                          Mock(return_value={'Database cluster state': 'shut down in recovery'})):
+                          Mock(return_value={'Database cluster state': 'shut down in recovery',
+                                             'Minimum recovery ending location': '0/0',
+                                             "Min recovery ending loc's timeline": '0'})):
             self.p.rewind_needed_and_possible(self.leader)
         with patch.object(Postgresql, 'is_running', Mock(return_value=True)):
             with patch.object(MockCursor, 'fetchone', Mock(side_effect=[(False, ), Exception])):

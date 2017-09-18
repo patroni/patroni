@@ -808,6 +808,10 @@ class Postgresql(object):
             if not self.is_pid_running(pid):
                 logger.error('postmaster is not running')
                 self.set_state('start failed')
+                # somehow we observed multiple times that there were no postmaster running, but
+                # pg_controldata was still reporting: `Database cluster state: in archive recovery`
+                # Therefore we will try to give some more time to all processes to finish.
+                time.sleep(1)
                 return False
 
         logger.warning("Timed out waiting for PostgreSQL to start")
@@ -1261,12 +1265,14 @@ class Postgresql(object):
         else:  # otherwise analyze pg_controldata output
             data = self.controldata()
             try:
+                if data.get('Database cluster state') == 'shut down in recovery':
+                    lsn = data.get('Minimum recovery ending location')
+                    timeline = int(data.get("Min recovery ending loc's timeline"))
+                    if lsn == '0/0' or timeline == 0:  # it was a master when it crashed
+                        data['Database cluster state'] = 'shut down'
                 if data.get('Database cluster state') == 'shut down':
                     lsn = data.get('Latest checkpoint location')
                     timeline = int(data.get("Latest checkpoint's TimeLineID"))
-                elif data.get('Database cluster state') == 'shut down in recovery':
-                    lsn = data.get('Minimum recovery ending location')
-                    timeline = int(data.get("Min recovery ending loc's timeline"))
             except (TypeError, ValueError):
                 logger.exception('Failed to get local timeline and lsn from pg_controldata output')
         logger.info('Local timeline=%s lsn=%s', timeline, lsn)
