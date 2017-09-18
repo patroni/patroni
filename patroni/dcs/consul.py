@@ -168,7 +168,10 @@ class Consul(AbstractDCS):
                 time.sleep(5)
 
     def set_ttl(self, ttl):
-        if self._client.http.set_ttl(ttl/2.0):  # Consul multiplies the TTL by 2x
+        ttl_ = ttl/2.0   # Consul multiplies the TTL by 2x
+        if ttl_ < 10.0:   # Minimal TTL for consul = 10, else gives "Error 500"
+            ttl_ = 10.0
+        if self._client.http.set_ttl(ttl_):
             self._session = None
             self.__do_not_watch = True
 
