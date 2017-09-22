@@ -808,10 +808,6 @@ class Postgresql(object):
             if not self.is_pid_running(pid):
                 logger.error('postmaster is not running')
                 self.set_state('start failed')
-                # somehow we observed multiple times that there were no postmaster running, but
-                # pg_controldata was still reporting: `Database cluster state: in archive recovery`
-                # Therefore we will try to give some more time to all processes to finish.
-                time.sleep(1)
                 return False
 
         logger.warning("Timed out waiting for PostgreSQL to start")
@@ -1750,3 +1746,57 @@ $$""".format(name, ' '.join(options)), name, password, password)
         90600
         """
         return Postgresql.postgres_version_to_int(pg_version + '.0')
+
+    def read_postmaster_opts(self):
+        """returns the list of option names/values from postgres.opts, Empty dict if read failed or no file"""
+        result = {}
+        try:
+            with open(os.path.join(self._data_dir, 'postmaster.opts')) as f:
+                data = f.read()
+                for opt in data.split('" "'):
+                    if '=' in opt and opt.startswith('--'):
+                        name, val = opt.split('=', 1)
+                        result[name.strip('-')] = val.rstrip('"\n')
+        except IOError:
+            logger.exception('Error when reading postmaster.opts')
+        return result
+
+    def single_user_mode(self, command=None, options=None):
+        """run a given command in a single-user mode. If the command is empty - then just start and stop"""
+        cmd = [self._pgcommand('postgres'), '--single', '-D', self._data_dir]
+        for opt, val in sorted((options or {}).items()):
+            cmd.extend(['-c', '{0}={1}'.format(opt, val)])
+        # need a database name to connect
+        cmd.append(self._database)
+        p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=open(os.devnull, 'w'), stderr=subprocess.STDOUT)
+        if p:
+            if command:
+                p.communicate('{0}\n'.format(command))
+            p.stdin.close()
+            return p.wait()
+        return 1
+
+    def cleanup_archive_status(self):
+        status_dir = os.path.join(self._data_dir, 'pg_' + self.wal_name, 'archive_status')
+        try:
+            for f in os.listdir(status_dir):
+                path = os.path.join(status_dir, f)
+                try:
+                    if os.path.islink(path):
+                        os.unlink(path)
+                    elif os.path.isfile(path):
+                        os.remove(path)
+                except OSError:
+                    logger.exception('Unable to remove %s', path)
+        except OSError:
+            logger.exception('Unable to list %s', status_dir)
+
+    def fix_cluster_state(self):
+        self.cleanup_archive_status()
+
+        # Start in a single user mode and stop to produce a clean shutdown
+        opts = self.read_postmaster_opts()
+        opts.update({'archive_mode': 'on', 'archive_command': 'false'})
+        if os.path.isfile(self._recovery_conf) or os.path.islink(self._recovery_conf):
+            os.unlink(self._recovery_conf)
+        return self.single_user_mode(options=opts) == 0 or None
