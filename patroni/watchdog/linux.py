@@ -173,7 +173,7 @@ class LinuxWatchdogDevice(WatchdogBase):
                 raise WatchdogError("Could not get information about watchdog device: {}".format(e))
             self._support_cache = WatchdogInfo(info.options,
                                                info.firmware_version,
-                                               str(bytearray(info.identity)).rstrip('\x00'))
+                                               bytearray(info.identity).decode(errors='ignore').rstrip('\x00'))
         return self._support_cache
 
     def describe(self):
