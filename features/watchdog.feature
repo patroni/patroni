@@ -14,7 +14,8 @@ Feature: watchdog
     Then postgres0 watchdog has been closed
 
   Scenario: watchdog is opened and pinged after resume
-    Given I run patronictl.py resume batman
+    Given I reset postgres0 watchdog state
+    And I run patronictl.py resume batman
     Then I receive a response returncode 0
     And postgres0 watchdog has been pinged after 10 seconds
 
@@ -23,7 +24,8 @@ Feature: watchdog
     Then postgres0 watchdog has been closed
 
   Scenario: watchdog is triggered if patroni stops responding
-    Given I start postgres0 with watchdog
+    Given I reset postgres0 watchdog state
+    And I start postgres0 with watchdog
     Then postgres0 role is the primary after 10 seconds
     When postgres0 hangs for 30 seconds
     Then postgres0 watchdog is triggered after 30 seconds
