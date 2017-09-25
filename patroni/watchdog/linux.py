@@ -155,18 +155,22 @@ class LinuxWatchdogDevice(WatchdogBase):
     def can_be_disabled(self):
         return self.get_support().has_MAGICCLOSE
 
-    def _ioctl(self, func, arg, mutate_arg=False):
+    def _ioctl(self, func, arg):
+        """Runs the specified ioctl on the underlying fd.
+
+        Raises WatchdogError if the device is closed.
+        Raises OSError or IOError (Python 2) when the ioctl fails."""
         if self._fd is None:
             raise WatchdogError("Watchdog device is closed")
-
-        result = fcntl.ioctl(self._fd, func, arg, mutate_arg)
-        if result < 0:
-            raise IOError(result)
+        fcntl.ioctl(self._fd, func, arg, True)
 
     def get_support(self):
         if self._support_cache is None:
             info = watchdog_info()
-            self._ioctl(WDIOC_GETSUPPORT, info, True)
+            try:
+                self._ioctl(WDIOC_GETSUPPORT, info)
+            except (WatchdogError, OSError, IOError) as e:
+                raise WatchdogError("Could not get information about watchdog device: {}".format(e))
             self._support_cache = WatchdogInfo(info.options,
                                                info.firmware_version,
                                                str(bytearray(info.identity)).rstrip('\x00'))
@@ -180,7 +184,7 @@ class LinuxWatchdogDevice(WatchdogBase):
             try:
                 _, version, identity = self.get_support()
                 ver_str = " (firmware {0})".format(version) if version else ""
-            except WatchdogError:  # XXX: Can it really be raise when self._fd is not None?
+            except WatchdogError:
                 pass
 
         return identity + ver_str + dev_str
@@ -199,11 +203,17 @@ class LinuxWatchdogDevice(WatchdogBase):
         timeout = int(timeout)
         if not 0 < timeout < 0xFFFF:
             raise WatchdogError("Invalid timeout {0}. Supported values are between 1 and 65535".format(timeout))
-        self._ioctl(WDIOC_SETTIMEOUT, ctypes.c_int(timeout))
+        try:
+            self._ioctl(WDIOC_SETTIMEOUT, ctypes.c_int(timeout))
+        except (WatchdogError, OSError, IOError) as e:
+            raise WatchdogError("Could not set timeout on watchdog device: {}".format(e))
 
     def get_timeout(self):
         timeout = ctypes.c_int()
-        self._ioctl(WDIOC_GETTIMEOUT, timeout, True)
+        try:
+            self._ioctl(WDIOC_GETTIMEOUT, timeout)
+        except (WatchdogError, OSError, IOError) as e:
+            raise WatchdogError("Could not get timeout on watchdog device: {}".format(e))
         return timeout.value
 
 

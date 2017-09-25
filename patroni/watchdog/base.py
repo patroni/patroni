@@ -133,6 +133,7 @@ class Watchdog(object):
 
         try:
             self.impl.open()
+            actual_timeout = self._set_timeout()
         except WatchdogError as e:
             logger.warning("Could not activate %s: %s", self.impl.describe(), e)
             self.impl = NullWatchdog()
@@ -140,8 +141,6 @@ class Watchdog(object):
         if self.impl.is_running and not self.impl.can_be_disabled:
             logger.warning("Watchdog implementation can't be disabled."
                            " Watchdog will trigger after Patroni loses leader key.")
-
-        actual_timeout = self._set_timeout()
 
         if not self.impl.is_running or actual_timeout > self.config.timeout:
             if self.config.mode == MODE_REQUIRED:
