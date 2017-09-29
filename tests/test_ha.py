@@ -193,6 +193,15 @@ class TestHa(unittest.TestCase):
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.assertEquals(self.ha.run_cycle(), 'running pg_rewind from leader')
 
+    @patch.object(Postgresql, 'can_rewind', PropertyMock(return_value=True))
+    @patch.object(Postgresql, 'fix_cluster_state', Mock())
+    def test_single_user_after_recover_failed(self):
+        self.p.controldata = lambda: {'Database cluster state': 'in production'}
+        self.p.is_running = false
+        self.p.follow = false
+        self.assertEquals(self.ha.run_cycle(), 'starting as a secondary')
+        self.assertEquals(self.ha.run_cycle(), 'fixing cluster state in a single user mode')
+
     @patch('sys.exit', return_value=1)
     @patch('patroni.ha.Ha.sysid_valid', MagicMock(return_value=True))
     def test_sysid_no_match(self, exit_mock):
