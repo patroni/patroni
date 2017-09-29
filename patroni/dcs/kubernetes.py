@@ -200,6 +200,8 @@ class Kubernetes(AbstractDCS):
             func = functools.partial(self._api.patch_namespaced_config_map, name)
         else:
             func = functools.partial(self._api.create_namespaced_config_map)
+            # skip annotations with null values
+            metadata['annotations'] = {k: v for k, v in metadata['annotations'].items() if v is not None}
 
         body = k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata))
         return self.retry(func, self._namespace, body) if retry else func(self._namespace, body)
