@@ -208,6 +208,16 @@ class Ha(object):
             msg = "starting as a secondary"
             node_to_follow = self._get_node_to_follow(self.cluster)
 
+        # once we already tried to start postgres but failed, single user mode is a rescue in this case
+        if self.recovering and not self.state_handler.rewind_executed and self.state_handler.can_rewind:
+            data = self.state_handler.controldata()
+            if data.get('Database cluster state') not in ('shut down', 'shut down in recovery'):
+                self.recovering = False
+                msg = 'fixing cluster state in a single user mode'
+                self._async_executor.schedule(msg)
+                self._async_executor.run_async(self.state_handler.fix_cluster_state)
+                return msg
+
         self.recovering = True
 
         self._async_executor.schedule('restarting after failure')
