@@ -91,7 +91,10 @@ class Ha(object):
                 last_operation = self.state_handler.last_operation()
             except Exception:
                 logger.exception('Exception when called state_handler.last_operation()')
-        return self.dcs.update_leader(last_operation)
+        ret = self.dcs.update_leader(last_operation)
+        if ret:
+            self.watchdog.keepalive()
+        return ret
 
     def has_lock(self):
         lock_owner = self.cluster.leader and self.cluster.leader.name
