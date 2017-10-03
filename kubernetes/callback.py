@@ -24,7 +24,7 @@ class CoreV1Api(k8s_client.CoreV1Api):
                 except (HTTPException, HTTPError, socket.error, socket.timeout):
                     if count >= 10:
                         raise
-                    logger.info('Throttling AWS API requests...')
+                    logger.info('Throttling API requests...')
                     time.sleep(2 ** count * 0.5)
                     count += 1
         return wrapped
@@ -33,10 +33,6 @@ class CoreV1Api(k8s_client.CoreV1Api):
     def patch_namespaced_endpoints(self, *args, **kwargs):
         return super(CoreV1Api, self).patch_namespaced_endpoints(*args, **kwargs)
 
-    @retry
-    def patch_namespaced_pod(self, *args, **kwargs):
-        return super(CoreV1Api, self).patch_namespaced_pod(*args, **kwargs)
-
 
 def patch_master_endpoint(api, namespace, cluster):
     addresses = [k8s_client.V1EndpointAddress(ip=os.environ['POD_IP'])]
@@ -44,13 +40,6 @@ def patch_master_endpoint(api, namespace, cluster):
     subsets = [k8s_client.V1EndpointSubset(addresses=addresses, ports=ports)]
     body = k8s_client.V1Endpoints(subsets=subsets)
     return api.patch_namespaced_endpoints(cluster, namespace, body)
-
-
-def patch_pod_labels(api, namespace, new_role):
-    pod_name = os.environ['POD_NAME']
-    metadata = k8s_client.V1ObjectMeta(namespace=namespace, name=pod_name, labels={'role': new_role})
-    body = k8s_client.V1Pod(metadata=metadata)
-    return api.patch_namespaced_pod(pod_name, namespace, body)
 
 
 def main():
@@ -67,11 +56,6 @@ def main():
 
     if role == 'master' and action in ('on_start', 'on_role_change'):
         patch_master_endpoint(k8s_api, namespace, cluster)
-    elif action == 'on_stop':
-        role = None
-
-    logger.debug("Changing the pod's role to %s", role)
-    patch_pod_labels(k8s_api, namespace, role)
 
 
 if __name__ == '__main__':
