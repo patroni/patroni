@@ -60,7 +60,7 @@ class TestKubernetes(unittest.TestCase):
 
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_pod', Mock(side_effect=k8s_client.rest.ApiException(502, '')))
     def test_touch_member(self):
-        self.k.touch_member('{}')
+        self.k.touch_member({})
 
     def test_initialize(self):
         self.k.initialize()

@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 import etcd
+import json
 import logging
 import os
 import urllib3.util.connection
@@ -467,6 +468,7 @@ class Etcd(AbstractDCS):
 
     @catch_etcd_errors
     def touch_member(self, data, ttl=None, permanent=False):
+        data = json.dumps(data, separators=(',', ':'))
         return self.retry(self._client.set, self.member_path, data, None if permanent else ttl or self._ttl)
 
     @catch_etcd_errors

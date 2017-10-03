@@ -514,7 +514,7 @@ class AbstractDCS(object):
         This method should create or update key with the name = '/members/' + `~self._name`
         and value = data in a given DCS.
 
-        :param data: json serialized information about instance (including connection strings)
+        :param data: information about instance (including connection strings)
         :param ttl: ttl for member key, optional parameter. If it is None `~self.member_ttl will be used`
         :param permanent: if set to `!True`, the member key will never expire.
          Used in patronictl for the external master.

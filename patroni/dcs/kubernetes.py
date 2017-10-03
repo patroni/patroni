@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 import datetime
 import functools
+import json
 import logging
 import socket
 import time
@@ -264,6 +265,7 @@ class Kubernetes(AbstractDCS):
 
     @catch_kubernetes_errors
     def touch_member(self, data, ttl=None, permanent=False):
+        data = json.dumps(data, separators=(',', ':'))
         metadata = k8s_client.V1ObjectMeta(namespace=self._namespace, name=self._name, annotations={'status': data})
         body = k8s_client.V1Pod(metadata=metadata)
         return self._api.patch_namespaced_pod(self._name, self._namespace, body)

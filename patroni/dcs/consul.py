@@ -1,4 +1,5 @@
 from __future__ import absolute_import
+import json
 import logging
 import os
 import socket
@@ -9,7 +10,7 @@ import urllib3
 from consul import ConsulException, NotFound, base
 from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState
 from patroni.exceptions import DCSError
-from patroni.utils import parse_bool, Retry, RetryFailedError
+from patroni.utils import deep_compare, parse_bool, Retry, RetryFailedError
 from urllib3.exceptions import HTTPError
 from six.moves.urllib.parse import urlencode, urlparse
 from six.moves.http_client import HTTPException
@@ -124,7 +125,7 @@ class Consul(AbstractDCS):
                             retry_exceptions=(ConsulInternalError, HTTPException,
                                               HTTPError, socket.error, socket.timeout))
 
-        self._my_member_data = None
+        self._my_member_data = {}
         kwargs = {}
         if 'url' in config:
             r = urlparse(config['url'])
@@ -276,12 +277,12 @@ class Consul(AbstractDCS):
             except Exception:
                 return False
 
-        if not create_member and member and data == self._my_member_data:
+        if not create_member and member and deep_compare(data, self._my_member_data):
             return True
 
         try:
             args = {} if kwargs.get('permanent', False) else {'acquire': self._session}
-            self._client.kv.put(self.member_path, data, **args)
+            self._client.kv.put(self.member_path, json.dumps(data, separators=(',', ':')), **args)
             self._my_member_data = data
             return True
         except Exception:
