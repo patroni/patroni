@@ -82,6 +82,7 @@ class Kubernetes(AbstractDCS):
         self._labels[config.get('scope_label', 'cluster-name')] = config['scope']
         self._label_selector = ','.join('{0}={1}'.format(k, v) for k, v in self._labels.items())
         self._namespace = config.get('namespace') or 'default'
+        self._role_label = config.get('role_label', 'role')
         config['namespace'] = ''
         super(Kubernetes, self).__init__(config)
         self._retry = Retry(deadline=config['retry_timeout'], max_delay=1, max_tries=-1,
@@ -265,9 +266,16 @@ class Kubernetes(AbstractDCS):
 
     @catch_kubernetes_errors
     def touch_member(self, data, ttl=None, permanent=False):
-        data = json.dumps(data, separators=(',', ':'))
-        metadata = k8s_client.V1ObjectMeta(namespace=self._namespace, name=self._name, annotations={'status': data})
-        body = k8s_client.V1Pod(metadata=metadata)
+        cluster = self.cluster
+        if cluster.leader and cluster.leader.name == self._name:
+            role = 'master'
+        elif data['state'] == 'running' and data['role'] != 'master':
+            role = data['role']
+        else:
+            role = None
+        metadata = {'namespace': self._namespace, 'name': self._name, 'labels': {self._role_label: role},
+                    'annotations': {'status': json.dumps(data, separators=(',', ':'))}}
+        body = k8s_client.V1Pod(metadata=k8s_client.V1ObjectMeta(**metadata))
         return self._api.patch_namespaced_pod(self._name, self._namespace, body)
 
     def initialize(self, create_new=True, sysid=""):
@@ -278,6 +286,7 @@ class Kubernetes(AbstractDCS):
     def delete_leader(self):
         if self.cluster and isinstance(self.cluster.leader, Leader) and self.cluster.leader.name == self._name:
             self.patch_or_create(self.leader_path, {self._LEADER: None}, self._leader_resource_version, True, False)
+            self.reset_cluster()
 
     def cancel_initialization(self):
         self.patch_or_create(self.config_path, {self._INITIALIZE: None}, self.cluster.config.index, True)

@@ -61,6 +61,9 @@ class TestKubernetes(unittest.TestCase):
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_pod', Mock(side_effect=k8s_client.rest.ApiException(502, '')))
     def test_touch_member(self):
         self.k.touch_member({})
+        self.k._name = 'p-1'
+        self.k.touch_member({'state': 'running', 'role': 'replica'})
+        self.k.touch_member({'state': 'stopped', 'role': 'master'})
 
     def test_initialize(self):
         self.k.initialize()
