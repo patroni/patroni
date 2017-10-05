@@ -267,7 +267,7 @@ class Kubernetes(AbstractDCS):
     @catch_kubernetes_errors
     def touch_member(self, data, ttl=None, permanent=False):
         cluster = self.cluster
-        if cluster.leader and cluster.leader.name == self._name:
+        if cluster and cluster.leader and cluster.leader.name == self._name:
             role = 'master'
         elif data['state'] == 'running' and data['role'] != 'master':
             role = data['role']
