@@ -79,8 +79,11 @@ class TestKubernetes(unittest.TestCase):
     def test_delete_cluster(self):
         self.k.delete_cluster()
 
+    @patch.object(k8s_client.CoreV1Api, 'create_namespaced_endpoints', Mock())
     def test_delete_sync_state(self):
-        self.k.delete_sync_state()
+        k = Kubernetes({'ttl': 30, 'scope': 'test', 'name': 'p-0', 'retry_timeout': 10,
+                        'labels': {'f': 'b'}, 'use_endpoints': True, 'pod_ip': '10.0.0.0'})
+        k.delete_sync_state()
 
     def test_watch(self):
         self.k.set_ttl(10)

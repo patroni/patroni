@@ -129,6 +129,7 @@ class PatroniController(AbstractController):
             self.watchdog.start()
         if isinstance(self._context.dcs_ctl, KubernetesController):
             self._context.dcs_ctl.create_pod(self._name[8:], self._scope)
+            os.environ['PATRONI_KUBERNETES_POD_IP'] = '10.0.0.' + self._name[-1]
         return subprocess.Popen(['coverage', 'run', '--source=patroni', '-p', 'patroni.py', self._config],
                                 stdout=self._log, stderr=subprocess.STDOUT, cwd=self._work_directory)
 
@@ -440,6 +441,7 @@ class KubernetesController(AbstractDcsController):
         self._labels = {"application": "patroni"}
         self._label_selector = ','.join('{0}={1}'.format(k, v) for k, v in self._labels.items())
         os.environ['PATRONI_KUBERNETES_LABELS'] = json.dumps(self._labels)
+        os.environ['PATRONI_KUBERNETES_USE_ENDPOINTS'] = 'true'
 
         from kubernetes import client as k8s_client, config as k8s_config
         k8s_config.load_kube_config(context='local')
@@ -468,20 +470,17 @@ class KubernetesController(AbstractDcsController):
             except:
                 break
 
-    def path(self, key=None, scope='batman'):
-        return super(KubernetesController, self).path(key, scope)[9:].replace('/', '-')
-
     def query(self, key, scope='batman'):
         if key.startswith('members/'):
             pod = self._api.read_namespaced_pod(key[8:], self._namespace)
             return (pod.metadata.annotations or {}).get('status', '')
         else:
             try:
-                cmap = self._api.read_namespaced_config_map(self.path(key, scope), self._namespace)
+                e = self._api.read_namespaced_endpoints(scope + ('' if key == 'leader' else '-' + key), self._namespace)
                 if key == 'leader':
-                    return cmap.metadata.annotations[key]
+                    return e.metadata.annotations[key]
                 else:
-                    return json.dumps(cmap.metadata.annotations)
+                    return json.dumps(e.metadata.annotations)
             except:
                 return None
 
@@ -491,7 +490,7 @@ class KubernetesController(AbstractDcsController):
         except:
             pass
         try:
-            self._api.delete_collection_namespaced_config_map(self._namespace, label_selector=self._label_selector)
+            self._api.delete_collection_namespaced_endpoints(self._namespace, label_selector=self._label_selector)
         except:
             pass
 
