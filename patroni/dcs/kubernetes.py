@@ -71,7 +71,7 @@ class Kubernetes(AbstractDCS):
         try:
             k8s_config.load_incluster_config()
         except k8s_config.ConfigException:
-            k8s_config.load_kube_config(context='local')
+            k8s_config.load_kube_config(context=config.get('context', 'local'))
 
         self.__subsets = None
         use_endpoints = config.get('use_endpoints') and (config.get('patronictl') or 'pod_ip' in config)
