@@ -244,11 +244,11 @@ class Config(object):
                     # PATRONI_(ETCD|CONSUL|ZOOKEEPER|EXHIBITOR|...)_(HOSTS?|PORT|..)
                     if suffix in ('HOST', 'HOSTS', 'PORT', 'SRV', 'URL', 'PROXY', 'CACERT', 'CERT',
                                   'KEY', 'VERIFY', 'TOKEN', 'NAMESPACE', 'CONTEXT', 'USE_ENDPOINTS',
-                                  'SCOPE_LABEL', 'ROLE_LABEL', 'POD_IP', 'POD_PORT', 'LABELS'):
+                                  'SCOPE_LABEL', 'ROLE_LABEL', 'POD_IP', 'PORTS', 'LABELS'):
                         value = os.environ.pop(param)
                         if suffix == 'PORT':
                             value = value and parse_int(value)
-                        elif suffix == 'HOSTS':
+                        elif suffix in ('HOSTS', 'PORTS'):
                             value = value and _parse_list(value)
                         elif suffix == 'LABELS':
                             if not value.strip().startswith('{'):

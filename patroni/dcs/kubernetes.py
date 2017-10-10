@@ -77,7 +77,11 @@ class Kubernetes(AbstractDCS):
         use_endpoints = config.get('use_endpoints') and (config.get('patronictl') or 'pod_ip' in config)
         if use_endpoints:
             addresses = [k8s_client.V1EndpointAddress(ip=config['pod_ip'])]
-            ports = [k8s_client.V1EndpointPort(port=int(config.get('pod_port', 5432)))]
+            ports = []
+            for p in config.get('ports', [{}]):
+                port = {'port': int(p.get('port', '5432'))}
+                port.update({n: p[n] for n in ('name', 'protocol') if p.get(n)})
+                ports.append(k8s_client.V1EndpointPort(**port))
             self.__subsets = [k8s_client.V1EndpointSubset(addresses=addresses, ports=ports)]
         self._api = CoreV1Api(use_endpoints)
         self.set_retry_timeout(config['retry_timeout'])
