@@ -12,6 +12,14 @@ Version 1.3.5
 
   If the node was running as a master it was preventing from failover.
 
+**Stability improvement**
+
+- Try to run postmaster in a single-user mode if we tried by failed to start postgres (Alexander)
+
+  Usually such problem happens when node running as a master was terminated and timelines were diverged.
+  If ``recovery.conf`` has ``restore_command`` defined, there are really high chances that postgres will abort startup and leave controldata unchanged.
+  It make impossible to use ``pg_rewind``, which requires a clean shutdown.
+
 **Consul improvements**
 
 - Make it possible to specify health checks when creating session (Alexander)
