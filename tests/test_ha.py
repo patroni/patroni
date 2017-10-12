@@ -862,6 +862,7 @@ class TestHa(unittest.TestCase):
         self.ha.has_lock = true
         self.p.data_directory_empty = true
         self.assertEquals(self.ha.run_cycle(), 'released leader key voluntarily as data dir empty and currently leader')
+        self.assertEquals(self.p.role, 'uninitialized')
 
         # as has_lock is mocked out, we need to fake the leader key release
         self.ha.has_lock = false
