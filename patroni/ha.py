@@ -1014,6 +1014,7 @@ class Ha(object):
 
             # is data directory empty?
             if self.state_handler.data_directory_empty():
+                self.state_handler.set_role('uninitialized')
                 # In case datadir went away while we were master. TODO: check for this and try to stop postgresql.
                 self.watchdog.disable()
 
