@@ -3,6 +3,37 @@
 Release notes
 =============
 
+Version 1.3.5
+-------------
+
+**Bugfix**
+
+- Set role to 'uninitialized' if data directory was removed (Alexander Kukushkin)
+
+  If the node was running as a master it was preventing from failover.
+
+**Stability improvement**
+
+- Try to run postmaster in a single-user mode if we tried and failed to start postgres (Alexander)
+
+  Usually such problem happens when node running as a master was terminated and timelines were diverged.
+  If ``recovery.conf`` has ``restore_command`` defined, there are really high chances that postgres will abort startup and leave controldata unchanged.
+  It makes impossible to use ``pg_rewind``, which requires a clean shutdown.
+
+**Consul improvements**
+
+- Make it possible to specify health checks when creating session (Alexander)
+
+  If not specified, Consul will use "serfHealth". From one side it allows fast detection of isolated master, but from another side it makes it impossible for Patroni to tolerate short network lags.
+
+**Bugfix**
+
+- Fix watchdog on Python 3 (Ants Aasma)
+
+  A misunderstanding of the ioctl() call interface. If mutable=False then fcntl.ioctl() actually returns the arg buffer back.
+  This accidentally worked on Python2 because int and str comparison did not return an error.
+  Error reporting is actually done by raising IOError on Python2 and OSError on Python3.
+
 Version 1.3.4
 -------------
 
