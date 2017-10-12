@@ -153,6 +153,7 @@ class Consul(AbstractDCS):
         self.set_retry_timeout(config['retry_timeout'])
         self.set_ttl(config.get('ttl') or 30)
         self._last_session_refresh = 0
+        self.__session_checks = config.get('checks')
         if not self._ctl:
             self.create_session()
 
@@ -189,6 +190,7 @@ class Consul(AbstractDCS):
         ret = not self._session
         if ret:
             self._session = self._client.session.create(name=self._scope + '-' + self._name,
+                                                        checks=self.__session_checks,
                                                         lock_delay=0.001, behavior='delete')
         self._last_session_refresh = time.time()
         return ret
