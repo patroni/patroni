@@ -33,6 +33,7 @@ Consul
 -  **PATRONI\_CONSUL\_CACERT**: (optional) The ca certificate. If pressent it will enable validation.
 -  **PATRONI\_CONSUL\_CERT**: (optional) File with the client certificate
 -  **PATRONI\_CONSUL\_KEY**: (optional) File with the client key. Can be empty if the key is part of certificate.
+-  **PATRONI\_CONSUL\_CHECKS**: (optional) list of Consul health checks used for session. If not specified Consul will use "serfHealth" in additional to TTL based created by Patroni.
 
 Etcd
 ----

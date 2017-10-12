@@ -243,11 +243,11 @@ class Config(object):
                 if name and suffix:
                     # PATRONI_(ETCD|CONSUL|ZOOKEEPER|EXHIBITOR|...)_(HOSTS?|PORT|..)
                     if suffix in ('HOST', 'HOSTS', 'PORT', 'SRV', 'URL', 'PROXY', 'CACERT', 'CERT', 'KEY',
-                                  'VERIFY', 'TOKEN') and '_' not in name:
+                                  'VERIFY', 'TOKEN', 'CHECKS') and '_' not in name:
                         value = os.environ.pop(param)
                         if suffix == 'PORT':
                             value = value and parse_int(value)
-                        elif suffix == 'HOSTS':
+                        elif suffix in ('HOSTS', 'CHECKS'):
                             value = value and _parse_list(value)
                         if value:
                             ret[name.lower()][suffix.lower()] = value
