@@ -58,7 +58,7 @@ Most of the parameters are optional, but you have to specify one of the **host**
 -  **cacert**: (optional) The ca certificate. If pressent it will enable validation.
 -  **cert**: (optional) file with the client certificate
 -  **key**: (optional) file with the client key. Can be empty if the key is part of **cert**.
--  **checks**: (optional) list of Consul health checks used for session. If not specified Consul will use "serfHealth" in additional to TTL based created by Patroni.
+-  **checks**: (optional) list of Consul health checks used for the session. If not specified Consul will use "serfHealth" in additional to the TTL based check created by Patroni. Additional checks, in particular the "serfHealth", may cause the leader lock to expire faster than in `ttl` seconds when the leader instance becomes unavailable
 
 Etcd
 ----
