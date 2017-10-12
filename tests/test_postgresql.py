@@ -905,6 +905,7 @@ class TestPostgresql(unittest.TestCase):
         self.assertEquals(self.p.single_user_mode(command="CHECKPOINT"), 0)
         subprocess_popen_mock.return_value = None
         self.assertEquals(self.p.single_user_mode(), 1)
+        self.assertEquals(self.p.single_user_mode(options={'archive_mode': 'on'}), 1)
 
     @patch('os.listdir', Mock(side_effect=[OSError, ['a', 'b']]))
     @patch('os.unlink', Mock(side_effect=OSError))
