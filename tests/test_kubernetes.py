@@ -58,7 +58,7 @@ class TestKubernetes(unittest.TestCase):
     def test_set_config_value(self):
         self.k.set_config_value('{}')
 
-    @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_pod', Mock(side_effect=k8s_client.rest.ApiException(502, '')))
+    @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_pod', Mock(return_value=True))
     def test_touch_member(self):
         self.k.touch_member({})
         self.k._name = 'p-1'
@@ -80,11 +80,12 @@ class TestKubernetes(unittest.TestCase):
         self.k.delete_cluster()
 
     @patch('kubernetes.config.load_kube_config', Mock())
-    @patch.object(k8s_client.CoreV1Api, 'create_namespaced_endpoints', Mock())
+    @patch.object(k8s_client.CoreV1Api, 'create_namespaced_endpoints',
+                  Mock(side_effect=[k8s_client.rest.ApiException(502, ''), k8s_client.rest.ApiException(500, '')]))
     def test_delete_sync_state(self):
         k = Kubernetes({'ttl': 30, 'scope': 'test', 'name': 'p-0', 'retry_timeout': 10,
                         'labels': {'f': 'b'}, 'use_endpoints': True, 'pod_ip': '10.0.0.0'})
-        self.assertIsNotNone(k.delete_sync_state())
+        self.assertFalse(k.delete_sync_state())
 
     def test_watch(self):
         self.k.set_ttl(10)

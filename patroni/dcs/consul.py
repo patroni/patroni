@@ -347,11 +347,11 @@ class Consul(AbstractDCS):
 
     @catch_consul_errors
     def set_sync_state_value(self, value, index=None):
-        return self._client.kv.put(self.sync_path, value, cas=index)
+        return self.retry(self._client.kv.put, self.sync_path, value, cas=index)
 
     @catch_consul_errors
     def delete_sync_state(self, index=None):
-        return self._client.kv.delete(self.sync_path, cas=index)
+        return self.retry(self._client.kv.delete, self.sync_path, cas=index)
 
     def watch(self, leader_index, timeout):
         if self.__do_not_watch:

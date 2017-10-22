@@ -4,12 +4,13 @@ import functools
 import json
 import logging
 import socket
+import sys
 import time
 
 from kubernetes import client as k8s_client, config as k8s_config, watch as k8s_watch
 from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState
 from patroni.exceptions import DCSError
-from patroni.utils import tzutc, Retry, RetryFailedError
+from patroni.utils import deep_compare, tzutc, Retry, RetryFailedError
 from urllib3.exceptions import HTTPError
 from six.moves.http_client import HTTPException
 
@@ -123,7 +124,9 @@ class Kubernetes(AbstractDCS):
     @staticmethod
     def member(pod):
         annotations = pod.metadata.annotations or {}
-        return Member.from_node(pod.metadata.resource_version, pod.metadata.name, None, annotations.get('status', ''))
+        member = Member.from_node(pod.metadata.resource_version, pod.metadata.name, None, annotations.get('status', ''))
+        member.data['pod_labels'] = pod.metadata.labels
+        return member
 
     def _load_cluster(self):
         try:
@@ -226,7 +229,7 @@ class Kubernetes(AbstractDCS):
 
     def attempt_to_acquire_leader(self, permanent=False):
         now = datetime.datetime.now(tzutc).isoformat()
-        annotations = {self._LEADER: self._name, 'ttl': str(self._ttl),
+        annotations = {self._LEADER: self._name, 'ttl': str(sys.maxsize if permanent else self._ttl),
                        'renewTime': now, 'acquireTime': now, 'transitions': '0'}
         if self._leader_observed_record:
             try:
@@ -270,10 +273,17 @@ class Kubernetes(AbstractDCS):
             role = data['role']
         else:
             role = None
-        metadata = {'namespace': self._namespace, 'name': self._name, 'labels': {self._role_label: role},
-                    'annotations': {'status': json.dumps(data, separators=(',', ':'))}}
-        body = k8s_client.V1Pod(metadata=k8s_client.V1ObjectMeta(**metadata))
-        return self._api.patch_namespaced_pod(self._name, self._namespace, body)
+
+        member = cluster and cluster.get_member(self._name, fallback_to_leader=False)
+        pod_labels = member and member.data.pop('pod_labels', None)
+        ret = pod_labels is not None and pod_labels.get(self._role_label) == role and deep_compare(data, member.data)
+
+        if not ret:
+            metadata = {'namespace': self._namespace, 'name': self._name, 'labels': {self._role_label: role},
+                        'annotations': {'status': json.dumps(data, separators=(',', ':'))}}
+            body = k8s_client.V1Pod(metadata=k8s_client.V1ObjectMeta(**metadata))
+            ret = self._api.patch_namespaced_pod(self._name, self._namespace, body)
+        return ret
 
     def initialize(self, create_new=True, sysid=""):
         cluster = self.cluster

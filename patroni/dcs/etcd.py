@@ -522,7 +522,7 @@ class Etcd(AbstractDCS):
 
     @catch_etcd_errors
     def set_sync_state_value(self, value, index=None):
-        return self._client.write(self.sync_path, value, prevIndex=index or 0)
+        return self.retry(self._client.write, self.sync_path, value, prevIndex=index or 0)
 
     @catch_etcd_errors
     def delete_sync_state(self, index=None):
