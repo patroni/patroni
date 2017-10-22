@@ -90,6 +90,7 @@ class Kubernetes(AbstractDCS):
         self._leader_observed_record = {}
         self._leader_observed_time = None
         self._leader_resource_version = None
+        self._leader_observed_subsets = []
         self.__do_not_watch = False
 
     def retry(self, *args, **kwargs):
@@ -135,9 +136,10 @@ class Kubernetes(AbstractDCS):
             members = [self.member(pod) for pod in response.items]
 
             response = self.retry(self._api.list_namespaced_kind, self._namespace, label_selector=self._label_selector)
-            nodes = {item.metadata.name: item.metadata for item in response.items}
+            nodes = {item.metadata.name: item for item in response.items}
 
-            metadata = nodes.get(self.config_path)
+            config = nodes.get(self.config_path)
+            metadata = config and config.metadata
             annotations = metadata and metadata.annotations or {}
 
             # get initialize flag
@@ -147,8 +149,10 @@ class Kubernetes(AbstractDCS):
             config = ClusterConfig.from_node(metadata and metadata.resource_version,
                                              annotations.get(self._CONFIG) or '{}')
 
-            metadata = nodes.get(self.leader_path)
+            leader = nodes.get(self.leader_path)
+            metadata = leader and leader.metadata
             self._leader_resource_version = metadata.resource_version if metadata else None
+            self._leader_observed_subsets = leader.subsets if self.__subsets and leader else []
             annotations = metadata and metadata.annotations or {}
 
             # get last leader operation
@@ -177,17 +181,66 @@ class Kubernetes(AbstractDCS):
                 leader = Leader(response.metadata.resource_version, None, member)
 
             # failover key
-            metadata = nodes.get(self.failover_path)
+            failover = nodes.get(self.failover_path)
+            metadata = failover and failover.metadata
             failover = Failover.from_node(metadata and metadata.resource_version, metadata and metadata.annotations)
 
             # get synchronization state
-            metadata = nodes.get(self.sync_path)
+            sync = nodes.get(self.sync_path)
+            metadata = sync and sync.metadata
             sync = SyncState.from_node(metadata and metadata.resource_version,  metadata and metadata.annotations)
 
             self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync)
         except Exception:
             logger.exception('get_cluster')
             raise KubernetesError('Kubernetes API is not responding properly')
+
+    @staticmethod
+    def compare_ports(p1, p2):
+        return p1.name == p2.name and p1.port == p2.port and (p1.protocol or 'TCP') == (p2.protocol or 'TCP')
+
+    @staticmethod
+    def subsets_changed(last_observed_subsets, subsets):
+        """
+        >>> Kubernetes.subsets_changed([], [])
+        False
+        >>> Kubernetes.subsets_changed([], [k8s_client.V1EndpointSubset()])
+        True
+        >>> s1 = [k8s_client.V1EndpointSubset(addresses=[k8s_client.V1EndpointAddress(ip='1.2.3.4')])]
+        >>> s2 = [k8s_client.V1EndpointSubset(addresses=[k8s_client.V1EndpointAddress(ip='1.2.3.5')])]
+        >>> Kubernetes.subsets_changed(s1, s2)
+        True
+        >>> a = [k8s_client.V1EndpointAddress(ip='1.2.3.4')]
+        >>> s1 = [k8s_client.V1EndpointSubset(addresses=a, ports=[k8s_client.V1EndpointPort(protocol='TCP', port=1)])]
+        >>> s2 = [k8s_client.V1EndpointSubset(addresses=a, ports=[k8s_client.V1EndpointPort(port=5432)])]
+        >>> Kubernetes.subsets_changed(s1, s2)
+        True
+        >>> p1 = k8s_client.V1EndpointPort(name='port1', port=1)
+        >>> p2 = k8s_client.V1EndpointPort(name='port2', port=2)
+        >>> p3 = k8s_client.V1EndpointPort(name='port3', port=3)
+        >>> s1 = [k8s_client.V1EndpointSubset(addresses=a, ports=[p1, p2])]
+        >>> s2 = [k8s_client.V1EndpointSubset(addresses=a, ports=[p2, p3])]
+        >>> Kubernetes.subsets_changed(s1, s2)
+        True
+        >>> s2 = [k8s_client.V1EndpointSubset(addresses=a, ports=[p2, p1])]
+        >>> Kubernetes.subsets_changed(s1, s2)
+        False
+        """
+        if len(last_observed_subsets) != len(subsets):
+            return True
+        if subsets == []:
+            return False
+        if len(last_observed_subsets[0].addresses or []) != 1 or \
+                last_observed_subsets[0].addresses[0].ip != subsets[0].addresses[0].ip or \
+                len(last_observed_subsets[0].ports) != len(subsets[0].ports):
+            return True
+        if len(subsets[0].ports) == 1:
+            return not Kubernetes.compare_ports(last_observed_subsets[0].ports[0], subsets[0].ports[0])
+        observed_ports = {p.name: p for p in last_observed_subsets[0].ports}
+        for p in subsets[0].ports:
+            if p.name not in observed_ports or not Kubernetes.compare_ports(p, observed_ports.pop(p.name)):
+                return True
+        return False
 
     @catch_kubernetes_errors
     def patch_or_create(self, name, annotations, resource_version=None, patch=False, retry=True, subsets=None):
@@ -202,8 +255,11 @@ class Kubernetes(AbstractDCS):
             metadata['annotations'] = {k: v for k, v in metadata['annotations'].items() if v is not None}
 
         metadata = k8s_client.V1ObjectMeta(**metadata)
-        if self.__subsets:
-            body = k8s_client.V1Endpoints(subsets=subsets or [], metadata=metadata)
+        if subsets is not None and self.__subsets:
+            endpoints = {'metadata': metadata}
+            if self.subsets_changed(self._leader_observed_subsets, subsets):
+                endpoints['subsets'] = subsets
+            body = k8s_client.V1Endpoints(**endpoints)
         else:
             body = k8s_client.V1ConfigMap(metadata=metadata)
         return self.retry(func, self._namespace, body) if retry else func(self._namespace, body)
