@@ -713,7 +713,7 @@ class Postgresql(object):
 
         try:
             proc = psutil.Process(int(pidfile['pid']))
-        except ValueError, psutil.NoSuchProcess:
+        except (ValueError, psutil.NoSuchProcess):
             return False
 
         # If start time differs, then it's the wrong process. Allow for 3 second difference for rounding errors.
