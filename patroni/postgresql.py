@@ -707,7 +707,20 @@ class Postgresql(object):
         if not (self._version_file_exists() and os.path.isfile(self._postmaster_pid)):
             # XXX: This is dangerous in case somebody deletes the data directory while PostgreSQL is still running.
             return False
-        return self.is_pid_running(self.get_pid())
+        pidfile = self.read_pid_file()
+        if 'pid' not in pidfile:
+            return False
+
+        try:
+            proc = psutil.Process(int(pidfile['pid']))
+        except ValueError, psutil.NoSuchProcess:
+            return False
+
+        # If start time differs, then it's the wrong process. Allow for 3 second difference for rounding errors.
+        if 'start_time' in pidfile and abs(proc.create_time() - int(pidfile['start_time'])) < 3:
+            return False
+
+        return proc.is_running()
 
     def read_pid_file(self):
         """Reads and parses postmaster.pid from the data directory
