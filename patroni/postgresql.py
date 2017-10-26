@@ -717,7 +717,7 @@ class Postgresql(object):
             return False
 
         # If start time differs, then it's the wrong process. Allow for 3 second difference for rounding errors.
-        if 'start_time' in pidfile and abs(proc.create_time() - int(pidfile['start_time'])) < 3:
+        if 'start_time' in pidfile and abs(proc.create_time() - int(pidfile['start_time'])) > 3:
             return False
 
         return proc.is_running()
