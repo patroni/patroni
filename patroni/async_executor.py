@@ -85,7 +85,7 @@ class AsyncExecutor(object):
             # if the func returned something (not None) - wake up main HA loop
             wakeup = func(*args) if args else func()
             return wakeup
-        except:
+        except Exception:
             logger.exception('Exception during execution of long running task %s', self.scheduled_action)
         finally:
             with self:
