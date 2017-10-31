@@ -737,7 +737,7 @@ class Postgresql(object):
             return 0
 
     def get_pid_with_lost_data_dir(self):
-        process = filter(lambda p: p.name() == "postgres" and self._data_dir in p.cmdline(), psutil.process_iter())
+        process = list(filter(lambda p: p.name() == "postgres" and self._data_dir in p.cmdline(), psutil.process_iter()))
         if process:
             return process[0].pid
         return 0
