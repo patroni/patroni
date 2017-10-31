@@ -709,6 +709,9 @@ class Postgresql(object):
             return False
         return self.is_pid_running(self.get_pid())
 
+    def is_running_with_lost_data_dir(self):
+        return self.get_pid_with_lost_data_dir() > 0
+
     def read_pid_file(self):
         """Reads and parses postmaster.pid from the data directory
 
@@ -732,6 +735,12 @@ class Postgresql(object):
         except ValueError:
             logger.warning("Garbage pid in postmaster.pid: {0!r}".format(pid))
             return 0
+
+    def get_pid_with_lost_data_dir(self):
+        process = filter(lambda p: p.name() == "postgres" and self._data_dir in p.cmdline(), psutil.process_iter())
+        if process:
+            return process[0].pid
+        return 0
 
     @staticmethod
     def is_pid_running(pid):
@@ -933,6 +942,11 @@ class Postgresql(object):
 
     def _do_stop(self, mode, block_callbacks, checkpoint, on_safepoint):
         if not self.is_running():
+            if self.is_running_with_lost_data_dir():
+                pid = self.get_pid_with_lost_data_dir()
+                if pid > 0:
+                    self.terminate_starting_postmaster(pid)
+                    return True, True
             if on_safepoint:
                 on_safepoint()
             return True, False
