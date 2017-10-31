@@ -59,6 +59,7 @@ class Ha(object):
         self.old_cluster = None
         self.recovering = False
         self._post_bootstrap_task = None
+        self._crash_recovery_executed = False
         self._start_timeout = None
         self._async_executor = AsyncExecutor(self.wakeup)
         self.watchdog = patroni.watchdog
@@ -194,6 +195,15 @@ class Ha(object):
         else:
             timeout = None
 
+        data = self.state_handler.controldata()
+        if data.get('Database cluster state') == 'in production' and not self._crash_recovery_executed and \
+                (self.cluster.is_unlocked() or self.state_handler.can_rewind):
+            self._crash_recovery_executed = True
+            msg = 'doing crash recovery in a single user mode'
+            self._async_executor.schedule(msg)
+            self._async_executor.run_async(self.state_handler.fix_cluster_state)
+            return msg
+
         self.load_cluster_from_dcs()
 
         if self.has_lock():
@@ -208,14 +218,14 @@ class Ha(object):
             node_to_follow = self._get_node_to_follow(self.cluster)
 
         # once we already tried to start postgres but failed, single user mode is a rescue in this case
-        if self.recovering and not self.state_handler.rewind_executed and self.state_handler.can_rewind:
-            data = self.state_handler.controldata()
-            if data.get('Database cluster state') not in ('shut down', 'shut down in recovery'):
-                self.recovering = False
-                msg = 'fixing cluster state in a single user mode'
-                self._async_executor.schedule(msg)
-                self._async_executor.run_async(self.state_handler.fix_cluster_state)
-                return msg
+        if self.recovering and not self.state_handler.rewind_executed \
+                and not self._crash_recovery_executed and self.state_handler.can_rewind \
+                and data.get('Database cluster state') not in ('shut down', 'shut down in recovery'):
+            self.recovering = False
+            msg = 'fixing cluster state in a single user mode'
+            self._async_executor.schedule(msg)
+            self._async_executor.run_async(self.state_handler.fix_cluster_state)
+            return msg
 
         self.recovering = True
 
@@ -896,6 +906,7 @@ class Ha(object):
                 self.dcs.reset_cluster()
                 return 'removed leader key after trying and failing to start postgres'
             return 'failed to start postgres'
+        self._crash_recovery_executed = False
         return None
 
     def cancel_initialization(self):

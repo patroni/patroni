@@ -172,20 +172,26 @@ class TestHa(unittest.TestCase):
         self.assertEquals(self.ha.run_cycle(), 'starting as a secondary')
 
     def test_recover_replica_failed(self):
-        self.p.controldata = lambda: {'Database cluster state': 'in production'}
+        self.p.controldata = lambda: {'Database cluster state': 'in recovery'}
         self.p.is_running = false
         self.p.follow = false
         self.assertEquals(self.ha.run_cycle(), 'starting as a secondary')
         self.assertEquals(self.ha.run_cycle(), 'failed to start postgres')
 
-    def test_recover_master_failed(self):
+    def test_recover_former_master(self):
         self.p.follow = false
         self.p.is_running = false
         self.p.name = 'leader'
         self.p.set_role('master')
-        self.p.controldata = lambda: {'Database cluster state': 'in production'}
+        self.p.controldata = lambda: {'Database cluster state': 'shut down'}
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.assertEquals(self.ha.run_cycle(), 'starting as readonly because i had the session lock')
+
+    @patch.object(Postgresql, 'fix_cluster_state', Mock())
+    def test_crash_recovery(self):
+        self.p.is_running = false
+        self.p.controldata = lambda: {'Database cluster state': 'in production'}
+        self.assertEquals(self.ha.run_cycle(), 'doing crash recovery in a single user mode')
 
     @patch.object(Postgresql, 'rewind_needed_and_possible', Mock(return_value=True))
     def test_recover_with_rewind(self):
@@ -196,7 +202,7 @@ class TestHa(unittest.TestCase):
     @patch.object(Postgresql, 'can_rewind', PropertyMock(return_value=True))
     @patch.object(Postgresql, 'fix_cluster_state', Mock())
     def test_single_user_after_recover_failed(self):
-        self.p.controldata = lambda: {'Database cluster state': 'in production'}
+        self.p.controldata = lambda: {'Database cluster state': 'in recovery'}
         self.p.is_running = false
         self.p.follow = false
         self.assertEquals(self.ha.run_cycle(), 'starting as a secondary')
