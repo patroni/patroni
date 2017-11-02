@@ -424,7 +424,7 @@ class AbstractDCS(object):
         with self._cluster_thread_lock:
             try:
                 self._load_cluster()
-            except:
+            except Exception:
                 self._cluster = None
                 raise
             return self._cluster
