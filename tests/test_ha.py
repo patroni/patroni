@@ -35,7 +35,7 @@ def get_cluster_not_initialized_without_leader():
 def get_cluster_initialized_without_leader(leader=False, failover=None, sync=None):
     m1 = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
                                   'api_url': 'http://127.0.0.1:8008/patroni', 'xlog_location': 4})
-    l = Leader(0, 0, m1) if leader else None
+    leader = Leader(0, 0, m1) if leader else None
     m2 = Member(0, 'other', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
                                  'api_url': 'http://127.0.0.1:8011/patroni',
                                  'state': 'running',
@@ -43,7 +43,7 @@ def get_cluster_initialized_without_leader(leader=False, failover=None, sync=Non
                                  'scheduled_restart': {'schedule': "2100-01-01 10:53:07.560445+00:00",
                                                        'postgres_version': '99.0.0'}})
     syncstate = SyncState(0 if sync else None, sync and sync[0], sync and sync[1])
-    return get_cluster(True, l, [m1, m2], failover, syncstate)
+    return get_cluster(True, leader, [m1, m2], failover, syncstate)
 
 
 def get_cluster_initialized_with_leader(failover=None, sync=None):
@@ -51,8 +51,8 @@ def get_cluster_initialized_with_leader(failover=None, sync=None):
 
 
 def get_cluster_initialized_with_only_leader(failover=None):
-    l = get_cluster_initialized_without_leader(leader=True, failover=failover).leader
-    return get_cluster(True, l, [l], failover, None)
+    leader = get_cluster_initialized_without_leader(leader=True, failover=failover).leader
+    return get_cluster(True, leader, [leader], failover, None)
 
 
 def get_node_status(reachable=True, in_recovery=True, wal_position=10, nofailover=False, watchdog_failed=False):

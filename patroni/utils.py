@@ -95,17 +95,17 @@ def strtol(value, strict=True):
     True
     """
     value = str(value).strip()
-    l = len(value)
+    ln = len(value)
     i = 0
     # skip sign:
-    if i < l and value[i] in ('-', '+'):
+    if i < ln and value[i] in ('-', '+'):
         i += 1
 
     # we always expect to get digit in the beginning
-    if i < l and value[i].isdigit():
+    if i < ln and value[i].isdigit():
         if value[i] == '0':
             i += 1
-            if i < l and value[i] in ('x', 'X'):  # '0' followed by 'x': HEX
+            if i < ln and value[i] in ('x', 'X'):  # '0' followed by 'x': HEX
                 base = 16
                 i += 1
             else:  # just starts with '0': OCT
@@ -114,7 +114,7 @@ def strtol(value, strict=True):
             base = 10
 
         ret = None
-        while i <= l:
+        while i <= ln:
             try:  # try to find maximally long number
                 i += 1  # by giving to `int` longer and longer strings
                 ret = int(value[:i], base)
