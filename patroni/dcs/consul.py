@@ -267,7 +267,7 @@ class Consul(AbstractDCS):
             self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync)
         except NotFound:
             self._cluster = Cluster(None, None, None, None, [], None, None)
-        except:
+        except Exception:
             logger.exception('get_cluster')
             raise ConsulError('Consul is not responding properly')
 

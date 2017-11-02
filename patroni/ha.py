@@ -91,7 +91,7 @@ class Ha(object):
             if write_leader_optime:
                 try:
                     self.dcs.write_leader_optime(self.state_handler.last_operation())
-                except:
+                except Exception:
                     pass
         return ret
 
@@ -124,7 +124,7 @@ class Ha(object):
             if not self._async_executor.busy and data['state'] in ['running', 'restarting', 'starting']:
                 try:
                     data['xlog_location'] = self.state_handler.wal_position(retry=False)
-                except:
+                except Exception:
                     pass
             if self.patroni.scheduled_restart:
                 scheduled_restart_data = self.patroni.scheduled_restart.copy()
