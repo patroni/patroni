@@ -176,6 +176,11 @@ class Ha(object):
             self._async_executor.run_async(self.state_handler.rewind, (self.cluster.leader,))
             return True
 
+    def _start_crash_recovery(self, msg):
+        self._async_executor.schedule(msg)
+        self._async_executor.run_async(self.state_handler.fix_cluster_state)
+        return msg
+
     def recover(self):
         # Postgres is not running and we will restart in standby mode. Watchdog is not needed until we promote.
         self.watchdog.disable()
@@ -199,10 +204,7 @@ class Ha(object):
         if data.get('Database cluster state') == 'in production' and not self._crash_recovery_executed and \
                 (self.cluster.is_unlocked() or self.state_handler.can_rewind):
             self._crash_recovery_executed = True
-            msg = 'doing crash recovery in a single user mode'
-            self._async_executor.schedule(msg)
-            self._async_executor.run_async(self.state_handler.fix_cluster_state)
-            return msg
+            return self._start_crash_recovery('doing crash recovery in a single user mode')
 
         self.load_cluster_from_dcs()
 
@@ -222,10 +224,7 @@ class Ha(object):
                 and not self._crash_recovery_executed and self.state_handler.can_rewind \
                 and data.get('Database cluster state') not in ('shut down', 'shut down in recovery'):
             self.recovering = False
-            msg = 'fixing cluster state in a single user mode'
-            self._async_executor.schedule(msg)
-            self._async_executor.run_async(self.state_handler.fix_cluster_state)
-            return msg
+            return self._start_crash_recovery('fixing cluster state in a single user mode')
 
         self.recovering = True
 
