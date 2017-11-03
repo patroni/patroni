@@ -104,6 +104,7 @@ class TestPatroni(unittest.TestCase):
     @patch('patroni.config.Config.save_cache', Mock())
     @patch('patroni.config.Config.reload_local_configuration', Mock(return_value=True))
     @patch.object(Postgresql, 'state', PropertyMock(return_value='running'))
+    @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=False))
     def test_run(self):
         self.p.postgresql.set_role('replica')
         self.p.sighup_handler()

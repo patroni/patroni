@@ -233,7 +233,7 @@ class PatroniController(AbstractController):
             if not os.path.exists(pidfile):
                 return None
             return int(open(pidfile).readline().strip())
-        except:
+        except Exception:
             return None
 
     def database_is_running(self):

@@ -194,14 +194,23 @@ class TestLinuxWatchdogDevice(unittest.TestCase):
         self.assertRaises(WatchdogError, self.impl.set_timeout, -1)
 
     @patch('os.open', Mock(return_value=3))
-    @patch('fcntl.ioctl', Mock(return_value=-1))
+    @patch('fcntl.ioctl', Mock(side_effect=OSError))
     def test__ioctl(self):
         self.assertRaises(WatchdogError, self.impl.get_support)
         self.impl.open()
-        self.assertRaises(IOError, self.impl.get_support)
+        self.assertRaises(WatchdogError, self.impl.get_support)
 
     def test_is_healthy(self):
         self.assertFalse(self.impl.is_healthy)
+
+    @patch('os.open', Mock(return_value=3))
+    @patch('fcntl.ioctl', Mock(side_effect=OSError))
+    def test_error_handling(self):
+        self.impl.open()
+        self.assertRaises(WatchdogError, self.impl.get_timeout)
+        self.assertRaises(WatchdogError, self.impl.set_timeout, 10)
+        # We still try to output a reasonable string even if getting info errors
+        self.assertEquals(self.impl.describe(), "Linux watchdog device")
 
     @patch('os.open', Mock(side_effect=OSError))
     def test_open(self):

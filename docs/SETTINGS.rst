@@ -43,9 +43,12 @@ Bootstrap configuration
             -  **- createdb**
 -  **post\_bootstrap** or **post\_init**: An additional script that will be executed after initializing the cluster. The script receives a connection string URL (with the cluster superuser as a user name). The PGPASSFILE variable is set to the location of pgpass file.
 
+.. _consul_settings:
+
 Consul
 ------
 Most of the parameters are optional, but you have to specify one of the **host** or **url**
+
 -  **host**: the host:port for the Consul endpoint, in format: http(s)://host:port
 -  **url**: url for the Consul endpoint
 -  **port**: (optional) Consul port
@@ -55,10 +58,12 @@ Most of the parameters are optional, but you have to specify one of the **host**
 -  **cacert**: (optional) The ca certificate. If pressent it will enable validation.
 -  **cert**: (optional) file with the client certificate
 -  **key**: (optional) file with the client key. Can be empty if the key is part of **cert**.
+-  **checks**: (optional) list of Consul health checks used for the session. If not specified Consul will use "serfHealth" in additional to the TTL based check created by Patroni. Additional checks, in particular the "serfHealth", may cause the leader lock to expire faster than in `ttl` seconds when the leader instance becomes unavailable
 
 Etcd
 ----
 Most of the parameters are optional, but you have to specify one of the **host**, **url**, **proxy** or **srv**
+
 -  **host**: the host:port for the etcd endpoint.
 -  **url**: url for the etcd
 -  **proxy**: proxy url for the etcd. If you are connecting to the etcd using proxy, use this parameter instead of **url**

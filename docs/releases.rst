@@ -3,6 +3,101 @@
 Release notes
 =============
 
+Version 1.3.5
+-------------
+
+**Bugfix**
+
+- Set role to 'uninitialized' if data directory was removed (Alexander Kukushkin)
+
+  If the node was running as a master it was preventing from failover.
+
+**Stability improvement**
+
+- Try to run postmaster in a single-user mode if we tried and failed to start postgres (Alexander)
+
+  Usually such problem happens when node running as a master was terminated and timelines were diverged.
+  If ``recovery.conf`` has ``restore_command`` defined, there are really high chances that postgres will abort startup and leave controldata unchanged.
+  It makes impossible to use ``pg_rewind``, which requires a clean shutdown.
+
+**Consul improvements**
+
+- Make it possible to specify health checks when creating session (Alexander)
+
+  If not specified, Consul will use "serfHealth". From one side it allows fast detection of isolated master, but from another side it makes it impossible for Patroni to tolerate short network lags.
+
+**Bugfix**
+
+- Fix watchdog on Python 3 (Ants Aasma)
+
+  A misunderstanding of the ioctl() call interface. If mutable=False then fcntl.ioctl() actually returns the arg buffer back.
+  This accidentally worked on Python2 because int and str comparison did not return an error.
+  Error reporting is actually done by raising IOError on Python2 and OSError on Python3.
+
+Version 1.3.4
+-------------
+
+**Different Consul improvements**
+
+- Pass the consul token as a header (Andrew Colin Kissa)
+
+  Headers are now the prefered way to pass the token to the consul `API <https://www.consul.io/api/index.html#authentication>`__.
+  
+
+- Advanced configuration for Consul (Alexander Kukushkin)
+
+  possibility to specify ``scheme``, ``token``, client and ca certificates :ref:`details <consul_settings>`.
+
+- compatibility with python-consul-0.7.1 and above (Alexander)
+
+  new python-consul module has changed signature of some methods
+
+- "Could not take out TTL lock" message was never logged (Alexander)
+
+  Not a critical bug, but lack of proper logging complicates investigation in case of problems.
+
+
+**Quote synchronous_standby_names using quote_ident**
+
+- When writing ``synchronous_standby_names`` into the ``postgresql.conf`` its value must be quoted (Alexander)
+
+  If it is not quoted properly, PostgreSQL will effectively disable synchronous replication and continue to work.
+
+
+**Different bugfixes around pause state, mostly related to watchdog** (Alexander)
+
+- Do not send keepalives if watchdog is not active
+- Avoid activating watchdog in a pause mode
+- Set correct postgres state in pause mode
+- Do not try to run queries from API if postgres is stopped
+
+
+Version 1.3.3
+-------------
+
+**Bugfixes**
+
+- synchronous replication was disabled shortly after promotion even when synchronous_mode_strict was turned on (Alexander Kukushkin)
+- create empty ``pg_ident.conf`` file if it is missing after restoring from the backup (Alexander)
+- open access in ``pg_hba.conf`` to all databases, not only postgres (Franco Bellagamba)
+
+
+Version 1.3.2
+-------------
+
+**Bugfix**
+
+- patronictl edit-config didn't work with ZooKeeper (Alexander Kukushkin)
+
+
+Version 1.3.1
+-------------
+
+**Bugfix**
+
+- failover via API was broken due to change in ``_MemberStatus`` (Alexander Kukushkin)
+
+
 Version 1.3
 -----------
 

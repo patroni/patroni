@@ -35,7 +35,7 @@ def get_cluster_not_initialized_without_leader():
 def get_cluster_initialized_without_leader(leader=False, failover=None, sync=None):
     m1 = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
                                   'api_url': 'http://127.0.0.1:8008/patroni', 'xlog_location': 4})
-    l = Leader(0, 0, m1) if leader else None
+    leader = Leader(0, 0, m1) if leader else None
     m2 = Member(0, 'other', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
                                  'api_url': 'http://127.0.0.1:8011/patroni',
                                  'state': 'running',
@@ -43,7 +43,7 @@ def get_cluster_initialized_without_leader(leader=False, failover=None, sync=Non
                                  'scheduled_restart': {'schedule': "2100-01-01 10:53:07.560445+00:00",
                                                        'postgres_version': '99.0.0'}})
     syncstate = SyncState(0 if sync else None, sync and sync[0], sync and sync[1])
-    return get_cluster(True, l, [m1, m2], failover, syncstate)
+    return get_cluster(True, leader, [m1, m2], failover, syncstate)
 
 
 def get_cluster_initialized_with_leader(failover=None, sync=None):
@@ -51,8 +51,8 @@ def get_cluster_initialized_with_leader(failover=None, sync=None):
 
 
 def get_cluster_initialized_with_only_leader(failover=None):
-    l = get_cluster_initialized_without_leader(leader=True, failover=failover).leader
-    return get_cluster(True, l, [l], failover, None)
+    leader = get_cluster_initialized_without_leader(leader=True, failover=failover).leader
+    return get_cluster(True, leader, [leader], failover, None)
 
 
 def get_node_status(reachable=True, in_recovery=True, wal_position=10, nofailover=False, watchdog_failed=False):
@@ -136,7 +136,7 @@ class TestHa(unittest.TestCase):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
     @patch('psycopg2.connect', psycopg2_connect)
-    @patch('patroni.dcs.dcs_modules', Mock(return_value=['foo', 'patroni.dcs.etcd']))
+    @patch('patroni.dcs.dcs_modules', Mock(return_value=['patroni.dcs.foo', 'patroni.dcs.etcd']))
     @patch.object(etcd.Client, 'read', etcd_read)
     def setUp(self):
         with patch.object(Client, 'machines') as mock_machines:
@@ -172,26 +172,41 @@ class TestHa(unittest.TestCase):
         self.assertEquals(self.ha.run_cycle(), 'starting as a secondary')
 
     def test_recover_replica_failed(self):
-        self.p.controldata = lambda: {'Database cluster state': 'in production'}
+        self.p.controldata = lambda: {'Database cluster state': 'in recovery'}
         self.p.is_running = false
         self.p.follow = false
         self.assertEquals(self.ha.run_cycle(), 'starting as a secondary')
         self.assertEquals(self.ha.run_cycle(), 'failed to start postgres')
 
-    def test_recover_master_failed(self):
+    def test_recover_former_master(self):
         self.p.follow = false
         self.p.is_running = false
         self.p.name = 'leader'
         self.p.set_role('master')
-        self.p.controldata = lambda: {'Database cluster state': 'in production'}
+        self.p.controldata = lambda: {'Database cluster state': 'shut down'}
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.assertEquals(self.ha.run_cycle(), 'starting as readonly because i had the session lock')
+
+    @patch.object(Postgresql, 'fix_cluster_state', Mock())
+    def test_crash_recovery(self):
+        self.p.is_running = false
+        self.p.controldata = lambda: {'Database cluster state': 'in production'}
+        self.assertEquals(self.ha.run_cycle(), 'doing crash recovery in a single user mode')
 
     @patch.object(Postgresql, 'rewind_needed_and_possible', Mock(return_value=True))
     def test_recover_with_rewind(self):
         self.p.is_running = false
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.assertEquals(self.ha.run_cycle(), 'running pg_rewind from leader')
+
+    @patch.object(Postgresql, 'can_rewind', PropertyMock(return_value=True))
+    @patch.object(Postgresql, 'fix_cluster_state', Mock())
+    def test_single_user_after_recover_failed(self):
+        self.p.controldata = lambda: {'Database cluster state': 'in recovery'}
+        self.p.is_running = false
+        self.p.follow = false
+        self.assertEquals(self.ha.run_cycle(), 'starting as a secondary')
+        self.assertEquals(self.ha.run_cycle(), 'fixing cluster state in a single user mode')
 
     @patch('sys.exit', return_value=1)
     @patch('patroni.ha.Ha.sysid_valid', MagicMock(return_value=True))
@@ -853,6 +868,7 @@ class TestHa(unittest.TestCase):
         self.ha.has_lock = true
         self.p.data_directory_empty = true
         self.assertEquals(self.ha.run_cycle(), 'released leader key voluntarily as data dir empty and currently leader')
+        self.assertEquals(self.p.role, 'uninitialized')
 
         # as has_lock is mocked out, we need to fake the leader key release
         self.ha.has_lock = false

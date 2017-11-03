@@ -174,7 +174,7 @@ class TestPostgresql(unittest.TestCase):
         if not os.path.exists(self.data_dir):
             os.makedirs(self.data_dir)
         self.p = Postgresql({'name': 'test0', 'scope': 'batman', 'data_dir': self.data_dir,
-                             'config_dir': self.config_dir, 'retry_timeout': 10,
+                             'config_dir': self.config_dir, 'retry_timeout': 10, 'pgpass': '/tmp/pgpass0',
                              'listen': '127.0.0.2, 127.0.0.3:5432', 'connect_address': '127.0.0.2:5432',
                              'authentication': {'superuser': {'username': 'test', 'password': 'test'},
                                                 'replication': {'username': 'replicator', 'password': 'rep-pass'}},
@@ -327,10 +327,10 @@ class TestPostgresql(unittest.TestCase):
     @patch.object(Postgresql, 'can_rewind', PropertyMock(return_value=True))
     def test__get_local_timeline_lsn(self):
         self.p.trigger_check_diverged_lsn()
-        with patch.object(Postgresql, 'controldata', Mock(return_value={'Database cluster state': 'shut down'})):
-            self.p.rewind_needed_and_possible(self.leader)
         with patch.object(Postgresql, 'controldata',
-                          Mock(return_value={'Database cluster state': 'shut down in recovery'})):
+                          Mock(return_value={'Database cluster state': 'shut down in recovery',
+                                             'Minimum recovery ending location': '0/0',
+                                             "Min recovery ending loc's timeline": '0'})):
             self.p.rewind_needed_and_possible(self.leader)
         with patch.object(Postgresql, 'is_running', Mock(return_value=True)):
             with patch.object(MockCursor, 'fetchone', Mock(side_effect=[(False, ), Exception])):
@@ -883,3 +883,41 @@ class TestPostgresql(unittest.TestCase):
     def test_terminate_starting_postmaster(self):
         self.p.terminate_starting_postmaster(123)
         self.p.terminate_starting_postmaster(123)
+
+    def test_read_postmaster_opts(self):
+        m = mock_open(read_data='/usr/lib/postgres/9.6/bin/postgres "-D" "data/postgresql0" \
+"--listen_addresses=127.0.0.1" "--port=5432" "--hot_standby=on" "--wal_level=hot_standby" \
+"--wal_log_hints=on" "--max_wal_senders=5" "--max_replication_slots=5"\n')
+        with patch.object(builtins, 'open', m):
+            data = self.p.read_postmaster_opts()
+            self.assertEquals(data['wal_level'], 'hot_standby')
+            self.assertEquals(int(data['max_replication_slots']), 5)
+            self.assertEqual(data.get('D'), None)
+
+            m.side_effect = IOError
+            data = self.p.read_postmaster_opts()
+            self.assertEqual(data, dict())
+
+    @patch('subprocess.Popen')
+    @patch.object(builtins, 'open', Mock(return_value=42))
+    def test_single_user_mode(self, subprocess_popen_mock):
+        subprocess_popen_mock.return_value.wait.return_value = 0
+        self.assertEquals(self.p.single_user_mode(command="CHECKPOINT"), 0)
+        subprocess_popen_mock.return_value = None
+        self.assertEquals(self.p.single_user_mode(), 1)
+        self.assertEquals(self.p.single_user_mode(options={'archive_mode': 'on'}), 1)
+
+    @patch('os.listdir', Mock(side_effect=[OSError, ['a', 'b']]))
+    @patch('os.unlink', Mock(side_effect=OSError))
+    @patch('os.remove', Mock())
+    @patch('os.path.islink', Mock(side_effect=[True, False]))
+    @patch('os.path.isfile', Mock(return_value=True))
+    def test_cleanup_archive_status(self):
+        self.p.cleanup_archive_status()
+        self.p.cleanup_archive_status()
+
+    @patch('os.unlink', Mock())
+    @patch('os.path.isfile', Mock(return_value=True))
+    @patch.object(Postgresql, 'single_user_mode', Mock(return_value=0))
+    def test_fix_cluster_state(self):
+        self.assertTrue(self.p.fix_cluster_state())

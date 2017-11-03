@@ -31,7 +31,7 @@ def watchdog_was_closed(context, name):
     assert context.pctl.get_watchdog(name).was_closed
 
 
-@step('I wait for next {name:w} watchdog ping')
+@step('I reset {name:w} watchdog state')
 def watchdog_reset_pinged(context, name):
     context.pctl.get_watchdog(name).reset()
 
