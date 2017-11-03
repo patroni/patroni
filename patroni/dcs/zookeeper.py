@@ -208,7 +208,7 @@ class ZooKeeper(AbstractDCS):
         try:
             self._client.retry(self._client.create, path, value.encode('utf-8'), **kwargs)
             return True
-        except:
+        except Exception:
             return False
 
     def attempt_to_acquire_leader(self, permanent=False):
@@ -223,7 +223,7 @@ class ZooKeeper(AbstractDCS):
             return True
         except NoNodeError:
             return value == '' or (index is None and self._create(self.failover_path, value))
-        except:
+        except Exception:
             logging.exception('set_failover_value')
             return False
 
@@ -250,7 +250,7 @@ class ZooKeeper(AbstractDCS):
                 self._client.delete_async(self.member_path).get(timeout=1)
             except NoNodeError:
                 pass
-            except:
+            except Exception:
                 return False
             member = None
 
@@ -271,7 +271,7 @@ class ZooKeeper(AbstractDCS):
             self._client.set_async(self.member_path, encoded_data).get(timeout=1)
             self._my_member_data = data
             return True
-        except:
+        except Exception:
             logger.exception('touch_member')
 
         return False
@@ -288,9 +288,9 @@ class ZooKeeper(AbstractDCS):
             try:
                 self._client.create_async(self.leader_optime_path, last_operation, makepath=True).get(timeout=1)
                 return True
-            except:
+            except Exception:
                 logger.exception('Failed to create %s', self.leader_optime_path)
-        except:
+        except Exception:
             logger.exception('Failed to update %s', self.leader_optime_path)
         return False
 
@@ -310,7 +310,7 @@ class ZooKeeper(AbstractDCS):
     def cancel_initialization(self):
         try:
             self._client.retry(self._cancel_initialization)
-        except:
+        except Exception:
             logger.exception("Unable to delete initialize key")
 
     def delete_cluster(self):
@@ -325,7 +325,7 @@ class ZooKeeper(AbstractDCS):
             return True
         except NoNodeError:
             return value == '' or (index is None and self._create(self.sync_path, value))
-        except:
+        except Exception:
             logging.exception('set_sync_state_value')
             return False
 

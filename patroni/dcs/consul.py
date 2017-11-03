@@ -26,9 +26,14 @@ class ConsulInternalError(ConsulException):
     """An internal Consul server error occurred"""
 
 
+class InvalidSessionTTL(ConsulInternalError):
+    """Session TTL is too small or too big"""
+
+
 class HTTPClient(object):
 
-    def __init__(self, host='127.0.0.1', port=8500, scheme='http', verify=True, cert=None, ca_cert=None):
+    def __init__(self, host='127.0.0.1', port=8500, token=None, scheme='http', verify=True, cert=None, ca_cert=None):
+        self.token = token
         self._read_timeout = 10
         self.base_uri = '{0}://{1}:{2}'.format(scheme, host, port)
         kwargs = {}
@@ -50,6 +55,10 @@ class HTTPClient(object):
     def set_read_timeout(self, timeout):
         self._read_timeout = timeout/3.0
 
+    @property
+    def ttl(self):
+        return self._ttl
+
     def set_ttl(self, ttl):
         ret = self._ttl != ttl
         self._ttl = ttl
@@ -59,7 +68,11 @@ class HTTPClient(object):
     def response(response):
         data = response.data.decode('utf-8')
         if response.status == 500:
-            raise ConsulInternalError('{0} {1}'.format(response.status, data))
+            msg = '{0} {1}'.format(response.status, data)
+            if data.startswith('Invalid Session TTL'):
+                raise InvalidSessionTTL(msg)
+            else:
+                raise ConsulInternalError(msg)
         return base.Response(response.status, response.headers, data)
 
     def uri(self, path, params=None):
@@ -83,8 +96,9 @@ class HTTPClient(object):
                 kwargs['timeout'] = (float(params['wait'][:-1]) if 'wait' in params else 300) + 1
             else:
                 kwargs['timeout'] = self._read_timeout
-            if isinstance(params, dict) and 'token' in params and params['token']:
-                kwargs['headers'] = {'X-Consul-Token': params.pop('token')}
+            token = params.pop('token', self.token) if isinstance(params, dict) else self.token
+            if token:
+                kwargs['headers'] = {'X-Consul-Token': token}
             return callback(self.response(self.http.request(method.upper(), self.uri(path, params), **kwargs)))
         return wrapper
 
@@ -94,6 +108,7 @@ class ConsulClient(base.Consul):
     def __init__(self, *args, **kwargs):
         self._cert = kwargs.pop('cert', None)
         self._ca_cert = kwargs.pop('ca_cert', None)
+        self._token = kwargs.get('token')
         super(ConsulClient, self).__init__(*args, **kwargs)
 
     def connect(self, *args, **kwargs):
@@ -102,6 +117,8 @@ class ConsulClient(base.Consul):
             kwargs['cert'] = self._cert
         if self._ca_cert:
             kwargs['ca_cert'] = self._ca_cert
+        if self._token:
+            kwargs['token'] = self._token
         return HTTPClient(**kwargs)
 
 
@@ -178,6 +195,15 @@ class Consul(AbstractDCS):
         self._retry.deadline = retry_timeout
         self._client.http.set_read_timeout(retry_timeout)
 
+    def adjust_ttl(self):
+        try:
+            settings = self._client.agent.self()
+            min_ttl = (settings['Config']['SessionTTLMin'] or 10000000000)/1000000000.0
+            logger.warning('Changing Session TTL from %s to %s', self._client.http.ttl, min_ttl)
+            self._client.http.set_ttl(min_ttl)
+        except Exception:
+            logger.exception('adjust_ttl')
+
     def _do_refresh_session(self):
         """:returns: `!True` if it had to create new session"""
         if self._session and self._last_session_refresh + self._loop_wait > time.time():
@@ -190,9 +216,15 @@ class Consul(AbstractDCS):
                 self._session = None
         ret = not self._session
         if ret:
-            self._session = self._client.session.create(name=self._scope + '-' + self._name,
-                                                        checks=self.__session_checks,
-                                                        lock_delay=0.001, behavior='delete')
+            try:
+                self._session = self._client.session.create(name=self._scope + '-' + self._name,
+                                                            checks=self.__session_checks,
+                                                            lock_delay=0.001, behavior='delete')
+            except InvalidSessionTTL:
+                logger.exception('session.create')
+                self.adjust_ttl()
+                raise
+
         self._last_session_refresh = time.time()
         return ret
 
@@ -263,14 +295,14 @@ class Consul(AbstractDCS):
             self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync)
         except NotFound:
             self._cluster = Cluster(None, None, None, None, [], None, None)
-        except:
+        except Exception:
             logger.exception('get_cluster')
             raise ConsulError('Consul is not responding properly')
 
-    def touch_member(self, data, **kwargs):
+    def touch_member(self, data, ttl=None, permanent=False):
         cluster = self.cluster
         member = cluster and cluster.get_member(self._name, fallback_to_leader=False)
-        create_member = self.refresh_session()
+        create_member = not permanent and self.refresh_session()
 
         if member and (create_member or member.session != self._session):
             try:
@@ -283,7 +315,7 @@ class Consul(AbstractDCS):
             return True
 
         try:
-            args = {} if kwargs.get('permanent', False) else {'acquire': self._session}
+            args = {} if permanent else {'acquire': self._session}
             self._client.kv.put(self.member_path, json.dumps(data, separators=(',', ':')), **args)
             self._my_member_data = data
             return True
