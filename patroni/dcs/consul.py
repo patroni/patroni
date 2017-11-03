@@ -31,7 +31,8 @@ class InvalidSessionTTL(ConsulInternalError):
 
 class HTTPClient(object):
 
-    def __init__(self, host='127.0.0.1', port=8500, scheme='http', verify=True, cert=None, ca_cert=None):
+    def __init__(self, host='127.0.0.1', port=8500, token=None, scheme='http', verify=True, cert=None, ca_cert=None):
+        self.token = token
         self._read_timeout = 10
         self.base_uri = '{0}://{1}:{2}'.format(scheme, host, port)
         kwargs = {}
@@ -94,8 +95,9 @@ class HTTPClient(object):
                 kwargs['timeout'] = (float(params['wait'][:-1]) if 'wait' in params else 300) + 1
             else:
                 kwargs['timeout'] = self._read_timeout
-            if isinstance(params, dict) and 'token' in params and params['token']:
-                kwargs['headers'] = {'X-Consul-Token': params.pop('token')}
+            token = params.pop('token', self.token) if isinstance(params, dict) else self.token
+            if token:
+                kwargs['headers'] = {'X-Consul-Token': token}
             return callback(self.response(self.http.request(method.upper(), self.uri(path, params), **kwargs)))
         return wrapper
 
@@ -105,6 +107,7 @@ class ConsulClient(base.Consul):
     def __init__(self, *args, **kwargs):
         self._cert = kwargs.pop('cert', None)
         self._ca_cert = kwargs.pop('ca_cert', None)
+        self._token = kwargs.get('token')
         super(ConsulClient, self).__init__(*args, **kwargs)
 
     def connect(self, *args, **kwargs):
@@ -113,6 +116,8 @@ class ConsulClient(base.Consul):
             kwargs['cert'] = self._cert
         if self._ca_cert:
             kwargs['ca_cert'] = self._ca_cert
+        if self._token:
+            kwargs['token'] = self._token
         return HTTPClient(**kwargs)
 
 
