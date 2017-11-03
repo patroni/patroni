@@ -146,7 +146,8 @@ class Consul(AbstractDCS):
         if config.get('key') and config.get('cert'):
             config['cert'] = (config['cert'], config['key'])
 
-        kwargs = {p: config.get(p) for p in ('host', 'port', 'token', 'scheme', 'cert', 'ca_cert') if config.get(p)}
+        kwargs = {p: config.get(p) for p in ('host', 'port', 'token', 'scheme',
+                                             'cert', 'ca_cert', 'dc') if config.get(p)}
 
         verify = config.get('verify')
         if not isinstance(verify, bool):
