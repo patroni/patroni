@@ -48,9 +48,9 @@ class TestHTTPClient(unittest.TestCase):
         self.client.get(Mock(), '')
         self.client.get(Mock(), '', {'wait': '1s', 'index': 1, 'token': 'foo'})
         self.client.http.request.return_value.status = 500
-        self.client.http.request.return_value.data = 'Foo'
+        self.client.http.request.return_value.data = b'Foo'
         self.assertRaises(ConsulInternalError, self.client.get, Mock(), '')
-        self.client.http.request.return_value.data = "Invalid Session TTL '3000000000', must be between [10s=24h0m0s]"
+        self.client.http.request.return_value.data = b"Invalid Session TTL '3000000000', must be between [10s=24h0m0s]"
         self.assertRaises(InvalidSessionTTL, self.client.get, Mock(), '')
 
     def test_unknown_method(self):
