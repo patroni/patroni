@@ -760,7 +760,7 @@ class Postgresql(object):
                 self.postmaster = {'pid': pmpid, 'start_time': pmstart}
                 logger.info("Updated postmaster info: {}".format(self.postmaster))
             except ValueError:
-                # Garbage in the pid file
+                logger.exception("Cannot update postmaster info with data duw garbage in pid file: {}".format(pid_data))
                 pass
         else:
             logger.warning("Cannot update postmaster info with data from pid file: {}".format(pid_data))
