@@ -766,7 +766,8 @@ class Postgresql(object):
 
     def get_pid_with_lost_data_dir(self):
         process = list(filter(
-            lambda p: p.pid == self._postmaster_info["pid"] and p.name() == "postgres" and self._data_dir in p.cmdline(),
+            lambda p:
+            p.pid == self._postmaster_info["pid"] and p.name() == "postgres" and self._data_dir in p.cmdline(),
             psutil.process_iter()))
         logger.info("Cached postmaster info: {}, possible processes: {}".format(self._postmaster_info, process))
         if process:
