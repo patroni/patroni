@@ -764,7 +764,7 @@ class Postgresql(object):
                 return process.pid
             else:
                 logger.info("Process with pid %s was started at different time %s .",
-                               process.pid, process.create_time())
+                            process.pid, process.create_time())
         except psutil.NoSuchProcess:
             logger.info("Cannot find process %s .", self._postmaster_info['pid'])
         return 0
