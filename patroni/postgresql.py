@@ -729,9 +729,6 @@ class Postgresql(object):
             return False
         return self.is_pid_running(self.get_pid())
 
-    def is_running_with_lost_data_dir(self):
-        return self.get_pid_with_lost_data_dir() > 0
-
     @_update_postmaster_info
     def read_pid_file(self):
         """Reads and parses postmaster.pid from the data directory
@@ -766,10 +763,10 @@ class Postgresql(object):
             if abs(self._postmaster_info["start_time"] - process.create_time()) < 2:
                 return process.pid
             else:
-                logger.warning("Process with pid %s was started at different time %s .",
+                logger.info("Process with pid %s was started at different time %s .",
                                process.pid, process.create_time())
         except psutil.NoSuchProcess:
-            logging.warning("Cannot find process %s .", self._postmaster_info['pid'])
+            logger.info("Cannot find process %s .", self._postmaster_info['pid'])
         return 0
 
     def clean_postmaster_info(self):
@@ -976,12 +973,11 @@ class Postgresql(object):
 
     def _do_stop(self, mode, block_callbacks, checkpoint, on_safepoint):
         if not self.is_running():
-            if self.is_running_with_lost_data_dir():
-                pid = self.get_pid_with_lost_data_dir()
-                if pid > 0:
-                    self.terminate_starting_postmaster(pid)
-                    self.clean_postmaster_info()
-                    return True, True
+            pid = self.get_pid_with_lost_data_dir()
+            if pid > 0:
+                self.terminate_starting_postmaster(pid)
+                self.clean_postmaster_info()
+                return True, True
             if on_safepoint:
                 on_safepoint()
             return True, False
