@@ -71,6 +71,32 @@ def null_context():
     yield
 
 
+def _update_postmaster_info(func):
+    def wrapper(self):
+        ret = func(self)
+        if isinstance(ret, dict) and ret:
+            if 'pid' in ret and 'start_time' in ret:
+                old_pid = self._postmaster_info.get('pid', 0)
+                old_start_time = self._postmaster_info.get('start_time', 0)
+                try:
+                    pmpid = int(ret['pid'])
+                    pmstart = int(ret['start_time'])
+                    if pmpid != old_pid or pmstart != old_start_time:
+                        self._postmaster_info = {'pid': pmpid, 'start_time': pmstart}
+                        logger.info("Updated postmaster info {}".format(self._postmaster_info))
+                except ValueError:
+                    logger.exception("Cannot update postmaster info with data due garbage in pid file: {}".format(ret))
+            else:
+                logging.warning("Cannot update postmaster info with dict {}. "
+                                "Dict should have pid and start_time keys with values greater then zero.".format(ret))
+        else:
+            logging.debug("Cannot update postmaster info with {}. "
+                          "Wrapped function response is not dict or empty dict.".format(ret))
+        return ret
+
+    return wrapper
+
+
 class Postgresql(object):
 
     # List of parameters which must be always passed to postmaster as command line options
@@ -142,7 +168,7 @@ class Postgresql(object):
         self._pg_hba_conf = os.path.join(self._config_dir, 'pg_hba.conf')
         self._recovery_conf = os.path.join(self._data_dir, 'recovery.conf')
         self._postmaster_pid = os.path.join(self._data_dir, 'postmaster.pid')
-        self.postmaster = {'pid': 0, 'start_time': 0}
+        self._postmaster_info = {'pid': 0, 'start_time': 0}
         self._trigger_file = config.get('recovery_conf', {}).get('trigger_file') or 'promote'
         self._trigger_file = os.path.abspath(os.path.join(self._data_dir, self._trigger_file))
 
@@ -171,7 +197,6 @@ class Postgresql(object):
             self._write_postgresql_conf()  # we are "joining" already running postgres
             if self._replace_pg_hba():
                 self.reload()
-            self.update_postmaster_info()
 
     @property
     def _configuration_to_save(self):
@@ -714,6 +739,7 @@ class Postgresql(object):
     def is_running_with_lost_data_dir(self):
         return self.get_pid_with_lost_data_dir() > 0
 
+    @_update_postmaster_info
     def read_pid_file(self):
         """Reads and parses postmaster.pid from the data directory
 
@@ -740,33 +766,20 @@ class Postgresql(object):
 
     def get_pid_with_lost_data_dir(self):
         process = list(filter(
-            lambda p: p.pid == self.postmaster["pid"] and p.name() == "postgres" and self._data_dir in p.cmdline(),
+            lambda p: p.pid == self._postmaster_info["pid"] and p.name() == "postgres" and self._data_dir in p.cmdline(),
             psutil.process_iter()))
-        logger.debug("Cached postmaster info: {}, possible processes: {}".format(self.postmaster, process))
+        logger.info("Cached postmaster info: {}, possible processes: {}".format(self._postmaster_info, process))
         if process:
-            if abs(self.postmaster["start_time"] - process[0].create_time()) < 2:
+            if abs(self._postmaster_info["start_time"] - process[0].create_time()) < 2:
                 return process[0].pid
             else:
                 logger.info("Process with pid {} was started at different time {}"
                             .format(process[0].pid, process[0].create_time()))
         return 0
 
-    def update_postmaster_info(self):
-        pid_data = self.read_pid_file()
-        if len(pid_data) > 5:
-            try:
-                pmpid = int(pid_data['pid'])
-                pmstart = int(pid_data['start_time'])
-                self.postmaster = {'pid': pmpid, 'start_time': pmstart}
-                logger.info("Updated postmaster info: {}".format(self.postmaster))
-            except ValueError:
-                logger.exception("Cannot update postmaster info with data due garbage in pid file: {}".format(pid_data))
-        else:
-            logger.warning("Cannot update postmaster info with data from pid file: {}".format(pid_data))
-
     def clean_postmaster_info(self):
-        self.postmaster = {'pid': 0, 'start_time': 0}
-        logger.info("postmaster info was cleaned: {}".format(self.postmaster))
+        self._postmaster_info = {'pid': 0, 'start_time': 0}
+        logger.info("postmaster info was cleaned: {}".format(self._postmaster_info))
 
     @staticmethod
     def is_pid_running(pid):
@@ -918,8 +931,6 @@ class Postgresql(object):
         # We want postmaster to open ports before we continue
         if not self.wait_for_port_open(pid, start_initiated, start_timeout):
             return False
-
-        self.update_postmaster_info()
 
         ret = self.wait_for_startup(start_timeout)
         if ret is not None:
