@@ -748,14 +748,15 @@ class Postgresql(object):
         except psutil.NoSuchProcess:
             return False
 
-        # If the process is Patroni or Patronis host process then it's a false positive
-        if pid == os.getpid() or pid == os.getppid():
+        # If the process is Patroni or Patronis host process or Patronis child process then it's a false positive
+        my_pid = os.getpid()
+        if pid == my_pid or pid == os.getppid() or proc.parent() == my_pid:
             return False
 
         # If process start time differs by more than 3 seconds it's a false positive
         if start_time is not None and abs(proc.create_time() - start_time) > 3:
             return False
-
+        
         return True
 
     @property
