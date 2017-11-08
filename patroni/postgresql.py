@@ -74,24 +74,17 @@ def null_context():
 def _update_postmaster_info(func):
     def wrapper(self):
         ret = func(self)
-        if isinstance(ret, dict) and ret:
-            if 'pid' in ret and 'start_time' in ret:
-                old_pid = self._postmaster_info.get('pid', 0)
-                old_start_time = self._postmaster_info.get('start_time', 0)
-                try:
-                    pmpid = int(ret['pid'])
-                    pmstart = int(ret['start_time'])
-                    if pmpid != old_pid or pmstart != old_start_time:
-                        self._postmaster_info = {'pid': pmpid, 'start_time': pmstart}
-                        logger.info("Updated postmaster info {}".format(self._postmaster_info))
-                except ValueError:
-                    logger.exception("Cannot update postmaster info with data due garbage in pid file: {}".format(ret))
-            else:
-                logging.warning("Cannot update postmaster info with dict {}. "
-                                "Dict should have pid and start_time keys with values greater then zero.".format(ret))
-        else:
-            logging.debug("Cannot update postmaster info with {}. "
-                          "Wrapped function response is not dict or empty dict.".format(ret))
+        if ret and 'pid' in ret and 'start_time' in ret:
+            old_pid = self._postmaster_info.get('pid', 0)
+            old_start_time = self._postmaster_info.get('start_time', 0)
+            try:
+                pmpid = int(ret['pid'])
+                pmstart = int(ret['start_time'])
+                if pmpid != old_pid or pmstart != old_start_time:  # this check removes repeating messages from logs
+                    self._postmaster_info = {'pid': pmpid, 'start_time': pmstart}
+                    logger.info("Updated postmaster info: %s .", self._postmaster_info)
+            except ValueError:
+                logger.warning('Cannot update postmaster info with data due garbage in pid file: %s', ret)
         return ret
 
     return wrapper
@@ -765,22 +758,23 @@ class Postgresql(object):
             return 0
 
     def get_pid_with_lost_data_dir(self):
-        process = list(filter(
-            lambda p:
-            p.pid == self._postmaster_info["pid"] and p.name() == "postgres" and self._data_dir in p.cmdline(),
-            psutil.process_iter()))
-        logger.info("Cached postmaster info: {}, possible processes: {}".format(self._postmaster_info, process))
-        if process:
-            if abs(self._postmaster_info["start_time"] - process[0].create_time()) < 2:
-                return process[0].pid
+        logger.info("Trying to check if process running without directory "
+                    "with cached postmaster info: %s .", self._postmaster_info)
+        try:
+            process = psutil.Process(self._postmaster_info['pid'])
+            # check difference instead of values because of rounding issues
+            if abs(self._postmaster_info["start_time"] - process.create_time()) < 2:
+                return process.pid
             else:
-                logger.info("Process with pid {} was started at different time {}"
-                            .format(process[0].pid, process[0].create_time()))
+                logger.warning("Process with pid %s was started at different time %s .",
+                               process.pid, process.create_time())
+        except psutil.NoSuchProcess:
+            logging.warning("Cannot find process %s .", self._postmaster_info['pid'])
         return 0
 
     def clean_postmaster_info(self):
         self._postmaster_info = {'pid': 0, 'start_time': 0}
-        logger.info("postmaster info was cleaned: {}".format(self._postmaster_info))
+        logger.info("postmaster info was cleaned.")
 
     @staticmethod
     def is_pid_running(pid):
