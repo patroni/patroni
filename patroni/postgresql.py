@@ -709,7 +709,8 @@ class Postgresql(object):
             return False
 
         pidfile = self.read_pid_file()
-        return self._is_postmaster_pid_running(int_or_none(pidfile.get('pid')), start_time=int_or_none(pidfile.get('start_time')))
+        return self._is_postmaster_pid_running(int_or_none(pidfile.get('pid')),
+                                               start_time=int_or_none(pidfile.get('start_time')))
 
     def read_pid_file(self):
         """Reads and parses postmaster.pid from the data directory
@@ -756,7 +757,7 @@ class Postgresql(object):
         # If process start time differs by more than 3 seconds it's a false positive
         if start_time is not None and abs(proc.create_time() - start_time) > 3:
             return False
-        
+
         return True
 
     @property
