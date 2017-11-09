@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from patroni import call_self
 from patroni.callback_executor import CallbackExecutor
 from patroni.exceptions import PostgresConnectionException
-from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop
+from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, int_or_none
 from six import string_types
 from six.moves.urllib.parse import quote_plus
 from threading import current_thread, Lock
@@ -727,7 +727,10 @@ class Postgresql(object):
         if not (self._version_file_exists() and os.path.isfile(self._postmaster_pid)):
             # XXX: This is dangerous in case somebody deletes the data directory while PostgreSQL is still running.
             return False
-        return self.is_pid_running(self.get_pid())
+
+        pidfile = self.read_pid_file()
+        return self._is_postmaster_pid_running(int_or_none(pidfile.get('pid')),
+                                               start_time=int_or_none(pidfile.get('start_time')))
 
     @_update_postmaster_info
     def read_pid_file(self):
@@ -774,13 +777,28 @@ class Postgresql(object):
         logger.info("postmaster info was cleaned.")
 
     @staticmethod
-    def is_pid_running(pid):
-        try:
-            if pid < 0:
-                pid = -pid
-            return pid > 0 and pid != os.getpid() and pid != os.getppid() and (os.kill(pid, 0) or True)
-        except Exception:
+    def _is_postmaster_pid_running(pid, start_time=None):
+        # Normalize pid handling missing values and negative pids from postmaster.pid
+        if not pid:
             return False
+        if pid < 0:
+            pid = -pid
+
+        try:
+            proc = psutil.Process(pid)
+        except psutil.NoSuchProcess:
+            return False
+
+        # If the process is Patroni or Patronis host process or Patronis child process then it's a false positive
+        my_pid = os.getpid()
+        if pid == my_pid or pid == os.getppid() or proc.parent() == my_pid:
+            return False
+
+        # If process start time differs by more than 3 seconds it's a false positive
+        if start_time is not None and abs(proc.create_time() - start_time) > 3:
+            return False
+
+        return True
 
     @property
     def cb_called(self):
@@ -845,7 +863,7 @@ class Postgresql(object):
                     # Garbage in the pid file
                     pass
 
-            if not self.is_pid_running(pid):
+            if not self._is_postmaster_pid_running(pid, start_time=initiated):
                 logger.error('postmaster is not running')
                 self.set_state('start failed')
                 return False
@@ -1010,7 +1028,7 @@ class Postgresql(object):
     def _wait_for_postmaster_stop(self, pid):
         # This wait loop differs subtly from pg_ctl as we check for both the pid file going
         # away and if the pid is running. This seems safer.
-        while pid == self.get_pid() and self.is_pid_running(pid):
+        while pid == self.get_pid() and self._is_postmaster_pid_running(pid):
             time.sleep(STOP_POLLING_INTERVAL)
 
     def _signal_postmaster_stop(self, mode):
@@ -1040,13 +1058,13 @@ class Postgresql(object):
                 return
             logger.warning("Could not send stop signal to PostgreSQL (error: {0})".format(e.errno))
 
-        while self.is_pid_running(pid):
+        while self._is_postmaster_pid_running(pid):
             time.sleep(STOP_POLLING_INTERVAL)
 
     def _wait_for_connection_close(self, pid):
         try:
             with self.connection().cursor() as cur:
-                while pid == self.get_pid() and self.is_pid_running(pid):  # Need a timeout here?
+                while pid == self.get_pid() and self._is_postmaster_pid_running(pid):  # Need a timeout here?
                     cur.execute("SELECT 1")
                     time.sleep(STOP_POLLING_INTERVAL)
         except psycopg2.Error:
