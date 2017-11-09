@@ -113,6 +113,35 @@ class PostmasterProcess(psutil.Process):
         except psutil.NoSuchProcess:
             return None
 
+    def signal_stop(self, mode):
+        """Signal postmaster process to stop
+
+        :returns None if signaled, True if process is already gone, False if error
+        """
+        if self.is_single_user:
+            logger.warning("Cannot stop server; single-user server is running (PID: {0})".format(self.pid))
+            return False
+        try:
+            self.kill(STOP_SIGNALS[mode])
+        except psutil.NoSuchProcess:
+            return True
+        except psutil.AccessDenied as e:
+            logger.warning("Could not send stop signal to PostgreSQL (error: {0})".format(e))
+            return False
+
+        return None
+
+    def wait_for_user_backends_to_close(self):
+        # These regexps are cross checked against versions PostgreSQL 9.1 .. 9.6
+        aux_proc_re = re.compile("(?:postgres:)( .*:)? (?:""(?:startup|logger|checkpointer|writer|wal writer|"
+                                 "autovacuum launcher|autovacuum worker|stats collector|wal receiver|archiver|"
+                                 "wal sender) process|bgworker: )")
+
+        user_backends = [p for p in self.children() if not aux_proc_re.match(p.cmdline()[0])]
+        logger.debug("Waiting for user backends {0} to close".format(
+            ",".join(p.cmdline()[0] for p in user_backends)))
+        psutil.wait_procs(user_backends)
+        logger.debug("Backends closed")
 
 class Postgresql(object):
 
@@ -972,7 +1001,7 @@ class Postgresql(object):
             self.set_state('stopping')
 
         # Send signal to postmaster to stop
-        success = self._signal_postmaster_stop(postmaster, mode)
+        success = postmaster.signal_stop(mode)
         if success is not None:
             if success and on_safepoint:
                 on_safepoint()
@@ -982,35 +1011,17 @@ class Postgresql(object):
         if on_safepoint:
             # Wait for our connection to terminate so we can be sure that no new connections are being initiated
             self._wait_for_connection_close(postmaster)
-            self._wait_for_user_backends_to_close(postmaster)
+            postmaster.wait_for_user_backends_to_close()
             on_safepoint()
 
         postmaster.wait()
 
         return True, True
 
-    def _signal_postmaster_stop(self, postmaster, mode):
-        """Signal postmaster process to stop
-
-        :returns None if signaled, True if process is already gone, False if error
-        """
-        if postmaster.is_single_user:
-            logger.warning("Cannot stop server; single-user server is running (PID: {0})".format(postmaster.pid))
-            return False
-        try:
-            postmaster.kill(STOP_SIGNALS[mode])
-        except psutil.NoSuchProcess:
-            return True
-        except psutil.AccessDenied as e:
-            logger.warning("Could not send stop signal to PostgreSQL (error: {0})".format(e.errno))
-            return False
-
-        return None
-
     def terminate_starting_postmaster(self, postmaster):
         """Terminates a postmaster that has not yet opened ports or possibly even written a pid file. Blocks
         until the process goes away."""
-        self._signal_postmaster_stop(postmaster, 'immediate')
+        postmaster.signal_stop('immediate')
         postmaster.wait()
 
     def _wait_for_connection_close(self, postmaster):
@@ -1021,19 +1032,6 @@ class Postgresql(object):
                     time.sleep(STOP_POLLING_INTERVAL)
         except psycopg2.Error:
             pass
-
-    @staticmethod
-    def _wait_for_user_backends_to_close(postmaster):
-        # These regexps are cross checked against versions PostgreSQL 9.1 .. 9.6
-        aux_proc_re = re.compile("(?:postgres:)( .*:)? (?:""(?:startup|logger|checkpointer|writer|wal writer|"
-                                 "autovacuum launcher|autovacuum worker|stats collector|wal receiver|archiver|"
-                                 "wal sender) process|bgworker: )")
-
-        user_backends = [p for p in postmaster.children() if not aux_proc_re.match(p.cmdline()[0])]
-        logger.debug("Waiting for user backends {0} to close".format(
-            ",".join(p.cmdline()[0] for p in user_backends)))
-        psutil.wait_procs(user_backends)
-        logger.debug("Backends closed")
 
     def reload(self):
         ret = self.pg_ctl('reload')
