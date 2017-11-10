@@ -67,7 +67,7 @@ class PostmasterProcess(psutil.Process):
             logger.warning("Cannot stop server; single-user server is running (PID: {0})".format(self.pid))
             return False
         try:
-            self.kill(STOP_SIGNALS[mode])
+            self.send_signal(STOP_SIGNALS[mode])
         except psutil.NoSuchProcess:
             return True
         except psutil.AccessDenied as e:

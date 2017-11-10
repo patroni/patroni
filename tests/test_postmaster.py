@@ -41,13 +41,13 @@ class TestPostmasterProcess(unittest.TestCase):
         self.assertNotEquals(PostmasterProcess.from_pid(123), None)
 
     @patch('psutil.Process.__init__', Mock())
-    @patch('psutil.Process.kill')
+    @patch('psutil.Process.send_signal')
     @patch('psutil.Process.pid', Mock(return_value=123))
-    def test_signal_stop(self, mock_kill):
+    def test_signal_stop(self, mock_send_signal):
         proc = PostmasterProcess(-123)
         self.assertEquals(proc.signal_stop('immediate'), False)
 
-        mock_kill.side_effect = [None, psutil.NoSuchProcess(123), psutil.AccessDenied()]
+        mock_send_signal.side_effect = [None, psutil.NoSuchProcess(123), psutil.AccessDenied()]
         proc = PostmasterProcess(123)
         self.assertEquals(proc.signal_stop('immediate'), None)
         self.assertEquals(proc.signal_stop('immediate'), True)
