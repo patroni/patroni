@@ -281,10 +281,3 @@ def polling_loop(timeout, interval=1):
         iteration += 1
         time.sleep(interval)
 
-
-def int_or_none(val):
-    """Returns integer value of the parameter if convertible to int, None otherwise."""
-    try:
-        return int(val)
-    except (ValueError, TypeError):
-        return None
