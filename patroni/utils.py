@@ -280,4 +280,3 @@ def polling_loop(timeout, interval=1):
         yield iteration
         iteration += 1
         time.sleep(interval)
-
