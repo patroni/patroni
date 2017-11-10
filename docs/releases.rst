@@ -14,13 +14,13 @@ Version 1.3.6
 
 - Shutdown postgresql before bootstrap when we lost data directory (ainlolcat)
   
-  If data directory on the master has been removed, postgres process was still staying alive for some time and was interfering with newly created data by basebackup.
-  Therefore we will memorize postmaster pid and try to terminate it if we detected that we have lost data directory.
+  When data directory on the master is forcefully removed, postgres process can still stay alive for some time and prevent the replica created in place of that former master from starting or replicating.
+  The fix makes Patroni cache the postmaster pid and its start time and let it terminate the old postmaster in case it is still running after the corresponding data directory has been removed.
 
-- Perform crash recovery in a single user mode if postgres has died as master (Alexander Kukushkin)
+- Perform crash recovery in a single user mode if postgres master dies (Alexander Kukushkin)
 
   It is unsafe to start immediately as a standby and not possible to run ``pg_rewind`` if postgres hasn't been shut down cleanly.
-  Do such procedure only if ``pg_rewind`` is enabled or there is no master at the moment.
+  The single user crash recovery only kicks in if ``pg_rewind`` is enabled or there is no master at the moment.
 
 **Consul improvements**
 
@@ -28,21 +28,21 @@ Version 1.3.6
 
   Before that Patroni was always communicating with datacenter of the host it runs on.
 
-- Always send token in X-Consul-Token http header (Alexander)
+- Always send a token in X-Consul-Token http header (Alexander)
 
-  If ``consul.token`` is  defined in Patroni configuration, we will always send it in the 'X-Consul-Token' http header.
-  python-consul module is trying to be "consistent" with Consul REST API, which doesn't accept token as a query parameter for `session API <https://www.consul.io/api/session.html>`__, but it still works with 'X-Consul-Token' header.
+  If ``consul.token`` is defined in Patroni configuration, we will always send it in the 'X-Consul-Token' http header.
+  python-consul module tries to be "consistent" with Consul REST API, which doesn't accept token as a query parameter for `session API <https://www.consul.io/api/session.html>`__, but it still works with 'X-Consul-Token' header.
 
-- Adjust session ttl if supplied value is smaller than minimum possible (Stas Fomin, Alexander)
+- Adjust session TTL if supplied value is smaller than the minimum possible (Stas Fomin, Alexander)
 
-  It could happen that ttl provided in Patroni configuration is smaller than minimum supported by Consul. In such case Consul agent fails to create a new session.
-  Without session Patroni was not able to create member and leader keys in the Consul KV store what was making cluster completely unhealthy.
+  It could happen that the TTL provided in the Patroni configuration is smaller than the minimum one supported by Consul. In that case, Consul agent fails to create a new session.
+  Without a session Patroni cannot create member and leader keys in the Consul KV store, resulting in an unhealthy cluster.
 
 **Other improvements**
 
-- Make it possible to define custom log format via environment variable ``PATRONI_LOGFORMAT`` (Stas)
+- Define custom log format via environment variable ``PATRONI_LOGFORMAT`` (Stas)
 
-  Usually there is already some timestamp added if Patroni runs as a service, what results in timestamp recorded twice in the logs.
+  Allow disabling timestamps and other similar fields in Patroni logs if they are already added by the system logger (usually when Patroni runs as a service).
 
 Version 1.3.5
 -------------
