@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from patroni import call_self
 from patroni.callback_executor import CallbackExecutor
 from patroni.exceptions import PostgresConnectionException
-from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop
+from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, int_or_none
 from six import string_types
 from six.moves.urllib.parse import quote_plus
 from threading import current_thread, Lock
@@ -69,6 +69,25 @@ def slot_name_from_member_name(member_name):
 @contextmanager
 def null_context():
     yield
+
+
+def _update_postmaster_cached_info(func):
+    def wrapper(self):
+        ret = func(self)
+        if ret and 'pid' in ret and 'start_time' in ret:
+            old_pid = self._postmaster_cached_info.get('pid', 0)
+            old_start_time = self._postmaster_cached_info.get('start_time', 0)
+            try:
+                pmpid = int(ret['pid'])
+                pmstart = int(ret['start_time'])
+                if pmpid != old_pid or pmstart != old_start_time:  # this check removes repeating messages from logs
+                    self._postmaster_cached_info = {'pid': pmpid, 'start_time': pmstart}
+                    logger.info("Updated postmaster info: %s .", self._postmaster_cached_info)
+            except ValueError:
+                logger.warning('Cannot update postmaster info with data due garbage in pid file: %s', ret)
+        return ret
+
+    return wrapper
 
 
 class Postgresql(object):
@@ -142,6 +161,7 @@ class Postgresql(object):
         self._pg_hba_conf = os.path.join(self._config_dir, 'pg_hba.conf')
         self._recovery_conf = os.path.join(self._data_dir, 'recovery.conf')
         self._postmaster_pid = os.path.join(self._data_dir, 'postmaster.pid')
+        self._postmaster_cached_info = {'pid': 0, 'start_time': 0}
         self._trigger_file = config.get('recovery_conf', {}).get('trigger_file') or 'promote'
         self._trigger_file = os.path.abspath(os.path.join(self._data_dir, self._trigger_file))
 
@@ -707,8 +727,12 @@ class Postgresql(object):
         if not (self._version_file_exists() and os.path.isfile(self._postmaster_pid)):
             # XXX: This is dangerous in case somebody deletes the data directory while PostgreSQL is still running.
             return False
-        return self.is_pid_running(self.get_pid())
 
+        pidfile = self.read_pid_file()
+        return self._is_postmaster_pid_running(int_or_none(pidfile.get('pid')),
+                                               start_time=int_or_none(pidfile.get('start_time')))
+
+    @_update_postmaster_cached_info
     def read_pid_file(self):
         """Reads and parses postmaster.pid from the data directory
 
@@ -733,14 +757,48 @@ class Postgresql(object):
             logger.warning("Garbage pid in postmaster.pid: {0!r}".format(pid))
             return 0
 
-    @staticmethod
-    def is_pid_running(pid):
+    def get_pid_with_lost_data_dir(self):
+        logger.info("Trying to check if process running without directory "
+                    "with cached postmaster info: %s .", self._postmaster_cached_info)
         try:
-            if pid < 0:
-                pid = -pid
-            return pid > 0 and pid != os.getpid() and pid != os.getppid() and (os.kill(pid, 0) or True)
-        except Exception:
+            process = psutil.Process(self._postmaster_cached_info['pid'])
+            # check difference instead of values because of rounding issues
+            if abs(self._postmaster_cached_info["start_time"] - process.create_time()) < 2:
+                return process.pid
+            else:
+                logger.info("Process with pid %s was started at different time %s .",
+                            process.pid, process.create_time())
+        except psutil.NoSuchProcess:
+            logger.info("Cannot find process %s .", self._postmaster_cached_info['pid'])
+        return 0
+
+    def clean_postmaster_cached_info(self):
+        self._postmaster_cached_info = {'pid': 0, 'start_time': 0}
+        logger.info("postmaster info was cleaned.")
+
+    @staticmethod
+    def _is_postmaster_pid_running(pid, start_time=None):
+        # Normalize pid handling missing values and negative pids from postmaster.pid
+        if not pid:
             return False
+        if pid < 0:
+            pid = -pid
+
+        try:
+            proc = psutil.Process(pid)
+        except psutil.NoSuchProcess:
+            return False
+
+        # If the process is Patroni or Patronis host process or Patronis child process then it's a false positive
+        my_pid = os.getpid()
+        if pid == my_pid or pid == os.getppid() or proc.parent() == my_pid:
+            return False
+
+        # If process start time differs by more than 3 seconds it's a false positive
+        if start_time is not None and abs(proc.create_time() - start_time) > 3:
+            return False
+
+        return True
 
     @property
     def cb_called(self):
@@ -805,7 +863,7 @@ class Postgresql(object):
                     # Garbage in the pid file
                     pass
 
-            if not self.is_pid_running(pid):
+            if not self._is_postmaster_pid_running(pid, start_time=initiated):
                 logger.error('postmaster is not running')
                 self.set_state('start failed')
                 return False
@@ -933,6 +991,12 @@ class Postgresql(object):
 
     def _do_stop(self, mode, block_callbacks, checkpoint, on_safepoint):
         if not self.is_running():
+            if self.data_directory_empty() and self._postmaster_cached_info['pid']:
+                pid = self.get_pid_with_lost_data_dir()
+                if pid > 0:
+                    self.terminate_starting_postmaster(pid)
+                    self.clean_postmaster_cached_info()
+                    return True, True
             if on_safepoint:
                 on_safepoint()
             return True, False
@@ -958,13 +1022,14 @@ class Postgresql(object):
             on_safepoint()
 
         self._wait_for_postmaster_stop(pid)
+        self.clean_postmaster_cached_info()
 
         return True, True
 
     def _wait_for_postmaster_stop(self, pid):
         # This wait loop differs subtly from pg_ctl as we check for both the pid file going
         # away and if the pid is running. This seems safer.
-        while pid == self.get_pid() and self.is_pid_running(pid):
+        while pid == self.get_pid() and self._is_postmaster_pid_running(pid):
             time.sleep(STOP_POLLING_INTERVAL)
 
     def _signal_postmaster_stop(self, mode):
@@ -994,13 +1059,13 @@ class Postgresql(object):
                 return
             logger.warning("Could not send stop signal to PostgreSQL (error: {0})".format(e.errno))
 
-        while self.is_pid_running(pid):
+        while self._is_postmaster_pid_running(pid):
             time.sleep(STOP_POLLING_INTERVAL)
 
     def _wait_for_connection_close(self, pid):
         try:
             with self.connection().cursor() as cur:
-                while pid == self.get_pid() and self.is_pid_running(pid):  # Need a timeout here?
+                while pid == self.get_pid() and self._is_postmaster_pid_running(pid):  # Need a timeout here?
                     cur.execute("SELECT 1")
                     time.sleep(STOP_POLLING_INTERVAL)
         except psycopg2.Error:
