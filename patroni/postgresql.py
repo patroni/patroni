@@ -71,18 +71,18 @@ def null_context():
     yield
 
 
-def _update_postmaster_info(func):
+def _update_postmaster_cached_info(func):
     def wrapper(self):
         ret = func(self)
         if ret and 'pid' in ret and 'start_time' in ret:
-            old_pid = self._postmaster_info.get('pid', 0)
-            old_start_time = self._postmaster_info.get('start_time', 0)
+            old_pid = self._postmaster_cached_info.get('pid', 0)
+            old_start_time = self._postmaster_cached_info.get('start_time', 0)
             try:
                 pmpid = int(ret['pid'])
                 pmstart = int(ret['start_time'])
                 if pmpid != old_pid or pmstart != old_start_time:  # this check removes repeating messages from logs
-                    self._postmaster_info = {'pid': pmpid, 'start_time': pmstart}
-                    logger.info("Updated postmaster info: %s .", self._postmaster_info)
+                    self._postmaster_cached_info = {'pid': pmpid, 'start_time': pmstart}
+                    logger.info("Updated postmaster info: %s .", self._postmaster_cached_info)
             except ValueError:
                 logger.warning('Cannot update postmaster info with data due garbage in pid file: %s', ret)
         return ret
@@ -161,7 +161,7 @@ class Postgresql(object):
         self._pg_hba_conf = os.path.join(self._config_dir, 'pg_hba.conf')
         self._recovery_conf = os.path.join(self._data_dir, 'recovery.conf')
         self._postmaster_pid = os.path.join(self._data_dir, 'postmaster.pid')
-        self._postmaster_info = {'pid': 0, 'start_time': 0}
+        self._postmaster_cached_info = {'pid': 0, 'start_time': 0}
         self._trigger_file = config.get('recovery_conf', {}).get('trigger_file') or 'promote'
         self._trigger_file = os.path.abspath(os.path.join(self._data_dir, self._trigger_file))
 
@@ -732,7 +732,7 @@ class Postgresql(object):
         return self._is_postmaster_pid_running(int_or_none(pidfile.get('pid')),
                                                start_time=int_or_none(pidfile.get('start_time')))
 
-    @_update_postmaster_info
+    @_update_postmaster_cached_info
     def read_pid_file(self):
         """Reads and parses postmaster.pid from the data directory
 
@@ -759,21 +759,21 @@ class Postgresql(object):
 
     def get_pid_with_lost_data_dir(self):
         logger.info("Trying to check if process running without directory "
-                    "with cached postmaster info: %s .", self._postmaster_info)
+                    "with cached postmaster info: %s .", self._postmaster_cached_info)
         try:
-            process = psutil.Process(self._postmaster_info['pid'])
+            process = psutil.Process(self._postmaster_cached_info['pid'])
             # check difference instead of values because of rounding issues
-            if abs(self._postmaster_info["start_time"] - process.create_time()) < 2:
+            if abs(self._postmaster_cached_info["start_time"] - process.create_time()) < 2:
                 return process.pid
             else:
                 logger.info("Process with pid %s was started at different time %s .",
                             process.pid, process.create_time())
         except psutil.NoSuchProcess:
-            logger.info("Cannot find process %s .", self._postmaster_info['pid'])
+            logger.info("Cannot find process %s .", self._postmaster_cached_info['pid'])
         return 0
 
-    def clean_postmaster_info(self):
-        self._postmaster_info = {'pid': 0, 'start_time': 0}
+    def clean_postmaster_cached_info(self):
+        self._postmaster_cached_info = {'pid': 0, 'start_time': 0}
         logger.info("postmaster info was cleaned.")
 
     @staticmethod
@@ -991,11 +991,12 @@ class Postgresql(object):
 
     def _do_stop(self, mode, block_callbacks, checkpoint, on_safepoint):
         if not self.is_running():
-            pid = self.get_pid_with_lost_data_dir()
-            if pid > 0:
-                self.terminate_starting_postmaster(pid)
-                self.clean_postmaster_info()
-                return True, True
+            if self.data_directory_empty() and self._postmaster_cached_info['pid']:
+                pid = self.get_pid_with_lost_data_dir()
+                if pid > 0:
+                    self.terminate_starting_postmaster(pid)
+                    self.clean_postmaster_cached_info()
+                    return True, True
             if on_safepoint:
                 on_safepoint()
             return True, False
@@ -1021,7 +1022,7 @@ class Postgresql(object):
             on_safepoint()
 
         self._wait_for_postmaster_stop(pid)
-        self.clean_postmaster_info()
+        self.clean_postmaster_cached_info()
 
         return True, True
 

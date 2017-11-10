@@ -277,6 +277,21 @@ class TestPostgresql(unittest.TestCase):
         mock_is_running.return_value = False
         self.assertTrue(self.p.stop(on_safepoint=mock_callback))
         mock_callback.assert_called()
+
+        with patch.object(Postgresql, '_is_postmaster_pid_running', Mock(return_value=False)), \
+                patch.object(Postgresql, 'data_directory_empty', Mock(return_value=True)):
+            with patch('psutil.Process') as mock_psutil:
+                self.p._postmaster_cached_info = {'pid': 1, 'start_time': 1}
+                mock_psutil.return_value.pid = 1
+                mock_psutil.return_value.create_time.return_value = 1
+                self.assertTrue(self.p.stop())
+                self.p._postmaster_cached_info = {'pid': 1, 'start_time': 1}
+                mock_psutil.return_value.create_time.return_value = 100
+                self.assertTrue(self.p.stop())
+                self.p._postmaster_cached_info = {'pid': 1, 'start_time': 1}
+                mock_psutil.side_effect = psutil.NoSuchProcess('')
+                self.assertTrue(self.p.stop())
+
         mock_is_running.return_value = True
         mock_get_pid.return_value = 0
         mock_callback.reset_mock()
@@ -773,13 +788,19 @@ class TestPostgresql(unittest.TestCase):
             os.remove(pidfile)
         self.assertEquals(self.p.read_pid_file(), {})
 
+    @patch.object(Postgresql, '_version_file_exists', Mock(return_value=True))
+    @patch('os.path.isfile', Mock(return_value=True))
+    @patch.object(Postgresql, 'read_pid_file')
     @patch('psutil.Process')
-    def test_is_postmaster_pid_running(self, mock_psutil):
-        mock_proc = Mock()
-        mock_psutil.return_value = mock_proc
-        self.assertTrue(self.p._is_postmaster_pid_running(-100))
-        self.assertFalse(self.p._is_postmaster_pid_running(0))
-        self.assertFalse(self.p._is_postmaster_pid_running(None))
+    def test_is_postmaster_pid_running(self, mock_psutil, mock_read_pid_file):
+        mock_psutil.return_value.create_time.return_value = 1
+        mock_read_pid_file.return_value = {'pid': -100, 'start_time': 1}
+        self.assertTrue(self.p.is_running())
+        with patch('os.getpid', Mock(return_value=100)):
+            mock_read_pid_file.return_value = {'pid': 100, 'start_time': 1}
+            self.assertFalse(self.p.is_running())
+        mock_read_pid_file.return_value = {'pid': 100, 'start_time': 100}
+        self.assertFalse(self.p.is_running())
 
     def test_pick_sync_standby(self):
         cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None,
@@ -924,3 +945,11 @@ class TestPostgresql(unittest.TestCase):
     @patch.object(Postgresql, 'single_user_mode', Mock(return_value=0))
     def test_fix_cluster_state(self):
         self.assertTrue(self.p.fix_cluster_state())
+
+    def test__update_postmaster_cached_info(self):
+        with open(os.path.join(self.data_dir, 'postmaster.pid'), 'w') as f:
+            f.write('1\n\n1\n')
+        self.p.read_pid_file()
+        with open(os.path.join(self.data_dir, 'postmaster.pid'), 'w') as f:
+            f.write('a\n\n1\n')
+        self.p.read_pid_file()
