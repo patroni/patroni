@@ -143,6 +143,33 @@ class PostmasterProcess(psutil.Process):
         psutil.wait_procs(user_backends)
         logger.debug("Backends closed")
 
+    @classmethod
+    def start(cls, pgcommand, data_dir, conf, options):
+        # Unfortunately `pg_ctl start` does not return postmaster pid to us. Without this information
+        # it is hard to know the current state of postgres startup, so we had to reimplement pg_ctl start
+        # in python. It will start postgres, wait for port to be open and wait until postgres will start
+        # accepting connections.
+        # Important!!! We can't just start postgres using subprocess.Popen, because in this case it
+        # will be our child for the rest of our live and we will have to take care of it (`waitpid`).
+        # So we will use the same approach as pg_ctl uses: start a new process, which will start postgres.
+        # This process will write postmaster pid to stdout and exit immediately. Now it's responsibility
+        # of init process to take care about postmaster.
+        # In order to make everything portable we can't use fork&exec approach here, so  we will call
+        # ourselves and pass list of arguments which must be used to start postgres.
+        proc = call_self(['pg_ctl_start', pgcommand, '-D', data_dir,
+                            '--config-file={}'.format(conf)] + options, close_fds=True,
+                            preexec_fn=os.setsid, stdout=subprocess.PIPE,
+                            env={p: os.environ[p] for p in ('PATH', 'LC_ALL', 'LANG') if p in os.environ})
+        pid = int(proc.stdout.readline().strip())
+        proc.wait()
+        logger.info('postmaster pid=%s', pid)
+
+        #TODO: In an extremely unlikely case, the process could have exited and the pid reassigned. The start
+        # initiation time is not accurate enough to compare to create time as start time would also likely
+        # be relatively close. We need the subprocess extract pid+start_time in a race free manner.
+        return PostmasterProcess.from_pid(pid)
+
+
 class Postgresql(object):
 
     # List of parameters which must be always passed to postmaster as command line options
@@ -897,35 +924,15 @@ class Postgresql(object):
         options = ['--{0}={1}'.format(p, self._server_parameters[p]) for p in self.CMDLINE_OPTIONS
                    if p in self._server_parameters and p != 'wal_keep_segments']
 
-        # Unfortunately `pg_ctl start` does not return postmaster pid to us. Without this information
-        # it is hard to know the current state of postgres startup, so we had to reimplement pg_ctl start
-        # in python. It will start postgres, wait for port to be open and wait until postgres will start
-        # accepting connections.
-        # Important!!! We can't just start postgres using subprocess.Popen, because in this case it
-        # will be our child for the rest of our live and we will have to take care of it (`waitpid`).
-        # So we will use the same approach as pg_ctl uses: start a new process, which will start postgres.
-        # This process will write postmaster pid to stdout and exit immediately. Now it's responsibility
-        # of init process to take care about postmaster.
-        # In order to make everything portable we can't use fork&exec approach here, so  we will call
-        # ourselves and pass list of arguments which must be used to start postgres.
         with task or null_context():
             if task and task.is_cancelled:
                 logger.info("PostgreSQL start cancelled.")
                 return False
 
-            proc = call_self(['pg_ctl_start', self._pgcommand('postgres'), '-D', self._data_dir,
-                             '--config-file={}'.format(self._postgresql_conf)] + options, close_fds=True,
-                             preexec_fn=os.setsid, stdout=subprocess.PIPE,
-                             env={p: os.environ[p] for p in ('PATH', 'LC_ALL', 'LANG') if p in os.environ})
-            pid = int(proc.stdout.readline().strip())
-            proc.wait()
-            logger.info('postmaster pid=%s', pid)
-
-            #TODO: In an extremely unlikely case, the process could have exited and the pid reassigned. The start
-            # initiation time is not accurate enough to compare to create time as start time would also likely
-            # be relatively close. We need the subprocess extract pid+start_time in a race free manner.
-            postmaster = PostmasterProcess.from_pid(pid)
-
+            postmaster = PostmasterProcess.start(self._pgcommand('postgres'),
+                                                 self._data_dir,
+                                                 self._postgresql_conf,
+                                                 options)
             if task:
                 task.complete(postmaster)
 
