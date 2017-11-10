@@ -3,6 +3,47 @@
 Release notes
 =============
 
+Version 1.3.6
+-------------
+
+**Stability improvements**
+
+- Verify process start time when checking if postgres is running. (Ants Aasma)
+
+  After a crash that doesn't clean up postmaster.pid there could be a new process with the same pid, resulting in a false positive for is_running(), which will lead to all kinds of bad behavior.
+
+- Shutdown postgresql before bootstrap when we lost data directory (ainlolcat)
+  
+  If data directory on the master has been removed, postgres process was still staying alive for some time and was interfering with newly created data by basebackup.
+  Therefore we will memorize postmaster pid and try to terminate it if we detected that we have lost data directory.
+
+- Perform crash recovery in a single user mode if postgres has died as master (Alexander Kukushkin)
+
+  It is unsafe to start immediately as a standby and not possible to run ``pg_rewind`` if postgres hasn't been shut down cleanly.
+  Do such procedure only if ``pg_rewind`` is enabled or there is no master at the moment.
+
+**Consul improvements**
+
+- Make it possible to provide datacenter configuration for Consul (DeathBorn, Alexander)
+
+  Before that Patroni was always communicating with datacenter of the host it runs on.
+
+- Always send token in X-Consul-Token http header (Alexander)
+
+  If ``consul.token`` is  defined in Patroni configuration, we will always send it in the 'X-Consul-Token' http header.
+  python-consul module is trying to be "consistent" with Consul REST API, which doesn't accept token as a query parameter for `session API <https://www.consul.io/api/session.html>`__, but it still works with 'X-Consul-Token' header.
+
+- Adjust session ttl if supplied value is smaller than minimum possible (Stas Fomin, Alexander)
+
+  It could happen that ttl provided in Patroni configuration is smaller than minimum supported by Consul. In such case Consul agent fails to create a new session.
+  Without session Patroni was not able to create member and leader keys in the Consul KV store what was making cluster completely unhealthy.
+
+**Other improvements**
+
+- Make it possible to define custom log format via environment variable ``PATRONI_LOGFORMAT`` (Stas)
+
+  Usually there is already some timestamp added if Patroni runs as a service, what results in timestamp recorded twice in the logs.
+
 Version 1.3.5
 -------------
 
