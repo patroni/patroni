@@ -3,7 +3,8 @@ import unittest
 
 from consul import ConsulException, NotFound
 from mock import Mock, patch
-from patroni.dcs.consul import AbstractDCS, Cluster, Consul, ConsulInternalError, ConsulError, HTTPClient
+from patroni.dcs.consul import AbstractDCS, Cluster, Consul, ConsulInternalError, \
+                                ConsulError, HTTPClient, InvalidSessionTTL
 from test_etcd import SleepException
 
 
@@ -47,7 +48,10 @@ class TestHTTPClient(unittest.TestCase):
         self.client.get(Mock(), '')
         self.client.get(Mock(), '', {'wait': '1s', 'index': 1, 'token': 'foo'})
         self.client.http.request.return_value.status = 500
+        self.client.http.request.return_value.data = b'Foo'
         self.assertRaises(ConsulInternalError, self.client.get, Mock(), '')
+        self.client.http.request.return_value.data = b"Invalid Session TTL '3000000000', must be between [10s=24h0m0s]"
+        self.assertRaises(InvalidSessionTTL, self.client.get, Mock(), '')
 
     def test_unknown_method(self):
         try:
@@ -70,7 +74,7 @@ class TestConsul(unittest.TestCase):
     @patch.object(consul.Consul.KV, 'delete', Mock())
     def setUp(self):
         Consul({'ttl': 30, 'scope': 't', 'name': 'p', 'url': 'https://l:1', 'retry_timeout': 10,
-                'verify': 'on', 'key': 'foo', 'cert': 'bar', 'cacert': 'buz', 'token': 'asd'})
+                'verify': 'on', 'key': 'foo', 'cert': 'bar', 'cacert': 'buz', 'token': 'asd', 'dc': 'dc1'})
         Consul({'ttl': 30, 'scope': 't', 'name': 'p', 'url': 'https://l:1', 'retry_timeout': 10,
                 'verify': 'on', 'cert': 'bar', 'cacert': 'buz'})
         self.c = Consul({'ttl': 30, 'scope': 'test', 'name': 'postgresql1', 'host': 'localhost:1', 'retry_timeout': 10})
@@ -84,7 +88,9 @@ class TestConsul(unittest.TestCase):
         self.assertRaises(SleepException, self.c.create_session)
 
     @patch.object(consul.Consul.Session, 'renew', Mock(side_effect=NotFound))
-    @patch.object(consul.Consul.Session, 'create', Mock(side_effect=ConsulException))
+    @patch.object(consul.Consul.Session, 'create', Mock(side_effect=[InvalidSessionTTL, ConsulException]))
+    @patch.object(consul.Consul.Agent, 'self', Mock(return_value={'Config': {'SessionTTLMin': 0}}))
+    @patch.object(HTTPClient, 'set_ttl', Mock(side_effect=ValueError))
     def test_referesh_session(self):
         self.c._session = '1'
         self.assertFalse(self.c.refresh_session())
