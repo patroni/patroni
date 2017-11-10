@@ -822,12 +822,12 @@ class Postgresql(object):
                 logger.info("PostgreSQL start cancelled.")
                 return False
 
-            postmaster = PostmasterProcess.start(self._pgcommand('postgres'),
-                                                 self._data_dir,
-                                                 self._postgresql_conf,
-                                                 options)
+            self._postmaster_proc = PostmasterProcess.start(self._pgcommand('postgres'),
+                                                            self._data_dir,
+                                                            self._postgresql_conf,
+                                                            options)
             if task:
-                task.complete(postmaster)
+                task.complete(self._postmaster_proc)
 
         start_timeout = timeout
         if not start_timeout:
@@ -837,7 +837,7 @@ class Postgresql(object):
                 start_timeout = 60
 
         # We want postmaster to open ports before we continue
-        if not postmaster or not self.wait_for_port_open(postmaster, start_timeout):
+        if not self._postmaster_proc or not self.wait_for_port_open(self._postmaster_proc, start_timeout):
             return False
 
         ret = self.wait_for_startup(start_timeout)
