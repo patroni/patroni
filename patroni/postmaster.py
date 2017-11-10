@@ -102,14 +102,14 @@ class PostmasterProcess(psutil.Process):
         # In order to make everything portable we can't use fork&exec approach here, so  we will call
         # ourselves and pass list of arguments which must be used to start postgres.
         proc = call_self(['pg_ctl_start', pgcommand, '-D', data_dir,
-                            '--config-file={}'.format(conf)] + options, close_fds=True,
-                            preexec_fn=os.setsid, stdout=subprocess.PIPE,
-                            env={p: os.environ[p] for p in ('PATH', 'LC_ALL', 'LANG') if p in os.environ})
+                          '--config-file={}'.format(conf)] + options, close_fds=True,
+                         preexec_fn=os.setsid, stdout=subprocess.PIPE,
+                         env={p: os.environ[p] for p in ('PATH', 'LC_ALL', 'LANG') if p in os.environ})
         pid = int(proc.stdout.readline().strip())
         proc.wait()
         logger.info('postmaster pid=%s', pid)
 
-        #TODO: In an extremely unlikely case, the process could have exited and the pid reassigned. The start
+        # TODO: In an extremely unlikely case, the process could have exited and the pid reassigned. The start
         # initiation time is not accurate enough to compare to create time as start time would also likely
         # be relatively close. We need the subprocess extract pid+start_time in a race free manner.
         return PostmasterProcess.from_pid(pid)
