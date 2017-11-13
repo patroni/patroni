@@ -1026,7 +1026,7 @@ class Ha(object):
             if self.state_handler.data_directory_empty():
                 self.state_handler.set_role('uninitialized')
                 self.state_handler.stop('immediate')
-                # In case datadir went away while we were master. TODO: check for this and try to stop postgresql.
+                # In case datadir went away while we were master.
                 self.watchdog.disable()
 
                 # is this instance the leader?
