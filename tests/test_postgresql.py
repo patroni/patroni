@@ -483,16 +483,9 @@ class TestPostgresql(unittest.TestCase):
         Thread(target=self.p.last_operation).start()
 
     @patch.object(PostmasterProcess, 'from_pidfile')
-    @patch.object(Postgresql, '_version_file_exists')
-    def test_is_running(self, mock_version, mock_frompidfile):
-        # Cached postmaster running, but no version file
-        mock_version.return_value = False
-        mock_postmaster = self.p._postmaster_proc = MockPostmaster()
-
-        self.assertEquals(self.p.is_running(), None)
-
+    def test_is_running(self, mock_frompidfile):
         # Cached postmaster running
-        mock_version.return_value = True
+        mock_postmaster = self.p._postmaster_proc = MockPostmaster()
         self.assertEquals(self.p.is_running(), mock_postmaster)
 
         # Cached postmaster not running, no postmaster running

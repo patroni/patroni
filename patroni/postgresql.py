@@ -703,9 +703,6 @@ class Postgresql(object):
         is running udpates the cached process based on pid file."""
         if self._postmaster_proc:
             if self._postmaster_proc.is_running():
-                # TODO: is this check useful?
-                if not self._version_file_exists():
-                    return None
                 return self._postmaster_proc
             self._postmaster_proc = None
 
