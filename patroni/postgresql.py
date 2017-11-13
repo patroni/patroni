@@ -865,7 +865,7 @@ class Postgresql(object):
             logging.exception('Exception during CHECKPOINT')
             return 'not accessible or not healty'
 
-    def stop(self, mode='fast', block_callbacks=False, checkpoint=True, on_safepoint=None):
+    def stop(self, mode='fast', block_callbacks=False, checkpoint=None, on_safepoint=None):
         """Stop PostgreSQL
 
         Supports a callback when a safepoint is reached. A safepoint is when no user backend can return a successful
@@ -874,6 +874,9 @@ class Postgresql(object):
 
         :param on_safepoint: This callback is called when no user backends are running.
         """
+        if checkpoint is None:
+            checkpoint = False if mode == 'immediate' else True
+
         success, pg_signaled = self._do_stop(mode, block_callbacks, checkpoint, on_safepoint)
         if success:
             # block_callbacks is used during restart to avoid
