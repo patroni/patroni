@@ -19,10 +19,10 @@ class TestPostmasterProcess(unittest.TestCase):
         self.assertEquals(PostmasterProcess.from_pidfile({"pid": "123"}), None)
 
         mock_init.side_effect = None
-        with patch.object(psutil.Process, 'pid', 123) as mock_pid, \
-             patch.object(psutil.Process, 'parent', return_value=124) as mock_parent, \
+        with patch.object(psutil.Process, 'pid', 123), \
+             patch.object(psutil.Process, 'parent', return_value=124), \
              patch('os.getpid', return_value=125) as mock_ospid, \
-             patch('os.getppid', return_value=126) as mock_osppid:
+             patch('os.getppid', return_value=126):
 
             self.assertNotEquals(PostmasterProcess.from_pidfile({"pid": "123"}), None)
 
@@ -34,7 +34,7 @@ class TestPostmasterProcess(unittest.TestCase):
             self.assertEquals(PostmasterProcess.from_pidfile({"pid": "123", "start_time": "100000"}), None)
 
     @patch('psutil.Process.__init__')
-    def test_from_pidfile(self, mock_init):
+    def test_from_pid(self, mock_init):
         mock_init.side_effect = psutil.NoSuchProcess(123)
         self.assertEquals(PostmasterProcess.from_pid(123), None)
         mock_init.side_effect = None
