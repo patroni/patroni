@@ -5,11 +5,13 @@ import sys
 import unittest
 
 from click.testing import CliRunner
+from datetime import datetime, timedelta
 from mock import patch, Mock
 from patroni.ctl import ctl, members, store_config, load_config, output_members, request_patroni, get_dcs, parse_dcs, \
     get_all_members, get_any_member, get_cursor, query_member, configure, PatroniCtlException, apply_config_changes, \
     format_config_for_editing, show_diff, invoke_editor
-from patroni.dcs.etcd import Client
+from patroni.dcs.etcd import Client, Failover
+from patroni.utils import tzutc
 from psycopg2 import OperationalError
 from test_etcd import etcd_read, requests_get, socket_getaddrinfo, MockResponse
 from test_ha import get_cluster_initialized_without_leader, get_cluster_initialized_with_leader, \
@@ -64,7 +66,8 @@ class TestCtl(unittest.TestCase):
         self.assertRaises(PatroniCtlException, parse_dcs, 'invalid://test')
 
     def test_output_members(self):
-        cluster = get_cluster_initialized_with_leader()
+        scheduled_at = datetime.now(tzutc) + timedelta(seconds=600)
+        cluster = get_cluster_initialized_with_leader(Failover(1, 'foo', 'bar', scheduled_at))
         self.assertIsNone(output_members(cluster, name='abc', fmt='pretty'))
         self.assertIsNone(output_members(cluster, name='abc', fmt='json'))
         self.assertIsNone(output_members(cluster, name='abc', fmt='tsv'))
@@ -234,7 +237,7 @@ class TestCtl(unittest.TestCase):
         assert result.exit_code == 1
 
         # Wrong pg version
-        result = self.runner.invoke(ctl, ['restart', 'alpha', '--any', '--pg-version', '9.1'], input='y')
+        result = self.runner.invoke(ctl, ['restart', 'alpha', '--any', '--pg-version', '9.1.2.3'], input='y')
         assert 'Error: PostgreSQL version' in result.output
         assert result.exit_code == 1
 
@@ -261,7 +264,7 @@ class TestCtl(unittest.TestCase):
         with patch('requests.post', Mock(return_value=MockResponse(204))):
             # get restart with the non-200 return code
             # normal restart, the schedule is actually parsed, but not validated in patronictl
-            result = self.runner.invoke(ctl, ['restart', 'alpha', '--pg-version', '42.0.0',
+            result = self.runner.invoke(ctl, ['restart', 'alpha', '--pg-version', '42.0',
                                         '--scheduled', '2300-10-01T14:30'], input='y')
             assert result.exit_code == 0
 

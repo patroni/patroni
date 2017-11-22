@@ -622,12 +622,15 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
     logging.debug(cluster)
     leader_name = None
     if cluster.leader:
-        leader_name = cluster.leader.member.name
+        leader_name = cluster.leader.name
 
     xlog_location_cluster = cluster.last_leader_operation or 0
 
     # Mainly for consistent pretty printing and watching we sort the output
     cluster.members.sort(key=lambda x: x.name)
+
+    extended = extended or any(m.data.get('scheduled_restart') for m in cluster.members)
+
     for m in cluster.members:
         logging.debug(m)
 
@@ -637,21 +640,13 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
         elif m.name == cluster.sync.sync_standby:
             role = 'Sync standby'
 
-        host = m.conn_kwargs()['host']
-
-        xlog_location = m.data.get('xlog_location') or 0
-        lag = ''
-        if xlog_location_cluster >= xlog_location:
+        xlog_location = m.data.get('xlog_location')
+        lag = 'unknown'
+        if xlog_location is not None and xlog_location_cluster >= xlog_location:
             lag = round((xlog_location_cluster - xlog_location)/1024/1024)
 
-        row = [
-            name,
-            m.name,
-            host,
-            role,
-            m.data.get('state', ''),
-            lag,
-        ]
+        row = [name, m.name, m.conn_kwargs()['host'], role, m.data.get('state', ''), lag]
+
         if extended:
             value = ''
             scheduled_restart = m.data.get('scheduled_restart')
@@ -664,14 +659,7 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
 
         rows.append(row)
 
-    columns = [
-        'Cluster',
-        'Member',
-        'Host',
-        'Role',
-        'State',
-        'Lag in MB',
-    ]
+    columns = ['Cluster', 'Member', 'Host', 'Role', 'State', 'Lag in MB']
     alignment = {'Cluster': 'l', 'Member': 'l', 'Host': 'l', 'Lag in MB': 'r'}
 
     if extended:
@@ -679,6 +667,21 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
         alignment['Scheduled restart'] = 'l'
 
     print_output(columns, rows, alignment, fmt)
+
+    service_info = []
+    if cluster.is_paused():
+        service_info.append('Maintenance mode: on')
+
+    if cluster.failover and cluster.failover.scheduled_at:
+        info = 'Failover scheduled at: ' + cluster.failover.scheduled_at.isoformat()
+        if cluster.failover.leader:
+            info += '\n                  from: ' + cluster.failover.leader
+        if cluster.failover.candidate:
+            info += '\n                    to: ' + cluster.failover.candidate
+        service_info.append(info)
+
+    if service_info:
+        click.echo(' ' + '\n '.join(service_info))
 
 
 @ctl.command('list', help='List the Patroni members for a given Patroni')
