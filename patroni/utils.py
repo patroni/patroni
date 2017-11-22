@@ -195,7 +195,7 @@ def _sleep(interval):
 
 
 def is_valid_pg_version(version):
-    return re.match(r'[1-9][0-9]?(\.(0|([1-9][0-9]?))){2}$', version)
+    return re.match(r'[1-9][0-9]?(\.(0|([1-9][0-9]?))){1,2}$', version)
 
 
 class RetryFailedError(PatroniException):
