@@ -24,7 +24,7 @@ Version 1.3.6
 
 **Consul improvements**
 
-- Make it possible to provide datacenter configuration for Consul (DeathBorn, Alexander)
+- Make it possible to provide datacenter configuration for Consul (Vilius Okockis, Alexander)
 
   Before that Patroni was always communicating with datacenter of the host it runs on.
 
