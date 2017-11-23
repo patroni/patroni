@@ -12,7 +12,7 @@ from patroni.exceptions import DCSError
 from patroni import Patroni, main as _main, patroni_main
 from six.moves import BaseHTTPServer
 from test_etcd import SleepException, etcd_read, etcd_write
-from test_postgresql import Postgresql, psycopg2_connect
+from test_postgresql import Postgresql, psycopg2_connect, MockPostmaster
 
 
 class MockFrozenImporter(object):
@@ -26,7 +26,7 @@ class MockFrozenImporter(object):
 @patch.object(Postgresql, 'write_pg_hba', Mock())
 @patch.object(Postgresql, '_write_postgresql_conf', Mock())
 @patch.object(Postgresql, 'write_recovery_conf', Mock())
-@patch.object(Postgresql, 'is_running', Mock(return_value=True))
+@patch.object(Postgresql, 'is_running', Mock(return_value=MockPostmaster()))
 @patch.object(Postgresql, 'call_nowait', Mock())
 @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
 @patch.object(AsyncExecutor, 'run', Mock())

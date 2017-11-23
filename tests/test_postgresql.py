@@ -12,6 +12,7 @@ from patroni.async_executor import CriticalTask
 from patroni.dcs import Cluster, Leader, Member, SyncState
 from patroni.exceptions import PostgresConnectionException
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
+from patroni.postmaster import PostmasterProcess
 from patroni.utils import RetryFailedError
 from six.moves import builtins
 from threading import Thread
@@ -95,6 +96,14 @@ class MockConnect(object):
     def close():
         pass
 
+
+class MockPostmaster(object):
+    def __init__(self, is_running=True, is_single_master=False):
+        self.is_running = Mock(return_value=is_running)
+        self.is_single_master = Mock(return_value=is_single_master)
+        self.wait_for_user_backends_to_close = Mock()
+        self.signal_stop = Mock(return_value=None)
+        self.wait = Mock()
 
 def pg_controldata_string(*args, **kwargs):
     return b"""
@@ -213,100 +222,77 @@ class TestPostgresql(unittest.TestCase):
     @patch.object(Postgresql, 'wait_for_port_open')
     @patch.object(Postgresql, 'is_running')
     def test_start(self, mock_is_running, mock_wait_for_port_open, mock_wait_for_startup, mock_popen):
-        mock_is_running.return_value = True
+        mock_is_running.return_value = MockPostmaster()
         mock_wait_for_port_open.return_value = True
         mock_wait_for_startup.return_value = False
         mock_popen.return_value.stdout.readline.return_value = '123'
         self.assertTrue(self.p.start())
-        mock_is_running.return_value = False
-        open(os.path.join(self.data_dir, 'postmaster.pid'), 'w').close()
-        pg_conf = os.path.join(self.data_dir, 'postgresql.conf')
-        open(pg_conf, 'w').close()
-        self.assertFalse(self.p.start(task=CriticalTask()))
-        with open(pg_conf) as f:
-            lines = f.readlines()
-            self.assertTrue("f.oo = 'bar'\n" in lines)
+        mock_is_running.return_value = None
 
-        mock_wait_for_startup.return_value = None
-        self.assertFalse(self.p.start(10))
-        self.assertIsNone(self.p.start())
+        mock_postmaster = MockPostmaster()
+        with patch.object(PostmasterProcess, 'start', return_value=mock_postmaster):
+            pg_conf = os.path.join(self.data_dir, 'postgresql.conf')
+            open(pg_conf, 'w').close()
+            self.assertFalse(self.p.start(task=CriticalTask()))
 
-        mock_wait_for_port_open.return_value = False
-        self.assertFalse(self.p.start())
-        task = CriticalTask()
-        task.cancel()
-        self.assertFalse(self.p.start(task=task))
+            with open(pg_conf) as f:
+                lines = f.readlines()
+                self.assertTrue("f.oo = 'bar'\n" in lines)
+
+            mock_wait_for_startup.return_value = None
+            self.assertFalse(self.p.start(10))
+            self.assertIsNone(self.p.start())
+
+            mock_wait_for_port_open.return_value = False
+            self.assertFalse(self.p.start())
+            task = CriticalTask()
+            task.cancel()
+            self.assertFalse(self.p.start(task=task))
 
     @patch.object(Postgresql, 'pg_isready')
-    @patch.object(Postgresql, 'read_pid_file')
-    @patch.object(Postgresql, '_is_postmaster_pid_running')
     @patch('patroni.postgresql.polling_loop', Mock(return_value=range(1)))
-    def test_wait_for_port_open(self, mock_is_postmaster_pid_running, mock_read_pid_file, mock_pg_isready):
-        mock_is_postmaster_pid_running.return_value = False
+    def test_wait_for_port_open(self, mock_pg_isready):
         mock_pg_isready.return_value = STATE_NO_RESPONSE
+        mock_postmaster = MockPostmaster(is_running=False)
 
         # No pid file and postmaster death
-        mock_read_pid_file.return_value = {}
-        self.assertFalse(self.p.wait_for_port_open(42, 100., 1))
+        self.assertFalse(self.p.wait_for_port_open(mock_postmaster, 1))
 
-        mock_is_postmaster_pid_running.return_value = True
+        mock_postmaster.is_running.return_value = True
 
         # timeout
-        mock_read_pid_file.return_value = {'pid', 1}
-        self.assertFalse(self.p.wait_for_port_open(42, 100., 1))
-
-        # Garbage pid
-        mock_read_pid_file.return_value = {'pid': 'garbage', 'start_time': '101', 'data_dir': '',
-                                           'socket_dir': '', 'port': '', 'listen_addr': ''}
-        self.assertFalse(self.p.wait_for_port_open(42, 100., 1))
-
-        # Not ready
-        mock_read_pid_file.return_value = {'pid': '42', 'start_time': '101', 'data_dir': '',
-                                           'socket_dir': '', 'port': '', 'listen_addr': ''}
-        self.assertFalse(self.p.wait_for_port_open(42, 100., 1))
+        self.assertFalse(self.p.wait_for_port_open(mock_postmaster, 1))
 
         # pg_isready failure
         mock_pg_isready.return_value = 'garbage'
-        self.assertTrue(self.p.wait_for_port_open(42, 100., 1))
+        self.assertTrue(self.p.wait_for_port_open(mock_postmaster, 1))
 
     @patch('time.sleep', Mock())
     @patch.object(Postgresql, 'is_running')
-    @patch.object(Postgresql, 'get_pid')
-    def test_stop(self, mock_get_pid, mock_is_running):
+    @patch.object(Postgresql, '_wait_for_connection_close', Mock())
+    def test_stop(self, mock_is_running):
+        # Postmaster is not running
         mock_callback = Mock()
-        mock_is_running.return_value = False
+        mock_is_running.return_value = None
         self.assertTrue(self.p.stop(on_safepoint=mock_callback))
         mock_callback.assert_called()
 
-        with patch.object(Postgresql, '_is_postmaster_pid_running', Mock(return_value=False)), \
-                patch.object(Postgresql, 'data_directory_empty', Mock(return_value=True)):
-            with patch('psutil.Process') as mock_psutil:
-                self.p._postmaster_cached_info = {'pid': 1, 'start_time': 1}
-                mock_psutil.return_value.pid = 1
-                mock_psutil.return_value.create_time.return_value = 1
-                self.assertTrue(self.p.stop())
-                self.p._postmaster_cached_info = {'pid': 1, 'start_time': 1}
-                mock_psutil.return_value.create_time.return_value = 100
-                self.assertTrue(self.p.stop())
-                self.p._postmaster_cached_info = {'pid': 1, 'start_time': 1}
-                mock_psutil.side_effect = psutil.NoSuchProcess('')
-                self.assertTrue(self.p.stop())
-
-        mock_is_running.return_value = True
-        mock_get_pid.return_value = 0
+        # Is running, stopped successfully
+        mock_is_running.return_value = mock_postmaster = MockPostmaster()
         mock_callback.reset_mock()
         self.assertTrue(self.p.stop(on_safepoint=mock_callback))
         mock_callback.assert_called()
-        mock_get_pid.return_value = -1
+        mock_postmaster.signal_stop.assert_called()
+
+        # Stop signal failed
+        mock_postmaster.signal_stop.return_value = False
         self.assertFalse(self.p.stop())
-        mock_get_pid.return_value = 123
-        with patch('os.kill', Mock(side_effect=[OSError(errno.ESRCH, ''), OSError, None])):
-            self.assertTrue(self.p.stop())
-            self.assertFalse(self.p.stop())
-            self.assertTrue(self.p.stop())
-        with patch.object(Postgresql, '_signal_postmaster_stop', Mock(return_value=(123, None))):
-            with patch.object(Postgresql, '_is_postmaster_pid_running', Mock(side_effect=[True, False, False])):
-                self.assertTrue(self.p.stop())
+
+        # Stop signal failed to find process
+        mock_postmaster.signal_stop.return_value = True
+        mock_callback.reset_mock()
+        self.assertTrue(self.p.stop(on_safepoint=mock_callback))
+        mock_callback.assert_called()
 
     def test_restart(self):
         self.p.start = Mock(return_value=False)
@@ -496,14 +482,22 @@ class TestPostgresql(unittest.TestCase):
         self.assertEquals(self.p.last_operation(), '2')
         Thread(target=self.p.last_operation).start()
 
-    @patch('os.path.isfile', Mock(return_value=True))
-    @patch('os.kill', Mock(side_effect=Exception))
-    @patch('os.getpid', Mock(return_value=2))
-    @patch('os.getppid', Mock(return_value=2))
-    @patch.object(builtins, 'open', mock_open(read_data='-1'))
-    @patch.object(Postgresql, '_version_file_exists', Mock(return_value=True))
-    def test_is_running(self):
-        self.assertFalse(self.p.is_running())
+    @patch.object(PostmasterProcess, 'from_pidfile')
+    def test_is_running(self, mock_frompidfile):
+        # Cached postmaster running
+        mock_postmaster = self.p._postmaster_proc = MockPostmaster()
+        self.assertEquals(self.p.is_running(), mock_postmaster)
+
+        # Cached postmaster not running, no postmaster running
+        mock_postmaster.is_running.return_value = False
+        mock_frompidfile.return_value = None
+        self.assertEquals(self.p.is_running(), None)
+        self.assertEquals(self.p._postmaster_proc, None)
+
+        # No cached postmaster, postmaster running
+        mock_frompidfile.return_value = mock_postmaster2 = MockPostmaster()
+        self.assertEquals(self.p.is_running(), mock_postmaster2)
+        self.assertEquals(self.p._postmaster_proc, mock_postmaster2)
 
     @patch('shlex.split', Mock(side_effect=OSError))
     def test_call_nowait(self):
@@ -515,7 +509,7 @@ class TestPostgresql(unittest.TestCase):
     def test_non_existing_callback(self):
         self.assertFalse(self.p.call_nowait('foobar'))
 
-    @patch.object(Postgresql, 'is_running', Mock(return_value=True))
+    @patch.object(Postgresql, 'is_running', Mock(return_value=MockPostmaster()))
     def test_is_leader_exception(self):
         self.p.start()
         self.p.query = Mock(side_effect=psycopg2.OperationalError("not supported"))
@@ -786,21 +780,11 @@ class TestPostgresql(unittest.TestCase):
         pidfile = os.path.join(self.data_dir, 'postmaster.pid')
         if os.path.exists(pidfile):
             os.remove(pidfile)
-        self.assertEquals(self.p.read_pid_file(), {})
-
-    @patch.object(Postgresql, '_version_file_exists', Mock(return_value=True))
-    @patch('os.path.isfile', Mock(return_value=True))
-    @patch.object(Postgresql, 'read_pid_file')
-    @patch('psutil.Process')
-    def test_is_postmaster_pid_running(self, mock_psutil, mock_read_pid_file):
-        mock_psutil.return_value.create_time.return_value = 1
-        mock_read_pid_file.return_value = {'pid': -100, 'start_time': 1}
-        self.assertTrue(self.p.is_running())
-        with patch('os.getpid', Mock(return_value=100)):
-            mock_read_pid_file.return_value = {'pid': 100, 'start_time': 1}
-            self.assertFalse(self.p.is_running())
-        mock_read_pid_file.return_value = {'pid': 100, 'start_time': 100}
-        self.assertFalse(self.p.is_running())
+        self.assertEquals(self.p._read_pid_file(), {})
+        with open(pidfile, 'w') as fd:
+            fd.write("123\n/foo/bar\n123456789\n5432")
+        self.assertEquals(self.p._read_pid_file(), {"pid": "123", "data_dir": "/foo/bar",
+                                                    "start_time": "123456789", "port": "5432"})
 
     def test_pick_sync_standby(self):
         cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None,
@@ -870,43 +854,23 @@ class TestPostgresql(unittest.TestCase):
         self.p.set_synchronous_standby('foo')
         self.p.get_server_parameters(config)
 
-    @patch.object(Postgresql, 'read_pid_file', Mock(return_value={'pid': 'z'}))
-    def test_get_pid(self):
-        self.p.get_pid()
-
-    @patch.object(Postgresql, 'is_running', Mock(return_value=True))
-    @patch.object(Postgresql, '_signal_postmaster_stop', Mock(return_value=(123, None)))
-    @patch.object(Postgresql, 'get_pid', Mock(return_value=123))
     @patch('time.sleep', Mock())
-    @patch.object(Postgresql, '_is_postmaster_pid_running')
-    def test__wait_for_connection_close(self, mock_is_postmaster_pid_running):
-        mock_is_postmaster_pid_running.side_effect = [True, False, False]
-        mock_callback = Mock()
-        self.p.stop(on_safepoint=mock_callback)
-
-        mock_is_postmaster_pid_running.side_effect = [True, False, False]
-        with patch.object(MockCursor, "execute", Mock(side_effect=psycopg2.Error)):
+    def test__wait_for_connection_close(self):
+        mock_postmaster = MockPostmaster()
+        with patch.object(Postgresql, 'is_running', Mock(return_value=mock_postmaster)):
+            mock_postmaster.is_running.side_effect = [True, False, False]
+            mock_callback = Mock()
             self.p.stop(on_safepoint=mock_callback)
 
-    @patch.object(Postgresql, 'is_running', Mock(return_value=True))
-    @patch.object(Postgresql, '_signal_postmaster_stop', Mock(return_value=(123, None)))
-    @patch.object(Postgresql, 'get_pid', Mock(return_value=123))
-    @patch.object(Postgresql, '_is_postmaster_pid_running', Mock(return_value=False))
-    @patch('psutil.Process')
-    def test__wait_for_user_backends_to_close(self, mock_psutil):
-        child = Mock()
-        child.cmdline.return_value = ['foo']
-        mock_psutil.return_value.children.return_value = [child]
-        mock_callback = Mock()
-        self.p.stop(on_safepoint=mock_callback)
+            mock_postmaster.is_running.side_effect = [True, False, False]
+            with patch.object(MockCursor, "execute", Mock(side_effect=psycopg2.Error)):
+                self.p.stop(on_safepoint=mock_callback)
 
-    @patch('os.kill', Mock(side_effect=[OSError(errno.ESRCH, ''), OSError]))
-    @patch('psutil.Process', Mock(side_effect=[psutil.NoSuchProcess]))
-    @patch('time.sleep', Mock())
-    @patch.object(Postgresql, '_is_postmaster_pid_running', Mock(side_effect=[True, False]))
     def test_terminate_starting_postmaster(self):
-        self.p.terminate_starting_postmaster(123)
-        self.p.terminate_starting_postmaster(123)
+        mock_postmaster = MockPostmaster()
+        self.p.terminate_starting_postmaster(mock_postmaster)
+        mock_postmaster.signal_stop.assert_called()
+        mock_postmaster.wait.assert_called()
 
     def test_read_postmaster_opts(self):
         m = mock_open(read_data='/usr/lib/postgres/9.6/bin/postgres "-D" "data/postgresql0" \
@@ -945,11 +909,3 @@ class TestPostgresql(unittest.TestCase):
     @patch.object(Postgresql, 'single_user_mode', Mock(return_value=0))
     def test_fix_cluster_state(self):
         self.assertTrue(self.p.fix_cluster_state())
-
-    def test__update_postmaster_cached_info(self):
-        with open(os.path.join(self.data_dir, 'postmaster.pid'), 'w') as f:
-            f.write('1\n\n1\n')
-        self.p.read_pid_file()
-        with open(os.path.join(self.data_dir, 'postmaster.pid'), 'w') as f:
-            f.write('a\n\n1\n')
-        self.p.read_pid_file()
