@@ -918,7 +918,8 @@ class Postgresql(object):
 
         return True, True
 
-    def terminate_starting_postmaster(self, postmaster):
+    @staticmethod
+    def terminate_starting_postmaster(postmaster):
         """Terminates a postmaster that has not yet opened ports or possibly even written a pid file. Blocks
         until the process goes away."""
         postmaster.signal_stop('immediate')
