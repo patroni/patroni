@@ -4,6 +4,7 @@ from mock import Mock, patch
 from patroni.postmaster import PostmasterProcess
 import psutil
 
+
 class TestPostmasterProcess(unittest.TestCase):
     @patch('psutil.Process.__init__', Mock())
     def test_init(self):
@@ -20,9 +21,9 @@ class TestPostmasterProcess(unittest.TestCase):
 
         mock_init.side_effect = None
         with patch.object(psutil.Process, 'pid', 123), \
-             patch.object(psutil.Process, 'parent', return_value=124), \
-             patch('os.getpid', return_value=125) as mock_ospid, \
-             patch('os.getppid', return_value=126):
+                patch.object(psutil.Process, 'parent', return_value=124), \
+                patch('os.getpid', return_value=125) as mock_ospid, \
+                patch('os.getppid', return_value=126):
 
             self.assertNotEquals(PostmasterProcess.from_pidfile({"pid": "123"}), None)
 
