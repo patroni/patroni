@@ -237,8 +237,8 @@ class TestCtl(unittest.TestCase):
         assert result.exit_code == 1
 
         # Wrong pg version
-        result = self.runner.invoke(ctl, ['restart', 'alpha', '--any', '--pg-version', '9.1.2.3'], input='y')
-        assert 'Error: PostgreSQL version' in result.output
+        result = self.runner.invoke(ctl, ['restart', 'alpha', '--any', '--pg-version', '9.1'], input='y')
+        assert 'Error: Invalid PostgreSQL version format' in result.output
         assert result.exit_code == 1
 
         result = self.runner.invoke(ctl, ['restart', 'alpha', '--pending', '--force', '--timeout', '10min'])

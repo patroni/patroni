@@ -30,7 +30,7 @@ from patroni.config import Config
 from patroni.dcs import get_dcs as _get_dcs
 from patroni.exceptions import PatroniException
 from patroni.postgresql import Postgresql
-from patroni.utils import is_valid_pg_version, patch_config
+from patroni.utils import patch_config
 from prettytable import PrettyTable
 from six.moves.urllib_parse import urlparse
 from six import text_type
@@ -469,11 +469,12 @@ def restart(obj, cluster_name, member_names, force, role, p_any, scheduled, vers
         content['restart_pending'] = True
 
     if version:
-        if not is_valid_pg_version(version):
-            message = 'PostgreSQL version should be in the first.major.minor format'
-            raise PatroniCtlException(message)
-        else:
-            content['postgres_version'] = version
+        try:
+            Postgresql.postgres_version_to_int(version)
+        except PatroniException as e:
+            raise PatroniCtlException(e.value)
+
+        content['postgres_version'] = version
 
     if scheduled is None and not force:
         scheduled = click.prompt('When should the restart take place (e.g. 2015-10-01T14:30) ', type=str, default='now')

@@ -12,7 +12,7 @@ import time
 from collections import defaultdict
 from contextlib import contextmanager
 from patroni.callback_executor import CallbackExecutor
-from patroni.exceptions import PostgresConnectionException
+from patroni.exceptions import PostgresConnectionException, PostgresException
 from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop
 from patroni.postmaster import PostmasterProcess
 from six import string_types
@@ -1616,7 +1616,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
     @staticmethod
     def postgres_version_to_int(pg_version):
-        """ Convert the server_version to integer
+        """Convert the server_version to integer
 
         >>> Postgresql.postgres_version_to_int('9.5.3')
         90503
@@ -1627,26 +1627,31 @@ $$""".format(name, ' '.join(options)), name, password, password)
         >>> Postgresql.postgres_version_to_int('10')
         Traceback (most recent call last):
             ...
-        Exception: Invalid PostgreSQL format: X.Y or X.Y.Z is accepted: 10
+        PostgresException: 'Invalid PostgreSQL version format: X.Y or X.Y.Z is accepted: 10'
+        >>> Postgresql.postgres_version_to_int('9.6')
+        Traceback (most recent call last):
+            ...
+        PostgresException: 'Invalid PostgreSQL version format: X.Y or X.Y.Z is accepted: 9.6'
         >>> Postgresql.postgres_version_to_int('a.b.c')
         Traceback (most recent call last):
             ...
-        Exception: Invalid PostgreSQL version: a.b.c
+        PostgresException: 'Invalid PostgreSQL version: a.b.c'
         """
-        components = pg_version.split('.')
 
-        result = []
-        if len(components) < 2 or len(components) > 3:
-            raise Exception("Invalid PostgreSQL format: X.Y or X.Y.Z is accepted: {0}".format(pg_version))
+        try:
+            components = list(map(int, pg_version.split('.')))
+        except ValueError:
+            raise PostgresException('Invalid PostgreSQL version: {0}'.format(pg_version))
+
+        if len(components) < 2 or len(components) == 2 and components[0] < 10 or len(components) > 3:
+            raise PostgresException('Invalid PostgreSQL version format: X.Y or X.Y.Z is accepted: {0}'
+                                    .format(pg_version))
+
         if len(components) == 2:
             # new style verion numbers, i.e. 10.1 becomes 100001
-            components.insert(1, '0')
-        try:
-            result = [c if int(c) > 10 else '0{0}'.format(c) for c in components]
-            result = int(''.join(result))
-        except ValueError:
-            raise Exception("Invalid PostgreSQL version: {0}".format(pg_version))
-        return result
+            components.insert(1, 0)
+
+        return int(''.join('{0:02d}'.format(c) for c in components))
 
     @staticmethod
     def postgres_major_version_to_int(pg_version):
