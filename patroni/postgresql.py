@@ -1624,15 +1624,15 @@ $$""".format(name, ' '.join(options)), name, password, password)
         90313
         >>> Postgresql.postgres_version_to_int('10.1')
         100001
-        >>> Postgresql.postgres_version_to_int('10')
+        >>> Postgresql.postgres_version_to_int('10')  # doctest: +IGNORE_EXCEPTION_DETAIL
         Traceback (most recent call last):
             ...
         PostgresException: 'Invalid PostgreSQL version format: X.Y or X.Y.Z is accepted: 10'
-        >>> Postgresql.postgres_version_to_int('9.6')
+        >>> Postgresql.postgres_version_to_int('9.6')  # doctest: +IGNORE_EXCEPTION_DETAIL
         Traceback (most recent call last):
             ...
         PostgresException: 'Invalid PostgreSQL version format: X.Y or X.Y.Z is accepted: 9.6'
-        >>> Postgresql.postgres_version_to_int('a.b.c')
+        >>> Postgresql.postgres_version_to_int('a.b.c')  # doctest: +IGNORE_EXCEPTION_DETAIL
         Traceback (most recent call last):
             ...
         PostgresException: 'Invalid PostgreSQL version: a.b.c'
