@@ -642,8 +642,10 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
             role = 'Sync standby'
 
         xlog_location = m.data.get('xlog_location')
-        lag = 'unknown'
-        if xlog_location is not None and xlog_location_cluster >= xlog_location:
+        lag = ''
+        if xlog_location is None:
+            lag = 'unknown'
+        elif xlog_location_cluster >= xlog_location:
             lag = round((xlog_location_cluster - xlog_location)/1024/1024)
 
         row = [name, m.name, m.conn_kwargs()['host'], role, m.data.get('state', ''), lag]
