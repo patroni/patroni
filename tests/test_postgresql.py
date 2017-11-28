@@ -1,8 +1,6 @@
-import errno
 import mock  # for the mock.call method, importing it without a namespace breaks python3
 import os
 import psycopg2
-import psutil
 import shutil
 import subprocess
 import unittest
@@ -104,6 +102,7 @@ class MockPostmaster(object):
         self.wait_for_user_backends_to_close = Mock()
         self.signal_stop = Mock(return_value=None)
         self.wait = Mock()
+
 
 def pg_controldata_string(*args, **kwargs):
     return b"""
