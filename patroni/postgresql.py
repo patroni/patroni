@@ -1,12 +1,9 @@
 import logging
-import errno
 import os
 import psycopg2
-import psutil
 import re
 import shlex
 import shutil
-import signal
 import socket
 import subprocess
 import tempfile
@@ -14,10 +11,10 @@ import time
 
 from collections import defaultdict
 from contextlib import contextmanager
-from patroni import call_self
 from patroni.callback_executor import CallbackExecutor
-from patroni.exceptions import PostgresConnectionException
-from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, int_or_none
+from patroni.exceptions import PostgresConnectionException, PostgresException
+from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop
+from patroni.postmaster import PostmasterProcess
 from six import string_types
 from six.moves.urllib.parse import quote_plus
 from threading import current_thread, Lock
@@ -35,11 +32,6 @@ STATE_REJECT = 'rejecting connections'
 STATE_NO_RESPONSE = 'not responding'
 STATE_UNKNOWN = 'unknown'
 
-STOP_SIGNALS = {
-    'smart': signal.SIGTERM,
-    'fast': signal.SIGINT,
-    'immediate': signal.SIGQUIT,
-}
 STOP_POLLING_INTERVAL = 1
 REWIND_STATUS = type('Enum', (), {'INITIAL': 0, 'CHECK': 1, 'NEED': 2, 'NOT_NEED': 3, 'SUCCESS': 4, 'FAILED': 5})
 sync_standby_name_re = re.compile('^[A-Za-z_][A-Za-z_0-9\$]*$')
@@ -71,25 +63,6 @@ def null_context():
     yield
 
 
-def _update_postmaster_cached_info(func):
-    def wrapper(self):
-        ret = func(self)
-        if ret and 'pid' in ret and 'start_time' in ret:
-            old_pid = self._postmaster_cached_info.get('pid', 0)
-            old_start_time = self._postmaster_cached_info.get('start_time', 0)
-            try:
-                pmpid = int(ret['pid'])
-                pmstart = int(ret['start_time'])
-                if pmpid != old_pid or pmstart != old_start_time:  # this check removes repeating messages from logs
-                    self._postmaster_cached_info = {'pid': pmpid, 'start_time': pmstart}
-                    logger.info("Updated postmaster info: %s .", self._postmaster_cached_info)
-            except ValueError:
-                logger.warning('Cannot update postmaster info with data due garbage in pid file: %s', ret)
-        return ret
-
-    return wrapper
-
-
 class Postgresql(object):
 
     # List of parameters which must be always passed to postmaster as command line options
@@ -113,12 +86,12 @@ class Postgresql(object):
         'wal_level': ('hot_standby', lambda v: v.lower() in ('hot_standby', 'replica', 'logical'), 90100),
         'hot_standby': ('on', lambda _: False, 90100),
         'max_connections': (100, lambda v: int(v) >= 100, 90100),
-        'max_wal_senders': (5, lambda v: int(v) >= 5, 90100),
+        'max_wal_senders': (10, lambda v: int(v) >= 10, 90100),
         'wal_keep_segments': (8, lambda v: int(v) >= 8, 90100),
         'max_prepared_transactions': (0, lambda v: int(v) >= 0, 90100),
         'max_locks_per_transaction': (64, lambda v: int(v) >= 64, 90100),
         'track_commit_timestamp': ('off', lambda v: parse_bool(v) is not None, 90500),
-        'max_replication_slots': (5, lambda v: int(v) >= 5, 90400),
+        'max_replication_slots': (10, lambda v: int(v) >= 10, 90400),
         'max_worker_processes': (8, lambda v: int(v) >= 8, 90400),
         'wal_log_hints': ('on', lambda _: False, 90400)
     }
@@ -161,7 +134,6 @@ class Postgresql(object):
         self._pg_hba_conf = os.path.join(self._config_dir, 'pg_hba.conf')
         self._recovery_conf = os.path.join(self._data_dir, 'recovery.conf')
         self._postmaster_pid = os.path.join(self._data_dir, 'postmaster.pid')
-        self._postmaster_cached_info = {'pid': 0, 'start_time': 0}
         self._trigger_file = config.get('recovery_conf', {}).get('trigger_file') or 'promote'
         self._trigger_file = os.path.abspath(os.path.join(self._data_dir, self._trigger_file))
 
@@ -183,6 +155,9 @@ class Postgresql(object):
         self.set_role(self.get_postgres_role_from_data_directory())
 
         self._state_entry_timestamp = None
+
+        # Last known running process
+        self._postmaster_proc = None
 
         if self.is_running():
             self.set_state('running')
@@ -724,16 +699,17 @@ class Postgresql(object):
             raise PostgresConnectionException(str(e))
 
     def is_running(self):
-        if not (self._version_file_exists() and os.path.isfile(self._postmaster_pid)):
-            # XXX: This is dangerous in case somebody deletes the data directory while PostgreSQL is still running.
-            return False
+        """Returns PostmasterProcess if one is running on the data directory or None. If most recently seen process
+        is running udpates the cached process based on pid file."""
+        if self._postmaster_proc:
+            if self._postmaster_proc.is_running():
+                return self._postmaster_proc
+            self._postmaster_proc = None
 
-        pidfile = self.read_pid_file()
-        return self._is_postmaster_pid_running(int_or_none(pidfile.get('pid')),
-                                               start_time=int_or_none(pidfile.get('start_time')))
+        self._postmaster_proc = PostmasterProcess.from_pidfile(self._read_pid_file())
+        return self._postmaster_proc
 
-    @_update_postmaster_cached_info
-    def read_pid_file(self):
+    def _read_pid_file(self):
         """Reads and parses postmaster.pid from the data directory
 
         :returns dictionary of values if successful, empty dictionary otherwise
@@ -744,61 +720,6 @@ class Postgresql(object):
                 return {name: line.rstrip("\n") for name, line in zip(pid_line_names, f)}
         except IOError:
             return {}
-
-    def get_pid(self):
-        """Fetches pid value from postmaster.pid using read_pid_file
-
-        :returns pid if successful, 0 if pid file is not present"""
-        # TODO: figure out what to do on permission errors
-        pid = self.read_pid_file().get('pid', 0)
-        try:
-            return int(pid)
-        except ValueError:
-            logger.warning("Garbage pid in postmaster.pid: {0!r}".format(pid))
-            return 0
-
-    def get_pid_with_lost_data_dir(self):
-        logger.info("Trying to check if process running without directory "
-                    "with cached postmaster info: %s .", self._postmaster_cached_info)
-        try:
-            process = psutil.Process(self._postmaster_cached_info['pid'])
-            # check difference instead of values because of rounding issues
-            if abs(self._postmaster_cached_info["start_time"] - process.create_time()) < 2:
-                return process.pid
-            else:
-                logger.info("Process with pid %s was started at different time %s .",
-                            process.pid, process.create_time())
-        except psutil.NoSuchProcess:
-            logger.info("Cannot find process %s .", self._postmaster_cached_info['pid'])
-        return 0
-
-    def clean_postmaster_cached_info(self):
-        self._postmaster_cached_info = {'pid': 0, 'start_time': 0}
-        logger.info("postmaster info was cleaned.")
-
-    @staticmethod
-    def _is_postmaster_pid_running(pid, start_time=None):
-        # Normalize pid handling missing values and negative pids from postmaster.pid
-        if not pid:
-            return False
-        if pid < 0:
-            pid = -pid
-
-        try:
-            proc = psutil.Process(pid)
-        except psutil.NoSuchProcess:
-            return False
-
-        # If the process is Patroni or Patronis host process or Patronis child process then it's a false positive
-        my_pid = os.getpid()
-        if pid == my_pid or pid == os.getppid() or proc.parent() == my_pid:
-            return False
-
-        # If process start time differs by more than 3 seconds it's a false positive
-        if start_time is not None and abs(proc.create_time() - start_time) > 3:
-            return False
-
-        return True
 
     @property
     def cb_called(self):
@@ -844,29 +765,19 @@ class Postgresql(object):
     def is_starting(self):
         return self.state == 'starting'
 
-    def wait_for_port_open(self, pid, initiated, timeout):
+    def wait_for_port_open(self, postmaster, timeout):
         """Waits until PostgreSQL opens ports."""
         for _ in polling_loop(timeout):
-            pid_file = self.read_pid_file()
-            if len(pid_file) > 5:
-                try:
-                    pmpid = int(pid_file['pid'])
-                    pmstart = int(pid_file['start_time'])
-
-                    if pmstart >= initiated - 2 and pmpid == pid:
-                        isready = self.pg_isready()
-                        if isready != STATE_NO_RESPONSE:
-                            if isready not in [STATE_REJECT, STATE_RUNNING]:
-                                logger.warning("Can't determine PostgreSQL startup status, assuming running")
-                            return True
-                except ValueError:
-                    # Garbage in the pid file
-                    pass
-
-            if not self._is_postmaster_pid_running(pid, start_time=initiated):
+            if not postmaster.is_running():
                 logger.error('postmaster is not running')
                 self.set_state('start failed')
                 return False
+
+            isready = self.pg_isready()
+            if isready != STATE_NO_RESPONSE:
+                if isready not in [STATE_REJECT, STATE_RUNNING]:
+                    logger.warning("Can't determine PostgreSQL startup status, assuming running")
+                return True
 
         logger.warning("Timed out waiting for PostgreSQL to start")
         return False
@@ -903,33 +814,17 @@ class Postgresql(object):
         options = ['--{0}={1}'.format(p, self._server_parameters[p]) for p in self.CMDLINE_OPTIONS
                    if p in self._server_parameters and p != 'wal_keep_segments']
 
-        # Unfortunately `pg_ctl start` does not return postmaster pid to us. Without this information
-        # it is hard to know the current state of postgres startup, so we had to reimplement pg_ctl start
-        # in python. It will start postgres, wait for port to be open and wait until postgres will start
-        # accepting connections.
-        # Important!!! We can't just start postgres using subprocess.Popen, because in this case it
-        # will be our child for the rest of our live and we will have to take care of it (`waitpid`).
-        # So we will use the same approach as pg_ctl uses: start a new process, which will start postgres.
-        # This process will write postmaster pid to stdout and exit immediately. Now it's responsibility
-        # of init process to take care about postmaster.
-        # In order to make everything portable we can't use fork&exec approach here, so  we will call
-        # ourselves and pass list of arguments which must be used to start postgres.
         with task or null_context():
             if task and task.is_cancelled:
                 logger.info("PostgreSQL start cancelled.")
                 return False
 
-            start_initiated = time.time()
-            proc = call_self(['pg_ctl_start', self._pgcommand('postgres'), '-D', self._data_dir,
-                             '--config-file={}'.format(self._postgresql_conf)] + options, close_fds=True,
-                             preexec_fn=os.setsid, stdout=subprocess.PIPE,
-                             env={p: os.environ[p] for p in ('PATH', 'LC_ALL', 'LANG') if p in os.environ})
-            pid = int(proc.stdout.readline().strip())
-            proc.wait()
-            logger.info('postmaster pid=%s', pid)
-
+            self._postmaster_proc = PostmasterProcess.start(self._pgcommand('postgres'),
+                                                            self._data_dir,
+                                                            self._postgresql_conf,
+                                                            options)
             if task:
-                task.complete(pid)
+                task.complete(self._postmaster_proc)
 
         start_timeout = timeout
         if not start_timeout:
@@ -939,7 +834,7 @@ class Postgresql(object):
                 start_timeout = 60
 
         # We want postmaster to open ports before we continue
-        if not self.wait_for_port_open(pid, start_initiated, start_timeout):
+        if not self._postmaster_proc or not self.wait_for_port_open(self._postmaster_proc, start_timeout):
             return False
 
         ret = self.wait_for_startup(start_timeout)
@@ -967,7 +862,7 @@ class Postgresql(object):
             logging.exception('Exception during CHECKPOINT')
             return 'not accessible or not healty'
 
-    def stop(self, mode='fast', block_callbacks=False, checkpoint=True, on_safepoint=None):
+    def stop(self, mode='fast', block_callbacks=False, checkpoint=None, on_safepoint=None):
         """Stop PostgreSQL
 
         Supports a callback when a safepoint is reached. A safepoint is when no user backend can return a successful
@@ -976,6 +871,9 @@ class Postgresql(object):
 
         :param on_safepoint: This callback is called when no user backends are running.
         """
+        if checkpoint is None:
+            checkpoint = False if mode == 'immediate' else True
+
         success, pg_signaled = self._do_stop(mode, block_callbacks, checkpoint, on_safepoint)
         if success:
             # block_callbacks is used during restart to avoid
@@ -990,13 +888,8 @@ class Postgresql(object):
         return success
 
     def _do_stop(self, mode, block_callbacks, checkpoint, on_safepoint):
-        if not self.is_running():
-            if self.data_directory_empty() and self._postmaster_cached_info['pid']:
-                pid = self.get_pid_with_lost_data_dir()
-                if pid > 0:
-                    self.terminate_starting_postmaster(pid)
-                    self.clean_postmaster_cached_info()
-                    return True, True
+        postmaster = self.is_running()
+        if not postmaster:
             if on_safepoint:
                 on_safepoint()
             return True, False
@@ -1008,85 +901,38 @@ class Postgresql(object):
             self.set_state('stopping')
 
         # Send signal to postmaster to stop
-        pid, result = self._signal_postmaster_stop(mode)
-        if result is not None:
-            if result and on_safepoint:
+        success = postmaster.signal_stop(mode)
+        if success is not None:
+            if success and on_safepoint:
                 on_safepoint()
-            return result, True
+            return success, True
 
         # We can skip safepoint detection if we don't have a callback
         if on_safepoint:
             # Wait for our connection to terminate so we can be sure that no new connections are being initiated
-            self._wait_for_connection_close(pid)
-            self._wait_for_user_backends_to_close(pid)
+            self._wait_for_connection_close(postmaster)
+            postmaster.wait_for_user_backends_to_close()
             on_safepoint()
 
-        self._wait_for_postmaster_stop(pid)
-        self.clean_postmaster_cached_info()
+        postmaster.wait()
 
         return True, True
 
-    def _wait_for_postmaster_stop(self, pid):
-        # This wait loop differs subtly from pg_ctl as we check for both the pid file going
-        # away and if the pid is running. This seems safer.
-        while pid == self.get_pid() and self._is_postmaster_pid_running(pid):
-            time.sleep(STOP_POLLING_INTERVAL)
-
-    def _signal_postmaster_stop(self, mode):
-        pid = self.get_pid()
-        if pid == 0:
-            return None, True
-        elif pid < 0:
-            logger.warning("Cannot stop server; single-user server is running (PID: {0})".format(-pid))
-            return None, False
-        try:
-            os.kill(pid, STOP_SIGNALS[mode])
-        except OSError as e:
-            if e.errno == errno.ESRCH:
-                return None, True
-            else:
-                logger.warning("Could not send stop signal to PostgreSQL (error: {0})".format(e.errno))
-                return None, False
-        return pid, None
-
-    def terminate_starting_postmaster(self, pid):
+    @staticmethod
+    def terminate_starting_postmaster(postmaster):
         """Terminates a postmaster that has not yet opened ports or possibly even written a pid file. Blocks
         until the process goes away."""
-        try:
-            os.kill(pid, STOP_SIGNALS['immediate'])
-        except OSError as e:
-            if e.errno == errno.ESRCH:
-                return
-            logger.warning("Could not send stop signal to PostgreSQL (error: {0})".format(e.errno))
+        postmaster.signal_stop('immediate')
+        postmaster.wait()
 
-        while self._is_postmaster_pid_running(pid):
-            time.sleep(STOP_POLLING_INTERVAL)
-
-    def _wait_for_connection_close(self, pid):
+    def _wait_for_connection_close(self, postmaster):
         try:
             with self.connection().cursor() as cur:
-                while pid == self.get_pid() and self._is_postmaster_pid_running(pid):  # Need a timeout here?
+                while postmaster.is_running():  # Need a timeout here?
                     cur.execute("SELECT 1")
                     time.sleep(STOP_POLLING_INTERVAL)
         except psycopg2.Error:
             pass
-
-    @staticmethod
-    def _wait_for_user_backends_to_close(postmaster_pid):
-        # These regexps are cross checked against versions PostgreSQL 9.1 .. 9.6
-        aux_proc_re = re.compile("(?:postgres:)( .*:)? (?:""(?:startup|logger|checkpointer|writer|wal writer|"
-                                 "autovacuum launcher|autovacuum worker|stats collector|wal receiver|archiver|"
-                                 "wal sender) process|bgworker: )")
-
-        try:
-            postmaster = psutil.Process(postmaster_pid)
-            user_backends = [p for p in postmaster.children() if not aux_proc_re.match(p.cmdline()[0])]
-            logger.debug("Waiting for user backends {0} to close".format(
-                ",".join(p.cmdline()[0] for p in user_backends)))
-            psutil.wait_procs(user_backends)
-            logger.debug("Backends closed")
-        except psutil.NoSuchProcess:
-            return
 
     def reload(self):
         ret = self.pg_ctl('reload')
@@ -1770,7 +1616,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
     @staticmethod
     def postgres_version_to_int(pg_version):
-        """ Convert the server_version to integer
+        """Convert the server_version to integer
 
         >>> Postgresql.postgres_version_to_int('9.5.3')
         90503
@@ -1778,29 +1624,34 @@ $$""".format(name, ' '.join(options)), name, password, password)
         90313
         >>> Postgresql.postgres_version_to_int('10.1')
         100001
-        >>> Postgresql.postgres_version_to_int('10')
+        >>> Postgresql.postgres_version_to_int('10')  # doctest: +IGNORE_EXCEPTION_DETAIL
         Traceback (most recent call last):
             ...
-        Exception: Invalid PostgreSQL format: X.Y or X.Y.Z is accepted: 10
-        >>> Postgresql.postgres_version_to_int('a.b.c')
+        PostgresException: 'Invalid PostgreSQL version format: X.Y or X.Y.Z is accepted: 10'
+        >>> Postgresql.postgres_version_to_int('9.6')  # doctest: +IGNORE_EXCEPTION_DETAIL
         Traceback (most recent call last):
             ...
-        Exception: Invalid PostgreSQL version: a.b.c
+        PostgresException: 'Invalid PostgreSQL version format: X.Y or X.Y.Z is accepted: 9.6'
+        >>> Postgresql.postgres_version_to_int('a.b.c')  # doctest: +IGNORE_EXCEPTION_DETAIL
+        Traceback (most recent call last):
+            ...
+        PostgresException: 'Invalid PostgreSQL version: a.b.c'
         """
-        components = pg_version.split('.')
 
-        result = []
-        if len(components) < 2 or len(components) > 3:
-            raise Exception("Invalid PostgreSQL format: X.Y or X.Y.Z is accepted: {0}".format(pg_version))
+        try:
+            components = list(map(int, pg_version.split('.')))
+        except ValueError:
+            raise PostgresException('Invalid PostgreSQL version: {0}'.format(pg_version))
+
+        if len(components) < 2 or len(components) == 2 and components[0] < 10 or len(components) > 3:
+            raise PostgresException('Invalid PostgreSQL version format: X.Y or X.Y.Z is accepted: {0}'
+                                    .format(pg_version))
+
         if len(components) == 2:
             # new style verion numbers, i.e. 10.1 becomes 100001
-            components.insert(1, '0')
-        try:
-            result = [c if int(c) > 10 else '0{0}'.format(c) for c in components]
-            result = int(''.join(result))
-        except ValueError:
-            raise Exception("Invalid PostgreSQL version: {0}".format(pg_version))
-        return result
+            components.insert(1, 0)
+
+        return int(''.join('{0:02d}'.format(c) for c in components))
 
     @staticmethod
     def postgres_major_version_to_int(pg_version):

@@ -13,7 +13,7 @@ from patroni.postgresql import Postgresql
 from patroni.watchdog import Watchdog
 from patroni.utils import tzutc
 from test_etcd import socket_getaddrinfo, etcd_read, etcd_write, requests_get
-from test_postgresql import psycopg2_connect
+from test_postgresql import psycopg2_connect, MockPostmaster
 
 
 def true(*args, **kwargs):
@@ -112,7 +112,7 @@ def run_async(self, func, args=()):
     return func(*args) if args else func()
 
 
-@patch.object(Postgresql, 'is_running', Mock(return_value=True))
+@patch.object(Postgresql, 'is_running', Mock(return_value=MockPostmaster()))
 @patch.object(Postgresql, 'is_leader', Mock(return_value=True))
 @patch.object(Postgresql, 'wal_position', Mock(return_value=10))
 @patch.object(Postgresql, 'call_nowait', Mock(return_value=True))
@@ -345,7 +345,7 @@ class TestHa(unittest.TestCase):
         self.ha.cluster = get_cluster_not_initialized_without_leader()
         self.e.initialize = true
         self.ha.bootstrap()
-        self.p.is_running = true
+        self.p.is_running.return_value = MockPostmaster()
         self.p.is_leader = true
         with patch.object(Watchdog, 'activate', Mock(return_value=False)):
             self.assertEquals(self.ha.post_bootstrap(), 'running post_bootstrap')
@@ -392,9 +392,9 @@ class TestHa(unittest.TestCase):
             self.ha.update_lock = false
             self.p.set_role('master')
             with patch('patroni.async_executor.CriticalTask.cancel', Mock(return_value=False)):
-                with patch('patroni.postgresql.Postgresql.stop') as stop_mock:
+                with patch('patroni.postgresql.Postgresql.terminate_starting_postmaster') as mock_terminate:
                     self.assertEquals(self.ha.run_cycle(), 'lost leader lock during restart')
-                    stop_mock.assert_called()
+                    mock_terminate.assert_called()
 
     @patch('requests.get', requests_get)
     def test_manual_failover_from_leader(self):

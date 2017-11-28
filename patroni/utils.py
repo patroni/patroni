@@ -1,6 +1,5 @@
 import random
 import time
-import re
 
 from dateutil import tz
 from patroni.exceptions import PatroniException
@@ -194,10 +193,6 @@ def _sleep(interval):
     time.sleep(interval)
 
 
-def is_valid_pg_version(version):
-    return re.match(r'[1-9][0-9]?(\.(0|([1-9][0-9]?))){2}$', version)
-
-
 class RetryFailedError(PatroniException):
 
     """Raised when retrying an operation ultimately failed, after retrying the maximum number of attempts."""
@@ -280,11 +275,3 @@ def polling_loop(timeout, interval=1):
         yield iteration
         iteration += 1
         time.sleep(interval)
-
-
-def int_or_none(val):
-    """Returns integer value of the parameter if convertible to int, None otherwise."""
-    try:
-        return int(val)
-    except (ValueError, TypeError):
-        return None
