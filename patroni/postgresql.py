@@ -12,7 +12,7 @@ import time
 from collections import defaultdict
 from contextlib import contextmanager
 from patroni.callback_executor import CallbackExecutor
-from patroni.exceptions import PostgresConnectionException
+from patroni.exceptions import PostgresConnectionException, PostgresException
 from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop
 from patroni.postmaster import PostmasterProcess
 from six import string_types
@@ -86,12 +86,12 @@ class Postgresql(object):
         'wal_level': ('hot_standby', lambda v: v.lower() in ('hot_standby', 'replica', 'logical'), 90100),
         'hot_standby': ('on', lambda _: False, 90100),
         'max_connections': (100, lambda v: int(v) >= 100, 90100),
-        'max_wal_senders': (5, lambda v: int(v) >= 5, 90100),
+        'max_wal_senders': (10, lambda v: int(v) >= 10, 90100),
         'wal_keep_segments': (8, lambda v: int(v) >= 8, 90100),
         'max_prepared_transactions': (0, lambda v: int(v) >= 0, 90100),
         'max_locks_per_transaction': (64, lambda v: int(v) >= 64, 90100),
         'track_commit_timestamp': ('off', lambda v: parse_bool(v) is not None, 90500),
-        'max_replication_slots': (5, lambda v: int(v) >= 5, 90400),
+        'max_replication_slots': (10, lambda v: int(v) >= 10, 90400),
         'max_worker_processes': (8, lambda v: int(v) >= 8, 90400),
         'wal_log_hints': ('on', lambda _: False, 90400)
     }
@@ -918,7 +918,8 @@ class Postgresql(object):
 
         return True, True
 
-    def terminate_starting_postmaster(self, postmaster):
+    @staticmethod
+    def terminate_starting_postmaster(postmaster):
         """Terminates a postmaster that has not yet opened ports or possibly even written a pid file. Blocks
         until the process goes away."""
         postmaster.signal_stop('immediate')
@@ -1615,7 +1616,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
     @staticmethod
     def postgres_version_to_int(pg_version):
-        """ Convert the server_version to integer
+        """Convert the server_version to integer
 
         >>> Postgresql.postgres_version_to_int('9.5.3')
         90503
@@ -1623,29 +1624,34 @@ $$""".format(name, ' '.join(options)), name, password, password)
         90313
         >>> Postgresql.postgres_version_to_int('10.1')
         100001
-        >>> Postgresql.postgres_version_to_int('10')
+        >>> Postgresql.postgres_version_to_int('10')  # doctest: +IGNORE_EXCEPTION_DETAIL
         Traceback (most recent call last):
             ...
-        Exception: Invalid PostgreSQL format: X.Y or X.Y.Z is accepted: 10
-        >>> Postgresql.postgres_version_to_int('a.b.c')
+        PostgresException: 'Invalid PostgreSQL version format: X.Y or X.Y.Z is accepted: 10'
+        >>> Postgresql.postgres_version_to_int('9.6')  # doctest: +IGNORE_EXCEPTION_DETAIL
         Traceback (most recent call last):
             ...
-        Exception: Invalid PostgreSQL version: a.b.c
+        PostgresException: 'Invalid PostgreSQL version format: X.Y or X.Y.Z is accepted: 9.6'
+        >>> Postgresql.postgres_version_to_int('a.b.c')  # doctest: +IGNORE_EXCEPTION_DETAIL
+        Traceback (most recent call last):
+            ...
+        PostgresException: 'Invalid PostgreSQL version: a.b.c'
         """
-        components = pg_version.split('.')
 
-        result = []
-        if len(components) < 2 or len(components) > 3:
-            raise Exception("Invalid PostgreSQL format: X.Y or X.Y.Z is accepted: {0}".format(pg_version))
+        try:
+            components = list(map(int, pg_version.split('.')))
+        except ValueError:
+            raise PostgresException('Invalid PostgreSQL version: {0}'.format(pg_version))
+
+        if len(components) < 2 or len(components) == 2 and components[0] < 10 or len(components) > 3:
+            raise PostgresException('Invalid PostgreSQL version format: X.Y or X.Y.Z is accepted: {0}'
+                                    .format(pg_version))
+
         if len(components) == 2:
             # new style verion numbers, i.e. 10.1 becomes 100001
-            components.insert(1, '0')
-        try:
-            result = [c if int(c) > 10 else '0{0}'.format(c) for c in components]
-            result = int(''.join(result))
-        except ValueError:
-            raise Exception("Invalid PostgreSQL version: {0}".format(pg_version))
-        return result
+            components.insert(1, 0)
+
+        return int(''.join('{0:02d}'.format(c) for c in components))
 
     @staticmethod
     def postgres_major_version_to_int(pg_version):

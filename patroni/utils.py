@@ -1,6 +1,5 @@
 import random
 import time
-import re
 
 from dateutil import tz
 from patroni.exceptions import PatroniException
@@ -192,10 +191,6 @@ def compare_values(vartype, unit, old_value, new_value):
 
 def _sleep(interval):
     time.sleep(interval)
-
-
-def is_valid_pg_version(version):
-    return re.match(r'[1-9][0-9]?(\.(0|([1-9][0-9]?))){2}$', version)
 
 
 class RetryFailedError(PatroniException):
