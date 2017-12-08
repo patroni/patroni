@@ -183,34 +183,38 @@ class Failover(namedtuple('Failover', 'index,leader,candidate,scheduled_at')):
     """
     >>> 'Failover' in str(Failover.from_node(1, '{"leader": "cluster_leader"}'))
     True
+    >>> 'Failover' in str(Failover.from_node(1, {"leader": "cluster_leader"}))
+    True
     >>> 'Failover' in str(Failover.from_node(1, '{"leader": "cluster_leader", "member": "cluster_candidate"}'))
     True
     >>> Failover.from_node(1, 'null') is None
-    True
+    False
     >>> n = '{"leader": "cluster_leader", "member": "cluster_candidate", "scheduled_at": "2016-01-14T10:09:57.1394Z"}'
     >>> 'tzinfo=' in str(Failover.from_node(1, n))
     True
     >>> Failover.from_node(1, None) is None
-    True
+    False
     >>> Failover.from_node(1, '{}') is None
-    True
+    False
     >>> 'abc' in Failover.from_node(1, 'abc:def')
     True
     """
     @staticmethod
     def from_node(index, value):
-        if not value:
-            return None
-
-        try:
-            data = json.loads(value)
-            if not data:
-                return None
-        except ValueError:
-            t = [a.strip() for a in value.split(':')]
-            leader = t[0]
-            candidate = t[1] if len(t) > 1 else None
-            return Failover(index, leader, candidate, None) if leader or candidate else None
+        if isinstance(value, dict):
+            data = value
+        elif value:
+            try:
+                data = json.loads(value)
+                if not isinstance(data, dict):
+                    data = {}
+            except ValueError:
+                t = [a.strip() for a in value.split(':')]
+                leader = t[0]
+                candidate = t[1] if len(t) > 1 else None
+                return Failover(index, leader, candidate, None) if leader or candidate else None
+        else:
+            data = {}
 
         if data.get('scheduled_at'):
             data['scheduled_at'] = dateutil.parser.parse(data['scheduled_at'])
@@ -258,8 +262,12 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
         True
         >>> SyncState.from_node(1, '{"leader": "leader"}').leader == "leader"
         True
+        >>> SyncState.from_node(1, {"leader": "leader"}).leader == "leader"
+        True
         """
-        if value:
+        if isinstance(value, dict):
+            data = value
+        elif value:
             try:
                 data = json.loads(value)
                 if not isinstance(data, dict):
@@ -345,8 +353,7 @@ class AbstractDCS(object):
             i.e.: `zookeeper` for zookeeper, `etcd` for etcd, etc...
         """
         self._name = config['name']
-        self._namespace = '/{0}'.format(config.get('namespace', '/service/').strip('/'))
-        self._base_path = '/'.join([self._namespace, config['scope']])
+        self._base_path = os.path.join('/', config.get('namespace', '/service/').strip('/'), config['scope'])
         self._set_loop_wait(config.get('loop_wait', 10))
 
         self._ctl = bool(config.get('patronictl', False))
@@ -449,7 +456,7 @@ class AbstractDCS(object):
             self._last_leader_operation = last_operation
 
     @abc.abstractmethod
-    def update_leader(self):
+    def _update_leader(self):
         """Update leader key (or session) ttl
 
         :returns: `!True` if leader key (or session) has been updated successfully.
@@ -457,6 +464,18 @@ class AbstractDCS(object):
 
         You have to use CAS (Compare And Swap) operation in order to update leader key,
         for example for etcd `prevValue` parameter must be used."""
+
+    def update_leader(self, last_operation):
+        """Update leader key (or session) ttl and optime/leader
+
+        :param last_operation: absolute xlog location in bytes
+        :returns: `!True` if leader key (or session) has been updated successfully.
+            If not, `!False` must be returned and current instance would be demoted."""
+
+        ret = self._update_leader()
+        if ret and last_operation:
+            self.write_leader_optime(last_operation)
+        return ret
 
     @abc.abstractmethod
     def attempt_to_acquire_leader(self, permanent=False):
@@ -483,7 +502,6 @@ class AbstractDCS(object):
 
         if scheduled_at:
             failover_value['scheduled_at'] = scheduled_at.isoformat()
-
         return self.set_failover_value(json.dumps(failover_value, separators=(',', ':')), index)
 
     @abc.abstractmethod
@@ -496,7 +514,7 @@ class AbstractDCS(object):
         This method should create or update key with the name = '/members/' + `~self._name`
         and value = data in a given DCS.
 
-        :param data: json serialized information about instance (including connection strings)
+        :param data: information about instance (including connection strings)
         :param ttl: ttl for member key, optional parameter. If it is None `~self.member_ttl will be used`
         :param permanent: if set to `!True`, the member key will never expire.
          Used in patronictl for the external master.
@@ -533,8 +551,14 @@ class AbstractDCS(object):
     def delete_cluster(self):
         """Delete cluster from DCS"""
 
+    @staticmethod
+    def sync_state(leader, sync_standby):
+        """Build sync_state dict"""
+        return {'leader': leader, 'sync_standby': sync_standby}
+
     def write_sync_state(self, leader, sync_standby, index=None):
-        return self.set_sync_state_value(json.dumps({'leader': leader, 'sync_standby': sync_standby}), index=index)
+        sync_value = self.sync_state(leader, sync_standby)
+        return self.set_sync_state_value(json.dumps(sync_value, separators=(',', ':')), index)
 
     @abc.abstractmethod
     def set_sync_state_value(self, value, index=None):

@@ -58,11 +58,11 @@ class MockKazooClient(Mock):
             raise TypeError("Invalid type for 'path' (string expected)")
         if not isinstance(value, (six.binary_type,)):
             raise TypeError("Invalid type for 'value' (must be a byte string)")
-        if value == b'Exception':
+        if b'Exception' in value:
             raise Exception
         if path.endswith('/initialize') or path == '/service/test/optime/leader':
             raise Exception
-        elif value == b'retry' or (value == b'exists' and self.exists):
+        elif b'retry' in value or (b'exists' in value and self.exists):
             raise NodeExistsError
 
     def create_async(self, path, value=b"", acl=None, ephemeral=False, sequence=False, makepath=False):
@@ -76,10 +76,10 @@ class MockKazooClient(Mock):
             raise TypeError("Invalid type for 'value' (must be a byte string)")
         if path == '/service/bla/optime/leader':
             raise Exception
-        if path == '/service/test/members/bar' and value == b'retry':
+        if path == '/service/test/members/bar' and b'retry' in value:
             return
         if path in ('/service/test/failover', '/service/test/config', '/service/test/sync'):
-            if value == b'Exception':
+            if b'Exception' in value:
                 raise Exception
             elif value == b'ok':
                 return
@@ -145,7 +145,7 @@ class TestZooKeeper(unittest.TestCase):
         self.assertRaises(ZooKeeperError, self.zk.get_cluster)
         cluster = self.zk.get_cluster()
         self.assertIsInstance(cluster.leader, Leader)
-        self.zk.touch_member('foo')
+        self.zk.touch_member({'foo': 'foo'})
 
     def test_delete_leader(self):
         self.assertTrue(self.zk.delete_leader())
@@ -169,17 +169,17 @@ class TestZooKeeper(unittest.TestCase):
     def test_touch_member(self):
         self.zk._name = 'buzz'
         self.zk.get_cluster()
-        self.zk.touch_member('new')
+        self.zk.touch_member({'new': 'new'})
         self.zk._name = 'bar'
-        self.zk.touch_member('new')
+        self.zk.touch_member({'new': 'new'})
         self.zk._name = 'na'
         self.zk._client.exists = 1
-        self.zk.touch_member('Exception')
+        self.zk.touch_member({'Exception': 'Exception'})
         self.zk._name = 'bar'
-        self.zk.touch_member('retry')
+        self.zk.touch_member({'retry': 'retry'})
         self.zk._fetch_cluster = True
         self.zk.get_cluster()
-        self.zk.touch_member('retry')
+        self.zk.touch_member({'retry': 'retry'})
 
     def test_take_leader(self):
         self.zk.take_leader()
@@ -187,7 +187,7 @@ class TestZooKeeper(unittest.TestCase):
             self.zk.take_leader()
 
     def test_update_leader(self):
-        self.assertTrue(self.zk.update_leader())
+        self.assertTrue(self.zk.update_leader(None))
 
     def test_write_leader_optime(self):
         self.zk.last_leader_operation = '0'

@@ -1,4 +1,4 @@
-sudo: false
+sudo: true
 dist: trusty
 language: python
 python:
@@ -7,11 +7,13 @@ env:
   global:
   - ETCDVERSION=3.0.17 ZKVERSION=3.4.9 CONSULVERSION=0.7.4
   - PYVERSIONS="2.7 3.4 3.5"
+  - BOTO_CONFIG=/doesnotexist
   matrix:
   - TEST_SUITE="python setup.py"
   - DCS="etcd" TEST_SUITE="behave"
   - DCS="exhibitor" TEST_SUITE="behave"
   - DCS="consul" TEST_SUITE="behave"
+  - DCS="kubernetes" TEST_SUITE="behave"
 cache:
   directories:
   - $HOME/mycache
@@ -51,6 +53,26 @@ install:
             ln -s $EC etcd
         }
 
+        function get_kubernetes() {
+            wget -O localkube "https://storage.googleapis.com/minikube/k8sReleases/v1.7.0/localkube-linux-amd64"
+            chmod +x localkube
+            sudo nohup ./localkube --logtostderr=true --enable-dns=false > localkube.log 2>&1 &
+
+            echo "Waiting for localkube to start..."
+            if ! timeout 120 sh -c "while ! curl -ks http://127.0.0.1:8080/ >/dev/null; do sleep 1; done"; then
+                sudo cat localkube.log
+                echo "localkube did not start"
+                exit 1
+            fi
+            echo "Check certificate permissions"
+            sudo chmod 644 /var/lib/localkube/certs/*
+            sudo ls -altr /var/lib/localkube/certs/
+
+            echo "Set up .kube/config"
+            mkdir ~/.kube
+            echo -e "apiVersion: v1\nclusters:\n- cluster:\n    certificate-authority: /var/lib/localkube/certs/ca.crt\n    server: https://127.0.0.1:8443\n  name: local\ncontexts:\n- context:\n    cluster: local\n    user: myself\n  name: local\ncurrent-context: local\nkind: Config\npreferences: {}\nusers:\n- name: myself\n  user:\n    client-certificate: /var/lib/localkube/certs/apiserver.crt\n    client-key: /var/lib/localkube/certs/apiserver.key\n" > ~/.kube/config
+        }
+
         function get_exhibitor() {
             ZC=~/mycache/zookeeper-${ZKVERSION}
             if [[ ! -d $ZC ]]; then
@@ -65,7 +87,6 @@ install:
                 echo -e 'HTTP/1.0 200 OK\nContent-Type: application/json\n\n{"servers":["127.0.0.1"],"port":2181}' \
                     | nc -l 8181 &> /dev/null
             done&
-            ZK_PID=$!
         }
 
         attempt_num=1
@@ -115,4 +136,5 @@ after_success:
   - fpv=$(basename $(readlink $HOME/virtualenv/python3.5)) && mv $HOME/mycache/${fpv} $HOME/virtualenv/${fpv}
   - coveralls
   - if [[ $TEST_SUITE != "behave" ]]; then python-codacy-coverage -r coverage.xml; fi
-  - if [[ $DCS == "exhibitor" ]]; then ~/mycache/zookeeper-${ZKVERSION}/bin/zkServer.sh stop; kill -9 $ZK_PID; fi
+  - if [[ $DCS == "exhibitor" ]]; then ~/mycache/zookeeper-${ZKVERSION}/bin/zkServer.sh stop; fi
+  - sudo kill $(jobs -p)

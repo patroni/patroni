@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 import etcd
+import json
 import logging
 import os
 import urllib3.util.connection
@@ -467,6 +468,7 @@ class Etcd(AbstractDCS):
 
     @catch_etcd_errors
     def touch_member(self, data, ttl=None, permanent=False):
+        data = json.dumps(data, separators=(',', ':'))
         return self.retry(self._client.set, self.member_path, data, None if permanent else ttl or self._ttl)
 
     @catch_etcd_errors
@@ -499,7 +501,7 @@ class Etcd(AbstractDCS):
         return self._client.set(self.leader_optime_path, last_operation)
 
     @catch_etcd_errors
-    def update_leader(self):
+    def _update_leader(self):
         return self.retry(self._client.test_and_set, self.leader_path, self._name, self._name, self._ttl)
 
     @catch_etcd_errors
@@ -520,7 +522,7 @@ class Etcd(AbstractDCS):
 
     @catch_etcd_errors
     def set_sync_state_value(self, value, index=None):
-        return self._client.write(self.sync_path, value, prevIndex=index or 0)
+        return self.retry(self._client.write, self.sync_path, value, prevIndex=index or 0)
 
     @catch_etcd_errors
     def delete_sync_state(self, index=None):
