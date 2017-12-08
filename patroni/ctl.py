@@ -1064,7 +1064,7 @@ def version(obj, cluster_name, member_names):
         if m.api_url:
             if not member_names or m.name in member_names:
                 try:
-                    response = request_patroni(m, 'get', None, auth_header(obj))
+                    response = request_patroni(m, 'get', 'patroni')
                     data = response.json()
                     version = data.get('patroni', {}).get('version')
                     pg_version = data.get('server_version')
