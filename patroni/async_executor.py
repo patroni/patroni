@@ -52,7 +52,8 @@ class CriticalTask(object):
 
 class AsyncExecutor(object):
 
-    def __init__(self, ha_wakeup):
+    def __init__(self, state_handler, ha_wakeup):
+        self.state_handler = state_handler
         self._ha_wakeup = ha_wakeup
         self._thread_lock = RLock()
         self._scheduled_action = None
@@ -63,11 +64,12 @@ class AsyncExecutor(object):
     def busy(self):
         return self.scheduled_action is not None
 
-    def schedule(self, action, immediately=False):
+    def schedule(self, action):
         with self._scheduled_action_lock:
             if self._scheduled_action is not None:
                 return self._scheduled_action
             self._scheduled_action = action
+            self.state_handler.reset_is_canceled()
         return None
 
     @property

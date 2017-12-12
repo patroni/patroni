@@ -137,6 +137,10 @@ class Postgresql(object):
         self._trigger_file = config.get('recovery_conf', {}).get('trigger_file') or 'promote'
         self._trigger_file = os.path.abspath(os.path.join(self._data_dir, self._trigger_file))
 
+        self._is_canceled = False
+        self._cancelable = None
+        self._cancelable_lock = Lock()
+
         self._connection_lock = Lock()
         self._connection = None
         self._cursor_holder = None
@@ -536,7 +540,7 @@ class Postgresql(object):
         params = ['--scope=' + self.scope, '--datadir=' + self._data_dir]
         try:
             logger.info('Running custom bootstrap script: %s', config['command'])
-            if subprocess.call(shlex.split(config['command']) + params) != 0:
+            if self.cancelable_subprocess_call(shlex.split(config['command']) + params) != 0:
                 self.set_state('custom bootstrap failed')
                 return False
         except Exception:
@@ -582,7 +586,7 @@ class Postgresql(object):
             env = self.write_pgpass(r) if 'password' in r else None
 
             try:
-                ret = subprocess.call(shlex.split(cmd) + [connstring], env=env)
+                ret = self.cancelable_subprocess_call(shlex.split(cmd) + [connstring], env=env)
             except OSError:
                 logger.error('post_init script %s failed', cmd)
                 return False
@@ -646,6 +650,9 @@ class Postgresql(object):
         # go through them in priority order
         ret = 1
         for replica_method in replica_methods:
+            with self._cancelable_lock:
+                if self._is_canceled:
+                    break
             # if the method is basebackup, then use the built-in
             if replica_method == "basebackup":
                 ret = self.basebackup(connstring, env)
@@ -675,7 +682,7 @@ class Postgresql(object):
                 params = ["--{0}={1}".format(arg, val) for arg, val in method_config.items()]
                 try:
                     # call script with the full set of parameters
-                    ret = subprocess.call(shlex.split(cmd) + params, env=env)
+                    ret = self.cancelable_subprocess_call(shlex.split(cmd) + params, env=env)
                     # if we succeeded, stop
                     if ret == 0:
                         logger.info('replica has been created using %s', replica_method)
@@ -1108,10 +1115,10 @@ class Postgresql(object):
         dsn = " ".join("{0}={1}".format(k, v) for k, v in dsn_attrs if v is not None)
         logger.info('running pg_rewind from %s', dsn)
         try:
-            return subprocess.call([self._pgcommand('pg_rewind'),
-                                    '-D', self._data_dir,
-                                    '--source-server', dsn,
-                                    ], env=env) == 0
+            return self.cancelable_subprocess_call([self._pgcommand('pg_rewind'),
+                                                    '-D', self._data_dir,
+                                                    '--source-server', dsn,
+                                                    ], env=env) == 0
         except OSError:
             return False
 
@@ -1543,12 +1550,15 @@ $$""".format(name, ' '.join(options)), name, password, password)
         maxfailures = 2
         ret = 1
         for bbfailures in range(0, maxfailures):
+            with self._cancelable_lock:
+                if self._is_canceled:
+                    break
             if not self.data_directory_empty():
                 self.remove_data_directory()
 
             try:
-                ret = subprocess.call([self._pgcommand('pg_basebackup'), '--pgdata=' + self._data_dir,
-                                       '-X', 'stream', '--dbname=' + conn_url])
+                ret = self.cancelable_subprocess_call([self._pgcommand('pg_basebackup'), '--pgdata=' + self._data_dir,
+                                                       '-X', 'stream', '--dbname=' + conn_url])
                 if ret == 0:
                     break
                 else:
@@ -1684,13 +1694,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
             cmd.extend(['-c', '{0}={1}'.format(opt, val)])
         # need a database name to connect
         cmd.append(self._database)
-        p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=open(os.devnull, 'w'), stderr=subprocess.STDOUT)
-        if p:
-            if command:
-                p.communicate('{0}\n'.format(command))
-            p.stdin.close()
-            return p.wait()
-        return 1
+        return self.cancelable_subprocess_call(cmd, communicate_input=command)
 
     def cleanup_archive_status(self):
         status_dir = os.path.join(self._data_dir, 'pg_' + self.wal_name, 'archive_status')
@@ -1716,3 +1720,32 @@ $$""".format(name, ' '.join(options)), name, password, password)
         if os.path.isfile(self._recovery_conf) or os.path.islink(self._recovery_conf):
             os.unlink(self._recovery_conf)
         return self.single_user_mode(options=opts) == 0 or None
+
+    def cancelable_subprocess_call(self, *args, **kwargs):
+        communicate_input = kwargs.pop('communicate_input', None)
+        for s in ('stdin', 'stdout', 'stderr'):
+            kwargs.pop(s, None)
+
+        try:
+            with self._cancelable_lock:
+                if self._is_canceled:
+                    raise PostgresException('cancelled')
+
+                self._is_canceled = False
+                self._cancelable = subprocess.Popen(*args, **kwargs)
+
+            if communicate_input:
+                kwargs['stdin'] = subprocess.PIPE
+                if communicate_input[-1] != '\n':
+                    communicate_input += '\n'
+                self._cancelable.communicate(communicate_input + '\n')
+                self._cancelable.stdin.close()
+
+            return self._cancelable.wait()
+        finally:
+            with self._cancelable_lock:
+                self._cancelable = None
+
+    def reset_is_canceled(self):
+        with self._cancelable_lock:
+            self._is_canceled = False
