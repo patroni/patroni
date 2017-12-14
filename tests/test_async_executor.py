@@ -17,6 +17,12 @@ class TestAsyncExecutor(unittest.TestCase):
     def test_run(self):
         self.a.run(Mock(side_effect=Exception()))
 
+    def test_cancel(self):
+        self.a.cancel()
+        self.a.schedule('foo')
+        self.a.cancel()
+        self.a.run(Mock())
+
 
 class TestCriticalTask(unittest.TestCase):
 

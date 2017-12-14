@@ -1538,11 +1538,6 @@ $$""".format(name, ' '.join(options)), name, password, password)
             self.move_data_directory()
 
     def basebackup(self, conn_url, env):
-        # save environ to restore it later
-        old_env = os.environ.copy()
-        os.environ.clear()
-        os.environ.update(env)
-
         # creates a replica data dir using pg_basebackup.
         # this is the default, built-in create_replica_method
         # tries twice, then returns failure (as 1)
@@ -1558,7 +1553,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
             try:
                 ret = self.cancelable_subprocess_call([self._pgcommand('pg_basebackup'), '--pgdata=' + self._data_dir,
-                                                       '-X', 'stream', '--dbname=' + conn_url])
+                                                       '-X', 'stream', '--dbname=' + conn_url], env=env)
                 if ret == 0:
                     break
                 else:
@@ -1570,10 +1565,6 @@ $$""".format(name, ' '.join(options)), name, password, password)
             if bbfailures < maxfailures - 1:
                 logger.warning('Trying again in 5 seconds')
                 time.sleep(5)
-
-        # restore environ
-        os.environ.clear()
-        os.environ.update(old_env)
 
         return ret
 
@@ -1749,3 +1740,19 @@ $$""".format(name, ' '.join(options)), name, password, password)
     def reset_is_canceled(self):
         with self._cancelable_lock:
             self._is_canceled = False
+
+    def cancel(self):
+        with self._cancelable_lock:
+            self._is_canceled = True
+            if self._cancelable is None or self._cancelable.returncode is not None:
+                return
+            self._cancelable.terminate()
+
+        for _ in polling_loop(10):
+            with self._cancelable_lock:
+                if self._cancelable is None or self._cancelable.returncode is not None:
+                    return
+
+        with self._cancelable_lock:
+            if self._cancelable is not None and self._cancelable.returncode is None:
+                self._cancelable.kill()

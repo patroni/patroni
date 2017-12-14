@@ -8,7 +8,7 @@ import unittest
 from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.async_executor import CriticalTask
 from patroni.dcs import Cluster, Leader, Member, SyncState
-from patroni.exceptions import PostgresConnectionException
+from patroni.exceptions import PostgresConnectionException, PostgresException
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
 from patroni.postmaster import PostmasterProcess
 from patroni.utils import RetryFailedError
@@ -430,6 +430,13 @@ class TestPostgresql(unittest.TestCase):
 
         mock_cancelable_subprocess_call.side_effect = [Exception(), 0]
         self.assertEquals(self.p.create_replica(self.leader), 0)
+
+        self.p.cancel()
+        self.assertEquals(self.p.create_replica(self.leader), 1)
+
+    def test_basebackup(self):
+        self.p.cancel()
+        self.p.basebackup(None, None)
 
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def test_sync_replication_slots(self):
@@ -914,3 +921,15 @@ class TestPostgresql(unittest.TestCase):
     @patch.object(Postgresql, 'single_user_mode', Mock(return_value=0))
     def test_fix_cluster_state(self):
         self.assertTrue(self.p.fix_cluster_state())
+
+    def test_cancelable_subprocess_call(self):
+        self.p.cancel()
+        self.assertRaises(PostgresException, self.p.cancelable_subprocess_call)
+
+    @patch('patroni.postgresql.polling_loop', Mock(return_value=[0, 0]))
+    def test_cancel(self):
+        self.p._cancelable = Mock()
+        self.p._cancelable.returncode = None
+        self.p.cancel()
+        type(self.p._cancelable).returncode = PropertyMock(side_effect=[None, -15])
+        self.p.cancel()
