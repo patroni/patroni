@@ -853,7 +853,7 @@ class Ha(object):
         member_role = 'leader' if clone_member == self.cluster.leader else 'replica'
         return self.clone(clone_member, "from {0} '{1}'".format(member_role, clone_member.name))
 
-    def reinitialize(self):
+    def reinitialize(self, force=False):
         with self._async_executor:
             self.load_cluster_from_dcs()
 
@@ -863,6 +863,10 @@ class Ha(object):
             if self.cluster.leader.name == self.state_handler.name:
                 return 'I am the leader, can not reinitialize'
 
+        if force:
+            self._async_executor.cancel()
+
+        with self._async_executor:
             action = self._async_executor.schedule('reinitialize')
             if action is not None:
                 return '{0} already in progress'.format(action)

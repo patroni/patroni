@@ -357,7 +357,7 @@ class TestHa(unittest.TestCase):
         self.assertIsNotNone(self.ha.reinitialize())
 
         self.ha.cluster = get_cluster_initialized_with_leader()
-        self.assertIsNone(self.ha.reinitialize())
+        self.assertIsNone(self.ha.reinitialize(True))
 
         self.assertIsNotNone(self.ha.reinitialize())
 
