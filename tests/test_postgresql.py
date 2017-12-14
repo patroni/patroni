@@ -248,6 +248,9 @@ class TestPostgresql(unittest.TestCase):
             task.cancel()
             self.assertFalse(self.p.start(task=task))
 
+        self.p.cancel()
+        self.assertFalse(self.p.start())
+
     @patch.object(Postgresql, 'pg_isready')
     @patch('patroni.postgresql.polling_loop', Mock(return_value=range(1)))
     def test_wait_for_port_open(self, mock_pg_isready):
@@ -265,6 +268,10 @@ class TestPostgresql(unittest.TestCase):
         # pg_isready failure
         mock_pg_isready.return_value = 'garbage'
         self.assertTrue(self.p.wait_for_port_open(mock_postmaster, 1))
+
+        # cancelled
+        self.p.cancel()
+        self.assertFalse(self.p.wait_for_port_open(mock_postmaster, 1))
 
     @patch('time.sleep', Mock())
     @patch.object(Postgresql, 'is_running')
@@ -791,6 +798,11 @@ class TestPostgresql(unittest.TestCase):
                 state['final_return'] = 0
                 self.assertFalse(self.p.wait_for_startup(timeout=2))
                 self.assertEquals(state['sleeps'], 3)
+
+        with patch.object(Postgresql, 'check_startup_state_changed', Mock(return_value=False)):
+            self.p.cancel()
+            self.p._state = 'starting'
+            self.assertIsNone(self.p.wait_for_startup())
 
     def test_read_pid_file(self):
         pidfile = os.path.join(self.data_dir, 'postmaster.pid')

@@ -775,6 +775,10 @@ class Postgresql(object):
     def wait_for_port_open(self, postmaster, timeout):
         """Waits until PostgreSQL opens ports."""
         for _ in polling_loop(timeout):
+            with self._cancelable_lock:
+                if self._is_canceled:
+                    return False
+
             if not postmaster.is_running():
                 logger.error('postmaster is not running')
                 self.set_state('start failed')
@@ -821,6 +825,10 @@ class Postgresql(object):
         options = ['--{0}={1}'.format(p, self._server_parameters[p]) for p in self.CMDLINE_OPTIONS
                    if p in self._server_parameters and p != 'wal_keep_segments']
 
+        with self._cancelable_lock:
+            if self._is_canceled:
+                return False
+
         with task or null_context():
             if task and task.is_cancelled:
                 logger.info("PostgreSQL start cancelled.")
@@ -830,6 +838,7 @@ class Postgresql(object):
                                                             self._data_dir,
                                                             self._postgresql_conf,
                                                             options)
+
             if task:
                 task.complete(self._postmaster_proc)
 
@@ -995,6 +1004,9 @@ class Postgresql(object):
             logger.warning("wait_for_startup() called when not in starting state")
 
         while not self.check_startup_state_changed():
+            with self._cancelable_lock:
+                if self._is_canceled:
+                    return None
             if timeout and self.time_in_state() > timeout:
                 return None
             time.sleep(1)
