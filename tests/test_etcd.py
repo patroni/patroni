@@ -18,7 +18,6 @@ class MockResponse(object):
         self.status_code = status_code
         self.content = '{}'
         self.ok = True
-        self.text = ''
 
     def json(self):
         return json.loads(self.content)
@@ -26,6 +25,10 @@ class MockResponse(object):
     @property
     def data(self):
         return self.content.encode('utf-8')
+
+    @property
+    def text(self):
+        return self.content
 
     @property
     def status(self):
@@ -48,6 +51,12 @@ def requests_get(url, **kwargs):
         response.content = '[{}]' if url.startswith('http://error') else members
     elif url.startswith('http://exhibitor'):
         response.content = '{"servers":["127.0.0.1","127.0.0.2","127.0.0.3"],"port":2181}'
+    elif url.endswith(':8011/reinitialize'):
+        data = kwargs.get('data', '')
+        if ' false}' in data:
+            response.status_code = 503
+            response.ok = False
+            response.content = 'restarting after failure already in progress'
     else:
         response.status_code = 404
         response.ok = False

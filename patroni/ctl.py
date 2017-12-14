@@ -257,9 +257,9 @@ def get_members(cluster, cluster_name, member_names, role, force, action):
         member_names = [click.prompt('Which member do you want to {0} [{1}]?'.format(action,
                         ', '.join(candidates.keys())), type=str, default='')]
 
-    for mn in member_names:
-        if mn not in candidates:
-            raise PatroniCtlException('{0} is not a member of cluster'.format(mn))
+    for member_name in member_names:
+        if member_name not in candidates:
+            raise PatroniCtlException('{0} is not a member of cluster'.format(member_name))
 
     if not force:
         confirm = click.confirm('Are you sure you want to {0} members {1}?'.format(action, ', '.join(member_names)))
@@ -419,8 +419,10 @@ def check_response(response, member_name, action_name, silent_success=False):
         click.echo('Failed: {0} for member {1}, status code={2}, ({3})'.format(
             action_name, member_name, response.status_code, response.text
         ))
+        return False
     elif not silent_success:
         click.echo('Success: {0} for member {1}'.format(action_name, member_name))
+    return True
 
 
 def parse_scheduled(scheduled):
@@ -517,8 +519,14 @@ def reinit(obj, cluster_name, member_names, force):
     members = get_members(cluster, cluster_name, member_names, None, force, 'reinitialize')
 
     for member in members:
-        r = request_patroni(member, 'post', 'reinitialize', headers=auth_header(obj))
-        check_response(r, member.name, 'reinitialize')
+        body = {'force': force}
+        while True:
+            r = request_patroni(member, 'post', 'reinitialize', body, auth_header(obj))
+            if not check_response(r, member.name, 'reinitialize') and r.text.endswith(' already in progress') \
+                    and click.confirm('Do you want to cancel it and reinitialize anyway?'):
+                body['force'] = True
+                continue
+            break
 
 
 @ctl.command('failover', help='Failover to a replica')

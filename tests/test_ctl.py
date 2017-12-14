@@ -222,7 +222,7 @@ class TestCtl(unittest.TestCase):
         assert result.exit_code == 1
 
         # successful reinit
-        result = self.runner.invoke(ctl, ['reinit', 'alpha', 'other'], input='y')
+        result = self.runner.invoke(ctl, ['reinit', 'alpha', 'other'], input='y\ny')
         assert result.exit_code == 0
 
         # Aborted restart
