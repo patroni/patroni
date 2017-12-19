@@ -19,6 +19,8 @@ Feature: basic replication
     And I run patronictl.py restart batman postgres1 --force
     Then I receive a response returncode 0
     And "sync" key in DCS has sync_standby=postgres2 after 10 seconds
+    When I issue a GET request to http://127.0.0.1:8010/sync
+    Then I receive a response code 200
 
   Scenario: check the basic failover in synchronous mode
     Given I run patronictl.py pause batman

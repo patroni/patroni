@@ -89,6 +89,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 status_code = 503
             elif response['role'] in path:  # response['role'] != 'master'
                 status_code = 503 if patroni.noloadbalance else 200
+            elif path.startswith('/sync') and cluster.is_synchronous_mode() and response.get('role') == 'replica' \
+                    and cluster.sync and cluster.sync.sync_standby == patroni.postgresql.name:
+                status_code = 200
             else:
                 status_code = 503
         elif 'role' in response and response['role'] in path:
