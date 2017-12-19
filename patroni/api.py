@@ -80,8 +80,18 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         patroni = self.server.patroni
         cluster = patroni.dcs.cluster
+
+        def is_synchronous():
+            return (cluster.is_synchronous_mode() and cluster.sync
+                    and cluster.sync.sync_standby == patroni.postgresql.name)
+
         if cluster:  # dcs available
-            if cluster.leader and cluster.leader.name == patroni.postgresql.name:  # is_leader
+            if path in ('/sync', '/synchronous', '/async', '/asynchronous'):
+                if response.get('role') == 'replica' and (is_synchronous() == ('/sync' in path)):
+                    status_code = 200
+                else:
+                    status_code = 503
+            elif cluster.leader and cluster.leader.name == patroni.postgresql.name:  # is_leader
                 status_code = 200 if 'master' in path else 503
             elif 'role' not in response:
                 status_code = 503
@@ -89,9 +99,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 status_code = 503
             elif response['role'] in path:  # response['role'] != 'master'
                 status_code = 503 if patroni.noloadbalance else 200
-            elif path.startswith('/sync') and cluster.is_synchronous_mode() and response.get('role') == 'replica' \
-                    and cluster.sync and cluster.sync.sync_standby == patroni.postgresql.name:
-                status_code = 200
             else:
                 status_code = 503
         elif 'role' in response and response['role'] in path:
