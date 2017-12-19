@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import threading
@@ -275,7 +276,7 @@ class Raft(AbstractDCS):
     def _write_leader_optime(self, last_operation):
         return self._sync_obj.set(self.leader_optime_path, last_operation, timeout=1)
 
-    def update_leader(self):
+    def _update_leader(self):
         return self._sync_obj.set(self.leader_path, self._name, ttl=self._ttl, prevValue=self._name)
 
     def attempt_to_acquire_leader(self, permanent=False):
@@ -289,6 +290,7 @@ class Raft(AbstractDCS):
         return self._sync_obj.set(self.config_path, value, prevIndex=index)
 
     def touch_member(self, data, ttl=None, permanent=False):
+        data = json.dumps(data, separators=(',', ':'))
         return self._sync_obj.set(self.member_path, data, None if permanent else ttl or self._ttl, timeout=2)
 
     def take_leader(self):

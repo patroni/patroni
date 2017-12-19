@@ -21,9 +21,14 @@ Feature: basic replication
     And "sync" key in DCS has sync_standby=postgres2 after 10 seconds
 
   Scenario: check the basic failover in synchronous mode
-    When I kill postgres0
-    Then postgres2 role is the primary after 22 seconds
-    When I issue a PATCH request to http://127.0.0.1:8009/config with {"synchronous_mode": null, "master_start_timeout": 0}
+    Given I run patronictl.py pause batman
+    Then I receive a response returncode 0
+    When I sleep for 2 seconds
+    And I shut down postgres0
+    And I run patronictl.py resume batman 
+    Then I receive a response returncode 0
+    And postgres2 role is the primary after 24 seconds
+    When I issue a PATCH request to http://127.0.0.1:8010/config with {"synchronous_mode": null, "master_start_timeout": 0}
     Then I receive a response code 200
     When I add the table bar to postgres2
     Then table bar is present on postgres1 after 20 seconds

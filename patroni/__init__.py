@@ -39,7 +39,7 @@ class Patroni(object):
         while True:
             try:
                 cluster = self.dcs.get_cluster()
-                if cluster and cluster.config:
+                if cluster and cluster.config and cluster.config.data:
                     if self.config.set_dynamic_configuration(cluster.config):
                         self.dcs.reload_config(self.config)
                         self.watchdog.reload_config(self.config)
@@ -113,8 +113,8 @@ class Patroni(object):
 
             logger.info(self.ha.run_cycle())
 
-            cluster = self.dcs.cluster
-            if cluster and cluster.config and self.config.set_dynamic_configuration(cluster.config):
+            if self.dcs.cluster and self.dcs.cluster.config and self.dcs.cluster.config.data \
+                    and self.config.set_dynamic_configuration(self.dcs.cluster.config):
                 self.reload_config()
 
             if self.postgresql.role != 'uninitialized':

@@ -115,20 +115,23 @@ def read(fname):
 
 def setup_package():
     # Assemble additional setup commands
-    cmdclass = {}
-    cmdclass['test'] = PyTest
+    cmdclass = {'test': PyTest}
 
     # Some helper variables
     version = os.getenv('GO_PIPELINE_LABEL', VERSION)
 
-    install_reqs = []
-    dependency_links = []
+    install_requires = []
+    extras_require = {'aws': ['boto'], 'etcd': ['python-etcd'], 'consul': ['python-consul'], 'raft': ['pysyncobj'],
+                      'exhibitor': ['kazoo'], 'zookeeper': ['kazoo'], 'kubernetes': ['kubernetes']}
+
     for r in get_install_requirements('requirements.txt'):
-        i = r.find('#egg=')
-        if i > 0:
-            dependency_links.append(r)
-            r = r[i+5:]
-        install_reqs.append(r)
+        extra = False
+        for e, v in extras_require.items():
+            if r.startswith(v[0]):
+                extras_require[e] = [r]
+                extra = True
+        if not extra:
+            install_requires.append(r)
 
     command_options = {'test': {'test_suite': ('setup.py', 'tests')}}
     if JUNIT_XML:
@@ -152,11 +155,10 @@ def setup_package():
         test_suite='tests',
         packages=find_packages(exclude=['tests', 'tests.*']),
         package_data={MAIN_PACKAGE: ["*.json"]},
-        install_requires=install_reqs,
-        dependency_links=dependency_links,
-        setup_requires=['flake8'],
+        install_requires=install_requires,
+        extras_require=extras_require,
         cmdclass=cmdclass,
-        tests_require=['mock>=2.0.0', 'pytest-cov', 'pytest'],
+        tests_require=['flake8', 'mock>=2.0.0', 'pytest-cov', 'pytest'],
         command_options=command_options,
         entry_points={'console_scripts': CONSOLE_SCRIPTS},
     )

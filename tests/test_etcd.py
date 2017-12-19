@@ -288,7 +288,7 @@ class TestEtcd(unittest.TestCase):
         self.etcd.write_leader_optime('0')
 
     def test_update_leader(self):
-        self.assertTrue(self.etcd.update_leader())
+        self.assertTrue(self.etcd.update_leader(None))
 
     def test_initialize(self):
         self.assertFalse(self.etcd.initialize())

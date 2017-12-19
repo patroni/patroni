@@ -1,4 +1,5 @@
 from __future__ import absolute_import
+import json
 import logging
 import os
 import socket
@@ -9,7 +10,7 @@ import urllib3
 from consul import ConsulException, NotFound, base
 from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState
 from patroni.exceptions import DCSError
-from patroni.utils import parse_bool, Retry, RetryFailedError
+from patroni.utils import deep_compare, parse_bool, Retry, RetryFailedError
 from urllib3.exceptions import HTTPError
 from six.moves.urllib.parse import urlencode, urlparse
 from six.moves.http_client import HTTPException
@@ -141,7 +142,7 @@ class Consul(AbstractDCS):
                             retry_exceptions=(ConsulInternalError, HTTPException,
                                               HTTPError, socket.error, socket.timeout))
 
-        self._my_member_data = None
+        self._my_member_data = {}
         kwargs = {}
         if 'url' in config:
             r = urlparse(config['url'])
@@ -311,12 +312,12 @@ class Consul(AbstractDCS):
             except Exception:
                 return False
 
-        if not create_member and member and data == self._my_member_data:
+        if not create_member and member and deep_compare(data, self._my_member_data):
             return True
 
         try:
             args = {} if permanent else {'acquire': self._session}
-            self._client.kv.put(self.member_path, data, **args)
+            self._client.kv.put(self.member_path, json.dumps(data, separators=(',', ':')), **args)
             self._my_member_data = data
             return True
         except Exception:
@@ -352,7 +353,7 @@ class Consul(AbstractDCS):
         return self._client.kv.put(self.leader_optime_path, last_operation)
 
     @catch_consul_errors
-    def update_leader(self):
+    def _update_leader(self):
         if self._session:
             self.retry(self._client.session.renew, self._session)
             self._last_session_refresh = time.time()
@@ -379,11 +380,11 @@ class Consul(AbstractDCS):
 
     @catch_consul_errors
     def set_sync_state_value(self, value, index=None):
-        return self._client.kv.put(self.sync_path, value, cas=index)
+        return self.retry(self._client.kv.put, self.sync_path, value, cas=index)
 
     @catch_consul_errors
     def delete_sync_state(self, index=None):
-        return self._client.kv.delete(self.sync_path, cas=index)
+        return self.retry(self._client.kv.delete, self.sync_path, cas=index)
 
     def watch(self, leader_index, timeout):
         if self.__do_not_watch:

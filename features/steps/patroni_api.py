@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 import parse
@@ -78,11 +79,13 @@ def do_post_empty(context, url):
 @step('I issue a {request_method:w} request to {url:url} with {data}')
 def do_request(context, request_method, url, data):
     data = data and json.loads(data) or {}
+    headers = {'Authorization': 'Basic ' + base64.b64encode('username:password'.encode('utf-8')).decode('utf-8'),
+               'Content-Type': 'application/json'}
     try:
         if request_method == 'PATCH':
-            r = requests.patch(url, json=data)
+            r = requests.patch(url, headers=headers, json=data)
         else:
-            r = requests.post(url, json=data)
+            r = requests.post(url, headers=headers, json=data)
     except requests.exceptions.RequestException:
         context.status_code = None
         context.response = None

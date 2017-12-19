@@ -7,6 +7,7 @@ import kazoo.exceptions
 import os
 import psutil
 import psycopg2
+import json
 import shutil
 import signal
 import six
@@ -98,6 +99,7 @@ class PatroniController(AbstractController):
         else:
             self.watchdog = None
 
+        self._scope = (custom_config or {}).get('scope', 'batman')
         self._config = self._make_patroni_test_config(name, custom_config)
         self._closables = []
 
@@ -125,6 +127,9 @@ class PatroniController(AbstractController):
     def _start(self):
         if self.watchdog:
             self.watchdog.start()
+        if isinstance(self._context.dcs_ctl, KubernetesController):
+            self._context.dcs_ctl.create_pod(self._name[8:], self._scope)
+            os.environ['PATRONI_KUBERNETES_POD_IP'] = '10.0.0.' + self._name[-1]
         return subprocess.Popen(['coverage', 'run', '--source=patroni', '-p', 'patroni.py', self._config],
                                 stdout=self._log, stderr=subprocess.STDOUT, cwd=self._work_directory)
 
@@ -132,6 +137,8 @@ class PatroniController(AbstractController):
         if postgres:
             return subprocess.call(['pg_ctl', '-D', self._data_dir, 'stop', '-mi', '-w'])
         super(PatroniController, self).stop(kill, timeout)
+        if isinstance(self._context.dcs_ctl, KubernetesController):
+            self._context.dcs_ctl.delete_pod(self._name[8:])
         if self.watchdog:
             self.watchdog.stop()
 
@@ -147,7 +154,7 @@ class PatroniController(AbstractController):
 
         with open(patroni_config_name) as f:
             config = yaml.safe_load(f)
-            config.pop('etcd')
+            config.pop('etcd', None)
 
         raft_port = os.environ.get('RAFT_PORT')
         if raft_port:
@@ -341,10 +348,6 @@ class AbstractDcsController(AbstractController):
         """ query for a value of a given key """
 
     @abc.abstractmethod
-    def set(self, key, value):
-        """ set a value to a given key """
-
-    @abc.abstractmethod
     def cleanup_service_tree(self):
         """ clean all contents stored in the tree used for the tests """
 
@@ -393,9 +396,6 @@ class ConsulController(AbstractDcsController):
         _, value = self._client.kv.get(self.path(key, scope))
         return value and value['Value'].decode('utf-8')
 
-    def set(self, key, value):
-        self._client.kv.put(self.path(key), value)
-
     def cleanup_service_tree(self):
         self._client.kv.delete(self.path(scope=''), recurse=True)
 
@@ -422,9 +422,6 @@ class EtcdController(AbstractDcsController):
         except etcd.EtcdKeyNotFound:
             return None
 
-    def set(self, key, value):
-        self._client.set(self.path(key), value)
-
     def cleanup_service_tree(self):
         try:
             self._client.delete(self.path(scope=''), recursive=True)
@@ -439,6 +436,76 @@ class EtcdController(AbstractDcsController):
             return bool(self._client.machines)
         except Exception:
             return False
+
+
+class KubernetesController(AbstractDcsController):
+
+    def __init__(self, context):
+        super(KubernetesController, self).__init__(context)
+        self._namespace = 'default'
+        self._labels = {"application": "patroni"}
+        self._label_selector = ','.join('{0}={1}'.format(k, v) for k, v in self._labels.items())
+        os.environ['PATRONI_KUBERNETES_LABELS'] = json.dumps(self._labels)
+        os.environ['PATRONI_KUBERNETES_USE_ENDPOINTS'] = 'true'
+
+        from kubernetes import client as k8s_client, config as k8s_config
+        k8s_config.load_kube_config(context='local')
+        self._client = k8s_client
+        self._api = self._client.CoreV1Api()
+
+    def _start(self):
+        pass
+
+    def create_pod(self, name, scope):
+        labels = self._labels.copy()
+        labels['cluster-name'] = scope
+        metadata = self._client.V1ObjectMeta(namespace=self._namespace, name=name, labels=labels)
+        spec = self._client.V1PodSpec(containers=[self._client.V1Container(name=name, image='empty')])
+        body = self._client.V1Pod(metadata=metadata, spec=spec)
+        self._api.create_namespaced_pod(self._namespace, body)
+
+    def delete_pod(self, name):
+        try:
+            self._api.delete_namespaced_pod(name, self._namespace, self._client.V1DeleteOptions())
+        except:
+            pass
+        while True:
+            try:
+                self._api.read_namespaced_pod(name, self._namespace)
+            except:
+                break
+
+    def query(self, key, scope='batman'):
+        if key.startswith('members/'):
+            pod = self._api.read_namespaced_pod(key[8:], self._namespace)
+            return (pod.metadata.annotations or {}).get('status', '')
+        else:
+            try:
+                e = self._api.read_namespaced_endpoints(scope + ('' if key == 'leader' else '-' + key), self._namespace)
+                if key == 'leader':
+                    return e.metadata.annotations[key]
+                else:
+                    return json.dumps(e.metadata.annotations)
+            except:
+                return None
+
+    def cleanup_service_tree(self):
+        try:
+            self._api.delete_collection_namespaced_pod(self._namespace, label_selector=self._label_selector)
+        except:
+            pass
+        try:
+            self._api.delete_collection_namespaced_endpoints(self._namespace, label_selector=self._label_selector)
+        except:
+            pass
+
+        while True:
+            result = self._api.list_namespaced_pod(self._namespace, label_selector=self._label_selector)
+            if len(result.items) < 1:
+                break
+
+    def _is_running(self):
+        return True
 
 
 class ZooKeeperController(AbstractDcsController):
@@ -459,9 +526,6 @@ class ZooKeeperController(AbstractDcsController):
             return self._client.get(self.path(key, scope))[0].decode('utf-8')
         except kazoo.exceptions.NoNodeError:
             return None
-
-    def set(self, key, value):
-        self._client.set(self.path(key), value.encode('utf-8'))
 
     def cleanup_service_tree(self):
         try:
@@ -749,6 +813,7 @@ class WatchdogMonitor(object):
 
 # actions to execute on start/stop of the tests and before running invidual features
 def before_all(context):
+    os.environ.update({'PATRONI_RESTAPI_USERNAME': 'username', 'PATRONI_RESTAPI_PASSWORD': 'password'})
     context.ci = 'TRAVIS_BUILD_NUMBER' in os.environ or 'BUILD_NUMBER' in os.environ
     context.timeout_multiplier = 2 if context.ci else 1
     context.pctl = PatroniPoolController(context)

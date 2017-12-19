@@ -86,14 +86,15 @@ class Ha(object):
         return self.dcs.attempt_to_acquire_leader()
 
     def update_lock(self, write_leader_optime=False):
-        ret = self.dcs.update_leader()
+        last_operation = None
+        if write_leader_optime:
+            try:
+                last_operation = self.state_handler.last_operation()
+            except Exception:
+                logger.exception('Exception when called state_handler.last_operation()')
+        ret = self.dcs.update_leader(last_operation)
         if ret:
             self.watchdog.keepalive()
-            if write_leader_optime:
-                try:
-                    self.dcs.write_leader_optime(self.state_handler.last_operation())
-                except Exception:
-                    pass
         return ret
 
     def has_lock(self):
@@ -132,7 +133,7 @@ class Ha(object):
                 scheduled_restart_data['schedule'] = scheduled_restart_data['schedule'].isoformat()
                 data['scheduled_restart'] = scheduled_restart_data
 
-            return self.dcs.touch_member(json.dumps(data, separators=(',', ':')))
+            return self.dcs.touch_member(data)
 
     def clone(self, clone_member=None, msg='(without leader)'):
         if self.state_handler.clone(clone_member):

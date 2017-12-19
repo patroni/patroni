@@ -1,3 +1,4 @@
+import json
 import logging
 import time
 
@@ -6,6 +7,7 @@ from kazoo.exceptions import NoNodeError, NodeExistsError
 from kazoo.handlers.threading import SequentialThreadingHandler
 from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState
 from patroni.exceptions import DCSError
+from patroni.utils import deep_compare
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +59,7 @@ class ZooKeeper(AbstractDCS):
                                    max_delay=1, max_tries=-1, sleep_func=time.sleep))
         self._client.add_listener(self.session_listener)
 
-        self._my_member_data = None
+        self._my_member_data = {}
         self._fetch_cluster = True
 
         self._orig_kazoo_connect = self._client._connection._connect
@@ -242,7 +244,7 @@ class ZooKeeper(AbstractDCS):
     def touch_member(self, data, ttl=None, permanent=False):
         cluster = self.cluster
         member = cluster and cluster.get_member(self._name, fallback_to_leader=False)
-        data = data.encode('utf-8')
+        encoded_data = json.dumps(data, separators=(',', ':')).encode('utf-8')
         if member and self._client.client_id is not None and member.session != self._client.client_id[0]:
             try:
                 self._client.delete_async(self.member_path).get(timeout=1)
@@ -253,11 +255,12 @@ class ZooKeeper(AbstractDCS):
             member = None
 
         if member:
-            if data == self._my_member_data:
+            if deep_compare(data, self._my_member_data):
                 return True
         else:
             try:
-                self._client.create_async(self.member_path, data, makepath=True, ephemeral=not permanent).get(timeout=1)
+                self._client.create_async(self.member_path, encoded_data, makepath=True,
+                                          ephemeral=not permanent).get(timeout=1)
                 self._my_member_data = data
                 return True
             except Exception as e:
@@ -265,7 +268,7 @@ class ZooKeeper(AbstractDCS):
                     logger.exception('touch_member')
                     return False
         try:
-            self._client.set_async(self.member_path, data).get(timeout=1)
+            self._client.set_async(self.member_path, encoded_data).get(timeout=1)
             self._my_member_data = data
             return True
         except Exception:
@@ -291,7 +294,7 @@ class ZooKeeper(AbstractDCS):
             logger.exception('Failed to update %s', self.leader_optime_path)
         return False
 
-    def update_leader(self):
+    def _update_leader(self):
         return True
 
     def delete_leader(self):

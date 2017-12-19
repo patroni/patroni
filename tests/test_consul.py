@@ -112,11 +112,11 @@ class TestConsul(unittest.TestCase):
     @patch.object(consul.Consul.KV, 'put', Mock(side_effect=[True, ConsulException]))
     def test_touch_member(self):
         self.c.refresh_session = Mock(return_value=True)
-        self.c.touch_member('balbla')
-        self.c.touch_member('balbla')
-        self.c.touch_member('balbla')
+        self.c.touch_member({'balbla': 'blabla'})
+        self.c.touch_member({'balbla': 'blabla'})
+        self.c.touch_member({'balbla': 'blabla'})
         self.c.refresh_session = Mock(return_value=False)
-        self.c.touch_member('balbla')
+        self.c.touch_member({'balbla': 'blabla'})
 
     @patch.object(consul.Consul.KV, 'put', Mock(return_value=False))
     def test_take_leader(self):
@@ -138,7 +138,7 @@ class TestConsul(unittest.TestCase):
 
     @patch.object(consul.Consul.Session, 'renew', Mock())
     def test_update_leader(self):
-        self.c.update_leader()
+        self.c.update_leader(None)
 
     @patch.object(consul.Consul.KV, 'delete', Mock(return_value=True))
     def test_delete_leader(self):

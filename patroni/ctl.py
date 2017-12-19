@@ -406,7 +406,7 @@ def remove(obj, cluster_name, fmt):
     if message != confirm:
         raise PatroniCtlException('You did not exactly type "{0}"'.format(message))
 
-    if cluster.leader:
+    if cluster.leader and cluster.leader.name:
         confirm = click.prompt('This cluster currently is healthy. Please specify the master name to continue')
         if confirm != cluster.leader.name:
             raise PatroniCtlException('You did not specify the current master of the cluster')
