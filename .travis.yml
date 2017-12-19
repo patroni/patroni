@@ -2,11 +2,11 @@ sudo: true
 dist: trusty
 language: python
 python:
-- "3.4"  # 2.7 and 3.5 are preinstalled by default
+- "3.5"  # 2.7 and 3.6 are preinstalled by default
 env:
   global:
   - ETCDVERSION=3.0.17 ZKVERSION=3.4.11 CONSULVERSION=0.7.4
-  - PYVERSIONS="2.7 3.4 3.5"
+  - PYVERSIONS="2.7 3.5 3.6"
   - BOTO_CONFIG=/doesnotexist
   matrix:
   - TEST_SUITE="python setup.py"
@@ -21,7 +21,7 @@ before_cache:
 - |
   rm -fr $HOME/mycache/python*
   for pv in $PYVERSIONS; do
-      if [[ $TEST_SUITE != "behave" || $pv != "3.4" ]]; then
+      if [[ $TEST_SUITE != "behave" || $pv != "3.5" ]]; then
           fpv=$(basename $(readlink $HOME/virtualenv/python${pv}))
           mv $HOME/virtualenv/${fpv} $HOME/mycache/${fpv}
       fi
@@ -98,7 +98,7 @@ install:
     fi
 
     for pv in $PYVERSIONS; do
-        if [[ $TEST_SUITE != "behave" || $pv != "3.4" ]]; then
+        if [[ $TEST_SUITE != "behave" || $pv != "3.5" ]]; then
             fpv=$(basename $(readlink $HOME/virtualenv/python$pv))
             if [[ -d ~/mycache/${fpv} ]]; then
                 mv ~/virtualenv/${fpv} ~/virtualenv/${fpv}.bckp
@@ -120,7 +120,7 @@ script:
             echo Running unit tests using python${pv}
             $TEST_SUITE test
             $TEST_SUITE flake8
-        elif [[ $pv != "3.4" ]]; then
+        elif [[ $pv != "3.5" ]]; then
             echo Running acceptance tests using python${pv}
             if ! PATH=.:/usr/lib/postgresql/9.6/bin:$PATH $TEST_SUITE; then
                 # output all log files when tests are failing
@@ -133,7 +133,7 @@ script:
     set +e
 after_success:
   # before_cache is executed earlier than after_success, so we need to restore one of virtualenv directories
-  - fpv=$(basename $(readlink $HOME/virtualenv/python3.5)) && mv $HOME/mycache/${fpv} $HOME/virtualenv/${fpv}
+  - fpv=$(basename $(readlink $HOME/virtualenv/python3.6)) && mv $HOME/mycache/${fpv} $HOME/virtualenv/${fpv}
   - coveralls
   - if [[ $TEST_SUITE != "behave" ]]; then python-codacy-coverage -r coverage.xml; fi
   - if [[ $DCS == "exhibitor" ]]; then ~/mycache/zookeeper-${ZKVERSION}/bin/zkServer.sh stop; fi
