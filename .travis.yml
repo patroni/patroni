@@ -9,11 +9,17 @@ env:
   - PYVERSIONS="2.7 3.5 3.6"
   - BOTO_CONFIG=/doesnotexist
   matrix:
-  - TEST_SUITE="python setup.py"
-  - DCS="etcd" TEST_SUITE="behave"
-  - DCS="exhibitor" TEST_SUITE="behave"
-  - DCS="consul" TEST_SUITE="behave"
-  - DCS="kubernetes" TEST_SUITE="behave"
+    include:
+    - python: "3.5"
+      env: TEST_SUITE="python setup.py"
+    - python: "3.6"
+      env: DCS="etcd" TEST_SUITE="behave"
+    - python: "3.6"
+      env: DCS="exhibitor" TEST_SUITE="behave"
+    - python: "3.6"
+      env: DCS="consul" TEST_SUITE="behave"
+    - python: "3.6"
+      env: DCS="kubernetes" TEST_SUITE="behave"
 branches:
   only:
   - master
