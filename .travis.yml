@@ -2,7 +2,8 @@ sudo: true
 dist: trusty
 language: python
 python:
-- "3.5"  # 2.7 and 3.6 are preinstalled by default
+- "3.5"
+- "3.6"
 env:
   global:
   - ETCDVERSION=3.0.17 ZKVERSION=3.4.11 CONSULVERSION=0.7.4
@@ -11,15 +12,15 @@ env:
   matrix:
     include:
     - python: "3.5"
-      env: TEST_SUITE="python setup.py"
+      env: 'TEST_SUITE="python setup.py"'
     - python: "3.6"
-      env: DCS="etcd" TEST_SUITE="behave"
+      env: 'DCS="etcd" TEST_SUITE="behave"'
     - python: "3.6"
-      env: DCS="exhibitor" TEST_SUITE="behave"
+      env: 'DCS="exhibitor" TEST_SUITE="behave"'
     - python: "3.6"
-      env: DCS="consul" TEST_SUITE="behave"
+      env: 'DCS="consul" TEST_SUITE="behave"'
     - python: "3.6"
-      env: DCS="kubernetes" TEST_SUITE="behave"
+      env: 'DCS="kubernetes" TEST_SUITE="behave"'
 branches:
   only:
   - master
