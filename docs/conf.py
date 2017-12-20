@@ -19,10 +19,10 @@
 #
 import os
 
-from patroni.version import __version__
-# import sys
-# sys.path.insert(0, os.path.abspath('.'))
+import sys
+sys.path.insert(0, os.path.abspath('.'))
 
+from patroni.version import __version__
 
 # -- General configuration ------------------------------------------------
 
