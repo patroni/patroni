@@ -5,6 +5,7 @@ env:
   global:
   - ETCDVERSION=3.0.17 ZKVERSION=3.4.11 CONSULVERSION=0.7.4
   - PYVERSIONS="2.7 3.5 3.6"
+  - EXCLUDE_BEHAVE="3.5"
   - BOTO_CONFIG=/doesnotexist
 matrix:
   include:
@@ -29,7 +30,7 @@ before_cache:
 - |
   rm -fr $HOME/mycache/python*
   for pv in $PYVERSIONS; do
-      if [[ $TEST_SUITE != "behave" || $pv != "3.5" ]]; then
+      if [[ $TEST_SUITE != "behave" || $pv != $EXCLUDE_BEHAVE ]]; then
           fpv=$(basename $(readlink $HOME/virtualenv/python${pv}))
           mv $HOME/virtualenv/${fpv} $HOME/mycache/${fpv}
       fi
@@ -106,7 +107,7 @@ install:
     fi
 
     for pv in $PYVERSIONS; do
-        if [[ $TEST_SUITE != "behave" || $pv != "3.5" ]]; then
+        if [[ $TEST_SUITE != "behave" || $pv != $EXCLUDE_BEHAVE ]]; then
             fpv=$(basename $(readlink $HOME/virtualenv/python$pv))
             if [[ -d ~/mycache/${fpv} ]]; then
                 mv ~/virtualenv/${fpv} ~/virtualenv/${fpv}.bckp
@@ -122,13 +123,17 @@ install:
 script:
   - |
     for pv in $PYVERSIONS; do
+        if [[ $TEST_SUITE == "behave" && $pv == $EXCLUDE_BEHAVE ]]; then
+            continue
+        fi
+
         source ~/virtualenv/python${pv}/bin/activate
 
         if [[ $TEST_SUITE != "behave" ]]; then
             echo Running unit tests using python${pv}
             $TEST_SUITE test
             $TEST_SUITE flake8
-        elif [[ $pv != "3.5" ]]; then
+        elif [[ $pv != $EXCLUDE_BEHAVE ]]; then
             echo Running acceptance tests using python${pv}
             if ! PATH=.:/usr/lib/postgresql/9.6/bin:$PATH $TEST_SUITE; then
                 # output all log files when tests are failing
