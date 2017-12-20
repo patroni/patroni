@@ -22,6 +22,8 @@ Feature: basic replication
     And I sleep for 2 seconds
     When I issue a GET request to http://127.0.0.1:8010/sync
     Then I receive a response code 200
+    When I issue a GET request to http://127.0.0.1:8009/async
+    Then I receive a response code 200
 
   Scenario: check the basic failover in synchronous mode
     Given I run patronictl.py pause batman

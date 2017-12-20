@@ -85,18 +85,20 @@ class RestApiHandler(BaseHTTPRequestHandler):
             return (cluster.is_synchronous_mode() and cluster.sync
                     and cluster.sync.sync_standby == patroni.postgresql.name)
 
+        def is_balanceable_replica():
+            return response.get('role') == 'replica' and not patroni.noloadbalance
+
         if cluster:  # dcs available
-            if path in ('/sync', '/synchronous', '/async', '/asynchronous'):
-                if response.get('role') == 'replica' and (is_synchronous() == ('/sync' in path)):
-                    status_code = 200
-                else:
-                    status_code = 503
-            elif cluster.leader and cluster.leader.name == patroni.postgresql.name:  # is_leader
+            if cluster.leader and cluster.leader.name == patroni.postgresql.name:  # is_leader
                 status_code = 200 if 'master' in path else 503
             elif 'role' not in response:
                 status_code = 503
             elif response['role'] == 'master':  # running as master but without leader lock!!!!
                 status_code = 503
+            elif path in ('/sync', '/synchronous'):
+                status_code = 200 if is_balanceable_replica() and is_synchronous() else 503
+            elif path in ('/async', '/asynchronous'):
+                status_code = 200 if is_balanceable_replica() and not is_synchronous() else 503
             elif response['role'] in path:  # response['role'] != 'master'
                 status_code = 503 if patroni.noloadbalance else 200
             else:
