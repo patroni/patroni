@@ -523,7 +523,7 @@ def reinit(obj, cluster_name, member_names, force):
         while True:
             r = request_patroni(member, 'post', 'reinitialize', body, auth_header(obj))
             if not check_response(r, member.name, 'reinitialize') and r.text.endswith(' already in progress') \
-                    and click.confirm('Do you want to cancel it and reinitialize anyway?'):
+                    and not force and click.confirm('Do you want to cancel it and reinitialize anyway?'):
                 body['force'] = True
                 continue
             break
