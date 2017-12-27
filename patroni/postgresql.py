@@ -36,11 +36,11 @@ STOP_POLLING_INTERVAL = 1
 REWIND_STATUS = type('Enum', (), {'INITIAL': 0, 'CHECK': 1, 'NEED': 2, 'NOT_NEED': 3, 'SUCCESS': 4, 'FAILED': 5})
 sync_standby_name_re = re.compile('^[A-Za-z_][A-Za-z_0-9\$]*$')
 
-cluster_status_query = ("CASE WHEN pg_is_in_recovery() THEN GREATEST("
-                        "            pg_{0}_{1}_diff(COALESCE(pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint,"
-                        "            pg_{0}_{1}_diff(pg_last_{0}_replay_{1}(), '0/0')::bigint)"
-                        "     ELSE pg_{0}_{1}_diff(pg_current_{0}_{1}(), '0/0')::bigint "
-                        "END")
+wal_position_query = ("CASE WHEN pg_is_in_recovery() THEN GREATEST("
+                      "            pg_{0}_{1}_diff(COALESCE(pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint,"
+                      "            pg_{0}_{1}_diff(pg_last_{0}_replay_{1}(), '0/0')::bigint)"
+                      "     ELSE pg_{0}_{1}_diff(pg_current_{0}_{1}(), '0/0')::bigint "
+                      "END")
 
 
 def quote_ident(value):
@@ -703,7 +703,7 @@ class Postgresql(object):
 
     def _cluster_info_state_get(self, name):
         if not self._cluster_info_state:
-            stmt = "SELECT pg_is_in_recovery(), " + cluster_status_query.format(self.wal_name, self.lsn_name)
+            stmt = "SELECT pg_is_in_recovery(), " + wal_position_query.format(self.wal_name, self.lsn_name)
 
             try:
                 result = self._is_leader_retry(self._query, stmt).fetchone()
@@ -1387,7 +1387,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
             return self._cluster_info_state_get('wal_position')
 
         with self.connection().cursor() as cursor:
-            cursor.execute(cluster_status_query.format(self.wal_name, self.lsn_name))
+            cursor.execute(wal_position_query.format(self.wal_name, self.lsn_name))
             return cursor.fetchone()[0]
 
     def load_replication_slots(self):
