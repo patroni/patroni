@@ -521,33 +521,26 @@ def reinit(obj, cluster_name, member_names, force):
         check_response(r, member.name, 'reinitialize')
 
 
-@ctl.command('failover', help='Failover to a replica')
-@click.argument('cluster_name')
-@click.option('--master', help='The name of the current master', default=None)
-@click.option('--candidate', help='The name of the candidate', default=None)
-@click.option('--scheduled', help='Timestamp of a scheduled failover in unambiguous format (e.g. ISO 8601)',
-              default=None)
-@option_force
-@click.pass_obj
-def failover(obj, cluster_name, master, candidate, force, scheduled):
+def _do_failover_or_switchover(obj, action, cluster_name, master, candidate, force, scheduled=None):
     """
-        We want to trigger a failover for the specified cluster name.
+        We want to trigger a failover or switchover for the specified cluster name.
 
         We verify that the cluster name, master name and candidate name are correct.
-        If so, we trigger a failover and keep the client up to date.
+        If so, we trigger an action and keep the client up to date.
     """
 
     dcs = get_dcs(obj, cluster_name)
     cluster = dcs.get_cluster()
 
-    if cluster.leader is None and not cluster.is_paused():
-        raise PatroniCtlException('This cluster has no master')
+    if action == 'switchover':
+        if cluster.leader is None:
+            raise PatroniCtlException('This cluster has no master')
 
-    if master is None and (not cluster.is_paused() or cluster.leader):
-        if force:
-            master = cluster.leader.member.name
-        else:
-            master = click.prompt('Master', type=str, default=cluster.leader.member.name)
+        if master is None:
+            if force:
+                master = cluster.leader.member.name
+            else:
+                master = click.prompt('Master', type=str, default=cluster.leader.member.name)
 
     if master is not None and cluster.leader and cluster.leader.member.name != master:
         raise PatroniCtlException('Member {0} is not the leader of cluster {1}'.format(master, cluster_name))
@@ -557,28 +550,32 @@ def failover(obj, cluster_name, master, candidate, force, scheduled):
     candidate_names.sort()
 
     if not candidate_names:
-        raise PatroniCtlException('No candidates found to failover to')
+        raise PatroniCtlException('No candidates found to {0} to'.format(action))
 
     if candidate is None and not force:
         candidate = click.prompt('Candidate ' + str(candidate_names), type=str, default='')
 
+    if action == 'failover' and not candidate:
+        raise PatroniCtlException('Failover could be performed only to a specific candidate')
+
     if candidate == master:
-        raise PatroniCtlException('Failover target and source are the same.')
+        raise PatroniCtlException(action.title() + ' target and source are the same.')
 
     if candidate and candidate not in candidate_names:
         raise PatroniCtlException('Member {0} does not exist in cluster {1}'.format(candidate, cluster_name))
 
-    if scheduled is None and not force:
-        scheduled = click.prompt('When should the failover take place (e.g. 2015-10-01T14:30) ', type=str,
-                                 default='now')
-
-    scheduled_at = parse_scheduled(scheduled)
-
     scheduled_at_str = None
-    if scheduled_at:
-        if cluster.is_paused():
-            raise PatroniCtlException("Can't schedule failover in the paused state")
-        scheduled_at_str = scheduled_at.isoformat()
+
+    if action == 'switchover':
+        if scheduled is None and not force:
+            scheduled = click.prompt('When should the switchover take place (e.g. 2015-10-01T14:30) ',
+                                     type=str, default='now')
+
+        scheduled_at = parse_scheduled(scheduled)
+        if scheduled_at:
+            if cluster.is_paused():
+                raise PatroniCtlException("Can't schedule switchover in the paused state")
+            scheduled_at_str = scheduled_at.isoformat()
 
     failover_value = {'leader': master, 'candidate': candidate, 'scheduled_at': scheduled_at_str}
 
@@ -589,33 +586,54 @@ def failover(obj, cluster_name, master, candidate, force, scheduled):
     output_members(dcs.get_cluster(), cluster_name)
 
     if not force:
-        a = \
-            click.confirm('Are you sure you want to failover cluster {0}, demoting current master {1}?'.format(
-                cluster_name, master))
-        if not a:
-            raise PatroniCtlException('Aborting failover')
+        demote_msg = ', demoting current master ' + master if master else ''
+
+        if not click.confirm('Are you sure you want to {0} cluster {1}{2}?'.format(action, cluster_name, demote_msg)):
+            raise PatroniCtlException('Aborting ' + action)
 
     r = None
     try:
-        member = cluster.leader.member if cluster.leader else [m for m in cluster.members if m.name == candidate][0]
+        member = cluster.leader.member if cluster.leader else cluster.get_member(candidate, False)
 
-        r = request_patroni(member, 'post', 'failover', failover_value, auth_header(obj))
+        r = request_patroni(member, 'post', action, failover_value, auth_header(obj))
         if r.status_code in (200, 202):
             logging.debug(r)
             cluster = dcs.get_cluster()
             logging.debug(cluster)
             click.echo('{0} {1}'.format(timestamp(), r.text))
         else:
-            click.echo('Failover failed, details: {0}, {1}'.format(r.status_code, r.text))
+            click.echo('{0} failed, details: {1}, {2}'.format(action.title(), r.status_code, r.text))
             return
     except Exception:
         logging.exception(r)
         logging.warning('Failing over to DCS')
-        click.echo(timestamp() + ' Could not failover using Patroni api, falling back to DCS')
-        click.echo(timestamp() + ' Initializing failover from master {0}'.format(master))
+        click.echo('{0} Could not {1} using Patroni api, falling back to DCS'.format(timestamp(), action))
         dcs.manual_failover(master, candidate, scheduled_at=scheduled_at)
 
     output_members(cluster, cluster_name)
+
+
+@ctl.command('failover', help='Failover to a replica')
+@click.argument('cluster_name')
+@click.option('--master', help='The name of the current master', default=None)
+@click.option('--candidate', help='The name of the candidate', default=None)
+@option_force
+@click.pass_obj
+def failover(obj, cluster_name, master, candidate, force):
+    action = 'switchover' if master else 'failover'
+    _do_failover_or_switchover(obj, action, cluster_name, master, candidate, force)
+
+
+@ctl.command('switchover', help='Switchover to a replica')
+@click.argument('cluster_name')
+@click.option('--master', help='The name of the current master', default=None)
+@click.option('--candidate', help='The name of the candidate', default=None)
+@click.option('--scheduled', help='Timestamp of a scheduled switchover in unambiguous format (e.g. ISO 8601)',
+              default=None)
+@option_force
+@click.pass_obj
+def switchover(obj, cluster_name, master, candidate, force, scheduled):
+    _do_failover_or_switchover(obj, 'switchover', cluster_name, master, candidate, force, scheduled)
 
 
 def output_members(cluster, name, extended=False, fmt='pretty'):

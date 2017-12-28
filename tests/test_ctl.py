@@ -74,69 +74,78 @@ class TestCtl(unittest.TestCase):
 
     @patch('patroni.ctl.get_dcs')
     @patch('patroni.ctl.request_patroni', Mock(return_value=MockResponse()))
-    def test_failover(self, mock_get_dcs):
+    def test_switchover(self, mock_get_dcs):
         mock_get_dcs.return_value = self.e
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
         mock_get_dcs.return_value.set_failover_value = Mock()
-        result = self.runner.invoke(ctl, ['failover', 'dummy'], input='leader\nother\n\ny')
+        result = self.runner.invoke(ctl, ['switchover', 'dummy'], input='leader\nother\n\ny')
         assert 'leader' in result.output
 
-        result = self.runner.invoke(ctl, ['failover', 'dummy'], input='leader\nother\n2300-01-01T12:23:00\ny')
+        result = self.runner.invoke(ctl, ['switchover', 'dummy'], input='leader\nother\n2300-01-01T12:23:00\ny')
         assert result.exit_code == 0
 
         with patch('patroni.dcs.Cluster.is_paused', Mock(return_value=True)):
-            result = self.runner.invoke(ctl, ['failover', 'dummy', '--force', '--scheduled', '2015-01-01T12:00:00'])
+            result = self.runner.invoke(ctl, ['switchover', 'dummy', '--force', '--scheduled', '2015-01-01T12:00:00'])
             assert result.exit_code == 1
 
-        # Aborting failover,as we anser NO to the confirmation
-        result = self.runner.invoke(ctl, ['failover', 'dummy'], input='leader\nother\n\nN')
+        # Aborting switchover, as we anser NO to the confirmation
+        result = self.runner.invoke(ctl, ['switchover', 'dummy'], input='leader\nother\n\nN')
         assert result.exit_code == 1
 
         # Target and source are equal
-        result = self.runner.invoke(ctl, ['failover', 'dummy'], input='leader\nleader\n\ny')
+        result = self.runner.invoke(ctl, ['switchover', 'dummy'], input='leader\nleader\n\ny')
         assert result.exit_code == 1
 
         # Reality is not part of this cluster
-        result = self.runner.invoke(ctl, ['failover', 'dummy'], input='leader\nReality\n\ny')
+        result = self.runner.invoke(ctl, ['switchover', 'dummy'], input='leader\nReality\n\ny')
         assert result.exit_code == 1
 
-        result = self.runner.invoke(ctl, ['failover', 'dummy', '--force'])
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--force'])
         assert 'Member' in result.output
 
-        result = self.runner.invoke(ctl, ['failover', 'dummy', '--force', '--scheduled', '2015-01-01T12:00:00+01:00'])
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--force', '--scheduled', '2015-01-01T12:00:00+01:00'])
         assert result.exit_code == 0
 
         # Invalid timestamp
-        result = self.runner.invoke(ctl, ['failover', 'dummy', '--force', '--scheduled', 'invalid'])
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--force', '--scheduled', 'invalid'])
         assert result.exit_code != 0
 
         # Invalid timestamp
-        result = self.runner.invoke(ctl, ['failover', 'dummy', '--force', '--scheduled', '2115-02-30T12:00:00+01:00'])
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--force', '--scheduled', '2115-02-30T12:00:00+01:00'])
         assert result.exit_code != 0
 
         # Specifying wrong leader
-        result = self.runner.invoke(ctl, ['failover', 'dummy'], input='dummy')
+        result = self.runner.invoke(ctl, ['switchover', 'dummy'], input='dummy')
         assert result.exit_code == 1
 
         with patch('patroni.ctl.request_patroni', Mock(side_effect=Exception)):
             # Non-responding patroni
-            result = self.runner.invoke(ctl, ['failover', 'dummy'], input='leader\nother\n2300-01-01T12:23:00\ny')
+            result = self.runner.invoke(ctl, ['switchover', 'dummy'], input='leader\nother\n2300-01-01T12:23:00\ny')
             assert 'falling back to DCS' in result.output
 
         with patch('patroni.ctl.request_patroni') as mocked:
             mocked.return_value.status_code = 500
-            result = self.runner.invoke(ctl, ['failover', 'dummy'], input='leader\nother\n\ny')
-            assert 'Failover failed' in result.output
+            result = self.runner.invoke(ctl, ['switchover', 'dummy'], input='leader\nother\n\ny')
+            assert 'Switchover failed' in result.output
 
         # No members available
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_only_leader
-        result = self.runner.invoke(ctl, ['failover', 'dummy'], input='leader\nother\n\ny')
+        result = self.runner.invoke(ctl, ['switchover', 'dummy'], input='leader\nother\n\ny')
         assert result.exit_code == 1
 
         # No master available
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_without_leader
-        result = self.runner.invoke(ctl, ['failover', 'dummy'], input='leader\nother\n\ny')
+        result = self.runner.invoke(ctl, ['switchover', 'dummy'], input='leader\nother\n\ny')
         assert result.exit_code == 1
+
+    @patch('patroni.ctl.get_dcs')
+    @patch('patroni.ctl.request_patroni', Mock(return_value=MockResponse()))
+    def test_failover(self, mock_get_dcs):
+        mock_get_dcs.return_value = self.e
+        mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
+        mock_get_dcs.return_value.set_failover_value = Mock()
+        result = self.runner.invoke(ctl, ['failover', 'dummy'], input='\n')
+        assert 'Failover could be performed only to a specific candidate' in result.output
 
     def test_get_dcs(self):
         self.assertRaises(PatroniCtlException, get_dcs, {'dummy': {}}, 'dummy')

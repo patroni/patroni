@@ -125,10 +125,10 @@ def check_response(context, component, data):
         assert str(context.response[component]) == str(data), "{0} does not contain {1}".format(component, data)
 
 
-@step('I issue a scheduled failover from {from_host:w} to {to_host:w} in {in_seconds:d} seconds')
-def scheduled_failover(context, from_host, to_host, in_seconds):
+@step('I issue a scheduled switchover from {from_host:w} to {to_host:w} in {in_seconds:d} seconds')
+def scheduled_switchover(context, from_host, to_host, in_seconds):
     context.execute_steps(u"""
-        Given I run patronictl.py failover batman --master {0} --candidate {1} --scheduled "{2}" --force
+        Given I run patronictl.py switchover batman --master {0} --candidate {1} --scheduled "{2}" --force
     """.format(from_host, to_host, datetime.now(tzutc) + timedelta(seconds=int(in_seconds))))
 
 
