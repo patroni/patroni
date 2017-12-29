@@ -431,7 +431,7 @@ class TestPostgresql(unittest.TestCase):
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def test_sync_replication_slots(self):
         self.p.start()
-        cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None, None)
+        cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None, None, None)
         with mock.patch('patroni.postgresql.Postgresql._query', Mock(side_effect=psycopg2.OperationalError)):
             self.p.sync_replication_slots(cluster)
         self.p.sync_replication_slots(cluster)
@@ -790,7 +790,7 @@ class TestPostgresql(unittest.TestCase):
 
     def test_pick_sync_standby(self):
         cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None,
-                          SyncState(0, self.me.name, self.leadermem.name))
+                          SyncState(0, self.me.name, self.leadermem.name), None)
 
         with patch.object(Postgresql, "query", return_value=[
                     (self.leadermem.name, 'streaming', 'sync'),

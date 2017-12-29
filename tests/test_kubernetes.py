@@ -101,3 +101,6 @@ class TestKubernetes(unittest.TestCase):
             self.assertFalse(self.k.watch('1', 2))
             self.assertRaises(KeyboardInterrupt, self.k.watch, '1', 2)
             self.assertTrue(self.k.watch('1', 2))
+
+    def test_set_history_value(self):
+        self.k.set_history_value('{}')
