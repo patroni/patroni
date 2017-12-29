@@ -703,11 +703,12 @@ class Postgresql(object):
 
     def _cluster_info_state_get(self, name):
         if not self._cluster_info_state:
-            stmt = "SELECT pg_is_in_recovery(), " + wal_position_query.format(self.wal_name, self.lsn_name)
-
+            stmt = ('SELECT CASE WHEN pg_is_in_recovery() THEN 0 ELSE ' +
+                    'SUBSTR(pg_{0}file_name(pg_current_{0}_{1}()), 1, 8)::int END, ' +
+                    wal_position_query).format(self.wal_name, self.lsn_name)
             try:
                 result = self._is_leader_retry(self._query, stmt).fetchone()
-                self._cluster_info_state = dict(zip(['is_in_recovery', 'wal_position'], result))
+                self._cluster_info_state = dict(zip(['timeline', 'wal_position'], result))
             except RetryFailedError as e:  # SELECT failed two times
                 self._cluster_info_state = {'error': str(e)}
                 if not self.is_starting() and self.pg_isready() == STATE_REJECT:
@@ -719,7 +720,7 @@ class Postgresql(object):
         return self._cluster_info_state.get(name)
 
     def is_leader(self):
-        return not self._cluster_info_state_get('is_in_recovery')
+        return bool(self._cluster_info_state_get('timeline'))
 
     def is_running(self):
         """Returns PostmasterProcess if one is running on the data directory or None. If most recently seen process

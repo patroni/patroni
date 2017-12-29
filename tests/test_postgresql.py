@@ -33,8 +33,10 @@ class MockCursor(object):
             raise RetryFailedError('retry')
         elif sql.startswith('SELECT slot_name'):
             self.results = [('blabla',), ('foobar',)]
-        elif sql.startswith('SELECT CASE WHEN pg_is_in_recovery()'):
+        elif sql.startswith('SELECT CASE WHEN pg_is_in_recovery() THEN GREATEST'):
             self.results = [(2,)]
+        elif sql.startswith('SELECT CASE WHEN pg_is_in_recovery()'):
+            self.results = [(1, 2)]
         elif sql.startswith('SELECT pg_is_in_recovery()'):
             self.results = [(False, 2)]
         elif sql.startswith('WITH replication_info AS ('):
