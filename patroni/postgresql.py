@@ -216,7 +216,7 @@ class Postgresql(object):
     def get_server_parameters(self, config):
         parameters = config['parameters'].copy()
         listen_addresses, port = split_host_port(config['listen'], 5432)
-        parameters.update({'cluster_name': self.scope, 'listen_addresses': listen_addresses, 'port': port})
+        parameters.update({'cluster_name': self.scope, 'listen_addresses': listen_addresses, 'port': str(port)})
         if config.get('synchronous_mode', False):
             if self._synchronous_standby_names is None:
                 if config.get('synchronous_mode_strict', False):
