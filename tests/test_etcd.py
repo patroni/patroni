@@ -262,6 +262,8 @@ class TestEtcd(unittest.TestCase):
                                   {'url': 'https://test:2379', 'retry_timeout': 10})
                 self.assertRaises(SleepException, self.etcd.get_etcd_client,
                                   {'proxy': 'https://user:password@test:2379', 'retry_timeout': 10})
+                self.assertRaises(SleepException, self.etcd.get_etcd_client,
+                                  {'hosts': 'foo:4001,bar', 'retry_timeout': 10})
 
     def test_get_cluster(self):
         self.assertIsInstance(self.etcd.get_cluster(), Cluster)

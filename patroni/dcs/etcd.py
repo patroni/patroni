@@ -6,6 +6,7 @@ import os
 import urllib3.util.connection
 import random
 import requests
+import six
 import socket
 import time
 
@@ -13,7 +14,7 @@ from dns.exception import DNSException
 from dns import resolver
 from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState
 from patroni.exceptions import DCSError
-from patroni.utils import Retry, RetryFailedError
+from patroni.utils import Retry, RetryFailedError, split_host_port
 from urllib3.exceptions import HTTPError, ReadTimeoutError
 from requests.exceptions import RequestException
 from six.moves.queue import Queue
@@ -22,6 +23,10 @@ from six.moves.urllib_parse import urlparse
 from threading import Thread
 
 logger = logging.getLogger(__name__)
+
+
+def uri(protocol, host, port, endpoint=''):
+    return '{0}://{1}:{2}{3}'.format(protocol, host, port, endpoint)
 
 
 class EtcdError(DCSError):
@@ -228,7 +233,7 @@ class Client(etcd.Client):
             protocol = 'https' if '-ssl' in r else 'http'
             endpoint = '/members' if '-server' in r else ''
             for host, port in self.get_srv_record('_etcd{0}._tcp.{1}'.format(r, srv)):
-                url = '{0}://{1}:{2}{3}'.format(protocol, host, port, endpoint)
+                url = uri(protocol, host, port, endpoint)
                 if endpoint:
                     try:
                         response = requests.get(url, timeout=self.read_timeout, verify=False)
@@ -255,10 +260,10 @@ class Client(etcd.Client):
                 host, port = sa[:2]
                 if af == socket.AF_INET6:
                     host = '[{0}]'.format(host)
-                ret.append('{0}://{1}:{2}'.format(self.protocol, host, port))
+                ret.append(uri(self.protocol, host, port))
             if ret:
                 return list(set(ret))
-        return ['{0}://{1}:{2}'.format(self.protocol, host, port)]
+        return [uri(self.protocol, host, port)]
 
     def _load_machines_cache(self):
         """This method should fill up `_machines_cache` from scratch.
@@ -268,16 +273,19 @@ class Client(etcd.Client):
 
         self._update_machines_cache = True
 
-        if 'srv' not in self._config and 'host' not in self._config:
-            raise Exception('Neither srv nor host url are defined in etcd section of config')
+        if 'srv' not in self._config and 'host' not in self._config and 'hosts' not in self._config:
+            raise Exception('Neither srv, hosts, host nor url are defined in etcd section of config')
 
         if self._use_proxies:
-            self._machines_cache = ['{0}://{1}:{2}'.format(self.protocol, self._config['host'], self._config['port'])]
+            self._machines_cache = [uri(self.protocol, self._config['host'], self._config['port'])]
         else:
             self._machines_cache = []
 
             if 'srv' in self._config:
                 self._machines_cache = self._get_machines_cache_from_srv(self._config['srv'])
+
+            if not self._machines_cache and 'hosts' in self._config:
+                self._machines_cache = list(self._config['hosts'])
 
             if not self._machines_cache and 'host' in self._config:
                 self._machines_cache = self._get_machines_cache_from_dns(self._config['host'], self._config['port'])
@@ -348,8 +356,20 @@ class Etcd(AbstractDCS):
             r = urlparse(config['url'])
             config.update({'protocol': r.scheme, 'host': r.hostname, 'port': r.port or 2379,
                            'username': r.username, 'password': r.password})
+        elif 'hosts' in config:
+            hosts = config.pop('hosts')
+            default_port = config.pop('port', 2379)
+            protocol = config.get('protocol', 'http')
+
+            if isinstance(hosts, six.string_types):
+                hosts = hosts.split(',')
+
+            config['hosts'] = []
+            for value in hosts:
+                if isinstance(value, six.string_types):
+                    config['hosts'].append(uri(protocol, *split_host_port(value, default_port)))
         elif 'host' in config:
-            host, port = (config['host'] + ':2379').split(':')[:2]
+            host, port = split_host_port(config['host'], 2379)
             config['host'] = host
             if 'port' not in config:
                 config['port'] = int(port)
