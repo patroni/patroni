@@ -483,7 +483,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
     def __initialize(self, config):
         self.__ssl_options = self.__get_ssl_options(config)
         self.__listen = config['listen']
-        host, port = config['listen'].split(':')
+        host, port = config['listen'].rsplit(':', 1)
         HTTPServer.__init__(self, (host, int(port)), RestApiHandler)
         Thread.__init__(self, target=self.serve_forever)
         self._set_fd_cloexec(self.socket)

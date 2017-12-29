@@ -13,7 +13,7 @@ from collections import defaultdict
 from contextlib import contextmanager
 from patroni.callback_executor import CallbackExecutor
 from patroni.exceptions import PostgresConnectionException, PostgresException
-from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop
+from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, split_host_port
 from patroni.postmaster import PostmasterProcess
 from six import string_types
 from six.moves.urllib.parse import quote_plus
@@ -215,7 +215,7 @@ class Postgresql(object):
 
     def get_server_parameters(self, config):
         parameters = config['parameters'].copy()
-        listen_addresses, port = (config['listen'] + ':5432').split(':')[:2]
+        listen_addresses, port = split_host_port(config['listen'], 5432)
         parameters.update({'cluster_name': self.scope, 'listen_addresses': listen_addresses, 'port': port})
         if config.get('synchronous_mode', False):
             if self._synchronous_standby_names is None:
