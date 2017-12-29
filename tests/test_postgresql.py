@@ -341,7 +341,7 @@ class TestPostgresql(unittest.TestCase):
 
     @patch.object(Postgresql, 'start', Mock())
     @patch.object(Postgresql, 'can_rewind', PropertyMock(return_value=True))
-    @patch.object(Postgresql, '_get_local_timeline_lsn', Mock(return_value=(2, '0/40159C1')))
+    @patch.object(Postgresql, '_get_local_timeline_lsn', Mock(return_value=(2, '40159C1')))
     @patch.object(Postgresql, 'check_leader_is_not_in_recovery')
     def test__check_timeline_and_lsn(self, mock_check_leader_is_not_in_recovery):
         mock_check_leader_is_not_in_recovery.return_value = False
@@ -352,12 +352,8 @@ class TestPostgresql(unittest.TestCase):
         self.p.trigger_check_diverged_lsn()
         with patch('psycopg2.connect', Mock(side_effect=Exception)):
             self.assertFalse(self.p.rewind_needed_and_possible(self.leader))
-        with patch.object(MockCursor, 'fetchone',
-                          Mock(side_effect=[('', 2, '0/0'), ('', b'2\tG/40159C0\tno recovery target specified\n\n')])):
-            self.assertFalse(self.p.rewind_needed_and_possible(self.leader))
         self.p.trigger_check_diverged_lsn()
-        with patch.object(MockCursor, 'fetchone',
-                          Mock(side_effect=[('', 2, '0/0'), ('', b'3\t040159C0\tno recovery target specified\n')])):
+        with patch.object(MockCursor, 'fetchone', Mock(side_effect=[('', 2, '0/0'), ('', b'3\t0/40159C0\tn\n')])):
             self.assertFalse(self.p.rewind_needed_and_possible(self.leader))
         self.p.trigger_check_diverged_lsn()
         with patch.object(MockCursor, 'fetchone', Mock(return_value=('', 1, '0/0'))):

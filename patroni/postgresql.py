@@ -1209,6 +1209,23 @@ class Postgresql(object):
         logger.info('Local timeline=%s lsn=%s', timeline, lsn)
         return timeline, lsn
 
+    @staticmethod
+    def parse_lsn(lsn):
+        t = lsn.split('/')
+        return int(t[0], 16) * 0x100000000 + int(t[1], 16)
+
+    @staticmethod
+    def parse_history(data):
+        for line in data.split('\n'):
+            values = line.strip().split('\t')
+            if len(values) == 3:
+                try:
+                    values[0] = int(values[0])
+                    values[1] = Postgresql.parse_lsn(values[1])
+                    yield values
+                except (IndexError, ValueError):
+                    logger.exception('Exception when parsing timeline history line "%s"', values)
+
     def _check_timeline_and_lsn(self, leader):
         local_timeline, local_lsn = self._get_local_timeline_lsn()
         if local_timeline is None or local_lsn is None:
@@ -1235,25 +1252,15 @@ class Postgresql(object):
             return logger.exception('Exception when working with master via replication connection')
 
         if history is not None:
-            def parse_lsn(lsn):
-                t = lsn.split('/')
-                return int(t[0], 16) * 0x100000000 + int(t[1], 16)
-
-            for line in history.split('\n'):
-                line = line.strip().split('\t')
-                if len(line) == 3:
+            for parent_timeline, switchpoint, _ in self.parse_history(history):
+                if parent_timeline == local_timeline:
                     try:
-                        timeline = int(line[0])
-                        if timeline == local_timeline:
-                            try:
-                                need_rewind = parse_lsn(local_lsn) >= parse_lsn(line[1])
-                            except ValueError:
-                                logger.exception('Exception when parsing lsn')
-                            break
-                        elif timeline > local_timeline:
-                            break
-                    except ValueError:
-                        continue
+                        need_rewind = self.parse_lsn(local_lsn) >= switchpoint
+                    except (IndexError, ValueError):
+                        logger.exception('Exception when parsing lsn')
+                    break
+                elif parent_timeline > local_timeline:
+                    break
 
         self._rewind_state = need_rewind and REWIND_STATUS.NEED or REWIND_STATUS.NOT_NEED
 
