@@ -707,7 +707,7 @@ class Postgresql(object):
 
             try:
                 result = self._is_leader_retry(self._query, stmt).fetchone()
-                self._cluster_info_state = dict(zip(['is_leader', 'wal_position'], result))
+                self._cluster_info_state = dict(zip(['is_in_recovery', 'wal_position'], result))
             except RetryFailedError as e:  # SELECT failed two times
                 self._cluster_info_state = {'error': str(e)}
                 if not self.is_starting() and self.pg_isready() == STATE_REJECT:
@@ -719,7 +719,7 @@ class Postgresql(object):
         return self._cluster_info_state.get(name)
 
     def is_leader(self):
-        return not self._cluster_info_state_get('is_leader')
+        return not self._cluster_info_state_get('is_in_recovery')
 
     def is_running(self):
         """Returns PostmasterProcess if one is running on the data directory or None. If most recently seen process
@@ -1387,7 +1387,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
             return self._cluster_info_state_get('wal_position')
 
         with self.connection().cursor() as cursor:
-            cursor.execute(wal_position_query.format(self.wal_name, self.lsn_name))
+            cursor.execute('SELECT ' + wal_position_query.format(self.wal_name, self.lsn_name))
             return cursor.fetchone()[0]
 
     def load_replication_slots(self):
