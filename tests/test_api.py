@@ -37,6 +37,10 @@ class MockPostgresql(object):
     def postmaster_start_time():
         return str(postmaster_start_time)
 
+    @staticmethod
+    def replica_cached_timeline(_):
+        return 2
+
 
 class MockWatchdog(object):
     is_healthy = False
@@ -148,6 +152,8 @@ class TestRestApiHandler(unittest.TestCase):
         with patch.object(MockHa, 'restart_scheduled', Mock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /master')
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /master'))
+        with patch.object(RestApiServer, 'query', Mock(return_value=[('', 1, '', '', '', '', False, '')])):
+            self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /patroni'))
 
     def test_do_OPTIONS(self):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'OPTIONS / HTTP/1.0'))

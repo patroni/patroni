@@ -41,7 +41,7 @@ class MockCursor(object):
         elif sql.startswith('WITH replication_info AS ('):
             replication_info = '[{"application_name":"walreceiver","client_addr":"1.2.3.4",' +\
                                '"state":"streaming","sync_state":"async","sync_priority":0}]'
-            self.results = [('', True, '', '', '', '', False, replication_info)]
+            self.results = [('', 0, '', '', '', '', False, replication_info)]
         elif sql.startswith('SELECT name, setting'):
             self.results = [('wal_segment_size', '2048', '8kB', 'integer', 'internal'),
                             ('search_path', 'public', None, 'string', 'user'),

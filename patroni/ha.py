@@ -83,8 +83,7 @@ class Ha(object):
             self.old_cluster = cluster
         self.cluster = cluster
 
-        if not cluster.is_unlocked():
-            self._leader_timeline = cluster.leader.timeline
+        self._leader_timeline = None if cluster.is_unlocked() else cluster.leader.timeline
 
     def acquire_lock(self):
         return self.dcs.attempt_to_acquire_leader()
