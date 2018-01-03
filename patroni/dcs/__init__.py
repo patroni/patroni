@@ -177,6 +177,10 @@ class Leader(namedtuple('Leader', 'index,session,member')):
     def conn_url(self):
         return self.member.conn_url
 
+    @property
+    def timeline(self):
+        return self.member.data.get('timeline')
+
 
 class Failover(namedtuple('Failover', 'index,leader,candidate,scheduled_at')):
 

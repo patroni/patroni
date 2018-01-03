@@ -5,7 +5,7 @@ import unittest
 
 from mock import Mock, MagicMock, PropertyMock, patch
 from patroni.config import Config
-from patroni.dcs import Cluster, ClusterConfig, Failover, Leader, Member, get_dcs, SyncState
+from patroni.dcs import Cluster, ClusterConfig, Failover, Leader, Member, get_dcs, SyncState, TimelineHistory
 from patroni.dcs.etcd import Client
 from patroni.exceptions import DCSError, PostgresConnectionException, PatroniException
 from patroni.ha import Ha, _MemberStatus
@@ -25,7 +25,8 @@ def false(*args, **kwargs):
 
 
 def get_cluster(initialize, leader, members, failover, sync):
-    return Cluster(initialize, ClusterConfig(1, {1: 2}, 1), leader, 10, members, failover, sync, None)
+    history = TimelineHistory(1, [(1, 67197376, 'no recovery target specified', datetime.datetime.now().isoformat())])
+    return Cluster(initialize, ClusterConfig(1, {1: 2}, 1), leader, 10, members, failover, sync, history)
 
 
 def get_cluster_not_initialized_without_leader():
@@ -114,7 +115,8 @@ def run_async(self, func, args=()):
 
 @patch.object(Postgresql, 'is_running', Mock(return_value=MockPostmaster()))
 @patch.object(Postgresql, 'is_leader', Mock(return_value=True))
-@patch.object(Postgresql, 'wal_position', Mock(return_value=10))
+@patch.object(Postgresql, 'timeline_wal_position', Mock(return_value=(1, 10)))
+@patch.object(Postgresql, '_cluster_info_state_get', Mock(return_value=3))
 @patch.object(Postgresql, 'call_nowait', Mock(return_value=True))
 @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=False))
 @patch.object(Postgresql, 'controldata', Mock(return_value={'Database system identifier': '1234567890'}))
@@ -128,6 +130,7 @@ def run_async(self, func, args=()):
 @patch.object(etcd.Client, 'write', etcd_write)
 @patch.object(etcd.Client, 'read', etcd_read)
 @patch.object(etcd.Client, 'delete', Mock(side_effect=etcd.EtcdException))
+@patch('patroni.postgresql.polling_loop', Mock(return_value=range(1)))
 @patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=False))
 @patch('patroni.async_executor.AsyncExecutor.run_async', run_async)
 @patch('subprocess.call', Mock(return_value=0))
@@ -164,7 +167,8 @@ class TestHa(unittest.TestCase):
         self.assertTrue(self.ha.update_lock(True))
 
     def test_touch_member(self):
-        self.p.wal_position = Mock(side_effect=Exception)
+        self.p.timeline_wal_position = Mock(return_value=(0, 1))
+        self.p.replica_cached_timeline = Mock(side_effect=Exception)
         self.ha.touch_member()
 
     def test_start_as_replica(self):
@@ -219,8 +223,10 @@ class TestHa(unittest.TestCase):
         self.p.is_leader = false
         self.p.is_healthy = true
         self.ha.has_lock = true
+        self.p.controldata = lambda: {'Database cluster state': 'in production'}
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader because i had the session lock')
 
+    @patch('psycopg2.connect', psycopg2_connect)
     def test_acquire_lock_as_master(self):
         self.assertEquals(self.ha.run_cycle(), 'acquired session lock as a leader')
 
@@ -524,7 +530,7 @@ class TestHa(unittest.TestCase):
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         self.ha.fetch_node_status = get_node_status(wal_position=11)  # accessible, in_recovery, wal position ahead
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
-        with patch('patroni.postgresql.Postgresql.wal_position', return_value=1):
+        with patch('patroni.postgresql.Postgresql.timeline_wal_position', return_value=(1, 1)):
             self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         self.ha.patroni.nofailover = True
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))

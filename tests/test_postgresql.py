@@ -1,3 +1,4 @@
+import datetime
 import mock  # for the mock.call method, importing it without a namespace breaks python3
 import os
 import psycopg2
@@ -33,8 +34,6 @@ class MockCursor(object):
             raise RetryFailedError('retry')
         elif sql.startswith('SELECT slot_name'):
             self.results = [('blabla',), ('foobar',)]
-        elif sql.startswith('SELECT CASE WHEN pg_is_in_recovery() THEN GREATEST'):
-            self.results = [(2,)]
         elif sql.startswith('SELECT CASE WHEN pg_is_in_recovery()'):
             self.results = [(1, 2)]
         elif sql.startswith('SELECT pg_is_in_recovery()'):
@@ -52,6 +51,11 @@ class MockCursor(object):
                             ('unix_socket_directories', '/tmp', None, 'string', 'postmaster')]
         elif sql.startswith('IDENTIFY_SYSTEM'):
             self.results = [('1', 2, '0/402EEC0', '')]
+        elif sql.startswith('SELECT isdir, modification'):
+            self.results = [(False, datetime.datetime.now())]
+        elif sql.startswith('SELECT pg_read_file'):
+            self.results = [('1\t0/40159C0\tno recovery target specified\n\n' +
+                             '2\t1/40159C0\tno recovery target specified\n',)]
         elif sql.startswith('TIMELINE_HISTORY '):
             self.results = [('', b'x\t0/40159C0\tno recovery target specified\n\n' +
                                  b'1\t0/40159C0\tno recovery target specified\n\n' +
@@ -473,12 +477,12 @@ class TestPostgresql(unittest.TestCase):
 
     def test_promote(self):
         self.p.set_role('replica')
-        self.assertTrue(self.p.promote())
-        self.assertTrue(self.p.promote())
+        self.assertIsNone(self.p.promote(0))
+        self.assertTrue(self.p.promote(0))
 
-    def test_last_operation(self):
-        self.assertEquals(self.p.last_operation(), '2')
-        Thread(target=self.p.last_operation).start()
+    def test_timeline_wal_position(self):
+        self.assertEquals(self.p.timeline_wal_position(), (1, 2))
+        Thread(target=self.p.timeline_wal_position).start()
 
     @patch.object(PostmasterProcess, 'from_pidfile')
     def test_is_running(self, mock_frompidfile):
@@ -907,3 +911,9 @@ class TestPostgresql(unittest.TestCase):
     @patch.object(Postgresql, 'single_user_mode', Mock(return_value=0))
     def test_fix_cluster_state(self):
         self.assertTrue(self.p.fix_cluster_state())
+
+    def test_replica_cached_timeline(self):
+        self.assertEquals(self.p.replica_cached_timeline(1), 2)
+
+    def test_get_master_timeline(self):
+        self.assertEquals(self.p.get_master_timeline(), 1)
