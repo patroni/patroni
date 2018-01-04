@@ -63,9 +63,10 @@ Most of the parameters are optional, but you have to specify one of the **host**
 
 Etcd
 ----
-Most of the parameters are optional, but you have to specify one of the **host**, **url**, **proxy** or **srv**
+Most of the parameters are optional, but you have to specify one of the **host**, **hosts**, **url**, **proxy** or **srv**
 
 -  **host**: the host:port for the etcd endpoint.
+-  **hosts**: list of etcd endpoint in format host1:port1,host2:port2,etc... Could be a comma separated string or an actual yaml list.
 -  **url**: url for the etcd
 -  **proxy**: proxy url for the etcd. If you are connecting to the etcd using proxy, use this parameter instead of **url**
 -  **srv**: Domain to search the SRV record(s) for cluster autodiscovery.

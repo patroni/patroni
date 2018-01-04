@@ -275,3 +275,9 @@ def polling_loop(timeout, interval=1):
         yield iteration
         iteration += 1
         time.sleep(interval)
+
+
+def split_host_port(value, default_port):
+    t = value.rsplit(':', 1)
+    t.append(default_port)
+    return t[0], int(t[1])
