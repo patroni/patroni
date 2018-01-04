@@ -17,7 +17,7 @@ Scenario: check API requests on a stand-alone server
 	Then I receive a response returncode 1
 	And I receive a response output "Error: No candidates found to switchover to"
 	When I issue a POST request to http://127.0.0.1:8008/switchover with {"leader": "postgres0"}
-	Then I receive a response code 500
+	Then I receive a response code 412
 	And I receive a response text switchover is not possible: cluster does not have members except leader
 	When I issue an empty POST request to http://127.0.0.1:8008/failover
 	Then I receive a response code 400

@@ -355,7 +355,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         if not data and not scheduled_at:
             data = self.is_failover_possible(cluster, leader, candidate, action)
             if data:
-                status_code = 500
+                status_code = 412
 
         if not data:
             if self.server.patroni.dcs.manual_failover(leader, candidate, scheduled_at=scheduled_at):
