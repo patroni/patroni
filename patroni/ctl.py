@@ -152,12 +152,12 @@ def print_output(columns, rows=None, alignment=None, fmt='pretty', header=True, 
         click.echo(t)
         return
 
-    if fmt in ['json', 'yaml']:
+    if fmt in ['json', 'yaml', 'yml']:
         elements = [dict(zip(columns, r)) for r in rows]
         if fmt == 'json':
             click.echo(json.dumps(elements))
-        elif fmt == 'yaml':
-            click.echo(yaml.safe_dump(elements, encoding=None, allow_unicode=True, width=200))
+        elif fmt in ('yaml', 'yml'):
+            click.echo(yaml.safe_dump(elements, encoding=None, default_flow_style=False, allow_unicode=True, width=200))
 
     if fmt == 'tsv':
         if columns is not None and header:
@@ -704,12 +704,12 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
 @ctl.command('list', help='List the Patroni members for a given Patroni')
 @click.argument('cluster_names', nargs=-1)
 @click.option('--extended', '-e', help='Show some extra information', is_flag=True)
-@click.option('--timestamp', '-t', help='Print timestamp', is_flag=True)
+@click.option('--timestamp', '-t', 'ts', help='Print timestamp', is_flag=True)
 @option_format
 @option_watch
 @option_watchrefresh
 @click.pass_obj
-def members(obj, cluster_names, fmt, watch, w, extended, timestamp):
+def members(obj, cluster_names, fmt, watch, w, extended, ts):
     if not cluster_names:
         if 'scope' in obj:
             cluster_names = [obj['scope']]
@@ -720,8 +720,8 @@ def members(obj, cluster_names, fmt, watch, w, extended, timestamp):
         dcs = get_dcs(obj, cluster_name)
 
         for _ in watching(w, watch):
-            if timestamp:
-                click.echo(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            if ts:
+                click.echo(timestamp(0))
 
             cluster = dcs.get_cluster()
             output_members(cluster, cluster_name, extended, fmt)
