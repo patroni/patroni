@@ -35,8 +35,8 @@ class MockCursor(object):
             self.results = [('blabla',), ('foobar',)]
         elif sql.startswith('SELECT CASE WHEN pg_is_in_recovery()'):
             self.results = [(2,)]
-        elif sql == 'SELECT pg_is_in_recovery()':
-            self.results = [(False, )]
+        elif sql.startswith('SELECT pg_is_in_recovery()'):
+            self.results = [(False, 2)]
         elif sql.startswith('WITH replication_info AS ('):
             replication_info = '[{"application_name":"walreceiver","client_addr":"1.2.3.4",' +\
                                '"state":"streaming","sync_state":"async","sync_priority":0}]'
@@ -478,6 +478,7 @@ class TestPostgresql(unittest.TestCase):
     @patch.object(Postgresql, 'pg_isready', Mock(return_value=STATE_REJECT))
     def test_is_leader(self):
         self.assertTrue(self.p.is_leader())
+        self.p.reset_cluster_info_state()
         with patch.object(Postgresql, '_query', Mock(side_effect=RetryFailedError(''))):
             self.assertRaises(PostgresConnectionException, self.p.is_leader)
 

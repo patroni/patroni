@@ -125,7 +125,7 @@ class Ha(object):
                 data['pending_restart'] = True
             if not self._async_executor.busy and data['state'] in ['running', 'restarting', 'starting']:
                 try:
-                    data['xlog_location'] = self.state_handler.wal_position(retry=False)
+                    data['xlog_location'] = self.state_handler.wal_position()
                 except Exception:
                     pass
             if self.patroni.scheduled_restart:
@@ -993,6 +993,7 @@ class Ha(object):
     def _run_cycle(self):
         dcs_failed = False
         try:
+            self.state_handler.reset_cluster_info_state()
             self.load_cluster_from_dcs()
 
             if self.is_paused():
