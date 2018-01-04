@@ -115,7 +115,7 @@ class AsyncExecutor(object):
             with self._scheduled_action_lock:
                 if self._scheduled_action is None:
                     return
-                logging.warning('Cancelling long running task %s', self._scheduled_action)
+                logger.warning('Cancelling long running task %s', self._scheduled_action)
             self._is_cancelled = True
 
         self.state_handler.cancel()
