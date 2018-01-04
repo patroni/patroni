@@ -58,7 +58,7 @@ class AsyncExecutor(object):
         self._thread_lock = RLock()
         self._scheduled_action = None
         self._scheduled_action_lock = RLock()
-        self._is_canceled = False
+        self._is_cancelled = False
         self._finish_event = Event()
         self.critical_task = CriticalTask()
 
@@ -71,7 +71,7 @@ class AsyncExecutor(object):
             if self._scheduled_action is not None:
                 return self._scheduled_action
             self._scheduled_action = action
-            self._is_canceled = False
+            self._is_cancelled = False
             self._finish_event.set()
         return None
 
@@ -88,11 +88,11 @@ class AsyncExecutor(object):
         wakeup = False
         try:
             with self:
-                if self._is_canceled:
+                if self._is_cancelled:
                     return
                 self._finish_event.clear()
 
-            self.state_handler.reset_is_canceled()
+            self.state_handler.reset_is_cancelled()
             # if the func returned something (not None) - wake up main HA loop
             wakeup = func(*args) if args else func()
             return wakeup
@@ -115,7 +115,7 @@ class AsyncExecutor(object):
             with self._scheduled_action_lock:
                 if self._scheduled_action is None:
                     return
-            self._is_canceled = True
+            self._is_cancelled = True
 
         self.state_handler.cancel()
         self._finish_event.wait()

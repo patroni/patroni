@@ -125,7 +125,7 @@ def run_async(self, func, args=()):
 @patch.object(Postgresql, 'query', Mock())
 @patch.object(Postgresql, 'checkpoint', Mock())
 @patch.object(Postgresql, 'call_nowait', Mock())
-@patch.object(Postgresql, 'cancelable_subprocess_call', Mock(return_value=0))
+@patch.object(Postgresql, 'cancellable_subprocess_call', Mock(return_value=0))
 @patch.object(etcd.Client, 'write', etcd_write)
 @patch.object(etcd.Client, 'read', etcd_read)
 @patch.object(etcd.Client, 'delete', Mock(side_effect=etcd.EtcdException))
