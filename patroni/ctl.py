@@ -31,6 +31,7 @@ from patroni.dcs import get_dcs as _get_dcs
 from patroni.exceptions import PatroniException
 from patroni.postgresql import Postgresql
 from patroni.utils import patch_config
+from patroni.version import __version__
 from prettytable import PrettyTable
 from six.moves.urllib_parse import urlparse
 from six import text_type
@@ -96,7 +97,7 @@ def store_config(config, path):
         yaml.dump(config, fd)
 
 
-option_format = click.option('--format', '-f', 'fmt', help='Output format (pretty, json)', default='pretty')
+option_format = click.option('--format', '-f', 'fmt', help='Output format (pretty, json, yaml)', default='pretty')
 option_watchrefresh = click.option('-w', '--watch', type=float, help='Auto update the screen every X seconds')
 option_watch = click.option('-W', is_flag=True, help='Auto update the screen every 2 seconds')
 option_force = click.option('--force', is_flag=True, help='Do not ask for confirmation at any point')
@@ -149,9 +150,12 @@ def print_output(columns, rows=None, alignment=None, fmt='pretty', header=True, 
         click.echo(t)
         return
 
-    if fmt == 'json':
+    if fmt in ['json', 'yaml']:
         elements = [dict(zip(columns, r)) for r in rows]
-        click.echo(json.dumps(elements))
+        if fmt == 'json':
+            click.echo(json.dumps(elements))
+        elif fmt == 'yaml':
+            click.echo(yaml.safe_dump(elements, encoding=None, allow_unicode=True, width=200))
 
     if fmt == 'tsv':
         if columns is not None and header:
@@ -257,9 +261,9 @@ def get_members(cluster, cluster_name, member_names, role, force, action):
         member_names = [click.prompt('Which member do you want to {0} [{1}]?'.format(action,
                         ', '.join(candidates.keys())), type=str, default='')]
 
-    for mn in member_names:
-        if mn not in candidates:
-            raise PatroniCtlException('{0} is not a member of cluster'.format(mn))
+    for member_name in member_names:
+        if member_name not in candidates:
+            raise PatroniCtlException('{0} is not a member of cluster'.format(member_name))
 
     if not force:
         confirm = click.confirm('Are you sure you want to {0} members {1}?'.format(action, ', '.join(member_names)))
@@ -419,8 +423,10 @@ def check_response(response, member_name, action_name, silent_success=False):
         click.echo('Failed: {0} for member {1}, status code={2}, ({3})'.format(
             action_name, member_name, response.status_code, response.text
         ))
+        return False
     elif not silent_success:
         click.echo('Success: {0} for member {1}'.format(action_name, member_name))
+    return True
 
 
 def parse_scheduled(scheduled):
@@ -517,8 +523,14 @@ def reinit(obj, cluster_name, member_names, force):
     members = get_members(cluster, cluster_name, member_names, None, force, 'reinitialize')
 
     for member in members:
-        r = request_patroni(member, 'post', 'reinitialize', headers=auth_header(obj))
-        check_response(r, member.name, 'reinitialize')
+        body = {'force': force}
+        while True:
+            r = request_patroni(member, 'post', 'reinitialize', body, auth_header(obj))
+            if not check_response(r, member.name, 'reinitialize') and r.text.endswith(' already in progress') \
+                    and not force and click.confirm('Do you want to cancel it and reinitialize anyway?'):
+                body['force'] = True
+                continue
+            break
 
 
 @ctl.command('failover', help='Failover to a replica')
@@ -690,19 +702,26 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
 @ctl.command('list', help='List the Patroni members for a given Patroni')
 @click.argument('cluster_names', nargs=-1)
 @click.option('--extended', '-e', help='Show some extra information', is_flag=True)
+@click.option('--timestamp', '-t', help='Print timestamp', is_flag=True)
 @option_format
 @option_watch
 @option_watchrefresh
 @click.pass_obj
-def members(obj, cluster_names, fmt, watch, w, extended):
+def members(obj, cluster_names, fmt, watch, w, extended, timestamp):
     if not cluster_names:
-        logging.warning('Listing members: No cluster names were provided')
-        return
+        if 'scope' not in obj:
+            logging.warning('Listing members: No cluster names were provided')
+            return
+        else:
+            cluster_names = [obj['scope']]
 
     for cluster_name in cluster_names:
         dcs = get_dcs(obj, cluster_name)
 
         for _ in watching(w, watch):
+            if timestamp:
+                click.echo(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
             cluster = dcs.get_cluster()
             output_members(cluster, cluster_name, extended, fmt)
 
@@ -1035,3 +1054,36 @@ def show_config(obj, cluster_name):
     cluster = get_dcs(obj, cluster_name).get_cluster()
 
     click.echo(format_config_for_editing(cluster.config.data))
+
+
+@ctl.command('version', help='Output version of patronictl command or a running Patroni instance')
+@click.argument('cluster_name', required=False)
+@click.argument('member_names', nargs=-1)
+@click.pass_obj
+def version(obj, cluster_name, member_names):
+    click.echo("patronictl version {0}".format(__version__))
+
+    if not cluster_name:
+        return
+
+    click.echo("")
+    cluster = get_dcs(obj, cluster_name).get_cluster()
+    for m in cluster.members:
+        if m.api_url:
+            if not member_names or m.name in member_names:
+                try:
+                    response = request_patroni(m, 'get', 'patroni')
+                    data = response.json()
+                    version = data.get('patroni', {}).get('version')
+                    pg_version = data.get('server_version')
+                    pg_version_str = " PostgreSQL {0}".format(format_pg_version(pg_version)) if pg_version else ""
+                    click.echo("{0}: Patroni {1}{2}".format(m.name, version, pg_version_str))
+                except Exception as e:
+                    click.echo("{0}: failed to get version: {1}".format(m.name, e))
+
+
+def format_pg_version(version):
+    if version < 100000:
+        return "{0}.{1}.{2}".format(version // 10000, version // 100 % 100, version % 100)
+    else:
+        return "{0}.{1}".format(version // 10000, version % 100)

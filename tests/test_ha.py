@@ -127,6 +127,7 @@ def run_async(self, func, args=()):
 @patch.object(Postgresql, 'query', Mock())
 @patch.object(Postgresql, 'checkpoint', Mock())
 @patch.object(Postgresql, 'call_nowait', Mock())
+@patch.object(Postgresql, 'cancellable_subprocess_call', Mock(return_value=0))
 @patch.object(etcd.Client, 'write', etcd_write)
 @patch.object(etcd.Client, 'read', etcd_read)
 @patch.object(etcd.Client, 'delete', Mock(side_effect=etcd.EtcdException))
@@ -362,7 +363,7 @@ class TestHa(unittest.TestCase):
         self.assertIsNotNone(self.ha.reinitialize())
 
         self.ha.cluster = get_cluster_initialized_with_leader()
-        self.assertIsNone(self.ha.reinitialize())
+        self.assertIsNone(self.ha.reinitialize(True))
 
         self.assertIsNotNone(self.ha.reinitialize())
 

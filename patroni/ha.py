@@ -62,7 +62,7 @@ class Ha(object):
         self._post_bootstrap_task = None
         self._crash_recovery_executed = False
         self._start_timeout = None
-        self._async_executor = AsyncExecutor(self.wakeup)
+        self._async_executor = AsyncExecutor(self.state_handler, self.wakeup)
         self.watchdog = patroni.watchdog
 
         # Each member publishes various pieces of information to the DCS using touch_member. This lock protects
@@ -882,7 +882,7 @@ class Ha(object):
         member_role = 'leader' if clone_member == self.cluster.leader else 'replica'
         return self.clone(clone_member, "from {0} '{1}'".format(member_role, clone_member.name))
 
-    def reinitialize(self):
+    def reinitialize(self, force=False):
         with self._async_executor:
             self.load_cluster_from_dcs()
 
@@ -892,7 +892,11 @@ class Ha(object):
             if self.cluster.leader.name == self.state_handler.name:
                 return 'I am the leader, can not reinitialize'
 
-            action = self._async_executor.schedule('reinitialize', immediately=True)
+        if force:
+            self._async_executor.cancel()
+
+        with self._async_executor:
+            action = self._async_executor.schedule('reinitialize')
             if action is not None:
                 return '{0} already in progress'.format(action)
 
@@ -1135,7 +1139,8 @@ class Ha(object):
             disable_wd = self.watchdog.disable if self.watchdog.is_running else None
             self.while_not_sync_standby(lambda: self.state_handler.stop(checkpoint=False, on_safepoint=disable_wd))
             if not self.state_handler.is_running():
-                self.dcs.delete_leader()
+                if self.has_lock():
+                    self.dcs.delete_leader()
             else:
                 # XXX: what about when Patroni is started as the wrong user that has access to the watchdog device
                 # but cannot shut down PostgreSQL. Root would be the obvious example. Would be nice to not kill the

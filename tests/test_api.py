@@ -52,7 +52,7 @@ class MockHa(object):
     watchdog = MockWatchdog()
 
     @staticmethod
-    def reinitialize():
+    def reinitialize(_):
         return 'reinitialize'
 
     @staticmethod
@@ -270,7 +270,7 @@ class TestRestApiHandler(unittest.TestCase):
     def test_do_POST_reinitialize(self, mock_dcs):
         cluster = mock_dcs.get_cluster.return_value
         cluster.is_paused.return_value = False
-        request = 'POST /reinitialize HTTP/1.0' + self._authorization
+        request = 'POST /reinitialize HTTP/1.0' + self._authorization + '\nContent-Length: 15\n\n{"force": true}'
         MockRestApiServer(RestApiHandler, request)
         with patch.object(MockHa, 'reinitialize', Mock(return_value=None)):
             MockRestApiServer(RestApiHandler, request)
