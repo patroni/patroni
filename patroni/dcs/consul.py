@@ -266,7 +266,7 @@ class Consul(AbstractDCS):
 
             # get timeline history
             history = nodes.get(self._HISTORY)
-            history = history and TimelineHistory.from_node(history['ModifiedIndex'], history['Value'])
+            history = history and TimelineHistory.from_node(history['ModifyIndex'], history['Value'])
 
             # get last leader operation
             last_leader_operation = nodes.get(self._LEADER_OPTIME)
