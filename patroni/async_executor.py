@@ -1,5 +1,5 @@
 import logging
-from threading import Lock, RLock, Thread
+from threading import Event, Lock, RLock, Thread
 
 logger = logging.getLogger(__name__)
 
@@ -52,22 +52,27 @@ class CriticalTask(object):
 
 class AsyncExecutor(object):
 
-    def __init__(self, ha_wakeup):
+    def __init__(self, state_handler, ha_wakeup):
+        self.state_handler = state_handler
         self._ha_wakeup = ha_wakeup
         self._thread_lock = RLock()
         self._scheduled_action = None
         self._scheduled_action_lock = RLock()
+        self._is_cancelled = False
+        self._finish_event = Event()
         self.critical_task = CriticalTask()
 
     @property
     def busy(self):
         return self.scheduled_action is not None
 
-    def schedule(self, action, immediately=False):
+    def schedule(self, action):
         with self._scheduled_action_lock:
             if self._scheduled_action is not None:
                 return self._scheduled_action
             self._scheduled_action = action
+            self._is_cancelled = False
+            self._finish_event.set()
         return None
 
     @property
@@ -82,6 +87,12 @@ class AsyncExecutor(object):
     def run(self, func, args=()):
         wakeup = False
         try:
+            with self:
+                if self._is_cancelled:
+                    return
+                self._finish_event.clear()
+
+            self.state_handler.reset_is_cancelled()
             # if the func returned something (not None) - wake up main HA loop
             wakeup = func(*args) if args else func()
             return wakeup
@@ -90,6 +101,7 @@ class AsyncExecutor(object):
         finally:
             with self:
                 self.reset_scheduled_action()
+                self._finish_event.set()
                 with self.critical_task:
                     self.critical_task.reset()
             if wakeup is not None:
@@ -97,6 +109,20 @@ class AsyncExecutor(object):
 
     def run_async(self, func, args=()):
         Thread(target=self.run, args=(func, args)).start()
+
+    def cancel(self):
+        with self:
+            with self._scheduled_action_lock:
+                if self._scheduled_action is None:
+                    return
+                logger.warning('Cancelling long running task %s', self._scheduled_action)
+            self._is_cancelled = True
+
+        self.state_handler.cancel()
+        self._finish_event.wait()
+
+        with self:
+            self.reset_scheduled_action()
 
     def __enter__(self):
         self._thread_lock.acquire()

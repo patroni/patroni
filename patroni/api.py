@@ -8,7 +8,7 @@ import dateutil.parser
 import datetime
 
 from patroni.postgresql import PostgresConnectionException, PostgresException, Postgresql
-from patroni.utils import deep_compare, patch_config, Retry, RetryFailedError, parse_int, tzutc
+from patroni.utils import deep_compare, parse_bool, patch_config, Retry, RetryFailedError, parse_int, tzutc
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from six.moves.socketserver import ThreadingMixIn
 from threading import Thread
@@ -266,7 +266,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     @check_auth
     def do_POST_reinitialize(self):
-        data = self.server.patroni.ha.reinitialize()
+        request = self._read_json_content(body_is_optional=True)
+
+        if request:
+            logger.debug('received reinitialize request: %s', request)
+
+        force = isinstance(request, dict) and parse_bool(request.get('force')) or False
+
+        data = self.server.patroni.ha.reinitialize(force)
         if data is None:
             status_code = 200
             data = 'reinitialize started'
@@ -491,7 +498,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
     def __initialize(self, config):
         self.__ssl_options = self.__get_ssl_options(config)
         self.__listen = config['listen']
-        host, port = config['listen'].split(':')
+        host, port = config['listen'].rsplit(':', 1)
         HTTPServer.__init__(self, (host, int(port)), RestApiHandler)
         Thread.__init__(self, target=self.serve_forever)
         self._set_fd_cloexec(self.socket)

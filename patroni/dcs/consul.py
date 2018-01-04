@@ -10,7 +10,7 @@ import urllib3
 from consul import ConsulException, NotFound, base
 from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState
 from patroni.exceptions import DCSError
-from patroni.utils import deep_compare, parse_bool, Retry, RetryFailedError
+from patroni.utils import deep_compare, parse_bool, Retry, RetryFailedError, split_host_port
 from urllib3.exceptions import HTTPError
 from six.moves.urllib.parse import urlencode, urlparse
 from six.moves.http_client import HTTPException
@@ -148,7 +148,7 @@ class Consul(AbstractDCS):
             r = urlparse(config['url'])
             config.update({'scheme': r.scheme, 'host': r.hostname, 'port': r.port or 8500})
         elif 'host' in config:
-            host, port = (config.get('host', '127.0.0.1:8500') + ':8500').split(':')[:2]
+            host, port = split_host_port(config.get('host', '127.0.0.1:8500'), 8500)
             config['host'] = host
             if 'port' not in config:
                 config['port'] = int(port)
