@@ -101,6 +101,7 @@ class TestRaft(unittest.TestCase):
         raft.get_cluster()
         self.assertTrue(raft.delete_sync_state())
         self.assertTrue(raft.delete_leader())
+        self.assertTrue(raft.set_history_value(''))
         self.assertTrue(raft.delete_cluster())
         raft.get_cluster()
         self.assertTrue(raft.take_leader())

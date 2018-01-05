@@ -4,7 +4,7 @@ import os
 import threading
 import time
 
-from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState
+from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
 from pysyncobj import SyncObj, SyncObjConf, replicated, FAIL_REASON
 
 logger = logging.getLogger(__name__)
@@ -236,7 +236,7 @@ class Raft(AbstractDCS):
         prefix = self.client_path('')
         response = self._sync_obj.get(prefix, recursive=True)
         if not response:
-            self._cluster = Cluster(None, None, None, None, [], None, None)
+            self._cluster = Cluster(None, None, None, None, [], None, None, None)
             return
         nodes = {os.path.relpath(key, prefix): value for key, value in response.items()}
 
@@ -247,6 +247,10 @@ class Raft(AbstractDCS):
         # get global dynamic configuration
         config = nodes.get(self._CONFIG)
         config = config and ClusterConfig.from_node(config['index'], config['value'])
+
+        # get timeline history
+        history = nodes.get(self._HISTORY)
+        history = history and TimelineHistory.from_node(history['index'], history['value'])
 
         # get last leader operation
         last_leader_operation = nodes.get(self._LEADER_OPTIME)
@@ -271,7 +275,7 @@ class Raft(AbstractDCS):
         sync = nodes.get(self._SYNC)
         sync = SyncState.from_node(sync and sync['index'], sync and sync['value'])
 
-        self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync)
+        self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
 
     def _write_leader_optime(self, last_operation):
         return self._sync_obj.set(self.leader_optime_path, last_operation, timeout=1)
@@ -307,6 +311,9 @@ class Raft(AbstractDCS):
 
     def delete_cluster(self):
         return self._sync_obj.delete(self.client_path(''), recursive=True)
+
+    def set_history_value(self, value):
+        return self._sync_obj.set(self.history_path, value)
 
     def set_sync_state_value(self, value, index=None):
         return self._sync_obj.set(self.sync_path, value, prevIndex=index)
