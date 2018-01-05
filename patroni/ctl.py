@@ -30,7 +30,8 @@ from patroni.config import Config
 from patroni.dcs import get_dcs as _get_dcs
 from patroni.exceptions import PatroniException
 from patroni.postgresql import Postgresql
-from patroni.utils import patch_config
+from patroni.utils import patch_config, polling_loop
+from patroni.version import __version__
 from prettytable import PrettyTable
 from six.moves.urllib_parse import urlparse
 from six import text_type
@@ -96,10 +97,12 @@ def store_config(config, path):
         yaml.dump(config, fd)
 
 
-option_format = click.option('--format', '-f', 'fmt', help='Output format (pretty, json)', default='pretty')
+option_format = click.option('--format', '-f', 'fmt', help='Output format (pretty, json, yaml)', default='pretty')
 option_watchrefresh = click.option('-w', '--watch', type=float, help='Auto update the screen every X seconds')
 option_watch = click.option('-W', is_flag=True, help='Auto update the screen every 2 seconds')
 option_force = click.option('--force', is_flag=True, help='Do not ask for confirmation at any point')
+arg_cluster_name = click.argument('cluster_name', required=False,
+                                  default=lambda: click.get_current_context().obj.get('scope'))
 
 
 @click.group()
@@ -149,9 +152,12 @@ def print_output(columns, rows=None, alignment=None, fmt='pretty', header=True, 
         click.echo(t)
         return
 
-    if fmt == 'json':
+    if fmt in ['json', 'yaml', 'yml']:
         elements = [dict(zip(columns, r)) for r in rows]
-        click.echo(json.dumps(elements))
+        if fmt == 'json':
+            click.echo(json.dumps(elements))
+        elif fmt in ('yaml', 'yml'):
+            click.echo(yaml.safe_dump(elements, encoding=None, default_flow_style=False, allow_unicode=True, width=200))
 
     if fmt == 'tsv':
         if columns is not None and header:
@@ -257,9 +263,9 @@ def get_members(cluster, cluster_name, member_names, role, force, action):
         member_names = [click.prompt('Which member do you want to {0} [{1}]?'.format(action,
                         ', '.join(candidates.keys())), type=str, default='')]
 
-    for mn in member_names:
-        if mn not in candidates:
-            raise PatroniCtlException('{0} is not a member of cluster'.format(mn))
+    for member_name in member_names:
+        if member_name not in candidates:
+            raise PatroniCtlException('{0} is not a member of cluster'.format(member_name))
 
     if not force:
         confirm = click.confirm('Are you sure you want to {0} members {1}?'.format(action, ', '.join(member_names)))
@@ -273,7 +279,7 @@ def get_members(cluster, cluster_name, member_names, role, force, action):
 @click.option('--role', '-r', help='Give a dsn of any member with this role', type=click.Choice(['master', 'replica',
               'any']), default=None)
 @click.option('--member', '-m', help='Generate a dsn for this member', type=str)
-@click.argument('cluster_name')
+@arg_cluster_name
 @click.pass_obj
 def dsn(obj, cluster_name, role, member):
     if role is not None and member is not None:
@@ -291,7 +297,7 @@ def dsn(obj, cluster_name, role, member):
 
 
 @ctl.command('query', help='Query a Patroni PostgreSQL member')
-@click.argument('cluster_name')
+@arg_cluster_name
 @option_format
 @click.option('--format', 'fmt', help='Output format (pretty, json)', default='tsv')
 @click.option('--file', '-f', 'p_file', help='Execute the SQL commands from this file', type=click.File('rb'))
@@ -419,8 +425,10 @@ def check_response(response, member_name, action_name, silent_success=False):
         click.echo('Failed: {0} for member {1}, status code={2}, ({3})'.format(
             action_name, member_name, response.status_code, response.text
         ))
+        return False
     elif not silent_success:
         click.echo('Success: {0} for member {1}'.format(action_name, member_name))
+    return True
 
 
 def parse_scheduled(scheduled):
@@ -517,37 +525,36 @@ def reinit(obj, cluster_name, member_names, force):
     members = get_members(cluster, cluster_name, member_names, None, force, 'reinitialize')
 
     for member in members:
-        r = request_patroni(member, 'post', 'reinitialize', headers=auth_header(obj))
-        check_response(r, member.name, 'reinitialize')
+        body = {'force': force}
+        while True:
+            r = request_patroni(member, 'post', 'reinitialize', body, auth_header(obj))
+            if not check_response(r, member.name, 'reinitialize') and r.text.endswith(' already in progress') \
+                    and not force and click.confirm('Do you want to cancel it and reinitialize anyway?'):
+                body['force'] = True
+                continue
+            break
 
 
-@ctl.command('failover', help='Failover to a replica')
-@click.argument('cluster_name')
-@click.option('--master', help='The name of the current master', default=None)
-@click.option('--candidate', help='The name of the candidate', default=None)
-@click.option('--scheduled', help='Timestamp of a scheduled failover in unambiguous format (e.g. ISO 8601)',
-              default=None)
-@option_force
-@click.pass_obj
-def failover(obj, cluster_name, master, candidate, force, scheduled):
+def _do_failover_or_switchover(obj, action, cluster_name, master, candidate, force, scheduled=None):
     """
-        We want to trigger a failover for the specified cluster name.
+        We want to trigger a failover or switchover for the specified cluster name.
 
         We verify that the cluster name, master name and candidate name are correct.
-        If so, we trigger a failover and keep the client up to date.
+        If so, we trigger an action and keep the client up to date.
     """
 
     dcs = get_dcs(obj, cluster_name)
     cluster = dcs.get_cluster()
 
-    if cluster.leader is None and not cluster.is_paused():
-        raise PatroniCtlException('This cluster has no master')
+    if action == 'switchover':
+        if cluster.leader is None:
+            raise PatroniCtlException('This cluster has no master')
 
-    if master is None and (not cluster.is_paused() or cluster.leader):
-        if force:
-            master = cluster.leader.member.name
-        else:
-            master = click.prompt('Master', type=str, default=cluster.leader.member.name)
+        if master is None:
+            if force:
+                master = cluster.leader.member.name
+            else:
+                master = click.prompt('Master', type=str, default=cluster.leader.member.name)
 
     if master is not None and cluster.leader and cluster.leader.member.name != master:
         raise PatroniCtlException('Member {0} is not the leader of cluster {1}'.format(master, cluster_name))
@@ -557,28 +564,32 @@ def failover(obj, cluster_name, master, candidate, force, scheduled):
     candidate_names.sort()
 
     if not candidate_names:
-        raise PatroniCtlException('No candidates found to failover to')
+        raise PatroniCtlException('No candidates found to {0} to'.format(action))
 
     if candidate is None and not force:
         candidate = click.prompt('Candidate ' + str(candidate_names), type=str, default='')
 
+    if action == 'failover' and not candidate:
+        raise PatroniCtlException('Failover could be performed only to a specific candidate')
+
     if candidate == master:
-        raise PatroniCtlException('Failover target and source are the same.')
+        raise PatroniCtlException(action.title() + ' target and source are the same.')
 
     if candidate and candidate not in candidate_names:
         raise PatroniCtlException('Member {0} does not exist in cluster {1}'.format(candidate, cluster_name))
 
-    if scheduled is None and not force:
-        scheduled = click.prompt('When should the failover take place (e.g. 2015-10-01T14:30) ', type=str,
-                                 default='now')
-
-    scheduled_at = parse_scheduled(scheduled)
-
     scheduled_at_str = None
-    if scheduled_at:
-        if cluster.is_paused():
-            raise PatroniCtlException("Can't schedule failover in the paused state")
-        scheduled_at_str = scheduled_at.isoformat()
+
+    if action == 'switchover':
+        if scheduled is None and not force:
+            scheduled = click.prompt('When should the switchover take place (e.g. 2015-10-01T14:30) ',
+                                     type=str, default='now')
+
+        scheduled_at = parse_scheduled(scheduled)
+        if scheduled_at:
+            if cluster.is_paused():
+                raise PatroniCtlException("Can't schedule switchover in the paused state")
+            scheduled_at_str = scheduled_at.isoformat()
 
     failover_value = {'leader': master, 'candidate': candidate, 'scheduled_at': scheduled_at_str}
 
@@ -589,33 +600,54 @@ def failover(obj, cluster_name, master, candidate, force, scheduled):
     output_members(dcs.get_cluster(), cluster_name)
 
     if not force:
-        a = \
-            click.confirm('Are you sure you want to failover cluster {0}, demoting current master {1}?'.format(
-                cluster_name, master))
-        if not a:
-            raise PatroniCtlException('Aborting failover')
+        demote_msg = ', demoting current master ' + master if master else ''
+
+        if not click.confirm('Are you sure you want to {0} cluster {1}{2}?'.format(action, cluster_name, demote_msg)):
+            raise PatroniCtlException('Aborting ' + action)
 
     r = None
     try:
-        member = cluster.leader.member if cluster.leader else [m for m in cluster.members if m.name == candidate][0]
+        member = cluster.leader.member if cluster.leader else cluster.get_member(candidate, False)
 
-        r = request_patroni(member, 'post', 'failover', failover_value, auth_header(obj))
+        r = request_patroni(member, 'post', action, failover_value, auth_header(obj))
         if r.status_code in (200, 202):
             logging.debug(r)
             cluster = dcs.get_cluster()
             logging.debug(cluster)
             click.echo('{0} {1}'.format(timestamp(), r.text))
         else:
-            click.echo('Failover failed, details: {0}, {1}'.format(r.status_code, r.text))
+            click.echo('{0} failed, details: {1}, {2}'.format(action.title(), r.status_code, r.text))
             return
     except Exception:
         logging.exception(r)
         logging.warning('Failing over to DCS')
-        click.echo(timestamp() + ' Could not failover using Patroni api, falling back to DCS')
-        click.echo(timestamp() + ' Initializing failover from master {0}'.format(master))
+        click.echo('{0} Could not {1} using Patroni api, falling back to DCS'.format(timestamp(), action))
         dcs.manual_failover(master, candidate, scheduled_at=scheduled_at)
 
     output_members(cluster, cluster_name)
+
+
+@ctl.command('failover', help='Failover to a replica')
+@arg_cluster_name
+@click.option('--master', help='The name of the current master', default=None)
+@click.option('--candidate', help='The name of the candidate', default=None)
+@option_force
+@click.pass_obj
+def failover(obj, cluster_name, master, candidate, force):
+    action = 'switchover' if master else 'failover'
+    _do_failover_or_switchover(obj, action, cluster_name, master, candidate, force)
+
+
+@ctl.command('switchover', help='Switchover to a replica')
+@arg_cluster_name
+@click.option('--master', help='The name of the current master', default=None)
+@click.option('--candidate', help='The name of the candidate', default=None)
+@click.option('--scheduled', help='Timestamp of a scheduled switchover in unambiguous format (e.g. ISO 8601)',
+              default=None)
+@option_force
+@click.pass_obj
+def switchover(obj, cluster_name, master, candidate, force, scheduled):
+    _do_failover_or_switchover(obj, 'switchover', cluster_name, master, candidate, force, scheduled)
 
 
 def output_members(cluster, name, extended=False, fmt='pretty'):
@@ -690,19 +722,25 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
 @ctl.command('list', help='List the Patroni members for a given Patroni')
 @click.argument('cluster_names', nargs=-1)
 @click.option('--extended', '-e', help='Show some extra information', is_flag=True)
+@click.option('--timestamp', '-t', 'ts', help='Print timestamp', is_flag=True)
 @option_format
 @option_watch
 @option_watchrefresh
 @click.pass_obj
-def members(obj, cluster_names, fmt, watch, w, extended):
+def members(obj, cluster_names, fmt, watch, w, extended, ts):
     if not cluster_names:
-        logging.warning('Listing members: No cluster names were provided')
-        return
+        if 'scope' in obj:
+            cluster_names = [obj['scope']]
+        if not cluster_names:
+            return logging.warning('Listing members: No cluster names were provided')
 
     for cluster_name in cluster_names:
         dcs = get_dcs(obj, cluster_name)
 
         for _ in watching(w, watch):
+            if ts:
+                click.echo(timestamp(0))
+
             cluster = dcs.get_cluster()
             output_members(cluster, cluster_name, extended, fmt)
 
@@ -795,8 +833,27 @@ def flush(obj, cluster_name, member_names, force, role, target):
                 click.echo('No scheduled restart for member {0}'.format(member.name))
 
 
-def toggle_pause(config, cluster_name, paused):
-    cluster = get_dcs(config, cluster_name).get_cluster()
+def wait_until_pause_is_applied(dcs, paused, old_cluster):
+    click.echo("'{0}' request sent, waiting until it is recognized by all nodes".format(paused and 'pause' or 'resume'))
+    old = {m.name: m.index for m in old_cluster.members if m.api_url}
+    loop_wait = old_cluster.config.data.get('loop_wait', dcs.loop_wait)
+
+    for _ in polling_loop(loop_wait + 1):
+        cluster = dcs.get_cluster()
+        if all(m.data.get('pause', False) == paused for m in cluster.members if m.name in old):
+            break
+    else:
+        remaining = [m.name for m in cluster.members if m.data.get('pause', False) != paused
+                     and m.name in old and old[m.name] != m.index]
+        if remaining:
+            return click.echo("{0} members didn't recognized pause state after {1} seconds"
+                              .format(', '.join(remaining), loop_wait))
+    return click.echo('Success: cluster management is {0}'.format(paused and 'paused' or 'resumed'))
+
+
+def toggle_pause(config, cluster_name, paused, wait):
+    dcs = get_dcs(config, cluster_name)
+    cluster = dcs.get_cluster()
     if cluster.is_paused() == paused:
         raise PatroniCtlException('Cluster is {0} paused'.format(paused and 'already' or 'not'))
 
@@ -813,7 +870,10 @@ def toggle_pause(config, cluster_name, paused):
             continue
 
         if r.status_code == 200:
-            click.echo('Success: cluster management is {0}'.format(paused and 'paused' or 'resumed'))
+            if wait:
+                wait_until_pause_is_applied(dcs, paused, cluster)
+            else:
+                click.echo('Success: cluster management is {0}'.format(paused and 'paused' or 'resumed'))
         else:
             click.echo('Failed: {0} cluster management status code={1}, ({2})'.format(
                        paused and 'pause' or 'resume', r.status_code, r.text))
@@ -823,17 +883,19 @@ def toggle_pause(config, cluster_name, paused):
 
 
 @ctl.command('pause', help='Disable auto failover')
-@click.argument('cluster_name')
+@arg_cluster_name
 @click.pass_obj
-def pause(obj, cluster_name):
-    return toggle_pause(obj, cluster_name, True)
+@click.option('--wait', help='Wait until pause is applied on all nodes', is_flag=True)
+def pause(obj, cluster_name, wait):
+    return toggle_pause(obj, cluster_name, True, wait)
 
 
 @ctl.command('resume', help='Resume auto failover')
-@click.argument('cluster_name')
+@arg_cluster_name
+@click.option('--wait', help='Wait until pause is cleared on all nodes', is_flag=True)
 @click.pass_obj
-def resume(obj, cluster_name):
-    return toggle_pause(obj, cluster_name, False)
+def resume(obj, cluster_name, wait):
+    return toggle_pause(obj, cluster_name, False, wait)
 
 
 @contextmanager
@@ -975,7 +1037,7 @@ def invoke_editor(before_editing, cluster_name):
 
 
 @ctl.command('edit-config', help="Edit cluster configuration")
-@click.argument('cluster_name')
+@arg_cluster_name
 @click.option('--quiet', '-q', is_flag=True, help='Do not show changes')
 @click.option('--set', '-s', 'kvpairs', multiple=True,
               help='Set specific configuration value. Can be specified multiple times')
@@ -1035,3 +1097,36 @@ def show_config(obj, cluster_name):
     cluster = get_dcs(obj, cluster_name).get_cluster()
 
     click.echo(format_config_for_editing(cluster.config.data))
+
+
+@ctl.command('version', help='Output version of patronictl command or a running Patroni instance')
+@click.argument('cluster_name', required=False)
+@click.argument('member_names', nargs=-1)
+@click.pass_obj
+def version(obj, cluster_name, member_names):
+    click.echo("patronictl version {0}".format(__version__))
+
+    if not cluster_name:
+        return
+
+    click.echo("")
+    cluster = get_dcs(obj, cluster_name).get_cluster()
+    for m in cluster.members:
+        if m.api_url:
+            if not member_names or m.name in member_names:
+                try:
+                    response = request_patroni(m, 'get', 'patroni')
+                    data = response.json()
+                    version = data.get('patroni', {}).get('version')
+                    pg_version = data.get('server_version')
+                    pg_version_str = " PostgreSQL {0}".format(format_pg_version(pg_version)) if pg_version else ""
+                    click.echo("{0}: Patroni {1}{2}".format(m.name, version, pg_version_str))
+                except Exception as e:
+                    click.echo("{0}: failed to get version: {1}".format(m.name, e))
+
+
+def format_pg_version(version):
+    if version < 100000:
+        return "{0}.{1}.{2}".format(version // 10000, version // 100 % 100, version % 100)
+    else:
+        return "{0}.{1}".format(version // 10000, version % 100)

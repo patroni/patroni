@@ -177,6 +177,10 @@ class Leader(namedtuple('Leader', 'index,session,member')):
     def conn_url(self):
         return self.member.conn_url
 
+    @property
+    def timeline(self):
+        return self.member.data.get('timeline')
+
 
 class Failover(namedtuple('Failover', 'index,leader,candidate,scheduled_at')):
 
@@ -297,7 +301,26 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
         return name is not None and name in (self.leader, self.sync_standby)
 
 
-class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operation,members,failover,sync')):
+class TimelineHistory(namedtuple('TimelineHistory', 'index,lines')):
+    """Object representing timeline history file"""
+
+    @staticmethod
+    def from_node(index, value):
+        """
+        >>> h = TimelineHistory.from_node(1, 2)
+        >>> h.lines
+        []
+        """
+        try:
+            lines = json.loads(value)
+        except (TypeError, ValueError):
+            lines = None
+        if not isinstance(lines, list):
+            lines = []
+        return TimelineHistory(index, lines)
+
+
+class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operation,members,failover,sync,history')):
 
     """Immutable object (namedtuple) which represents PostgreSQL cluster.
     Consists of the following fields:
@@ -309,6 +332,7 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
     :param members: list of Member object, all PostgreSQL cluster members including leader
     :param failover: reference to `Failover` object
     :param sync: reference to `SyncState` object, last observed synchronous replication state.
+    :param history: reference to `TimelineHistory` object
     """
 
     def is_unlocked(self):
@@ -342,6 +366,7 @@ class AbstractDCS(object):
     _CONFIG = 'config'
     _LEADER = 'leader'
     _FAILOVER = 'failover'
+    _HISTORY = 'history'
     _MEMBERS = 'members/'
     _OPTIME = 'optime'
     _LEADER_OPTIME = _OPTIME + '/' + _LEADER
@@ -388,6 +413,10 @@ class AbstractDCS(object):
     @property
     def failover_path(self):
         return self.client_path(self._FAILOVER)
+
+    @property
+    def history_path(self):
+        return self.client_path(self._HISTORY)
 
     @property
     def leader_optime_path(self):
@@ -559,6 +588,10 @@ class AbstractDCS(object):
     def write_sync_state(self, leader, sync_standby, index=None):
         sync_value = self.sync_state(leader, sync_standby)
         return self.set_sync_state_value(json.dumps(sync_value, separators=(',', ':')), index)
+
+    @abc.abstractmethod
+    def set_history_value(self, value):
+        """"""
 
     @abc.abstractmethod
     def set_sync_state_value(self, value, index=None):

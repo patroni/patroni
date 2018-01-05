@@ -57,11 +57,12 @@ class Ha(object):
         self.dcs = patroni.dcs
         self.cluster = None
         self.old_cluster = None
+        self._leader_timeline = None
         self.recovering = False
         self._post_bootstrap_task = None
         self._crash_recovery_executed = False
         self._start_timeout = None
-        self._async_executor = AsyncExecutor(self.wakeup)
+        self._async_executor = AsyncExecutor(self.state_handler, self.wakeup)
         self.watchdog = patroni.watchdog
 
         # Each member publishes various pieces of information to the DCS using touch_member. This lock protects
@@ -81,6 +82,8 @@ class Ha(object):
         if not cluster.is_unlocked() or not self.old_cluster:
             self.old_cluster = cluster
         self.cluster = cluster
+
+        self._leader_timeline = None if cluster.is_unlocked() else cluster.leader.timeline
 
     def acquire_lock(self):
         return self.dcs.attempt_to_acquire_leader()
@@ -123,15 +126,24 @@ class Ha(object):
                 data['tags'] = tags
             if self.state_handler.pending_restart:
                 data['pending_restart'] = True
-            if not self._async_executor.busy and data['state'] in ['running', 'restarting', 'starting']:
+            if self._async_executor.scheduled_action in (None, 'promote') \
+                    and data['state'] in ['running', 'restarting', 'starting']:
                 try:
-                    data['xlog_location'] = self.state_handler.wal_position(retry=False)
+                    timeline, wal_position = self.state_handler.timeline_wal_position()
+                    data['xlog_location'] = wal_position
+                    if not timeline:
+                        timeline = self.state_handler.replica_cached_timeline(self._leader_timeline)
+                    if timeline:
+                        data['timeline'] = timeline
                 except Exception:
                     pass
             if self.patroni.scheduled_restart:
                 scheduled_restart_data = self.patroni.scheduled_restart.copy()
                 scheduled_restart_data['schedule'] = scheduled_restart_data['schedule'].isoformat()
                 data['scheduled_restart'] = scheduled_restart_data
+
+            if self.is_paused():
+                data['pause'] = True
 
             return self.dcs.touch_member(data)
 
@@ -363,6 +375,23 @@ class Ha(object):
             with self._member_state_lock:
                 self._disable_sync -= 1
 
+    def update_cluster_history(self):
+        master_timeline = self.state_handler.get_master_timeline()
+        cluster_history = self.cluster.history and self.cluster.history.lines
+        if cluster_history and master_timeline == 1:
+            self.dcs.set_history_value('[]')
+        elif not cluster_history or cluster_history[-1][0] != master_timeline - 1 or len(cluster_history[-1]) != 4:
+            cluster_history = {l[0]: l for l in cluster_history or []}
+            history = self.state_handler.get_history(master_timeline)
+            if history:
+                for line in history:
+                    # enrich current history with promotion timestamps stored in DCS
+                    if len(line) == 3 and line[0] in cluster_history \
+                            and len(cluster_history[line[0]]) == 4 \
+                            and cluster_history[line[0]][1] == line[1]:
+                        line.append(cluster_history[line[0]][3])
+                self.dcs.set_history_value(json.dumps(history, separators=(',', ':')))
+
     def enforce_master_role(self, message, promote_message):
         if not self.is_paused() and not self.watchdog.is_running and not self.watchdog.activate():
             if self.state_handler.is_leader():
@@ -372,10 +401,14 @@ class Ha(object):
                 self.release_leader_key_voluntarily()
                 return 'Not promoting self because watchdog could not be activated'
 
-        if self.state_handler.is_leader() or self.state_handler.role == 'master':
+        if self.state_handler.is_leader():
             # Inform the state handler about its master role.
             # It may be unaware of it if postgres is promoted manually.
             self.state_handler.set_role('master')
+            self.process_sync_replication()
+            self.update_cluster_history()
+            return message
+        elif self.state_handler.role == 'master':
             self.process_sync_replication()
             return message
         else:
@@ -387,7 +420,9 @@ class Ha(object):
                     # promotion until next cycle. TODO: trigger immediate retry of run_cycle
                     return 'Postponing promotion because synchronous replication state was updated by somebody else'
                 self.state_handler.set_synchronous_standby('*' if self.is_synchronous_mode_strict() else None)
-            self.state_handler.promote()
+            if self.state_handler.role != 'master':
+                self._async_executor.schedule('promote')
+                self._async_executor.run_async(self.state_handler.promote, args=(self.dcs.loop_wait,))
             return promote_message
 
     @staticmethod
@@ -423,7 +458,7 @@ class Ha(object):
     def _is_healthiest_node(self, members, check_replication_lag=True):
         """This method tries to determine whether I am healthy enough to became a new leader candidate or not."""
 
-        my_wal_position = self.state_handler.wal_position()
+        _, my_wal_position = self.state_handler.timeline_wal_position()
         if check_replication_lag and self.is_lagging(my_wal_position):
             return False  # Too far behind last reported wal position on master
 
@@ -853,7 +888,7 @@ class Ha(object):
         member_role = 'leader' if clone_member == self.cluster.leader else 'replica'
         return self.clone(clone_member, "from {0} '{1}'".format(member_role, clone_member.name))
 
-    def reinitialize(self):
+    def reinitialize(self, force=False):
         with self._async_executor:
             self.load_cluster_from_dcs()
 
@@ -863,7 +898,11 @@ class Ha(object):
             if self.cluster.leader.name == self.state_handler.name:
                 return 'I am the leader, can not reinitialize'
 
-            action = self._async_executor.schedule('reinitialize', immediately=True)
+        if force:
+            self._async_executor.cancel()
+
+        with self._async_executor:
+            action = self._async_executor.schedule('reinitialize')
             if action is not None:
                 return '{0} already in progress'.format(action)
 
@@ -989,6 +1028,7 @@ class Ha(object):
     def _run_cycle(self):
         dcs_failed = False
         try:
+            self.state_handler.reset_cluster_info_state()
             self.load_cluster_from_dcs()
 
             if self.is_paused():
@@ -1105,7 +1145,8 @@ class Ha(object):
             disable_wd = self.watchdog.disable if self.watchdog.is_running else None
             self.while_not_sync_standby(lambda: self.state_handler.stop(checkpoint=False, on_safepoint=disable_wd))
             if not self.state_handler.is_running():
-                self.dcs.delete_leader()
+                if self.has_lock():
+                    self.dcs.delete_leader()
             else:
                 # XXX: what about when Patroni is started as the wrong user that has access to the watchdog device
                 # but cannot shut down PostgreSQL. Root would be the obvious example. Would be nice to not kill the

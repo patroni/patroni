@@ -217,3 +217,6 @@ class TestZooKeeper(unittest.TestCase):
         self.zk.set_sync_state_value('ok')
         self.zk.set_sync_state_value('Exception')
         self.zk.delete_sync_state()
+
+    def test_set_history_value(self):
+        self.zk.set_history_value('{}')

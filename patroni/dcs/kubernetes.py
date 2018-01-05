@@ -8,7 +8,7 @@ import sys
 import time
 
 from kubernetes import client as k8s_client, config as k8s_config, watch as k8s_watch
-from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState
+from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
 from patroni.exceptions import DCSError
 from patroni.utils import deep_compare, tzutc, Retry, RetryFailedError
 from urllib3.exceptions import HTTPError
@@ -149,6 +149,10 @@ class Kubernetes(AbstractDCS):
             config = ClusterConfig.from_node(metadata and metadata.resource_version,
                                              annotations.get(self._CONFIG) or '{}')
 
+            # get timeline history
+            history = TimelineHistory.from_node(metadata and metadata.resource_version,
+                                                annotations.get(self._HISTORY) or '[]')
+
             leader = nodes.get(self.leader_path)
             metadata = leader and leader.metadata
             self._leader_resource_version = metadata.resource_version if metadata else None
@@ -190,7 +194,7 @@ class Kubernetes(AbstractDCS):
             metadata = sync and sync.metadata
             sync = SyncState.from_node(metadata and metadata.resource_version,  metadata and metadata.annotations)
 
-            self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync)
+            self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
         except Exception:
             logger.exception('get_cluster')
             raise KubernetesError('Kubernetes API is not responding properly')
@@ -357,6 +361,11 @@ class Kubernetes(AbstractDCS):
     @catch_kubernetes_errors
     def delete_cluster(self):
         self.retry(self._api.delete_collection_namespaced_kind, self._namespace, label_selector=self._label_selector)
+
+    @catch_kubernetes_errors
+    def set_history_value(self, value):
+        patch = bool(self.cluster and self.cluster.config and self.cluster.config.index)
+        return self.patch_or_create(self.config_path, {self._HISTORY: value}, None, patch, False)
 
     def set_sync_state_value(self, value, index=None):
         """Unused"""

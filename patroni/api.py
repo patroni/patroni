@@ -8,7 +8,7 @@ import dateutil.parser
 import datetime
 
 from patroni.postgresql import PostgresConnectionException, PostgresException, Postgresql
-from patroni.utils import deep_compare, patch_config, Retry, RetryFailedError, parse_int, tzutc
+from patroni.utils import deep_compare, parse_bool, patch_config, Retry, RetryFailedError, parse_int, tzutc
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from six.moves.socketserver import ThreadingMixIn
 from threading import Thread
@@ -24,9 +24,9 @@ def check_auth(func):
     def do_PUT_foo():
         pass
     """
-    def wrapper(handler):
+    def wrapper(handler, *args, **kwargs):
         if handler.check_auth_header():
-            return func(handler)
+            return func(handler, *args, **kwargs)
     return wrapper
 
 
@@ -70,6 +70,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
             response['scheduled_restart']['schedule'] = (response['scheduled_restart']['schedule']).isoformat()
         if not patroni.ha.watchdog.is_healthy:
             response['watchdog_failed'] = True
+        if patroni.ha.is_paused():
+            response['pause'] = True
         self._write_json_response(status_code, response)
 
     def do_GET(self, write_status_code_only=False):
@@ -80,6 +82,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         patroni = self.server.patroni
         cluster = patroni.dcs.cluster
+
+        def is_synchronous():
+            return (cluster.is_synchronous_mode() and cluster.sync
+                    and cluster.sync.sync_standby == patroni.postgresql.name)
+
+        def is_balanceable_replica():
+            return response.get('role') == 'replica' and not patroni.noloadbalance
+
         if cluster:  # dcs available
             if cluster.leader and cluster.leader.name == patroni.postgresql.name:  # is_leader
                 status_code = 200 if 'master' in path else 503
@@ -87,6 +97,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 status_code = 503
             elif response['role'] == 'master':  # running as master but without leader lock!!!!
                 status_code = 503
+            elif path in ('/sync', '/synchronous'):
+                status_code = 200 if is_balanceable_replica() and is_synchronous() else 503
+            elif path in ('/async', '/asynchronous'):
+                status_code = 200 if is_balanceable_replica() and not is_synchronous() else 503
             elif response['role'] in path:  # response['role'] != 'master'
                 status_code = 503 if patroni.noloadbalance else 200
             else:
@@ -266,7 +280,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     @check_auth
     def do_POST_reinitialize(self):
-        data = self.server.patroni.ha.reinitialize()
+        request = self._read_json_content(body_is_optional=True)
+
+        if request:
+            logger.debug('received reinitialize request: %s', request)
+
+        force = isinstance(request, dict) and parse_bool(request.get('force')) or False
+
+        data = self.server.patroni.ha.reinitialize(force)
         if data is None:
             status_code = 200
             data = 'reinitialize started'
@@ -291,11 +312,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 logger.debug('Exception occured during polling failover result: %s', e)
         return 503, 'Failover status unknown'
 
-    def is_failover_possible(self, cluster, leader, candidate):
+    def is_failover_possible(self, cluster, leader, candidate, action):
         if leader and (not cluster.leader or cluster.leader.name != leader):
             return 'leader name does not match'
         if candidate:
-            if cluster.is_synchronous_mode() and cluster.sync.sync_standby != candidate:
+            if action == 'switchover' and cluster.is_synchronous_mode() and cluster.sync.sync_standby != candidate:
                 return 'candidate name does not match with sync_standby'
             members = [m for m in cluster.members if m.name == candidate]
             if not members:
@@ -303,20 +324,20 @@ class RestApiHandler(BaseHTTPRequestHandler):
         elif cluster.is_synchronous_mode():
             members = [m for m in cluster.members if m.name == cluster.sync.sync_standby]
             if not members:
-                return 'failover is not possible: can not find sync_standby'
+                return action + ' is not possible: can not find sync_standby'
         else:
             members = [m for m in cluster.members if m.name != cluster.leader.name and m.api_url]
             if not members:
-                return 'failover is not possible: cluster does not have members except leader'
+                return action + ' is not possible: cluster does not have members except leader'
         for st in self.server.patroni.ha.fetch_nodes_statuses(members):
             if st.failover_limitation() is None:
                 return None
-        return 'failover is not possible: no good candidates have been found'
+        return action + ' is not possible: no good candidates have been found'
 
     @check_auth
-    def do_POST_failover(self):
+    def do_POST_failover(self, action='failover'):
         request = self._read_json_content()
-        status_code = 500
+        (status_code, data) = (400, '')
         if not request:
             return
 
@@ -325,38 +346,45 @@ class RestApiHandler(BaseHTTPRequestHandler):
         scheduled_at = request.get('scheduled_at')
         cluster = self.server.patroni.dcs.get_cluster()
 
-        if scheduled_at and cluster.is_paused():
-            self._write_response(status_code, "Can't schedule failover in the paused state")
+        logger.info("received %s request with leader=%s candidate=%s scheduled_at=%s",
+                    action, leader, candidate, scheduled_at)
 
-        logger.info("received failover request with leader=%s candidate=%s scheduled_at=%s",
-                    leader, candidate, scheduled_at)
+        if action == 'failover' and not candidate:
+            data = 'Failover could be performed only to a specific candidate'
+        elif action == 'switchover' and not leader:
+            data = 'Switchover could be performed only from a specific leader'
 
-        data = ''
-        if leader or candidate:
-            if scheduled_at:
-                (_, data, scheduled_at) = self.parse_schedule(scheduled_at, "failover")
-                if _:
-                    status_code = _
-                elif self.server.patroni.dcs.manual_failover(leader, candidate, scheduled_at=scheduled_at):
-                    self.server.patroni.ha.wakeup()
-                    data = 'Failover scheduled'
+        if not data and scheduled_at:
+            if not leader:
+                data = 'Scheduled {0} is possible only from a specific leader'.format(action)
+            if not data and cluster.is_paused():
+                data = "Can't schedule {0} in the paused state".format(action)
+            if not data:
+                (status_code, data, scheduled_at) = self.parse_schedule(scheduled_at, action)
+
+        if not data and cluster.is_paused() and not candidate:
+            data = action.title() + ' is possible only to a specific candidate in a paused state'
+
+        if not data and not scheduled_at:
+            data = self.is_failover_possible(cluster, leader, candidate, action)
+            if data:
+                status_code = 412
+
+        if not data:
+            if self.server.patroni.dcs.manual_failover(leader, candidate, scheduled_at=scheduled_at):
+                self.server.patroni.ha.wakeup()
+                if scheduled_at:
+                    data = action.title() + ' scheduled'
                     status_code = 202
                 else:
-                    data = 'failed to write failover key into DCS'
-                    status_code = 503
+                    status_code, data = self.poll_failover_result(cluster.leader and cluster.leader.name, candidate)
             else:
-                data = self.is_failover_possible(cluster, leader, candidate)
-                if not data:
-                    if self.server.patroni.dcs.manual_failover(leader, candidate):
-                        self.server.patroni.ha.wakeup()
-                        status_code, data = self.poll_failover_result(cluster.leader and cluster.leader.name, candidate)
-                    else:
-                        data = 'failed to write failover key into DCS'
-                        status_code = 503
-        else:
-            status_code = 400
-            data = 'No values given for required parameters leader and candidate'
+                data = 'failed to write {0} key into DCS'.format(action)
+                status_code = 503
         self._write_response(status_code, data)
+
+    def do_POST_switchover(self):
+        self.do_POST_failover(action='switchover')
 
     def parse_request(self):
         """Override parse_request method to enrich basic functionality of `BaseHTTPRequestHandler` class
@@ -386,39 +414,43 @@ class RestApiHandler(BaseHTTPRequestHandler):
         try:
             if self.server.patroni.postgresql.state not in ('running', 'restarting', 'starting'):
                 raise RetryFailedError('')
-            row = self.query("""WITH replication_info AS (
-                                    SELECT usename, application_name, client_addr, state, sync_state, sync_priority
-                                      FROM pg_stat_replication
-                                )
-                                SELECT to_char(pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),
-                                       pg_is_in_recovery(),
-                                       CASE WHEN pg_is_in_recovery()
-                                            THEN 0
-                                            ELSE pg_{0}_{1}_diff(pg_current_{0}_{1}(), '0/0')::bigint
-                                       END,
-                                       pg_{0}_{1}_diff(COALESCE(pg_last_{0}_receive_{1}(),
-                                                                      pg_last_{0}_replay_{1}()), '0/0')::bigint,
-                                       pg_{0}_{1}_diff(pg_last_{0}_replay_{1}(), '0/0')::bigint,
-                                       to_char(pg_last_xact_replay_timestamp(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),
-                                       pg_is_in_recovery() AND pg_is_{0}_replay_paused(),
-                                       (SELECT array_to_json(array_agg(row_to_json(ri)))
-                                          FROM replication_info ri)""".format(self.server.patroni.postgresql.wal_name,
-                                                                              self.server.patroni.postgresql.lsn_name),
-                             retry=retry)[0]
+            stmt = ("WITH replication_info AS ("
+                    "SELECT usename, application_name, client_addr, state, sync_state, sync_priority"
+                    " FROM pg_stat_replication) SELECT"
+                    " to_char(pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),"
+                    " CASE WHEN pg_is_in_recovery() THEN 0"
+                    " ELSE ('x' || SUBSTR(pg_{0}file_name(pg_current_{0}_{1}()), 1, 8))::bit(32)::int END,"
+                    " CASE WHEN pg_is_in_recovery() THEN 0"
+                    " ELSE pg_{0}_{1}_diff(pg_current_{0}_{1}(), '0/0')::bigint END,"
+                    " pg_{0}_{1}_diff(COALESCE(pg_last_{0}_receive_{1}(), pg_last_{0}_replay_{1}()), '0/0')::bigint,"
+                    " pg_{0}_{1}_diff(pg_last_{0}_replay_{1}(), '0/0')::bigint,"
+                    " to_char(pg_last_xact_replay_timestamp(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),"
+                    " pg_is_in_recovery() AND pg_is_{0}_replay_paused(),"
+                    " (SELECT array_to_json(array_agg(row_to_json(ri))) FROM replication_info ri)")
+
+            row = self.query(stmt.format(self.server.patroni.postgresql.wal_name,
+                                         self.server.patroni.postgresql.lsn_name), retry=retry)[0]
 
             result = {
                 'state': self.server.patroni.postgresql.state,
                 'postmaster_start_time': row[0],
-                'role': 'replica' if row[1] else 'master',
+                'role': 'replica' if row[1] == 0 else 'master',
                 'server_version': self.server.patroni.postgresql.server_version,
                 'xlog': ({
                     'received_location': row[3],
                     'replayed_location': row[4],
                     'replayed_timestamp': row[5],
-                    'paused': row[6]} if row[1] else {
+                    'paused': row[6]} if row[1] == 0 else {
                     'location': row[2]
                 })
             }
+
+            if row[1] > 0:
+                result['timeline'] = row[1]
+            else:
+                cluster = self.server.patroni.dcs.cluster
+                leader_timeline = None if not cluster or cluster.is_unlocked() else cluster.leader.timeline
+                result['timeline'] = self.server.patroni.postgresql.replica_cached_timeline(leader_timeline)
 
             if row[7]:
                 result['replication'] = row[7]
@@ -483,7 +515,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
     def __initialize(self, config):
         self.__ssl_options = self.__get_ssl_options(config)
         self.__listen = config['listen']
-        host, port = config['listen'].split(':')
+        host, port = config['listen'].rsplit(':', 1)
         HTTPServer.__init__(self, (host, int(port)), RestApiHandler)
         Thread.__init__(self, target=self.serve_forever)
         self._set_fd_cloexec(self.socket)

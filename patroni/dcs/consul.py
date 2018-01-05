@@ -8,9 +8,9 @@ import time
 import urllib3
 
 from consul import ConsulException, NotFound, base
-from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState
+from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
 from patroni.exceptions import DCSError
-from patroni.utils import deep_compare, parse_bool, Retry, RetryFailedError
+from patroni.utils import deep_compare, parse_bool, Retry, RetryFailedError, split_host_port
 from urllib3.exceptions import HTTPError
 from six.moves.urllib.parse import urlencode, urlparse
 from six.moves.http_client import HTTPException
@@ -148,7 +148,7 @@ class Consul(AbstractDCS):
             r = urlparse(config['url'])
             config.update({'scheme': r.scheme, 'host': r.hostname, 'port': r.port or 8500})
         elif 'host' in config:
-            host, port = (config.get('host', '127.0.0.1:8500') + ':8500').split(':')[:2]
+            host, port = split_host_port(config.get('host', '127.0.0.1:8500'), 8500)
             config['host'] = host
             if 'port' not in config:
                 config['port'] = int(port)
@@ -264,6 +264,10 @@ class Consul(AbstractDCS):
             config = nodes.get(self._CONFIG)
             config = config and ClusterConfig.from_node(config['ModifyIndex'], config['Value'])
 
+            # get timeline history
+            history = nodes.get(self._HISTORY)
+            history = history and TimelineHistory.from_node(history['ModifyIndex'], history['Value'])
+
             # get last leader operation
             last_leader_operation = nodes.get(self._LEADER_OPTIME)
             last_leader_operation = 0 if last_leader_operation is None else int(last_leader_operation['Value'])
@@ -293,9 +297,9 @@ class Consul(AbstractDCS):
             sync = nodes.get(self._SYNC)
             sync = SyncState.from_node(sync and sync['ModifyIndex'], sync and sync['Value'])
 
-            self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync)
+            self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
         except NotFound:
-            self._cluster = Cluster(None, None, None, None, [], None, None)
+            self._cluster = Cluster(None, None, None, None, [], None, None, None)
         except Exception:
             logger.exception('get_cluster')
             raise ConsulError('Consul is not responding properly')
@@ -371,6 +375,10 @@ class Consul(AbstractDCS):
     @catch_consul_errors
     def delete_cluster(self):
         return self.retry(self._client.kv.delete, self.client_path(''), recurse=True)
+
+    @catch_consul_errors
+    def set_history_value(self, value):
+        return self._client.kv.put(self.history_path, value)
 
     @catch_consul_errors
     def delete_leader(self):

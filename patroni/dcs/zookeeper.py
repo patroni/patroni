@@ -5,7 +5,7 @@ import time
 from kazoo.client import KazooClient, KazooState, KazooRetry
 from kazoo.exceptions import NoNodeError, NodeExistsError
 from kazoo.handlers.threading import SequentialThreadingHandler
-from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState
+from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
 from patroni.exceptions import DCSError
 from patroni.utils import deep_compare
 
@@ -161,6 +161,10 @@ class ZooKeeper(AbstractDCS):
         config = self.get_node(self.config_path, watch=self.cluster_watcher) if self._CONFIG in nodes else None
         config = config and ClusterConfig.from_node(config[1].version, config[0], config[1].mzxid)
 
+        # get timeline history
+        history = self.get_node(self.history_path, watch=self.cluster_watcher) if self._HISTORY in nodes else None
+        history = history and TimelineHistory.from_node(history[1].mzxid, history[0])
+
         # get last leader operation
         last_leader_operation = self._OPTIME in nodes and self._fetch_cluster and self.get_node(self.leader_optime_path)
         last_leader_operation = last_leader_operation and int(last_leader_operation[0]) or 0
@@ -193,7 +197,7 @@ class ZooKeeper(AbstractDCS):
         failover = self.get_node(self.failover_path, watch=self.cluster_watcher) if self._FAILOVER in nodes else None
         failover = failover and Failover.from_node(failover[1].version, failover[0])
 
-        self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync)
+        self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
 
     def _load_cluster(self):
         if self._fetch_cluster or self._cluster is None:
@@ -217,15 +221,18 @@ class ZooKeeper(AbstractDCS):
             logger.info('Could not take out TTL lock')
         return ret
 
-    def set_failover_value(self, value, index=None):
+    def __set_failover_or_sync_state_value(self, key, value, index=None):
         try:
-            self._client.retry(self._client.set, self.failover_path, value.encode('utf-8'), version=index or -1)
+            self._client.retry(self._client.set, key, value.encode('utf-8'), version=index or -1)
             return True
         except NoNodeError:
-            return value == '' or (index is None and self._create(self.failover_path, value))
+            return value == '' or (index is None and self._create(key, value))
         except Exception:
             logging.exception('set_failover_value')
             return False
+
+    def set_failover_value(self, value, index=None):
+        return self.__set_failover_or_sync_state_value(self.failover_path, value, index)
 
     def set_config_value(self, value, index=None):
         try:
@@ -279,20 +286,23 @@ class ZooKeeper(AbstractDCS):
     def take_leader(self):
         return self.attempt_to_acquire_leader()
 
-    def _write_leader_optime(self, last_operation):
-        last_operation = last_operation.encode('utf-8')
+    def __write_leader_optime_or_history_value(self, key, value):
+        value = value.encode('utf-8')
         try:
-            self._client.set_async(self.leader_optime_path, last_operation).get(timeout=1)
+            self._client.set_async(key, value).get(timeout=1)
             return True
         except NoNodeError:
             try:
-                self._client.create_async(self.leader_optime_path, last_operation, makepath=True).get(timeout=1)
+                self._client.create_async(key, value, makepath=True).get(timeout=1)
                 return True
             except Exception:
-                logger.exception('Failed to create %s', self.leader_optime_path)
+                logger.exception('Failed to create %s', key)
         except Exception:
-            logger.exception('Failed to update %s', self.leader_optime_path)
+            logger.exception('Failed to update %s', key)
         return False
+
+    def _write_leader_optime(self, last_operation):
+        return self.__write_leader_optime_or_history_value(self.leader_optime_path, last_operation)
 
     def _update_leader(self):
         return True
@@ -319,15 +329,11 @@ class ZooKeeper(AbstractDCS):
         except NoNodeError:
             return True
 
+    def set_history_value(self, value):
+        return self.__write_leader_optime_or_history_value(self.history_path, value)
+
     def set_sync_state_value(self, value, index=None):
-        try:
-            self._client.retry(self._client.set, self.sync_path, value.encode('utf-8'), version=index or -1)
-            return True
-        except NoNodeError:
-            return value == '' or (index is None and self._create(self.sync_path, value))
-        except Exception:
-            logging.exception('set_sync_state_value')
-            return False
+        return self.__set_failover_or_sync_state_value(self.sync_path, value, index)
 
     def delete_sync_state(self, index=None):
         return self.set_sync_state_value("{}", index)
