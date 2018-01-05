@@ -30,7 +30,7 @@ from patroni.config import Config
 from patroni.dcs import get_dcs as _get_dcs
 from patroni.exceptions import PatroniException
 from patroni.postgresql import Postgresql
-from patroni.utils import patch_config
+from patroni.utils import patch_config, polling_loop
 from patroni.version import __version__
 from prettytable import PrettyTable
 from six.moves.urllib_parse import urlparse
@@ -815,8 +815,27 @@ def flush(obj, cluster_name, member_names, force, role, target):
                 click.echo('No scheduled restart for member {0}'.format(member.name))
 
 
-def toggle_pause(config, cluster_name, paused):
-    cluster = get_dcs(config, cluster_name).get_cluster()
+def wait_until_pause_is_applied(dcs, paused, old_cluster):
+    click.echo("'{0}' request sent, waiting until it is recognized by all nodes".format(paused and 'pause' or 'resume'))
+    old = {m.name: m.index for m in old_cluster.members if m.api_url}
+    loop_wait = old_cluster.config.data.get('loop_wait', dcs.loop_wait)
+
+    for _ in polling_loop(loop_wait + 1):
+        cluster = dcs.get_cluster()
+        if all(m.data.get('pause', False) == paused for m in cluster.members if m.name in old):
+            break
+    else:
+        remaining = [m.name for m in cluster.members if m.data.get('pause', False) != paused
+                     and m.name in old and old[m.name] != m.index]
+        if remaining:
+            return click.echo("{0} members didn't recognized pause state after {1} seconds"
+                              .format(', '.join(remaining), loop_wait))
+    return click.echo('Success: cluster management is {0}'.format(paused and 'paused' or 'resumed'))
+
+
+def toggle_pause(config, cluster_name, paused, wait):
+    dcs = get_dcs(config, cluster_name)
+    cluster = dcs.get_cluster()
     if cluster.is_paused() == paused:
         raise PatroniCtlException('Cluster is {0} paused'.format(paused and 'already' or 'not'))
 
@@ -833,7 +852,10 @@ def toggle_pause(config, cluster_name, paused):
             continue
 
         if r.status_code == 200:
-            click.echo('Success: cluster management is {0}'.format(paused and 'paused' or 'resumed'))
+            if wait:
+                wait_until_pause_is_applied(dcs, paused, cluster)
+            else:
+                click.echo('Success: cluster management is {0}'.format(paused and 'paused' or 'resumed'))
         else:
             click.echo('Failed: {0} cluster management status code={1}, ({2})'.format(
                        paused and 'pause' or 'resume', r.status_code, r.text))
@@ -845,15 +867,17 @@ def toggle_pause(config, cluster_name, paused):
 @ctl.command('pause', help='Disable auto failover')
 @arg_cluster_name
 @click.pass_obj
-def pause(obj, cluster_name):
-    return toggle_pause(obj, cluster_name, True)
+@click.option('--wait', help='Wait until pause is applied on all nodes', is_flag=True)
+def pause(obj, cluster_name, wait):
+    return toggle_pause(obj, cluster_name, True, wait)
 
 
 @ctl.command('resume', help='Resume auto failover')
 @arg_cluster_name
+@click.option('--wait', help='Wait until pause is cleared on all nodes', is_flag=True)
 @click.pass_obj
-def resume(obj, cluster_name):
-    return toggle_pause(obj, cluster_name, False)
+def resume(obj, cluster_name, wait):
+    return toggle_pause(obj, cluster_name, False, wait)
 
 
 @contextmanager

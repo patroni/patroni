@@ -133,6 +133,9 @@ class Ha(object):
                 scheduled_restart_data['schedule'] = scheduled_restart_data['schedule'].isoformat()
                 data['scheduled_restart'] = scheduled_restart_data
 
+            if self.is_paused():
+                data['pause'] = True
+
             return self.dcs.touch_member(data)
 
     def clone(self, clone_member=None, msg='(without leader)'):

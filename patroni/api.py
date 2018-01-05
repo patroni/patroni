@@ -70,6 +70,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
             response['scheduled_restart']['schedule'] = (response['scheduled_restart']['schedule']).isoformat()
         if not patroni.ha.watchdog.is_healthy:
             response['watchdog_failed'] = True
+        if patroni.ha.is_paused():
+            response['pause'] = True
         self._write_json_response(status_code, response)
 
     def do_GET(self, write_status_code_only=False):
