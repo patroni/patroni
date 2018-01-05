@@ -36,11 +36,12 @@ STOP_POLLING_INTERVAL = 1
 REWIND_STATUS = type('Enum', (), {'INITIAL': 0, 'CHECK': 1, 'NEED': 2, 'NOT_NEED': 3, 'SUCCESS': 4, 'FAILED': 5})
 sync_standby_name_re = re.compile('^[A-Za-z_][A-Za-z_0-9\$]*$')
 
-wal_position_query = ("CASE WHEN pg_is_in_recovery() THEN GREATEST("
-                      "            pg_{0}_{1}_diff(COALESCE(pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint,"
-                      "            pg_{0}_{1}_diff(pg_last_{0}_replay_{1}(), '0/0')::bigint)"
-                      "     ELSE pg_{0}_{1}_diff(pg_current_{0}_{1}(), '0/0')::bigint "
-                      "END")
+cluster_info_query = ("SELECT CASE WHEN pg_is_in_recovery() THEN 0 "
+                      "ELSE ('x' || SUBSTR(pg_{0}file_name(pg_current_{0}_{1}()), 1, 8))::bit(32)::int END, "
+                      "CASE WHEN pg_is_in_recovery() THEN GREATEST("
+                      " pg_{0}_{1}_diff(COALESCE(pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint,"
+                      " pg_{0}_{1}_diff(pg_last_{0}_replay_{1}(), '0/0')::bigint)"
+                      "ELSE pg_{0}_{1}_diff(pg_current_{0}_{1}(), '0/0')::bigint END")
 
 
 def quote_ident(value):
@@ -167,6 +168,7 @@ class Postgresql(object):
         self._state_entry_timestamp = None
 
         self._cluster_info_state = {}
+        self._cached_replica_timeline = None
 
         # Last known running process
         self._postmaster_proc = None
@@ -710,11 +712,10 @@ class Postgresql(object):
 
     def _cluster_info_state_get(self, name):
         if not self._cluster_info_state:
-            stmt = "SELECT pg_is_in_recovery(), " + wal_position_query.format(self.wal_name, self.lsn_name)
-
+            stmt = cluster_info_query.format(self.wal_name, self.lsn_name)
             try:
                 result = self._is_leader_retry(self._query, stmt).fetchone()
-                self._cluster_info_state = dict(zip(['is_in_recovery', 'wal_position'], result))
+                self._cluster_info_state = dict(zip(['timeline', 'wal_position'], result))
             except RetryFailedError as e:  # SELECT failed two times
                 self._cluster_info_state = {'error': str(e)}
                 if not self.is_starting() and self.pg_isready() == STATE_REJECT:
@@ -726,7 +727,7 @@ class Postgresql(object):
         return self._cluster_info_state.get(name)
 
     def is_leader(self):
-        return not self._cluster_info_state_get('is_in_recovery')
+        return bool(self._cluster_info_state_get('timeline'))
 
     def is_running(self):
         """Returns PostmasterProcess if one is running on the data directory or None. If most recently seen process
@@ -1201,30 +1202,56 @@ class Postgresql(object):
         except Exception:
             return logger.exception('Exception when working with leader')
 
-    def _get_local_timeline_lsn(self):
+    def _get_local_timeline_lsn_from_replication_connection(self):
         timeline = lsn = None
+        try:
+            with self._get_replication_connection_cursor(**self._local_replication_address) as cur:
+                cur.execute('IDENTIFY_SYSTEM')
+                timeline, lsn = cur.fetchone()[1:3]
+        except Exception:
+            logger.exception('Can not fetch local timeline and lsn from replication connection')
+        return timeline, lsn
+
+    def _get_local_timeline_lsn_from_controldata(self):
+        timeline = lsn = None
+        data = self.controldata()
+        try:
+            if data.get('Database cluster state') == 'shut down in recovery':
+                lsn = data.get('Minimum recovery ending location')
+                timeline = int(data.get("Min recovery ending loc's timeline"))
+                if lsn == '0/0' or timeline == 0:  # it was a master when it crashed
+                    data['Database cluster state'] = 'shut down'
+            if data.get('Database cluster state') == 'shut down':
+                lsn = data.get('Latest checkpoint location')
+                timeline = int(data.get("Latest checkpoint's TimeLineID"))
+        except (TypeError, ValueError):
+            logger.exception('Failed to get local timeline and lsn from pg_controldata output')
+        return timeline, lsn
+
+    def _get_local_timeline_lsn(self):
         if self.is_running():  # if postgres is running - get timeline and lsn from replication connection
-            try:
-                with self._get_replication_connection_cursor(**self._local_replication_address) as cur:
-                    cur.execute('IDENTIFY_SYSTEM')
-                    timeline, lsn = cur.fetchone()[1:3]
-            except Exception:
-                logger.exception('Can not fetch local timeline and lsn from replication connection')
+            timeline, lsn = self._get_local_timeline_lsn_from_replication_connection()
         else:  # otherwise analyze pg_controldata output
-            data = self.controldata()
-            try:
-                if data.get('Database cluster state') == 'shut down in recovery':
-                    lsn = data.get('Minimum recovery ending location')
-                    timeline = int(data.get("Min recovery ending loc's timeline"))
-                    if lsn == '0/0' or timeline == 0:  # it was a master when it crashed
-                        data['Database cluster state'] = 'shut down'
-                if data.get('Database cluster state') == 'shut down':
-                    lsn = data.get('Latest checkpoint location')
-                    timeline = int(data.get("Latest checkpoint's TimeLineID"))
-            except (TypeError, ValueError):
-                logger.exception('Failed to get local timeline and lsn from pg_controldata output')
+            timeline, lsn = self._get_local_timeline_lsn_from_controldata()
         logger.info('Local timeline=%s lsn=%s', timeline, lsn)
         return timeline, lsn
+
+    @staticmethod
+    def parse_lsn(lsn):
+        t = lsn.split('/')
+        return int(t[0], 16) * 0x100000000 + int(t[1], 16)
+
+    @staticmethod
+    def parse_history(data):
+        for line in data.split('\n'):
+            values = line.strip().split('\t')
+            if len(values) == 3:
+                try:
+                    values[0] = int(values[0])
+                    values[1] = Postgresql.parse_lsn(values[1])
+                    yield values
+                except (IndexError, ValueError):
+                    logger.exception('Exception when parsing timeline history line "%s"', values)
 
     def _check_timeline_and_lsn(self, leader):
         local_timeline, local_lsn = self._get_local_timeline_lsn()
@@ -1252,27 +1279,43 @@ class Postgresql(object):
             return logger.exception('Exception when working with master via replication connection')
 
         if history is not None:
-            def parse_lsn(lsn):
-                t = lsn.split('/')
-                return int(t[0], 16) * 0x100000000 + int(t[1], 16)
-
-            for line in history.split('\n'):
-                line = line.strip().split('\t')
-                if len(line) == 3:
+            for parent_timeline, switchpoint, _ in self.parse_history(history):
+                if parent_timeline == local_timeline:
                     try:
-                        timeline = int(line[0])
-                        if timeline == local_timeline:
-                            try:
-                                need_rewind = parse_lsn(local_lsn) >= parse_lsn(line[1])
-                            except ValueError:
-                                logger.exception('Exception when parsing lsn')
-                            break
-                        elif timeline > local_timeline:
-                            break
-                    except ValueError:
-                        continue
+                        need_rewind = self.parse_lsn(local_lsn) >= switchpoint
+                    except (IndexError, ValueError):
+                        logger.exception('Exception when parsing lsn')
+                    break
+                elif parent_timeline > local_timeline:
+                    break
 
         self._rewind_state = need_rewind and REWIND_STATUS.NEED or REWIND_STATUS.NOT_NEED
+
+    def get_replica_timeline(self):
+        return self._get_local_timeline_lsn_from_replication_connection()[0]
+
+    def replica_cached_timeline(self, master_timeline):
+        if not self._cached_replica_timeline or not master_timeline or self._cached_replica_timeline != master_timeline:
+            self._cached_replica_timeline = self.get_replica_timeline()
+        return self._cached_replica_timeline
+
+    def get_master_timeline(self):
+        return self._cluster_info_state_get('timeline')
+
+    def get_history(self, timeline):
+        history_path = 'pg_{0}/{1:08X}.history'.format(self.wal_name, timeline)
+        try:
+            cursor = self._cursor()
+            cursor.execute('SELECT isdir, modification FROM pg_stat_file(%s)', (history_path,))
+            isdir, modification = cursor.fetchone()
+            if not isdir:
+                cursor.execute('SELECT pg_read_file(%s)', (history_path,))
+                history = list(self.parse_history(cursor.fetchone()[0]))
+                if history[-1][0] == timeline - 1:
+                    history[-1].append(modification.isoformat())
+                return history
+        except Exception:
+            logger.exception('Failed to read and parse %s', (history_path,))
 
     def rewind(self, leader):
         if self.is_running() and not self.stop(checkpoint=False):
@@ -1370,15 +1413,22 @@ class Postgresql(object):
         except IOError:
             logger.exception('unable to restore configuration files from backup')
 
-    def promote(self):
+    def _wait_promote(self, wait_seconds):
+        for _ in polling_loop(wait_seconds - 1):
+            data = self.controldata()
+            if data.get('Database cluster state') == 'in production':
+                return True
+
+    def promote(self, wait_seconds):
         if self.role == 'master':
             return True
-        ret = self.pg_ctl('promote')
+        ret = self.pg_ctl('promote', '-W')
         if ret:
             self.set_role('master')
             logger.info("cleared rewind state after becoming the leader")
             self._rewind_state = REWIND_STATUS.INITIAL
             self.call_nowait(ACTION_ON_ROLE_CHANGE)
+            ret = self._wait_promote(wait_seconds)
         return ret
 
     def create_or_update_role(self, name, password, options):
@@ -1398,15 +1448,15 @@ BEGIN
 END;
 $$""".format(name, ' '.join(options)), name, password, password)
 
-    def wal_position(self):
+    def timeline_wal_position(self):
         # This method could be called from different threads (simultaneously with some other `_query` calls).
         # If it is called not from main thread we will create a new cursor to execute statement.
         if current_thread().ident == self.__thread_ident:
-            return self._cluster_info_state_get('wal_position')
+            return self._cluster_info_state_get('timeline'), self._cluster_info_state_get('wal_position')
 
         with self.connection().cursor() as cursor:
-            cursor.execute('SELECT ' + wal_position_query.format(self.wal_name, self.lsn_name))
-            return cursor.fetchone()[0]
+            cursor.execute(cluster_info_query.format(self.wal_name, self.lsn_name))
+            return cursor.fetchone()[:2]
 
     def load_replication_slots(self):
         if self.use_slots and self._schedule_load_slots:
@@ -1469,7 +1519,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
                 self._schedule_load_slots = True
 
     def last_operation(self):
-        return str(self.wal_position())
+        return str(self._cluster_info_state_get('wal_position'))
 
     def _post_restore(self):
         self.delete_trigger_file()

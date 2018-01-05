@@ -12,7 +12,7 @@ import time
 
 from dns.exception import DNSException
 from dns import resolver
-from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState
+from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
 from patroni.exceptions import DCSError
 from patroni.utils import Retry, RetryFailedError, split_host_port
 from urllib3.exceptions import HTTPError, ReadTimeoutError
@@ -455,6 +455,10 @@ class Etcd(AbstractDCS):
             config = nodes.get(self._CONFIG)
             config = config and ClusterConfig.from_node(config.modifiedIndex, config.value)
 
+            # get timeline history
+            history = nodes.get(self._HISTORY)
+            history = history and TimelineHistory.from_node(history.modifiedIndex, history.value)
+
             # get last leader operation
             last_leader_operation = nodes.get(self._LEADER_OPTIME)
             last_leader_operation = 0 if last_leader_operation is None else int(last_leader_operation.value)
@@ -479,9 +483,9 @@ class Etcd(AbstractDCS):
             sync = nodes.get(self._SYNC)
             sync = SyncState.from_node(sync and sync.modifiedIndex, sync and sync.value)
 
-            self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync)
+            self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
         except etcd.EtcdKeyNotFound:
-            self._cluster = Cluster(None, None, None, None, [], None, None)
+            self._cluster = Cluster(None, None, None, None, [], None, None, None)
         except Exception as e:
             self._handle_exception(e, 'get_cluster', raise_ex=EtcdError('Etcd is not responding properly'))
         self._has_failed = False
@@ -539,6 +543,10 @@ class Etcd(AbstractDCS):
     @catch_etcd_errors
     def delete_cluster(self):
         return self.retry(self._client.delete, self.client_path(''), recursive=True)
+
+    @catch_etcd_errors
+    def set_history_value(self, value):
+        return self._client.write(self.history_path, value)
 
     @catch_etcd_errors
     def set_sync_state_value(self, value, index=None):

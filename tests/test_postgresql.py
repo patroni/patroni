@@ -1,3 +1,4 @@
+import datetime
 import mock  # for the mock.call method, importing it without a namespace breaks python3
 import os
 import psycopg2
@@ -34,13 +35,13 @@ class MockCursor(object):
         elif sql.startswith('SELECT slot_name'):
             self.results = [('blabla',), ('foobar',)]
         elif sql.startswith('SELECT CASE WHEN pg_is_in_recovery()'):
-            self.results = [(2,)]
+            self.results = [(1, 2)]
         elif sql.startswith('SELECT pg_is_in_recovery()'):
             self.results = [(False, 2)]
         elif sql.startswith('WITH replication_info AS ('):
             replication_info = '[{"application_name":"walreceiver","client_addr":"1.2.3.4",' +\
                                '"state":"streaming","sync_state":"async","sync_priority":0}]'
-            self.results = [('', True, '', '', '', '', False, replication_info)]
+            self.results = [('', 0, '', '', '', '', False, replication_info)]
         elif sql.startswith('SELECT name, setting'):
             self.results = [('wal_segment_size', '2048', '8kB', 'integer', 'internal'),
                             ('search_path', 'public', None, 'string', 'user'),
@@ -50,6 +51,11 @@ class MockCursor(object):
                             ('unix_socket_directories', '/tmp', None, 'string', 'postmaster')]
         elif sql.startswith('IDENTIFY_SYSTEM'):
             self.results = [('1', 2, '0/402EEC0', '')]
+        elif sql.startswith('SELECT isdir, modification'):
+            self.results = [(False, datetime.datetime.now())]
+        elif sql.startswith('SELECT pg_read_file'):
+            self.results = [('1\t0/40159C0\tno recovery target specified\n\n' +
+                             '2\t1/40159C0\tno recovery target specified\n',)]
         elif sql.startswith('TIMELINE_HISTORY '):
             self.results = [('', b'x\t0/40159C0\tno recovery target specified\n\n' +
                                  b'1\t0/40159C0\tno recovery target specified\n\n' +
@@ -347,7 +353,7 @@ class TestPostgresql(unittest.TestCase):
 
     @patch.object(Postgresql, 'start', Mock())
     @patch.object(Postgresql, 'can_rewind', PropertyMock(return_value=True))
-    @patch.object(Postgresql, '_get_local_timeline_lsn', Mock(return_value=(2, '0/40159C1')))
+    @patch.object(Postgresql, '_get_local_timeline_lsn', Mock(return_value=(2, '40159C1')))
     @patch.object(Postgresql, 'check_leader_is_not_in_recovery')
     def test__check_timeline_and_lsn(self, mock_check_leader_is_not_in_recovery):
         mock_check_leader_is_not_in_recovery.return_value = False
@@ -358,12 +364,8 @@ class TestPostgresql(unittest.TestCase):
         self.p.trigger_check_diverged_lsn()
         with patch('psycopg2.connect', Mock(side_effect=Exception)):
             self.assertFalse(self.p.rewind_needed_and_possible(self.leader))
-        with patch.object(MockCursor, 'fetchone',
-                          Mock(side_effect=[('', 2, '0/0'), ('', b'2\tG/40159C0\tno recovery target specified\n\n')])):
-            self.assertFalse(self.p.rewind_needed_and_possible(self.leader))
         self.p.trigger_check_diverged_lsn()
-        with patch.object(MockCursor, 'fetchone',
-                          Mock(side_effect=[('', 2, '0/0'), ('', b'3\t040159C0\tno recovery target specified\n')])):
+        with patch.object(MockCursor, 'fetchone', Mock(side_effect=[('', 2, '0/0'), ('', b'3\t0/40159C0\tn\n')])):
             self.assertFalse(self.p.rewind_needed_and_possible(self.leader))
         self.p.trigger_check_diverged_lsn()
         with patch.object(MockCursor, 'fetchone', Mock(return_value=('', 1, '0/0'))):
@@ -448,7 +450,7 @@ class TestPostgresql(unittest.TestCase):
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def test_sync_replication_slots(self):
         self.p.start()
-        cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None, None)
+        cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None, None, None)
         with mock.patch('patroni.postgresql.Postgresql._query', Mock(side_effect=psycopg2.OperationalError)):
             self.p.sync_replication_slots(cluster)
         self.p.sync_replication_slots(cluster)
@@ -494,12 +496,12 @@ class TestPostgresql(unittest.TestCase):
 
     def test_promote(self):
         self.p.set_role('replica')
-        self.assertTrue(self.p.promote())
-        self.assertTrue(self.p.promote())
+        self.assertIsNone(self.p.promote(0))
+        self.assertTrue(self.p.promote(0))
 
-    def test_last_operation(self):
-        self.assertEquals(self.p.last_operation(), '2')
-        Thread(target=self.p.last_operation).start()
+    def test_timeline_wal_position(self):
+        self.assertEquals(self.p.timeline_wal_position(), (1, 2))
+        Thread(target=self.p.timeline_wal_position).start()
 
     @patch.object(PostmasterProcess, 'from_pidfile')
     def test_is_running(self, mock_frompidfile):
@@ -817,7 +819,7 @@ class TestPostgresql(unittest.TestCase):
 
     def test_pick_sync_standby(self):
         cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None,
-                          SyncState(0, self.me.name, self.leadermem.name))
+                          SyncState(0, self.me.name, self.leadermem.name), None)
 
         with patch.object(Postgresql, "query", return_value=[
                     (self.leadermem.name, 'streaming', 'sync'),
@@ -934,6 +936,12 @@ class TestPostgresql(unittest.TestCase):
     @patch.object(Postgresql, 'single_user_mode', Mock(return_value=0))
     def test_fix_cluster_state(self):
         self.assertTrue(self.p.fix_cluster_state())
+
+    def test_replica_cached_timeline(self):
+        self.assertEquals(self.p.replica_cached_timeline(1), 2)
+
+    def test_get_master_timeline(self):
+        self.assertEquals(self.p.get_master_timeline(), 1)
 
     def test_cancellable_subprocess_call(self):
         self.p.cancel()

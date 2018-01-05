@@ -402,39 +402,43 @@ class RestApiHandler(BaseHTTPRequestHandler):
         try:
             if self.server.patroni.postgresql.state not in ('running', 'restarting', 'starting'):
                 raise RetryFailedError('')
-            row = self.query("""WITH replication_info AS (
-                                    SELECT usename, application_name, client_addr, state, sync_state, sync_priority
-                                      FROM pg_stat_replication
-                                )
-                                SELECT to_char(pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),
-                                       pg_is_in_recovery(),
-                                       CASE WHEN pg_is_in_recovery()
-                                            THEN 0
-                                            ELSE pg_{0}_{1}_diff(pg_current_{0}_{1}(), '0/0')::bigint
-                                       END,
-                                       pg_{0}_{1}_diff(COALESCE(pg_last_{0}_receive_{1}(),
-                                                                      pg_last_{0}_replay_{1}()), '0/0')::bigint,
-                                       pg_{0}_{1}_diff(pg_last_{0}_replay_{1}(), '0/0')::bigint,
-                                       to_char(pg_last_xact_replay_timestamp(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),
-                                       pg_is_in_recovery() AND pg_is_{0}_replay_paused(),
-                                       (SELECT array_to_json(array_agg(row_to_json(ri)))
-                                          FROM replication_info ri)""".format(self.server.patroni.postgresql.wal_name,
-                                                                              self.server.patroni.postgresql.lsn_name),
-                             retry=retry)[0]
+            stmt = ("WITH replication_info AS ("
+                    "SELECT usename, application_name, client_addr, state, sync_state, sync_priority"
+                    " FROM pg_stat_replication) SELECT"
+                    " to_char(pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),"
+                    " CASE WHEN pg_is_in_recovery() THEN 0"
+                    " ELSE ('x' || SUBSTR(pg_{0}file_name(pg_current_{0}_{1}()), 1, 8))::bit(32)::int END,"
+                    " CASE WHEN pg_is_in_recovery() THEN 0"
+                    " ELSE pg_{0}_{1}_diff(pg_current_{0}_{1}(), '0/0')::bigint END,"
+                    " pg_{0}_{1}_diff(COALESCE(pg_last_{0}_receive_{1}(), pg_last_{0}_replay_{1}()), '0/0')::bigint,"
+                    " pg_{0}_{1}_diff(pg_last_{0}_replay_{1}(), '0/0')::bigint,"
+                    " to_char(pg_last_xact_replay_timestamp(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),"
+                    " pg_is_in_recovery() AND pg_is_{0}_replay_paused(),"
+                    " (SELECT array_to_json(array_agg(row_to_json(ri))) FROM replication_info ri)")
+
+            row = self.query(stmt.format(self.server.patroni.postgresql.wal_name,
+                                         self.server.patroni.postgresql.lsn_name), retry=retry)[0]
 
             result = {
                 'state': self.server.patroni.postgresql.state,
                 'postmaster_start_time': row[0],
-                'role': 'replica' if row[1] else 'master',
+                'role': 'replica' if row[1] == 0 else 'master',
                 'server_version': self.server.patroni.postgresql.server_version,
                 'xlog': ({
                     'received_location': row[3],
                     'replayed_location': row[4],
                     'replayed_timestamp': row[5],
-                    'paused': row[6]} if row[1] else {
+                    'paused': row[6]} if row[1] == 0 else {
                     'location': row[2]
                 })
             }
+
+            if row[1] > 0:
+                result['timeline'] = row[1]
+            else:
+                cluster = self.server.patroni.dcs.cluster
+                leader_timeline = None if not cluster or cluster.is_unlocked() else cluster.leader.timeline
+                result['timeline'] = self.server.patroni.postgresql.replica_cached_timeline(leader_timeline)
 
             if row[7]:
                 result['replication'] = row[7]

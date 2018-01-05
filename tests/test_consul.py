@@ -172,3 +172,7 @@ class TestConsul(unittest.TestCase):
     def test_sync_state(self):
         self.assertTrue(self.c.set_sync_state_value('{}'))
         self.assertTrue(self.c.delete_sync_state())
+
+    @patch.object(consul.Consul.KV, 'put', Mock(return_value=True))
+    def test_set_history_value(self):
+        self.assertTrue(self.c.set_history_value('{}'))
