@@ -13,17 +13,17 @@ Scenario: check API requests on a stand-alone server
 	When I run patronictl.py reinit batman postgres0 --force
 	Then I receive a response returncode 0
 	And I receive a response output "Failed: reinitialize for member postgres0, status code=503, (I am the leader, can not reinitialize)"
-	When I run patronictl.py failover batman --master postgres0 --force
+	When I run patronictl.py switchover batman --master postgres0 --force
 	Then I receive a response returncode 1
-	And I receive a response output "Error: No candidates found to failover to"
-	When I issue a POST request to http://127.0.0.1:8008/failover with {"leader": "postgres0"}
-	Then I receive a response code 500
-	And I receive a response text failover is not possible: cluster does not have members except leader
+	And I receive a response output "Error: No candidates found to switchover to"
+	When I issue a POST request to http://127.0.0.1:8008/switchover with {"leader": "postgres0"}
+	Then I receive a response code 412
+	And I receive a response text switchover is not possible: cluster does not have members except leader
 	When I issue an empty POST request to http://127.0.0.1:8008/failover
 	Then I receive a response code 400
 	When I issue a POST request to http://127.0.0.1:8008/failover with {"foo": "bar"}
 	Then I receive a response code 400
-	And I receive a response text "No values given for required parameters leader and candidate"
+	And I receive a response text "Failover could be performed only to a specific candidate"
 
 Scenario: check local configuration reload
 	Given I issue an empty POST request to http://127.0.0.1:8008/reload
@@ -64,21 +64,21 @@ Scenario: check API requests for the primary-replica pair in the pause mode
 	When I sleep for 10 seconds
 	Then postgres1 role is the secondary after 15 seconds
 
-Scenario: check the failover via the API in the pause mode
-	Given I issue a POST request to http://127.0.0.1:8008/failover with {"leader": "postgres0", "candidate": "postgres1"}
+Scenario: check the switchover via the API in the pause mode
+	Given I issue a POST request to http://127.0.0.1:8008/switchover with {"leader": "postgres0", "candidate": "postgres1"}
 	Then I receive a response code 200
 	And postgres1 is a leader after 5 seconds
 	And postgres1 role is the primary after 10 seconds
 	And postgres0 role is the secondary after 10 seconds
 	And replication works from postgres1 to postgres0 after 20 seconds
 
-Scenario: check the scheduled failover
-	Given I issue a scheduled failover from postgres1 to postgres0 in 3 seconds
+Scenario: check the scheduled switchover
+	Given I issue a scheduled switchover from postgres1 to postgres0 in 3 seconds
 	Then I receive a response returncode 1
-	And I receive a response output "Can't schedule failover in the paused state"
+	And I receive a response output "Can't schedule switchover in the paused state"
 	When I run patronictl.py resume batman
 	Then I receive a response returncode 0
-	Given I issue a scheduled failover from postgres1 to postgres0 in 3 seconds
+	Given I issue a scheduled switchover from postgres1 to postgres0 in 3 seconds
 	Then I receive a response returncode 0
 	And postgres0 is a leader after 20 seconds
 	And postgres0 role is the primary after 10 seconds
