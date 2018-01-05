@@ -337,6 +337,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         if action == 'failover' and not candidate:
             data = 'Failover could be performed only to a specific candidate'
+        elif action == 'switchover' and not leader:
+            data = 'Switchover could be performed only from a specific leader'
 
         if not data and scheduled_at:
             if not leader:
@@ -348,9 +350,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         if not data and cluster.is_paused() and not candidate:
             data = action.title() + ' is possible only to a specific candidate in a paused state'
-
-        if not data and not leader and not candidate:
-            data = 'No values given for required parameters leader and candidate'
 
         if not data and not scheduled_at:
             data = self.is_failover_possible(cluster, leader, candidate, action)
