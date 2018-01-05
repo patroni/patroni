@@ -375,7 +375,9 @@ class Ha(object):
     def update_cluster_history(self):
         master_timeline = self.state_handler.get_master_timeline()
         cluster_history = self.cluster.history and self.cluster.history.lines
-        if not cluster_history or cluster_history[-1][0] != master_timeline - 1 or len(cluster_history[-1]) != 4:
+        if cluster_history and master_timeline == 1:
+            self.dcs.set_history_value('[]')
+        elif not cluster_history or cluster_history[-1][0] != master_timeline - 1 or len(cluster_history[-1]) != 4:
             cluster_history = {l[0]: l for l in cluster_history or []}
             history = self.state_handler.get_history(master_timeline)
             if history:
@@ -396,13 +398,14 @@ class Ha(object):
                 self.release_leader_key_voluntarily()
                 return 'Not promoting self because watchdog could not be activated'
 
-        if self.state_handler.get_master_timeline() > 1:
-            self.update_cluster_history()
-
-        if self.state_handler.is_leader() or self.state_handler.role == 'master':
+        if self.state_handler.is_leader():
             # Inform the state handler about its master role.
             # It may be unaware of it if postgres is promoted manually.
             self.state_handler.set_role('master')
+            self.process_sync_replication()
+            self.update_cluster_history()
+            return message
+        elif self.state_handler.role == 'master':
             self.process_sync_replication()
             return message
         else:

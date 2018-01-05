@@ -236,6 +236,13 @@ class TestHa(unittest.TestCase):
         self.p.is_leader = false
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
 
+    def test_long_promote(self):
+        self.ha.cluster.is_unlocked = false
+        self.ha.has_lock = true
+        self.p.is_leader = false
+        self.p.set_role('master')
+        self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
+
     def test_demote_after_failing_to_obtain_lock(self):
         self.ha.acquire_lock = false
         self.assertEquals(self.ha.run_cycle(), 'demoted self after trying and failing to obtain lock')
@@ -882,3 +889,9 @@ class TestHa(unittest.TestCase):
         self.ha.has_lock = false
         # will not say bootstrap from leader as replica can't self elect
         self.assertEquals(self.ha.run_cycle(), "trying to bootstrap from replica 'other'")
+
+    def test_update_cluster_history(self):
+        self.p.get_master_timeline = Mock(return_value=1)
+        self.ha.has_lock = true
+        self.ha.cluster.is_unlocked = false
+        self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
