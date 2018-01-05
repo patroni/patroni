@@ -100,7 +100,7 @@ class MockPatroni(object):
     dcs = Mock()
     tags = {}
     version = '0.00'
-    noloadbalance = Mock(return_value=False)
+    noloadbalance = PropertyMock(return_value=False)
     scheduled_restart = {'schedule': future_restart_time,
                          'postmaster_start_time': postgresql.postmaster_start_time()}
 
@@ -148,6 +148,12 @@ class TestRestApiHandler(unittest.TestCase):
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'master'})):
             MockRestApiServer(RestApiHandler, 'GET /replica')
         MockRestApiServer(RestApiHandler, 'GET /master')
+        MockPatroni.dcs.cluster.sync.sync_standby = MockPostgresql.name
+        MockPatroni.dcs.cluster.is_synchronous_mode = Mock(return_value=True)
+        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'replica'})):
+            MockRestApiServer(RestApiHandler, 'GET /synchronous')
+        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'replica'})):
+            MockRestApiServer(RestApiHandler, 'GET /asynchronous')
         MockPatroni.dcs.cluster.leader.name = MockPostgresql.name
         MockRestApiServer(RestApiHandler, 'GET /replica')
         MockPatroni.dcs.cluster = None
