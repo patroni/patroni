@@ -83,6 +83,10 @@ class MockHa(object):
     def wakeup():
         pass
 
+    @staticmethod
+    def is_paused():
+        return True
+
 
 class MockPatroni(object):
 

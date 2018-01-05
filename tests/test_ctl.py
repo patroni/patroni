@@ -15,7 +15,7 @@ from patroni.utils import tzutc
 from psycopg2 import OperationalError
 from test_etcd import etcd_read, requests_get, socket_getaddrinfo, MockResponse
 from test_ha import get_cluster_initialized_without_leader, get_cluster_initialized_with_leader, \
-    get_cluster_initialized_with_only_leader, get_cluster_not_initialized_without_leader
+    get_cluster_initialized_with_only_leader, get_cluster_not_initialized_without_leader, get_cluster, Member
 from test_postgresql import MockConnect, psycopg2_connect
 
 CONFIG_FILE_PATH = './test-ctl.yaml'
@@ -406,13 +406,10 @@ class TestCtl(unittest.TestCase):
             assert 'Failed: flush scheduled restart' in result.output
 
     @patch('patroni.ctl.get_dcs')
+    @patch('patroni.ctl.polling_loop', Mock(return_value=[1]))
     def test_pause_cluster(self, mock_get_dcs):
         mock_get_dcs.return_value = self.e
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
-
-        with patch('requests.patch', Mock(return_value=MockResponse(200))):
-            result = self.runner.invoke(ctl, ['pause', 'dummy'])
-            assert 'Success' in result.output
 
         with patch('requests.patch', Mock(return_value=MockResponse(500))):
             result = self.runner.invoke(ctl, ['pause', 'dummy'])
@@ -422,6 +419,17 @@ class TestCtl(unittest.TestCase):
                 patch('patroni.dcs.Cluster.is_paused', Mock(return_value=True)):
             result = self.runner.invoke(ctl, ['pause', 'dummy'])
             assert 'Cluster is already paused' in result.output
+
+        with patch('requests.patch', Mock(return_value=MockResponse(200))):
+            result = self.runner.invoke(ctl, ['pause', 'dummy', '--wait'])
+            assert "'pause' request sent" in result.output
+            mock_get_dcs.return_value.get_cluster = Mock(side_effect=[get_cluster_initialized_with_leader(),
+                                                                      get_cluster(None, None, [], None, None)])
+            self.runner.invoke(ctl, ['pause', 'dummy', '--wait'])
+            member = Member(1, 'other', 28, {})
+            mock_get_dcs.return_value.get_cluster = Mock(side_effect=[get_cluster_initialized_with_leader(),
+                                                                      get_cluster(None, None, [member], None, None)])
+            self.runner.invoke(ctl, ['pause', 'dummy', '--wait'])
 
     @patch('patroni.ctl.get_dcs')
     def test_resume_cluster(self, mock_get_dcs):
