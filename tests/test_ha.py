@@ -867,6 +867,7 @@ class TestHa(unittest.TestCase):
 
     def test_shutdown(self):
         self.p.is_running = false
+        self.ha.has_lock = true
         self.ha.shutdown()
 
     @patch('time.sleep', Mock())

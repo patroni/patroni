@@ -7,7 +7,7 @@ import unittest
 from click.testing import CliRunner
 from datetime import datetime, timedelta
 from mock import patch, Mock
-from patroni.ctl import ctl, members, store_config, load_config, output_members, request_patroni, get_dcs, parse_dcs, \
+from patroni.ctl import ctl, store_config, load_config, output_members, request_patroni, get_dcs, parse_dcs, \
     get_all_members, get_any_member, get_cursor, query_member, configure, PatroniCtlException, apply_config_changes, \
     format_config_for_editing, show_diff, invoke_editor, format_pg_version
 from patroni.dcs.etcd import Client, Failover
@@ -33,7 +33,7 @@ def test_rw_config():
 
 
 @patch('patroni.ctl.load_config',
-       Mock(return_value={'postgresql': {'data_dir': '.', 'parameters': {}, 'retry_timeout': 5},
+       Mock(return_value={'scope': 'alpha', 'postgresql': {'data_dir': '.', 'parameters': {}, 'retry_timeout': 5},
                           'restapi': {'auth': 'u:p', 'listen': ''}, 'etcd': {'host': 'localhost:2379'}}))
 class TestCtl(unittest.TestCase):
 
@@ -346,9 +346,11 @@ class TestCtl(unittest.TestCase):
     @patch('patroni.ctl.get_dcs')
     def test_members(self, mock_get_dcs):
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
-        result = self.runner.invoke(members, ['alpha'])
+        result = self.runner.invoke(ctl, ['list'])
         assert '127.0.0.1' in result.output
         assert result.exit_code == 0
+        with patch('patroni.ctl.load_config', Mock(return_value={})):
+            self.runner.invoke(ctl, ['list'])
 
     def test_configure(self):
         result = self.runner.invoke(configure, ['--dcs', 'abc', '-c', 'dummy', '-n', 'bla'])
