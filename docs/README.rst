@@ -32,7 +32,6 @@ To install requirements on a Mac, run the following:
 ::
 
     brew install postgresql etcd haproxy libyaml python
-    pip install psycopg2 pyyaml
 
 **General installation for pip**
 
