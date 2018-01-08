@@ -83,6 +83,16 @@ Exhibitor
 -  **poll\_interval**: how often the list of ZooKeeper and Exhibitor nodes should be updated from Exhibitor
 -  **port**: Exhibitor port.
 
+Kubernetes
+----------
+-  **namespace**: (optional) Kubernetes namespace where we are running. Default value is ``default``.
+-  **labels**: Labels in format ``{label1: value1, label2: value2}``. These labels will be used to find existing objects (Endpoints|ConfigMaps + Pods) associated with the current cluster. Also Patroni will set them on every object (Endpoint|ConfigMap) when creates/updates them.
+-  **scope\_label**: (optional) name of the label containing cluster name. Default value is ``cluster-name``.
+-  **role\_label**: (optional) name of the label containing role (master or replica). Patroni will set this label on the pod it runs in. Default value is ``role``.
+-  **use\_endpoints**: (optional) if set to true, Patroni will use Endpoints instead of ConfigMaps to run leader election and keep cluster state.
+-  **pod\_ip**: (optional) IP address of the pod we are running in. It's necessary set set this value only when ``use_endpoints`` is set, to write this IP into the leader Endpoint subsets.
+-  **ports**: (optional) if the Service object has the name for the port, the same name must appear in the Endpoint object, otherwise service wont work. Example: ``{Kind: Service, spec: {ports: [{name: postgresql, port: 5432, targetPort: 5432}]}}``. In this case you have to define ``kubernetes.ports: {[{"name": "postgresql", "port": 5432}]}`` and Patroni will use it for updating subsets of the leader Endpoint. This parameter used only if ``use_endpoints`` is set.
+
 .. _postgresql_settings:
 
 PostgreSQL
