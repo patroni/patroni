@@ -69,6 +69,10 @@ independently of Patroni.
 Running and Configuring
 =======================
 
+The following section assumes Patroni repository as being cloned from https://github.com/zalando/patroni. Namely, you
+will need example configuration files `postgres0.yml` and `postgres1.yml`. If you installed Patroni with pip, you can
+obtain those files from the git repository and replace `./patroni.py` below with `patroni` command.
+
 To get started, do the following from different terminals:
 ::
 
