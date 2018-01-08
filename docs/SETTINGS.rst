@@ -83,6 +83,8 @@ Exhibitor
 -  **poll\_interval**: how often the list of ZooKeeper and Exhibitor nodes should be updated from Exhibitor
 -  **port**: Exhibitor port.
 
+.. _kubernetes_settings:
+
 Kubernetes
 ----------
 -  **namespace**: (optional) Kubernetes namespace where we are running. Default value is `default`.

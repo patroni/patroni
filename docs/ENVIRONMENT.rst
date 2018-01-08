@@ -52,6 +52,8 @@ Exhibitor
 -  **PATRONI\_EXHIBITOR\_HOSTS**: initial list of Exhibitor (ZooKeeper) nodes in format: 'host1,host2,etc...'. This list updates automatically whenever the Exhibitor (ZooKeeper) cluster topology changes.
 -  **PATRONI\_EXHIBITOR\_PORT**: Exhibitor port.
 
+.. _kubernetes_environment:
+
 Kubernetes
 ----------
 -  **PATRONI\_KUBERNETES\_NAMESPACE**: (optional) Kubernetes namespace where the operator is running. Default value is `default`.

@@ -14,7 +14,8 @@ Installing Patroni via pip will no longer bring in dependencies for (such as lib
 
 **Kubernetes support**
 
-Implement Kubernetes-based DCS. The endpoints meta-data is used in order to store the configuration and the leader key. The meta-data field inside the pods definition is used to store the member-related data. In addition to using Endpoints, Patroni supports ConfigMaps.
+Implement Kubernetes-based DCS. The endpoints meta-data is used in order to store the configuration and the leader key. The meta-data field inside the pods definition is used to store the member-related data.
+In addition to using Endpoints, Patroni supports ConfigMaps. You can find more information about this feature in the :ref:`Kubernetes chapter of the documentation <kubernetes>`
 
 **Stability improvements**
 
