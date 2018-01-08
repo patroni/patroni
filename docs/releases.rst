@@ -3,6 +3,61 @@
 Release notes
 =============
 
+Version 1.4
+-----------
+
+**Stability improvements**
+
+- Factor out postmaster process into a spearate object (Ants Aasma)
+
+  This object identifies a running postmaster process via pid and start time and simplifies detection (and resolving) of situations when the postmaster was restarted behind our back or when postgres directory disappeared from the file system.
+
+- Minimize amount of SELECT's issued by Patroni on every loop of HA cylce (Alexander Kukushkin)
+
+  On every iteration of HA loop Patroni needs to know recovery status and absolute wal position. From now on Patroni will run only single SELECT to get this information instead of two on the replica and three on the master. 
+  
+- Remove leader key on shutdown only when we have the lock (Ants)
+
+  Unconditional removal was generating unnecessary and missleading exceptions.
+
+**Improvements in patronictl**
+
+- Add version command to patronictl (Ants)
+
+  It will show the version of installed Patroni and versions of running Patroni instances (if the cluster name is specified).
+  
+- Make optional specifying cluster_name argument for some of patronictl commands (Alexander, Ants)
+
+  It will work if patronictl is using usual Patroni configuration file with the ``scope`` defined.
+
+- Show information about scheduled switchover and maintenance mode (Alexander)
+
+  Before that it was possible to get this information only from Patroni logs or directly from DCS.
+  
+- Improve ``patronictl reinit`` (Alexander)
+
+  Sometimes it could happen that ``patronictl reinit`` refuse to work due to being Patroni busy by some other stuff, like trying to start postgres.
+  It wasn't possible to cancel such long running actions and the only workarond was removing a data directory manually (what is dangerous).
+  
+- Implement ``--wait`` flag in ``patronictl pause`` and ``patronictl resume`` (Alexander)
+
+  It will make patronictl to wait until required action will be acknowledged by all nodes in the cluster.
+  Such behaviour is acheived by exposing ``pause`` flag by every node via DCS and REST API.
+
+- Rename ``patronictl failover`` into ``patronictl switchover`` (Alexander)
+
+  The previous ``failover`` was actually only capable of doing a switchover, because it didn't work if there were no leader in the cluster.
+
+- Implement the new ``patronictl failover`` (Alexander)
+
+  It will work even if there is no leader, but in this case you will have to specify a node which should become the new leader.
+
+**Expose information about timelines and history in DCS**
+
+- 
+
+
+
 Version 1.3.6
 -------------
 
