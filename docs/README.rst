@@ -25,7 +25,7 @@ We report new releases information :ref:`here <releases>`.
 Technical Requirements/Installation
 ===================================
 
-**For Mac**
+**Pre-requirements for Mac OS**
 
 To install requirements on a Mac, run the following:
 
@@ -33,6 +33,38 @@ To install requirements on a Mac, run the following:
 
     brew install postgresql etcd haproxy libyaml python
     pip install psycopg2 pyyaml
+
+**General installation for pip**
+
+Patroni can be installed with pip:
+
+::
+
+    pip install patroni[dependencies]
+
+where dependencies can be either empty, or consist of one or more of the following:
+
+etcd
+    `python-etcd` module in order to use Etcd as DCS
+consul
+    `python-consul` module in order to use Consul as DCS
+zookeeper
+    `kazoo` module in order to use Zookeeper as DCS
+exhibitor
+    `kazoo` module in order to use Exhibitor as DCS (same dependencies as for Zookeeper)
+kubernetes
+    `kubernetes` module in order to use Kubernetes as DCS in Patroni
+aws
+    `boto` in order to use AWS callbacks
+
+For example, the command in order to install Patroni together with dependencies for Etcd as a DCS and AWS callbacks is:
+
+::
+
+    pip install patroni[etcd,aws]
+
+Note that external tools to call in the replica creation or custom bootstap scripts (i.e. WAL-E) should be installed
+independently of Patroni.
 
 =======================
 Running and Configuring
