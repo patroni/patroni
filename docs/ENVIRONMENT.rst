@@ -52,6 +52,17 @@ Exhibitor
 -  **PATRONI\_EXHIBITOR\_HOSTS**: initial list of Exhibitor (ZooKeeper) nodes in format: 'host1,host2,etc...'. This list updates automatically whenever the Exhibitor (ZooKeeper) cluster topology changes.
 -  **PATRONI\_EXHIBITOR\_PORT**: Exhibitor port.
 
+Kubernetes
+----------
+-  **PATRONI\_KUBERNETES\_NAMESPACE**: (optional) Kubernetes namespace where we are running. Default value is ``default``.
+-  **PATRONI\_KUBERNETES\_LABELS**: Labels in format ``{label1: value1, label2: value2}``. These labels will be used to find existing objects (Endpoints|ConfigMaps + Pods) associated with the current cluster. Also Patroni will set them on every object (Endpoint|ConfigMap) when creates/updates
+ them.
+-  **PATRONI\_KUBERNETES\_SCOPE\_LABEL**: (optional) name of the label containing cluster name. Default value is ``cluster-name``.
+-  **PATRONI\_KUBERNETES\_ROLE\_LABEL**: (optional) name of the label containing role (master or replica). Patroni will set this label on the pod it runs in. Default value is ``role``.
+-  **PATRONI\_KUBERNETES\_USE\_ENDPOINTS**: (optional) if set to true, Patroni will use Endpoints instead of ConfigMaps to run leader elections and keep cluster state.
+-  **PATRONI\_KUBERNETES\_POD\_IP**: (optional) IP address of the pod we are running in. It's necessary set set this value only when ``use\_endpoints`` is enabled, to write this IP into the leader endpoint subsets.
+-  **PATRONI\_KUBERNETES\_PORTS**: (optional) if the Service object has the name for the port, the same name must appear in the Endpoint object, otherwise service wont work. Example: ``{Kind: Service, spec: {ports: [{name: postgresql, port: 5432, targetPort: 5432}]}}``. In this case you have to define ``kubernetes.ports: {[{"name": "postgresql", "port": 5432}]}`` and Patroni will use it for updating subsets of the leader Endpoint. This parameter used only if ``use_endpoints`` is set.
+
 PostgreSQL
 ----------
 -  **PATRONI\_POSTGRESQL\_LISTEN**: IP address + port that Postgres listens to. Multiple comma-separated addresses are permitted, as long as the port component is appended after to the last one with a colon, i.e. ``listen: 127.0.0.1,127.0.0.2:5432``. Patroni will use the first address from this list to establish local connections to the PostgreSQL node.
