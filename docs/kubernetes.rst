@@ -51,11 +51,3 @@ Examples
 - In order to run your database clusters at scale using Patroni and Spilo, take a look at the
   `postgres-operator <https://github.com/zalando-incubator/postgres-operator>`_ project. It implements the operator pattern
   to manage Spilo clusters.
-
-
-
-
-
-
-
-

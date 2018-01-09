@@ -95,4 +95,3 @@ running master or replicas. In that case, an empty string will be passed in a co
 restoring the formerly running cluster from the binary backup.
 
 If all replica creation methods fail, Patroni will try again all methods in order during the next event loop cycle.
-
