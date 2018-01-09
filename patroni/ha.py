@@ -378,8 +378,9 @@ class Ha(object):
     def update_cluster_history(self):
         master_timeline = self.state_handler.get_master_timeline()
         cluster_history = self.cluster.history and self.cluster.history.lines
-        if cluster_history and master_timeline == 1:
-            self.dcs.set_history_value('[]')
+        if master_timeline == 1:
+            if cluster_history:
+                self.dcs.set_history_value('[]')
         elif not cluster_history or cluster_history[-1][0] != master_timeline - 1 or len(cluster_history[-1]) != 4:
             cluster_history = {l[0]: l for l in cluster_history or []}
             history = self.state_handler.get_history(master_timeline)
