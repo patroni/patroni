@@ -1,6 +1,5 @@
 .. _watchdog:
 
-================
 Watchdog support
 ================
 

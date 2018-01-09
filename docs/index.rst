@@ -10,7 +10,7 @@ Patroni is a template for you to create your own customized, high-availability s
 
 We call Patroni a "template" because it is far from being a one-size-fits-all or plug-and-play replication system. It will have its own caveats. Use wisely. There are many ways to run high availability with PostgreSQL; for a list, see the `PostgreSQL Documentation <https://wiki.postgresql.org/wiki/Replication,_Clustering,_and_Connection_Pooling>`__.
 
-**Note to Kubernetes users**: We're currently developing Patroni to be as useful as possible for teams running Kubernetes on top of Google Compute Engine; Patroni can be the HA solution for Postgres in such an environment. To this end, we've created a `Helm Chart <https://github.com/kubernetes/charts/tree/master/incubator/patroni>`__ that enables you to deploy a five-node Patroni cluster using a Kubernetes PetSet.
+**Note to Kubernetes users**: We're currently developing Patroni to be as useful as possible for teams running Kubernetes on top of Google Compute Engine; Patroni can be the HA solution for Postgres in such an environment. Take a look at the :ref:`Kuberneres <kubernetes>` chapter of the Patroni documentation.
 
 
 .. toctree::
@@ -24,6 +24,8 @@ We call Patroni a "template" because it is far from being a one-size-fits-all or
    replica_bootstrap
    replication_modes
    pause
+   kubernetes
+   watchdog
    releases
    CONTRIBUTING
 

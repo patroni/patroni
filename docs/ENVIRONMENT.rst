@@ -1,6 +1,5 @@
 .. _environment:
 
-==================================
 Environment Configuration Settings
 ==================================
 

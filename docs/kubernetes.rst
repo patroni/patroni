@@ -1,6 +1,5 @@
 .. _kubernetes:
 
-=============================
 Using Patroni with Kubernetes
 =============================
 
