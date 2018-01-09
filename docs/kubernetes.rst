@@ -5,7 +5,7 @@ Using Patroni with Kubernetes
 =============================
 
 Patroni can use Kubernetes objects in order to store the state of the cluster and manage the leader key. That makes it
-capable of managing PostgreSQL in Kubernetes environment without any consistency store, namely, one doesn't
+capable of operating Postgres in Kubernetes environment without any consistency store, namely, one doesn't
 need to run an extra Etcd deployment. There are two different type of Kubernetes objects Patroni can use to store the
 leader and the configuration keys, they are configured with the `kubernetes.use_endpoints` or `PATRONI_KUBERNETES_USE_ENDPOINTS`
 environment variable.
@@ -13,23 +13,23 @@ environment variable.
 Use Endpoints
 -------------
 
-This is the recommended mode, however, it is turned off by default for compatibility reasons. When it is on, Patroni stores
+Despite the fact that this is the recommended mode, it is turned off by default for compatibility reasons. When it is on, Patroni stores
 the cluster configuration and the leader key in the `metadata: annotations` fields of the respective `Endpoints` it creates.
-This is safer than using `ConfigMaps`, since both the annotations, containing the leader information, and the actual addresses
-pointing to the running leader pod are updated simulatenously in one go.
+Changing the leader is safer than when using `ConfigMaps`, since both the annotations, containing the leader information, and the actual addresses
+pointing to the running leader pod are updated simultaneously in one go.
 
 Use ConfigMaps
 --------------
 
-In this mode Patroni will create ConfigMaps instead of Endpoints and store keys inside meta-data of those ConfigMaps.
-While this takes at least 2 updates (to the leader ConfigMap and to the respective Endpoint) during the promotion.
+In this mode, Patroni will create ConfigMaps instead of Endpoints and store keys inside meta-data of those ConfigMaps.
+Changing the leader takes at least two updates, one to the leader ConfigMap and another to the respective Endpoint.
 
-There are 2 ways to direct the traffic to the PostgreSQL master:
+There are two ways to direct the traffic to the Postgres master:
 
 - use the `callback script <https://github.com/zalando/patroni/blob/master/kubernetes/callback.py>`_ provided by Patroni
-- configure the Kubernetes postgres service to use the label selector with the `role_label` (configured in patroni configuration).
+- configure the Kubernetes Postgres service to use the label selector with the `role_label` (configured in patroni configuration).
 
-Note that in some cases there is no alternative to using ConfigMaps, for instance, when running on OpenShift.
+Note that in some cases, for instance, when running on OpenShift, there is no alternative to using ConfigMaps.
 
 Configuration
 -------------
