@@ -3,6 +3,88 @@
 Release notes
 =============
 
+Version 1.4
+-----------
+
+This version adds support for using Kubernetes as a DCS, allowing to run Patroni as a cloud-native agent in Kubernetes without any additional deployments of Etcd, Zookeeper or Consul.
+
+**Upgrade notice**
+
+Installing Patroni via pip will no longer bring in dependencies for (such as libraries for Etcd, Zookeper, Consul or Kubernetes, or support for AWS). In order to enable them one need to list them in pip install command explicitely, for instance `pip install patroni[etcd,kubernetes]`.
+
+**Kubernetes support**
+
+Implement Kubernetes-based DCS. The endpoints meta-data is used in order to store the configuration and the leader key. The meta-data field inside the pods definition is used to store the member-related data.
+In addition to using Endpoints, Patroni supports ConfigMaps. You can find more information about this feature in the :ref:`Kubernetes chapter of the documentation <kubernetes>`
+
+**Stability improvements**
+
+- Factor out postmaster process into a separate object (Ants Aasma)
+
+  This object identifies a running postmaster process via pid and start time and simplifies detection (and resolution) of situations when the postmaster was restarted behind our back or when postgres directory disappeared from the file system.
+
+- Minimize the amount of SELECT's issued by Patroni on every loop of HA cylce (Alexander Kukushkin)
+
+  On every iteration of HA loop Patroni needs to know recovery status and absolute wal position. From now on Patroni will run only single SELECT to get this information instead of two on the replica and three on the master. 
+  
+- Remove leader key on shutdown only when we have the lock (Ants)
+
+  Unconditional removal was generating unnecessary and missleading exceptions.
+
+**Improvements in patronictl**
+
+- Add version command to patronictl (Ants)
+
+  It will show the version of installed Patroni and versions of running Patroni instances (if the cluster name is specified).
+  
+- Make optional specifying cluster_name argument for some of patronictl commands (Alexander, Ants)
+
+  It will work if patronictl is using usual Patroni configuration file with the ``scope`` defined.
+
+- Show information about scheduled switchover and maintenance mode (Alexander)
+
+  Before that it was possible to get this information only from Patroni logs or directly from DCS.
+  
+- Improve ``patronictl reinit`` (Alexander)
+
+  Sometimes ``patronictl reinit`` refused to proceed when Patroni was busy with other actions, namely trying to start postgres. `patronictl` didn't provide any commands to cancel such long running actions and the only (dangerous) workarond was removing a data directory manually. The new implementation of `reinit` forcefully cancells other long-running actions before proceeding with reinit.
+  
+- Implement ``--wait`` flag in ``patronictl pause`` and ``patronictl resume`` (Alexander)
+
+  It will make ``patronictl`` wait until the requested action is acknowledged by all nodes in the cluster.
+  Such behaviour is achieved by exposing the ``pause`` flag for every node in DCS and via the REST API.
+
+- Rename ``patronictl failover`` into ``patronictl switchover`` (Alexander)
+
+  The previous ``failover`` was actually only capable of doing a switchover; it refused to proceed in a cluster without the leader.
+
+- Alter the behavior of ``patronictl failover`` (Alexander)
+
+  It will work even if there is no leader, but in that case you will have to explicitely specify a node which should become the new leader.
+
+**Expose information about timeline and history**
+
+- Expose current timeline in DCS and via API (Alexander)
+
+  Store information about the current timeline for each member of the cluster. This information is accessible via the API and is stored in the DCS
+
+- Store promotion history in the /history key in DCS (Alexander)
+
+  In addition, store the timeline history enriched with the timestamp of the corresponding promotion in the /history key in DCS and update it with each promote.
+
+**Add endpoints for getting synchronous and asynchronous replicas**
+
+- Add new /sync and /async endpoints (Alexander, Oleksii Kliukin)
+
+ Those endpoints (also accessible as /synchronous and /asynchronous) return 200 only for synchronous and asynchornous replicas correspondingly (exclusing those marked as `noloadbalance`).
+
+**Allow multiple hosts for Etcd**
+
+- Add a new `hosts` parameter to Etcd configuration (Alexander)
+
+  This parameter should contain the initial list of hosts that will be used to discover and populate the list of the running etcd cluster members. If for some reason during work this list of discovered hosts is exhausted (no available hosts from that list), Patroni will return to the initial list from the `hosts` parameter.
+
+
 Version 1.3.6
 -------------
 
