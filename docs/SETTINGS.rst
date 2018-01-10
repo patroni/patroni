@@ -87,7 +87,7 @@ Exhibitor
 
 Kubernetes
 ----------
--  **namespace**: (optional) Kubernetes namespace where we are running. Default value is `default`.
+-  **namespace**: (optional) Kubernetes namespace where Patroni pod is running. Default value is `default`.
 -  **labels**: Labels in format ``{label1: value1, label2: value2}``. These labels will be used to find existing objects (Pods and either Endpoints or ConfigMaps) associated with the current cluster. Also Patroni will set them on every object (Endpoint or ConfigMap) it creates.
 -  **scope\_label**: (optional) name of the label containing cluster name. Default value is `cluster-name`.
 -  **role\_label**: (optional) name of the label containing role (master or replica). Patroni will set this label on the pod it runs in. Default value is ``role``.
