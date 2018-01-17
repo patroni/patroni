@@ -3,6 +3,20 @@
 Release notes
 =============
 
+Version 1.4.1
+-------------
+
+**Fixes in patronictl**
+
+- Don't show current leader in suggested list of members to failover to. (Alexander Kukushkin)
+
+  patronictl failover could still work when there is leader in the cluster and it should be excluded from the list of member where it is possible to failover to.
+
+- Make patronictl switchover compatible with the old Patroni api (Alexander)
+
+  In case if POST /switchover REST API call has failed with status code 501 it will do it once again, but to /failover endpoint.
+
+
 Version 1.4
 -----------
 
