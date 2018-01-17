@@ -129,6 +129,11 @@ class TestCtl(unittest.TestCase):
             result = self.runner.invoke(ctl, ['switchover', 'dummy'], input='leader\nother\n\ny')
             assert 'Switchover failed' in result.output
 
+            mocked.return_value.status_code = 501
+            mocked.return_value.text = 'Server does not support this operation'
+            result = self.runner.invoke(ctl, ['switchover', 'dummy'], input='leader\nother\n\ny')
+            assert 'Switchover failed' in result.output
+
         # No members available
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_only_leader
         result = self.runner.invoke(ctl, ['switchover', 'dummy'], input='leader\nother\n\ny')

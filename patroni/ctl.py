@@ -546,15 +546,14 @@ def _do_failover_or_switchover(obj, action, cluster_name, master, candidate, for
     dcs = get_dcs(obj, cluster_name)
     cluster = dcs.get_cluster()
 
-    if action == 'switchover':
-        if cluster.leader is None:
-            raise PatroniCtlException('This cluster has no master')
+    if action == 'switchover' and cluster.leader is None:
+        raise PatroniCtlException('This cluster has no master')
 
-        if master is None:
-            if force:
-                master = cluster.leader.member.name
-            else:
-                master = click.prompt('Master', type=str, default=cluster.leader.member.name)
+    if master is None:
+        if force or action == 'failover':
+            master = cluster.leader and cluster.leader.name
+        else:
+            master = click.prompt('Master', type=str, default=cluster.leader.member.name)
 
     if master is not None and cluster.leader and cluster.leader.member.name != master:
         raise PatroniCtlException('Member {0} is not the leader of cluster {1}'.format(master, cluster_name))
@@ -610,6 +609,11 @@ def _do_failover_or_switchover(obj, action, cluster_name, master, candidate, for
         member = cluster.leader.member if cluster.leader else cluster.get_member(candidate, False)
 
         r = request_patroni(member, 'post', action, failover_value, auth_header(obj))
+
+        # probably old patroni, which doesn't support switchover yet
+        if r.status_code == 501 and action == 'switchover' and 'Server does not support this operation' in r.text:
+            r = request_patroni(member, 'post', 'failover', failover_value, auth_header(obj))
+
         if r.status_code in (200, 202):
             logging.debug(r)
             cluster = dcs.get_cluster()
