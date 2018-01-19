@@ -445,7 +445,7 @@ class TestPostgresql(unittest.TestCase):
 
     def test_basebackup(self):
         self.p.cancel()
-        self.p.basebackup(None, None)
+        self.p.basebackup(None, None, {'foo': 'bar'})
 
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def test_sync_replication_slots(self):

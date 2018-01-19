@@ -665,7 +665,9 @@ class Postgresql(object):
                     break
             # if the method is basebackup, then use the built-in
             if replica_method == "basebackup":
-                ret = self.basebackup(connstring, env)
+                base_backup_options = (self.config[replica_method].copy()
+                                       if self.config.get(replica_method, {}) else {})
+                ret = self.basebackup(connstring, env, base_backup_options)
                 if ret == 0:
                     logger.info("replica has been created using basebackup")
                     # if basebackup succeeds, exit with success
@@ -678,7 +680,7 @@ class Postgresql(object):
                 method_config = {}
                 # user-defined method; check for configuration
                 # not required, actually
-                if replica_method in self.config:
+                if self.config.get(replica_method, {}):
                     method_config = self.config[replica_method].copy()
                     # look to see if the user has supplied a full command path
                     # if not, use the method name as the command
@@ -1614,23 +1616,27 @@ $$""".format(name, ' '.join(options)), name, password, password)
             logger.exception('Could not remove data directory %s', self._data_dir)
             self.move_data_directory()
 
-    def basebackup(self, conn_url, env):
+    def basebackup(self, conn_url, env, options):
         # creates a replica data dir using pg_basebackup.
         # this is the default, built-in create_replica_method
         # tries twice, then returns failure (as 1)
         # uses "stream" as the xlog-method to avoid sync issues
+        # supports additional user-supplied options, those are not validated
         maxfailures = 2
         ret = 1
+        user_options = []
+        for k, v in options.items():
+            if v != '':
+                user_options.append('--{0}={1}'.format(k, v))
         for bbfailures in range(0, maxfailures):
             with self._cancellable_lock:
                 if self._is_cancelled:
                     break
             if not self.data_directory_empty():
                 self.remove_data_directory()
-
             try:
                 ret = self.cancellable_subprocess_call([self._pgcommand('pg_basebackup'), '--pgdata=' + self._data_dir,
-                                                       '-X', 'stream', '--dbname=' + conn_url], env=env)
+                                                       '-X', 'stream', '--dbname=' + conn_url] + user_options, env=env)
                 if ret == 0:
                     break
                 else:
