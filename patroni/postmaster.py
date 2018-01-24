@@ -82,11 +82,23 @@ class PostmasterProcess(psutil.Process):
                                  "autovacuum launcher|autovacuum worker|stats collector|wal receiver|archiver|"
                                  "wal sender) process|bgworker: )")
 
-        user_backends = [p for p in self.children() if not aux_proc_re.match(p.cmdline()[0])]
-        logger.debug("Waiting for user backends {0} to close".format(
-            ",".join(p.cmdline()[0] for p in user_backends)))
-        psutil.wait_procs(user_backends)
-        logger.debug("Backends closed")
+        try:
+            user_backends = []
+            user_backends_cmdlines = []
+            for child in self.children():
+                try:
+                    cmdline = child.cmdline()[0]
+                    if not aux_proc_re.match(cmdline):
+                        user_backends.append(child)
+                        user_backends_cmdlines.append(cmdline)
+                except psutil.NoSuchProcess:
+                    pass
+            if user_backends:
+                logger.debug('Waiting for user backends %s to close', ', '.join(user_backends_cmdlines))
+                psutil.wait_procs(user_backends)
+            logger.debug("Backends closed")
+        except psutil.Error:
+            logger.exception('wait_for_user_backends_to_close')
 
     @classmethod
     def start(cls, pgcommand, data_dir, conf, options):
