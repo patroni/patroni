@@ -547,6 +547,7 @@ class Postgresql(object):
         return ret
 
     def _custom_bootstrap(self, config):
+        self.set_state('running custom bootstrap script')
         params = ['--scope=' + self.scope, '--datadir=' + self._data_dir]
         try:
             logger.info('Running custom bootstrap script: %s', config['command'])
@@ -1161,7 +1162,7 @@ class Postgresql(object):
         """ return the contents of pg_controldata, or non-True value if pg_controldata call failed """
         result = {}
         # Don't try to call pg_controldata during backup restore
-        if self._version_file_exists() and self.state != 'creating replica':
+        if not self.bootstrapping and self._version_file_exists() and self.state != 'creating replica':
             try:
                 data = subprocess.check_output([self._pgcommand('pg_controldata'), self._data_dir],
                                                env={'LANG': 'C', 'LC_ALL': 'C', 'PATH': os.environ['PATH']})
