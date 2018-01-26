@@ -666,7 +666,8 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
     # Mainly for consistent pretty printing and watching we sort the output
     cluster.members.sort(key=lambda x: x.name)
 
-    extended = extended or any(m.data.get('scheduled_restart') for m in cluster.members)
+    has_scheduled_restarts = any(m.data.get('scheduled_restart') for m in cluster.members)
+    has_pending_restarts = any(m.data.get('pending_restart') for m in cluster.members)
 
     for m in cluster.members:
         logging.debug(m)
@@ -686,7 +687,10 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
 
         row = [name, m.name, m.conn_kwargs()['host'], role, m.data.get('state', ''), lag]
 
-        if extended:
+        if extended or has_pending_restarts:
+            row.append('*' if m.data.get('pending_restart') else '')
+
+        if extended or has_scheduled_restarts:
             value = ''
             scheduled_restart = m.data.get('scheduled_restart')
             if scheduled_restart:
@@ -699,11 +703,13 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
         rows.append(row)
 
     columns = ['Cluster', 'Member', 'Host', 'Role', 'State', 'Lag in MB']
-    alignment = {'Cluster': 'l', 'Member': 'l', 'Host': 'l', 'Lag in MB': 'r'}
+    alignment = {'Lag in MB': 'r'}
 
-    if extended:
+    if extended or has_pending_restarts:
+        columns.append('Pending restart')
+
+    if extended or has_scheduled_restarts:
         columns.append('Scheduled restart')
-        alignment['Scheduled restart'] = 'l'
 
     print_output(columns, rows, alignment, fmt)
 
@@ -712,11 +718,11 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
         service_info.append('Maintenance mode: on')
 
     if cluster.failover and cluster.failover.scheduled_at:
-        info = 'Failover scheduled at: ' + cluster.failover.scheduled_at.isoformat()
+        info = 'Switchover scheduled at: ' + cluster.failover.scheduled_at.isoformat()
         if cluster.failover.leader:
-            info += '\n                  from: ' + cluster.failover.leader
+            info += '\n                    from: ' + cluster.failover.leader
         if cluster.failover.candidate:
-            info += '\n                    to: ' + cluster.failover.candidate
+            info += '\n                      to: ' + cluster.failover.candidate
         service_info.append(info)
 
     if service_info:
