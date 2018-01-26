@@ -1,7 +1,7 @@
 import unittest
 
 from mock import Mock, patch
-from patroni.dcs.kubernetes import Kubernetes, KubernetesError, k8s_client, k8s_watch
+from patroni.dcs.kubernetes import Kubernetes, KubernetesError, k8s_client, k8s_watch, RetryFailedError
 
 
 def mock_list_namespaced_config_map(self, *args, **kwargs):
@@ -57,7 +57,8 @@ class TestKubernetes(unittest.TestCase):
         self.k.take_leader()
 
     def test_manual_failover(self):
-        self.k.manual_failover('foo', 'bar')
+        with patch.object(k8s_client.CoreV1Api, 'patch_namespaced_config_map', Mock(side_effect=RetryFailedError(''))):
+            self.k.manual_failover('foo', 'bar')
 
     def test_set_config_value(self):
         self.k.set_config_value('{}')
@@ -79,7 +80,7 @@ class TestKubernetes(unittest.TestCase):
         self.k.cancel_initialization()
 
     @patch.object(k8s_client.CoreV1Api, 'delete_collection_namespaced_config_map',
-                  Mock(side_effect=k8s_client.rest.ApiException(500, '')))
+                  Mock(side_effect=k8s_client.rest.ApiException(403, '')))
     def test_delete_cluster(self):
         self.k.delete_cluster()
 
