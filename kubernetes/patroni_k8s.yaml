@@ -14,6 +14,7 @@ spec:
         application: patroni
         cluster-name: *cluster_name
     spec:
+      serviceAccountName: patronidemo
       containers:
       - name: *cluster_name
         image: patroni  # docker build -t patroni .
@@ -120,3 +121,62 @@ type: Opaque
 data:
   superuser-password: emFsYW5kbw==
   replication-password: cmVwLXBhc3M=
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: patronidemo
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: patronidemo
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - endpoints
+  verbs:
+  - get
+  - patch
+  - update
+  # the following three privileges are necessary only when using endpoints
+  - create
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: patronidemo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: patronidemo
+subjects:
+- kind: ServiceAccount
+  name: patronidemo
