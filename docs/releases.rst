@@ -3,6 +3,48 @@
 Release notes
 =============
 
+Version 1.4.2
+-------------
+
+**Improvements in patronictl**
+
+- Rename scheduled failover to scheduled switchover (Alexander Kukushkin)
+
+  We split failover and switchover functionality in version 1.4, but `patronictl list` was still reporting `Scheduled failover` instead of `Scheduled switchover`
+
+- Show information about pending restarts (Alexander)
+
+  In order to apply some configuration changes sometimes it is necessary to restart postgres. Patroni was already giving a hint about that in the REST API and when writing node status into DCS, but there were no easy way to display it.
+
+- Make show-config to work with cluster_name from config file (Alexander)
+
+  It works similar to the `patronictl edit-config`
+
+**Stability improvements**
+
+- Avoid calling pg_controldata during bootstrap (Alexander)
+
+  During initdb or custom bootstrap it was possible to hit a situation when data directory is not empty, but bootstrap not yet complete. In such case pg_controldata call was failing with error messages.
+
+- Handle exceptions raised from psutil (Alexander)
+
+  cmdline is read and parsed every time when `cmdline()` method is called. It could happen that process has already disappeared and in this case `NoSuchProcess` is raised.
+
+**Kubernetes support improvements**
+
+- Don't swallow errors from k8s API (Alexander)
+
+  Call to Kubernetes API could fail for a different number of reasons. In some cases such call should be retried, in some other cases we should output error message and exception stack trace into a log. This change will help to debug Kubernetes permission issues.
+
+- Update kubernetes example Dockerfile to install patroni from master (Maciej Szulik)
+
+  Before that it was using `feature/k8s`, which doesn't receive the latest commits.
+
+- Add proper RBAC to run patroni on k8s (Maciej)
+
+  Service account, which is also assigned to the pods of the cluster. A role, which holds only the necessary permissions. A rolebinding, which connects Service account and Role.
+
+
 Version 1.4.1
 -------------
 
