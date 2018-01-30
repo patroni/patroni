@@ -1101,7 +1101,7 @@ def edit_config(obj, cluster_name, force, quiet, kvpairs, pgkvpairs, apply_filen
 
 
 @ctl.command('show-config', help="Show cluster configuration")
-@click.argument('cluster_name')
+@arg_cluster_name
 @click.pass_obj
 def show_config(obj, cluster_name):
     cluster = get_dcs(obj, cluster_name).get_cluster()
