@@ -10,7 +10,7 @@ Version 1.4.2
 
 - Rename scheduled failover to scheduled switchover (Alexander Kukushkin)
 
-  We split failover and switchover functionality in version 1.4, but `patronictl list` was still reporting `Scheduled failover` instead of `Scheduled switchover`
+  Failover and switchover functions were separated in version 1.4, but `patronictl list` was still reporting `Scheduled failover` instead of `Scheduled switchover`.
 
 - Show information about pending restarts (Alexander)
 
@@ -24,25 +24,26 @@ Version 1.4.2
 
 - Avoid calling pg_controldata during bootstrap (Alexander)
 
-  During initdb or custom bootstrap it was possible to hit a situation when data directory is not empty, but bootstrap not yet complete. In such case pg_controldata call was failing with error messages.
+  During initdb or custom bootstrap there is a time window when pgdata is not empty but pg_controldata has not been written yet. In such case pg_controldata call was failing with error messages.
 
 - Handle exceptions raised from psutil (Alexander)
 
-  cmdline is read and parsed every time when `cmdline()` method is called. It could happen that process has already disappeared and in this case `NoSuchProcess` is raised.
+  cmdline is read and parsed every time when `cmdline()` method is called. It could happen that the process being examined
+  has already disappeared, in that case `NoSuchProcess` is raised.
 
 **Kubernetes support improvements**
 
 - Don't swallow errors from k8s API (Alexander)
 
-  Call to Kubernetes API could fail for a different number of reasons. In some cases such call should be retried, in some other cases we should output error message and exception stack trace into a log. This change will help to debug Kubernetes permission issues.
+  A call to Kubernetes API could fail for a different number of reasons. In some cases such call should be retried, in some other cases we should log the error message and the exception stack trace. The change here will help debug Kubernetes permission issues.
 
-- Update kubernetes example Dockerfile to install patroni from master (Maciej Szulik)
+- Update Kubernetes example Dockerfile to install Patroni from the master branch (Maciej Szulik)
 
-  Before that it was using `feature/k8s`, which doesn't receive the latest commits.
+  Before that it was using `feature/k8s`, which became outdated.
 
 - Add proper RBAC to run patroni on k8s (Maciej)
 
-  Service account, which is also assigned to the pods of the cluster. A role, which holds only the necessary permissions. A rolebinding, which connects Service account and Role.
+  Add the Service account that is assigned to the pods of the cluster, the role that holds only the necessary permissions, and the rolebinding that connects the Service account and the Role.
 
 
 Version 1.4.1
