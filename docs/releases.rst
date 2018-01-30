@@ -3,6 +3,49 @@
 Release notes
 =============
 
+Version 1.4.2
+-------------
+
+**Improvements in patronictl**
+
+- Rename scheduled failover to scheduled switchover (Alexander Kukushkin)
+
+  Failover and switchover functions were separated in version 1.4, but `patronictl list` was still reporting `Scheduled failover` instead of `Scheduled switchover`.
+
+- Show information about pending restarts (Alexander)
+
+  In order to apply some configuration changes sometimes it is necessary to restart postgres. Patroni was already giving a hint about that in the REST API and when writing node status into DCS, but there were no easy way to display it.
+
+- Make show-config to work with cluster_name from config file (Alexander)
+
+  It works similar to the `patronictl edit-config`
+
+**Stability improvements**
+
+- Avoid calling pg_controldata during bootstrap (Alexander)
+
+  During initdb or custom bootstrap there is a time window when pgdata is not empty but pg_controldata has not been written yet. In such case pg_controldata call was failing with error messages.
+
+- Handle exceptions raised from psutil (Alexander)
+
+  cmdline is read and parsed every time when `cmdline()` method is called. It could happen that the process being examined
+  has already disappeared, in that case `NoSuchProcess` is raised.
+
+**Kubernetes support improvements**
+
+- Don't swallow errors from k8s API (Alexander)
+
+  A call to Kubernetes API could fail for a different number of reasons. In some cases such call should be retried, in some other cases we should log the error message and the exception stack trace. The change here will help debug Kubernetes permission issues.
+
+- Update Kubernetes example Dockerfile to install Patroni from the master branch (Maciej Szulik)
+
+  Before that it was using `feature/k8s`, which became outdated.
+
+- Add proper RBAC to run patroni on k8s (Maciej)
+
+  Add the Service account that is assigned to the pods of the cluster, the role that holds only the necessary permissions, and the rolebinding that connects the Service account and the Role.
+
+
 Version 1.4.1
 -------------
 
