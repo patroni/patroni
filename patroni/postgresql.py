@@ -665,9 +665,7 @@ class Postgresql(object):
                     break
             # if the method is basebackup, then use the built-in
             if replica_method == "basebackup":
-                base_backup_options = (self.config[replica_method].copy()
-                                       if self.config.get(replica_method, {}) else {})
-                ret = self.basebackup(connstring, env, base_backup_options)
+                ret = self.basebackup(connstring, env, (self.config.get(replica_method) or {}).copy())
                 if ret == 0:
                     logger.info("replica has been created using basebackup")
                     # if basebackup succeeds, exit with success
@@ -1626,7 +1624,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
         ret = 1
         user_options = []
         for k, v in options.items():
-            if v != '':
+            if v:
                 user_options.append('--{0}={1}'.format(k, v))
         for bbfailures in range(0, maxfailures):
             with self._cancellable_lock:
