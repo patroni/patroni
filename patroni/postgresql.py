@@ -1791,9 +1791,19 @@ $$""".format(name, ' '.join(options)), name, password, password)
         return self.single_user_mode(options=opts) == 0 or None
 
     def cancellable_subprocess_call(self, *args, **kwargs):
-        communicate_input = kwargs.pop('communicate_input', None)
         for s in ('stdin', 'stdout', 'stderr'):
             kwargs.pop(s, None)
+
+        communicate_input = 'communicate_input' in kwargs
+        if communicate_input:
+            input_data = kwargs.pop('communicate_input', None)
+            if not isinstance(input_data, string_types):
+                input_data = ''
+            if input_data and input_data[-1] != '\n':
+                input_data += '\n'
+            kwargs['stdin'] = subprocess.PIPE
+            kwargs['stdout'] = open(os.devnull, 'w')
+            kwargs['stderr'] = subprocess.STDOUT
 
         try:
             with self._cancellable_lock:
@@ -1804,10 +1814,8 @@ $$""".format(name, ' '.join(options)), name, password, password)
                 self._cancellable = subprocess.Popen(*args, **kwargs)
 
             if communicate_input:
-                kwargs['stdin'] = subprocess.PIPE
-                if communicate_input[-1] != '\n':
-                    communicate_input += '\n'
-                self._cancellable.communicate(communicate_input + '\n')
+                if input_data:
+                    self._cancellable.communicate(input_data)
                 self._cancellable.stdin.close()
 
             return self._cancellable.wait()

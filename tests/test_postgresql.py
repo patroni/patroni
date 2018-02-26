@@ -945,7 +945,7 @@ class TestPostgresql(unittest.TestCase):
 
     def test_cancellable_subprocess_call(self):
         self.p.cancel()
-        self.assertRaises(PostgresException, self.p.cancellable_subprocess_call)
+        self.assertRaises(PostgresException, self.p.cancellable_subprocess_call, communicate_input=None)
 
     @patch('patroni.postgresql.polling_loop', Mock(return_value=[0, 0]))
     def test_cancel(self):
