@@ -567,6 +567,7 @@ class TestPostgresql(unittest.TestCase):
 
     @patch.object(Postgresql, 'cancellable_subprocess_call')
     def test_custom_bootstrap(self, mock_cancellable_subprocess_call):
+        self.p.config.pop('pg_hba')
         config = {'method': 'foo', 'foo': {'command': 'bar'}}
 
         mock_cancellable_subprocess_call.return_value = 1
