@@ -537,12 +537,7 @@ class Postgresql(object):
         ret = self.pg_ctl('initdb', *options)
         if pwfile:
             os.remove(pwfile)
-        if ret:
-            if not self._server_parameters.get('hba_file') and not self.config.get('pg_hba'):
-                self.write_pg_hba(config.get('pg_hba', []))
-            self._major_version = self.get_major_version()
-            self._server_parameters = self.get_server_parameters(self.config)
-        else:
+        if not ret:
             self.set_state('initdb failed')
         return ret
 
@@ -558,7 +553,6 @@ class Postgresql(object):
             logger.exception('Exception during custom bootstrap')
             return False
         self._post_restore()
-        self.save_configuration_files()
 
         if 'recovery_conf' in config:
             self.write_recovery_conf(config['recovery_conf'])
@@ -1080,8 +1074,10 @@ class Postgresql(object):
         return True
 
     def write_pg_hba(self, config):
-        with open(self._pg_hba_conf, 'a') as f:
-            f.write('\n{}\n'.format('\n'.join(config)))
+        if not self._server_parameters.get('hba_file') and not self.config.get('pg_hba'):
+            with open(self._pg_hba_conf, 'a') as f:
+                f.write('\n{}\n'.format('\n'.join(config)))
+        return True
 
     def _replace_pg_hba(self):
         """
@@ -1398,6 +1394,7 @@ class Postgresql(object):
                     shutil.copy(config_file, backup_file)
         except IOError:
             logger.exception('unable to create backup copies of configuration files')
+        return True
 
     def restore_configuration_files(self):
         """ restore a previously saved postgresql.conf """
@@ -1547,6 +1544,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
     def bootstrap(self, config):
         """ Initialize a new node from scratch and start it. """
+        pg_hba = config.get('pg_hba', [])
         method = config.get('method') or 'initdb'
         self._running_custom_bootstrap = method != 'initdb' and method in config and 'command' in config[method]
         if self._running_custom_bootstrap:
@@ -1554,7 +1552,8 @@ $$""".format(name, ' '.join(options)), name, password, password)
             config = config[method]
         else:
             do_initialize = self._initdb
-        return do_initialize(config) and self._configure_server_parameters() and self.start()
+        return do_initialize(config) and self.write_pg_hba(pg_hba) and self.save_configuration_files() \
+            and self._configure_server_parameters() and self.start()
 
     def post_bootstrap(self, config, task):
         try:
