@@ -137,8 +137,8 @@ def patroni_main():
     logformat = os.environ.get('PATRONI_LOGFORMAT', '%(asctime)s %(levelname)s: %(message)s')
     loglevel = os.environ.get('PATRONI_LOGLEVEL', 'INFO')
     requests_loglevel = os.environ.get('PATRONI_REQUESTS_LOGLEVEL', 'WARNING')
-    logging.basicConfig(format=logformat, level=logging.getLevelName(loglevel))
-    logging.getLogger('requests').setLevel(logging.getLevelName(requests_loglevel))
+    logging.basicConfig(format=logformat, level=loglevel)
+    logging.getLogger('requests').setLevel(requests_loglevel)
 
     patroni = Patroni()
     try:
