@@ -3,6 +3,32 @@
 Release notes
 =============
 
+Version 1.4.3
+-------------
+
+**Improvements in logging**
+
+- Make log level configurable from environment variables (Andy Newton, Keyvan Hedayati)
+
+  `PATRONI_LOGLEVEL` - sets the general logging level
+  `PATRONI_REQUESTS_LOGLEVEL` - sets the logging level for all HTTP requests e.g. Kubernetes API calls
+  See `the docs for Python logging <https://docs.python.org/3.6/library/logging.html#levels>` to get the names of possible log levels
+
+**Stability improvements and bug fixes**
+
+- Don't rediscover etcd cluster topology when watch timed out (Alexander Kukushkin)
+
+  If we have only one host in etcd configuration and exactly this host is not accessible, Patroni was starting discovery of cluster topology and never succeeding. Instead it should just switch to the next available node.
+
+- Write content of bootstrap.pg_hba into a pg_hba.conf after custom bootstrap (Alexander)
+
+  Now it behaves similarly to the usual bootstrap with `initdb`
+
+- Single user mode was waiting for user input and never finish (Alexander)
+
+  Regression was introduced in https://github.com/zalando/patroni/pull/576
+
+
 Version 1.4.2
 -------------
 
