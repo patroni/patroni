@@ -11,6 +11,8 @@ Global/Universal
 -  **PATRONI\_NAME**: name of the node where the current instance of Patroni is running. Must be unique for the cluster.
 -  **PATRONI\_NAMESPACE**: path within the configuration store where Patroni will keep information about the cluster. Default value: "/service"
 -  **PATRONI\_SCOPE**: cluster name
+-  **PATRONI\_LOGLEVEL**: sets the general logging level (see `the docs for Python logging <https://docs.python.org/3.6/library/logging.html#levels>`_)
+-  **PATRONI\_REQUESTS_LOGLEVEL**: sets the logging level for all HTTP requests e.g. Kubernetes API calls (see `the docs for Python logging <https://docs.python.org/3.6/library/logging.html#levels>`_)
 
 Bootstrap configuration
 -----------------------
