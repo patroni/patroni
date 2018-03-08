@@ -545,10 +545,6 @@ class Postgresql(object):
         self.set_state('running custom bootstrap script')
         params = ['--scope=' + self.scope, '--datadir=' + self._data_dir]
         try:
-            keep_existing_recovery_conf = config['keep_existing_recovery_conf']
-        except KeyError:
-            keep_existing_recovery_conf = False
-        try:
             logger.info('Running custom bootstrap script: %s', config['command'])
             if self.cancellable_subprocess_call(shlex.split(config['command']) + params) != 0:
                 self.set_state('custom bootstrap failed')
@@ -560,9 +556,9 @@ class Postgresql(object):
 
         if 'recovery_conf' in config:
             self.write_recovery_conf(config['recovery_conf'])
-        elif os.path.isfile(self._recovery_conf) or os.path.islink(self._recovery_conf):
-            if not keep_existing_recovery_conf:
-                os.unlink(self._recovery_conf)
+        elif (os.path.isfile(self._recovery_conf) or os.path.islink(self._recovery_conf)) and \
+                not config.get('keep_existing_recovery_conf'):
+            os.unlink(self._recovery_conf)
         return True
 
     def run_bootstrap_post_init(self, config):
