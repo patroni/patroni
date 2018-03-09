@@ -556,7 +556,8 @@ class Postgresql(object):
 
         if 'recovery_conf' in config:
             self.write_recovery_conf(config['recovery_conf'])
-        elif os.path.isfile(self._recovery_conf) or os.path.islink(self._recovery_conf):
+        elif (os.path.isfile(self._recovery_conf) or os.path.islink(self._recovery_conf)) and \
+                not config.get('keep_existing_recovery_conf'):
             os.unlink(self._recovery_conf)
         return True
 
