@@ -49,7 +49,7 @@ If a ``recovery_conf`` block is defined in the same section as the custom bootst
 one of the ``recovery_target_*`` parameters, together with the ``recovery_target_timeline`` set to ``promote``.
 
 If ``keep_existing_recovery_conf`` is defined and set to ``True``, Patroni will not remove the existing ``recovery.conf`` file if it exists.
-This is useful when bootstrapping from a backup with tools like pgBackRest that generate the appropriate ``recovery.conf`` ``for you.
+This is useful when bootstrapping from a backup with tools like pgBackRest that generate the appropriate ``recovery.conf`` for you.
 
  .. note:: Bootstrap methods are neither chained, nor fallen-back to the default one in case the primary one fails
 
