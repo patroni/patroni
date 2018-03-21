@@ -1,3 +1,5 @@
+# This manifest (and Docker image) works only with emptyDir volume and are designed for demo purpose.
+# For production usage please take a look at https://github.com/zalando/spilo/tree/master/postgres-appliance
 apiVersion: apps/v1beta1
 kind: StatefulSet
 metadata:
@@ -19,6 +21,9 @@ spec:
       - name: *cluster_name
         image: patroni  # docker build -t patroni .
         imagePullPolicy: IfNotPresent
+#        resources:
+#          limits:
+#            cpu: 100m
         ports:
         - containerPort: 8008
           protocol: TCP
@@ -28,7 +33,7 @@ spec:
         - mountPath: /home/postgres/pgdata
           name: pgdata
         env:
-        - name: POD_IP
+        - name: PATRONI_KUBERNETES_POD_IP
           valueFrom:
             fieldRef:
               fieldPath: status.podIP
@@ -36,6 +41,8 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        - name: PATRONI_KUBERNETES_USE_ENDPOINTS
+          value: 'true'
         - name: PATRONI_KUBERNETES_LABELS
           value: '{application: patroni, cluster-name: patronidemo}'
         - name: PATRONI_SUPERUSER_USERNAME
@@ -86,6 +93,7 @@ spec:
 #          storage: 5Gi
 
 ---
+# Endpoint for leader elections
 apiVersion: v1
 kind: Endpoints
 metadata:
@@ -96,6 +104,7 @@ metadata:
 subsets: []
 
 ---
+# master Service
 apiVersion: v1
 kind: Service
 metadata:
@@ -110,6 +119,26 @@ spec:
     targetPort: 5432
 
 ---
+# replica Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: patronidemo-repl
+  labels:
+    application: patroni
+    cluster-name: &cluster_name patronidemo
+spec:
+  type: ClusterIP
+  selector:
+    application: patroni
+    cluster-name: *cluster_name
+    role: replica
+  ports:
+  - port: 5432
+    targetPort: 5432
+
+---
+# Secrets (superuser password and replication passwor)
 apiVersion: v1
 kind: Secret
 metadata:
