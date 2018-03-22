@@ -13,6 +13,7 @@ bootstrap:
   - data-checksums
   pg_hba:
   - host all all 0.0.0.0/0 md5
+  - host replication ${PATRONI_REPLICATION_USERNAME} 127.0.0.1/32    md5
   - host replication ${PATRONI_REPLICATION_USERNAME} ${POD_IP}/16    md5
 restapi:
   connect_address: '${POD_IP}:8008'
