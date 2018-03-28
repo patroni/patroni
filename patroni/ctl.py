@@ -786,7 +786,7 @@ def touch_member(config, dcs):
         'role': p.role
     }
 
-    return dcs.touch_member(json.dumps(data, separators=(',', ':')), permanent=True)
+    return dcs.touch_member(data, permanent=True)
 
 
 def set_defaults(config, cluster_name):
