@@ -16,9 +16,9 @@ Patroni configuration is stored in the DCS (Distributed Configuration Store). Th
 	These options are defined in the configuration file and take precedence over dynamic configuration.
 	patroni.yml could be changed and reload in runtime (without restart of Patroni) by sending SIGHUP to the Patroni process or by performing ``POST /reload`` REST-API request.
 
-- Environment :ref:`configuration <environment>` .
+- Environment :ref:`configuration <environment>`.
 	It is possible to set/override some of the "Local" configuration parameters with environment variables.
-	Environment configuration is very useful when you are running in a dynamic environment and you don't know some of the parameters in advance (for example it's not possible to know you external IP address when you are running inside ``docker``).
+	Environment configuration is very useful when you are running in a dynamic environment and you don't know some of the parameters in advance (for example it's not possible to know your external IP address when you are running inside ``docker``).
 
 Some of the PostgreSQL parameters must hold the same values on the master and the replicas. For those, values set either in the local patroni configuration files or via the environment variables take no effect. To alter or set their values one must change the shared configuration in the DCS. Below is the actual list of such parameters together with the default values:
 
@@ -42,7 +42,7 @@ There are some other Postgres parameters controlled by Patroni:
 
 - listen_addresses - is set either from ``postgresql.listen`` or from ``PATRONI_POSTGRESQL_LISTEN`` environment variable
 - port - is set either from ``postgresql.listen`` or from ``PATRONI_POSTGRESQL_LISTEN`` environment variable
-- cluster_name - is set either from ``scope`` or from ``PATRRONI_SCOPE`` environment variable
+- cluster_name - is set either from ``scope`` or from ``PATRONI_SCOPE`` environment variable
 - hot_standby: on
 
 To be on the safe side parameters from the above lists are not written into ``postgresql.conf``, but passed as a list of arguments to the ``pg_ctl start`` which gives them the highest precedence, even above `ALTER SYSTEM <https://www.postgresql.org/docs/current/static/sql-altersystem.html>`__
