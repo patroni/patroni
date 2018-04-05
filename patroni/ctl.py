@@ -546,15 +546,14 @@ def _do_failover_or_switchover(obj, action, cluster_name, master, candidate, for
     dcs = get_dcs(obj, cluster_name)
     cluster = dcs.get_cluster()
 
-    if action == 'switchover':
-        if cluster.leader is None:
-            raise PatroniCtlException('This cluster has no master')
+    if action == 'switchover' and cluster.leader is None:
+        raise PatroniCtlException('This cluster has no master')
 
-        if master is None:
-            if force:
-                master = cluster.leader.member.name
-            else:
-                master = click.prompt('Master', type=str, default=cluster.leader.member.name)
+    if master is None:
+        if force or action == 'failover':
+            master = cluster.leader and cluster.leader.name
+        else:
+            master = click.prompt('Master', type=str, default=cluster.leader.member.name)
 
     if master is not None and cluster.leader and cluster.leader.member.name != master:
         raise PatroniCtlException('Member {0} is not the leader of cluster {1}'.format(master, cluster_name))
@@ -610,6 +609,11 @@ def _do_failover_or_switchover(obj, action, cluster_name, master, candidate, for
         member = cluster.leader.member if cluster.leader else cluster.get_member(candidate, False)
 
         r = request_patroni(member, 'post', action, failover_value, auth_header(obj))
+
+        # probably old patroni, which doesn't support switchover yet
+        if r.status_code == 501 and action == 'switchover' and 'Server does not support this operation' in r.text:
+            r = request_patroni(member, 'post', 'failover', failover_value, auth_header(obj))
+
         if r.status_code in (200, 202):
             logging.debug(r)
             cluster = dcs.get_cluster()
@@ -662,7 +666,8 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
     # Mainly for consistent pretty printing and watching we sort the output
     cluster.members.sort(key=lambda x: x.name)
 
-    extended = extended or any(m.data.get('scheduled_restart') for m in cluster.members)
+    has_scheduled_restarts = any(m.data.get('scheduled_restart') for m in cluster.members)
+    has_pending_restarts = any(m.data.get('pending_restart') for m in cluster.members)
 
     for m in cluster.members:
         logging.debug(m)
@@ -682,7 +687,10 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
 
         row = [name, m.name, m.conn_kwargs()['host'], role, m.data.get('state', ''), lag]
 
-        if extended:
+        if extended or has_pending_restarts:
+            row.append('*' if m.data.get('pending_restart') else '')
+
+        if extended or has_scheduled_restarts:
             value = ''
             scheduled_restart = m.data.get('scheduled_restart')
             if scheduled_restart:
@@ -695,11 +703,13 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
         rows.append(row)
 
     columns = ['Cluster', 'Member', 'Host', 'Role', 'State', 'Lag in MB']
-    alignment = {'Cluster': 'l', 'Member': 'l', 'Host': 'l', 'Lag in MB': 'r'}
+    alignment = {'Lag in MB': 'r'}
 
-    if extended:
+    if extended or has_pending_restarts:
+        columns.append('Pending restart')
+
+    if extended or has_scheduled_restarts:
         columns.append('Scheduled restart')
-        alignment['Scheduled restart'] = 'l'
 
     print_output(columns, rows, alignment, fmt)
 
@@ -708,11 +718,11 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
         service_info.append('Maintenance mode: on')
 
     if cluster.failover and cluster.failover.scheduled_at:
-        info = 'Failover scheduled at: ' + cluster.failover.scheduled_at.isoformat()
+        info = 'Switchover scheduled at: ' + cluster.failover.scheduled_at.isoformat()
         if cluster.failover.leader:
-            info += '\n                  from: ' + cluster.failover.leader
+            info += '\n                    from: ' + cluster.failover.leader
         if cluster.failover.candidate:
-            info += '\n                    to: ' + cluster.failover.candidate
+            info += '\n                      to: ' + cluster.failover.candidate
         service_info.append(info)
 
     if service_info:
@@ -776,7 +786,7 @@ def touch_member(config, dcs):
         'role': p.role
     }
 
-    return dcs.touch_member(json.dumps(data, separators=(',', ':')), permanent=True)
+    return dcs.touch_member(data, permanent=True)
 
 
 def set_defaults(config, cluster_name):
@@ -1091,7 +1101,7 @@ def edit_config(obj, cluster_name, force, quiet, kvpairs, pgkvpairs, apply_filen
 
 
 @ctl.command('show-config', help="Show cluster configuration")
-@click.argument('cluster_name')
+@arg_cluster_name
 @click.pass_obj
 def show_config(obj, cluster_name):
     cluster = get_dcs(obj, cluster_name).get_cluster()

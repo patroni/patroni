@@ -207,6 +207,7 @@ class TestClient(unittest.TestCase):
         mock_machines.__get__ = Mock(return_value=['http://localhost:2379'])
         self.client._machines_cache_updated = 0
         self.client.api_execute('/', 'POST', timeout=0)
+        self.client._machines_cache = [self.client._base_uri]
         self.assertRaises(etcd.EtcdWatchTimedOut, self.client.api_execute, '/timeout', 'POST', params={'wait': 'true'})
         self.assertRaises(etcd.EtcdException, self.client.api_execute, '/', '')
         self.client._update_machines_cache = True

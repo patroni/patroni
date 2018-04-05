@@ -12,7 +12,7 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     && localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8 \
 
     && pip install setuptools pip --upgrade \
-    && pip install 'git+https://github.com/zalando/patroni.git@feature/k8s#egg=patroni[kubernetes]' \
+    && pip install 'git+https://github.com/zalando/patroni.git#egg=patroni[kubernetes]' \
 
     && mkdir -p /home/postgres \
     && chown postgres:postgres /home/postgres \

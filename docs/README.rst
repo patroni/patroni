@@ -1,8 +1,8 @@
 .. _readme:
 
-=================
-How Patroni Works
-=================
+============
+Introduction
+============
 
 Patroni originated as a fork of `Governor <https://github.com/compose/governor>`__, the project from Compose. It includes plenty of new features.
 
@@ -13,30 +13,65 @@ For additional background info, see:
 * `PostgreSQL HA with Kubernetes and Patroni <https://www.youtube.com/watch?v=iruaCgeG7qs>`__, talk by Josh Berkus at KubeCon 2016 (video)
 * `Feb. 2016 Zalando Tech blog post <https://tech.zalando.de/blog/zalandos-patroni-a-template-for-high-availability-postgresql/>`__
 
-==================
+
 Development Status
-==================
+------------------
 
 Patroni is in active development and accepts contributions. See our :ref:`Contributing <contributing>` section below for more details.
 
 We report new releases information :ref:`here <releases>`.
 
-===================================
-Technical Requirements/Installation
-===================================
 
-**For Mac**
+Technical Requirements/Installation
+-----------------------------------
+
+**Pre-requirements for Mac OS**
 
 To install requirements on a Mac, run the following:
 
 ::
 
     brew install postgresql etcd haproxy libyaml python
-    pip install psycopg2 pyyaml
 
-=======================
+**General installation for pip**
+
+Patroni can be installed with pip:
+
+::
+
+    pip install patroni[dependencies]
+
+where dependencies can be either empty, or consist of one or more of the following:
+
+etcd
+    `python-etcd` module in order to use Etcd as DCS
+consul
+    `python-consul` module in order to use Consul as DCS
+zookeeper
+    `kazoo` module in order to use Zookeeper as DCS
+exhibitor
+    `kazoo` module in order to use Exhibitor as DCS (same dependencies as for Zookeeper)
+kubernetes
+    `kubernetes` module in order to use Kubernetes as DCS in Patroni
+aws
+    `boto` in order to use AWS callbacks
+
+For example, the command in order to install Patroni together with dependencies for Etcd as a DCS and AWS callbacks is:
+
+::
+
+    pip install patroni[etcd,aws]
+
+Note that external tools to call in the replica creation or custom bootstap scripts (i.e. WAL-E) should be installed
+independently of Patroni.
+
+
 Running and Configuring
-=======================
+-----------------------
+
+The following section assumes Patroni repository as being cloned from https://github.com/zalando/patroni. Namely, you
+will need example configuration files `postgres0.yml` and `postgres1.yml`. If you installed Patroni with pip, you can
+obtain those files from the git repository and replace `./patroni.py` below with `patroni` command.
 
 To get started, do the following from different terminals:
 ::
@@ -60,27 +95,27 @@ run:
 
     > psql --host 127.0.0.1 --port 5000 postgres
 
-==================
+
 YAML Configuration
-==================
+------------------
 
 Go :ref:`here <settings>` for comprehensive information about settings for etcd, consul, and ZooKeeper. And for an example, see `postgres0.yml <https://github.com/zalando/patroni/blob/master/postgres0.yml>`__.
 
-=========================
+
 Environment Configuration
-=========================
+-------------------------
 
 Go :ref:`here <environment>` for comprehensive information about configuring(overriding) settings via environment variables.
 
-===================
+
 Replication Choices
-===================
+-------------------
 
 Patroni uses Postgres' streaming replication, which is asynchronous by default. Patroni's asynchronous replication configuration allows for ``maximum_lag_on_failover`` settings. This setting ensures failover will not occur if a follower is more than a certain number of bytes behind the leader. This setting should be increased or decreased based on business requirements. It's also possible to use synchronous replication for better durability guarantees. See :ref:`replication modes documentation <replication_modes>` for details.
 
-======================================
+
 Applications Should Not Use Superusers
-======================================
+--------------------------------------
 
 When connecting from an application, always use a non-superuser. Patroni requires access to the database to function properly. By using a superuser from an application, you can potentially use the entire connection pool, including the connections reserved for superusers, with the ``superuser_reserved_connections`` setting. If Patroni cannot access the Primary because the connection pool is full, behavior will be undesirable.
 
