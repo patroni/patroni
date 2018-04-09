@@ -295,22 +295,23 @@ class RestApiHandler(BaseHTTPRequestHandler):
             status_code = 503
         self._write_response(status_code, data)
 
-    def poll_failover_result(self, leader, candidate):
+    def poll_failover_result(self, leader, candidate, action):
         timeout = max(10, self.server.patroni.dcs.loop_wait)
         for _ in range(0, timeout*2):
             time.sleep(1)
             try:
                 cluster = self.server.patroni.dcs.get_cluster()
-                if cluster.leader and cluster.leader.name != leader:
+                if not cluster.is_unlocked() and cluster.leader.name != leader:
                     if not candidate or candidate == cluster.leader.name:
-                        return 200, 'Successfully failed over to "{0}"'.format(cluster.leader.name)
+                        return 200, 'Successfully {0}ed over to "{1}"'.format(action[:-4], cluster.leader.name)
                     else:
-                        return 200, 'Failed over to "{0}" instead of "{1}"'.format(cluster.leader.name, candidate)
+                        return 200, '{0}ed over to "{1}" instead of "{2}"'.format(action[:-4].title(),
+                                                                                  cluster.leader.name, candidate)
                 if not cluster.failover:
-                    return 503, 'Failover failed'
+                    return 503, action.title() + ' failed'
             except Exception as e:
-                logger.debug('Exception occured during polling failover result: %s', e)
-        return 503, 'Failover status unknown'
+                logger.debug('Exception occured during polling %s result: %s', action, e)
+        return 503, action.title() + ' status unknown'
 
     def is_failover_possible(self, cluster, leader, candidate, action):
         if leader and (not cluster.leader or cluster.leader.name != leader):
@@ -377,7 +378,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     data = action.title() + ' scheduled'
                     status_code = 202
                 else:
-                    status_code, data = self.poll_failover_result(cluster.leader and cluster.leader.name, candidate)
+                    status_code, data = self.poll_failover_result(cluster.leader and cluster.leader.name,
+                                                                  candidate, action)
             else:
                 data = 'failed to write {0} key into DCS'.format(action)
                 status_code = 503
