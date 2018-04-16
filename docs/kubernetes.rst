@@ -45,7 +45,7 @@ Examples
 - You can find the full-featured Docker image that can use Persistent Volumes in the
   `Spilo Project <https://github.com/zalando/spilo>`_.
 
-- There is also a `Helm chart <https://github.com/unguiculus/charts/tree/feature/patroni/incubator/patroni>`_
+- There is also a `Helm chart <https://github.com/kubernetes/charts/tree/master/incubator/patroni>`_
   to deploy the Spilo image configured with Patroni running using Kubernetes.
 
 - In order to run your database clusters at scale using Patroni and Spilo, take a look at the
