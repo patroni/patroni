@@ -3,7 +3,7 @@ Replica imaging and bootstrap
 
 Patroni allows customizing creation of a new replica. It also supports defining what happens when the new empty cluster
 is being bootstrapped. The distinction between two is well defined: Patroni creates replicas only if the ``initialize``
-key is present in Etcd for the cluster. If there is no ``initialize`` key - Patroni calls bootstrap exclusively on the
+key is present in DCS for the cluster. If there is no ``initialize`` key - Patroni calls bootstrap exclusively on the
 first node that takes the initialize key lock.
 
 .. _custom_bootstrap:

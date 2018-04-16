@@ -20,7 +20,7 @@ You can use Postgres's `synchronous replication <http://www.postgresql.org/docs/
 
 In hosted datacenter environments (like AWS, Rackspace, or any network you do not control), synchronous replication significantly increases the variability of write performance. If followers become inaccessible from the leader, the leader effectively becomes read-only.
 
-To enable a simple synchronous replication test, add the follow lines to the ``parameters`` section of your YAML configuration files:
+To enable a simple synchronous replication test, add the following lines to the ``parameters`` section of your YAML configuration files:
 
 .. code:: YAML
 
@@ -36,9 +36,9 @@ Using PostgreSQL synchronous replication does not guarantee zero lost transactio
 Synchronous mode
 ----------------
 
-For use cases where losing committed transactions is not permissible you can turn on Patronis ``synchronous_mode``. When ``synchronous_mode`` is turned on Patroni will not promote a standby unless it is certain that the standby contains all transactions that may have returned a successful commit status to client [2]_. This means that the system may be unavailable for writes even though some servers are available. System administrators can still use manual failover commmands to promote a standby even if it results in transaction loss.
+For use cases where losing committed transactions is not permissible you can turn on Patroni's ``synchronous_mode``. When ``synchronous_mode`` is turned on Patroni will not promote a standby unless it is certain that the standby contains all transactions that may have returned a successful commit status to client [2]_. This means that the system may be unavailable for writes even though some servers are available. System administrators can still use manual failover commands to promote a standby even if it results in transaction loss.
 
-Turning on ``synchronous_mode`` does not guarantee multi node durability of commits under all circumstances. When no suitable standby is available, primary server will still accept writes, but does not guarantee their replication. When the primary fails in this mode no standby will be promote.  When the host that used to be primary comes back it will get promoted automatically, unless system administrator performed a manual failover. This behavior makes synchronous mode usable with 2 node clusters.
+Turning on ``synchronous_mode`` does not guarantee multi node durability of commits under all circumstances. When no suitable standby is available, primary server will still accept writes, but does not guarantee their replication. When the primary fails in this mode no standby will be promoted. When the host that used to be the primary comes back it will get promoted automatically, unless system administrator performed a manual failover. This behavior makes synchronous mode usable with 2 node clusters.
 
 When ``synchronous_mode`` is on and a standby crashes, commits will block until next iteration of Patroni runs and switches the primary to standalone mode (worst case delay for writes ``ttl`` seconds, average case ``loop_wait``/2 seconds). Manually shutting down or restarting a standby will not cause a commit service interruption. Standby will signal the primary to release itself from synchronous standby duties before PostgreSQL shutdown is initiated.
 
@@ -60,7 +60,7 @@ When in synchronous mode Patroni maintains synchronization state in the DCS, con
 
 Patroni will only ever assign one standby to ``synchronous_standby_names`` because with multiple candidates it is not possible to know which node was acting as synchronous during the failure.
 
-On each HA loop iteration Patroni re-evaluates synchronous standby choice. If the current synchronous standby is connected and has not requested its synchronous status to be removed it remains picked. Otherwise the cluster member avaiable for sync that is furthest ahead in replication is picked.
+On each HA loop iteration Patroni re-evaluates synchronous standby choice. If the current synchronous standby is connected and has not requested its synchronous status to be removed it remains picked. Otherwise the cluster member available for sync that is furthest ahead in replication is picked.
 
 
 .. [1] The data is still there, but recovering it requires a manual recovery effort by data recovery specialists. When Patroni is allowed to rewind with ``use_pg_rewind`` the forked timeline will be automatically erased to rejoin the failed primary with the cluster.

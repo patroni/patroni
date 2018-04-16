@@ -9,7 +9,7 @@ Having multiple PostgreSQL servers running as master can result in transactions 
 
 - Shutting down PostgreSQL is too slow.
 
-- Patroni does not get to run due to high load on the system, th VM being paused by the hypervisor, or other infrastructure issues.
+- Patroni does not get to run due to high load on the system, the VM being paused by the hypervisor, or other infrastructure issues.
 
 To guarantee correct behavior under these conditions Patroni supports watchdog devices. Watchdog devices are software or hardware mechanisms that will reset the whole system when they do not get a keepalive heartbeat within a specified timeframe. This adds an additional layer of fail safe in case usual Patroni split-brain protection mechanisms fail.
 
