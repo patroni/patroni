@@ -760,6 +760,8 @@ class Ha(object):
                 # Either there is no connection to DCS or someone else acquired the lock
                 logger.error('failed to update leader lock')
                 if self.state_handler.is_leader():
+                    if self.is_paused():
+                        return 'continue to run as master after failing to update leader lock in DCS'
                     self.demote('immediate-nolock')
                     return 'demoted self because failed to update leader lock in DCS'
                 else:
