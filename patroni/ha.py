@@ -1082,6 +1082,11 @@ class Ha(object):
                 self.dcs.initialize(create_new=(self.cluster.initialize is None), sysid=self.state_handler.sysid)
             else:
                 # check if we are allowed to join
+                data_sysid = self.state_handler.sysid
+                if not self.sysid_valid(data_sysid):
+                    # data directory is not empty, but no valid sysid, cluster must be broken, suggest reinit
+                    return "data dir for the cluster is not empty, but system ID is invalid; consider doing reinitalize"
+
                 if self.sysid_valid(self.cluster.initialize) and self.cluster.initialize != self.state_handler.sysid:
                     logger.fatal("system ID mismatch, node %s belongs to a different cluster: %s != %s",
                                  self.state_handler.name, self.cluster.initialize, self.state_handler.sysid)
