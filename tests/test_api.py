@@ -339,6 +339,7 @@ class TestRestApiHandler(unittest.TestCase):
 
         cluster2 = cluster.copy()
         cluster2.leader.name = 'postgresql0'
+        cluster2.is_unlocked.return_value = False
         dcs.get_cluster.side_effect = [cluster, cluster2]
         MockRestApiServer(RestApiHandler, request)
 

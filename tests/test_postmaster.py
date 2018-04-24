@@ -61,10 +61,17 @@ class TestPostmasterProcess(unittest.TestCase):
         c1.cmdline = Mock(return_value=["postgres: startup process"])
         c2 = Mock()
         c2.cmdline = Mock(return_value=["postgres: postgres postgres [local] idle"])
-        with patch('psutil.Process.children', Mock(return_value=[c1, c2])):
+        c3 = Mock()
+        c3.cmdline = Mock(side_effect=psutil.NoSuchProcess(123))
+        with patch('psutil.Process.children', Mock(return_value=[c1, c2, c3])):
             proc = PostmasterProcess(123)
             self.assertIsNone(proc.wait_for_user_backends_to_close())
             mock_wait.assert_called_with([c2])
+
+        c3.cmdline = Mock(side_effect=psutil.AccessDenied(123))
+        with patch('psutil.Process.children', Mock(return_value=[c3])):
+            proc = PostmasterProcess(123)
+            self.assertIsNone(proc.wait_for_user_backends_to_close())
 
     @patch('subprocess.Popen')
     @patch.object(PostmasterProcess, 'from_pid')

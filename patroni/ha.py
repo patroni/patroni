@@ -72,6 +72,10 @@ class Ha(object):
         # standby. Changes protected by _member_state_lock.
         self._disable_sync = 0
 
+        # We need following property to avoid shutdown of postgres when join of Patroni to the postgres
+        # already running as replica was aborted due to cluster not beeing initialized in DCS.
+        self._join_aborted = False
+
     def is_paused(self):
         return self.cluster and self.cluster.is_paused()
 
@@ -1079,6 +1083,12 @@ class Ha(object):
                 return self.bootstrap()  # new node
             # "bootstrap", but data directory is not empty
             elif not self.sysid_valid(self.cluster.initialize) and self.cluster.is_unlocked() and not self.is_paused():
+                if not self.state_handler.cb_called and self.state_handler.is_running() \
+                        and not self.state_handler.is_leader():
+                    self._join_aborted = True
+                    logger.error('No initialize key in DCS and PostgreSQL is running as replica, aborting start')
+                    logger.error('Please first start Patroni on the node running as master')
+                    sys.exit(1)
                 self.dcs.initialize(create_new=(self.cluster.initialize is None), sysid=self.state_handler.sysid)
             else:
                 # check if we are allowed to join
@@ -1138,7 +1148,7 @@ class Ha(object):
         if self.is_paused():
             logger.info('Leader key is not deleted and Postgresql is not stopped due paused state')
             self.watchdog.disable()
-        else:
+        elif not self._join_aborted:
             # FIXME: If stop doesn't reach safepoint quickly enough keepalive is triggered. If shutdown checkpoint
             # takes longer than ttl, then leader key is lost and replication might not have sent out all xlog.
             # This might not be the desired behavior of users, as a graceful shutdown of the host can mean lost data.

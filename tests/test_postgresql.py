@@ -567,6 +567,7 @@ class TestPostgresql(unittest.TestCase):
 
     @patch.object(Postgresql, 'cancellable_subprocess_call')
     def test_custom_bootstrap(self, mock_cancellable_subprocess_call):
+        self.p.config.pop('pg_hba')
         config = {'method': 'foo', 'foo': {'command': 'bar'}}
 
         mock_cancellable_subprocess_call.return_value = 1
@@ -945,7 +946,7 @@ class TestPostgresql(unittest.TestCase):
 
     def test_cancellable_subprocess_call(self):
         self.p.cancel()
-        self.assertRaises(PostgresException, self.p.cancellable_subprocess_call)
+        self.assertRaises(PostgresException, self.p.cancellable_subprocess_call, communicate_input=None)
 
     @patch('patroni.postgresql.polling_loop', Mock(return_value=[0, 0]))
     def test_cancel(self):

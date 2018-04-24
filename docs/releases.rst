@@ -3,6 +3,89 @@
 Release notes
 =============
 
+Version 1.4.3
+-------------
+
+**Improvements in logging**
+
+- Make log level configurable from environment variables (Andy Newton, Keyvan Hedayati)
+
+  `PATRONI_LOGLEVEL` - sets the general logging level
+  `PATRONI_REQUESTS_LOGLEVEL` - sets the logging level for all HTTP requests e.g. Kubernetes API calls
+  See `the docs for Python logging <https://docs.python.org/3.6/library/logging.html#levels>` to get the names of possible log levels
+
+**Stability improvements and bug fixes**
+
+- Don't rediscover etcd cluster topology when watch timed out (Alexander Kukushkin)
+
+  If we have only one host in etcd configuration and exactly this host is not accessible, Patroni was starting discovery of cluster topology and never succeeding. Instead it should just switch to the next available node.
+
+- Write content of bootstrap.pg_hba into a pg_hba.conf after custom bootstrap (Alexander)
+
+  Now it behaves similarly to the usual bootstrap with `initdb`
+
+- Single user mode was waiting for user input and never finish (Alexander)
+
+  Regression was introduced in https://github.com/zalando/patroni/pull/576
+
+
+Version 1.4.2
+-------------
+
+**Improvements in patronictl**
+
+- Rename scheduled failover to scheduled switchover (Alexander Kukushkin)
+
+  Failover and switchover functions were separated in version 1.4, but `patronictl list` was still reporting `Scheduled failover` instead of `Scheduled switchover`.
+
+- Show information about pending restarts (Alexander)
+
+  In order to apply some configuration changes sometimes it is necessary to restart postgres. Patroni was already giving a hint about that in the REST API and when writing node status into DCS, but there were no easy way to display it.
+
+- Make show-config to work with cluster_name from config file (Alexander)
+
+  It works similar to the `patronictl edit-config`
+
+**Stability improvements**
+
+- Avoid calling pg_controldata during bootstrap (Alexander)
+
+  During initdb or custom bootstrap there is a time window when pgdata is not empty but pg_controldata has not been written yet. In such case pg_controldata call was failing with error messages.
+
+- Handle exceptions raised from psutil (Alexander)
+
+  cmdline is read and parsed every time when `cmdline()` method is called. It could happen that the process being examined
+  has already disappeared, in that case `NoSuchProcess` is raised.
+
+**Kubernetes support improvements**
+
+- Don't swallow errors from k8s API (Alexander)
+
+  A call to Kubernetes API could fail for a different number of reasons. In some cases such call should be retried, in some other cases we should log the error message and the exception stack trace. The change here will help debug Kubernetes permission issues.
+
+- Update Kubernetes example Dockerfile to install Patroni from the master branch (Maciej Szulik)
+
+  Before that it was using `feature/k8s`, which became outdated.
+
+- Add proper RBAC to run patroni on k8s (Maciej)
+
+  Add the Service account that is assigned to the pods of the cluster, the role that holds only the necessary permissions, and the rolebinding that connects the Service account and the Role.
+
+
+Version 1.4.1
+-------------
+
+**Fixes in patronictl**
+
+- Don't show current leader in suggested list of members to failover to. (Alexander Kukushkin)
+
+  patronictl failover could still work when there is leader in the cluster and it should be excluded from the list of member where it is possible to failover to.
+
+- Make patronictl switchover compatible with the old Patroni api (Alexander)
+
+  In case if POST /switchover REST API call has failed with status code 501 it will do it once again, but to /failover endpoint.
+
+
 Version 1.4
 -----------
 
