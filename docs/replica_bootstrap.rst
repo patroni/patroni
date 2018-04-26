@@ -81,7 +81,7 @@ scripts to clone a new replica. Those are configured in the ``postgresql`` confi
 
 
 The ``create_replica_method`` defines available replica creation methods and the order of executing them. Patroni will
-stop on the first one that returns 0. Each method should a separate section in the configuration file, listing the command
+stop on the first one that returns 0. Each method should define a separate section in the configuration file, listing the command
 to execute and any custom parameters that should be passed to that command. All parameters will be passed in a
 ``--name=value`` format. Besides user-defined parameters, Patroni supplies a couple of cluster-specific ones:
 
@@ -100,9 +100,9 @@ running master or replicas. In that case, an empty string will be passed in a co
 restoring the formerly running cluster from the binary backup.
 
 A ``basebackup`` method is a special case: it will be used if ``create_replica_method`` is empty, although it is possible
-to list it explicitly among the ``create_replica_method`` methods. ``Basebackup`` initializes a new replica with the
-pg_basebackup, the base backup is taken from the master unless there are replicas with ``clonefrom`` tag, in which case one
-of such replicas will be used as an origin for pg_basebackup. It works without any configuration; however, it is
+to list it explicitly among the ``create_replica_method`` methods. This method initializes a new replica with the
+``pg_basebackup``, the base backup is taken from the master unless there are replicas with ``clonefrom`` tag, in which case one
+of such replicas will be used as the origin for pg_basebackup. It works without any configuration; however, it is
 possible to specify a ``basebackup`` configuration section. Same rules as with the other method configuration apply,
 namely, only long (with --) options should be specified there. Not all parameters make sense, if you override a connection
 string or provide an option to created tar-ed or compressed base backups, patroni won't be able to make a replica out

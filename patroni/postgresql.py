@@ -1623,9 +1623,28 @@ $$""".format(name, ' '.join(options)), name, password, password)
         maxfailures = 2
         ret = 1
         user_options = []
-        for k, v in options.items():
-            if v:
-                user_options.append('--{0}={1}'.format(k, v))
+        # with non-dict or list types the caller will fail on the .copy, but let's assert it here just in case
+        assert (isinstance(options, dict) or isinstance(options, list))
+        # basebackup options could be a key-value pair (compatibility) or a list of either key-value pairs or strings.
+        # We need the later in order to support options that doesn't have any values, like --no-sync.
+        if isinstance(options, dict):
+            for k, v in options.items():
+                if v:
+                    user_options.append('--{0}={1}'.format(k, v))
+        else:
+            for opt in options:
+                if isinstance(opt, string_types):
+                    user_options.append('--{0}'.format(opt))
+                elif isinstance(opt, dict):
+                    k = list(opt.keys())
+                    if len(k) != 1 or not isinstance(opt[k[0]], string_types):
+                        logger.error("Error when parsing basebackup key-value option: "
+                                     "only one key-value and value should be a string")
+                    user_options.append('--{0}={1}'.format(k[0], opt[k[0]]))
+                else:
+                    logger.error("Error when parsing basebackup option: "
+                                 "value should be string value or a single key-value pair")
+
         for bbfailures in range(0, maxfailures):
             with self._cancellable_lock:
                 if self._is_cancelled:
