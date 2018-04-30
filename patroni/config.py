@@ -45,6 +45,8 @@ class Config(object):
         'master_start_timeout': 300,
         'synchronous_mode': False,
         'synchronous_mode_strict': False,
+        'replication_factor': 1,
+        'minimum_replication_factor': 1,
         'postgresql': {
             'bin_dir': '',
             'use_slots': True,
@@ -314,6 +316,12 @@ class Config(object):
 
         pg_config.update({p: config[p] for p in ('name', 'scope', 'retry_timeout',
                           'synchronous_mode', 'maximum_lag_on_failover') if p in config})
+
+        # Switch synchronous mode to replication factor
+        if config.get('synchronous_mode', False):
+            config['replication_factor'] = min(2, config['replication_factor'])
+        if config.get('synchronous_mode_strict', False):
+            config['minimum_replication_factor'] = min(2, config['minimum_replication_factor'])
 
         return config
 
