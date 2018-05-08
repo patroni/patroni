@@ -20,6 +20,7 @@ from six import string_types
 from six.moves.urllib.parse import quote_plus
 from threading import current_thread, Lock
 
+
 logger = logging.getLogger(__name__)
 
 ACTION_ON_START = "on_start"
@@ -1365,7 +1366,9 @@ class Postgresql(object):
         if primary_conninfo:
             recovery_params['primary_conninfo'] = primary_conninfo
         if self.use_slots:
-            recovery_params['primary_slot_name'] = slot_name_from_member_name(self.name)
+            required_name = member is not None and member.data.get('replication_slot')
+            name = required_name or slot_name_from_member_name(self.name)
+            recovery_params['primary_slot_name'] = name
 
         self.write_recovery_conf(recovery_params)
 

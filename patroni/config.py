@@ -45,6 +45,7 @@ class Config(object):
         'master_start_timeout': 300,
         'synchronous_mode': False,
         'synchronous_mode_strict': False,
+        'standby_cluster': '',
         'postgresql': {
             'bin_dir': '',
             'use_slots': True,
@@ -87,6 +88,10 @@ class Config(object):
     @property
     def dynamic_configuration(self):
         return deepcopy(self._dynamic_configuration)
+
+    @property
+    def is_standby_cluster(self):
+        return self._dynamic_configuration.get('standby_cluster') is not None
 
     def _load_config_file(self):
         """Loads config.yaml from filesystem and applies some values which were set via ENV"""
@@ -179,7 +184,7 @@ class Config(object):
                     elif name not in ('connect_address', 'listen', 'data_dir', 'pgpass', 'authentication'):
                         config['postgresql'][name] = deepcopy(value)
             elif name in config:  # only variables present in __DEFAULT_CONFIG allowed to be overriden from DCS
-                if name in ('synchronous_mode', 'synchronous_mode_strict'):
+                if name in ('synchronous_mode', 'synchronous_mode_strict', 'standby_cluster'):
                     config[name] = value
                 else:
                     config[name] = int(value)
@@ -312,8 +317,16 @@ class Config(object):
         if 'name' not in config and 'name' in pg_config:
             config['name'] = pg_config['name']
 
-        pg_config.update({p: config[p] for p in ('name', 'scope', 'retry_timeout',
-                          'synchronous_mode', 'maximum_lag_on_failover') if p in config})
+        updated_fields = (
+            'name',
+            'scope',
+            'retry_timeout',
+            'synchronous_mode',
+            'maximum_lag_on_failover',
+            'standby_cluster'
+        )
+
+        pg_config.update({p: config[p] for p in updated_fields if p in config})
 
         return config
 

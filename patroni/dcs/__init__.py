@@ -157,6 +157,10 @@ class Member(namedtuple('Member', 'index,name,session,data')):
     def is_running(self):
         return self.state == 'running'
 
+    @property
+    def replication_slot_name(self):
+        return selg.data.get('replication_slot')
+
 
 class Leader(namedtuple('Leader', 'index,session,member')):
 
@@ -358,6 +362,15 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
     def is_synchronous_mode_strict(self):
         return bool(self.config and self.config.data.get('synchronous_mode_strict'))
 
+    def is_standby_cluster(self):
+        return bool(self.config and self.config.data.get('standby_cluster'))
+
+    def get_target_to_follow(self):
+        """ In case of standby cluster this will tel us from which remote
+            master to stream
+        """
+        return self.config.data.get('remote_master')
+
 
 @six.add_metaclass(abc.ABCMeta)
 class AbstractDCS(object):
@@ -425,6 +438,10 @@ class AbstractDCS(object):
     @property
     def sync_path(self):
         return self.client_path(self._SYNC)
+
+    @property
+    def standby_path(self):
+        return self.client_path(self._STANDBY)
 
     @abc.abstractmethod
     def set_ttl(self, ttl):
