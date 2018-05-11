@@ -22,6 +22,9 @@ bootstrap:
     loop_wait: 10
     retry_timeout: 10
     maximum_lag_on_failover: 1048576
+    standby_cluster:
+      conn_url: postgresql://replicator@127.0.0.1:1111/postgres
+      replication_slot: patroni
     postgresql:
       use_pg_rewind: true
 #      use_slots: true

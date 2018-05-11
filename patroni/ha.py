@@ -163,15 +163,7 @@ class Ha(object):
             self.state_handler.remove_data_directory()
 
     def bootstrap(self):
-        if self.patroni.config.is_standby_cluster:
-            self.state_handler.bootstrapping = True
-            self._post_bootstrap_task = CriticalTask()
-
-            self._async_executor.schedule('bootstrap_standby_leader')
-            self._async_executor.run_async(self.bootstrap_standby_leader)
-            return 'trying to bootstrap a new standby leader'
-
-        elif not self.cluster.is_unlocked():  # cluster already has leader
+        if not self.cluster.is_unlocked():  # cluster already has leader
             clone_member = self.cluster.get_clone_member(self.state_handler.name)
             member_role = 'leader' if clone_member == self.cluster.leader else 'replica'
             msg = "from {0} '{1}'".format(member_role, clone_member.name)
@@ -184,9 +176,15 @@ class Ha(object):
             if self.dcs.initialize(create_new=True):  # race for initialization
                 self.state_handler.bootstrapping = True
                 self._post_bootstrap_task = CriticalTask()
-                self._async_executor.schedule('bootstrap')
-                self._async_executor.run_async(self.state_handler.bootstrap, args=(self.patroni.config['bootstrap'],))
-                return 'trying to bootstrap a new cluster'
+
+                if self.patroni.config.is_standby_cluster:
+                    self._async_executor.schedule('bootstrap_standby_leader')
+                    self._async_executor.run_async(self.bootstrap_standby_leader)
+                    return 'trying to bootstrap a new standby leader'
+                else:
+                    self._async_executor.schedule('bootstrap')
+                    self._async_executor.run_async(self.state_handler.bootstrap, args=(self.patroni.config['bootstrap'],))
+                    return 'trying to bootstrap a new cluster'
             else:
                 return 'failed to acquire initialize lock'
         else:
@@ -280,11 +278,11 @@ class Ha(object):
     def _get_node_to_follow(self, cluster):
         # determine the node to follow. If replicatefrom tag is set,
         # try to follow the node mentioned there, otherwise, follow the leader.
-        me_is_leader = self.state_handler.name == self.cluster.leader.name
+        is_leader = self.cluster.leader and self.state_handler.name == self.cluster.leader.name
 
         if self.patroni.replicatefrom and self.patroni.replicatefrom != self.state_handler.name:
             node_to_follow = cluster.get_member(self.patroni.replicatefrom)
-        elif self.cluster.is_standby_cluster() and me_is_leader:
+        elif self.cluster.is_standby_cluster() and is_leader:
             node_to_follow = cluster.get_target_to_follow()
         else:
             node_to_follow = cluster.leader
@@ -462,27 +460,6 @@ class Ha(object):
             if self.state_handler.role != 'master':
                 self._async_executor.schedule('promote')
                 self._async_executor.run_async(self.state_handler.promote, args=(self.dcs.loop_wait,))
-            return promote_message
-
-    def enforce_standby_cluster_leader(self, message, promote_message):
-        if not self.is_paused() and not self.watchdog.is_running and not self.watchdog.activate():
-            self.release_leader_key_voluntarily()
-            return 'Not promoting self because watchdog could not be activated'
-
-        if self.state_handler.name == self.cluster.leader.name:
-            # Inform the state handler about its standby leader role.
-            # It may be unaware of it if postgres is promoted manually.
-            self.state_handler.set_role('standby_leader')
-            # self._stop = True
-            # import ipdb; ipdb.set_trace() # XXX
-            self.update_cluster_history()
-            return message
-        else:
-            clone_target = self.cluster.get_target_to_follow()
-            msg = 'clone from remote master {0}'.format(clone_target.conn_url)
-
-            self._async_executor.schedule('promote')
-            self._async_executor.run_async(self.clone, args=(clone_target, msg))
             return promote_message
 
     @staticmethod
@@ -780,8 +757,21 @@ class Ha(object):
                         logger.info('Cleaning up failover key after acquiring leader lock...')
                         self.dcs.manual_failover('', '')
                 self.load_cluster_from_dcs()
-                return self.enforce_master_role('acquired session lock as a leader',
-                                                'promoted self to leader by acquiring session lock')
+
+                if self.cluster.is_standby_cluster():
+                    clone_target = self.cluster.get_target_to_follow()
+                    msg = 'clone from remote master {0}'.format(clone_target.conn_url)
+
+                    follow_target = self.cluster.get_target_to_follow()
+                    msg = 'follow remote master {0}'.format(follow_target.conn_url)
+                    self._async_executor.schedule('follow_remote_master')
+                    self._async_executor.run_async(self.follow, args=(follow_target, msg))
+                    return 'promoted self to a standby leader because i had the session lock'
+                else:
+                    return self.enforce_master_role(
+                        'acquired session lock as a leader',
+                        'promoted self to leader by acquiring session lock'
+                    )
             else:
                 return self.follow('demoted self after trying and failing to obtain lock',
                                    'following new leader after trying and failing to obtain lock')
@@ -814,10 +804,8 @@ class Ha(object):
                     return msg
 
                 if self.cluster.is_standby_cluster():
-                    return self.enforce_standby_cluster_leader(
-                        'no action. I am the leader with the lock',
-                        'promoted self to a standby leader because i had the session lock'
-                    )
+                    self.state_handler.set_role('standby_leader')
+                    return 'no action. I am the leader with the lock'
                 else:
                     return self.enforce_master_role(
                         'no action. I am the leader with the lock',

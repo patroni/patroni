@@ -1358,6 +1358,11 @@ class Postgresql(object):
         return self._rewind_state > REWIND_STATUS.NOT_NEED
 
     def follow(self, member, timeout=None):
+        if hasattr(member, 'member'):
+            # it's a leader object, and we need
+            # only a corresponding member
+            member = member.member
+
         primary_conninfo = self.primary_conninfo(member)
         change_role = self.role in ('master', 'demoted')
 
@@ -1480,7 +1485,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
                 # the current master, because that member would replicate from elsewhere. We still create the slot if
                 # the replicatefrom destination member is currently not a member of the cluster (fallback to the
                 # master), or if replicatefrom destination member happens to be the current master
-                if self.role == 'master':
+                if self.role in ('master', 'standby_leader'):
                     slot_members = [m.name for m in cluster.members if m.name != self.name and
                                     (m.replicatefrom is None or m.replicatefrom == self.name or
                                      not cluster.has_member(m.replicatefrom))]
