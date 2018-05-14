@@ -469,13 +469,6 @@ class Etcd(AbstractDCS):
             # get list of members
             members = [self.member(n) for k, n in nodes.items() if k.startswith(self._MEMBERS) and k.count('/') == 1]
 
-            if config and config.data.get('standby_cluster'):
-                cluster_params = config.data.get('standby_cluster')
-                config.data['remote_master'] = Member(None, 'remote_master', None, {
-                    'conn_url': cluster_params['conn_url'],
-                    'replication_slot': cluster_params['replication_slot']
-                })
-
             # get leader
             leader = nodes.get(self._LEADER)
             if leader:

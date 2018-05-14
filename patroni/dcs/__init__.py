@@ -369,7 +369,12 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
         """ In case of standby cluster this will tel us from which remote
             master to stream
         """
-        return self.config.data.get('remote_master')
+        if self.config and self.config.data.get('standby_cluster'):
+            cluster_params = self.config.data.get('standby_cluster')
+            return Member(None, 'remote_master', None, {
+                'conn_url': cluster_params['conn_url'],
+                'replication_slot': cluster_params['replication_slot']
+            })
 
 
 @six.add_metaclass(abc.ABCMeta)
