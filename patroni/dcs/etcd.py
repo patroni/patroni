@@ -210,8 +210,11 @@ class Client(etcd.Client):
                 self._machines_cache = self.machines
                 if self._base_uri in self._machines_cache:
                     self._machines_cache.remove(self._base_uri)
-        except etcd.EtcdConnectionFailed:
-            self._update_machines_cache = True
+        except etcd.EtcdConnectionFailed as e:
+            if isinstance(e, etcd.EtcdWatchTimedOut) and self._machines_cache:
+                self._base_uri = self._next_server()
+            else:
+                self._update_machines_cache = True
             if not response:
                 raise
         return self._handle_server_response(response)

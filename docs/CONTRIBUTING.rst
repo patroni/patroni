@@ -5,6 +5,11 @@ Contributing guidelines
 
 Wanna contribute to Patroni? Yay - here is how!
 
+Chatting
+--------
+
+Just want to chat with other Patroni users?  Looking for interactive troubleshooting help? Join us on channel #patroni in the `PostgreSQL Slack <https://postgres-slack.herokuapp.com/>`__.
+
 Reporting issues
 ----------------
 

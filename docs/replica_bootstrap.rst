@@ -3,7 +3,7 @@ Replica imaging and bootstrap
 
 Patroni allows customizing creation of a new replica. It also supports defining what happens when the new empty cluster
 is being bootstrapped. The distinction between two is well defined: Patroni creates replicas only if the ``initialize``
-key is present in Etcd for the cluster. If there is no ``initialize`` key - Patroni calls bootstrap exclusively on the
+key is present in DCS for the cluster. If there is no ``initialize`` key - Patroni calls bootstrap exclusively on the
 first node that takes the initialize key lock.
 
 .. _custom_bootstrap:
@@ -23,6 +23,7 @@ arguments to them, i.e. the name of the cluster and the path to the data directo
         method: <custom_bootstrap_method_name>
         <custom_bootstrap_method_name>:
             command: <path_to_custom_bootstrap_script> [param1 [, ...]]
+            keep_existing_recovery_conf: False
             recovery_conf:
                 recovery_target_action: promote
                 recovery_target_timeline: latest
@@ -46,6 +47,9 @@ cleans up after itself and releases the initialize lock to give another node the
 If a ``recovery_conf`` block is defined in the same section as the custom bootstrap method, Patroni will generate a
 ``recovery.conf`` before starting the newly bootstrapped instance. Typically, such recovery.conf should contain at least
 one of the ``recovery_target_*`` parameters, together with the ``recovery_target_timeline`` set to ``promote``.
+
+If ``keep_existing_recovery_conf`` is defined and set to ``True``, Patroni will not remove the existing ``recovery.conf`` file if it exists.
+This is useful when bootstrapping from a backup with tools like pgBackRest that generate the appropriate ``recovery.conf`` for you.
 
  .. note:: Bootstrap methods are neither chained, nor fallen-back to the default one in case the primary one fails
 

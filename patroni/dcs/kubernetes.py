@@ -29,7 +29,7 @@ class KubernetesRetriableException(k8s_client.rest.ApiException):
         self.headers = orig.headers
 
 
-class CoreV1Api(object):
+class CoreV1ApiProxy(object):
 
     def __init__(self, use_endpoints=False):
         self._api = k8s_client.CoreV1Api()
@@ -53,6 +53,21 @@ class CoreV1Api(object):
                     raise KubernetesRetriableException(e)
                 raise
         return wrapper
+
+
+def catch_kubernetes_errors(func):
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except k8s_client.rest.ApiException as e:
+            if e.status == 403:
+                logger.exception('Permission denied')
+            elif e.status != 409:  # Object exists or conflict in resource_version
+                logger.exception('Unexpected error from Kubernetes API')
+            return False
+        except (RetryFailedError, HTTPException, HTTPError, socket.error, socket.timeout):
+            return False
+    return wrapper
 
 
 class Kubernetes(AbstractDCS):
@@ -84,7 +99,7 @@ class Kubernetes(AbstractDCS):
                 port.update({n: p[n] for n in ('name', 'protocol') if p.get(n)})
                 ports.append(k8s_client.V1EndpointPort(**port))
             self.__subsets = [k8s_client.V1EndpointSubset(addresses=addresses, ports=ports)]
-        self._api = CoreV1Api(use_endpoints)
+        self._api = CoreV1ApiProxy(use_endpoints)
         self.set_retry_timeout(config['retry_timeout'])
         self.set_ttl(config.get('ttl') or 30)
         self._leader_observed_record = {}
@@ -95,16 +110,6 @@ class Kubernetes(AbstractDCS):
 
     def retry(self, *args, **kwargs):
         return self._retry.copy()(*args, **kwargs)
-
-    def catch_kubernetes_errors(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            try:
-                return func(*args, **kwargs)
-            except (RetryFailedError, k8s_client.rest.ApiException,
-                    HTTPException, HTTPError, socket.error, socket.timeout):
-                return False
-        return wrapper
 
     def client_path(self, path):
         return super(Kubernetes, self).client_path(path)[1:].replace('/', '-')
@@ -156,7 +161,7 @@ class Kubernetes(AbstractDCS):
             leader = nodes.get(self.leader_path)
             metadata = leader and leader.metadata
             self._leader_resource_version = metadata.resource_version if metadata else None
-            self._leader_observed_subsets = leader.subsets if self.__subsets and leader else []
+            self._leader_observed_subsets = leader.subsets if self.__subsets and leader and leader.subsets else []
             annotations = metadata and metadata.annotations or {}
 
             # get last leader operation
@@ -362,7 +367,6 @@ class Kubernetes(AbstractDCS):
     def delete_cluster(self):
         self.retry(self._api.delete_collection_namespaced_kind, self._namespace, label_selector=self._label_selector)
 
-    @catch_kubernetes_errors
     def set_history_value(self, value):
         patch = bool(self.cluster and self.cluster.config and self.cluster.config.index)
         return self.patch_or_create(self.config_path, {self._HISTORY: value}, None, patch, False)

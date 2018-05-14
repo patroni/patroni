@@ -10,6 +10,7 @@ from copy import deepcopy
 from patroni.dcs import ClusterConfig
 from patroni.postgresql import Postgresql
 from patroni.utils import deep_compare, parse_int, patch_config
+from requests.structures import CaseInsensitiveDict
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,7 @@ class Config(object):
         'postgresql': {
             'bin_dir': '',
             'use_slots': True,
-            'parameters': {p: v[0] for p, v in Postgresql.CMDLINE_OPTIONS.items()}
+            'parameters': CaseInsensitiveDict({p: v[0] for p, v in Postgresql.CMDLINE_OPTIONS.items()})
         },
         'watchdog': {
             'mode': 'automatic',
