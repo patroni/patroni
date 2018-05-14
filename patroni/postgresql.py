@@ -13,7 +13,8 @@ from collections import defaultdict
 from contextlib import contextmanager
 from patroni.callback_executor import CallbackExecutor
 from patroni.exceptions import PostgresConnectionException, PostgresException
-from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, split_host_port
+from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, \
+    split_host_port, copy_list_dict
 from patroni.postmaster import PostmasterProcess
 from requests.structures import CaseInsensitiveDict
 from six import string_types
@@ -660,7 +661,7 @@ class Postgresql(object):
                     break
             # if the method is basebackup, then use the built-in
             if replica_method == "basebackup":
-                ret = self.basebackup(connstring, env, (self.config.get(replica_method) or {}).copy())
+                ret = self.basebackup(connstring, env, copy_list_dict(self.config.get(replica_method) or {}))
                 if ret == 0:
                     logger.info("replica has been created using basebackup")
                     # if basebackup succeeds, exit with success
