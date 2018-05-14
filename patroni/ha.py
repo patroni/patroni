@@ -57,6 +57,7 @@ class Ha(object):
         self.dcs = patroni.dcs
         self.cluster = None
         self.old_cluster = None
+        self._was_paused = False
         self._leader_timeline = None
         self.recovering = False
         self._post_bootstrap_task = None
@@ -1038,6 +1039,11 @@ class Ha(object):
 
             if self.is_paused():
                 self.watchdog.disable()
+                self._was_paused = True
+            else:
+                if self._was_paused:
+                    self.state_handler.schedule_sanity_checks_after_pause()
+                self._was_paused = False
 
             if not self.cluster.has_member(self.state_handler.name):
                 self.touch_member()
