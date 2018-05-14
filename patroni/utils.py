@@ -281,10 +281,3 @@ def split_host_port(value, default_port):
     t = value.rsplit(':', 1)
     t.append(default_port)
     return t[0], int(t[1])
-
-
-def copy_list_dict(val):
-    """ Makes a shallow copy of either a list or a dict passed to it. Works with both Python 2 and Python 3"""
-    is_dict = isinstance(val, dict)
-    is_list = isinstance(val, list) if not is_dict else False
-    return val.copy() if is_dict else val[:] if is_list else val
