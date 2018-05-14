@@ -157,10 +157,6 @@ class Member(namedtuple('Member', 'index,name,session,data')):
     def is_running(self):
         return self.state == 'running'
 
-    @property
-    def replication_slot_name(self):
-        return selg.data.get('replication_slot')
-
 
 class Leader(namedtuple('Leader', 'index,session,member')):
 

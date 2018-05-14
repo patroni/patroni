@@ -196,6 +196,10 @@ class Ha(object):
             return 'waiting for leader to bootstrap'
 
     def bootstrap_standby_leader(self):
+        """ If we found 'standby' key in the configuration, we need to bootstrap
+            not a real master, but a 'standby leader', that will take base backup
+            from a remote master and start follow it.
+        """
         config_value = json.dumps(
                 self.patroni.config.dynamic_configuration,
                 separators=(',', ':'))
@@ -759,11 +763,13 @@ class Ha(object):
                 self.load_cluster_from_dcs()
 
                 if self.cluster.is_standby_cluster():
-                    clone_target = self.cluster.get_target_to_follow()
-                    msg = 'clone from remote master {0}'.format(clone_target.conn_url)
-
-                    follow_target = self.cluster.get_target_to_follow()
+                    # standby leader disappeared, and this is a healthiest
+                    # replica, so it should become a new standby leader.
+                    # This imply that we need to start following a remote master
                     msg = 'follow remote master {0}'.format(follow_target.conn_url)
+                    clone_target = self.cluster.get_target_to_follow()
+                    follow_target = self.cluster.get_target_to_follow()
+
                     self._async_executor.schedule('follow_remote_master')
                     self._async_executor.run_async(self.follow, args=(follow_target, msg))
                     return 'promoted self to a standby leader because i had the session lock'
@@ -804,6 +810,9 @@ class Ha(object):
                     return msg
 
                 if self.cluster.is_standby_cluster():
+                    # in case of standby cluster we don't really need to
+                    # enforce anything, since the leader is not a master.
+                    # So just remind the role.
                     self.state_handler.set_role('standby_leader')
                     return 'no action. I am the leader with the lock'
                 else:
