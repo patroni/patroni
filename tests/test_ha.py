@@ -246,7 +246,7 @@ class TestHa(unittest.TestCase):
         self.ha.has_lock = true
         self.p.is_leader = false
         self.p.set_role('master')
-        self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
+        self.assertEquals(self.ha.run_cycle(), 'no action. I am the leader with the lock')
 
     def test_demote_after_failing_to_obtain_lock(self):
         self.ha.acquire_lock = false
@@ -286,7 +286,7 @@ class TestHa(unittest.TestCase):
         self.ha.cluster = get_cluster_not_initialized_without_leader()
         self.ha.cluster.is_unlocked = false
         self.ha.has_lock = true
-        self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
+        self.assertEquals(self.ha.run_cycle(), 'no action. I am the leader with the lock')
 
     def test_demote_because_not_having_lock(self):
         self.ha.cluster.is_unlocked = false
@@ -304,9 +304,9 @@ class TestHa(unittest.TestCase):
     def test_follow(self):
         self.ha.cluster.is_unlocked = false
         self.p.is_leader = false
-        self.assertEquals(self.ha.run_cycle(), 'no action.  i am a secondary and i am following a leader')
+        self.assertEquals(self.ha.run_cycle(), 'no action. I am a secondary and i am following a leader')
         self.ha.patroni.replicatefrom = "foo"
-        self.assertEquals(self.ha.run_cycle(), 'no action.  i am a secondary and i am following a leader')
+        self.assertEquals(self.ha.run_cycle(), 'no action. I am a secondary and i am following a leader')
 
     def test_follow_in_pause(self):
         self.ha.cluster.is_unlocked = false
@@ -421,25 +421,25 @@ class TestHa(unittest.TestCase):
         self.ha.fetch_node_status = get_node_status()
         self.ha.has_lock = true
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', '', None))
-        self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
+        self.assertEquals(self.ha.run_cycle(), 'no action. I am the leader with the lock')
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, '', self.p.name, None))
-        self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
+        self.assertEquals(self.ha.run_cycle(), 'no action. I am the leader with the lock')
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, '', 'blabla', None))
-        self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
+        self.assertEquals(self.ha.run_cycle(), 'no action. I am the leader with the lock')
         f = Failover(0, self.p.name, '', None)
         self.ha.cluster = get_cluster_initialized_with_leader(f)
         self.assertEquals(self.ha.run_cycle(), 'manual failover: demoting myself')
         self.p.rewind_needed_and_possible = true
         self.assertEquals(self.ha.run_cycle(), 'manual failover: demoting myself')
         self.ha.fetch_node_status = get_node_status(nofailover=True)
-        self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
+        self.assertEquals(self.ha.run_cycle(), 'no action. I am the leader with the lock')
         self.ha.fetch_node_status = get_node_status(watchdog_failed=True)
-        self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
+        self.assertEquals(self.ha.run_cycle(), 'no action. I am the leader with the lock')
         self.ha.fetch_node_status = get_node_status(wal_position=1)
-        self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
+        self.assertEquals(self.ha.run_cycle(), 'no action. I am the leader with the lock')
         # manual failover from the previous leader to us won't happen if we hold the nofailover flag
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', self.p.name, None))
-        self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
+        self.assertEquals(self.ha.run_cycle(), 'no action. I am the leader with the lock')
 
         # Failover scheduled time must include timezone
         scheduled = datetime.datetime.now()
@@ -448,19 +448,19 @@ class TestHa(unittest.TestCase):
 
         scheduled = datetime.datetime.utcnow().replace(tzinfo=tzutc)
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', self.p.name, scheduled))
-        self.assertEquals('no action.  i am the leader with the lock', self.ha.run_cycle())
+        self.assertEquals('no action. I am the leader with the lock', self.ha.run_cycle())
 
         scheduled = scheduled + datetime.timedelta(seconds=30)
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', self.p.name, scheduled))
-        self.assertEquals('no action.  i am the leader with the lock', self.ha.run_cycle())
+        self.assertEquals('no action. I am the leader with the lock', self.ha.run_cycle())
 
         scheduled = scheduled + datetime.timedelta(seconds=-600)
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', self.p.name, scheduled))
-        self.assertEquals('no action.  i am the leader with the lock', self.ha.run_cycle())
+        self.assertEquals('no action. I am the leader with the lock', self.ha.run_cycle())
 
         scheduled = None
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', self.p.name, scheduled))
-        self.assertEquals('no action.  i am the leader with the lock', self.ha.run_cycle())
+        self.assertEquals('no action. I am the leader with the lock', self.ha.run_cycle())
 
     @patch('requests.get', requests_get)
     def test_manual_failover_from_leader_in_pause(self):
@@ -468,9 +468,9 @@ class TestHa(unittest.TestCase):
         self.ha.is_paused = true
         scheduled = datetime.datetime.now()
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', self.p.name, scheduled))
-        self.assertEquals('PAUSE: no action.  i am the leader with the lock', self.ha.run_cycle())
+        self.assertEquals('PAUSE: no action. I am the leader with the lock', self.ha.run_cycle())
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, self.p.name, '', None))
-        self.assertEquals('PAUSE: no action.  i am the leader with the lock', self.ha.run_cycle())
+        self.assertEquals('PAUSE: no action. I am the leader with the lock', self.ha.run_cycle())
 
     @patch('requests.get', requests_get)
     def test_manual_failover_from_leader_in_synchronous_mode(self):
@@ -480,7 +480,7 @@ class TestHa(unittest.TestCase):
         self.ha.is_failover_possible = false
         self.ha.process_sync_replication = Mock()
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, self.p.name, 'a', None), (self.p.name, None))
-        self.assertEquals('no action.  i am the leader with the lock', self.ha.run_cycle())
+        self.assertEquals('no action. I am the leader with the lock', self.ha.run_cycle())
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, self.p.name, 'a', None), (self.p.name, 'a'))
         self.ha.is_failover_possible = true
         self.assertEquals('manual failover: demoting myself', self.ha.run_cycle())
@@ -668,7 +668,7 @@ class TestHa(unittest.TestCase):
 
         self.ha.has_lock = false
         self.p.is_leader = false
-        self.assertEquals(self.ha.run_cycle(), 'no action.  i am a secondary and i am following a leader')
+        self.assertEquals(self.ha.run_cycle(), 'no action. I am a secondary and i am following a leader')
         check_calls([(update_lock, False), (demote, False)])
 
     def test_manual_failover_while_starting(self):
@@ -869,7 +869,7 @@ class TestHa(unittest.TestCase):
         self.ha.cluster.config.data.clear()
         self.ha.has_lock = true
         self.ha.cluster.is_unlocked = false
-        self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
+        self.assertEquals(self.ha.run_cycle(), 'no action. I am the leader with the lock')
 
     def test_watch(self):
         self.ha.cluster = get_cluster_initialized_with_leader()
@@ -900,7 +900,7 @@ class TestHa(unittest.TestCase):
         self.p.get_master_timeline = Mock(return_value=1)
         self.ha.has_lock = true
         self.ha.cluster.is_unlocked = false
-        self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
+        self.assertEquals(self.ha.run_cycle(), 'no action. I am the leader with the lock')
 
     @patch('sys.exit', return_value=1)
     def test_abort_join(self, exit_mock):

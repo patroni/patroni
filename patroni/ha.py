@@ -831,7 +831,7 @@ class Ha(object):
         else:
             logger.info('does not have lock')
         return self.follow('demoting self because i do not have the lock and i was a leader',
-                           'no action.  i am a secondary and i am following a leader', refresh=False)
+                           'no action. I am a secondary and i am following a leader', refresh=False)
 
     def evaluate_scheduled_restart(self):
         if self._async_executor.busy:  # Restart already in progress
