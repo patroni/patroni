@@ -322,8 +322,7 @@ class Config(object):
             'scope',
             'retry_timeout',
             'synchronous_mode',
-            'maximum_lag_on_failover',
-            'standby_cluster'
+            'maximum_lag_on_failover'
         )
 
         pg_config.update({p: config[p] for p in updated_fields if p in config})
