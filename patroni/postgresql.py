@@ -1373,7 +1373,8 @@ class Postgresql(object):
         if self.use_slots:
             required_name = member is not None and member.data.get('replication_slot')
             name = required_name or slot_name_from_member_name(self.name)
-            recovery_params['primary_slot_name'] = name
+            if name is not None:
+                recovery_params['primary_slot_name'] = name
 
         self.write_recovery_conf(recovery_params)
 
