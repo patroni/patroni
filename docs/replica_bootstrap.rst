@@ -107,5 +107,24 @@ possible to specify a ``basebackup`` configuration section. Same rules as with t
 namely, only long (with --) options should be specified there. Not all parameters make sense, if you override a connection
 string or provide an option to created tar-ed or compressed base backups, patroni won't be able to make a replica out
 of it. There is no validation performed on the names or values of the parameters passed to the ``basebackup`` section.
+You can specify basebackup parameters as either a map (key-value pairs) or a list of elements, where each element
+could be either a key-value pair or a single key (for options that does not receive any values, for instance, ``--verbose``).
+Consider those 2 examples:
+
+.. code:: YAML
+
+    postgresql:
+        basebackup:
+            max-rate: '100M'
+            checkpoint: 'fast'
+
+and
+
+.. code:: YAML
+
+    postgresql:
+        basebackup:
+            - verbose
+            - max-rate: '100M'
 
 If all replica creation methods fail, Patroni will try again all methods in order during the next event loop cycle.
