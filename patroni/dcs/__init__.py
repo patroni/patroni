@@ -442,10 +442,6 @@ class AbstractDCS(object):
     def sync_path(self):
         return self.client_path(self._SYNC)
 
-    @property
-    def standby_path(self):
-        return self.client_path(self._STANDBY)
-
     @abc.abstractmethod
     def set_ttl(self, ttl):
         """Set the new ttl value for leader key"""
