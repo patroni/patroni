@@ -183,7 +183,10 @@ class Ha(object):
                     return 'trying to bootstrap a new standby leader'
                 else:
                     self._async_executor.schedule('bootstrap')
-                    self._async_executor.run_async(self.state_handler.bootstrap, args=(self.patroni.config['bootstrap'],))
+                    self._async_executor.run_async(
+                        self.state_handler.bootstrap,
+                        args=(self.patroni.config['bootstrap'],)
+                    )
                     return 'trying to bootstrap a new cluster'
             else:
                 return 'failed to acquire initialize lock'
