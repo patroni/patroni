@@ -203,15 +203,8 @@ class Ha(object):
             not a real master, but a 'standby leader', that will take base backup
             from a remote master and start follow it.
         """
-        config_value = json.dumps(
-                self.patroni.config.dynamic_configuration,
-                separators=(',', ':'))
-        self.dcs.set_config_value(config_value)
-        self.dcs.take_leader()
-        self.state_handler.call_nowait(ACTION_ON_START)
-        self.load_cluster_from_dcs()
-
-        clone_target = self.cluster.get_target_to_follow()
+        patroni_config = self.patroni.config.dynamic_configuration
+        clone_target = self.cluster.get_target_to_follow(patroni_config)
         msg = 'clone from remote master {0}'.format(clone_target.conn_url)
         result = self.clone(clone_target, msg)
         self._post_bootstrap_task.complete(result)

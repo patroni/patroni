@@ -361,12 +361,14 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
     def is_standby_cluster(self):
         return bool(self.config and self.config.data.get('standby_cluster'))
 
-    def get_target_to_follow(self):
+    def get_target_to_follow(self, config=None):
         """ In case of standby cluster this will tel us from which remote
             master to stream
         """
-        if self.config and self.config.data.get('standby_cluster'):
-            cluster_params = self.config.data.get('standby_cluster')
+        config = config or (self.config is not None and self.config.data)
+
+        if config and config.get('standby_cluster'):
+            cluster_params = config.get('standby_cluster')
             return Member(None, 'remote_master', None, {
                 'conn_url': cluster_params['conn_url'],
                 'replication_slot': cluster_params['replication_slot']
