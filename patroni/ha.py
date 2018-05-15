@@ -429,6 +429,15 @@ class Ha(object):
                         line.append(cluster_history[line[0]][3])
                 self.dcs.set_history_value(json.dumps(history, separators=(',', ':')))
 
+    def enforce_follow_remote_master(self):
+        self.state_handler.set_role('standby_leader')
+        follow_target = self.cluster.get_target_to_follow()
+        message = 'follow remote master {0}'.format(follow_target.conn_url)
+
+        self._async_executor.schedule('follow_remote_master')
+        self._async_executor.run_async(self.follow, args=(follow_target, message))
+        return message
+
     def enforce_master_role(self, message, promote_message):
         if not self.is_paused() and not self.watchdog.is_running and not self.watchdog.activate():
             if self.state_handler.is_leader():
@@ -762,11 +771,7 @@ class Ha(object):
                     # standby leader disappeared, and this is a healthiest
                     # replica, so it should become a new standby leader.
                     # This imply that we need to start following a remote master
-                    follow_target = self.cluster.get_target_to_follow()
-                    msg = 'follow remote master {0}'.format(follow_target.conn_url)
-
-                    self._async_executor.schedule('follow_remote_master')
-                    self._async_executor.run_async(self.follow, args=(follow_target, msg))
+                    self.enforce_follow_remote_master()
                     return 'promoted self to a standby leader because i had the session lock'
                 else:
                     return self.enforce_master_role(
@@ -808,7 +813,7 @@ class Ha(object):
                     # in case of standby cluster we don't really need to
                     # enforce anything, since the leader is not a master.
                     # So just remind the role.
-                    self.state_handler.set_role('standby_leader')
+                    self.enforce_follow_remote_master()
                     return 'no action. I am the leader with the lock'
                 else:
                     return self.enforce_master_role(
