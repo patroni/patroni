@@ -30,7 +30,7 @@ Feature: basic replication
     Then I receive a response returncode 0
     When I sleep for 2 seconds
     And I shut down postgres0
-    And I run patronictl.py resume batman 
+    And I run patronictl.py resume batman
     Then I receive a response returncode 0
     And postgres2 role is the primary after 24 seconds
     When I issue a PATCH request to http://127.0.0.1:8010/config with {"synchronous_mode": null, "master_start_timeout": 0}
