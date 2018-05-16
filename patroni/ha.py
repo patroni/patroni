@@ -814,7 +814,7 @@ class Ha(object):
                     # enforce anything, since the leader is not a master.
                     # So just remind the role.
                     self.enforce_follow_remote_master()
-                    return 'no action. I am the leader with the lock'
+                    return 'no action. I am the standby leader with the lock'
                 else:
                     return self.enforce_master_role(
                         'no action. I am the leader with the lock',
