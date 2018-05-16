@@ -279,8 +279,12 @@ class Ha(object):
         # determine the node to follow. If replicatefrom tag is set,
         # try to follow the node mentioned there, otherwise, follow the leader.
         is_leader = self.cluster.leader and self.state_handler.name == self.cluster.leader.name
+        replicatefrom_allowed = (
+            self.patroni.replicatefrom != self.state_handler.name and
+            not (self.cluster.is_standby_cluster() and is_leader)
+        )
 
-        if self.patroni.replicatefrom and self.patroni.replicatefrom != self.state_handler.name:
+        if self.patroni.replicatefrom and replicatefrom_allowed:
             node_to_follow = cluster.get_member(self.patroni.replicatefrom)
         elif self.cluster.is_standby_cluster() and is_leader:
             node_to_follow = cluster.get_target_to_follow()
