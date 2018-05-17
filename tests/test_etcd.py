@@ -90,7 +90,7 @@ def etcd_read(self, key, **kwargs):
         raise etcd.EtcdKeyNotFound
 
     response = {"action": "get", "node": {"key": "/service/batman5", "dir": True, "nodes": [
-                {"key": "/service/batman5/config", "value": '{"foo": "bar"}',
+                {"key": "/service/batman5/config", "value": '{"synchronous_mode": 0}',
                  "modifiedIndex": 1582, "createdIndex": 1582},
                 {"key": "/service/batman5/failover", "value": "",
                  "modifiedIndex": 1582, "createdIndex": 1582},
@@ -276,7 +276,9 @@ class TestEtcd(unittest.TestCase):
                                   {'hosts': 'foo:4001,bar', 'retry_timeout': 10})
 
     def test_get_cluster(self):
-        self.assertIsInstance(self.etcd.get_cluster(), Cluster)
+        cluster = self.etcd.get_cluster()
+        self.assertIsInstance(cluster, Cluster)
+        self.assertFalse(cluster.is_synchronous_mode())
         self.etcd._base_path = '/service/nocluster'
         cluster = self.etcd.get_cluster()
         self.assertIsInstance(cluster, Cluster)
