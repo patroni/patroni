@@ -157,6 +157,10 @@ class Member(namedtuple('Member', 'index,name,session,data')):
     def is_running(self):
         return self.state == 'running'
 
+    @property
+    def no_replication_slot(self):
+        return self.data.get('no_replication_slot')
+
 
 class Leader(namedtuple('Leader', 'index,session,member')):
 
@@ -371,7 +375,8 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
             cluster_params = config.get('standby_cluster')
             return Member(None, 'remote_master', None, {
                 'conn_url': cluster_params['conn_url'],
-                'replication_slot': cluster_params['replication_slot']
+                'replication_slot': cluster_params['replication_slot'],
+                'no_replication_slot': False
             })
 
 

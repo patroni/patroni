@@ -1370,11 +1370,10 @@ class Postgresql(object):
         recovery_params.update({'standby_mode': 'on', 'recovery_target_timeline': 'latest'})
         if primary_conninfo:
             recovery_params['primary_conninfo'] = primary_conninfo
-        if self.use_slots:
+        if self.use_slots and member and not member.no_replication_slot:
             required_name = member is not None and member.data.get('replication_slot')
             name = required_name or slot_name_from_member_name(self.name)
-            if name is not None:
-                recovery_params['primary_slot_name'] = name
+            recovery_params['primary_slot_name'] = name
 
         self.write_recovery_conf(recovery_params)
 

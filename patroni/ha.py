@@ -279,15 +279,11 @@ class Ha(object):
         # determine the node to follow. If replicatefrom tag is set,
         # try to follow the node mentioned there, otherwise, follow the leader.
         is_leader = self.cluster.leader and self.state_handler.name == self.cluster.leader.name
-        replicatefrom_allowed = (
-            self.patroni.replicatefrom != self.state_handler.name and
-            not (self.cluster.is_standby_cluster() and is_leader)
-        )
 
-        if self.patroni.replicatefrom and replicatefrom_allowed:
-            node_to_follow = cluster.get_member(self.patroni.replicatefrom)
-        elif self.cluster.is_standby_cluster() and is_leader:
+        if self.cluster.is_standby_cluster() and is_leader:
             node_to_follow = cluster.get_target_to_follow()
+        elif self.patroni.replicatefrom and self.patroni.replicatefrom != self.state_handler.name:
+            node_to_follow = cluster.get_member(self.patroni.replicatefrom)
         else:
             node_to_follow = cluster.leader
 
@@ -437,10 +433,11 @@ class Ha(object):
         self.state_handler.set_role('standby_leader')
         follow_target = self.cluster.get_target_to_follow()
         message = 'follow remote master {0}'.format(follow_target.conn_url)
+        demote_reason = 'cannot be a real master in standby cluster'
 
         self._async_executor.schedule('follow_remote_master')
-        self._async_executor.run_async(self.follow, args=(follow_target, message))
-        return message
+        return self._async_executor.run_async(
+                self.follow, args=(demote_reason, message))
 
     def enforce_master_role(self, message, promote_message):
         if not self.is_paused() and not self.watchdog.is_running and not self.watchdog.activate():
