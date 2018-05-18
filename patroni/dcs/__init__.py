@@ -11,6 +11,7 @@ import sys
 
 from collections import namedtuple
 from patroni.exceptions import PatroniException
+from patroni.utils import parse_bool
 from random import randint
 from patroni.common_config import is_standby_cluster
 from six.moves.urllib_parse import urlparse, urlunparse, parse_qsl
@@ -354,14 +355,14 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
         candidates = [m for m in self.members if m.clonefrom and m.is_running and m.name not in exclude]
         return candidates[randint(0, len(candidates) - 1)] if candidates else self.leader
 
+    def check_mode(self, mode):
+        return bool(self.config and parse_bool(self.config.data.get(mode)))
+
     def is_paused(self):
-        return self.config and self.config.data.get('pause', False) or False
+        return self.check_mode('pause')
 
     def is_synchronous_mode(self):
-        return bool(self.config and self.config.data.get('synchronous_mode'))
-
-    def is_synchronous_mode_strict(self):
-        return bool(self.config and self.config.data.get('synchronous_mode_strict'))
+        return self.check_mode('synchronous_mode')
 
     def is_standby_cluster(self):
         return is_standby_cluster(self.config and self.config.data.get('standby_cluster'))

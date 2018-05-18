@@ -1,8 +1,9 @@
+import psutil
 import unittest
 
-from mock import Mock, patch
+from mock import Mock, patch, mock_open
 from patroni.postmaster import PostmasterProcess
-import psutil
+from six.moves import builtins
 
 
 class TestPostmasterProcess(unittest.TestCase):
@@ -13,26 +14,34 @@ class TestPostmasterProcess(unittest.TestCase):
 
     @patch('psutil.Process.create_time')
     @patch('psutil.Process.__init__')
-    def test_from_pidfile(self, mock_init, mock_create_time):
+    @patch('patroni.postmaster.PostmasterProcess._read_postmaster_pidfile')
+    def test_from_pidfile(self, mock_read, mock_init, mock_create_time):
         mock_init.side_effect = psutil.NoSuchProcess(123)
-        self.assertEquals(PostmasterProcess.from_pidfile({}), None)
-        self.assertEquals(PostmasterProcess.from_pidfile({"pid": "foo"}), None)
-        self.assertEquals(PostmasterProcess.from_pidfile({"pid": "123"}), None)
+        mock_read.return_value = {}
+        self.assertIsNone(PostmasterProcess.from_pidfile(''))
+        mock_read.return_value = {"pid": "foo"}
+        self.assertIsNone(PostmasterProcess.from_pidfile(''))
+        mock_read.return_value = {"pid": "123"}
+        self.assertIsNone(PostmasterProcess.from_pidfile(''))
 
         mock_init.side_effect = None
         with patch.object(psutil.Process, 'pid', 123), \
-                patch.object(psutil.Process, 'parent', return_value=124), \
+                patch.object(psutil.Process, 'ppid', return_value=124), \
                 patch('os.getpid', return_value=125) as mock_ospid, \
                 patch('os.getppid', return_value=126):
 
-            self.assertNotEquals(PostmasterProcess.from_pidfile({"pid": "123"}), None)
+            self.assertIsNotNone(PostmasterProcess.from_pidfile(''))
 
             mock_create_time.return_value = 100000
-            self.assertEquals(PostmasterProcess.from_pidfile({"pid": "123", "start_time": "200000"}), None)
-            self.assertNotEquals(PostmasterProcess.from_pidfile({"pid": "123", "start_time": "foobar"}), None)
+            mock_read.return_value = {"pid": "123", "start_time": "200000"}
+            self.assertIsNone(PostmasterProcess.from_pidfile(''))
+
+            mock_read.return_value = {"pid": "123", "start_time": "foobar"}
+            self.assertIsNotNone(PostmasterProcess.from_pidfile(''))
 
             mock_ospid.return_value = 123
-            self.assertEquals(PostmasterProcess.from_pidfile({"pid": "123", "start_time": "100000"}), None)
+            mock_read.return_value = {"pid": "123", "start_time": "100000"}
+            self.assertIsNone(PostmasterProcess.from_pidfile(''))
 
     @patch('psutil.Process.__init__')
     def test_from_pid(self, mock_init):
@@ -75,11 +84,20 @@ class TestPostmasterProcess(unittest.TestCase):
 
     @patch('subprocess.Popen')
     @patch.object(PostmasterProcess, 'from_pid')
-    def test_start(self, mock_frompid, mock_popen):
+    @patch.object(PostmasterProcess, '_from_pidfile')
+    def test_start(self, mock_frompidfile, mock_frompid, mock_popen):
+        mock_frompidfile.return_value._is_postmaster_process.return_value = False
         mock_frompid.return_value = "proc 123"
         mock_popen.return_value.stdout.readline.return_value = '123'
-        self.assertEquals(
-            PostmasterProcess.start('/bin/true', '/tmp/', '/tmp/test.conf', ['--foo=bar', '--bar=baz']),
-            "proc 123"
-        )
+        self.assertEquals(PostmasterProcess.start('true', '/tmp', '/tmp/test.conf', []), "proc 123")
         mock_frompid.assert_called_with(123)
+
+        mock_frompidfile.side_effect = psutil.NoSuchProcess(123)
+        self.assertEquals(PostmasterProcess.start('true', '/tmp', '/tmp/test.conf', []), "proc 123")
+
+    @patch('psutil.Process.__init__', Mock(side_effect=psutil.NoSuchProcess(123)))
+    def test_read_postmaster_pidfile(self):
+        with patch.object(builtins, 'open', Mock(side_effect=IOError)):
+            self.assertIsNone(PostmasterProcess.from_pidfile(''))
+        with patch.object(builtins, 'open', mock_open(read_data='123\n')):
+            self.assertIsNone(PostmasterProcess.from_pidfile(''))
