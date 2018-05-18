@@ -18,7 +18,6 @@ from test_postgresql import psycopg2_connect, MockPostmaster
 
 SYSID = '12345678901'
 
-
 def true(*args, **kwargs):
     return True
 
