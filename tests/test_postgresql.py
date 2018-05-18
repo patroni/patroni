@@ -210,12 +210,11 @@ class TestPostgresql(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree('data')
 
-    def test_get_initdb_options(self):
-        self.assertEquals(self.p.get_initdb_options([{'encoding': 'UTF8'}, 'data-checksums']),
-                          ['--encoding=UTF8', '--data-checksums'])
-        self.assertRaises(Exception, self.p.get_initdb_options, [{'pgdata': 'bar'}])
-        self.assertRaises(Exception, self.p.get_initdb_options, [{'foo': 'bar', 1: 2}])
-        self.assertRaises(Exception, self.p.get_initdb_options, [1])
+    def test__initdb(self):
+        self.assertRaises(Exception, self.p.bootstrap, {'initdb': [{'pgdata': 'bar'}]})
+        self.assertRaises(Exception, self.p.bootstrap, {'initdb': [{'foo': 'bar', 1: 2}]})
+        self.assertRaises(Exception, self.p.bootstrap, {'initdb': [1]})
+        self.assertRaises(Exception, self.p.bootstrap, {'initdb': 1})
 
     @patch('os.path.exists', Mock(return_value=True))
     @patch('os.unlink', Mock())
@@ -428,6 +427,29 @@ class TestPostgresql(unittest.TestCase):
         del self.p.config['wale']
         self.assertEquals(self.p.create_replica(self.leader), 0)
 
+        self.p.config['create_replica_method'] = ['basebackup']
+        self.p.config['basebackup'] = [{'max_rate': '100M'}, 'no-sync']
+        self.assertEquals(self.p.create_replica(self.leader), 0)
+
+        self.p.config['basebackup'] = [{'max_rate': '100M', 'compress': '9'}]
+        with mock.patch('patroni.postgresql.logger.error', new_callable=Mock()) as mock_logger:
+            self.p.create_replica(self.leader)
+            mock_logger.assert_called_once()
+            self.assertTrue("only one key-value is allowed and value should be a string" in mock_logger.call_args[0][0],
+                            "not matching {0}".format(mock_logger.call_args[0][0]))
+
+        self.p.config['basebackup'] = [42]
+        with mock.patch('patroni.postgresql.logger.error', new_callable=Mock()) as mock_logger:
+            self.p.create_replica(self.leader)
+            mock_logger.assert_called_once()
+            self.assertTrue("value should be string value or a single key-value pair" in mock_logger.call_args[0][0],
+                            "not matching {0}".format(mock_logger.call_args[0][0]))
+
+        self.p.config['basebackup'] = {"foo": "bar"}
+        self.assertEquals(self.p.create_replica(self.leader), 0)
+
+        self.p.config['create_replica_method'] = ['wale', 'basebackup']
+        del self.p.config['basebackup']
         mock_cancellable_subprocess_call.return_value = 1
         self.assertEquals(self.p.create_replica(self.leader), 1)
 
@@ -445,7 +467,7 @@ class TestPostgresql(unittest.TestCase):
 
     def test_basebackup(self):
         self.p.cancel()
-        self.p.basebackup(None, None)
+        self.p.basebackup(None, None, {'foo': 'bar'})
 
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def test_sync_replication_slots(self):
@@ -463,8 +485,10 @@ class TestPostgresql(unittest.TestCase):
             cluster.members.extend([alias1, alias2])
             self.p.sync_replication_slots(cluster)
             errorlog_mock.assert_called_once()
-            assert "test-3" in errorlog_mock.call_args[0][1]
-            assert "test.3" in errorlog_mock.call_args[0][1]
+            self.assertTrue("test-3" in errorlog_mock.call_args[0][1],
+                            "non matching {0}".format(errorlog_mock.call_args[0][1]))
+            self.assertTrue("test.3" in errorlog_mock.call_args[0][1],
+                            "non matching {0}".format(errorlog_mock.call_args[0][1]))
 
     @patch.object(MockCursor, 'execute', Mock(side_effect=psycopg2.OperationalError))
     def test__query(self):
