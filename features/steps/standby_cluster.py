@@ -15,8 +15,9 @@ def start_patroni_stanby_cluster(context, name, cluster_name, name2):
         "bootstrap": {
             "dcs": {
                 "standby_cluster" :{
-                    "conn_url": "postgresql://127.0.0.1:5441/postgres",
-                    "replication_slot": "postgresql1"
+                    "host": "localhost",
+                    "port": 5441,
+                    "primary_slot_name": "postgresql1",
                 }
             }
         }

@@ -13,6 +13,7 @@ from patroni.async_executor import AsyncExecutor, CriticalTask
 from patroni.exceptions import DCSError, PostgresConnectionException, PatroniException
 from patroni.postgresql import ACTION_ON_START
 from patroni.utils import polling_loop, tzutc
+from patroni.dcs import Member
 from threading import RLock
 
 logger = logging.getLogger(__name__)
@@ -204,7 +205,7 @@ class Ha(object):
             from a remote master and start follow it.
         """
         patroni_config = self.patroni.config.dynamic_configuration
-        clone_target = self.cluster.get_target_to_follow(patroni_config)
+        clone_target = self.get_target_to_follow(patroni_config)
         msg = 'clone from remote master {0}'.format(clone_target.conn_url)
         result = self.clone(clone_target, msg)
         self._post_bootstrap_task.complete(result)
@@ -281,7 +282,7 @@ class Ha(object):
         is_leader = self.cluster.leader and self.state_handler.name == self.cluster.leader.name
 
         if self.cluster.is_standby_cluster() and is_leader:
-            node_to_follow = cluster.get_target_to_follow()
+            node_to_follow = self.get_target_to_follow(cluster.config.data)
         elif self.patroni.replicatefrom and self.patroni.replicatefrom != self.state_handler.name:
             node_to_follow = cluster.get_member(self.patroni.replicatefrom)
         else:
@@ -431,7 +432,7 @@ class Ha(object):
 
     def enforce_follow_remote_master(self):
         self.state_handler.set_role('standby_leader')
-        follow_target = self.cluster.get_target_to_follow()
+        follow_target = self.get_target_to_follow(self.cluster.config.data)
         message = 'follow remote master {0}'.format(follow_target.conn_url)
         demote_reason = 'cannot be a real master in standby cluster'
 
@@ -1246,3 +1247,21 @@ class Ha(object):
         no "active" leader watch request in progress.
         This usually happens on the master or if the node is running async action"""
         self.dcs.event.set()
+
+    def get_target_to_follow(self, config):
+        """ In case of standby cluster this will tel us from which remote
+            master to stream. Config can be both patroni config or
+            cluster.config.data
+        """
+        config = config or (self.config is not None and self.config.data)
+
+        if config and config.get('standby_cluster'):
+            cluster_params = config.get('standby_cluster')
+            return Member(None, 'remote_master', None, {
+                'conn_url': 'postgresql://{host}:{port}'.format(
+                    host=cluster_params.get('host'),
+                    port=cluster_params.get('port'),
+                ),
+                'primary_slot_name': cluster_params['primary_slot_name'],
+                'no_replication_slot': False,
+            })

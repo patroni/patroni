@@ -69,8 +69,9 @@ def get_cluster_not_initialized_standby(failover=None, sync=None):
     return get_cluster_not_initialized_without_leader(
         cluster_config=ClusterConfig(1,
             {"standby_cluster": {
-                "conn_url": "",
-                "replication_slot": "",
+                "host": "localhost",
+                "port": 5432,
+                "primary_slot_name": "",
             }}, 1)
     )
 
@@ -79,8 +80,9 @@ def get_standby_cluster_initialized_with_only_leader(failover=None, sync=None):
     return get_cluster_initialized_with_only_leader(
         cluster_config=ClusterConfig(1,
             {"standby_cluster": {
-                "conn_url": "",
-                "replication_slot": "",
+                "host": "localhost",
+                "port": 5432,
+                "primary_slot_name": "",
             }}, 1)
     )
 
@@ -217,8 +219,9 @@ class TestHa(unittest.TestCase):
         self.ha.cluster = get_cluster_not_initialized_standby()
         self.ha.cluster.is_unlocked = true
         self.ha.patroni.config._dynamic_configuration = {"standby_cluster": {
-            "conn_url": "",
-            "replication_slot": "",
+            "host": "localhost",
+            "port": 5432,
+            "primary_slot_name": "",
         }}
         self.assertEquals(
             self.ha.run_cycle(),
@@ -232,8 +235,9 @@ class TestHa(unittest.TestCase):
         self.ha.cluster = get_standby_cluster_initialized_with_only_leader()
         self.ha.cluster.is_unlocked = false
         self.ha.patroni.config._dynamic_configuration = {"standby_cluster": {
-            "conn_url": "",
-            "replication_slot": "",
+            "host": "localhost",
+            "port": 5432,
+            "primary_slot_name": "",
         }}
         self.assertEquals(
             self.ha.run_cycle(),
@@ -245,8 +249,9 @@ class TestHa(unittest.TestCase):
         self.ha.cluster = get_cluster_not_initialized_standby()
         self.ha.cluster.is_unlocked = true
         self.ha.patroni.config._dynamic_configuration = {"standby_cluster": {
-            "conn_url": "",
-            "replication_slot": "",
+            "host": "localhost",
+            "port": 5432,
+            "primary_slot_name": "",
         }}
         self.ha._post_bootstrap_task = CriticalTask()
         self.assertEquals(self.ha.bootstrap_standby_leader(), True)
@@ -698,8 +703,9 @@ class TestHa(unittest.TestCase):
         self.p.is_leader = true
         self.p.name = 'leader'
         self.ha.patroni.config._dynamic_configuration = {"standby_cluster": {
-            "conn_url": "",
-            "replication_slot": "",
+            "host": "localhost",
+            "port": 5432,
+            "primary_slot_name": "",
         }}
         self.ha.cluster = get_standby_cluster_initialized_with_only_leader()
         msg = 'no action. I am the standby leader with the lock'
@@ -709,8 +715,9 @@ class TestHa(unittest.TestCase):
         self.p.is_leader = false
         self.p.name = 'replica'
         self.ha.patroni.config._dynamic_configuration = {"standby_cluster": {
-            "conn_url": "",
-            "replication_slot": "",
+            "host": "localhost",
+            "port": 5432,
+            "primary_slot_name": "",
         }}
         self.ha.cluster = get_standby_cluster_initialized_with_only_leader()
         msg = 'no action. I am a secondary and i am following a leader'
@@ -719,13 +726,14 @@ class TestHa(unittest.TestCase):
     def test_process_unhealthy_standby_cluster_as_leader(self):
         self.p.is_leader = true
         self.p.name = 'leader'
-        self.ha.is_unlocked = true
         self.ha.patroni.config._dynamic_configuration = {"standby_cluster": {
-            "conn_url": "",
-            "replication_slot": "",
+            "host": "localhost",
+            "port": 5432,
+            "primary_slot_name": "",
         }}
         self.ha.cluster = get_standby_cluster_initialized_with_only_leader()
-        msg = 'no action. I am the standby leader with the lock'
+        self.ha.cluster.is_unlocked = true
+        msg = 'promoted self to a standby leader because i had the session lock'
         self.assertEquals(self.ha.run_cycle(), msg)
 
     @patch.object(Postgresql, 'rewind_needed_and_possible', Mock(return_value=True))
@@ -734,8 +742,9 @@ class TestHa(unittest.TestCase):
         self.p.name = 'replica'
         self.ha.is_unlocked = true
         self.ha.patroni.config._dynamic_configuration = {"standby_cluster": {
-            "conn_url": "",
-            "replication_slot": "",
+            "host": "localhost",
+            "port": 5432,
+            "primary_slot_name": "",
         }}
         self.ha.cluster = get_standby_cluster_initialized_with_only_leader()
         msg = 'running pg_rewind from leader'

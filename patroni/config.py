@@ -10,6 +10,7 @@ from copy import deepcopy
 from patroni.dcs import ClusterConfig
 from patroni.postgresql import Postgresql
 from patroni.utils import deep_compare, parse_int, patch_config
+from patroni.common_config import is_standby_cluster
 from requests.structures import CaseInsensitiveDict
 
 logger = logging.getLogger(__name__)
@@ -45,7 +46,14 @@ class Config(object):
         'master_start_timeout': 300,
         'synchronous_mode': False,
         'synchronous_mode_strict': False,
-        'standby_cluster': '',
+        'standby_cluster': {
+            'host': 'localhost',
+            'port': 5432,
+            'primary_slot_name': 'patroni',
+            'restore_command': '',
+            'archive_cleanup_command': '',
+            'recovery_min_apply_delay': '10min'
+        },
         'postgresql': {
             'bin_dir': '',
             'use_slots': True,
@@ -91,7 +99,7 @@ class Config(object):
 
     @property
     def is_standby_cluster(self):
-        return self._dynamic_configuration.get('standby_cluster') is not None
+        return is_standby_cluster(self._dynamic_configuration.get('standby_cluster'))
 
     def _load_config_file(self):
         """Loads config.yaml from filesystem and applies some values which were set via ENV"""

@@ -12,6 +12,7 @@ import sys
 from collections import namedtuple
 from patroni.exceptions import PatroniException
 from random import randint
+from patroni.common_config import is_standby_cluster
 from six.moves.urllib_parse import urlparse, urlunparse, parse_qsl
 from threading import Event, Lock
 
@@ -363,21 +364,7 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
         return bool(self.config and self.config.data.get('synchronous_mode_strict'))
 
     def is_standby_cluster(self):
-        return bool(self.config and self.config.data.get('standby_cluster'))
-
-    def get_target_to_follow(self, config=None):
-        """ In case of standby cluster this will tel us from which remote
-            master to stream
-        """
-        config = config or (self.config is not None and self.config.data)
-
-        if config and config.get('standby_cluster'):
-            cluster_params = config.get('standby_cluster')
-            return Member(None, 'remote_master', None, {
-                'conn_url': cluster_params['conn_url'],
-                'replication_slot': cluster_params['replication_slot'],
-                'no_replication_slot': False
-            })
+        return is_standby_cluster(self.config and self.config.data.get('standby_cluster'))
 
 
 @six.add_metaclass(abc.ABCMeta)
