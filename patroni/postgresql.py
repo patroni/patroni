@@ -1848,3 +1848,12 @@ $$""".format(name, ' '.join(options)), name, password, password)
         with self._cancellable_lock:
             if self._cancellable is not None and self._cancellable.returncode is None:
                 self._cancellable.kill()
+
+    def schedule_sanity_checks_after_pause(self):
+        """
+            After coming out of pause we have to:
+            1. sync replication slots, because it might happen that slots were removed
+            2. get new 'Database system identifier' to make sure that it wasn't changed
+        """
+        self._schedule_load_slots = self.use_slots
+        self._sysid = None

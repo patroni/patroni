@@ -915,3 +915,11 @@ class TestHa(unittest.TestCase):
         self.p.is_leader = false
         self.ha.run_cycle()
         exit_mock.assert_called_once_with(1)
+
+    def test_after_pause(self):
+        self.ha.has_lock = true
+        self.ha.cluster.is_unlocked = false
+        self.ha.is_paused = true
+        self.assertEquals(self.ha.run_cycle(), 'PAUSE: no action.  i am the leader with the lock')
+        self.ha.is_paused = false
+        self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
