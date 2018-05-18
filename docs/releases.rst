@@ -3,6 +3,66 @@
 Release notes
 =============
 
+Version 1.4.4
+-------------
+
+**Stability improvements**
+
+- Fix race condition in poll_failover_result (Alexander Kukushkin)
+
+  It didn't affect directly neither failover nor switchover, but in some rare cases it was reporting it as a success too early, when the former leader released the lock: `Failed over to "None"` instead of `Failed over to "desired-node"`
+
+- Treat postgres settings parameter names as case insensitive (Alexander)
+
+  Most of the parameters have snake_case_name, but there are three exceptions from this rule: DateStyle, IntervalStyle and TimeZone. In fact, if you specify timezone = 'some/tzn' it still works, but Patroni wasn't able to find 'timezone' in pg_settings and stripping this parameter out.
+
+- Abort start if attaching to running postgres and cluster not initialized (Alexander)
+
+  Patroni can attach itself to an already running PostgreSQL instance. It is imperative to start running Patroni on the master node before getting to the replicas.
+
+- Fix behavior of patronictl scaffold (Alexander)
+
+  Pass dict object to touch_member instead of json encoded string, DCS implementation will take care about encoding it.
+
+- Don't demote master if failed to update leader key in pause (Alexander)
+
+  During maintenance of DCS it might happen that it responds on read requests, but fails to perform writes. In such case Patroni was demoting master to read-only when failing to update leader lock in DCS.
+
+- Sync replication slots when we noticed a new postmaster process (Alexander)
+
+  If the postgres was restarted, Patroni has to make sure that list of replication slots matches with its expectations.
+
+- Verify sysid and sync replication slots after coming out of pause (Alexander)
+
+  During the `maintenance` mode it could happen that data directory was completely rewritten and therefore we have to make sure that `Database system identifier` still belongs to our cluster and replication slots are in sync with Patroni expectations.
+
+- Fix corner case when postgres was thinking that postmaster.pid is already locked and refusing to start (Alexander)
+
+  More likely to hit such problem if you run Patroni and postgres in the docker container.
+
+- Improve protection of DCS being accidentally wiped (Alexander)
+
+  We already have a lot of logic in place to prevent failover in such case and restore all keys, but an accidental removal of /config key was effectively switching off pause mode for 1 cycle of HA loop.
+
+- Do not exit when encountering invalid system ID (Oleksii Kliukin)
+
+  Do not exit when the cluster system ID is empty or the one that doesn't pass the validation check. In that case, the cluster most likely needs a reinit; mention it in the result message. Avoid terminating Patroni, as otherwise reinit cannot happen.
+
+**Compatibility with Kubernetes 1.10+**
+
+- Added check for empty subsets (Cody Coons)
+
+  Kubernetes 1.10.0+ started returning `Endpoints.subsets` set to `None` instead of `[]`.
+
+**Bootstrap improvements**
+
+- Make deleting recovery.conf optional (Brad Nicholson)
+
+  If `bootstrap.<custom_bootstrap_method_name>.keep_existing_recovery_conf` is defined and set to ``True``, Patroni will not remove the existing ``recovery.conf`` file if it exists. This is useful when bootstrapping from a backup with tools like pgBackRest that generate the appropriate `recovery.conf` for you.
+
+- Allow options to the basebackup built-in method (Oleksii)
+
+
 Version 1.4.3
 -------------
 
