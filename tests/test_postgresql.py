@@ -210,12 +210,11 @@ class TestPostgresql(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree('data')
 
-    def test_get_initdb_options(self):
-        self.assertEquals(self.p.get_initdb_options([{'encoding': 'UTF8'}, 'data-checksums']),
-                          ['--encoding=UTF8', '--data-checksums'])
-        self.assertRaises(Exception, self.p.get_initdb_options, [{'pgdata': 'bar'}])
-        self.assertRaises(Exception, self.p.get_initdb_options, [{'foo': 'bar', 1: 2}])
-        self.assertRaises(Exception, self.p.get_initdb_options, [1])
+    def test__initdb(self):
+        self.assertRaises(Exception, self.p.bootstrap, {'initdb': [{'pgdata': 'bar'}]})
+        self.assertRaises(Exception, self.p.bootstrap, {'initdb': [{'foo': 'bar', 1: 2}]})
+        self.assertRaises(Exception, self.p.bootstrap, {'initdb': [1]})
+        self.assertRaises(Exception, self.p.bootstrap, {'initdb': 1})
 
     @patch('os.path.exists', Mock(return_value=True))
     @patch('os.unlink', Mock())
@@ -436,7 +435,7 @@ class TestPostgresql(unittest.TestCase):
         with mock.patch('patroni.postgresql.logger.error', new_callable=Mock()) as mock_logger:
             self.p.create_replica(self.leader)
             mock_logger.assert_called_once()
-            self.assertTrue("only one key-value and value should be a string" in mock_logger.call_args[0][0],
+            self.assertTrue("only one key-value is allowed and value should be a string" in mock_logger.call_args[0][0],
                             "not matching {0}".format(mock_logger.call_args[0][0]))
 
         self.p.config['basebackup'] = [42]
