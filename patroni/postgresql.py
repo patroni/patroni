@@ -531,7 +531,7 @@ class Postgresql(object):
 
     def _initdb(self, config):
         self.set_state('initalizing new cluster')
-        not_allowed_options = ('pgdata', 'nosync', 'pwfile', 'sync-only')
+        not_allowed_options = ('pgdata', 'nosync', 'pwfile', 'sync-only', 'version')
 
         def error_handler(e):
             raise Exception(e)
