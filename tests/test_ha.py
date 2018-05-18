@@ -1047,6 +1047,6 @@ class TestHa(unittest.TestCase):
         self.ha.has_lock = true
         self.ha.cluster.is_unlocked = false
         self.ha.is_paused = true
-        self.assertEquals(self.ha.run_cycle(), 'PAUSE: no action.  i am the leader with the lock')
+        self.assertEquals(self.ha.run_cycle(), 'PAUSE: no action. I am the leader with the lock')
         self.ha.is_paused = false
-        self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
+        self.assertEquals(self.ha.run_cycle(), 'no action. I am the leader with the lock')
