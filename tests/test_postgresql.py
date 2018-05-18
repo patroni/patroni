@@ -808,16 +808,6 @@ class TestPostgresql(unittest.TestCase):
             self.p._state = 'starting'
             self.assertIsNone(self.p.wait_for_startup())
 
-    def test_read_pid_file(self):
-        pidfile = os.path.join(self.data_dir, 'postmaster.pid')
-        if os.path.exists(pidfile):
-            os.remove(pidfile)
-        self.assertEquals(self.p._read_pid_file(), {})
-        with open(pidfile, 'w') as fd:
-            fd.write("123\n/foo/bar\n123456789\n5432")
-        self.assertEquals(self.p._read_pid_file(), {"pid": "123", "data_dir": "/foo/bar",
-                                                    "start_time": "123456789", "port": "5432"})
-
     def test_pick_sync_standby(self):
         cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None,
                           SyncState(0, self.me.name, self.leadermem.name), None)

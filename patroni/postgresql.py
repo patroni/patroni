@@ -141,7 +141,6 @@ class Postgresql(object):
         self._postgresql_base_conf = os.path.join(self._config_dir, self._postgresql_base_conf_name)
         self._pg_hba_conf = os.path.join(self._config_dir, 'pg_hba.conf')
         self._recovery_conf = os.path.join(self._data_dir, 'recovery.conf')
-        self._postmaster_pid = os.path.join(self._data_dir, 'postmaster.pid')
         self._trigger_file = config.get('recovery_conf', {}).get('trigger_file') or 'promote'
         self._trigger_file = os.path.abspath(os.path.join(self._data_dir, self._trigger_file))
 
@@ -732,20 +731,8 @@ class Postgresql(object):
                 return self._postmaster_proc
             self._postmaster_proc = None
 
-        self._postmaster_proc = PostmasterProcess.from_pidfile(self._read_pid_file())
+        self._postmaster_proc = PostmasterProcess.from_pidfile(self._data_dir)
         return self._postmaster_proc
-
-    def _read_pid_file(self):
-        """Reads and parses postmaster.pid from the data directory
-
-        :returns dictionary of values if successful, empty dictionary otherwise
-        """
-        pid_line_names = ['pid', 'data_dir', 'start_time', 'port', 'socket_dir', 'listen_addr', 'shmem_key']
-        try:
-            with open(self._postmaster_pid) as f:
-                return {name: line.rstrip("\n") for name, line in zip(pid_line_names, f)}
-        except IOError:
-            return {}
 
     @property
     def cb_called(self):
