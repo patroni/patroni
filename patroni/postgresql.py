@@ -741,11 +741,14 @@ class Postgresql(object):
 
     def is_running(self):
         """Returns PostmasterProcess if one is running on the data directory or None. If most recently seen process
-        is running udpates the cached process based on pid file."""
+        is running updates the cached process based on pid file."""
         if self._postmaster_proc:
             if self._postmaster_proc.is_running():
                 return self._postmaster_proc
             self._postmaster_proc = None
+
+        # we noticed that postgres was restarted, force syncing of replication
+        self._schedule_load_slots = self.use_slots
 
         self._postmaster_proc = PostmasterProcess.from_pidfile(self._data_dir)
         return self._postmaster_proc
@@ -987,7 +990,7 @@ class Postgresql(object):
 
         Should only be called when state == 'starting'
 
-        :returns: True iff state was changed from 'starting'
+        :returns: True if state was changed from 'starting'
         """
         ready = self.pg_isready()
 
