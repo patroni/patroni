@@ -3,6 +3,68 @@
 Release notes
 =============
 
+Version 1.4.4
+-------------
+
+**Stability improvements**
+
+- Fix race condition in poll_failover_result (Alexander Kukushkin)
+
+  It didn't affect directly neither failover nor switchover, but in some rare cases it was reporting success too early, when the former leader released the lock, producing a 'Failed over to "None"' instead of 'Failed over to "desired-node"' message.
+
+- Treat Postgres parameter names as case insensitive (Alexander)
+
+  Most of the Postgres parameters have snake_case names, but there are three exceptions from this rule: DateStyle, IntervalStyle and TimeZone. Postgres accepts those parameters when written in a different case (e.g. timezone = 'some/tzn'); however, Patroni was unable to find case-insensitive matches of those parameter names in pg_settings and ignored such parameters as a result.
+
+- Abort start if attaching to running postgres and cluster not initialized (Alexander)
+
+  Patroni can attach itself to an already running Postgres instance. It is imperative to start running Patroni on the master node before getting to the replicas.
+
+- Fix behavior of patronictl scaffold (Alexander)
+
+  Pass dict object to touch_member instead of json encoded string, DCS implementation will take care of encoding it.
+
+- Don't demote master if failed to update leader key in pause (Alexander)
+
+  During maintenance a DCS may start failing write requests while continuing to responds to read ones. In that case, Patroni used to put the Postgres master node to a read-only mode after failing to update the leader lock in DCS.
+
+- Sync replication slots when Patroni notices a new postmaster process (Alexander)
+
+  If Postgres has been restarted, Patroni has to make sure that list of replication slots matches its expectations.
+
+- Verify sysid and sync replication slots after coming out of pause (Alexander)
+
+  During the `maintenance` mode it may happen that data directory was completely rewritten and therefore we have to make sure that `Database system identifier` still belongs to our cluster and replication slots are in sync with Patroni expectations.
+
+- Fix a possible failure to start not running Postgres on a data directory with postmaster lock file present (Alexander)
+
+  Detect reuse of PID from the postmaster lock file. More likely to hit such problem if you run Patroni and Postgres in the docker container.
+
+- Improve protection of DCS being accidentally wiped (Alexander)
+
+  Patroni has a lot of logic in place to prevent failover in such case; it can also restore all keys back; however, until this change an accidental removal of /config key was switching off pause mode for 1 cycle of HA loop.
+
+- Do not exit when encountering invalid system ID (Oleksii Kliukin)
+
+  Do not exit when the cluster system ID is empty or the one that doesn't pass the validation check. In that case, the cluster most likely needs a reinit; mention it in the result message. Avoid terminating Patroni, as otherwise reinit cannot happen.
+
+**Compatibility with Kubernetes 1.10+**
+
+- Added check for empty subsets (Cody Coons)
+
+  Kubernetes 1.10.0+ started returning `Endpoints.subsets` set to `None` instead of `[]`.
+
+**Bootstrap improvements**
+
+- Make deleting recovery.conf optional (Brad Nicholson)
+
+  If `bootstrap.<custom_bootstrap_method_name>.keep_existing_recovery_conf` is defined and set to ``True``, Patroni will not remove the existing ``recovery.conf`` file. This is useful when bootstrapping from a backup with tools like pgBackRest that generate the appropriate `recovery.conf` for you.
+
+- Allow options to the basebackup built-in method (Oleksii)
+
+  It is now possible to supply options to the built-in basebackup method by defining the `basebackup` section in the configuration, similar to how those are defined for custom replica creation methods. The difference is in the format accepted by the `basebackup` section: since pg_basebackup accepts both `--key=value` and `--key` options, the contents of the section could be either a dictionary of key-value pairs, or a list of either one-element dictionaries or just keys (for the options that don't accept values). See :ref:`replica creation method <custom_replica_creation>` section for additional examples.
+
+
 Version 1.4.3
 -------------
 
