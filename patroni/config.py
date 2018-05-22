@@ -47,12 +47,12 @@ class Config(object):
         'synchronous_mode': False,
         'synchronous_mode_strict': False,
         'standby_cluster': {
-            'host': 'localhost',
-            'port': 5432,
-            'primary_slot_name': 'patroni',
+            'host': '',
+            'port': '',
+            'primary_slot_name': '',
             'restore_command': '',
             'archive_cleanup_command': '',
-            'recovery_min_apply_delay': '10min'
+            'recovery_min_apply_delay': ''
         },
         'postgresql': {
             'bin_dir': '',

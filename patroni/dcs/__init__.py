@@ -109,12 +109,29 @@ class Member(namedtuple('Member', 'index,name,session,data')):
 
     @property
     def conn_url(self):
-        return self.data.get('conn_url')
+        conn_url = self.data.get('conn_url')
+        conn_kwargs = self.data.get('conn_kwargs')
+        if conn_url:
+            return conn_url
+
+        if conn_kwargs:
+            conn_url = 'postgresql://{host}:{port}'.format(
+                host=conn_kwargs.get('host'),
+                port=conn_kwargs.get('port'),
+            )
+            self.data['conn_url'] = conn_url
+            return conn_url
 
     def conn_kwargs(self, auth=None):
+        defaults = {
+            "host": "",
+            "port": "",
+            "database": ""
+        }
         ret = self.data.get('conn_kwargs')
         if ret:
-            ret = ret.copy()
+            defaults.update(ret)
+            ret = defaults.copy()
         else:
             r = urlparse(self.conn_url)
             ret = {

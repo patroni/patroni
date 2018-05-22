@@ -4,5 +4,6 @@ def is_standby_cluster(config):
     """
     return config is not None and (
         config.get('host') is not None or
+        config.get('port') is not None or
         config.get('restore_command') is not None
     )

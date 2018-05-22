@@ -445,8 +445,7 @@ class Ha(object):
         demote_reason = 'cannot be a real master in standby cluster'
 
         self._async_executor.schedule('follow_remote_master')
-        return self._async_executor.run_async(
-                self.follow, args=(demote_reason, message))
+        return self.follow(demote_reason, message)
 
     def enforce_master_role(self, message, promote_message):
         if not self.is_paused() and not self.watchdog.is_running and not self.watchdog.activate():
@@ -1278,10 +1277,10 @@ class Ha(object):
         if config and config.get('standby_cluster'):
             cluster_params = config.get('standby_cluster')
             return Member(None, 'remote_master', None, {
-                'conn_url': 'postgresql://{host}:{port}'.format(
-                    host=cluster_params.get('host'),
-                    port=cluster_params.get('port'),
-                ),
+                'conn_kwargs': {
+                    "host": cluster_params.get('host'),
+                    "port": cluster_params.get('port'),
+                },
                 'primary_slot_name': cluster_params['primary_slot_name'],
                 'no_replication_slot': False,
             })
