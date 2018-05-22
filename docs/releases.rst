@@ -62,6 +62,8 @@ Version 1.4.4
 
 - Allow options to the basebackup built-in method (Oleksii)
 
+  It is now possible to supply options to the built-in basebackup method by defining the `basebackup` section in the configuration, similar to how those are defined for custom replica creation methods. The difference is in the format accepted by the `basebackup` section: since pg_basebackup accepts both `--key=value` and `--key` options, the contents of the section could be either a dictionary of key-value pairs, or a list of either one-element dictionaries or just keys (for the options that don't accept values).
+
 
 Version 1.4.3
 -------------
