@@ -141,7 +141,6 @@ class Postgresql(object):
         self._postgresql_base_conf = os.path.join(self._config_dir, self._postgresql_base_conf_name)
         self._pg_hba_conf = os.path.join(self._config_dir, 'pg_hba.conf')
         self._recovery_conf = os.path.join(self._data_dir, 'recovery.conf')
-        self._postmaster_pid = os.path.join(self._data_dir, 'postmaster.pid')
         self._trigger_file = config.get('recovery_conf', {}).get('trigger_file') or 'promote'
         self._trigger_file = os.path.abspath(os.path.join(self._data_dir, self._trigger_file))
 
@@ -499,28 +498,44 @@ class Postgresql(object):
         return not os.path.exists(self._data_dir) or os.listdir(self._data_dir) == []
 
     @staticmethod
-    def initdb_allowed_option(name):
-        if name in ['pgdata', 'nosync', 'pwfile', 'sync-only']:
-            raise Exception('{0} option for initdb is not allowed'.format(name))
-        return True
+    def process_user_options(tool, options, not_allowed_options, error_handler):
+        user_options = []
 
-    def get_initdb_options(self, config):
-        options = []
-        for o in config:
-            if isinstance(o, string_types) and self.initdb_allowed_option(o):
-                options.append('--{0}'.format(o))
-            elif isinstance(o, dict):
-                keys = list(o.keys())
-                if len(keys) != 1 or not isinstance(keys[0], string_types) or not self.initdb_allowed_option(keys[0]):
-                    raise Exception('Invalid option: {0}'.format(o))
-                options.append('--{0}={1}'.format(keys[0], o[keys[0]]))
-            else:
-                raise Exception('Unknown type of initdb option: {0}'.format(o))
-        return options
+        def option_is_allowed(name):
+            ret = name not in not_allowed_options
+            if not ret:
+                error_handler('{0} option for {1} is not allowed'.format(name, tool))
+            return ret
+
+        if isinstance(options, dict):
+            for k, v in options.items():
+                if k and v:
+                    user_options.append('--{0}={1}'.format(k, v))
+        elif isinstance(options, list):
+            for opt in options:
+                if isinstance(opt, string_types) and option_is_allowed(opt):
+                    user_options.append('--{0}'.format(opt))
+                elif isinstance(opt, dict):
+                    keys = list(opt.keys())
+                    if len(keys) != 1 or not isinstance(opt[keys[0]], string_types) or not option_is_allowed(keys[0]):
+                        error_handler('Error when parsing {0} key-value option {1}: only one key-value is allowed'
+                                      ' and value should be a string'.format(tool, opt[keys[0]]))
+                    user_options.append('--{0}={1}'.format(keys[0], opt[keys[0]]))
+                else:
+                    error_handler('Error when parsing {0} option {1}: value should be string value'
+                                  ' or a single key-value pair'.format(tool, opt))
+        else:
+            error_handler('{0} options must be list ot dict'.format(tool))
+        return user_options
 
     def _initdb(self, config):
         self.set_state('initalizing new cluster')
-        options = self.get_initdb_options(config.get('initdb') or [])
+        not_allowed_options = ('pgdata', 'nosync', 'pwfile', 'sync-only', 'version')
+
+        def error_handler(e):
+            raise Exception(e)
+
+        options = self.process_user_options('initdb', config.get('initdb') or [], not_allowed_options, error_handler)
         pwfile = None
 
         if self._superuser:
@@ -660,7 +675,7 @@ class Postgresql(object):
                     break
             # if the method is basebackup, then use the built-in
             if replica_method == "basebackup":
-                ret = self.basebackup(connstring, env)
+                ret = self.basebackup(connstring, env, self.config.get(replica_method, {}))
                 if ret == 0:
                     logger.info("replica has been created using basebackup")
                     # if basebackup succeeds, exit with success
@@ -673,7 +688,7 @@ class Postgresql(object):
                 method_config = {}
                 # user-defined method; check for configuration
                 # not required, actually
-                if replica_method in self.config:
+                if self.config.get(replica_method, {}):
                     method_config = self.config[replica_method].copy()
                     # look to see if the user has supplied a full command path
                     # if not, use the method name as the command
@@ -726,26 +741,17 @@ class Postgresql(object):
 
     def is_running(self):
         """Returns PostmasterProcess if one is running on the data directory or None. If most recently seen process
-        is running udpates the cached process based on pid file."""
+        is running updates the cached process based on pid file."""
         if self._postmaster_proc:
             if self._postmaster_proc.is_running():
                 return self._postmaster_proc
             self._postmaster_proc = None
 
-        self._postmaster_proc = PostmasterProcess.from_pidfile(self._read_pid_file())
+        # we noticed that postgres was restarted, force syncing of replication
+        self._schedule_load_slots = self.use_slots
+
+        self._postmaster_proc = PostmasterProcess.from_pidfile(self._data_dir)
         return self._postmaster_proc
-
-    def _read_pid_file(self):
-        """Reads and parses postmaster.pid from the data directory
-
-        :returns dictionary of values if successful, empty dictionary otherwise
-        """
-        pid_line_names = ['pid', 'data_dir', 'start_time', 'port', 'socket_dir', 'listen_addr', 'shmem_key']
-        try:
-            with open(self._postmaster_pid) as f:
-                return {name: line.rstrip("\n") for name, line in zip(pid_line_names, f)}
-        except IOError:
-            return {}
 
     @property
     def cb_called(self):
@@ -984,7 +990,7 @@ class Postgresql(object):
 
         Should only be called when state == 'starting'
 
-        :returns: True iff state was changed from 'starting'
+        :returns: True if state was changed from 'starting'
         """
         ready = self.pg_isready()
 
@@ -1614,23 +1620,27 @@ $$""".format(name, ' '.join(options)), name, password, password)
             logger.exception('Could not remove data directory %s', self._data_dir)
             self.move_data_directory()
 
-    def basebackup(self, conn_url, env):
+    def basebackup(self, conn_url, env, options):
         # creates a replica data dir using pg_basebackup.
         # this is the default, built-in create_replica_method
         # tries twice, then returns failure (as 1)
         # uses "stream" as the xlog-method to avoid sync issues
+        # supports additional user-supplied options, those are not validated
         maxfailures = 2
         ret = 1
+        not_allowed_options = ('pgdata', 'format', 'wal-method', 'xlog-method', 'gzip',
+                               'version', 'compress', 'dbname', 'host', 'port', 'username', 'password')
+        user_options = self.process_user_options('basebackup', options, not_allowed_options, logger.error)
+
         for bbfailures in range(0, maxfailures):
             with self._cancellable_lock:
                 if self._is_cancelled:
                     break
             if not self.data_directory_empty():
                 self.remove_data_directory()
-
             try:
                 ret = self.cancellable_subprocess_call([self._pgcommand('pg_basebackup'), '--pgdata=' + self._data_dir,
-                                                       '-X', 'stream', '--dbname=' + conn_url], env=env)
+                                                       '-X', 'stream', '--dbname=' + conn_url] + user_options, env=env)
                 if ret == 0:
                     break
                 else:
@@ -1841,3 +1851,12 @@ $$""".format(name, ' '.join(options)), name, password, password)
         with self._cancellable_lock:
             if self._cancellable is not None and self._cancellable.returncode is None:
                 self._cancellable.kill()
+
+    def schedule_sanity_checks_after_pause(self):
+        """
+            After coming out of pause we have to:
+            1. sync replication slots, because it might happen that slots were removed
+            2. get new 'Database system identifier' to make sure that it wasn't changed
+        """
+        self._schedule_load_slots = self.use_slots
+        self._sysid = None

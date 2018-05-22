@@ -18,7 +18,6 @@ from test_postgresql import psycopg2_connect, MockPostmaster
 
 SYSID = '12345678901'
 
-
 def true(*args, **kwargs):
     return True
 
@@ -623,6 +622,14 @@ class TestHa(unittest.TestCase):
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, '', self.p.name, None))
         self.assertEquals(self.ha.run_cycle(), 'PAUSE: waiting to become master after promote...')
 
+    def test_failed_to_update_lock_in_pause(self):
+        self.ha.update_lock = false
+        self.ha.is_paused = true
+        self.p.name = 'leader'
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.assertEquals(self.ha.run_cycle(),
+                          'PAUSE: continue to run as master after failing to update leader lock in DCS')
+
     def test_postgres_unhealthy_in_pause(self):
         self.ha.is_paused = true
         self.p.is_healthy = false
@@ -908,3 +915,11 @@ class TestHa(unittest.TestCase):
         self.p.is_leader = false
         self.ha.run_cycle()
         exit_mock.assert_called_once_with(1)
+
+    def test_after_pause(self):
+        self.ha.has_lock = true
+        self.ha.cluster.is_unlocked = false
+        self.ha.is_paused = true
+        self.assertEquals(self.ha.run_cycle(), 'PAUSE: no action.  i am the leader with the lock')
+        self.ha.is_paused = false
+        self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
