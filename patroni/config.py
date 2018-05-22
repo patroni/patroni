@@ -9,7 +9,7 @@ from collections import defaultdict
 from copy import deepcopy
 from patroni.dcs import ClusterConfig
 from patroni.postgresql import Postgresql
-from patroni.utils import deep_compare, parse_int, patch_config
+from patroni.utils import deep_compare, parse_bool, parse_int, patch_config
 from requests.structures import CaseInsensitiveDict
 
 logger = logging.getLogger(__name__)
@@ -87,6 +87,9 @@ class Config(object):
     @property
     def dynamic_configuration(self):
         return deepcopy(self._dynamic_configuration)
+
+    def check_mode(self, mode):
+        return bool(parse_bool(self._dynamic_configuration.get(mode)))
 
     def _load_config_file(self):
         """Loads config.yaml from filesystem and applies some values which were set via ENV"""

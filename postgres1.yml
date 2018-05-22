@@ -82,6 +82,9 @@ postgresql:
       password: zalando
   parameters:
     unix_socket_directories: '.'
+  basebackup:
+      - verbose
+      - max-rate: 100M
 tags:
     nofailover: false
     noloadbalance: false

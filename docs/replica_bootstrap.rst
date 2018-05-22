@@ -3,7 +3,7 @@ Replica imaging and bootstrap
 
 Patroni allows customizing creation of a new replica. It also supports defining what happens when the new empty cluster
 is being bootstrapped. The distinction between two is well defined: Patroni creates replicas only if the ``initialize``
-key is present in Etcd for the cluster. If there is no ``initialize`` key - Patroni calls bootstrap exclusively on the
+key is present in DCS for the cluster. If there is no ``initialize`` key - Patroni calls bootstrap exclusively on the
 first node that takes the initialize key lock.
 
 .. _custom_bootstrap:
@@ -76,13 +76,14 @@ scripts to clone a new replica. Those are configured in the ``postgresql`` confi
             no_master: 1
             envdir: {{WALE_ENV_DIR}}
             use_iam: 1
+        basebackup:
+            max-rate: '100M'
 
 
 The ``create_replica_method`` defines available replica creation methods and the order of executing them. Patroni will
-stop on the first one that returns 0. The basebackup is the built-in method and doesn't require any configuration. The
-rest of the methods should define a separate section in the configuration file, listing the command to execute and any
-custom parameters that should be passed to that command. All parameters will be passed in a ``--name=value`` format.
-Besides user-defined parameters, Patroni supplies a couple of cluster-specific ones:
+stop on the first one that returns 0. Each method should define a separate section in the configuration file, listing the command
+to execute and any custom parameters that should be passed to that command. All parameters will be passed in a
+``--name=value`` format. Besides user-defined parameters, Patroni supplies a couple of cluster-specific ones:
 
 --scope
     Which cluster this replica belongs to
@@ -97,5 +98,33 @@ Besides user-defined parameters, Patroni supplies a couple of cluster-specific o
 A special ``no_master`` parameter, if defined, allows Patroni to call the replica creation method even if there is no
 running master or replicas. In that case, an empty string will be passed in a connection string. This is useful for
 restoring the formerly running cluster from the binary backup.
+
+A ``basebackup`` method is a special case: it will be used if ``create_replica_method`` is empty, although it is possible
+to list it explicitly among the ``create_replica_method`` methods. This method initializes a new replica with the
+``pg_basebackup``, the base backup is taken from the master unless there are replicas with ``clonefrom`` tag, in which case one
+of such replicas will be used as the origin for pg_basebackup. It works without any configuration; however, it is
+possible to specify a ``basebackup`` configuration section. Same rules as with the other method configuration apply,
+namely, only long (with --) options should be specified there. Not all parameters make sense, if you override a connection
+string or provide an option to created tar-ed or compressed base backups, patroni won't be able to make a replica out
+of it. There is no validation performed on the names or values of the parameters passed to the ``basebackup`` section.
+You can specify basebackup parameters as either a map (key-value pairs) or a list of elements, where each element
+could be either a key-value pair or a single key (for options that does not receive any values, for instance, ``--verbose``).
+Consider those 2 examples:
+
+.. code:: YAML
+
+    postgresql:
+        basebackup:
+            max-rate: '100M'
+            checkpoint: 'fast'
+
+and
+
+.. code:: YAML
+
+    postgresql:
+        basebackup:
+            - verbose
+            - max-rate: '100M'
 
 If all replica creation methods fail, Patroni will try again all methods in order during the next event loop cycle.

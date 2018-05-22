@@ -57,6 +57,7 @@ class Ha(object):
         self.dcs = patroni.dcs
         self.cluster = None
         self.old_cluster = None
+        self._was_paused = False
         self._leader_timeline = None
         self.recovering = False
         self._post_bootstrap_task = None
@@ -72,8 +73,19 @@ class Ha(object):
         # standby. Changes protected by _member_state_lock.
         self._disable_sync = 0
 
+        # We need following property to avoid shutdown of postgres when join of Patroni to the postgres
+        # already running as replica was aborted due to cluster not beeing initialized in DCS.
+        self._join_aborted = False
+
+    def check_mode(self, mode):
+        # Try to protect from the case when DCS was wiped out during pause
+        if self.cluster and self.cluster.config and self.cluster.config.modify_index:
+            return self.cluster.check_mode(mode)
+        else:
+            return self.patroni.config.check_mode(mode)
+
     def is_paused(self):
-        return self.cluster and self.cluster.is_paused()
+        return self.check_mode('pause')
 
     def load_cluster_from_dcs(self):
         cluster = self.dcs.get_cluster()
@@ -284,10 +296,10 @@ class Ha(object):
         return follow_reason
 
     def is_synchronous_mode(self):
-        return bool(self.cluster and self.cluster.is_synchronous_mode())
+        return self.check_mode('synchronous_mode')
 
     def is_synchronous_mode_strict(self):
-        return bool(self.cluster and self.cluster.is_synchronous_mode_strict())
+        return self.check_mode('synchronous_mode_strict')
 
     def process_sync_replication(self):
         """Process synchronous standby beahvior.
@@ -760,6 +772,8 @@ class Ha(object):
                 # Either there is no connection to DCS or someone else acquired the lock
                 logger.error('failed to update leader lock')
                 if self.state_handler.is_leader():
+                    if self.is_paused():
+                        return 'continue to run as master after failing to update leader lock in DCS'
                     self.demote('immediate-nolock')
                     return 'demoted self because failed to update leader lock in DCS'
                 else:
@@ -1034,6 +1048,11 @@ class Ha(object):
 
             if self.is_paused():
                 self.watchdog.disable()
+                self._was_paused = True
+            else:
+                if self._was_paused:
+                    self.state_handler.schedule_sanity_checks_after_pause()
+                self._was_paused = False
 
             if not self.cluster.has_member(self.state_handler.name):
                 self.touch_member()
@@ -1079,9 +1098,20 @@ class Ha(object):
                 return self.bootstrap()  # new node
             # "bootstrap", but data directory is not empty
             elif not self.sysid_valid(self.cluster.initialize) and self.cluster.is_unlocked() and not self.is_paused():
+                if not self.state_handler.cb_called and self.state_handler.is_running() \
+                        and not self.state_handler.is_leader():
+                    self._join_aborted = True
+                    logger.error('No initialize key in DCS and PostgreSQL is running as replica, aborting start')
+                    logger.error('Please first start Patroni on the node running as master')
+                    sys.exit(1)
                 self.dcs.initialize(create_new=(self.cluster.initialize is None), sysid=self.state_handler.sysid)
             else:
                 # check if we are allowed to join
+                data_sysid = self.state_handler.sysid
+                if not self.sysid_valid(data_sysid):
+                    # data directory is not empty, but no valid sysid, cluster must be broken, suggest reinit
+                    return "data dir for the cluster is not empty, but system ID is invalid; consider doing reinitalize"
+
                 if self.sysid_valid(self.cluster.initialize) and self.cluster.initialize != self.state_handler.sysid:
                     logger.fatal("system ID mismatch, node %s belongs to a different cluster: %s != %s",
                                  self.state_handler.name, self.cluster.initialize, self.state_handler.sysid)
@@ -1138,7 +1168,7 @@ class Ha(object):
         if self.is_paused():
             logger.info('Leader key is not deleted and Postgresql is not stopped due paused state')
             self.watchdog.disable()
-        else:
+        elif not self._join_aborted:
             # FIXME: If stop doesn't reach safepoint quickly enough keepalive is triggered. If shutdown checkpoint
             # takes longer than ttl, then leader key is lost and replication might not have sent out all xlog.
             # This might not be the desired behavior of users, as a graceful shutdown of the host can mean lost data.

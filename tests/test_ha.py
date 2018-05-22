@@ -16,6 +16,8 @@ from test_etcd import socket_getaddrinfo, etcd_read, etcd_write, requests_get
 from test_postgresql import psycopg2_connect, MockPostmaster
 
 
+SYSID = '12345678901'
+
 def true(*args, **kwargs):
     return True
 
@@ -45,7 +47,7 @@ def get_cluster_initialized_without_leader(leader=False, failover=None, sync=Non
                                  'scheduled_restart': {'schedule': "2100-01-01 10:53:07.560445+00:00",
                                                        'postgres_version': '99.0.0'}})
     syncstate = SyncState(0 if sync else None, sync and sync[0], sync and sync[1])
-    return get_cluster(True, leader, [m1, m2], failover, syncstate)
+    return get_cluster(SYSID, leader, [m1, m2], failover, syncstate)
 
 
 def get_cluster_initialized_with_leader(failover=None, sync=None):
@@ -120,7 +122,7 @@ def run_async(self, func, args=()):
 @patch.object(Postgresql, '_cluster_info_state_get', Mock(return_value=3))
 @patch.object(Postgresql, 'call_nowait', Mock(return_value=True))
 @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=False))
-@patch.object(Postgresql, 'controldata', Mock(return_value={'Database system identifier': '1234567890'}))
+@patch.object(Postgresql, 'controldata', Mock(return_value={'Database system identifier': SYSID}))
 @patch.object(Postgresql, 'sync_replication_slots', Mock())
 @patch.object(Postgresql, 'write_pg_hba', Mock())
 @patch.object(Postgresql, 'write_pgpass', Mock(return_value={}))
@@ -161,7 +163,7 @@ class TestHa(unittest.TestCase):
                                        'name': 'foo', 'retry_timeout': 10}})
             self.ha = Ha(MockPatroni(self.p, self.e))
             self.ha.old_cluster = self.e.get_cluster()
-            self.ha.cluster = get_cluster_not_initialized_without_leader()
+            self.ha.cluster = get_cluster_initialized_without_leader()
             self.ha.load_cluster_from_dcs = Mock()
 
     def test_update_lock(self):
@@ -178,7 +180,7 @@ class TestHa(unittest.TestCase):
         self.assertEquals(self.ha.run_cycle(), 'starting as a secondary')
 
     def test_recover_replica_failed(self):
-        self.p.controldata = lambda: {'Database cluster state': 'in recovery'}
+        self.p.controldata = lambda: {'Database cluster state': 'in recovery', 'Database system identifier': SYSID}
         self.p.is_running = false
         self.p.follow = false
         self.assertEquals(self.ha.run_cycle(), 'starting as a secondary')
@@ -189,14 +191,14 @@ class TestHa(unittest.TestCase):
         self.p.is_running = false
         self.p.name = 'leader'
         self.p.set_role('master')
-        self.p.controldata = lambda: {'Database cluster state': 'shut down'}
+        self.p.controldata = lambda: {'Database cluster state': 'shut down', 'Database system identifier': SYSID}
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.assertEquals(self.ha.run_cycle(), 'starting as readonly because i had the session lock')
 
     @patch.object(Postgresql, 'fix_cluster_state', Mock())
     def test_crash_recovery(self):
         self.p.is_running = false
-        self.p.controldata = lambda: {'Database cluster state': 'in production'}
+        self.p.controldata = lambda: {'Database cluster state': 'in production', 'Database system identifier': SYSID}
         self.assertEquals(self.ha.run_cycle(), 'doing crash recovery in a single user mode')
 
     @patch.object(Postgresql, 'rewind_needed_and_possible', Mock(return_value=True))
@@ -208,7 +210,7 @@ class TestHa(unittest.TestCase):
     @patch.object(Postgresql, 'can_rewind', PropertyMock(return_value=True))
     @patch.object(Postgresql, 'fix_cluster_state', Mock())
     def test_single_user_after_recover_failed(self):
-        self.p.controldata = lambda: {'Database cluster state': 'in recovery'}
+        self.p.controldata = lambda: {'Database cluster state': 'in recovery', 'Database system identifier': SYSID}
         self.p.is_running = false
         self.p.follow = false
         self.assertEquals(self.ha.run_cycle(), 'starting as a secondary')
@@ -217,6 +219,7 @@ class TestHa(unittest.TestCase):
     @patch('sys.exit', return_value=1)
     @patch('patroni.ha.Ha.sysid_valid', MagicMock(return_value=True))
     def test_sysid_no_match(self, exit_mock):
+        self.p.controldata = lambda: {'Database cluster state': 'in recovery', 'Database system identifier': '123'}
         self.ha.run_cycle()
         exit_mock.assert_called_once_with(1)
 
@@ -225,7 +228,7 @@ class TestHa(unittest.TestCase):
         self.p.is_leader = false
         self.p.is_healthy = true
         self.ha.has_lock = true
-        self.p.controldata = lambda: {'Database cluster state': 'in production'}
+        self.p.controldata = lambda: {'Database cluster state': 'in production', 'Database system identifier': SYSID}
         self.assertEquals(self.ha.run_cycle(), 'promoted self to leader because i had the session lock')
 
     @patch('psycopg2.connect', psycopg2_connect)
@@ -279,6 +282,7 @@ class TestHa(unittest.TestCase):
             self.assertEquals(self.ha.run_cycle(), 'Not promoting self because watchdog could not be activated')
 
     def test_leader_with_lock(self):
+        self.ha.cluster = get_cluster_not_initialized_without_leader()
         self.ha.cluster.is_unlocked = false
         self.ha.has_lock = true
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
@@ -618,6 +622,14 @@ class TestHa(unittest.TestCase):
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, '', self.p.name, None))
         self.assertEquals(self.ha.run_cycle(), 'PAUSE: waiting to become master after promote...')
 
+    def test_failed_to_update_lock_in_pause(self):
+        self.ha.update_lock = false
+        self.ha.is_paused = true
+        self.p.name = 'leader'
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.assertEquals(self.ha.run_cycle(),
+                          'PAUSE: continue to run as master after failing to update leader lock in DCS')
+
     def test_postgres_unhealthy_in_pause(self):
         self.ha.is_paused = true
         self.p.is_healthy = false
@@ -895,4 +907,19 @@ class TestHa(unittest.TestCase):
         self.p.get_master_timeline = Mock(return_value=1)
         self.ha.has_lock = true
         self.ha.cluster.is_unlocked = false
+        self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
+
+    @patch('sys.exit', return_value=1)
+    def test_abort_join(self, exit_mock):
+        self.ha.cluster = get_cluster_not_initialized_without_leader()
+        self.p.is_leader = false
+        self.ha.run_cycle()
+        exit_mock.assert_called_once_with(1)
+
+    def test_after_pause(self):
+        self.ha.has_lock = true
+        self.ha.cluster.is_unlocked = false
+        self.ha.is_paused = true
+        self.assertEquals(self.ha.run_cycle(), 'PAUSE: no action.  i am the leader with the lock')
+        self.ha.is_paused = false
         self.assertEquals(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
