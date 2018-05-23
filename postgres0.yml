@@ -25,8 +25,9 @@ bootstrap:
 #    master_start_timeout: 300
 #    synchronous_mode: false
     #standby_cluster:
-      #conn_url: postgresql://replicator@127.0.0.1:1111/postgres
-      #replication_slot: patroni
+      #host: 127.0.0.1
+      #port: 1111
+      #primary_slot_name: patroni
     postgresql:
       use_pg_rewind: true
 #      use_slots: true

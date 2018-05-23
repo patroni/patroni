@@ -444,7 +444,6 @@ class Ha(object):
         message = 'follow remote master {0}'.format(follow_target.conn_url)
         demote_reason = 'cannot be a real master in standby cluster'
 
-        self._async_executor.schedule('follow_remote_master')
         return self.follow(demote_reason, message)
 
     def enforce_master_role(self, message, promote_message):

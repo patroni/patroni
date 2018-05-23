@@ -1374,7 +1374,7 @@ class Postgresql(object):
         if primary_conninfo:
             recovery_params['primary_conninfo'] = primary_conninfo
         if self.use_slots and member and not member.no_replication_slot:
-            required_name = member is not None and member.data.get('replication_slot')
+            required_name = member is not None and member.data.get('primary_slot_name')
             name = required_name or slot_name_from_member_name(self.name)
             recovery_params['primary_slot_name'] = name
 
