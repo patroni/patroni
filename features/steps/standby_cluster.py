@@ -8,6 +8,10 @@ SELECT * FROM pg_catalog.pg_stat_replication
 WHERE application_name = '{0}'
 """
 
+create_replication_slot = """
+SELECT pg_create_physical_replication_slot('{0}')
+"""
+
 
 @step('I start {name:w} in a cluster {cluster_name:w}')
 def start_patroni(context, name, cluster_name):
@@ -26,7 +30,7 @@ def start_patroni_stanby_cluster(context, name, cluster_name, name2):
                 "standby_cluster" :{
                     "host": "localhost",
                     "port": port,
-                    "primary_slot_name": "postgresql1",
+                    "primary_slot_name": "postgres1",
                 }
             }
         }
@@ -49,3 +53,11 @@ def check_replication_slot_existense(context, pg_name1, pg_name2, timeout):
         time.sleep(1)
 
     return False
+
+@step('I create a replication slot {slot_name:w} on {pg_name:w}')
+def check_replication_slot_existense(context, slot_name, pg_name):
+    return context.pctl.query(
+        pg_name,
+        create_replication_slot.format(slot_name),
+        fail_ok=True
+    )
