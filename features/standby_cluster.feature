@@ -11,6 +11,10 @@ Feature: standby cluster
     Then postgres2 role is the replica after 24 seconds
     And table foo is present on postgres2 after 20 seconds
 
-  Scenario: check failover
+  Scenario: check failover with dead postmaster
     When I kill postmaster on postgres1
-    Then postgres2 role is the standby_leader after 24 seconds
+	Then postgres2 is replicating from postgres1 after 20 seconds
+
+  Scenario: check failover
+    When I kill postgres1
+	Then postgres2 is replicating from postgres0 after 20 seconds
