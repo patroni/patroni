@@ -6,6 +6,7 @@ import psycopg2
 import requests
 import sys
 import time
+import uuid
 
 from collections import namedtuple
 from multiprocessing.pool import ThreadPool
@@ -1266,6 +1267,9 @@ class Ha(object):
         This usually happens on the master or if the node is running async action"""
         self.dcs.event.set()
 
+    def unique_name_for_remote_master(self):
+        return 'remote_master:{}'.format(uuid.uuid1())
+
     def get_target_to_follow(self, config):
         """ In case of standby cluster this will tel us from which remote
             master to stream. Config can be both patroni config or
@@ -1275,11 +1279,12 @@ class Ha(object):
 
         if config and config.get('standby_cluster'):
             cluster_params = config.get('standby_cluster')
-            return Member(None, 'remote_master', None, {
+            name = self.unique_name_for_remote_master()
+            return Member(None, name, None, {
                 'conn_kwargs': {
                     "host": cluster_params.get('host'),
                     "port": cluster_params.get('port'),
                 },
-                'primary_slot_name': cluster_params['primary_slot_name'],
-                'no_replication_slot': False,
+                'primary_slot_name': cluster_params.get('primary_slot_name'),
+                'no_replication_slot': not hasattr(cluster_params, 'primary_slot_name'),
             })
