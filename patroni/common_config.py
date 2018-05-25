@@ -3,7 +3,7 @@ def is_standby_cluster(config):
         Config can be both patroni config or cluster.config.data
     """
     return isinstance(config, dict) and (
-        config.get('host') is not None or
-        config.get('port') is not None or
-        config.get('restore_command') is not None
+        config.get('host') or
+        config.get('port') or
+        config.get('restore_command')
     )

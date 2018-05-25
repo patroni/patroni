@@ -1286,5 +1286,5 @@ class Ha(object):
                     "port": cluster_params.get('port'),
                 },
                 'primary_slot_name': cluster_params.get('primary_slot_name'),
-                'no_replication_slot': not hasattr(cluster_params, 'primary_slot_name'),
+                'no_replication_slot': 'primary_slot_name' not in cluster_params,
             })
