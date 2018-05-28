@@ -214,7 +214,7 @@ class Ha(object):
             from a remote master and start follow it.
         """
         patroni_config = self.patroni.config.dynamic_configuration
-        clone_target = self.get_target_to_follow(patroni_config)
+        clone_target = self.get_remote_master(patroni_config)
         msg = 'clone from remote master {0}'.format(clone_target.conn_url)
         result = self.clone(clone_target, msg)
         self._post_bootstrap_task.complete(result)
@@ -291,7 +291,7 @@ class Ha(object):
         is_leader = self.cluster.leader and self.state_handler.name == self.cluster.leader.name
 
         if self.cluster.is_standby_cluster() and is_leader:
-            node_to_follow = self.get_target_to_follow(cluster.config.data)
+            node_to_follow = self.get_remote_master(cluster.config.data)
         elif self.patroni.replicatefrom and self.patroni.replicatefrom != self.state_handler.name:
             node_to_follow = cluster.get_member(self.patroni.replicatefrom)
         else:
@@ -441,7 +441,7 @@ class Ha(object):
 
     def enforce_follow_remote_master(self, message):
         self.state_handler.set_role('standby_leader')
-        follow_target = self.get_target_to_follow(self.cluster.config.data)
+        follow_target = self.get_remote_master(self.cluster.config.data)
         demote_reason = 'cannot be a real master in standby cluster'
 
         return self.follow(demote_reason, message)
@@ -1269,7 +1269,7 @@ class Ha(object):
     def unique_name_for_remote_master(self):
         return 'remote_master:{}'.format(uuid.uuid1())
 
-    def get_target_to_follow(self, config):
+    def get_remote_master(self, config):
         """ In case of standby cluster this will tel us from which remote
             master to stream. Config can be both patroni config or
             cluster.config.data
