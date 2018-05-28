@@ -439,10 +439,9 @@ class Ha(object):
                         line.append(cluster_history[line[0]][3])
                 self.dcs.set_history_value(json.dumps(history, separators=(',', ':')))
 
-    def enforce_follow_remote_master(self):
+    def enforce_follow_remote_master(self, message):
         self.state_handler.set_role('standby_leader')
         follow_target = self.get_target_to_follow(self.cluster.config.data)
-        message = 'follow remote master {0}'.format(follow_target.conn_url)
         demote_reason = 'cannot be a real master in standby cluster'
 
         return self.follow(demote_reason, message)
@@ -780,8 +779,8 @@ class Ha(object):
                     # standby leader disappeared, and this is a healthiest
                     # replica, so it should become a new standby leader.
                     # This imply that we need to start following a remote master
-                    self.enforce_follow_remote_master()
-                    return 'promoted self to a standby leader because i had the session lock'
+                    msg = 'promoted self to a standby leader because i had the session lock'
+                    return self.enforce_follow_remote_master(msg)
                 else:
                     return self.enforce_master_role(
                         'acquired session lock as a leader',
@@ -822,8 +821,8 @@ class Ha(object):
                     # in case of standby cluster we don't really need to
                     # enforce anything, since the leader is not a master.
                     # So just remind the role.
-                    self.enforce_follow_remote_master()
-                    return 'no action. I am the standby leader with the lock'
+                    msg = 'no action. I am the standby leader with the lock'
+                    return self.enforce_follow_remote_master(msg)
                 else:
                     return self.enforce_master_role(
                         'no action. I am the leader with the lock',
