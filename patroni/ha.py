@@ -441,7 +441,6 @@ class Ha(object):
 
     def enforce_follow_remote_master(self, message):
         self.state_handler.set_role('standby_leader')
-        follow_target = self.get_remote_master(self.cluster.config.data)
         demote_reason = 'cannot be a real master in standby cluster'
 
         return self.follow(demote_reason, message)
