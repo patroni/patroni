@@ -11,6 +11,8 @@ Type=simple
 User=postgres
 Group=postgres
 
+WorkingDirectory=~
+
 # Where to send early-startup messages from the server
 # This is normally controlled by the global default set by systemd
 # StandardOutput=syslog
