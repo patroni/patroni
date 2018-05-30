@@ -1265,9 +1265,6 @@ class Ha(object):
         This usually happens on the master or if the node is running async action"""
         self.dcs.event.set()
 
-    def unique_name_for_remote_master(self):
-        return 'remote_master:{}'.format(uuid.uuid1())
-
     def get_remote_master(self, config):
         """ In case of standby cluster this will tel us from which remote
             master to stream. Config can be both patroni config or
@@ -1277,8 +1274,8 @@ class Ha(object):
 
         if config and config.get('standby_cluster'):
             cluster_params = config.get('standby_cluster')
-            name = self.unique_name_for_remote_master()
-            return Member(None, name, None, {
+            unique_name = 'remote_master:{}'.format(uuid.uuid1())
+            return Member(None, unique_name, None, {
                 'conn_kwargs': {
                     "host": cluster_params.get('host'),
                     "port": cluster_params.get('port'),
