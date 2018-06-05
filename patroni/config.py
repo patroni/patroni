@@ -194,8 +194,10 @@ class Config(object):
                         config['postgresql'][name].update(self._process_postgresql_parameters(value))
                     elif name not in ('connect_address', 'listen', 'data_dir', 'pgpass', 'authentication'):
                         config['postgresql'][name] = deepcopy(value)
+            elif name == 'standby_cluster':
+                config['standby_cluster'].update(value)
             elif name in config:  # only variables present in __DEFAULT_CONFIG allowed to be overriden from DCS
-                if name in ('synchronous_mode', 'synchronous_mode_strict', 'standby_cluster'):
+                if name in ('synchronous_mode', 'synchronous_mode_strict'):
                     config[name] = value
                 else:
                     config[name] = int(value)
