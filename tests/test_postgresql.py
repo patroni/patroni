@@ -791,12 +791,9 @@ class TestPostgresql(unittest.TestCase):
     def test_wait_for_startup(self):
         state = {'sleeps': 0, 'num_rejects': 0, 'final_return': 0}
 
-        def increment_sleeps(*args):
-            print("Sleep")
-            state['sleeps'] += 1
-
         def isready_return(*args):
             ret = 1 if state['sleeps'] < state['num_rejects'] else state['final_return']
+            state['sleeps'] += ret
             print("Isready {0} {1}".format(ret, state))
             return ret
 
@@ -804,7 +801,7 @@ class TestPostgresql(unittest.TestCase):
             return state['sleeps']
 
         with patch('subprocess.call', side_effect=isready_return):
-            with patch('time.sleep', side_effect=increment_sleeps):
+            with patch('time.sleep', Mock()):
                 self.p.time_in_state = Mock(side_effect=time_in_state)
 
                 self.p._state = 'stopped'
