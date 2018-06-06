@@ -660,9 +660,11 @@ class Postgresql(object):
         # get list of replica methods either from clone member or from
         # the config. If there is no configuration key, or no value is
         # specified, use basebackup
-        replica_methods = ((clone_member and clone_member.create_replica_methods)
-                            or self.config.get('create_replica_method')
-                            or ['basebackup'])
+        replica_methods = (
+            (clone_member and clone_member.create_replica_methods)
+            or self.config.get('create_replica_method')
+            or ['basebackup']
+        )
 
         if clone_member and clone_member.conn_url:
             r = clone_member.conn_kwargs(self._replication)
