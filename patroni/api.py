@@ -520,7 +520,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         try:
             host, port = config['listen'].rsplit(':', 1)
         except ValueError:
-            raise ValueError('Invalid RestApi config, expected <HOST>:<PORT> for "listen", but got "{0}"'.format(config['listen']))
+            raise ValueError('Invalid RestApi config: expected <HOST>:<PORT> for "listen", but got "{0}"'.format(
+                             config['listen']))
         HTTPServer.__init__(self, (host, int(port)), RestApiHandler)
         Thread.__init__(self, target=self.serve_forever)
         self._set_fd_cloexec(self.socket)
