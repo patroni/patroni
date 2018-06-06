@@ -48,6 +48,7 @@ class Config(object):
         'synchronous_mode': False,
         'synchronous_mode_strict': False,
         'standby_cluster': {
+            'create_replica_method': '',
             'host': '',
             'port': '',
             'primary_slot_name': '',
@@ -198,7 +199,7 @@ class Config(object):
             elif name == 'standby_cluster':
                 allowed_keys = self.__DEFAULT_CONFIG['standby_cluster'].keys()
                 expected = {
-                    k: v for k, v in (value or {})
+                    k: v for k, v in (value or {}).items()
                     if (k in allowed_keys and isinstance(v, six.string_types))
                 }
                 config['standby_cluster'].update(expected)

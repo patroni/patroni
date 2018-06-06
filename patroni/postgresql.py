@@ -652,9 +652,17 @@ class Postgresql(object):
         self.set_state('creating replica')
         self._sysid = None
 
-        # get list of replica methods from config.
-        # If there is no configuration key, or no value is specified, use basebackup
-        replica_methods = self.config.get('create_replica_method') or ['basebackup']
+        if hasattr(clone_member, 'member'):
+            # it's a leader object, and we need
+            # only a corresponding member
+            clone_member = clone_member.member
+
+        # get list of replica methods either from clone member or from
+        # the config. If there is no configuration key, or no value is
+        # specified, use basebackup
+        replica_methods = ((clone_member and clone_member.create_replica_methods)
+                            or self.config.get('create_replica_method')
+                            or ['basebackup'])
 
         if clone_member and clone_member.conn_url:
             r = clone_member.conn_kwargs(self._replication)
@@ -1377,6 +1385,8 @@ class Postgresql(object):
             required_name = member is not None and member.data.get('primary_slot_name')
             name = required_name or slot_name_from_member_name(self.name)
             recovery_params['primary_slot_name'] = name
+        if member and member.recovery_command:
+            recovery_params['recovery_command'] = member.recovery_command
 
         self.write_recovery_conf(recovery_params)
 

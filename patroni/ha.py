@@ -1275,11 +1275,19 @@ class Ha(object):
         if config and config.get('standby_cluster'):
             cluster_params = config.get('standby_cluster')
             unique_name = 'remote_master:{}'.format(uuid.uuid1())
-            return Member(None, unique_name, None, {
+            data = {
                 'conn_kwargs': {
                     "host": cluster_params.get('host'),
                     "port": cluster_params.get('port'),
                 },
-                'primary_slot_name': cluster_params.get('primary_slot_name'),
                 'no_replication_slot': 'primary_slot_name' not in cluster_params,
+            }
+            keys_to_extract = ('primary_slot_name',
+                                'create_replica_method',
+                                'recovery_command')
+            data.update({
+                k: v for k, v in cluster_params.items()
+                if k in keys_to_extract
             })
+
+            return Member(None, unique_name, None, data)

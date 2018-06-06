@@ -180,6 +180,14 @@ class Member(namedtuple('Member', 'index,name,session,data')):
     def no_replication_slot(self):
         return self.data.get('no_replication_slot')
 
+    @property
+    def create_replica_methods(self):
+        return self.data.get('create_replica_methods')
+
+    @property
+    def recovery_command(self):
+        return self.data.get('recovery_command')
+
 
 class Leader(namedtuple('Leader', 'index,session,member')):
 
