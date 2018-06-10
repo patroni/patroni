@@ -7,6 +7,7 @@ from patroni.scripts import wale_restore
 from patroni.scripts.wale_restore import WALERestore, main as _main, get_major_version
 from six.moves import builtins
 from test_postgresql import MockConnect, psycopg2_connect
+from threading import current_thread
 
 
 wale_output_header = (
@@ -42,6 +43,13 @@ class TestWALERestore(unittest.TestCase):
                                         '/etc', 100, 100, 1, 0, WALE_TEST_RETRIES)
 
     def test_should_use_s3_to_create_replica(self):
+        self.__thread_ident = current_thread().ident
+        sleeps = [0]
+
+        def mock_sleep(*args):
+            if current_thread().ident == self.__thread_ident:
+                sleeps[0] += 1
+
         self.assertTrue(self.wale_restore.should_use_s3_to_create_replica())
         with patch.object(MockConnect, 'server_version', PropertyMock(return_value=100000)):
             self.assertTrue(self.wale_restore.should_use_s3_to_create_replica())
@@ -55,12 +63,11 @@ class TestWALERestore(unittest.TestCase):
 
             self.assertFalse(self.wale_restore.should_use_s3_to_create_replica())
 
-            with patch('time.sleep', Mock(return_value=None)) as mock_sleep:
+            with patch('time.sleep', mock_sleep):
                 self.wale_restore.no_master = 1
                 self.assertTrue(self.wale_restore.should_use_s3_to_create_replica())
-                # Verify retries. Ideally there should be exact match, but if tests are executed
-                # by autopkgtest, sometimes we have `time.sleep` calls from unknown place, what makes it to fail.
-                self.assertGreaterEqual(mock_sleep.call_count, WALE_TEST_RETRIES)
+                # verify retries
+                self.assertEqual(sleeps[0], WALE_TEST_RETRIES)
 
             self.wale_restore.master_connection = ''
             self.assertTrue(self.wale_restore.should_use_s3_to_create_replica())
@@ -103,15 +110,20 @@ class TestWALERestore(unittest.TestCase):
 
     @patch('sys.exit', Mock())
     def test_main(self):
+        self.__thread_ident = current_thread().ident
+        sleeps = [0]
+
+        def mock_sleep(*args):
+            if current_thread().ident == self.__thread_ident:
+                sleeps[0] += 1
+
         with patch.object(WALERestore, 'run', Mock(return_value=0)):
             self.assertEqual(_main(), 0)
 
         with patch.object(WALERestore, 'run', Mock(return_value=1)), \
-                patch('time.sleep', Mock(return_value=None)) as mock_sleep:
+                patch('time.sleep', mock_sleep):
             self.assertEqual(_main(), 1)
-            # Verify retries. Ideally there should be exact match, but if tests are executed
-            # by autopkgtest, sometimes we have `time.sleep` calls from unknown place, what makes it to fail.
-            self.assertGreaterEqual(mock_sleep.call_count, WALE_TEST_RETRIES)
+            self.assertTrue(sleeps[0], WALE_TEST_RETRIES)
 
     @patch('os.path.isfile', Mock(return_value=True))
     def test_get_major_version(self):

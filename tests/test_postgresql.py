@@ -14,7 +14,7 @@ from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
 from patroni.postmaster import PostmasterProcess
 from patroni.utils import RetryFailedError
 from six.moves import builtins
-from threading import Thread
+from threading import Thread, current_thread
 
 
 class MockCursor(object):
@@ -790,10 +790,15 @@ class TestPostgresql(unittest.TestCase):
 
     def test_wait_for_startup(self):
         state = {'sleeps': 0, 'num_rejects': 0, 'final_return': 0}
+        self.__thread_ident = current_thread().ident
+
+        def increment_sleeps(*args):
+            if current_thread().ident == self.__thread_ident:
+                print("Sleep")
+                state['sleeps'] += 1
 
         def isready_return(*args):
             ret = 1 if state['sleeps'] < state['num_rejects'] else state['final_return']
-            state['sleeps'] += ret
             print("Isready {0} {1}".format(ret, state))
             return ret
 
@@ -801,7 +806,7 @@ class TestPostgresql(unittest.TestCase):
             return state['sleeps']
 
         with patch('subprocess.call', side_effect=isready_return):
-            with patch('time.sleep', Mock()):
+            with patch('time.sleep', side_effect=increment_sleeps):
                 self.p.time_in_state = Mock(side_effect=time_in_state)
 
                 self.p._state = 'stopped'
