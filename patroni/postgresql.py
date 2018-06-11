@@ -819,6 +819,15 @@ class Postgresql(object):
         return False
 
     def _build_effective_configuration(self):
+        """It might happen that the current value of one (or more) below parameters stored in
+        the controldata is higher than the value stored in the global cluster configuration.
+
+        Example: max_connections in global configuration is 100, but in controldata
+        `Current max_connections setting: 200`. If we try to start postgres with
+        max_connections=100, it will immediately exit.
+        As a workaround we will start it with the values from controldata and set `pending_restart`
+        to true as an indicator that current values of parameters are not matching expectations."""
+
         OPTIONS_MAPPING = {
             'max_connections': 'max_connections setting',
             'max_worker_processes': 'max_worker_processes setting',
