@@ -636,6 +636,12 @@ class TestPostgresql(unittest.TestCase):
         self.assertTrue(task.result)
 
         self.p.bootstrap(config)
+        with patch.object(Postgresql, 'pending_restart', PropertyMock(return_value=True)), \
+                patch.object(Postgresql, 'restart', Mock()) as mock_restart:
+            self.p.post_bootstrap({}, task)
+            mock_restart.assert_called_once()
+
+        self.p.bootstrap(config)
         self.p.set_state('stopped')
         self.p.reload_config({'authentication': {'superuser': {'username': 'p', 'password': 'p'},
                                                  'replication': {'username': 'r', 'password': 'r'}},
@@ -969,3 +975,14 @@ class TestPostgresql(unittest.TestCase):
         self.p.cancel()
         type(self.p._cancellable).returncode = PropertyMock(side_effect=[None, -15])
         self.p.cancel()
+
+    @patch.object(Postgresql, 'get_postgres_role_from_data_directory', Mock(return_value='replica'))
+    def test__build_effective_configuration(self):
+        with patch.object(Postgresql, 'controldata',
+                          Mock(return_value={'max_connections setting': '200',
+                                             'max_worker_processes setting': '20',
+                                             'max_prepared_xacts setting': '100',
+                                             'max_locks_per_xact setting': '100'})):
+            self.p.cancel()
+            self.assertFalse(self.p.start())
+            self.assertTrue(self.p.pending_restart)

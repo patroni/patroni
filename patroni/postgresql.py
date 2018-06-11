@@ -403,7 +403,7 @@ class Postgresql(object):
 
     @property
     def sysid(self):
-        if not self._sysid:
+        if not self._sysid and not self.bootstrapping:
             data = self.controldata()
             self._sysid = data.get('Database system identifier', "")
         return self._sysid
@@ -818,6 +818,25 @@ class Postgresql(object):
         logger.warning("Timed out waiting for PostgreSQL to start")
         return False
 
+    def _build_effective_configuration(self):
+        OPTIONS_MAPPING = {
+            'max_connections': 'max_connections setting',
+            'max_worker_processes': 'max_worker_processes setting',
+            'max_prepared_transactions': 'max_prepared_xacts setting',
+            'max_locks_per_transaction': 'max_locks_per_xact setting'
+        }
+
+        data = self.controldata()
+        effective_configuration = self._server_parameters.copy()
+
+        for name, cname in OPTIONS_MAPPING.items():
+            value = parse_int(effective_configuration[name])
+            cvalue = parse_int(data[cname])
+            if cvalue > value:
+                effective_configuration[name] = cvalue
+                self._pending_restart = True
+        return effective_configuration
+
     def start(self, timeout=None, block_callbacks=False, task=None):
         """Start PostgreSQL
 
@@ -843,12 +862,13 @@ class Postgresql(object):
         self.set_state('starting')
         self._pending_restart = False
 
-        self._write_postgresql_conf()
+        configuration = self._server_parameters if self.role == 'master' else self._build_effective_configuration()
+        self._write_postgresql_conf(configuration)
         self.resolve_connection_addresses()
         self._replace_pg_hba()
 
-        options = ['--{0}={1}'.format(p, self._server_parameters[p]) for p in self.CMDLINE_OPTIONS
-                   if p in self._server_parameters and p != 'wal_keep_segments']
+        options = ['--{0}={1}'.format(p, configuration[p]) for p in self.CMDLINE_OPTIONS
+                   if p in configuration and p != 'wal_keep_segments']
 
         with self._cancellable_lock:
             if self._is_cancelled:
@@ -1053,7 +1073,7 @@ class Postgresql(object):
             self.set_state('restart failed ({0})'.format(self.state))
         return ret
 
-    def _write_postgresql_conf(self):
+    def _write_postgresql_conf(self, configuration=None):
         # rename the original configuration if it is necessary
         if 'custom_conf' not in self.config and not os.path.exists(self._postgresql_base_conf):
             os.rename(self._postgresql_conf, self._postgresql_base_conf)
@@ -1061,7 +1081,7 @@ class Postgresql(object):
         with open(self._postgresql_conf, 'w') as f:
             f.write(self._CONFIG_WARNING_HEADER)
             f.write("include '{0}'\n\n".format(self.config.get('custom_conf') or self._postgresql_base_conf_name))
-            for name, value in sorted(self._server_parameters.items()):
+            for name, value in sorted((configuration or self._server_parameters).items()):
                 if not self._running_custom_bootstrap or name != 'hba_file':
                     f.write("{0} = '{1}'\n".format(name, value))
             # when we are doing custom bootstrap we assume that we don't know superuser password
@@ -1164,7 +1184,7 @@ class Postgresql(object):
         """ return the contents of pg_controldata, or non-True value if pg_controldata call failed """
         result = {}
         # Don't try to call pg_controldata during backup restore
-        if not self.bootstrapping and self._version_file_exists() and self.state != 'creating replica':
+        if self._version_file_exists() and self.state != 'creating replica':
             try:
                 data = subprocess.check_output([self._pgcommand('pg_controldata'), self._data_dir],
                                                env={'LANG': 'C', 'LC_ALL': 'C', 'PATH': os.environ['PATH']})
@@ -1587,9 +1607,12 @@ $$""".format(name, ' '.join(options)), name, password, password)
                         self.restart()
                     else:
                         self._replace_pg_hba()
-                        self.reload()
-                        time.sleep(1)  # give a time to postgres to "reload" configuration files
-                        self.close_connection()  # close connection to reconnect with a new password
+                        if self.pending_restart:
+                            self.restart()
+                        else:
+                            self.reload()
+                            time.sleep(1)  # give a time to postgres to "reload" configuration files
+                            self.close_connection()  # close connection to reconnect with a new password
         except Exception:
             logger.exception('post_bootstrap')
             task.complete(False)
