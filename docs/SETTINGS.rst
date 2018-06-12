@@ -113,7 +113,7 @@ PostgreSQL
         -  **on\_start**: run this script when the cluster starts.
         -  **on\_stop**: run this script when the cluster stops.
 -  **connect\_address**: IP address + port through which Postgres is accessible from other nodes and applications.
--  **create\_replica\_method**: an ordered list of the create methods for turning a Patroni node into a new replica.
+-  **create\_replica\_methods**: an ordered list of the create methods for turning a Patroni node into a new replica.
    "basebackup" is the default method; other methods are assumed to refer to scripts, each of which is configured as its
    own config item. See :ref:`custom replica creation methods documentation <custom_replica_creation>` for further explanation.
 -  **data\_dir**: The location of the Postgres data directory, either existing or to be initialized by Patroni.
