@@ -137,7 +137,7 @@ class PostmasterProcess(psutil.Process):
         # of init process to take care about postmaster.
         # In order to make everything portable we can't use fork&exec approach here, so  we will call
         # ourselves and pass list of arguments which must be used to start postgres.
-        env = {p: os.environ[p] for p in ('PATH', 'LC_ALL', 'LANG') if p in os.environ}
+        env = {p: os.environ[p] for p in ('PATH', 'LD_LIBRARY_PATH', 'LC_ALL', 'LANG') if p in os.environ}
         try:
             proc = PostmasterProcess._from_pidfile(data_dir)
             if proc and not proc._is_postmaster_process():
