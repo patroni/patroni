@@ -201,11 +201,6 @@ class Ha(object):
             self._async_executor.run_async(self.state_handler.rewind, (self.cluster.leader,))
             return True
 
-    def _start_crash_recovery(self, msg):
-        self._async_executor.schedule(msg)
-        self._async_executor.run_async(self.state_handler.fix_cluster_state)
-        return msg
-
     def recover(self):
         # Postgres is not running and we will restart in standby mode. Watchdog is not needed until we promote.
         self.watchdog.disable()
@@ -226,10 +221,12 @@ class Ha(object):
             timeout = None
 
         data = self.state_handler.controldata()
-        if data.get('Database cluster state') == 'in production' and not self._crash_recovery_executed and \
-                (self.cluster.is_unlocked() or self.state_handler.can_rewind):
+        if data.get('Database cluster state') in ('in production', 'shutting down', 'in crash recovery') and \
+                not self._crash_recovery_executed and (self.cluster.is_unlocked() or self.state_handler.can_rewind):
             self._crash_recovery_executed = True
-            return self._start_crash_recovery('doing crash recovery in a single user mode')
+            self._async_executor.schedule('doing crash recovery in a single user mode')
+            self._async_executor.run_async(self.state_handler.fix_cluster_state)
+            return self._async_executor.scheduled_action
 
         self.load_cluster_from_dcs()
 
@@ -243,13 +240,6 @@ class Ha(object):
                 return self._async_executor.scheduled_action
             msg = "starting as a secondary"
             node_to_follow = self._get_node_to_follow(self.cluster)
-
-        # once we already tried to start postgres but failed, single user mode is a rescue in this case
-        if self.recovering and not self.state_handler.rewind_executed \
-                and not self._crash_recovery_executed and self.state_handler.can_rewind \
-                and data.get('Database cluster state') not in ('shut down', 'shut down in recovery'):
-            self.recovering = False
-            return self._start_crash_recovery('fixing cluster state in a single user mode')
 
         self.recovering = True
 
