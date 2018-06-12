@@ -68,7 +68,7 @@ scripts to clone a new replica. Those are configured in the ``postgresql`` confi
 .. code:: YAML
 
     postgresql:
-        create_replica_method:
+        create_replica_methods:
             - wal_e
             - basebackup
         wal_e:
@@ -80,7 +80,7 @@ scripts to clone a new replica. Those are configured in the ``postgresql`` confi
             max-rate: '100M'
 
 
-The ``create_replica_method`` defines available replica creation methods and the order of executing them. Patroni will
+The ``create_replica_methods`` defines available replica creation methods and the order of executing them. Patroni will
 stop on the first one that returns 0. Each method should define a separate section in the configuration file, listing the command
 to execute and any custom parameters that should be passed to that command. All parameters will be passed in a
 ``--name=value`` format. Besides user-defined parameters, Patroni supplies a couple of cluster-specific ones:
@@ -99,8 +99,9 @@ A special ``no_master`` parameter, if defined, allows Patroni to call the replic
 running master or replicas. In that case, an empty string will be passed in a connection string. This is useful for
 restoring the formerly running cluster from the binary backup.
 
-A ``basebackup`` method is a special case: it will be used if ``create_replica_method`` is empty, although it is possible
-to list it explicitly among the ``create_replica_method`` methods. This method initializes a new replica with the
+A ``basebackup`` method is a special case: it will be used if
+``create_replica_methods`` is empty, although it is possible
+to list it explicitly among the ``create_replica_methods`` methods. This method initializes a new replica with the
 ``pg_basebackup``, the base backup is taken from the master unless there are replicas with ``clonefrom`` tag, in which case one
 of such replicas will be used as the origin for pg_basebackup. It works without any configuration; however, it is
 possible to specify a ``basebackup`` configuration section. Same rules as with the other method configuration apply,

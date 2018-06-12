@@ -420,14 +420,14 @@ class TestPostgresql(unittest.TestCase):
     def test_create_replica(self, mock_cancellable_subprocess_call):
         self.p.delete_trigger_file = Mock(side_effect=OSError)
 
-        self.p.config['create_replica_method'] = ['wale', 'basebackup']
+        self.p.config['create_replica_methods'] = ['wale', 'basebackup']
         self.p.config['wale'] = {'command': 'foo'}
         mock_cancellable_subprocess_call.return_value = 0
         self.assertEquals(self.p.create_replica(self.leader), 0)
         del self.p.config['wale']
         self.assertEquals(self.p.create_replica(self.leader), 0)
 
-        self.p.config['create_replica_method'] = ['basebackup']
+        self.p.config['create_replica_methods'] = ['basebackup']
         self.p.config['basebackup'] = [{'max_rate': '100M'}, 'no-sync']
         self.assertEquals(self.p.create_replica(self.leader), 0)
 
@@ -448,7 +448,7 @@ class TestPostgresql(unittest.TestCase):
         self.p.config['basebackup'] = {"foo": "bar"}
         self.assertEquals(self.p.create_replica(self.leader), 0)
 
-        self.p.config['create_replica_method'] = ['wale', 'basebackup']
+        self.p.config['create_replica_methods'] = ['wale', 'basebackup']
         del self.p.config['basebackup']
         mock_cancellable_subprocess_call.return_value = 1
         self.assertEquals(self.p.create_replica(self.leader), 1)
@@ -463,6 +463,31 @@ class TestPostgresql(unittest.TestCase):
         self.assertEquals(self.p.create_replica(self.leader), 0)
 
         self.p.cancel()
+        self.assertEquals(self.p.create_replica(self.leader), 1)
+
+    @patch('time.sleep', Mock())
+    @patch.object(Postgresql, 'cancellable_subprocess_call')
+    @patch.object(Postgresql, 'remove_data_directory', Mock(return_value=True))
+    def test_create_replica_old_format(self, mock_cancellable_subprocess_call):
+        """ The same test as before but with old 'create_replica_method'
+            to test backward compatibility
+        """
+        self.p.delete_trigger_file = Mock(side_effect=OSError)
+
+        self.p.config['create_replica_method'] = ['wale', 'basebackup']
+        self.p.config['wale'] = {'command': 'foo'}
+        mock_cancellable_subprocess_call.return_value = 0
+        self.assertEquals(self.p.create_replica(self.leader), 0)
+        del self.p.config['wale']
+        self.assertEquals(self.p.create_replica(self.leader), 0)
+
+        self.p.config['create_replica_method'] = ['basebackup']
+        self.p.config['basebackup'] = [{'max_rate': '100M'}, 'no-sync']
+        self.assertEquals(self.p.create_replica(self.leader), 0)
+
+        self.p.config['create_replica_method'] = ['wale', 'basebackup']
+        del self.p.config['basebackup']
+        mock_cancellable_subprocess_call.return_value = 1
         self.assertEquals(self.p.create_replica(self.leader), 1)
 
     def test_basebackup(self):

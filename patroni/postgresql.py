@@ -181,6 +181,11 @@ class Postgresql(object):
                 self.reload()
 
     @property
+    def _create_replica_methods(self):
+        return (self.config.get('create_replica_methods', []) or
+                self.config.get('create_replica_method', []))
+
+    @property
     def _configuration_to_save(self):
         configuration = [os.path.basename(self._postgresql_conf)]
         if 'custom_conf' not in self.config:
@@ -638,7 +643,7 @@ class Postgresql(object):
         """ go through the replication methods to see if there are ones
             that does not require a working replication connection.
         """
-        replica_methods = self.config.get('create_replica_method', [])
+        replica_methods = self._create_replica_methods
         return any(self.replica_method_can_work_without_replication_connection(method) for method in replica_methods)
 
     def create_replica(self, clone_member):
@@ -653,7 +658,7 @@ class Postgresql(object):
 
         # get list of replica methods from config.
         # If there is no configuration key, or no value is specified, use basebackup
-        replica_methods = self.config.get('create_replica_method') or ['basebackup']
+        replica_methods = self._create_replica_methods or ['basebackup']
 
         if clone_member and clone_member.conn_url:
             r = clone_member.conn_kwargs(self._replication)
@@ -1654,7 +1659,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
     def basebackup(self, conn_url, env, options):
         # creates a replica data dir using pg_basebackup.
-        # this is the default, built-in create_replica_method
+        # this is the default, built-in create_replica_methods
         # tries twice, then returns failure (as 1)
         # uses "stream" as the xlog-method to avoid sync issues
         # supports additional user-supplied options, those are not validated

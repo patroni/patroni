@@ -113,7 +113,7 @@ PostgreSQL
         -  **on\_start**: run this script when the cluster starts.
         -  **on\_stop**: run this script when the cluster stops.
 -  **connect\_address**: IP address + port through which Postgres is accessible from other nodes and applications.
--  **create\_replica\_method**: an ordered list of the create methods for turning a Patroni node into a new replica.
+-  **create\_replica\_methods**: an ordered list of the create methods for turning a Patroni node into a new replica.
    "basebackup" is the default method; other methods are assumed to refer to scripts, each of which is configured as its
    own config item. See :ref:`custom replica creation methods documentation <custom_replica_creation>` for further explanation.
 -  **data\_dir**: The location of the Postgres data directory, either existing or to be initialized by Patroni.
@@ -131,7 +131,7 @@ PostgreSQL
 -  **pg\_ctl\_timeout**: How long should pg_ctl wait when doing ``start``, ``stop`` or ``restart``. Default value is 60 seconds.
 -  **use\_pg\_rewind**: try to use pg\_rewind on the former leader when it joins cluster as a replica.
 -  **remove\_data\_directory\_on\_rewind\_failure**: If this option is enabled, Patroni will remove postgres data directory and recreate replica. Otherwise it will try to follow the new leader. Default value is **false**.
--  **replica\_method**: for each create_replica_method other than basebackup, you would add a configuration section of the same name. At a minimum, this should include "command" with a full path to the actual script to be executed. Other configuration parameters will be passed along to the script in the form "parameter=value".
+-  **replica\_method**: for each create_replica_methods other than basebackup, you would add a configuration section of the same name. At a minimum, this should include "command" with a full path to the actual script to be executed. Other configuration parameters will be passed along to the script in the form "parameter=value".
 
 REST API
 -------- 
