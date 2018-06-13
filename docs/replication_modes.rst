@@ -46,9 +46,10 @@ When it is absolutely necessary to guarantee that each write is stored durably
 on at least two nodes, enable ``synchronous_mode_strict`` in addition to the
 ``synchronous_node``. This parameter prevents Patroni from switching off the
 synchronous replication on the primary when no synchronous standby candidates
-are available. As a downside, the master is not be available for writes (unless
-the Postgres transaction explicitly turns of ``synchronous_mode``), blocking
-all client write requests until at least one synchronous replica comes up.
+are available. As a downside, the primary is not be available for writes
+(unless the Postgres transaction explicitly turns of ``synchronous_mode``),
+blocking all client write requests until at least one synchronous replica comes
+up.
 
 You can ensure that a standby never becomes the synchronous standby by setting ``nosync`` tag to true. This is recommended to set for standbys that are behind slow network connections and would cause performance degradation when becoming a synchronous standby.
 
