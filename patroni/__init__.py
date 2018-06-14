@@ -132,7 +132,7 @@ class Patroni(object):
         try:
             self.api.shutdown()
         except Exception:
-            logger.exception('Exception durig RestApi.shutdown')
+            logger.exception('Exception during RestApi.shutdown')
         self.ha.shutdown()
 
 
