@@ -42,6 +42,15 @@ Turning on ``synchronous_mode`` does not guarantee multi node durability of comm
 
 When ``synchronous_mode`` is on and a standby crashes, commits will block until next iteration of Patroni runs and switches the primary to standalone mode (worst case delay for writes ``ttl`` seconds, average case ``loop_wait``/2 seconds). Manually shutting down or restarting a standby will not cause a commit service interruption. Standby will signal the primary to release itself from synchronous standby duties before PostgreSQL shutdown is initiated.
 
+When it is absolutely necessary to guarantee that each write is stored durably
+on at least two nodes, enable ``synchronous_mode_strict`` in addition to the
+``synchronous_node``. This parameter prevents Patroni from switching off the
+synchronous replication on the primary when no synchronous standby candidates
+are available. As a downside, the primary is not be available for writes
+(unless the Postgres transaction explicitly turns of ``synchronous_mode``),
+blocking all client write requests until at least one synchronous replica comes
+up.
+
 You can ensure that a standby never becomes the synchronous standby by setting ``nosync`` tag to true. This is recommended to set for standbys that are behind slow network connections and would cause performance degradation when becoming a synchronous standby.
 
 Synchronous mode can be switched on and off via Patroni REST interface. See :ref:`dynamic configuration <dynamic_configuration>` for instructions.

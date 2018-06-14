@@ -182,6 +182,11 @@ class Postgresql(object):
                 self.reload()
 
     @property
+    def _create_replica_methods(self):
+        return (self.config.get('create_replica_methods', []) or
+                self.config.get('create_replica_method', []))
+
+    @property
     def _configuration_to_save(self):
         configuration = [os.path.basename(self._postgresql_conf)]
         if 'custom_conf' not in self.config:
@@ -404,7 +409,7 @@ class Postgresql(object):
 
     @property
     def sysid(self):
-        if not self._sysid:
+        if not self._sysid and not self.bootstrapping:
             data = self.controldata()
             self._sysid = data.get('Database system identifier', "")
         return self._sysid
@@ -639,7 +644,7 @@ class Postgresql(object):
         """ go through the replication methods to see if there are ones
             that does not require a working replication connection.
         """
-        replica_methods = self.config.get('create_replica_method', [])
+        replica_methods = self._create_replica_methods
         return any(self.replica_method_can_work_without_replication_connection(method) for method in replica_methods)
 
     def create_replica(self, clone_member):
@@ -662,7 +667,7 @@ class Postgresql(object):
         # specified, use basebackup
         replica_methods = (
             (clone_member and clone_member.create_replica_methods)
-            or self.config.get('create_replica_method')
+            or self._create_replica_methods
             or ['basebackup']
         )
 
@@ -752,11 +757,14 @@ class Postgresql(object):
 
     def is_running(self):
         """Returns PostmasterProcess if one is running on the data directory or None. If most recently seen process
-        is running udpates the cached process based on pid file."""
+        is running updates the cached process based on pid file."""
         if self._postmaster_proc:
             if self._postmaster_proc.is_running():
                 return self._postmaster_proc
             self._postmaster_proc = None
+
+        # we noticed that postgres was restarted, force syncing of replication
+        self._schedule_load_slots = self.use_slots
 
         self._postmaster_proc = PostmasterProcess.from_pidfile(self._data_dir)
         return self._postmaster_proc
@@ -826,6 +834,34 @@ class Postgresql(object):
         logger.warning("Timed out waiting for PostgreSQL to start")
         return False
 
+    def _build_effective_configuration(self):
+        """It might happen that the current value of one (or more) below parameters stored in
+        the controldata is higher than the value stored in the global cluster configuration.
+
+        Example: max_connections in global configuration is 100, but in controldata
+        `Current max_connections setting: 200`. If we try to start postgres with
+        max_connections=100, it will immediately exit.
+        As a workaround we will start it with the values from controldata and set `pending_restart`
+        to true as an indicator that current values of parameters are not matching expectations."""
+
+        OPTIONS_MAPPING = {
+            'max_connections': 'max_connections setting',
+            'max_worker_processes': 'max_worker_processes setting',
+            'max_prepared_transactions': 'max_prepared_xacts setting',
+            'max_locks_per_transaction': 'max_locks_per_xact setting'
+        }
+
+        data = self.controldata()
+        effective_configuration = self._server_parameters.copy()
+
+        for name, cname in OPTIONS_MAPPING.items():
+            value = parse_int(effective_configuration[name])
+            cvalue = parse_int(data[cname])
+            if cvalue > value:
+                effective_configuration[name] = cvalue
+                self._pending_restart = True
+        return effective_configuration
+
     def start(self, timeout=None, block_callbacks=False, task=None):
         """Start PostgreSQL
 
@@ -851,12 +887,13 @@ class Postgresql(object):
         self.set_state('starting')
         self._pending_restart = False
 
-        self._write_postgresql_conf()
+        configuration = self._server_parameters if self.role == 'master' else self._build_effective_configuration()
+        self._write_postgresql_conf(configuration)
         self.resolve_connection_addresses()
         self._replace_pg_hba()
 
-        options = ['--{0}={1}'.format(p, self._server_parameters[p]) for p in self.CMDLINE_OPTIONS
-                   if p in self._server_parameters and p != 'wal_keep_segments']
+        options = ['--{0}={1}'.format(p, configuration[p]) for p in self.CMDLINE_OPTIONS
+                   if p in configuration and p != 'wal_keep_segments']
 
         with self._cancellable_lock:
             if self._is_cancelled:
@@ -998,7 +1035,7 @@ class Postgresql(object):
 
         Should only be called when state == 'starting'
 
-        :returns: True iff state was changed from 'starting'
+        :returns: True if state was changed from 'starting'
         """
         ready = self.pg_isready()
 
@@ -1061,7 +1098,7 @@ class Postgresql(object):
             self.set_state('restart failed ({0})'.format(self.state))
         return ret
 
-    def _write_postgresql_conf(self):
+    def _write_postgresql_conf(self, configuration=None):
         # rename the original configuration if it is necessary
         if 'custom_conf' not in self.config and not os.path.exists(self._postgresql_base_conf):
             os.rename(self._postgresql_conf, self._postgresql_base_conf)
@@ -1069,7 +1106,7 @@ class Postgresql(object):
         with open(self._postgresql_conf, 'w') as f:
             f.write(self._CONFIG_WARNING_HEADER)
             f.write("include '{0}'\n\n".format(self.config.get('custom_conf') or self._postgresql_base_conf_name))
-            for name, value in sorted(self._server_parameters.items()):
+            for name, value in sorted((configuration or self._server_parameters).items()):
                 if not self._running_custom_bootstrap or name != 'hba_file':
                     f.write("{0} = '{1}'\n".format(name, value))
             # when we are doing custom bootstrap we assume that we don't know superuser password
@@ -1172,7 +1209,7 @@ class Postgresql(object):
         """ return the contents of pg_controldata, or non-True value if pg_controldata call failed """
         result = {}
         # Don't try to call pg_controldata during backup restore
-        if not self.bootstrapping and self._version_file_exists() and self.state != 'creating replica':
+        if self._version_file_exists() and self.state != 'creating replica':
             try:
                 data = subprocess.check_output([self._pgcommand('pg_controldata'), self._data_dir],
                                                env={'LANG': 'C', 'LC_ALL': 'C', 'PATH': os.environ['PATH']})
@@ -1604,9 +1641,12 @@ $$""".format(name, ' '.join(options)), name, password, password)
                         self.restart()
                     else:
                         self._replace_pg_hba()
-                        self.reload()
-                        time.sleep(1)  # give a time to postgres to "reload" configuration files
-                        self.close_connection()  # close connection to reconnect with a new password
+                        if self.pending_restart:
+                            self.restart()
+                        else:
+                            self.reload()
+                            time.sleep(1)  # give a time to postgres to "reload" configuration files
+                            self.close_connection()  # close connection to reconnect with a new password
         except Exception:
             logger.exception('post_bootstrap')
             task.complete(False)
@@ -1639,7 +1679,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
     def basebackup(self, conn_url, env, options):
         # creates a replica data dir using pg_basebackup.
-        # this is the default, built-in create_replica_method
+        # this is the default, built-in create_replica_methods
         # tries twice, then returns failure (as 1)
         # uses "stream" as the xlog-method to avoid sync issues
         # supports additional user-supplied options, those are not validated
