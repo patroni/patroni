@@ -151,3 +151,7 @@ class TestPatroni(unittest.TestCase):
         self.assertTrue(self.p.nosync)
         self.p.tags['nosync'] = None
         self.assertFalse(self.p.nosync)
+
+    def test_shutdown(self):
+        self.p.api.shutdown = Mock(side_effect=Exception)
+        self.p.shutdown()

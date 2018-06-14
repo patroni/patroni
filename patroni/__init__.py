@@ -129,7 +129,10 @@ class Patroni(object):
         signal.signal(signal.SIGTERM, self.sigterm_handler)
 
     def shutdown(self):
-        self.api.shutdown()
+        try:
+            self.api.shutdown()
+        except Exception:
+            logger.exception('Exception durig RestApi.shutdown')
         self.ha.shutdown()
 
 
