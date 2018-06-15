@@ -176,6 +176,13 @@ class Member(namedtuple('Member', 'index,name,session,data')):
     def is_running(self):
         return self.state == 'running'
 
+
+class RemoteMember(Member):
+    """ Represents a remote master for a standby cluster
+    """
+    def __new__(cls, name, data):
+        return super(RemoteMember, cls).__new__(cls, None, name, None, data)
+
     @property
     def no_replication_slot(self):
         return self.data.get('no_replication_slot')

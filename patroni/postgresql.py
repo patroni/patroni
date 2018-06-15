@@ -15,6 +15,7 @@ from patroni.callback_executor import CallbackExecutor
 from patroni.exceptions import PostgresConnectionException, PostgresException
 from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, split_host_port
 from patroni.postmaster import PostmasterProcess
+from patroni.dcs import RemoteMember
 from requests.structures import CaseInsensitiveDict
 from six import string_types
 from six.moves.urllib.parse import quote_plus
@@ -657,16 +658,14 @@ class Postgresql(object):
         self.set_state('creating replica')
         self._sysid = None
 
-        if hasattr(clone_member, 'member'):
-            # it's a leader object, and we need
-            # only a corresponding member
-            clone_member = clone_member.member
+        is_remote_master = isinstance(clone_member, RemoteMember)
+        create_replica_methods = is_remote_master and clone_member.create_replica_methods
 
         # get list of replica methods either from clone member or from
         # the config. If there is no configuration key, or no value is
         # specified, use basebackup
         replica_methods = (
-            (clone_member and clone_member.create_replica_methods)
+            create_replica_methods
             or self._create_replica_methods
             or ['basebackup']
         )
@@ -1408,10 +1407,9 @@ class Postgresql(object):
         return self._rewind_state > REWIND_STATUS.NOT_NEED
 
     def follow(self, member, timeout=None):
-        if hasattr(member, 'member'):
-            # it's a leader object, and we need
-            # only a corresponding member
-            member = member.member
+        is_remote_master = isinstance(member, RemoteMember)
+        no_replication_slot = is_remote_master and member.no_replication_slot
+        recovery_command = is_remote_master and member.recovery_command
 
         primary_conninfo = self.primary_conninfo(member)
         change_role = self.role in ('master', 'demoted')
@@ -1420,12 +1418,12 @@ class Postgresql(object):
         recovery_params.update({'standby_mode': 'on', 'recovery_target_timeline': 'latest'})
         if primary_conninfo:
             recovery_params['primary_conninfo'] = primary_conninfo
-        if self.use_slots and member and not member.no_replication_slot:
-            required_name = member is not None and member.data.get('primary_slot_name')
+        if self.use_slots and not no_replication_slot:
+            required_name = is_remote_master and member.data.get('primary_slot_name')
             name = required_name or slot_name_from_member_name(self.name)
             recovery_params['primary_slot_name'] = name
-        if member and member.recovery_command:
-            recovery_params['recovery_command'] = member.recovery_command
+        if recovery_command:
+            recovery_params['recovery_command'] = recovery_command
 
         self.write_recovery_conf(recovery_params)
 

@@ -14,7 +14,7 @@ from patroni.async_executor import AsyncExecutor, CriticalTask
 from patroni.exceptions import DCSError, PostgresConnectionException, PatroniException
 from patroni.postgresql import ACTION_ON_START
 from patroni.utils import polling_loop, tzutc
-from patroni.dcs import Member
+from patroni.dcs import RemoteMember
 from threading import RLock
 
 logger = logging.getLogger(__name__)
@@ -1273,11 +1273,11 @@ class Ha(object):
                 'no_replication_slot': 'primary_slot_name' not in cluster_params,
             }
             keys_to_extract = ('primary_slot_name',
-                                'create_replica_method',
+                                'create_replica_methods',
                                 'recovery_command')
             data.update({
                 k: v for k, v in cluster_params.items()
                 if k in keys_to_extract
             })
 
-            return Member(None, unique_name, None, data)
+            return RemoteMember(unique_name, data)

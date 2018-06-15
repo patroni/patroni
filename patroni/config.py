@@ -48,7 +48,7 @@ class Config(object):
         'synchronous_mode': False,
         'synchronous_mode_strict': False,
         'standby_cluster': {
-            'create_replica_method': '',
+            'create_replica_methods': '',
             'host': '',
             'port': '',
             'primary_slot_name': '',
