@@ -57,6 +57,8 @@ class Ha(object):
         self.dcs = patroni.dcs
         self.cluster = None
         self.old_cluster = None
+        self._is_leader = False
+        self._is_leader_lock = RLock()
         self._was_paused = False
         self._leader_timeline = None
         self.recovering = False
@@ -87,6 +89,14 @@ class Ha(object):
     def is_paused(self):
         return self.check_mode('pause')
 
+    def is_leader(self):
+        with self._is_leader_lock:
+            return self._is_leader
+
+    def set_is_leader(self, value):
+        with self._is_leader_lock:
+            self._is_leader = value
+
     def load_cluster_from_dcs(self):
         cluster = self.dcs.get_cluster()
 
@@ -98,7 +108,9 @@ class Ha(object):
         self._leader_timeline = None if cluster.is_unlocked() else cluster.leader.timeline
 
     def acquire_lock(self):
-        return self.dcs.attempt_to_acquire_leader()
+        ret = self.dcs.attempt_to_acquire_leader()
+        self.set_is_leader(ret)
+        return ret
 
     def update_lock(self, write_leader_optime=False):
         last_operation = None
@@ -108,6 +120,7 @@ class Ha(object):
             except Exception:
                 logger.exception('Exception when called state_handler.last_operation()')
         ret = self.dcs.update_leader(last_operation)
+        self.set_is_leader(ret)
         if ret:
             self.watchdog.keepalive()
         return ret
@@ -981,6 +994,7 @@ class Ha(object):
             logger.error('Cancelling bootstrap because watchdog activation failed')
             self.cancel_initialization()
         self.dcs.take_leader()
+        self.set_is_leader(True)
         self.state_handler.call_nowait(ACTION_ON_START)
         self.load_cluster_from_dcs()
         return 'initialized a new cluster'
@@ -1147,7 +1161,8 @@ class Ha(object):
             return 'Error communicating with PostgreSQL. Will try again later'
         finally:
             if not dcs_failed:
-                self.touch_member()
+                if not self.touch_member() and not self.is_leader():
+                    self.dcs.reset_cluster()
 
     def run_cycle(self):
         with self._async_executor:
