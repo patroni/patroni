@@ -445,6 +445,31 @@ def parse_scheduled(scheduled):
     return None
 
 
+@ctl.command('reload', help='Reload cluster member configuration')
+@click.argument('cluster_name')
+@click.argument('member_names', nargs=-1)
+@click.option('--role', '-r', help='Reload only members with this role', default='any',
+              type=click.Choice(['master', 'replica', 'any']))
+@option_force
+@click.pass_obj
+def reload(obj, cluster_name, member_names, force, role):
+    cluster = get_dcs(obj, cluster_name).get_cluster()
+
+    members = get_members(cluster, cluster_name, member_names, role, force, 'reload')
+
+    content = {}
+    for member in members:
+        r = request_patroni(member, 'post', 'reload', content, auth_header(obj))
+        if r.status_code == 200:
+            click.echo('Success: reload on member {0}'.format(member.name))
+        elif r.status_code == 202:
+            click.echo('Success: reload scheduled on member {0}'.format(member.name))
+        else:
+            click.echo('Failed: reload for member {0}, status code={1}, ({2})'.format(
+                member.name, r.status_code, r.text)
+            )
+
+
 @ctl.command('restart', help='Restart cluster member')
 @click.argument('cluster_name')
 @click.argument('member_names', nargs=-1)
