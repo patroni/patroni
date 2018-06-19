@@ -461,7 +461,7 @@ def reload(obj, cluster_name, member_names, force, role):
     for member in members:
         r = request_patroni(member, 'post', 'reload', content, auth_header(obj))
         if r.status_code == 200:
-            click.echo('Success: reload on member {0}'.format(member.name))
+            click.echo('No changes to apply on member {0}'.format(member.name))
         elif r.status_code == 202:
             click.echo('Success: reload scheduled on member {0}'.format(member.name))
         else:
