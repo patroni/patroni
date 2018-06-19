@@ -463,7 +463,9 @@ def reload(obj, cluster_name, member_names, force, role):
         if r.status_code == 200:
             click.echo('No changes to apply on member {0}'.format(member.name))
         elif r.status_code == 202:
-            click.echo('Success: reload scheduled on member {0}'.format(member.name))
+            click.echo('Reload request received for member {0} and will be processed within {1} seconds'.format(
+                member.name, cluster.config.data.get('loop_wait'))
+            )
         else:
             click.echo('Failed: reload for member {0}, status code={1}, ({2})'.format(
                 member.name, r.status_code, r.text)
