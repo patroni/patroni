@@ -37,7 +37,7 @@ class CoreV1ApiProxy(object):
         self._use_endpoints = use_endpoints
 
     def set_timeout(self, timeout):
-        self._request_timeout = (1, timeout / 3.0)
+        self._request_timeout = timeout / 2.0
 
     def __getattr__(self, func):
         if func.endswith('_kind'):
