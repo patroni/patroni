@@ -835,10 +835,12 @@ class Postgresql(object):
 
         OPTIONS_MAPPING = {
             'max_connections': 'max_connections setting',
-            'max_worker_processes': 'max_worker_processes setting',
             'max_prepared_transactions': 'max_prepared_xacts setting',
             'max_locks_per_transaction': 'max_locks_per_xact setting'
         }
+
+        if self._major_version >= 90400:
+            OPTIONS_MAPPING['max_worker_processes'] = 'max_worker_processes setting'
 
         data = self.controldata()
         effective_configuration = self._server_parameters.copy()
