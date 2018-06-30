@@ -19,6 +19,9 @@ WorkingDirectory=~
 
 ExecStart=/bin/patroni /etc/patroni.yml
 
+# Send HUP to reload from patroni.yml
+ExecReload=/bin/kill -s HUP $MAINPID
+
 # only kill the patroni process, not it's children, so it will gracefully stop postgres
 KillMode=process
 
