@@ -136,8 +136,8 @@ PostgreSQL
 
 REST API
 -------- 
--  **connect\_address**: IP address and port to access the REST API.
--  **listen**: IP address and port that Patroni will listen to, to provide health-check information for HAProxy.
+-  **connect\_address**: IP address (or hostname) and port, to access the Patroni's REST API. It can serve as a endpoint for health checks (read below about the "listen" REST API parameter), and also for user queries (either directly or via the REST API), as well as for the health checks done by the cluster members during leader elections (for example, to determine whether the master is still running, or if there is a node which has a WAL position that is ahead of the one doing the query; etc.) The connect_address is put in the member key in DCS, making it possible to translate the member name into the address to connect to its REST API.
+-  **listen**: IP address (or hostname) and port that Patroni will listen to for the REST API - to provide also the same health checks and cluster messaging between the participating nodes, as described above.    
 -  **Optional**:
         -  **authentication**:
             -  **username**: Basic-auth username to protect unsafe REST API endpoints.
