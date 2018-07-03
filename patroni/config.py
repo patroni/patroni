@@ -152,12 +152,17 @@ class Config(object):
             try:
                 configuration = self._load_config_file()
                 if not deep_compare(self._local_configuration, configuration):
+                    # This returns false postiive when local config item is removed but DCS config is same value
+                    # * In that case, there should be a "no items changed" message
+                    logger.info('Configuration items changed, reloading local configuration.')
                     new_configuration = self._build_effective_configuration(self._dynamic_configuration, configuration)
                     if dry_run:
                         return not deep_compare(new_configuration, self.__effective_configuration)
                     self._local_configuration = configuration
                     self.__effective_configuration = new_configuration
                     return True
+                else:
+                    logger.info('No configuration items changed, nothing to reload.')
             except Exception:
                 logger.exception('Exception when reloading local configuration from %s', self.config_file)
                 if dry_run:
