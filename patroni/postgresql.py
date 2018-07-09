@@ -375,7 +375,10 @@ class Postgresql(object):
             self._replace_pg_hba()
 
         if conf_changed or hba_changed:
+            logger.info('Configuration items changed, reloading configuration.')
             self.reload()
+        else:
+            logger.info('No configuration items changed, nothing to reload.')
 
         self._is_leader_retry.deadline = self.retry.deadline = config['retry_timeout']/2.0
 
