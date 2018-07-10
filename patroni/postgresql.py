@@ -335,10 +335,12 @@ class Postgresql(object):
                         if new_value is None or not compare_values(r[3], unit, r[1], new_value):
                             if r[4] == 'postmaster':
                                 pending_restart = True
+                                logger.info('Changed %s from %s to %s (restart required)', r[0], r[1], new_value)
                                 if config.get('use_unix_socket') and r[0] == 'unix_socket_directories'\
                                         or r[0] in ('listen_addresses', 'port'):
                                     local_connection_address_changed = True
                             else:
+                                logger.info('Changed %s from %s to %s', r[0], r[1], new_value)
                                 conf_changed = True
                 for param in changes:
                     if param in server_parameters:
@@ -349,11 +351,13 @@ class Postgresql(object):
             if not conf_changed:
                 for p, v in server_parameters.items():
                     if '.' in p and (p not in self._server_parameters or str(v) != str(self._server_parameters[p])):
+                        logger.info('Changed %s from %s to %s', p, self._server_parameters.get(p), v)
                         conf_changed = True
                         break
                 if not conf_changed:
                     for p, v in self._server_parameters.items():
                         if '.' in p and (p not in server_parameters or str(v) != str(server_parameters[p])):
+                            logger.info('Changed %s from %s to %s', p, v, server_parameters.get(p))
                             conf_changed = True
                             break
 
@@ -375,10 +379,10 @@ class Postgresql(object):
             self._replace_pg_hba()
 
         if conf_changed or hba_changed:
-            logger.info('Configuration items changed, reloading configuration.')
+            logger.info('PostgreSQL configuration items changed, reloading configuration.')
             self.reload()
-        else:
-            logger.info('No configuration items changed, nothing to reload.')
+        elif not pending_restart:
+            logger.info('No PostgreSQL configuration items changed, nothing to reload.')
 
         self._is_leader_retry.deadline = self.retry.deadline = config['retry_timeout']/2.0
 
