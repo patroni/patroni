@@ -1168,7 +1168,6 @@ class Ha(object):
             if not self.state_handler.is_running():
                 if self.has_lock():
                     self.dcs.delete_leader()
-                self.state_handler.set_state('stopped')
                 self.touch_member()
             else:
                 # XXX: what about when Patroni is started as the wrong user that has access to the watchdog device
