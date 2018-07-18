@@ -23,7 +23,7 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     && apt-get clean -y \
     && rm -rf /var/lib/apt/lists/* /root/.cache
 
-ENV ETCDVERSION 3.0.17
+ENV ETCDVERSION 3.2.23
 RUN curl -L https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v${ETCDVERSION}-linux-amd64.tar.gz \
     | tar xz -C /usr/local/bin --strip=1 --wildcards --no-anchored etcd etcdctl
 
