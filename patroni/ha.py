@@ -1168,6 +1168,7 @@ class Ha(object):
             if not self.state_handler.is_running():
                 if self.has_lock():
                     self.dcs.delete_leader()
+                self.touch_member()
             else:
                 # XXX: what about when Patroni is started as the wrong user that has access to the watchdog device
                 # but cannot shut down PostgreSQL. Root would be the obvious example. Would be nice to not kill the
