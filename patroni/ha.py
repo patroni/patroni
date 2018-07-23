@@ -597,10 +597,10 @@ class Ha(object):
                 PostgreSQL as quickly as possible without regard for data durability. May only be called synchronously.
         """
         mode_control = {
-            'offline':          dict(stop='fast', checkpoint=False, release=False, offline=True, async=False),
-            'graceful':         dict(stop='fast', checkpoint=True, release=True, offline=False, async=False),
-            'immediate':        dict(stop='immediate', checkpoint=False, release=True, offline=False, async=True),
-            'immediate-nolock': dict(stop='immediate', checkpoint=False, release=False, offline=False, async=True),
+            'offline':          dict(stop='fast', checkpoint=False, release=False, offline=True, async_req=False),
+            'graceful':         dict(stop='fast', checkpoint=True, release=True, offline=False, async_req=False),
+            'immediate':        dict(stop='immediate', checkpoint=False, release=True, offline=False, async_req=True),
+            'immediate-nolock': dict(stop='immediate', checkpoint=False, release=False, offline=False, async_req=True),
         }[mode]
 
         self.state_handler.trigger_check_diverged_lsn()
@@ -620,7 +620,7 @@ class Ha(object):
         # FIXME: with mode offline called from DCS exception handler and handle_long_action_in_progress
         # there could be an async action already running, calling follow from here will lead
         # to racy state handler state updates.
-        if mode_control['async']:
+        if mode_control['async_req']:
             self._async_executor.schedule('starting after demotion')
             self._async_executor.run_async(self.state_handler.follow, (node_to_follow,))
         else:
