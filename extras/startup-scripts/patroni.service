@@ -11,6 +11,9 @@ Type=simple
 User=postgres
 Group=postgres
 
+# Read in configuration file if it exists, otherwise proceed
+EnvironmentFile=-/etc/patroni_env.conf
+
 WorkingDirectory=~
 
 # Where to send early-startup messages from the server
