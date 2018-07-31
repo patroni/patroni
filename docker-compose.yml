@@ -15,7 +15,7 @@ dbnode1:
         - ./patroni:/patroni
     env_file: docker/patroni-secrets.env
     environment:
-        PATRONI_ETCD_HOST: patroni_etcd:2379
+        PATRONI_ETCD_URL: http://patroni_etcd:2379
         PATRONI_NAME: dbnode1
         PATRONI_SCOPE: testcluster
 
@@ -28,7 +28,7 @@ dbnode2:
         - ./patroni:/patroni
     env_file: docker/patroni-secrets.env
     environment:
-        PATRONI_ETCD_HOST: patroni_etcd:2379
+        PATRONI_ETCD_URL: http://patroni_etcd:2379
         PATRONI_NAME: dbnode2
         PATRONI_SCOPE: testcluster
 
@@ -41,7 +41,7 @@ dbnode3:
         - ./patroni:/patroni
     env_file: docker/patroni-secrets.env
     environment:
-        PATRONI_ETCD_HOST: patroni_etcd:2379
+        PATRONI_ETCD_URL: http://patroni_etcd:2379
         PATRONI_NAME: dbnode3
         PATRONI_SCOPE: testcluster
 
@@ -53,6 +53,6 @@ haproxy:
         - "5000:5000"
         - "5001:5001"
     environment:
-        PATRONI_ETCD_HOST: patroni_etcd:2379
+        PATRONI_ETCD_URL: http://patroni_etcd:2379
         PATRONI_SCOPE: testcluster
     command: --confd

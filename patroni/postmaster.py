@@ -42,7 +42,8 @@ class PostmasterProcess(psutil.Process):
         try:
             start_time = int(self._postmaster_pid.get('start_time', 0))
             if start_time and abs(self.create_time() - start_time) > 3:
-                logger.info('Too much difference between %s and %s', self.create_time(), start_time)
+                logger.info('Process %s is not postmaster, too much difference between PID file start time %s and '
+                            'process start time %s', self.pid, self.create_time(), start_time)
                 return False
         except ValueError:
             logger.warning('Garbage start time value in pid file: %r', self._postmaster_pid.get('start_time'))
@@ -148,6 +149,7 @@ class PostmasterProcess(psutil.Process):
                 # Important!!! Unlink of postmaster.pid isn't an option, because it has a lot of nasty race conditions.
                 # Luckily there is a workaround to this problem, we can pass the pid from postmaster.pid
                 # in the `PG_GRANDPARENT_PID` environment variable and postmaster will ignore it.
+                logger.info("Telling pg_ctl that it is safe to ignore postmaster.pid for process %s", proc.pid)
                 env['PG_GRANDPARENT_PID'] = str(proc.pid)
         except psutil.NoSuchProcess:
             pass
