@@ -1161,8 +1161,7 @@ class Ha(object):
             return 'Error communicating with PostgreSQL. Will try again later'
         finally:
             if not dcs_failed:
-                if not self.touch_member() and not self.is_leader():
-                    self.dcs.reset_cluster()
+                self.touch_member()
 
     def run_cycle(self):
         with self._async_executor:
