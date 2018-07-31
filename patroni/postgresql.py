@@ -179,6 +179,8 @@ class Postgresql(object):
             self._write_postgresql_conf()  # we are "joining" already running postgres
             if self._replace_pg_hba():
                 self.reload()
+        elif self.role == 'master':
+            self.set_role('demoted')
 
     @property
     def _create_replica_methods(self):
