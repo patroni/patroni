@@ -1113,8 +1113,13 @@ class Ha(object):
                         self.dcs.delete_leader()
                         self.dcs.reset_cluster()
                         return 'removed leader lock because postgres is not running'
-                    elif not (self.state_handler.rewind_executed or
-                              self.state_handler.need_rewind and self.state_handler.can_rewind):
+                    # Normally we don't start Postgres in a paused state. We make an exception for the demoted primary
+                    # that needs to be started after it had been stopped by demote. When there is no need to call rewind
+                    # the demote code follows through to starting Postgres right away, however, in the rewind case
+                    # it returns from demote and reaches this point to start PostgreSQL again after rewind. In that
+                    # case it makes no sense to continue to recover() unless rewind has finished successfully.
+                    elif (self.state_handler.rewind_failed or
+                          not (self.state_handler.need_rewind and self.state_handler.can_rewind)):
                         return 'postgres is not running'
 
                 # try to start dead postgres
