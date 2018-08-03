@@ -1405,6 +1405,10 @@ class Postgresql(object):
     def rewind_executed(self):
         return self._rewind_state > REWIND_STATUS.NOT_NEED
 
+    @property
+    def rewind_failed(self):
+        return self._rewind_state == REWIND_STATUS.FAILED
+
     def follow(self, member, timeout=None):
         primary_conninfo = self.primary_conninfo(member)
         change_role = self.role in ('master', 'demoted')

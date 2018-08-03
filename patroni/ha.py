@@ -597,10 +597,10 @@ class Ha(object):
                 PostgreSQL as quickly as possible without regard for data durability. May only be called synchronously.
         """
         mode_control = {
-            'offline':          dict(stop='fast', checkpoint=False, release=False, offline=True, async=False),
-            'graceful':         dict(stop='fast', checkpoint=True, release=True, offline=False, async=False),
-            'immediate':        dict(stop='immediate', checkpoint=False, release=True, offline=False, async=True),
-            'immediate-nolock': dict(stop='immediate', checkpoint=False, release=False, offline=False, async=True),
+            'offline':          dict(stop='fast', checkpoint=False, release=False, offline=True, async_req=False),
+            'graceful':         dict(stop='fast', checkpoint=True, release=True, offline=False, async_req=False),
+            'immediate':        dict(stop='immediate', checkpoint=False, release=True, offline=False, async_req=True),
+            'immediate-nolock': dict(stop='immediate', checkpoint=False, release=False, offline=False, async_req=True),
         }[mode]
 
         self.state_handler.trigger_check_diverged_lsn()
@@ -620,7 +620,7 @@ class Ha(object):
         # FIXME: with mode offline called from DCS exception handler and handle_long_action_in_progress
         # there could be an async action already running, calling follow from here will lead
         # to racy state handler state updates.
-        if mode_control['async']:
+        if mode_control['async_req']:
             self._async_executor.schedule('starting after demotion')
             self._async_executor.run_async(self.state_handler.follow, (node_to_follow,))
         else:
@@ -1113,8 +1113,13 @@ class Ha(object):
                         self.dcs.delete_leader()
                         self.dcs.reset_cluster()
                         return 'removed leader lock because postgres is not running'
-                    elif not (self.state_handler.rewind_executed or
-                              self.state_handler.need_rewind and self.state_handler.can_rewind):
+                    # Normally we don't start Postgres in a paused state. We make an exception for the demoted primary
+                    # that needs to be started after it had been stopped by demote. When there is no need to call rewind
+                    # the demote code follows through to starting Postgres right away, however, in the rewind case
+                    # it returns from demote and reaches this point to start PostgreSQL again after rewind. In that
+                    # case it makes no sense to continue to recover() unless rewind has finished successfully.
+                    elif (self.state_handler.rewind_failed or
+                          not (self.state_handler.need_rewind and self.state_handler.can_rewind)):
                         return 'postgres is not running'
 
                 # try to start dead postgres
@@ -1168,6 +1173,7 @@ class Ha(object):
             if not self.state_handler.is_running():
                 if self.has_lock():
                     self.dcs.delete_leader()
+                self.touch_member()
             else:
                 # XXX: what about when Patroni is started as the wrong user that has access to the watchdog device
                 # but cannot shut down PostgreSQL. Root would be the obvious example. Would be nice to not kill the
