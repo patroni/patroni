@@ -134,6 +134,37 @@ class RestApiHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(502)
 
+    def do_GET_leader_exists(self):
+        cluster = (
+            self.server.patroni.dcs.cluster or
+            self.server.patroni.dcs.get_cluster()
+        )
+        pg = self.server.patroni.postgresql
+        ha = self.server.patroni.ha
+
+        def response(result, reason=None):
+            data = {
+                "name": pg.name,
+                "result": result,
+            }
+
+            if reason:
+                data["reason"] = reason
+
+            self._write_status_response(200, data)
+
+        if cluster.is_unlocked():
+            return response(False, "cluster is unlocked")
+
+        leader_status = ha.fetch_node_status(cluster.leader.member)
+        if not leader_status.reachable:
+            return response(False, "leader is not reachable")
+
+        if leader_status.in_recovery:
+            return response(False, "leader is in recovery")
+
+        return response(True)
+
     def _read_json_content(self, body_is_optional=False):
         if 'content-length' not in self.headers:
             return self.send_error(411) if not body_is_optional else {}
@@ -395,6 +426,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         Original class can only invoke do_GET, do_POST, do_PUT, etc method implementations if they are defined.
         But we would like to have at least some simple routing mechanism, i.e.:
         GET /uri1/part2 request should invoke `do_GET_uri1()`
+        GET /long-uri2 request should invoke `do_GET_long_uri2()`
         POST /other should invoke `do_POST_other()`
 
         If the `do_<REQUEST_METHOD>_<first_part_url>` method does not exists we'll fallback to original behavior."""
@@ -402,6 +434,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         ret = BaseHTTPRequestHandler.parse_request(self)
         if ret:
             mname = self.path.lstrip('/').split('/')[0]
+            mname = mname.replace("-", "_")
             mname = self.command + ('_' + mname if mname else '')
             if hasattr(self, 'do_' + mname):
                 self.command = mname
