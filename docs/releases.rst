@@ -3,6 +3,70 @@
 Release notes
 =============
 
+Version 1.4.5
+-------------
+
+**New features**
+
+- Improve logging when applying new postgres configuration (Don Seiler)
+
+  Patroni logs changed parameter names and values.
+
+- Python 3.7 compatibility (Christoph Berg)
+
+  async is a reserved keyword in python3.7
+
+- Set state to "stopped" in the DCS when a member is shut down (Tony Sorrentino)
+
+  This shows the member state as "stopped" in "patronictl list" command.
+
+- Improve the message logged when stale postmaster.pid matches a running process (Ants Aasma)
+
+  The previous one was beyond confusing.
+
+- Implement patronictl reload functionality (Don Seiler)
+
+  Before that it was only possible to reload configuration by either calling REST API or by sending SIGHUP signal to the Patroni process.
+
+- Take and apply some parameters from controldata when starting as a replica (Alexander Kukushkin)
+
+  The value of `max_connections` and some other parameters set in the global configuration may be lower than the one actually used by the primary; when this happens, the replica cannot start and should be fixed manually. Patroni takes care of that now by reading and applying the value from  `pg_controldata`, starting postgres and setting `pending_restart` flag.
+
+- If set, use LD_LIBRARY_PATH when starting postgres (Chris Fraser)
+
+  When starting up Postgres, Patroni was passing along PATH, LC_ALL and LANG env vars if they are set. Now it is doing the same with LD_LIBRARY_PATH. It should help if somebody installed PostgreSQL to non-standard place.
+
+- Rename create_replica_method to create_replica_methods (Dmitry Dolgov)
+
+  To make it clear that it's actually an array. The old name is still supported for backward compatibility.
+
+**Bug fixes and stability improvements**
+
+- Fix condition for the replica start due to pg_rewind in paused state (Oleksii  Kliukin)
+
+  Avoid starting the replica that had already executed pg_rewind before.
+
+- Respond 200 to the master health-check only if update_lock has been successful (Alexander)
+
+  Prevent Patroni from reporting itself a master on the former (demoted) master if DCS is partitioned.
+
+- Fix compatibility with the new consul module (Alexander)
+
+  Starting from v1.1.0 python-consul changed internal API and started using `list` instead of `dict` to pass query parameters.
+
+- Catch exceptions from Patroni REST API thread during shutdown (Alexander)
+
+  Those uncaught exceptions kept PostgreSQL running at shutdown.
+
+- Do crash recovery only when Postgres runs as the master (Alexander)
+
+  Require `pg_controldata` to report  'in production' or 'shutting down' or 'in crash recovery'. In all other cases no crash recovery is necessary.
+
+- Improve handling of configuration errors (Henning Jacobs, Alexander)
+
+  It is possible to change a lot of parameters in runtime (including `restapi.listen`) by updating Patroni config file and sending SIGHUP to Patroni process. This fix eliminates obscure exceptions from the 'restapi' thread when some of the parameters receive invalid values.
+
+
 Version 1.4.4
 -------------
 
