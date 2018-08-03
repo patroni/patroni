@@ -56,7 +56,7 @@ Version 1.4.5
 
 - Catch exceptions from REST API thread during shutdown (Alexander)
 
- If such exceptions were not handled properly it was casing postgres to stay running.
+  If such exceptions were not handled properly it was casing postgres to stay running.
 
 - Do crash recovery only when we sure that postgres was running as master (Alexander)
 
