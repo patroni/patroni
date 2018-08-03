@@ -92,7 +92,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             return response.get('role') == 'replica' and not patroni.noloadbalance
 
         if cluster:  # dcs available
-            if cluster.leader and cluster.leader.name == patroni.postgresql.name:  # is_leader
+            if patroni.ha.is_leader():
                 status_code = 200 if 'master' in path else 503
             elif 'role' not in response:
                 status_code = 503
