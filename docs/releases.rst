@@ -8,9 +8,9 @@ Version 1.4.5
 
 **New features**
 
-- Improve logging when applying the new postgres configuration (Don Seiler)
+- Improve logging when applying new postgres configuration (Don Seiler)
 
-  Patroni log will contain what parameters were changed including the old and new values.
+  Patroni logs changed parameter names and values.
 
 - Python 3.7 compatibility (Christoph Berg)
 
@@ -18,27 +18,27 @@ Version 1.4.5
 
 - Set state to "stopped" in the DCS when a member is shut down (Tony Sorrentino)
 
-  This will allow the member to show as "stopped" when viewed through a "patronictl list" command.
+  This shows the member state as "stopped" in "patronictl list" command.
 
-- Improve logging when stale postmaster.pid matches running process (Ants Aasma)
+- Improve the message logged when stale postmaster.pid matches a running process (Ants Aasma)
 
-  The previous informational message logged was beyond confusing.
+  The previous one was beyond confusing.
 
 - Implement patronictl reload functionality (Don Seiler)
 
   Before that it was only possible to reload configuration by either calling REST API or by sending SIGHUP signal to the Patroni process.
 
-- Take and apply some parameters from controldata when starting as replica (Alexander Kukushkin)
+- Take and apply some parameters from controldata when starting as a replica (Alexander Kukushkin)
 
-  It might happen that the value for example `max_connections` in the global configuration is not set high enough, what makes impossible to start a replica without human intervention. Patroni will take the current value from `pg_controldata`, start postgres and set `pending_restart` flag.
+  The value of `max_connections` and some other parameters set in the global configuration may be lower than the one actually used by the primary; when this happens, the replica cannot start and should be fixed manually. Patroni takes care of that now by reading and applying the value from  `pg_controldata`, starting postgres and setting `pending_restart` flag.
 
 - If set, use LD_LIBRARY_PATH when starting postgres (Chris Fraser)
 
-  When starting up Postgres, Patroni was passing along PATH, LC_ALL and LANG env vars if they are set. Now it is doing the same with LD_LIBRARY_PATH. It should help if somebody installed PostgreSQL to non-standrd place.
+  When starting up Postgres, Patroni was passing along PATH, LC_ALL and LANG env vars if they are set. Now it is doing the same with LD_LIBRARY_PATH. It should help if somebody installed PostgreSQL to non-standard place.
 
 - Rename create_replica_method to create_replica_methods (Dmitry Dolgov)
 
-  To make it clear that it's actually an array. The old name still supported for backward compatibility.
+  To make it clear that it's actually an array. The old name is still supported for backward compatibility.
 
 **Bug fixes and stability improvements**
 
@@ -46,25 +46,25 @@ Version 1.4.5
 
   Avoid starting the replica that had already executed pg_rewind before.
 
-- Respond 200 to the master health-check only if update_lock was successful (Alexander)
+- Respond 200 to the master health-check only if update_lock has been successful (Alexander)
 
-  Postgres on the former leader was running as read-only, but Patroni was still responding 200.
+  Prevent Patroni from reporting itself a master on the former (demoted) master if DCS is partitioned.
 
 - Fix compatibility with the new consul module (Alexander)
 
   Starting from v1.1.0 python-consul changed internal API and started using `list` instead of `dict` to pass query parameters.
 
-- Catch exceptions from REST API thread during shutdown (Alexander)
+- Catch exceptions from Patroni REST API thread during shutdown (Alexander)
 
-  If such exceptions were not handled properly it was casing postgres to stay running.
+  Those uncaught exceptions kept PostgreSQL running at shutdown.
 
-- Do crash recovery only when we sure that postgres was running as master (Alexander)
+- Do crash recovery only when Postgres runs as the master (Alexander)
 
-  In such case `pg_controldata` reports either 'in production' or 'shutting down' or 'in crash recovery'. In all other cases instance was running as a replica and no crash recovery needed.
+  Require `pg_controldata` to report  'in production' or 'shutting down' or 'in crash recovery'. In all other cases no crash recovery is necessary.
 
 - Improve handling of configuration errors (Henning Jacobs, Alexander)
 
-  It is possible to change a lot of parameters in runtime (including `restapi.listen`) by updating Patroni config file and sending SIGHUP to Patroni process. If something was misconfigured it was throwing a weird exception and breaking `restapi` thread.
+  It is possible to change a lot of parameters in runtime (including `restapi.listen`) by updating Patroni config file and sending SIGHUP to Patroni process. This fix eliminates obscure exceptions from the 'restapi' thread when some of the parameters receive invalid values.
 
 
 Version 1.4.4
