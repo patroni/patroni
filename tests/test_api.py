@@ -46,6 +46,20 @@ class MockWatchdog(object):
     is_healthy = False
 
 
+class MockCluster(object):
+    leader = Mock()
+    sync = Mock()
+
+    def is_unlocked(self):
+        return False
+
+
+class MockDCS(object):
+    cluster = MockCluster()
+
+    def get_cluster(self):
+        return self.cluster
+
 class MockHa(object):
 
     state_handler = MockPostgresql()
@@ -97,7 +111,7 @@ class MockPatroni(object):
     ha = MockHa()
     config = Mock()
     postgresql = ha.state_handler
-    dcs = Mock()
+    dcs = MockDCS()
     tags = {}
     version = '0.00'
     noloadbalance = PropertyMock(return_value=False)

@@ -444,7 +444,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 'postmaster_start_time': row[0],
                 'role': 'replica' if row[1] == 0 else 'master',
                 'server_version': self.server.patroni.postgresql.server_version,
-                'cluster_unlocked': cluster.is_unlocked(),
+                'cluster_unlocked': not cluster or cluster.is_unlocked(),
                 'xlog': ({
                     'received_location': row[3],
                     'replayed_location': row[4],
