@@ -415,10 +415,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     def get_postgresql_status(self, retry=False):
         try:
-            cluster = (
-                self.server.patroni.dcs.cluster or
-                self.server.patroni.dcs.get_cluster()
-            )
+            cluster = self.server.patroni.dcs.cluster
 
             if self.server.patroni.postgresql.state not in ('running', 'restarting', 'starting'):
                 raise RetryFailedError('')
@@ -444,7 +441,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 'postmaster_start_time': row[0],
                 'role': 'replica' if row[1] == 0 else 'master',
                 'server_version': self.server.patroni.postgresql.server_version,
-                'cluster_unlocked': not cluster or cluster.is_unlocked(),
+                'cluster_unlocked': bool(not cluster or cluster.is_unlocked()),
                 'xlog': ({
                     'received_location': row[3],
                     'replayed_location': row[4],
