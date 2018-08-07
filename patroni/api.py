@@ -454,7 +454,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
             if row[1] > 0:
                 result['timeline'] = row[1]
             else:
-                cluster = self.server.patroni.dcs.cluster
                 leader_timeline = None if not cluster or cluster.is_unlocked() else cluster.leader.timeline
                 result['timeline'] = self.server.patroni.postgresql.replica_cached_timeline(leader_timeline)
 
