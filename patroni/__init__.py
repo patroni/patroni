@@ -1,4 +1,5 @@
 import logging
+import platform
 import os
 import signal
 import sys
@@ -125,7 +126,8 @@ class Patroni(object):
     def setup_signal_handlers(self):
         self._received_sighup = False
         self._received_sigterm = False
-        signal.signal(signal.SIGHUP, self.sighup_handler)
+        if platform.system() == 'Linux':
+            signal.signal(signal.SIGHUP, self.sighup_handler)
         signal.signal(signal.SIGTERM, self.sigterm_handler)
 
     def shutdown(self):
@@ -197,7 +199,8 @@ def main():
             os.kill(pid, signo)
 
     signal.signal(signal.SIGCHLD, sigchld_handler)
-    signal.signal(signal.SIGHUP, passtochild)
+    if platform.system() == 'Linux':
+        signal.signal(signal.SIGHUP, passtochild)
     signal.signal(signal.SIGINT, passtochild)
     signal.signal(signal.SIGUSR1, passtochild)
     signal.signal(signal.SIGUSR2, passtochild)
