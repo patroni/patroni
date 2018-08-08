@@ -1,6 +1,5 @@
 import collections
 import ctypes
-import fcntl
 import os
 import platform
 from patroni.watchdog.base import WatchdogBase, WatchdogError
@@ -162,6 +161,7 @@ class LinuxWatchdogDevice(WatchdogBase):
         Raises OSError or IOError (Python 2) when the ioctl fails."""
         if self._fd is None:
             raise WatchdogError("Watchdog device is closed")
+        import fcntl
         fcntl.ioctl(self._fd, func, arg, True)
 
     def get_support(self):
