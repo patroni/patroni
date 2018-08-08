@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 STOP_SIGNALS = {
     'smart': signal.SIGTERM,
     'fast': signal.SIGINT,
-    'immediate': signal.SIGQUIT,
+    'immediate': signal.SIGABRT,
 }
 
 

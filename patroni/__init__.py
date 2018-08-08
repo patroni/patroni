@@ -201,7 +201,7 @@ def main():
     signal.signal(signal.SIGINT, passtochild)
     signal.signal(signal.SIGUSR1, passtochild)
     signal.signal(signal.SIGUSR2, passtochild)
-    signal.signal(signal.SIGQUIT, passtochild)
+    signal.signal(signal.SIGABRT, passtochild)
     signal.signal(signal.SIGTERM, passtochild)
 
     patroni = call_self(sys.argv[1:])
