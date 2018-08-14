@@ -2,6 +2,7 @@ import time
 
 from behave import step
 
+from features.steps.cascading_replication import check_dcs_key
 
 select_replication_query = """
 SELECT * FROM pg_catalog.pg_stat_replication
@@ -10,10 +11,6 @@ WHERE application_name = '{0}'
 
 create_replication_slot_query = """
 SELECT pg_create_physical_replication_slot('{0}')
-"""
-
-create_role_query = """
-CREATE ROLE {} WITH REPLICATION
 """
 
 
@@ -79,10 +76,6 @@ def create_replication_slot(context, slot_name, pg_name):
         fail_ok=True
     )
 
-@step('I create a role {role_name:w} on {pg_name:w}')
-def create_role(context, role_name, pg_name):
-    return context.pctl.query(
-        pg_name,
-        create_role_query.format(role_name),
-        fail_ok=True
-    )
+@step('DCS for {cluster:w} has {path:w}={value:w} after {time_limit:d} seconds')
+def check_member(context, cluster, path, value, time_limit):
+    return check_dcs_key(context, path, value, time_limit, scope=cluster)

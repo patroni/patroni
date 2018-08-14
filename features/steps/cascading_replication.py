@@ -3,6 +3,22 @@ import time
 
 from behave import step, then
 
+def check_dcs_key(context, path, value, time_limit, key=None, scope=None):
+    time_limit *= context.timeout_multiplier
+    max_time = time.time() + int(time_limit)
+    while time.time() < max_time:
+        try:
+            response = json.loads(context.dcs_ctl.query(path, scope))
+            if response.get(key) == value:
+                return
+        except json.decoder.JSONDecodeError:
+            if context.dcs_ctl.query(path, scope) == value:
+                return
+        except Exception:
+            pass
+        time.sleep(1)
+    assert False, "{0} does not have {1}={2} in dcs after {3} seconds".format(path, key, value, time_limit)
+
 
 @step('I configure and start {name:w} with a tag {tag_name:w} {tag_value:w}')
 def start_patroni_with_a_name_value_tag(context, name, tag_name, tag_value):
@@ -22,14 +38,4 @@ def write_label(context, content, name):
 
 @step('"{name}" key in DCS has {key:w}={value:w} after {time_limit:d} seconds')
 def check_member(context, name, key, value, time_limit):
-    time_limit *= context.timeout_multiplier
-    max_time = time.time() + int(time_limit)
-    while time.time() < max_time:
-        try:
-            response = json.loads(context.dcs_ctl.query(name))
-            if response.get(key) == value:
-                return
-        except Exception:
-            pass
-        time.sleep(1)
-    assert False, "{0} does not have {1}={2} in dcs after {3} seconds".format(name, key, value, time_limit)
+    return check_dcs_key(context, name, value, time_limit, key=key)
