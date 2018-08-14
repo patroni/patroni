@@ -3,6 +3,23 @@
 Release notes
 =============
 
+Version 1.4.6
+-------------
+
+**Bug fixes and stability improvements**
+
+This release fixes a critical issue with Patroni API /master endpoint returning 200 for the non-master node. This is a
+reporting issue, no actual split-brain, but under certain circumstances clients might be directed to the read-only node.
+
+- Reset is_leader status on demote (Alexander Kukushkin, Oleksii Kliukin)
+
+  Make sure demoted cluster member stops responding with code 200 on the /master API call.
+
+- Add new "cluster_unlocked" field to the API output (Dmitry Dolgov)
+
+  This field indicates whether the cluster has the master running. It can be used when it is not possible to query any
+  other node but one of the replicas.
+
 Version 1.4.5
 -------------
 
