@@ -13,7 +13,6 @@ from collections import namedtuple
 from patroni.exceptions import PatroniException
 from patroni.utils import parse_bool
 from random import randint
-from patroni.common_config import is_standby_cluster
 from six.moves.urllib_parse import urlparse, urlunparse, parse_qsl
 from threading import Event, Lock
 
@@ -131,7 +130,7 @@ class Member(namedtuple('Member', 'index,name,session,data')):
         ret = self.data.get('conn_kwargs')
         if ret:
             defaults.update(ret)
-            ret = defaults.copy()
+            ret = defaults
         else:
             r = urlparse(self.conn_url)
             ret = {
@@ -652,3 +651,14 @@ class AbstractDCS(object):
 
         self.event.wait(timeout)
         return self.event.isSet()
+
+
+def is_standby_cluster(config):
+    """ Check whether or not provided configuration describes a standby cluster.
+        Config can be both patroni config or cluster.config.data
+    """
+    return isinstance(config, dict) and (
+        config.get('host') or
+        config.get('port') or
+        config.get('restore_command')
+    )

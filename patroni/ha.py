@@ -214,9 +214,9 @@ class Ha(object):
             from a remote master and start follow it.
         """
         patroni_config = self.patroni.config.dynamic_configuration
-        clone_target = self.get_remote_master(patroni_config)
-        msg = 'clone from remote master {0}'.format(clone_target.conn_url)
-        result = self.clone(clone_target, msg)
+        clone_source = self.get_remote_master(patroni_config)
+        msg = 'clone from remote master {0}'.format(clone_source.conn_url)
+        result = self.clone(clone_source, msg)
         self._post_bootstrap_task.complete(result)
         if result:
             self.state_handler.set_role('standby_leader')
@@ -1091,9 +1091,6 @@ class Ha(object):
         self._start_timeout = value
 
     def _run_cycle(self):
-        if self._stop is True:
-            return
-
         dcs_failed = False
         try:
             self.state_handler.reset_cluster_info_state()
