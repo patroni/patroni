@@ -2,7 +2,6 @@ import time
 
 from behave import step
 
-from features.steps.cascading_replication import check_dcs_key
 
 select_replication_query = """
 SELECT * FROM pg_catalog.pg_stat_replication
