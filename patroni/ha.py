@@ -54,7 +54,6 @@ class _MemberStatus(namedtuple('_MemberStatus', 'member,reachable,in_recovery,wa
 class Ha(object):
 
     def __init__(self, patroni):
-        self._stop = False
         self.patroni = patroni
         self.state_handler = patroni.postgresql
         self.dcs = patroni.dcs
