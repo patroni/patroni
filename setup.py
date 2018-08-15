@@ -32,9 +32,10 @@ VERSION = read_version(MAIN_PACKAGE)
 DESCRIPTION = 'PostgreSQL High-Available orchestrator and CLI'
 LICENSE = 'The MIT License'
 URL = 'https://github.com/zalando/patroni'
-AUTHOR = 'Alexander Kukushkin, Oleksii Kliukin, Feike Steenbergen'
-AUTHOR_EMAIL = 'alexander.kukushkin@zalando.de, oleksii.kliukin@zalando.de, feike.steenbergen@zalando.de'
-KEYWORDS = 'etcd governor patroni postgresql postgres ha haproxy confd zookeeper exhibitor consul streaming replication'
+AUTHOR = 'Alexander Kukushkin, Oleksii Kliukin, Dmitrii Dolgov'
+AUTHOR_EMAIL = 'alexander.kukushkin@zalando.de, oleksii.kliukin@zalando.de, dmitrii.dolgov@zalando.de'
+KEYWORDS = 'etcd governor patroni postgresql postgres ha haproxy confd' +\
+    ' zookeeper exhibitor consul streaming replication kubernetes k8s'
 
 COVERAGE_XML = True
 COVERAGE_HTML = False
@@ -43,13 +44,16 @@ JUNIT_XML = True
 # Add here all kinds of additional classifiers as defined under
 # https://pypi.python.org/pypi?%3Aaction=list_classifiers
 CLASSIFIERS = [
-    'Development Status :: 4 - Beta',
+    'Development Status :: 5 - Production/Stable',
     'Environment :: Console',
     'Intended Audience :: Developers',
     'Intended Audience :: System Administrators',
     'License :: OSI Approved :: MIT License',
+    'Operating System :: MacOS',
     'Operating System :: POSIX :: Linux',
+    'Operating System :: POSIX :: BSD :: FreeBSD',
     'Programming Language :: Python',
+    'Programming Language :: Python :: 3',
     'Programming Language :: Python :: 2.7',
     'Programming Language :: Python :: 3.4',
     'Programming Language :: Python :: 3.5',
