@@ -62,7 +62,7 @@ class TestHTTPClient(unittest.TestCase):
 
     def test_put(self):
         self.client.put(Mock(), '/v1/session/create')
-        self.client.put(Mock(), '/v1/session/create', data='{"foo": "bar"}')
+        self.client.put(Mock(), '/v1/session/create', params=[], data='{"foo": "bar"}')
 
 
 @patch.object(consul.Consul.KV, 'get', kv_get)
