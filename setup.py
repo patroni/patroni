@@ -32,8 +32,8 @@ VERSION = read_version(MAIN_PACKAGE)
 DESCRIPTION = 'PostgreSQL High-Available orchestrator and CLI'
 LICENSE = 'The MIT License'
 URL = 'https://github.com/zalando/patroni'
-AUTHOR = 'Alexander Kukushkin, Oleksii Kliukin, Dmitrii Dolgov'
-AUTHOR_EMAIL = 'alexander.kukushkin@zalando.de, oleksii.kliukin@zalando.de, dmitrii.dolgov@zalando.de'
+AUTHOR = 'Alexander Kukushkin, Dmitrii Dolgov, Oleksii Kliukin'
+AUTHOR_EMAIL = 'alexander.kukushkin@zalando.de, dmitrii.dolgov@zalando.de, alexk@hintbits.com'
 KEYWORDS = 'etcd governor patroni postgresql postgres ha haproxy confd' +\
     ' zookeeper exhibitor consul streaming replication kubernetes k8s'
 
@@ -53,8 +53,8 @@ CLASSIFIERS = [
     'Operating System :: POSIX :: Linux',
     'Operating System :: POSIX :: BSD :: FreeBSD',
     'Programming Language :: Python',
-    'Programming Language :: Python :: 3',
     'Programming Language :: Python :: 2.7',
+    'Programming Language :: Python :: 3',
     'Programming Language :: Python :: 3.4',
     'Programming Language :: Python :: 3.5',
     'Programming Language :: Python :: 3.6',
