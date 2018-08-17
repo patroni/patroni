@@ -1560,11 +1560,13 @@ $$""".format(name, ' '.join(options)), name, password, password)
                     if cursor.rowcount != 1:  # Either slot doesn't exists or it is still active
                         self._schedule_load_slots = True  # schedule load_replication_slots on the next iteration
 
+                immediately_reserve = ', true' if self._major_version >= 90600 else ''
+
                 # create new slots
                 for slot in slots - set(self._replication_slots):
-                    self._query("""SELECT pg_create_physical_replication_slot(%s)
+                    self._query("""SELECT pg_create_physical_replication_slot(%s{0})
                                     WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots
-                                    WHERE slot_name = %s)""", slot, slot)
+                                    WHERE slot_name = %s)""".format(immediately_reserve), slot, slot)
 
                 self._replication_slots = slots
             except Exception:
