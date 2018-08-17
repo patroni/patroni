@@ -904,7 +904,7 @@ class Ha(object):
 
     def _do_reinitialize(self, cluster):
         self.state_handler.stop('immediate')
-        self.state_handler.remove_data_directory()
+        #self.state_handler.remove_data_directory()
 
         clone_member = self.cluster.get_clone_member(self.state_handler.name)
         member_role = 'leader' if clone_member == self.cluster.leader else 'replica'
