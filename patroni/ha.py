@@ -317,6 +317,9 @@ class Ha(object):
             accept_everyone_to_quorum = self.patroni.config['accept_everyone_to_quorum']
             quorum = self.patroni.config['synchronous_quorum']
 
+            logger.info("accept_everyone_to_quorum %s", accept_everyone_to_quorum)
+            logger.info("synchronous_quorum %s", quorum)
+
             sync_state = self.state_handler.current_sync_state(self.cluster)
 
             # members from pg_conf (synchronous_standby_names)
@@ -327,6 +330,7 @@ class Ha(object):
 
             # for now everyone should be in sync
             if accept_everyone_to_quorum:
+                logger.info("Setting quorum as number of voters %s", voters)
                 quorum = len(voters)
 
             # pg < 10 case
