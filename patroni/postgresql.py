@@ -702,6 +702,7 @@ class Postgresql(object):
 
                 cmd = replica_method
                 method_config = {}
+                args=[]
                 # user-defined method; check for configuration
                 # not required, actually
                 if self.config.get(replica_method, {}):
@@ -709,6 +710,7 @@ class Postgresql(object):
                     # look to see if the user has supplied a full command path
                     # if not, use the method name as the command
                     cmd = method_config.pop('command', cmd)
+                    args = method_config.pop('args', args)
 
                 # add the default parameters
                 if not self.config.get(replica_method, {}).get('no_params', False):
@@ -723,7 +725,7 @@ class Postgresql(object):
                 params = ["--{0}={1}".format(arg, val) for arg, val in method_config.items()]
                 try:
                     # call script with the full set of parameters
-                    ret = self.cancellable_subprocess_call(shlex.split(cmd) + params, env=env)
+                    ret = self.cancellable_subprocess_call(shlex.split(cmd) + params + args, env=env)
                     # if we succeeded, stop
                     if ret == 0:
                         logger.info('replica has been created using %s', replica_method)
