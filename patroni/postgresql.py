@@ -1796,9 +1796,9 @@ $$""".format(name, ' '.join(options)), name, password, password)
         current = None
         members = {m.name.lower(): m for m in cluster.members}
 
-        for app_name, state, sync_state in self.query("SELECT LOWER(application_name), state, sync_state"
-                                                      "FROM pg_stat_replication"
-                                                      "ORDER BY flush_{0} DESC".format(self.lsn_name)):
+        for app_name, state in self.query("SELECT LOWER(application_name), state, sync_state"
+                                          "FROM pg_stat_replication"
+                                          "ORDER BY flush_{0} DESC".format(self.lsn_name)):
             member = members.get(app_name)
             if state != 'streaming' or not member or member.tags.get('nosync', False):
                 continue
