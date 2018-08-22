@@ -116,7 +116,7 @@ def parse_sync_standby_names(sync_standby_names):
         result = {'type': 'priority', 'num': 1}
         synclist = tokens
     result['members'] = []
-    for (a_type, a_value, a_pos), token_b in pairwise(synclist):
+    for (a_type, a_value, a_pos) in pairwise(synclist):
         if a_type in ['ident', 'num']:
             result['members'].append(a_value)
         elif a_type == 'star':
@@ -1793,6 +1793,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
         logger.debug("result of synchronous_standby_names: %s", result)
 
         active = []
+        current = None
         members = {m.name.lower(): m for m in cluster.members}
 
         for app_name, state, sync_state in self.query(
