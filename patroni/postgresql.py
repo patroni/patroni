@@ -116,7 +116,7 @@ def parse_sync_standby_names(sync_standby_names):
         result = {'type': 'priority', 'num': 1}
         synclist = tokens
     result['members'] = []
-    for (a_type, a_value, a_pos) in pairwise(synclist):
+    for (a_type, a_value, a_pos), token_b in pairwise(synclist):
         if a_type in ['ident', 'num']:
             result['members'].append(a_value)
         elif a_type == 'star':
@@ -124,8 +124,11 @@ def parse_sync_standby_names(sync_standby_names):
             result['has_star'] = True
         elif a_type == 'dquot':
             result['members'].append(a_value[1:-1].replace('""','"'))
+        elif token_b:
+            continue
         else:
-            raise ValueError("Unparseable synchronous_standby_names value %r: %s" % (sync_standby_names, "Unexpected token %s %r at %d" % (a_type, a_value, a_pos)))
+            raise ValueError("Unparseable synchronous_standby_names value %r: %s" %
+                             (sync_standby_names, "Unexpected token %s %r at %d" % (a_type, a_value, a_pos)))
 
     return result
 
@@ -1823,8 +1826,6 @@ $$""".format(name, ' '.join(options)), name, password, password)
         else:
             sync_standbys = [quote_ident(standby) for standby in sync.difference([self.name])]
             standby_list = ", ".join(sorted(sync_standbys)) if sync_standbys else "*"
-            logger.info("sync_standbys %s", sync_standbys)
-            logger.info("standby_list %s", standby_list)
 
             if self.use_multiple_sync:
                 if sync_standbys:
