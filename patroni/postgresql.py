@@ -66,6 +66,70 @@ def slot_name_from_member_name(member_name):
     return slot_name[0:63]
 
 
+def pairwise(seq):
+    it = iter(list(seq)+[None])
+    return zip(it, it)
+
+
+sync_rep_parser_re = re.compile(r"""
+           (?P<first> [fF][iI][rR][sS][tT] )
+         | (?P<any> [aA][nN][yY] )
+         | (?P<space> \s+ )
+         | (?P<ident> [A-Za-z_][A-Za-z_0-9\$]* )
+         | (?P<dquot> " (?: [^"]+ | "" )* " )
+         | (?P<star> [*] )
+         | (?P<num> \d+ )
+         | (?P<comma> , )
+         | (?P<parenstart> \( )
+         | (?P<parenend> \) )
+         | (?P<JUNK> . )
+        """, re.X)
+
+
+def parse_sync_standby_names(sync_standby_names):
+    """Parse postgresql synchronous_standby_names to constituent parts.
+
+    Returns dict with the following keys:
+    * type: 'quorum'|'priority'
+    * num: int
+    * members: list[str]
+    * has_star: bool - Present if true
+
+    If the configuration value can not be parsed, raises a ValueError.
+    """
+    tokens = [(m.lastgroup, m.group(0), m.start())
+              for m in sync_rep_parser_re.finditer(sync_standby_names)
+              if m.lastgroup != 'space']
+    if not tokens:
+         return {'type': 'off', 'num': 0, 'members': []}
+
+    if [t[0] for t in tokens[0:3]] == ['any','num','parenstart'] and tokens[-1][0] == 'parenend':
+        result = {'type': 'quorum', 'num': int(tokens[1][1])}
+        synclist = tokens[3:-1]
+    elif [t[0] for t in tokens[0:3]] == ['first','num','parenstart'] and tokens[-1][0] == 'parenend':
+        result = {'type': 'priority', 'num': int(tokens[1][1])}
+        synclist = tokens[3:-1]
+    elif [t[0] for t in tokens[0:2]] == ['num','parenstart'] and tokens[-1][0] == 'parenend':
+        result = {'type': 'priority', 'num': int(tokens[0][1])}
+        synclist = tokens[2:-1]
+    else:
+        result = {'type': 'priority', 'num': 1}
+        synclist = tokens
+    result['members'] = []
+    for (a_type, a_value, a_pos), token_b in pairwise(synclist):
+        if a_type in ['ident', 'num']:
+            result['members'].append(a_value)
+        elif a_type == 'star':
+            result['members'].append(a_value)
+            result['has_star'] = True
+        elif a_type == 'dquot':
+            result['members'].append(a_value[1:-1].replace('""','"'))
+        else:
+            raise ValueError("Unparseable synchronous_standby_names value %r: %s" % (sync_standby_names, "Unexpected token %s %r at %d" % (a_type, a_value, a_pos)))
+
+    return result
+
+
 @contextmanager
 def null_context():
     yield
@@ -221,6 +285,14 @@ class Postgresql(object):
     @property
     def lsn_name(self):
         return 'lsn' if self._major_version >= 100000 else 'location'
+
+    @property
+    def use_quorum_commit(self):
+        return self._major_version >= 100000
+
+    @property
+    def use_multiple_sync(self):
+        return self._major_version >= 90600
 
     def _version_file_exists(self):
         return not self.data_directory_empty() and os.path.isfile(self._version_file)
@@ -1707,52 +1779,72 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
         return ret
 
-    def pick_synchronous_standby(self, cluster):
-        """Finds the best candidate to be the synchronous standby.
+    def current_sync_state(self, cluster):
+        """Returns current synchronous replication state as a dict:
+        * numsync: number of synchronous nodes requested(including leader)
+        * sync: set of nodes potentially being synced to
+        * active: set of nodes that are sync capable
 
-        Current synchronous standby is always preferred, unless it has disconnected or does not want to be a
-        synchronous standby any longer.
-
-        :returns tuple of candidate name or None, and bool showing if the member is the active synchronous standby.
         """
-        current = cluster.sync.sync_standby
-        current = current.lower() if current else current
+        sync_standby_names = self.query("SHOW synchronous_standby_names").fetchone()[0]
+
+        result = parse_sync_standby_names(sync_standby_names)
+        logger.debug("Synchronous_standby_names from conf file: %s", sync_standby_names)
+        logger.debug("result of synchronous_standby_names: %s", result)
+
+        active = []
         members = {m.name.lower(): m for m in cluster.members}
-        candidates = []
-        # Pick candidates based on who has flushed WAL farthest.
-        # TODO: for synchronous_commit = remote_write we actually want to order on write_location
+
         for app_name, state, sync_state in self.query(
-                """SELECT LOWER(application_name), state, sync_state
+                """SELECT LOWER(application_name), state, sync_state 
                      FROM pg_stat_replication
-                    ORDER BY flush_{0} DESC""".format(self.lsn_name)):
+                     ORDER BY flush_{0} DESC""".format(self.lsn_name)):
             member = members.get(app_name)
             if state != 'streaming' or not member or member.tags.get('nosync', False):
                 continue
-            if sync_state == 'sync':
-                return app_name, True
-            if sync_state == 'potential' and app_name == current:
-                # Prefer current even if not the best one any more to avoid indecisivness and spurious swaps.
-                return current, False
-            if sync_state == 'async':
-                candidates.append(app_name)
+            if state == 'sync' or (state == 'potential' and current is None):
+                current = member.name
+            active.append(member.name)
 
-        if candidates:
-            return candidates[0], False
-        return None, False
+        result['active'] = set(active)
 
-    def set_synchronous_standby(self, name):
-        """Sets a node to be synchronous standby and if changed does a reload for PostgreSQL."""
-        if name and name != '*':
-            name = quote_ident(name)
-        if name != self._synchronous_standby_names:
-            if name is None:
+        return result
+
+    def set_synchronous_state(self, num, sync=None):
+        """Updates synchronization state.
+
+        Parameters:
+        `num` specifies number of nodes in sync.
+        `sync` - set of nodes to sync to.
+        """
+
+        if num is None:
+            ssn = None
+        else:
+            sync_standbys = [quote_ident(standby) for standby in sync.difference([self.name])]
+            standby_list = ", ".join(sorted(sync_standbys)) if sync_standbys else "*"
+            logger.info("sync_standbys %s", sync_standbys)
+            logger.info("standby_list %s", standby_list)
+
+            if self.use_multiple_sync:
+                if sync_standbys:
+                    ssn = "{0}{1} ({2})".format("ANY " if self.use_quorum_commit else "", num, standby_list)
+                else:
+                    ssn = ""
+            else:
+                assert num == 1
+                ssn = standby_list or None
+
+        if ssn != self._synchronous_standby_names:
+            if ssn is None:
                 self._server_parameters.pop('synchronous_standby_names', None)
             else:
-                self._server_parameters['synchronous_standby_names'] = name
-            self._synchronous_standby_names = name
+                self._server_parameters['synchronous_standby_names'] = ssn
+            self._synchronous_standby_names = ssn
             if self.state == 'running':
                 self._write_postgresql_conf()
                 self.reload()
+                time.sleep(2)
 
     @staticmethod
     def postgres_version_to_int(pg_version):

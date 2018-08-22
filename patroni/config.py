@@ -45,6 +45,8 @@ class Config(object):
         'master_start_timeout': 300,
         'synchronous_mode': False,
         'synchronous_mode_strict': False,
+        'synchronous_quorum': 1,
+        'accept_everyone_to_quorum': False,
         'postgresql': {
             'bin_dir': '',
             'use_slots': True,
