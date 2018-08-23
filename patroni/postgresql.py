@@ -695,11 +695,14 @@ class Postgresql(object):
                     # if basebackup succeeds, exit with success
                     break
             else:
-                if not self.data_directory_empty():
+                if not self.data_directory_empty() and not self.config.get(replica_method, {}).get('keep_data', False):
                     self.remove_data_directory()
+                else:
+                    logger.info('Leaving data directory uncleaned')
 
                 cmd = replica_method
                 method_config = {}
+                args = []
                 # user-defined method; check for configuration
                 # not required, actually
                 if self.config.get(replica_method, {}):
@@ -707,16 +710,25 @@ class Postgresql(object):
                     # look to see if the user has supplied a full command path
                     # if not, use the method name as the command
                     cmd = method_config.pop('command', cmd)
+                    args = method_config.pop('args', args)
 
                 # add the default parameters
-                method_config.update({"scope": self.scope,
-                                      "role": "replica",
-                                      "datadir": self._data_dir,
-                                      "connstring": connstring})
+                if not self.config.get(replica_method, {}).get('no_params', False):
+                    method_config.update({"scope": self.scope,
+                                          "role": "replica",
+                                          "datadir": self._data_dir,
+                                          "connstring": connstring})
+                else:
+                    if 'no_params' in method_config:
+                        del method_config['no_params']
+                    if 'no_master' in method_config:
+                        del method_config['no_master']
+                    if 'keep_data' in method_config:
+                        del method_config['keep_data']
                 params = ["--{0}={1}".format(arg, val) for arg, val in method_config.items()]
                 try:
                     # call script with the full set of parameters
-                    ret = self.cancellable_subprocess_call(shlex.split(cmd) + params, env=env)
+                    ret = self.cancellable_subprocess_call(shlex.split(cmd) + params + args, env=env)
                     # if we succeeded, stop
                     if ret == 0:
                         logger.info('replica has been created using %s', replica_method)
