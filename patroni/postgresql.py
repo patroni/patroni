@@ -719,9 +719,12 @@ class Postgresql(object):
                                           "datadir": self._data_dir,
                                           "connstring": connstring})
                 else:
-                    method_config.pop('no_params') if 'no_params' in method_config else False
-                    method_config.pop('no_master') if 'no_master' in method_config else False
-                    method_config.pop('keep_data') if 'keep_data' in method_config else False
+                    if 'no_params' in method_config:
+                        del method_config['no_params']
+                    if 'no_master' in method_config:
+                        del method_config['no_master']
+                    if 'keep_data' in method_config:
+                        del method_config['keep_data']
                 params = ["--{0}={1}".format(arg, val) for arg, val in method_config.items()]
                 try:
                     # call script with the full set of parameters
