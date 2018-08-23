@@ -702,7 +702,7 @@ class Postgresql(object):
 
                 cmd = replica_method
                 method_config = {}
-                args=[]
+                args = []
                 # user-defined method; check for configuration
                 # not required, actually
                 if self.config.get(replica_method, {}):
@@ -715,9 +715,9 @@ class Postgresql(object):
                 # add the default parameters
                 if not self.config.get(replica_method, {}).get('no_params', False):
                     method_config.update({"scope": self.scope,
-                                      "role": "replica",
-                                      "datadir": self._data_dir,
-                                      "connstring": connstring})
+                                          "role": "replica",
+                                          "datadir": self._data_dir,
+                                          "connstring": connstring})
                 else:
                     method_config.pop('no_params') if 'no_params' in method_config else False
                     method_config.pop('no_master') if 'no_master' in method_config else False
