@@ -432,11 +432,15 @@ class Ha(object):
             self.process_sync_replication()
             return message
         else:
-            # from my point of view only master should change sync names
-            # if not self.process_sync_replication_prepromote():
+            # Just set ourselves as the authoritative source of truth for now. We don't want to wait for standbys
+            # to connect. We will try finding a synchronous standby in the next cycle.
+            if not self.dcs.write_sync_state(leader=self.state_handler.name, quorum=None, members=None,
+                                             index=self.cluster.sync.index):
                 # Somebody else updated sync state, it may be due to us losing the lock. To be safe, postpone
                 # promotion until next cycle. TODO: trigger immediate retry of run_cycle
-            #    return 'Postponing promotion because synchronous replication state was updated by somebody else'
+                return 'Postponing promotion because synchronous replication state was updated by somebody else'
+            self.state_handler.set_synchronous_standby(1 if self.is_synchronous_mode_strict() else None,
+                                                       {} if self.is_synchronous_mode_strict() else None)
             if self.state_handler.role != 'master':
                 self._async_executor.schedule('promote')
                 self._async_executor.run_async(self.state_handler.promote, args=(self.dcs.loop_wait,))

@@ -824,7 +824,7 @@ class TestHa(unittest.TestCase):
         mock_acquire.assert_called_once()
         mock_follow.assert_not_called()
         mock_promote.assert_called_once()
-        mock_write_sync.assert_called_once_with('other', None, index=0)
+        mock_write_sync.assert_called_once_with('other', 0, {}, None, index=0)
 
     def test_disable_sync_when_restarting(self):
         self.ha.is_synchronous_mode = true
