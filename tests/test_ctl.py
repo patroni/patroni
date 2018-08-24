@@ -329,8 +329,11 @@ class TestCtl(unittest.TestCase):
 
     @patch('requests.post', Mock(side_effect=requests.exceptions.ConnectionError('foo')))
     def test_request_patroni(self):
-        member = get_cluster_initialized_with_leader().leader.member
-        self.assertRaises(requests.exceptions.ConnectionError, request_patroni, member, 'post', 'dummy', {})
+        context = {'restapi': {'keyfile': '/etc/patroni/key.pem', 'certfile': 'cert.pem'}}
+        with patch('click.get_current_context') as mock_context:
+            mock_context.return_value.obj = context
+            member = get_cluster_initialized_with_leader().leader.member
+            self.assertRaises(requests.exceptions.ConnectionError, request_patroni, member, 'post', 'dummy', {})
 
     def test_ctl(self):
         self.runner.invoke(ctl, ['list'])
