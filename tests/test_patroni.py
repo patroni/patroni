@@ -103,6 +103,7 @@ class TestPatroni(unittest.TestCase):
 
     @patch('patroni.config.Config.save_cache', Mock())
     @patch('patroni.config.Config.reload_local_configuration', Mock(return_value=True))
+    @patch('patroni.ha.Ha.is_leader', Mock(return_value=True))
     @patch.object(Postgresql, 'state', PropertyMock(return_value='running'))
     @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=False))
     def test_run(self):
@@ -151,3 +152,7 @@ class TestPatroni(unittest.TestCase):
         self.assertTrue(self.p.nosync)
         self.p.tags['nosync'] = None
         self.assertFalse(self.p.nosync)
+
+    def test_shutdown(self):
+        self.p.api.shutdown = Mock(side_effect=Exception)
+        self.p.shutdown()

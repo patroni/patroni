@@ -91,6 +91,8 @@ class HTTPClient(object):
                     data = '{' + ttl + '}'
                 else:
                     data = data[:-1] + ', ' + ttl + '}'
+            if isinstance(params, list):  # starting from v1.1.0 python-consul switched from `dict` to `list` for params
+                params = {k: v for k, v in params}
             kwargs = {'retries': 0, 'preload_content': False, 'body': data}
             if method == 'get' and isinstance(params, dict) and 'index' in params:
                 kwargs['timeout'] = (float(params['wait'][:-1]) if 'wait' in params else 300) + 1

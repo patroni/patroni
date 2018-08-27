@@ -648,6 +648,13 @@ class PatroniPoolController(object):
                 'method': 'pg_basebackup',
                 'pg_basebackup': {
                     'command': self.BACKUP_SCRIPT + ' --walmethod=stream --dbname=' + f.backup_source
+                },
+                'dcs': {
+                    'postgresql': {
+                        'parameters': {
+                            'max_connections': 101
+                        }
+                    }
                 }
             },
             'postgresql': {

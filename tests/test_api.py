@@ -52,6 +52,10 @@ class MockHa(object):
     watchdog = MockWatchdog()
 
     @staticmethod
+    def is_leader():
+        return False
+
+    @staticmethod
     def reinitialize(_):
         return 'reinitialize'
 
@@ -123,16 +127,14 @@ class MockRequest(object):
 
 class MockRestApiServer(RestApiServer):
 
-    def __init__(self, Handler, request):
+    def __init__(self, Handler, request, config=None):
         self.socket = 0
         self.serve_forever = Mock()
         BaseHTTPServer.HTTPServer.__init__ = Mock()
         MockRestApiServer._BaseServer__is_shut_down = Mock()
         MockRestApiServer._BaseServer__shutdown_request = True
-        config = {'listen': '127.0.0.1:8008', 'auth': 'test:test'}
+        config = config or {'listen': '127.0.0.1:8008', 'auth': 'test:test', 'certfile': 'dumb'}
         super(MockRestApiServer, self).__init__(MockPatroni(), config)
-        config['certfile'] = 'dumb'
-        self.reload_config(config)
         Handler(MockRequest(request), ('0.0.0.0', 8080), self)
 
 
@@ -154,7 +156,7 @@ class TestRestApiHandler(unittest.TestCase):
             MockRestApiServer(RestApiHandler, 'GET /synchronous')
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'replica'})):
             MockRestApiServer(RestApiHandler, 'GET /asynchronous')
-        MockPatroni.dcs.cluster.leader.name = MockPostgresql.name
+        MockPatroni.ha.is_leader = Mock(return_value=True)
         MockRestApiServer(RestApiHandler, 'GET /replica')
         MockPatroni.dcs.cluster = None
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'master'})):
@@ -380,3 +382,15 @@ class TestRestApiHandler(unittest.TestCase):
         post = 'POST /failover HTTP/1.0' + self._authorization + '\nContent-Length: '
         MockRestApiServer(RestApiHandler, post + '14\n\n{"leader":"1"}')
         MockRestApiServer(RestApiHandler, post + '37\n\n{"candidate":"2","scheduled_at": "1"}')
+
+
+@patch('ssl.wrap_socket', Mock(return_value=0))
+class TestRestApiServer(unittest.TestCase):
+
+    def test_reload_config(self):
+        bad_config = {'listen': 'foo'}
+        self.assertRaises(ValueError, MockRestApiServer, None, '', bad_config)
+        srv = MockRestApiServer(lambda a1, a2, a3: None, '')
+        self.assertRaises(ValueError, srv.reload_config, bad_config)
+        self.assertRaises(ValueError, srv.reload_config, {})
+        srv.reload_config({'listen': '127.0.0.2:8008'})

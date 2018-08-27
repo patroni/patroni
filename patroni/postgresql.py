@@ -179,6 +179,13 @@ class Postgresql(object):
             self._write_postgresql_conf()  # we are "joining" already running postgres
             if self._replace_pg_hba():
                 self.reload()
+        elif self.role == 'master':
+            self.set_role('demoted')
+
+    @property
+    def _create_replica_methods(self):
+        return (self.config.get('create_replica_methods', []) or
+                self.config.get('create_replica_method', []))
 
     @property
     def _configuration_to_save(self):
@@ -330,10 +337,12 @@ class Postgresql(object):
                         if new_value is None or not compare_values(r[3], unit, r[1], new_value):
                             if r[4] == 'postmaster':
                                 pending_restart = True
+                                logger.info('Changed %s from %s to %s (restart required)', r[0], r[1], new_value)
                                 if config.get('use_unix_socket') and r[0] == 'unix_socket_directories'\
                                         or r[0] in ('listen_addresses', 'port'):
                                     local_connection_address_changed = True
                             else:
+                                logger.info('Changed %s from %s to %s', r[0], r[1], new_value)
                                 conf_changed = True
                 for param in changes:
                     if param in server_parameters:
@@ -344,11 +353,13 @@ class Postgresql(object):
             if not conf_changed:
                 for p, v in server_parameters.items():
                     if '.' in p and (p not in self._server_parameters or str(v) != str(self._server_parameters[p])):
+                        logger.info('Changed %s from %s to %s', p, self._server_parameters.get(p), v)
                         conf_changed = True
                         break
                 if not conf_changed:
                     for p, v in self._server_parameters.items():
                         if '.' in p and (p not in server_parameters or str(v) != str(server_parameters[p])):
+                            logger.info('Changed %s from %s to %s', p, v, server_parameters.get(p))
                             conf_changed = True
                             break
 
@@ -370,7 +381,10 @@ class Postgresql(object):
             self._replace_pg_hba()
 
         if conf_changed or hba_changed:
+            logger.info('PostgreSQL configuration items changed, reloading configuration.')
             self.reload()
+        elif not pending_restart:
+            logger.info('No PostgreSQL configuration items changed, nothing to reload.')
 
         self._is_leader_retry.deadline = self.retry.deadline = config['retry_timeout']/2.0
 
@@ -403,7 +417,7 @@ class Postgresql(object):
 
     @property
     def sysid(self):
-        if not self._sysid:
+        if not self._sysid and not self.bootstrapping:
             data = self.controldata()
             self._sysid = data.get('Database system identifier', "")
         return self._sysid
@@ -638,7 +652,7 @@ class Postgresql(object):
         """ go through the replication methods to see if there are ones
             that does not require a working replication connection.
         """
-        replica_methods = self.config.get('create_replica_method', [])
+        replica_methods = self._create_replica_methods
         return any(self.replica_method_can_work_without_replication_connection(method) for method in replica_methods)
 
     def create_replica(self, clone_member):
@@ -653,7 +667,7 @@ class Postgresql(object):
 
         # get list of replica methods from config.
         # If there is no configuration key, or no value is specified, use basebackup
-        replica_methods = self.config.get('create_replica_method') or ['basebackup']
+        replica_methods = self._create_replica_methods or ['basebackup']
 
         if clone_member and clone_member.conn_url:
             r = clone_member.conn_kwargs(self._replication)
@@ -818,6 +832,36 @@ class Postgresql(object):
         logger.warning("Timed out waiting for PostgreSQL to start")
         return False
 
+    def _build_effective_configuration(self):
+        """It might happen that the current value of one (or more) below parameters stored in
+        the controldata is higher than the value stored in the global cluster configuration.
+
+        Example: max_connections in global configuration is 100, but in controldata
+        `Current max_connections setting: 200`. If we try to start postgres with
+        max_connections=100, it will immediately exit.
+        As a workaround we will start it with the values from controldata and set `pending_restart`
+        to true as an indicator that current values of parameters are not matching expectations."""
+
+        OPTIONS_MAPPING = {
+            'max_connections': 'max_connections setting',
+            'max_prepared_transactions': 'max_prepared_xacts setting',
+            'max_locks_per_transaction': 'max_locks_per_xact setting'
+        }
+
+        if self._major_version >= 90400:
+            OPTIONS_MAPPING['max_worker_processes'] = 'max_worker_processes setting'
+
+        data = self.controldata()
+        effective_configuration = self._server_parameters.copy()
+
+        for name, cname in OPTIONS_MAPPING.items():
+            value = parse_int(effective_configuration[name])
+            cvalue = parse_int(data[cname])
+            if cvalue > value:
+                effective_configuration[name] = cvalue
+                self._pending_restart = True
+        return effective_configuration
+
     def start(self, timeout=None, block_callbacks=False, task=None):
         """Start PostgreSQL
 
@@ -843,12 +887,13 @@ class Postgresql(object):
         self.set_state('starting')
         self._pending_restart = False
 
-        self._write_postgresql_conf()
+        configuration = self._server_parameters if self.role == 'master' else self._build_effective_configuration()
+        self._write_postgresql_conf(configuration)
         self.resolve_connection_addresses()
         self._replace_pg_hba()
 
-        options = ['--{0}={1}'.format(p, self._server_parameters[p]) for p in self.CMDLINE_OPTIONS
-                   if p in self._server_parameters and p != 'wal_keep_segments']
+        options = ['--{0}={1}'.format(p, configuration[p]) for p in self.CMDLINE_OPTIONS
+                   if p in configuration and p != 'wal_keep_segments']
 
         with self._cancellable_lock:
             if self._is_cancelled:
@@ -1053,7 +1098,7 @@ class Postgresql(object):
             self.set_state('restart failed ({0})'.format(self.state))
         return ret
 
-    def _write_postgresql_conf(self):
+    def _write_postgresql_conf(self, configuration=None):
         # rename the original configuration if it is necessary
         if 'custom_conf' not in self.config and not os.path.exists(self._postgresql_base_conf):
             os.rename(self._postgresql_conf, self._postgresql_base_conf)
@@ -1061,7 +1106,7 @@ class Postgresql(object):
         with open(self._postgresql_conf, 'w') as f:
             f.write(self._CONFIG_WARNING_HEADER)
             f.write("include '{0}'\n\n".format(self.config.get('custom_conf') or self._postgresql_base_conf_name))
-            for name, value in sorted(self._server_parameters.items()):
+            for name, value in sorted((configuration or self._server_parameters).items()):
                 if not self._running_custom_bootstrap or name != 'hba_file':
                     f.write("{0} = '{1}'\n".format(name, value))
             # when we are doing custom bootstrap we assume that we don't know superuser password
@@ -1164,7 +1209,7 @@ class Postgresql(object):
         """ return the contents of pg_controldata, or non-True value if pg_controldata call failed """
         result = {}
         # Don't try to call pg_controldata during backup restore
-        if not self.bootstrapping and self._version_file_exists() and self.state != 'creating replica':
+        if self._version_file_exists() and self.state != 'creating replica':
             try:
                 data = subprocess.check_output([self._pgcommand('pg_controldata'), self._data_dir],
                                                env={'LANG': 'C', 'LC_ALL': 'C', 'PATH': os.environ['PATH']})
@@ -1361,6 +1406,10 @@ class Postgresql(object):
     @property
     def rewind_executed(self):
         return self._rewind_state > REWIND_STATUS.NOT_NEED
+
+    @property
+    def rewind_failed(self):
+        return self._rewind_state == REWIND_STATUS.FAILED
 
     def follow(self, member, timeout=None):
         primary_conninfo = self.primary_conninfo(member)
@@ -1587,9 +1636,12 @@ $$""".format(name, ' '.join(options)), name, password, password)
                         self.restart()
                     else:
                         self._replace_pg_hba()
-                        self.reload()
-                        time.sleep(1)  # give a time to postgres to "reload" configuration files
-                        self.close_connection()  # close connection to reconnect with a new password
+                        if self.pending_restart:
+                            self.restart()
+                        else:
+                            self.reload()
+                            time.sleep(1)  # give a time to postgres to "reload" configuration files
+                            self.close_connection()  # close connection to reconnect with a new password
         except Exception:
             logger.exception('post_bootstrap')
             task.complete(False)
@@ -1622,7 +1674,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
     def basebackup(self, conn_url, env, options):
         # creates a replica data dir using pg_basebackup.
-        # this is the default, built-in create_replica_method
+        # this is the default, built-in create_replica_methods
         # tries twice, then returns failure (as 1)
         # uses "stream" as the xlog-method to avoid sync issues
         # supports additional user-supplied options, those are not validated

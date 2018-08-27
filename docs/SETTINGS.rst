@@ -19,6 +19,7 @@ Bootstrap configuration
     -  **maximum\_lag\_on\_failover**: the maximum bytes a follower may lag to be able to participate in leader election.
     -  **master\_start\_timeout**: the amount of time a master is allowed to recover from failures before failover is triggered. Default is 300 seconds. When set to 0 failover is done immediately after a crash is detected if possible. When using asynchronous replication a failover can cause lost transactions. Best worst case failover time for master failure is: loop\_wait + master\_start\_timeout + loop\_wait, unless master\_start\_timeout is zero, in which case it's just loop\_wait. Set the value according to your durability/availability tradeoff.
     -  **synchronous\_mode**: turns on synchronous replication mode. In this mode a replica will be chosen as synchronous and only the latest leader and synchronous replica are able to participate in leader election. Synchronous mode makes sure that successfully committed transactions will not be lost at failover, at the cost of losing availability for writes when Patroni cannot ensure transaction durability. See :ref:`replication modes documentation <replication_modes>` for details.
+    -  **synchronous\_mode\_strict**: prevents disabling synchronous replication if no synchronous replicas are available, blocking all client writes to the master. See :ref:`replication modes documentation <replication_modes>` for details.
     -  **postgresql**:
         -  **use\_pg\_rewind**: whether or not to use pg_rewind
         -  **use\_slots**: whether or not to use replication_slots. Must be False for PostgreSQL 9.3. You should comment out max_replication_slots before it becomes ineligible for leader status.
@@ -113,7 +114,7 @@ PostgreSQL
         -  **on\_start**: run this script when the cluster starts.
         -  **on\_stop**: run this script when the cluster stops.
 -  **connect\_address**: IP address + port through which Postgres is accessible from other nodes and applications.
--  **create\_replica\_method**: an ordered list of the create methods for turning a Patroni node into a new replica.
+-  **create\_replica\_methods**: an ordered list of the create methods for turning a Patroni node into a new replica.
    "basebackup" is the default method; other methods are assumed to refer to scripts, each of which is configured as its
    own config item. See :ref:`custom replica creation methods documentation <custom_replica_creation>` for further explanation.
 -  **data\_dir**: The location of the Postgres data directory, either existing or to be initialized by Patroni.
@@ -131,12 +132,12 @@ PostgreSQL
 -  **pg\_ctl\_timeout**: How long should pg_ctl wait when doing ``start``, ``stop`` or ``restart``. Default value is 60 seconds.
 -  **use\_pg\_rewind**: try to use pg\_rewind on the former leader when it joins cluster as a replica.
 -  **remove\_data\_directory\_on\_rewind\_failure**: If this option is enabled, Patroni will remove postgres data directory and recreate replica. Otherwise it will try to follow the new leader. Default value is **false**.
--  **replica\_method**: for each create_replica_method other than basebackup, you would add a configuration section of the same name. At a minimum, this should include "command" with a full path to the actual script to be executed. Other configuration parameters will be passed along to the script in the form "parameter=value".
+-  **replica\_method**: for each create_replica_methods other than basebackup, you would add a configuration section of the same name. At a minimum, this should include "command" with a full path to the actual script to be executed. Other configuration parameters will be passed along to the script in the form "parameter=value".
 
 REST API
 -------- 
--  **connect\_address**: IP address and port to access the REST API.
--  **listen**: IP address and port that Patroni will listen to, to provide health-check information for HAProxy.
+-  **connect\_address**: IP address (or hostname) and port, to access the Patroni's REST API. It can serve as a endpoint for HTTP health checks (read below about the "listen" REST API parameter), and also for user queries (either directly or via the REST API), as well as for the health checks done by the cluster members during leader elections (for example, to determine whether the master is still running, or if there is a node which has a WAL position that is ahead of the one doing the query; etc.) The connect_address is put in the member key in DCS, making it possible to translate the member name into the address to connect to its REST API.
+-  **listen**: IP address (or hostname) and port that Patroni will listen to for the REST API - to provide also the same health checks and cluster messaging between the participating nodes, as described above. to provide health-check information for HAProxy (or any other load balancer capable of doing a HTTP "OPTION" or "GET" checks)  
 -  **Optional**:
         -  **authentication**:
             -  **username**: Basic-auth username to protect unsafe REST API endpoints.
