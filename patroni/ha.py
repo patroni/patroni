@@ -455,7 +455,7 @@ class Ha(object):
             logger.info('Got response from %s %s: %s', member.name, member.api_url, response.content)
             return _MemberStatus.from_api_response(member, response.json())
         except Exception as e:
-            logger.warning("request failed: GET %s (%s)", member.api_url, e)
+            logger.warning("Request failed to %s: GET %s (%s)", member.name, member.api_url, e)
         return _MemberStatus.unknown(member)
 
     def fetch_nodes_statuses(self, members):
