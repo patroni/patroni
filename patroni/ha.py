@@ -809,11 +809,11 @@ class Ha(object):
                     # in case of standby cluster we don't really need to
                     # enforce anything, since the leader is not a master.
                     # So just remind the role.
-                    msg = 'no action. I am the standby leader with the lock'
+                    msg = 'no action.  i am the standby leader with the lock'
                     return self.enforce_follow_remote_master(msg)
                 else:
                     return self.enforce_master_role(
-                        'no action. I am the leader with the lock',
+                        'no action.  i am the leader with the lock',
                         'promoted self to leader because i had the session lock'
                     )
             else:
@@ -829,7 +829,7 @@ class Ha(object):
         else:
             logger.info('does not have lock')
         return self.follow('demoting self because i do not have the lock and i was a leader',
-                           'no action. I am a secondary and i am following a leader', refresh=False)
+                           'no action.  i am a secondary and i am following a leader', refresh=False)
 
     def evaluate_scheduled_restart(self):
         if self._async_executor.busy:  # Restart already in progress
