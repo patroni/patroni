@@ -1733,7 +1733,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
             if sync_state == 'potential' and app_name == current:
                 # Prefer current even if not the best one any more to avoid indecisivness and spurious swaps.
                 return current, False
-            if sync_state == 'async':
+            if sync_state in ('async', 'potential'):
                 candidates.append(app_name)
 
         if candidates:
