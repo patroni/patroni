@@ -585,7 +585,8 @@ def _do_failover_or_switchover(obj, action, cluster_name, master, candidate, for
     if master is not None and cluster.leader and cluster.leader.member.name != master:
         raise PatroniCtlException('Member {0} is not the leader of cluster {1}'.format(master, cluster_name))
 
-    candidate_names = [str(m.name) for m in cluster.members if m.name != master]
+    # excluding members with nofailover tag
+    candidate_names = [str(m.name) for m in cluster.members if m.name != master and not m.nofailover]
     # We sort the names for consistent output to the client
     candidate_names.sort()
 
