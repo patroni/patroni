@@ -103,15 +103,20 @@ option_watch = click.option('-W', is_flag=True, help='Auto update the screen eve
 option_force = click.option('--force', is_flag=True, help='Do not ask for confirmation at any point')
 arg_cluster_name = click.argument('cluster_name', required=False,
                                   default=lambda: click.get_current_context().obj.get('scope'))
+option_insecure = click.option('-k', '--insecure', is_flag=True, help='Allow connections to SSL sites without certs')
 
 
 @click.group()
 @click.option('--config-file', '-c', help='Configuration file', default=CONFIG_FILE_PATH)
 @click.option('--dcs', '-d', help='Use this DCS', envvar='DCS')
+@option_insecure
 @click.pass_context
-def ctl(ctx, config_file, dcs):
+def ctl(ctx, config_file, dcs, insecure):
     logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=os.environ.get('LOGLEVEL', 'WARNING'))
+    logging.captureWarnings(True)  # Capture eventual SSL warning
     ctx.obj = load_config(config_file, dcs)
+    # backward compatibility for configuration file where ctl section is not define
+    ctx.obj.setdefault('ctl', {})['insecure'] = ctx.obj.get('ctl', {}).get('insecure') or insecure
 
 
 def get_dcs(config, scope):
@@ -129,6 +134,7 @@ def auth_header(config):
 
 
 def request_patroni(member, request_type, endpoint, content=None, headers=None):
+    ctx = click.get_current_context()  # the current click context
     headers = headers or {}
     url_parts = urlparse(member.api_url)
     logging.debug(url_parts)
@@ -137,8 +143,21 @@ def request_patroni(member, request_type, endpoint, content=None, headers=None):
 
     url = '{0}://{1}/{2}'.format(url_parts.scheme, url_parts.netloc, endpoint)
 
+    insecure = ctx.obj.get('ctl', {}).get('insecure', False)
+    # Get certfile if any from several configuration namespace
+    cert = ctx.obj.get('ctl', {}).get('cacert') or \
+        ctx.obj.get('restapi', {}).get('cacert') or \
+        ctx.obj.get('restapi', {}).get('certfile')
+    # In the case we specificaly disable SSL cert verification we don't want to have the warning
+    if insecure:
+        verify = False
+    elif cert:
+        verify = cert
+    else:
+        verify = True
     return getattr(requests, request_type)(url, headers=headers,
-                                           data=json.dumps(content) if content else None, timeout=60)
+                                           data=json.dumps(content) if content else None, timeout=60,
+                                           verify=verify)
 
 
 def print_output(columns, rows=None, alignment=None, fmt='pretty', header=True, delimiter='\t'):
@@ -903,7 +922,8 @@ def toggle_pause(config, cluster_name, paused, wait):
     for member in members:
         try:
             r = request_patroni(member, 'patch', 'config', {'pause': paused or None}, auth_header(config))
-        except Exception:
+        except Exception as err:
+            logging.warning(str(err))
             logging.warning('Member %s is not accessible', member.name)
             continue
 
