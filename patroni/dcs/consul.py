@@ -2,6 +2,7 @@ from __future__ import absolute_import
 import json
 import logging
 import os
+import re
 import socket
 import ssl
 import time
@@ -133,6 +134,20 @@ def catch_consul_errors(func):
     return wrapper
 
 
+def service_name_from_scope_name(scope_name):
+    """Translate scope name to service name which can be used in dns.
+
+    230 = 253 - len('replica.') - len('.service.consul')
+    """
+
+    def replace_char(match):
+        c = match.group(0)
+        return '-' if c in '. _' else "u{:04d}".format(ord(c))
+
+    service_name = re.sub(r'[^a-z0-9\-]', replace_char, scope_name.lower())
+    return service_name[0:230]
+
+
 class Consul(AbstractDCS):
 
     def __init__(self, config):
@@ -175,6 +190,13 @@ class Consul(AbstractDCS):
         self.set_ttl(config.get('ttl') or 30)
         self._last_session_refresh = 0
         self.__session_checks = config.get('checks')
+        self._register_service = config.get('register_service', False)
+        if self._register_service:
+            self._service_name = service_name_from_scope_name(self._scope)
+            if self._scope != self._service_name:
+                logger.warning('Using %s as consul service name instead of scope name %s', self._service_name,
+                               self._scope)
+        self._service_check_interval = config.get('service_check_interval', '5s')
         if not self._ctl:
             self.create_session()
 
@@ -324,11 +346,51 @@ class Consul(AbstractDCS):
         try:
             args = {} if permanent else {'acquire': self._session}
             self._client.kv.put(self.member_path, json.dumps(data, separators=(',', ':')), **args)
+            if self._register_service:
+                self.update_service(self._my_member_data, data)
             self._my_member_data = data
             return True
         except Exception:
             logger.exception('touch_member')
         return False
+
+    @catch_consul_errors
+    def register_service(self, service_name, **kwargs):
+        logger.info('Register service {}, params {}'.format(service_name, kwargs))
+        return self.retry(self._client.agent.service.register, service_name, **kwargs)
+
+    def _update_service(self, data):
+        service_name = self._service_name
+        role = data['role']
+        api_parts = urlparse(data['api_url'])
+        api_parts = api_parts._replace(path='/{}'.format(role))
+        conn_parts = urlparse(data['conn_url'])
+        params = {
+            'address': conn_parts.hostname,
+            'port': conn_parts.port,
+            'check': base.Check.http(api_parts.geturl(), self._service_check_interval),
+            'tags': [role]
+        }
+
+        if role in ['master', 'replica']:
+            return self.register_service(service_name, **params)
+
+        logger.warning('Could not register service: unknown role type %s', role)
+
+        return False
+
+    def update_service(self, old_data, new_data):
+        update = False
+
+        for key in ['role', 'api_url', 'conn_url']:
+            if key not in new_data:
+                logger.warning('Could not register service: not enough params in member data')
+                return False
+            if old_data.get(key) != new_data[key]:
+                update = True
+
+        if update:
+            return self._update_service(new_data)
 
     @catch_consul_errors
     def _do_attempt_to_acquire_leader(self, kwargs):
@@ -341,6 +403,7 @@ class Consul(AbstractDCS):
         ret = self._do_attempt_to_acquire_leader({} if permanent else {'acquire': self._session})
         if not ret:
             logger.info('Could not take out TTL lock')
+
         return ret
 
     def take_leader(self):
