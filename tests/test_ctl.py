@@ -344,12 +344,15 @@ class TestCtl(unittest.TestCase):
         assert result.exit_code == 0
 
     @patch('requests.post', Mock(side_effect=requests.exceptions.ConnectionError('foo')))
-    def test_request_patroni(self):
-        context = {'restapi': {'keyfile': '/etc/patroni/key.pem', 'certfile': 'cert.pem'}}
-        with patch('click.get_current_context') as mock_context:
-            mock_context.return_value.obj = context
-            member = get_cluster_initialized_with_leader().leader.member
-            self.assertRaises(requests.exceptions.ConnectionError, request_patroni, member, 'post', 'dummy', {})
+    @patch('click.get_current_context')
+    def test_request_patroni(self, mock_context):
+        member = get_cluster_initialized_with_leader().leader.member
+
+        mock_context.return_value.obj = {'ctl': {'cacert': 'cert.pem'}}
+        self.assertRaises(requests.exceptions.ConnectionError, request_patroni, member, 'post', 'dummy', {})
+
+        mock_context.return_value.obj = {'ctl': {'insecure': True}}
+        self.assertRaises(requests.exceptions.ConnectionError, request_patroni, member, 'post', 'dummy', {})
 
     def test_ctl(self):
         self.runner.invoke(ctl, ['list'])

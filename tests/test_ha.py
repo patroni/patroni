@@ -35,12 +35,10 @@ def get_cluster(initialize, leader, members, failover, sync, cluster_config=None
 
 
 def get_cluster_not_initialized_without_leader(cluster_config=None):
-    return get_cluster(None, None, [], None,
-            SyncState(None, None, None), cluster_config)
+    return get_cluster(None, None, [], None, SyncState(None, None, None), cluster_config)
 
 
-def get_cluster_initialized_without_leader(leader=False, failover=None,
-                                        sync=None, cluster_config=None):
+def get_cluster_initialized_without_leader(leader=False, failover=None, sync=None, cluster_config=None):
     m1 = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
                                   'api_url': 'http://127.0.0.1:8008/patroni', 'xlog_location': 4})
     leader = Leader(0, 0, m1) if leader else None
@@ -66,8 +64,8 @@ def get_cluster_initialized_with_only_leader(failover=None, cluster_config=None)
 
 def get_cluster_not_initialized_standby(failover=None, sync=None):
     return get_cluster_not_initialized_without_leader(
-        cluster_config=ClusterConfig(1,
-            {"standby_cluster": {
+        cluster_config=ClusterConfig(1, {
+            "standby_cluster": {
                 "host": "localhost",
                 "port": 5432,
                 "primary_slot_name": "",
@@ -77,8 +75,8 @@ def get_cluster_not_initialized_standby(failover=None, sync=None):
 
 def get_standby_cluster_initialized_with_only_leader(failover=None, sync=None):
     return get_cluster_initialized_with_only_leader(
-        cluster_config=ClusterConfig(1,
-            {"standby_cluster": {
+        cluster_config=ClusterConfig(1, {
+            "standby_cluster": {
                 "host": "localhost",
                 "port": 5432,
                 "primary_slot_name": "",
@@ -146,8 +144,6 @@ zookeeper:
 def run_async(self, func, args=()):
     return func(*args) if args else func()
 
-
-clone_member = Member(0, 'test', 1, {'api_url': 'http://127.0.0.1:8011/patroni'})
 
 @patch.object(Postgresql, 'is_running', Mock(return_value=MockPostmaster()))
 @patch.object(Postgresql, 'is_leader', Mock(return_value=True))
@@ -230,7 +226,8 @@ class TestHa(unittest.TestCase):
             'trying to bootstrap a new standby leader'
         )
 
-    @patch.object(Cluster, 'get_clone_member', Mock(return_value=clone_member))
+    @patch.object(Cluster, 'get_clone_member',
+                  Mock(return_value=Member(0, 'test', 1, {'api_url': 'http://127.0.0.1:8011/patroni'})))
     @patch.object(Postgresql, 'create_replica', Mock(return_value=0))
     def test_start_as_cascade_replica_in_standby_cluster(self):
         self.p.data_directory_empty = true

@@ -17,7 +17,7 @@ SELECT pg_create_physical_replication_slot('{0}')
 def start_patroni_without_slots_sync(context, name):
     return context.pctl.start(name, custom_config={
         "bootstrap": {
-            "dcs" : {
+            "dcs": {
                 "postgresql": {
                     "use_slots": False
                 }
@@ -49,6 +49,7 @@ def start_patroni_stanby_cluster(context, name, cluster_name, name2):
         }
     })
 
+
 @step('{pg_name1:w} is replicating from {pg_name2:w} after {timeout:d} seconds')
 def check_replication_status(context, pg_name1, pg_name2, timeout):
     bound_time = time.time() + timeout
@@ -67,6 +68,7 @@ def check_replication_status(context, pg_name1, pg_name2, timeout):
 
     return False
 
+
 @step('I create a replication slot {slot_name:w} on {pg_name:w}')
 def create_replication_slot(context, slot_name, pg_name):
     return context.pctl.query(
@@ -74,7 +76,3 @@ def create_replication_slot(context, slot_name, pg_name):
         create_replication_slot_query.format(slot_name),
         fail_ok=True
     )
-
-@step('DCS for {cluster:w} has {path:w}={value:w} after {time_limit:d} seconds')
-def check_member(context, cluster, path, value, time_limit):
-    return check_dcs_key(context, path, value, time_limit, scope=cluster)
