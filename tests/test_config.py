@@ -70,6 +70,7 @@ class TestConfig(unittest.TestCase):
                 self.assertRaises(Exception, config.reload_local_configuration, True)
             self.assertTrue(config.reload_local_configuration(True))
             self.assertTrue(config.reload_local_configuration())
+            self.assertIsNone(config.reload_local_configuration())
 
     @patch('tempfile.mkstemp', Mock(return_value=[3000, 'blabla']))
     @patch('os.path.exists', Mock(return_value=True))

@@ -181,6 +181,8 @@ class Postgresql(object):
             self._write_postgresql_conf()  # we are "joining" already running postgres
             if self._replace_pg_hba():
                 self.reload()
+        elif self.role == 'master':
+            self.set_role('demoted')
 
     @property
     def _create_replica_methods(self):
@@ -337,10 +339,12 @@ class Postgresql(object):
                         if new_value is None or not compare_values(r[3], unit, r[1], new_value):
                             if r[4] == 'postmaster':
                                 pending_restart = True
+                                logger.info('Changed %s from %s to %s (restart required)', r[0], r[1], new_value)
                                 if config.get('use_unix_socket') and r[0] == 'unix_socket_directories'\
                                         or r[0] in ('listen_addresses', 'port'):
                                     local_connection_address_changed = True
                             else:
+                                logger.info('Changed %s from %s to %s', r[0], r[1], new_value)
                                 conf_changed = True
                 for param in changes:
                     if param in server_parameters:
@@ -351,11 +355,13 @@ class Postgresql(object):
             if not conf_changed:
                 for p, v in server_parameters.items():
                     if '.' in p and (p not in self._server_parameters or str(v) != str(self._server_parameters[p])):
+                        logger.info('Changed %s from %s to %s', p, self._server_parameters.get(p), v)
                         conf_changed = True
                         break
                 if not conf_changed:
                     for p, v in self._server_parameters.items():
                         if '.' in p and (p not in server_parameters or str(v) != str(server_parameters[p])):
+                            logger.info('Changed %s from %s to %s', p, v, server_parameters.get(p))
                             conf_changed = True
                             break
 
@@ -377,7 +383,10 @@ class Postgresql(object):
             self._replace_pg_hba()
 
         if conf_changed or hba_changed:
+            logger.info('PostgreSQL configuration items changed, reloading configuration.')
             self.reload()
+        elif not pending_restart:
+            logger.info('No PostgreSQL configuration items changed, nothing to reload.')
 
         self._is_leader_retry.deadline = self.retry.deadline = config['retry_timeout']/2.0
 
@@ -845,10 +854,12 @@ class Postgresql(object):
 
         OPTIONS_MAPPING = {
             'max_connections': 'max_connections setting',
-            'max_worker_processes': 'max_worker_processes setting',
             'max_prepared_transactions': 'max_prepared_xacts setting',
             'max_locks_per_transaction': 'max_locks_per_xact setting'
         }
+
+        if self._major_version >= 90400:
+            OPTIONS_MAPPING['max_worker_processes'] = 'max_worker_processes setting'
 
         data = self.controldata()
         effective_configuration = self._server_parameters.copy()
@@ -1215,7 +1226,8 @@ class Postgresql(object):
                 if data:
                     data = data.decode('utf-8').splitlines()
                     # pg_controldata output depends on major verion. Some of parameters are prefixed by 'Current '
-                    result = {l.split(':')[0].replace('Current ', '', 1): l.split(':', 1)[1].strip() for l in data if l}
+                    result = {l.split(':')[0].replace('Current ', '', 1): l.split(':', 1)[1].strip() for l in data
+                              if l and ':' in l}
             except subprocess.CalledProcessError:
                 logger.exception("Error when calling pg_controldata")
         return result
@@ -1406,6 +1418,10 @@ class Postgresql(object):
     def rewind_executed(self):
         return self._rewind_state > REWIND_STATUS.NOT_NEED
 
+    @property
+    def rewind_failed(self):
+        return self._rewind_state == REWIND_STATUS.FAILED
+
     def follow(self, member, timeout=None):
         is_remote_master = isinstance(member, RemoteMember)
         no_replication_slot = is_remote_master and member.no_replication_slot
@@ -1563,11 +1579,13 @@ $$""".format(name, ' '.join(options)), name, password, password)
                     if cursor.rowcount != 1:  # Either slot doesn't exists or it is still active
                         self._schedule_load_slots = True  # schedule load_replication_slots on the next iteration
 
+                immediately_reserve = ', true' if self._major_version >= 90600 else ''
+
                 # create new slots
                 for slot in slots - set(self._replication_slots):
-                    self._query("""SELECT pg_create_physical_replication_slot(%s)
+                    self._query("""SELECT pg_create_physical_replication_slot(%s{0})
                                     WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots
-                                    WHERE slot_name = %s)""", slot, slot)
+                                    WHERE slot_name = %s)""".format(immediately_reserve), slot, slot)
 
                 self._replication_slots = slots
             except Exception:
@@ -1736,7 +1754,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
             if sync_state == 'potential' and app_name == current:
                 # Prefer current even if not the best one any more to avoid indecisivness and spurious swaps.
                 return current, False
-            if sync_state == 'async':
+            if sync_state in ('async', 'potential'):
                 candidates.append(app_name)
 
         if candidates:

@@ -84,35 +84,20 @@ class RestApiHandler(BaseHTTPRequestHandler):
         patroni = self.server.patroni
         cluster = patroni.dcs.cluster
 
-        def is_synchronous():
-            return (cluster.is_synchronous_mode() and cluster.sync
-                    and cluster.sync.sync_standby == patroni.postgresql.name)
+        replica_status_code = 200 if not patroni.noloadbalance and response.get('role') == 'replica' else 503
+        status_code = 503
 
-        def is_balanceable_replica():
-            return response.get('role') == 'replica' and not patroni.noloadbalance
-
-        if cluster:  # dcs available
-            if cluster.leader and cluster.leader.name == patroni.postgresql.name:  # is_leader
-                status_code = 200 if 'master' in path else 503
-            elif 'role' not in response:
-                status_code = 503
-            elif response['role'] == 'master':  # running as master but without leader lock!!!!
-                status_code = 503
-            elif path in ('/sync', '/synchronous'):
-                status_code = 200 if is_balanceable_replica() and is_synchronous() else 503
-            elif path in ('/async', '/asynchronous'):
-                status_code = 200 if is_balanceable_replica() and not is_synchronous() else 503
-            elif response['role'] in path:  # response['role'] != 'master'
-                status_code = 503 if patroni.noloadbalance else 200
-            else:
-                status_code = 503
-        elif 'role' in response and response['role'] in path:
-            status_code = 503 if response['role'] != 'master' and patroni.noloadbalance else 200
-        elif patroni.ha.restart_scheduled() and patroni.postgresql.role == 'master' and 'master' in path:
-            # exceptional case for master node when the postgres is being restarted via API
-            status_code = 200
-        else:
-            status_code = 503
+        if 'master' in path:
+            status_code = 200 if patroni.ha.is_leader() else 503
+        elif 'replica' in path:
+            status_code = replica_status_code
+        elif cluster:  # dcs is available
+            is_synchronous = cluster.is_synchronous_mode() and cluster.sync \
+                    and cluster.sync.sync_standby == patroni.postgresql.name
+            if path in ('/sync', '/synchronous') and is_synchronous:
+                status_code = replica_status_code
+            elif path in ('/async', '/asynchronous') and not is_synchronous:
+                status_code = replica_status_code
 
         if write_status_code_only:  # when haproxy sends OPTIONS request it reads only status code and nothing more
             message = self.responses[status_code][0]
@@ -415,6 +400,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     def get_postgresql_status(self, retry=False):
         try:
+            cluster = self.server.patroni.dcs.cluster
+
             if self.server.patroni.postgresql.state not in ('running', 'restarting', 'starting'):
                 raise RetryFailedError('')
             stmt = ("WITH replication_info AS ("
@@ -439,6 +426,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 'postmaster_start_time': row[0],
                 'role': 'replica' if row[1] == 0 else 'master',
                 'server_version': self.server.patroni.postgresql.server_version,
+                'cluster_unlocked': bool(not cluster or cluster.is_unlocked()),
                 'xlog': ({
                     'received_location': row[3],
                     'replayed_location': row[4],
@@ -451,7 +439,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
             if row[1] > 0:
                 result['timeline'] = row[1]
             else:
-                cluster = self.server.patroni.dcs.cluster
                 leader_timeline = None if not cluster or cluster.is_unlocked() else cluster.leader.timeline
                 result['timeline'] = self.server.patroni.postgresql.replica_cached_timeline(leader_timeline)
 

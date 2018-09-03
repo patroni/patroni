@@ -59,6 +59,8 @@ class Ha(object):
         self.dcs = patroni.dcs
         self.cluster = None
         self.old_cluster = None
+        self._is_leader = False
+        self._is_leader_lock = RLock()
         self._was_paused = False
         self._leader_timeline = None
         self.recovering = False
@@ -89,6 +91,14 @@ class Ha(object):
     def is_paused(self):
         return self.check_mode('pause')
 
+    def is_leader(self):
+        with self._is_leader_lock:
+            return self._is_leader
+
+    def set_is_leader(self, value):
+        with self._is_leader_lock:
+            self._is_leader = value
+
     def load_cluster_from_dcs(self):
         cluster = self.dcs.get_cluster()
 
@@ -97,10 +107,15 @@ class Ha(object):
             self.old_cluster = cluster
         self.cluster = cluster
 
+        if self.cluster.is_unlocked() or self.cluster.leader.name != self.state_handler.name:
+            self.set_is_leader(False)
+
         self._leader_timeline = None if cluster.is_unlocked() else cluster.leader.timeline
 
     def acquire_lock(self):
-        return self.dcs.attempt_to_acquire_leader()
+        ret = self.dcs.attempt_to_acquire_leader()
+        self.set_is_leader(ret)
+        return ret
 
     def update_lock(self, write_leader_optime=False):
         last_operation = None
@@ -110,6 +125,7 @@ class Ha(object):
             except Exception:
                 logger.exception('Exception when called state_handler.last_operation()')
         ret = self.dcs.update_leader(last_operation)
+        self.set_is_leader(ret)
         if ret:
             self.watchdog.keepalive()
         return ret
@@ -478,7 +494,7 @@ class Ha(object):
             logger.info('Got response from %s %s: %s', member.name, member.api_url, response.content)
             return _MemberStatus.from_api_response(member, response.json())
         except Exception as e:
-            logger.warning("request failed: GET %s (%s)", member.api_url, e)
+            logger.warning("Request failed to %s: GET %s (%s)", member.name, member.api_url, e)
         return _MemberStatus.unknown(member)
 
     def fetch_nodes_statuses(self, members):
@@ -636,16 +652,17 @@ class Ha(object):
                 PostgreSQL as quickly as possible without regard for data durability. May only be called synchronously.
         """
         mode_control = {
-            'offline':          dict(stop='fast', checkpoint=False, release=False, offline=True, async=False),
-            'graceful':         dict(stop='fast', checkpoint=True, release=True, offline=False, async=False),
-            'immediate':        dict(stop='immediate', checkpoint=False, release=True, offline=False, async=True),
-            'immediate-nolock': dict(stop='immediate', checkpoint=False, release=False, offline=False, async=True),
+            'offline':          dict(stop='fast', checkpoint=False, release=False, offline=True, async_req=False),
+            'graceful':         dict(stop='fast', checkpoint=True, release=True, offline=False, async_req=False),
+            'immediate':        dict(stop='immediate', checkpoint=False, release=True, offline=False, async_req=True),
+            'immediate-nolock': dict(stop='immediate', checkpoint=False, release=False, offline=False, async_req=True),
         }[mode]
 
         self.state_handler.trigger_check_diverged_lsn()
         self.state_handler.stop(mode_control['stop'], checkpoint=mode_control['checkpoint'],
                                 on_safepoint=self.watchdog.disable if self.watchdog.is_running else None)
         self.state_handler.set_role('demoted')
+        self.set_is_leader(False)
 
         if mode_control['release']:
             self.release_leader_key_voluntarily()
@@ -659,7 +676,7 @@ class Ha(object):
         # FIXME: with mode offline called from DCS exception handler and handle_long_action_in_progress
         # there could be an async action already running, calling follow from here will lead
         # to racy state handler state updates.
-        if mode_control['async']:
+        if mode_control['async_req']:
             self._async_executor.schedule('starting after demotion')
             self._async_executor.run_async(self.state_handler.follow, (node_to_follow,))
         else:
@@ -1039,6 +1056,7 @@ class Ha(object):
             logger.error('Cancelling bootstrap because watchdog activation failed')
             self.cancel_initialization()
         self.dcs.take_leader()
+        self.set_is_leader(True)
         self.state_handler.call_nowait(ACTION_ON_START)
         self.load_cluster_from_dcs()
 
@@ -1172,8 +1190,13 @@ class Ha(object):
                         self.dcs.delete_leader()
                         self.dcs.reset_cluster()
                         return 'removed leader lock because postgres is not running'
-                    elif not (self.state_handler.rewind_executed or
-                              self.state_handler.need_rewind and self.state_handler.can_rewind):
+                    # Normally we don't start Postgres in a paused state. We make an exception for the demoted primary
+                    # that needs to be started after it had been stopped by demote. When there is no need to call rewind
+                    # the demote code follows through to starting Postgres right away, however, in the rewind case
+                    # it returns from demote and reaches this point to start PostgreSQL again after rewind. In that
+                    # case it makes no sense to continue to recover() unless rewind has finished successfully.
+                    elif (self.state_handler.rewind_failed or
+                          not (self.state_handler.need_rewind and self.state_handler.can_rewind)):
                         return 'postgres is not running'
 
                 # try to start dead postgres
@@ -1227,6 +1250,7 @@ class Ha(object):
             if not self.state_handler.is_running():
                 if self.has_lock():
                     self.dcs.delete_leader()
+                self.touch_member()
             else:
                 # XXX: what about when Patroni is started as the wrong user that has access to the watchdog device
                 # but cannot shut down PostgreSQL. Root would be the obvious example. Would be nice to not kill the

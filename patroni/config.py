@@ -172,6 +172,8 @@ class Config(object):
                     self._local_configuration = configuration
                     self.__effective_configuration = new_configuration
                     return True
+                else:
+                    logger.info('No configuration items changed, nothing to reload.')
             except Exception:
                 logger.exception('Exception when reloading local configuration from %s', self.config_file)
                 if dry_run:

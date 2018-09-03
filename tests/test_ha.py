@@ -208,6 +208,9 @@ class TestHa(unittest.TestCase):
         self.p.replica_cached_timeline = Mock(side_effect=Exception)
         self.ha.touch_member()
 
+    def test_is_leader(self):
+        self.assertFalse(self.ha.is_leader())
+
     def test_start_as_replica(self):
         self.p.is_healthy = false
         self.assertEquals(self.ha.run_cycle(), 'starting as a secondary')
