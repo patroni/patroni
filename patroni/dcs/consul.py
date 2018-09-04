@@ -406,7 +406,7 @@ class Consul(AbstractDCS):
                     idx, _ = self._client.kv.get(self.leader_path, index=leader_index, wait=str(timeout) + 's')
                     return str(idx) != str(leader_index)
                 except (ConsulException, HTTPException, HTTPError, socket.error, socket.timeout):
-                    logging.exception('watch')
+                    logger.exception('watch')
 
                 timeout = end_time - time.time()
 
