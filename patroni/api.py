@@ -5,6 +5,7 @@ import psycopg2
 import time
 import dateutil.parser
 import datetime
+import platform
 
 from patroni.postgresql import PostgresConnectionException, PostgresException, Postgresql
 from patroni.utils import deep_compare, parse_bool, patch_config, Retry, \
@@ -478,7 +479,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
     @staticmethod
     def _set_fd_cloexec(fd):
-        if platform.system() == 'Linux':
+        if os.name != 'nt':
             import fcntl
             flags = fcntl.fcntl(fd, fcntl.F_GETFD)
             fcntl.fcntl(fd, fcntl.F_SETFD, flags | fcntl.FD_CLOEXEC)
