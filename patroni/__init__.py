@@ -126,7 +126,7 @@ class Patroni(object):
     def setup_signal_handlers(self):
         self._received_sighup = False
         self._received_sigterm = False
-        if platform.system() == 'Linux':
+        if os.name != 'nt':
             signal.signal(signal.SIGHUP, self.sighup_handler)
         signal.signal(signal.SIGTERM, self.sigterm_handler)
 
@@ -199,8 +199,9 @@ def main():
             os.kill(pid, signo)
 
     signal.signal(signal.SIGCHLD, sigchld_handler)
-    if platform.system() == 'Linux':
+    if os.name != 'nt':
         signal.signal(signal.SIGHUP, passtochild)
+        signal.signal(signal.SIGQUIT, passtochild)
     signal.signal(signal.SIGINT, passtochild)
     signal.signal(signal.SIGUSR1, passtochild)
     signal.signal(signal.SIGUSR2, passtochild)
