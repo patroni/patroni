@@ -116,7 +116,8 @@ class TestConsul(unittest.TestCase):
         self.c.touch_member({'balbla': 'blabla'})
         self.c.touch_member({'balbla': 'blabla'})
         self.c.refresh_session = Mock(return_value=False)
-        self.c.touch_member({'balbla': 'blabla'})
+        self.c.touch_member({'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
+                             'api_url': 'http://127.0.0.1:8009/patroni'})
 
     @patch.object(consul.Consul.KV, 'put', Mock(return_value=False))
     def test_take_leader(self):

@@ -156,7 +156,7 @@ class TestZooKeeper(unittest.TestCase):
         self.zk.set_failover_value('Exception')
 
     def test_set_config_value(self):
-        self.zk.set_config_value('')
+        self.zk.set_config_value('', 1)
         self.zk.set_config_value('ok')
         self.zk.set_config_value('Exception')
 
@@ -179,7 +179,8 @@ class TestZooKeeper(unittest.TestCase):
         self.zk.touch_member({'retry': 'retry'})
         self.zk._fetch_cluster = True
         self.zk.get_cluster()
-        self.zk.touch_member({'retry': 'retry'})
+        self.zk.touch_member({'conn_url': 'postgres://repuser:rep-pass@localhost:5434/postgres',
+                              'api_url': 'http://127.0.0.1:8009/patroni'})
 
     def test_take_leader(self):
         self.zk.take_leader()

@@ -496,7 +496,7 @@ class Etcd(AbstractDCS):
     @catch_etcd_errors
     def touch_member(self, data, ttl=None, permanent=False):
         data = json.dumps(data, separators=(',', ':'))
-        return self.retry(self._client.set, self.member_path, data, None if permanent else ttl or self._ttl)
+        return self._client.set(self.member_path, data, None if permanent else ttl or self._ttl)
 
     @catch_etcd_errors
     def take_leader(self):
