@@ -1294,7 +1294,7 @@ class Ha(object):
             }
             keys_to_extract = ('primary_slot_name',
                                'create_replica_methods',
-                               'recovery_command')
+                               'restore_command')
             data.update({
                 k: v for k, v in cluster_params.items()
                 if k in keys_to_extract

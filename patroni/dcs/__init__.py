@@ -191,8 +191,8 @@ class RemoteMember(Member):
         return self.data.get('create_replica_methods')
 
     @property
-    def recovery_command(self):
-        return self.data.get('recovery_command')
+    def restore_command(self):
+        return self.data.get('restore_command')
 
 
 class Leader(namedtuple('Leader', 'index,session,member')):

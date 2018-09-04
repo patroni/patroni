@@ -1425,7 +1425,7 @@ class Postgresql(object):
     def follow(self, member, timeout=None):
         is_remote_master = isinstance(member, RemoteMember)
         no_replication_slot = is_remote_master and member.no_replication_slot
-        recovery_command = is_remote_master and member.recovery_command
+        restore_command = is_remote_master and member.restore_command
 
         primary_conninfo = self.primary_conninfo(member)
         change_role = self.role in ('master', 'demoted')
@@ -1438,8 +1438,8 @@ class Postgresql(object):
             required_name = is_remote_master and member.data.get('primary_slot_name')
             name = required_name or slot_name_from_member_name(self.name)
             recovery_params['primary_slot_name'] = name
-        if recovery_command:
-            recovery_params['recovery_command'] = recovery_command
+        if restore_command:
+            recovery_params['restore_command'] = restore_command
 
         self.write_recovery_conf(recovery_params)
 
