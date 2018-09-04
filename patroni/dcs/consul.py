@@ -356,7 +356,7 @@ class Consul(AbstractDCS):
 
     @catch_consul_errors
     def register_service(self, service_name, **kwargs):
-        logger.info('Register service {}, params {}'.format(service_name, kwargs))
+        logger.info('Register service %s, params %s', service_name, kwargs)
         return self.retry(self._client.agent.service.register, service_name, **kwargs)
 
     def _update_service(self, data):
