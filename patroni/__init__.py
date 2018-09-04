@@ -1,5 +1,4 @@
 import logging
-import platform
 import os
 import signal
 import sys

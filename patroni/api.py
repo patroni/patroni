@@ -5,7 +5,7 @@ import psycopg2
 import time
 import dateutil.parser
 import datetime
-import platform
+import os
 
 from patroni.postgresql import PostgresConnectionException, PostgresException, Postgresql
 from patroni.utils import deep_compare, parse_bool, patch_config, Retry, \
