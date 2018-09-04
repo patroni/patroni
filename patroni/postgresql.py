@@ -1216,7 +1216,8 @@ class Postgresql(object):
                 if data:
                     data = data.decode('utf-8').splitlines()
                     # pg_controldata output depends on major verion. Some of parameters are prefixed by 'Current '
-                    result = {l.split(':')[0].replace('Current ', '', 1): l.split(':', 1)[1].strip() for l in data if l}
+                    result = {l.split(':')[0].replace('Current ', '', 1): l.split(':', 1)[1].strip() for l in data
+                              if l and ':' in l}
             except subprocess.CalledProcessError:
                 logger.exception("Error when calling pg_controldata")
         return result
@@ -1560,11 +1561,13 @@ $$""".format(name, ' '.join(options)), name, password, password)
                     if cursor.rowcount != 1:  # Either slot doesn't exists or it is still active
                         self._schedule_load_slots = True  # schedule load_replication_slots on the next iteration
 
+                immediately_reserve = ', true' if self._major_version >= 90600 else ''
+
                 # create new slots
                 for slot in slots - set(self._replication_slots):
-                    self._query("""SELECT pg_create_physical_replication_slot(%s)
+                    self._query("""SELECT pg_create_physical_replication_slot(%s{0})
                                     WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots
-                                    WHERE slot_name = %s)""", slot, slot)
+                                    WHERE slot_name = %s)""".format(immediately_reserve), slot, slot)
 
                 self._replication_slots = slots
             except Exception:
@@ -1733,7 +1736,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
             if sync_state == 'potential' and app_name == current:
                 # Prefer current even if not the best one any more to avoid indecisivness and spurious swaps.
                 return current, False
-            if sync_state == 'async':
+            if sync_state in ('async', 'potential'):
                 candidates.append(app_name)
 
         if candidates:

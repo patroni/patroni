@@ -71,6 +71,14 @@ Scenario: check the switchover via the API in the pause mode
 	And postgres1 role is the primary after 10 seconds
 	And postgres0 role is the secondary after 10 seconds
 	And replication works from postgres1 to postgres0 after 20 seconds
+	When I issue a GET request to http://127.0.0.1:8008/master
+	Then I receive a response code 503
+	When I issue a GET request to http://127.0.0.1:8008/replica
+	Then I receive a response code 200
+	When I issue a GET request to http://127.0.0.1:8009/master
+	Then I receive a response code 200
+	When I issue a GET request to http://127.0.0.1:8009/replica
+	Then I receive a response code 503
 
 Scenario: check the scheduled switchover
 	Given I issue a scheduled switchover from postgres1 to postgres0 in 3 seconds
@@ -84,6 +92,14 @@ Scenario: check the scheduled switchover
 	And postgres0 role is the primary after 10 seconds
 	And postgres1 role is the secondary after 10 seconds
 	And replication works from postgres0 to postgres1 after 25 seconds
+	When I issue a GET request to http://127.0.0.1:8008/master
+	Then I receive a response code 200
+	When I issue a GET request to http://127.0.0.1:8008/replica
+	Then I receive a response code 503
+	When I issue a GET request to http://127.0.0.1:8009/master
+	Then I receive a response code 503
+	When I issue a GET request to http://127.0.0.1:8009/replica
+	Then I receive a response code 200
 
 Scenario: check the scheduled restart
 	Given I issue a PATCH request to http://127.0.0.1:8008/config with {"postgresql": {"parameters": {"superuser_reserved_connections": "6"}}}

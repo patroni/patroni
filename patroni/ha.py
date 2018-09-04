@@ -105,6 +105,9 @@ class Ha(object):
             self.old_cluster = cluster
         self.cluster = cluster
 
+        if self.cluster.is_unlocked() or self.cluster.leader.name != self.state_handler.name:
+            self.set_is_leader(False)
+
         self._leader_timeline = None if cluster.is_unlocked() else cluster.leader.timeline
 
     def acquire_lock(self):
@@ -452,7 +455,7 @@ class Ha(object):
             logger.info('Got response from %s %s: %s', member.name, member.api_url, response.content)
             return _MemberStatus.from_api_response(member, response.json())
         except Exception as e:
-            logger.warning("request failed: GET %s (%s)", member.api_url, e)
+            logger.warning("Request failed to %s: GET %s (%s)", member.name, member.api_url, e)
         return _MemberStatus.unknown(member)
 
     def fetch_nodes_statuses(self, members):
@@ -620,6 +623,7 @@ class Ha(object):
         self.state_handler.stop(mode_control['stop'], checkpoint=mode_control['checkpoint'],
                                 on_safepoint=self.watchdog.disable if self.watchdog.is_running else None)
         self.state_handler.set_role('demoted')
+        self.set_is_leader(False)
 
         if mode_control['release']:
             self.release_leader_key_voluntarily()

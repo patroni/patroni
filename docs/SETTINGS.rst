@@ -146,6 +146,13 @@ REST API
         -  **certfile**: Specifies the file with the certificate in the PEM format. If the certfile is not specified or is left empty, the API server will work without SSL.
         -  **keyfile**: Specifies the file with the secret key in the PEM format.
 
+CTL
+---
+-  **Optional**:
+    -  **insecure**: Allow connections to REST API without verifying SSL certs. 
+    -  **cacert**: Specifices the file with the CA_BUNDLE file or directory with certificates of trusted CAs to use while verifying REST API SSL certs.
+    -  **certfile**: Specifies the file with the certificate in the PEM format to use while verifying REST API SSL certs. If not provided patronictl will use the value provided for REST API "certfile" parameter.
+
 ZooKeeper
 ----------
 -  **hosts**: list of ZooKeeper cluster members in format: ['host1:port1', 'host2:port2', 'etc...'].
