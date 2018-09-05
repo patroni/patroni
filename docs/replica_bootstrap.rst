@@ -141,11 +141,11 @@ standby nodes replicating from some remote master. This type of clusters has:
 
 * cascade replicas, that are replicating from standby leader.
 
-Standby leader holds and updates a leader lock in DCS, and if it will
-disappear, cascade replicas will perform an election to choose another standby
-leader. For the sake of flexibility, you can specify different methods of
-creating a replica and recovery WAL records when a cluster is in the "standby
-mode", and after it was detached to function as a normal cluster.
+Standby leader holds and updates a leader lock in DCS. If the leader lock
+expires, cascade replicas will perform an election to choose another leader
+from the standbys. For the sake of flexibility, you can specify different
+methods of creating a replica and recovery WAL records when a cluster is in the
+"standby mode", and after it was detached to function as a normal cluster.
 
 To configure such cluster you need to specify the section ``standby_cluster``
 in a patroni configuration:

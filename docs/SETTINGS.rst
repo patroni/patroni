@@ -28,7 +28,7 @@ Bootstrap configuration
     -  **standby\_cluster**: if this section is defined, we want to bootstrap a standby cluster.
         -  **host**: an address of remote master
         -  **port**: a port of remote master
-        -  **primary\_slot\_name**: which slot on the remote master to use for replication
+        -  **primary\_slot\_name**: which slot on the remote master to use for replication. This parameter is optional, the default value is derived from the instance name (see function `slot_name_from_member_name`).
         -  **create\_replica\_methods**: an ordered list of methods that can be used to bootstrap standby leader from the remote master, can be different from the list defined in :ref:`postgresql_settings`
         -  **restore\_command**: command to restore WAL records from the remote master to standby leader, can be different from the list defined in :ref:`postgresql_settings`
         -  **archive\_cleanup\_command**: cleanup command for standby leader
