@@ -1292,12 +1292,9 @@ class Ha(object):
                 },
                 'no_replication_slot': 'primary_slot_name' not in cluster_params,
             }
-            keys_to_extract = ('primary_slot_name',
-                               'create_replica_methods',
-                               'restore_command')
             data.update({
                 k: v for k, v in cluster_params.items()
-                if k in keys_to_extract
+                if k in RemoteMember.allowed_keys()
             })
 
             return RemoteMember(unique_name, data)

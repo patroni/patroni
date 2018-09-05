@@ -1426,6 +1426,8 @@ class Postgresql(object):
         is_remote_master = isinstance(member, RemoteMember)
         no_replication_slot = is_remote_master and member.no_replication_slot
         restore_command = is_remote_master and member.restore_command
+        min_apply_delay = is_remote_master and member.recovery_min_apply_delay
+        archive_cleanup = is_remote_master and member.archive_cleanup_command
 
         primary_conninfo = self.primary_conninfo(member)
         change_role = self.role in ('master', 'demoted')
@@ -1440,6 +1442,10 @@ class Postgresql(object):
             recovery_params['primary_slot_name'] = name
         if restore_command:
             recovery_params['restore_command'] = restore_command
+        if min_apply_delay:
+            recovery_params['recovery_min_apply_delay'] = min_apply_delay
+        if archive_cleanup:
+            recovery_params['archive_cleanup_command'] = archive_cleanup
 
         self.write_recovery_conf(recovery_params)
 

@@ -182,17 +182,19 @@ class RemoteMember(Member):
     def __new__(cls, name, data):
         return super(RemoteMember, cls).__new__(cls, None, name, None, data)
 
-    @property
-    def no_replication_slot(self):
-        return self.data.get('no_replication_slot')
+    @staticmethod
+    def allowed_keys():
+        return ('primary_slot_name',
+                'create_replica_methods',
+                'restore_command',
+                'archive_cleanup_command',
+                'recovery_min_apply_delay')
 
-    @property
-    def create_replica_methods(self):
-        return self.data.get('create_replica_methods')
+    def __getattr__(self, name):
+        if name not in RemoteMember.allowed_keys():
+            return
 
-    @property
-    def restore_command(self):
-        return self.data.get('restore_command')
+        return self.data.get(name)
 
 
 class Leader(namedtuple('Leader', 'index,session,member')):
