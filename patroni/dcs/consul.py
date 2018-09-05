@@ -13,7 +13,7 @@ from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, M
 from patroni.exceptions import DCSError
 from patroni.utils import deep_compare, parse_bool, Retry, RetryFailedError, split_host_port
 from urllib3.exceptions import HTTPError
-from six.moves.urllib.parse import urlencode, urlparse
+from six.moves.urllib.parse import urlencode, urlparse, quote
 from six.moves.http_client import HTTPException
 
 logger = logging.getLogger(__name__)
@@ -347,7 +347,7 @@ class Consul(AbstractDCS):
             args = {} if permanent else {'acquire': self._session}
             self._client.kv.put(self.member_path, json.dumps(data, separators=(',', ':')), **args)
             if self._register_service:
-                self.update_service(self._my_member_data, data)
+                self.update_service(self._my_member_data, data, force=create_member)
             self._my_member_data = data
             return True
         except Exception:
@@ -359,37 +359,52 @@ class Consul(AbstractDCS):
         logger.info('Register service %s, params %s', service_name, kwargs)
         return self.retry(self._client.agent.service.register, service_name, **kwargs)
 
+    @catch_consul_errors
+    def deregister_service(self, service_id):
+        logger.info('Deregister service %s', service_id)
+        # service_id can contain special characters, but is used as part of uri in deregister request
+        service_id = quote(service_id)
+        return self._client.agent.service.deregister(service_id)
+
     def _update_service(self, data):
         service_name = self._service_name
         role = data['role']
+        state = data['state']
         api_parts = urlparse(data['api_url'])
         api_parts = api_parts._replace(path='/{}'.format(role))
         conn_parts = urlparse(data['conn_url'])
+        check = base.Check.http(api_parts.geturl(), self._service_check_interval, deregister=self._client.http.ttl * 10)
         params = {
+            'service_id': '{}_{}'.format(self._scope, self._name),
             'address': conn_parts.hostname,
             'port': conn_parts.port,
-            'check': base.Check.http(api_parts.geturl(), self._service_check_interval),
+            'check': check,
             'tags': [role]
         }
 
+        if state == 'stopped':
+            return self.deregister_service(params['service_id'])
+
         if role in ['master', 'replica']:
+            if state != 'running':
+                return False
             return self.register_service(service_name, **params)
 
         logger.warning('Could not register service: unknown role type %s', role)
 
         return False
 
-    def update_service(self, old_data, new_data):
+    def update_service(self, old_data, new_data, force=False):
         update = False
 
-        for key in ['role', 'api_url', 'conn_url']:
+        for key in ['role', 'api_url', 'conn_url', 'state']:
             if key not in new_data:
                 logger.warning('Could not register service: not enough params in member data')
                 return False
             if old_data.get(key) != new_data[key]:
                 update = True
 
-        if update:
+        if force or update:
             return self._update_service(new_data)
 
     @catch_consul_errors
