@@ -945,7 +945,7 @@ class Postgresql(object):
                         return 'is_in_recovery=true'
                 return cur.execute('CHECKPOINT')
         except psycopg2.Error:
-            logging.exception('Exception during CHECKPOINT')
+            logger.exception('Exception during CHECKPOINT')
             return 'not accessible or not healty'
 
     def stop(self, mode='fast', block_callbacks=False, checkpoint=None, on_safepoint=None):

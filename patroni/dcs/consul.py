@@ -144,7 +144,6 @@ class Consul(AbstractDCS):
                             retry_exceptions=(ConsulInternalError, HTTPException,
                                               HTTPError, socket.error, socket.timeout))
 
-        self._my_member_data = {}
         kwargs = {}
         if 'url' in config:
             r = urlparse(config['url'])
@@ -318,13 +317,12 @@ class Consul(AbstractDCS):
             except Exception:
                 return False
 
-        if not create_member and member and deep_compare(data, self._my_member_data):
+        if not create_member and member and deep_compare(data, member.data):
             return True
 
         try:
             args = {} if permanent else {'acquire': self._session}
             self._client.kv.put(self.member_path, json.dumps(data, separators=(',', ':')), **args)
-            self._my_member_data = data
             return True
         except Exception:
             logger.exception('touch_member')
@@ -408,7 +406,7 @@ class Consul(AbstractDCS):
                     idx, _ = self._client.kv.get(self.leader_path, index=leader_index, wait=str(timeout) + 's')
                     return str(idx) != str(leader_index)
                 except (ConsulException, HTTPException, HTTPError, socket.error, socket.timeout):
-                    logging.exception('watch')
+                    logger.exception('watch')
 
                 timeout = end_time - time.time()
 
