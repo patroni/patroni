@@ -134,6 +134,17 @@ def catch_consul_errors(func):
     return wrapper
 
 
+def force_if_last_failed(func):
+    def wrapper(*args, **kwargs):
+        if wrapper.last_result is False:
+            kwargs['force'] = True
+        wrapper.last_result = func(*args, **kwargs)
+        return wrapper.last_result
+
+    wrapper.last_result = None
+    return wrapper
+
+
 def service_name_from_scope_name(scope_name):
     """Translate scope name to service name which can be used in dns.
 
@@ -355,7 +366,7 @@ class Consul(AbstractDCS):
     @catch_consul_errors
     def register_service(self, service_name, **kwargs):
         logger.info('Register service %s, params %s', service_name, kwargs)
-        return self.retry(self._client.agent.service.register, service_name, **kwargs)
+        return self._client.agent.service.register(service_name, **kwargs)
 
     @catch_consul_errors
     def deregister_service(self, service_id):
@@ -385,20 +396,19 @@ class Consul(AbstractDCS):
 
         if role in ['master', 'replica']:
             if state != 'running':
-                return False
+                return
             return self.register_service(service_name, **params)
 
         logger.warning('Could not register service: unknown role type %s', role)
 
-        return False
-
+    @force_if_last_failed
     def update_service(self, old_data, new_data, force=False):
         update = False
 
         for key in ['role', 'api_url', 'conn_url', 'state']:
             if key not in new_data:
                 logger.warning('Could not register service: not enough params in member data')
-                return False
+                return
             if old_data.get(key) != new_data[key]:
                 update = True
 

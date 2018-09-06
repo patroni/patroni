@@ -181,17 +181,18 @@ class TestConsul(unittest.TestCase):
     def test_set_history_value(self):
         self.assertTrue(self.c.set_history_value('{}'))
 
-    @patch.object(consul.Consul.Agent.Service, 'register', Mock(return_value=True))
+    @patch.object(consul.Consul.Agent.Service, 'register', Mock(side_effect=(False, True)))
     @patch.object(consul.Consul.Agent.Service, 'deregister', Mock(return_value=True))
     def test_update_service(self):
         d = {'role': 'replica', 'api_url': 'http://a/t', 'conn_url': 'pg://c:1', 'state': 'running'}
-        self.assertFalse(self.c.update_service({}, {}))
-        self.assertTrue(self.c.update_service({}, d))
+        self.assertIsNone(self.c.update_service({}, {}))
+        self.assertFalse(self.c.update_service({}, d))
+        self.assertTrue(self.c.update_service(d, d))
         self.assertIsNone(self.c.update_service(d, d))
         d['state'] = 'stopped'
         self.assertTrue(self.c.update_service(d, d, force=True))
         d['state'] = 'unknown'
-        self.assertFalse(self.c.update_service({}, d))
+        self.assertIsNone(self.c.update_service({}, d))
         d['state'] = 'running'
         d['role'] = 'bla'
-        self.assertFalse(self.c.update_service({}, d))
+        self.assertIsNone(self.c.update_service({}, d))
