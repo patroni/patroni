@@ -154,11 +154,10 @@ in a patroni configuration:
 
     bootstrap:
         dcs:
-            postgresql:
-                standby_cluster:
-                    host: 1.2.3.4
-                    port: 5432
-                    primary_slot_name: patroni
+            standby_cluster:
+                host: 1.2.3.4
+                port: 5432
+                primary_slot_name: patroni
 
 Note, that these options will be applied only once during cluster bootstrap,
 and the only way to change them afterwards is through DCS.
