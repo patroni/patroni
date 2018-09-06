@@ -59,7 +59,6 @@ class ZooKeeper(AbstractDCS):
                                    max_delay=1, max_tries=-1, sleep_func=time.sleep))
         self._client.add_listener(self.session_listener)
 
-        self._my_member_data = {}
         self._fetch_cluster = True
 
         self._orig_kazoo_connect = self._client._connection._connect
@@ -208,45 +207,52 @@ class ZooKeeper(AbstractDCS):
                 self.cluster_watcher(None)
                 raise ZooKeeperError('ZooKeeper in not responding properly')
 
-    def _create(self, path, value, **kwargs):
+    def _create(self, path, value, retry=False, ephemeral=False):
         try:
-            self._client.retry(self._client.create, path, value.encode('utf-8'), **kwargs)
+            if retry:
+                self._client.retry(self._client.create, path, value, makepath=True, ephemeral=ephemeral)
+            else:
+                self._client.create_async(path, value, makepath=True, ephemeral=ephemeral).get(timeout=1)
             return True
         except Exception:
-            return False
+            logger.exception('Failed to create %s', path)
+        return False
 
     def attempt_to_acquire_leader(self, permanent=False):
-        ret = self._create(self.leader_path, self._name, makepath=True, ephemeral=not permanent)
+        ret = self._create(self.leader_path, self._name.encode('utf-8'), retry=True, ephemeral=not permanent)
         if not ret:
             logger.info('Could not take out TTL lock')
         return ret
 
-    def __set_failover_or_sync_state_value(self, key, value, index=None):
+    def _set_or_create(self, key, value, index=None, retry=False, do_not_create_empty=False):
+        value = value.encode('utf-8')
         try:
-            self._client.retry(self._client.set, key, value.encode('utf-8'), version=index or -1)
+            if retry:
+                self._client.retry(self._client.set, key, value, version=index or -1)
+            else:
+                self._client.set_async(key, value, version=index or -1).get(timeout=1)
             return True
         except NoNodeError:
-            return value == '' or (index is None and self._create(key, value))
+            if do_not_create_empty and not value:
+                return True
+            elif index is None:
+                return self._create(key, value, retry)
+            else:
+                return False
         except Exception:
-            logging.exception('set_failover_value')
-            return False
+            logger.exception('Failed to update %s', key)
+        return False
 
     def set_failover_value(self, value, index=None):
-        return self.__set_failover_or_sync_state_value(self.failover_path, value, index)
+        return self._set_or_create(self.failover_path, value, index)
 
     def set_config_value(self, value, index=None):
-        try:
-            self._client.retry(self._client.set, self.config_path, value.encode('utf-8'), version=index or -1)
-            return True
-        except NoNodeError:
-            return index is None and self._create(self.config_path, value)
-        except Exception:
-            logging.exception('set_config_value')
-            return False
+        return self._set_or_create(self.config_path, value, index, retry=True)
 
     def initialize(self, create_new=True, sysid=""):
-        return self._create(self.initialize_path, sysid, makepath=True) if create_new \
-            else self._client.retry(self._client.set, self.initialize_path, sysid.encode("utf-8"))
+        sysid = sysid.encode('utf-8')
+        return self._create(self.initialize_path, sysid, retry=True) if create_new \
+            else self._client.retry(self._client.set, self.initialize_path, sysid)
 
     def touch_member(self, data, ttl=None, permanent=False):
         cluster = self.cluster
@@ -262,13 +268,12 @@ class ZooKeeper(AbstractDCS):
             member = None
 
         if member:
-            if deep_compare(data, self._my_member_data):
+            if deep_compare(data, member.data):
                 return True
         else:
             try:
                 self._client.create_async(self.member_path, encoded_data, makepath=True,
                                           ephemeral=not permanent).get(timeout=1)
-                self._my_member_data = data
                 return True
             except Exception as e:
                 if not isinstance(e, NodeExistsError):
@@ -276,7 +281,6 @@ class ZooKeeper(AbstractDCS):
                     return False
         try:
             self._client.set_async(self.member_path, encoded_data).get(timeout=1)
-            self._my_member_data = data
             return True
         except Exception:
             logger.exception('touch_member')
@@ -286,30 +290,14 @@ class ZooKeeper(AbstractDCS):
     def take_leader(self):
         return self.attempt_to_acquire_leader()
 
-    def __write_leader_optime_or_history_value(self, key, value):
-        value = value.encode('utf-8')
-        try:
-            self._client.set_async(key, value).get(timeout=1)
-            return True
-        except NoNodeError:
-            try:
-                self._client.create_async(key, value, makepath=True).get(timeout=1)
-                return True
-            except Exception:
-                logger.exception('Failed to create %s', key)
-        except Exception:
-            logger.exception('Failed to update %s', key)
-        return False
-
     def _write_leader_optime(self, last_operation):
-        return self.__write_leader_optime_or_history_value(self.leader_optime_path, last_operation)
+        return self._set_or_create(self.leader_optime_path, last_operation)
 
     def _update_leader(self):
         return True
 
     def delete_leader(self):
         self._client.restart()
-        self._my_member_data = None
         return True
 
     def _cancel_initialization(self):
@@ -330,10 +318,10 @@ class ZooKeeper(AbstractDCS):
             return True
 
     def set_history_value(self, value):
-        return self.__write_leader_optime_or_history_value(self.history_path, value)
+        return self._set_or_create(self.history_path, value)
 
     def set_sync_state_value(self, value, index=None):
-        return self.__set_failover_or_sync_state_value(self.sync_path, value, index)
+        return self._set_or_create(self.sync_path, value, index, retry=True, do_not_create_empty=True)
 
     def delete_sync_state(self, index=None):
         return self.set_sync_state_value("{}", index)

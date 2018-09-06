@@ -21,6 +21,7 @@ Feature: basic replication
     Then "sync" key in DCS has sync_standby=postgres2 after 10 seconds
     When I start postgres1
     And "members/postgres1" key in DCS has state=running after 10 seconds
+    And I sleep for 2 seconds
     When I issue a GET request to http://127.0.0.1:8010/sync
     Then I receive a response code 200
     When I issue a GET request to http://127.0.0.1:8009/async

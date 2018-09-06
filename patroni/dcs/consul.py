@@ -159,7 +159,6 @@ class Consul(AbstractDCS):
                             retry_exceptions=(ConsulInternalError, HTTPException,
                                               HTTPError, socket.error, socket.timeout))
 
-        self._my_member_data = {}
         kwargs = {}
         if 'url' in config:
             r = urlparse(config['url'])
@@ -340,15 +339,14 @@ class Consul(AbstractDCS):
             except Exception:
                 return False
 
-        if not create_member and member and deep_compare(data, self._my_member_data):
+        if not create_member and member and deep_compare(data, member.data):
             return True
 
         try:
             args = {} if permanent else {'acquire': self._session}
             self._client.kv.put(self.member_path, json.dumps(data, separators=(',', ':')), **args)
             if self._register_service:
-                self.update_service(self._my_member_data, data, force=create_member)
-            self._my_member_data = data
+                self.update_service(not create_member and member and member.data or {}, data)
             return True
         except Exception:
             logger.exception('touch_member')
@@ -371,11 +369,11 @@ class Consul(AbstractDCS):
         role = data['role']
         state = data['state']
         api_parts = urlparse(data['api_url'])
-        api_parts = api_parts._replace(path='/{}'.format(role))
+        api_parts = api_parts._replace(path='/{0}'.format(role))
         conn_parts = urlparse(data['conn_url'])
         check = base.Check.http(api_parts.geturl(), self._service_check_interval, deregister=self._client.http.ttl * 10)
         params = {
-            'service_id': '{}_{}'.format(self._scope, self._name),
+            'service_id': '{0}/{1}'.format(self._scope, self._name),
             'address': conn_parts.hostname,
             'port': conn_parts.port,
             'check': check,
@@ -486,7 +484,7 @@ class Consul(AbstractDCS):
                     idx, _ = self._client.kv.get(self.leader_path, index=leader_index, wait=str(timeout) + 's')
                     return str(idx) != str(leader_index)
                 except (ConsulException, HTTPException, HTTPError, socket.error, socket.timeout):
-                    logging.exception('watch')
+                    logger.exception('watch')
 
                 timeout = end_time - time.time()
 
