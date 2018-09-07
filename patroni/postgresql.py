@@ -15,10 +15,12 @@ from patroni.callback_executor import CallbackExecutor
 from patroni.exceptions import PostgresConnectionException, PostgresException
 from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, split_host_port
 from patroni.postmaster import PostmasterProcess
+from patroni.dcs import RemoteMember
 from requests.structures import CaseInsensitiveDict
 from six import string_types
 from six.moves.urllib.parse import quote_plus
 from threading import current_thread, Lock
+
 
 logger = logging.getLogger(__name__)
 
@@ -665,9 +667,17 @@ class Postgresql(object):
         self.set_state('creating replica')
         self._sysid = None
 
-        # get list of replica methods from config.
-        # If there is no configuration key, or no value is specified, use basebackup
-        replica_methods = self._create_replica_methods or ['basebackup']
+        is_remote_master = isinstance(clone_member, RemoteMember)
+        create_replica_methods = is_remote_master and clone_member.create_replica_methods
+
+        # get list of replica methods either from clone member or from
+        # the config. If there is no configuration key, or no value is
+        # specified, use basebackup
+        replica_methods = (
+            create_replica_methods
+            or self._create_replica_methods
+            or ['basebackup']
+        )
 
         if clone_member and clone_member.conn_url:
             r = clone_member.conn_kwargs(self._replication)
@@ -1413,6 +1423,12 @@ class Postgresql(object):
         return self._rewind_state == REWIND_STATUS.FAILED
 
     def follow(self, member, timeout=None):
+        is_remote_master = isinstance(member, RemoteMember)
+        no_replication_slot = is_remote_master and member.no_replication_slot
+        restore_command = is_remote_master and member.restore_command
+        min_apply_delay = is_remote_master and member.recovery_min_apply_delay
+        archive_cleanup = is_remote_master and member.archive_cleanup_command
+
         primary_conninfo = self.primary_conninfo(member)
         change_role = self.role in ('master', 'demoted')
 
@@ -1420,8 +1436,16 @@ class Postgresql(object):
         recovery_params.update({'standby_mode': 'on', 'recovery_target_timeline': 'latest'})
         if primary_conninfo:
             recovery_params['primary_conninfo'] = primary_conninfo
-        if self.use_slots:
-            recovery_params['primary_slot_name'] = slot_name_from_member_name(self.name)
+        if self.use_slots and not no_replication_slot:
+            required_name = is_remote_master and member.data.get('primary_slot_name')
+            name = required_name or slot_name_from_member_name(self.name)
+            recovery_params['primary_slot_name'] = name
+        if restore_command:
+            recovery_params['restore_command'] = restore_command
+        if min_apply_delay:
+            recovery_params['recovery_min_apply_delay'] = min_apply_delay
+        if archive_cleanup:
+            recovery_params['archive_cleanup_command'] = archive_cleanup
 
         self.write_recovery_conf(recovery_params)
 
@@ -1533,7 +1557,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
                 # the current master, because that member would replicate from elsewhere. We still create the slot if
                 # the replicatefrom destination member is currently not a member of the cluster (fallback to the
                 # master), or if replicatefrom destination member happens to be the current master
-                if self.role == 'master':
+                if self.role in ('master', 'standby_leader'):
                     slot_members = [m.name for m in cluster.members if m.name != self.name and
                                     (m.replicatefrom is None or m.replicatefrom == self.name or
                                      not cluster.has_member(m.replicatefrom))]

@@ -25,6 +25,14 @@ Bootstrap configuration
         -  **use\_slots**: whether or not to use replication_slots. Must be False for PostgreSQL 9.3. You should comment out max_replication_slots before it becomes ineligible for leader status.
         -  **recovery\_conf**: additional configuration settings written to recovery.conf when configuring follower. 
         -  **parameters**: list of configuration settings for Postgres. Many of these are required for replication to work.
+    -  **standby\_cluster**: if this section is defined, we want to bootstrap a standby cluster.
+        -  **host**: an address of remote master
+        -  **port**: a port of remote master
+        -  **primary\_slot\_name**: which slot on the remote master to use for replication. This parameter is optional, the default value is derived from the instance name (see function `slot_name_from_member_name`).
+        -  **create\_replica\_methods**: an ordered list of methods that can be used to bootstrap standby leader from the remote master, can be different from the list defined in :ref:`postgresql_settings`
+        -  **restore\_command**: command to restore WAL records from the remote master to standby leader, can be different from the list defined in :ref:`postgresql_settings`
+        -  **archive\_cleanup\_command**: cleanup command for standby leader
+        -  **recovery\_min\_apply\_delay**: how long to wait before actually apply WAL records on a standby leader
 -  **method**: custom script to use for bootstrapping this cluster.
    See :ref:`custom bootstrap methods documentation <custom_bootstrap>` for details.
    When ``initdb`` is specified revert to the default ``initdb`` command. ``initdb`` is also triggered when no ``method``

@@ -1,13 +1,14 @@
 import json
 import logging
 import os
+import six
 import sys
 import tempfile
 import yaml
 
 from collections import defaultdict
 from copy import deepcopy
-from patroni.dcs import ClusterConfig
+from patroni.dcs import ClusterConfig, is_standby_cluster
 from patroni.postgresql import Postgresql
 from patroni.utils import deep_compare, parse_bool, parse_int, patch_config
 from requests.structures import CaseInsensitiveDict
@@ -45,6 +46,15 @@ class Config(object):
         'master_start_timeout': 300,
         'synchronous_mode': False,
         'synchronous_mode_strict': False,
+        'standby_cluster': {
+            'create_replica_methods': '',
+            'host': '',
+            'port': '',
+            'primary_slot_name': '',
+            'restore_command': '',
+            'archive_cleanup_command': '',
+            'recovery_min_apply_delay': ''
+        },
         'postgresql': {
             'bin_dir': '',
             'use_slots': True,
@@ -87,6 +97,10 @@ class Config(object):
     @property
     def dynamic_configuration(self):
         return deepcopy(self._dynamic_configuration)
+
+    @property
+    def is_standby_cluster(self):
+        return is_standby_cluster(self._dynamic_configuration.get('standby_cluster'))
 
     def check_mode(self, mode):
         return bool(parse_bool(self._dynamic_configuration.get(mode)))
@@ -183,6 +197,13 @@ class Config(object):
                         config['postgresql'][name].update(self._process_postgresql_parameters(value))
                     elif name not in ('connect_address', 'listen', 'data_dir', 'pgpass', 'authentication'):
                         config['postgresql'][name] = deepcopy(value)
+            elif name == 'standby_cluster':
+                allowed_keys = self.__DEFAULT_CONFIG['standby_cluster'].keys()
+                expected = {
+                    k: v for k, v in (value or {}).items()
+                    if (k in allowed_keys and isinstance(v, six.string_types))
+                }
+                config['standby_cluster'].update(expected)
             elif name in config:  # only variables present in __DEFAULT_CONFIG allowed to be overriden from DCS
                 if name in ('synchronous_mode', 'synchronous_mode_strict'):
                     config[name] = value
@@ -317,8 +338,15 @@ class Config(object):
         if 'name' not in config and 'name' in pg_config:
             config['name'] = pg_config['name']
 
-        pg_config.update({p: config[p] for p in ('name', 'scope', 'retry_timeout',
-                          'synchronous_mode', 'maximum_lag_on_failover') if p in config})
+        updated_fields = (
+            'name',
+            'scope',
+            'retry_timeout',
+            'synchronous_mode',
+            'maximum_lag_on_failover'
+        )
+
+        pg_config.update({p: config[p] for p in updated_fields if p in config})
 
         return config
 

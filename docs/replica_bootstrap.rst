@@ -129,3 +129,35 @@ and
             - max-rate: '100M'
 
 If all replica creation methods fail, Patroni will try again all methods in order during the next event loop cycle.
+
+Standby cluster
+---------------
+
+Another available option is to run a "standby cluster", that contains only of
+standby nodes replicating from some remote master. This type of clusters has:
+
+* "standby leader", that behaves pretty much like a regular cluster leader,
+  except it replicates from a remote master.
+
+* cascade replicas, that are replicating from standby leader.
+
+Standby leader holds and updates a leader lock in DCS. If the leader lock
+expires, cascade replicas will perform an election to choose another leader
+from the standbys. For the sake of flexibility, you can specify different
+methods of creating a replica and recovery WAL records when a cluster is in the
+"standby mode", and after it was detached to function as a normal cluster.
+
+To configure such cluster you need to specify the section ``standby_cluster``
+in a patroni configuration:
+
+.. code:: YAML
+
+    bootstrap:
+        dcs:
+            standby_cluster:
+                host: 1.2.3.4
+                port: 5432
+                primary_slot_name: patroni
+
+Note, that these options will be applied only once during cluster bootstrap,
+and the only way to change them afterwards is through DCS.

@@ -8,7 +8,7 @@ import unittest
 
 from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.async_executor import CriticalTask
-from patroni.dcs import Cluster, Leader, Member, SyncState
+from patroni.dcs import Cluster, Leader, Member, RemoteMember, SyncState
 from patroni.exceptions import PostgresConnectionException, PostgresException
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
 from patroni.postmaster import PostmasterProcess
@@ -401,7 +401,7 @@ class TestPostgresql(unittest.TestCase):
     @patch.object(Postgresql, 'is_running', Mock(return_value=False))
     @patch.object(Postgresql, 'start', Mock())
     def test_follow(self):
-        self.p.follow(None)
+        self.p.follow(RemoteMember('123', {'recovery_command': 'foo'}))
 
     @patch('subprocess.check_output', Mock(return_value=0, side_effect=pg_controldata_string))
     def test_can_rewind(self):
