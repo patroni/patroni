@@ -138,7 +138,8 @@ class PostmasterProcess(psutil.Process):
         # of init process to take care about postmaster.
         # In order to make everything portable we can't use fork&exec approach here, so  we will call
         # ourselves and pass list of arguments which must be used to start postgres.
-        env = {p: os.environ[p] for p in ('PATH', 'LD_LIBRARY_PATH', 'LC_ALL', 'LANG') if p in os.environ}
+        # On Windows, in order to run a side-by-side assembly the specified env must include a valid SYSTEMROOT.
+        env = {p: os.environ[p] for p in ('PATH', 'LD_LIBRARY_PATH', 'LC_ALL', 'LANG', 'SYSTEMROOT') if p in os.environ}
         try:
             proc = PostmasterProcess._from_pidfile(data_dir)
             if proc and not proc._is_postmaster_process():
@@ -154,9 +155,19 @@ class PostmasterProcess(psutil.Process):
         except psutil.NoSuchProcess:
             pass
 
+        # Windows doesn't support close_fds.
+        # Warning: The preexec_fn parameter is not safe to use in the presence of threads in your application. 
+        # The child process could deadlock before exec is called. If you must use it, keep it trivial! 
+        # Minimize the number of libraries you call into.
+        # If you need to modify the environment for the child use the env parameter rather than doing it in a preexec_fn. 
+        # The start_new_session parameter can take the place of a previously common use of preexec_fn to call 
+        # os.setsid() in the child. 
         proc = call_self(['pg_ctl_start', pgcommand, '-D', data_dir,
-                          '--config-file={}'.format(conf)] + options, close_fds=True,
-                         preexec_fn=os.setsid, stdout=subprocess.PIPE, env=env)
+                          '--config-file={}'.format(conf)] + options,
+                          close_fds=True if os.name != 'nt' else False,         
+                           _fn=os.setsid if os.name != 'nt' else None,    
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
+                          env=env)
         pid = int(proc.stdout.readline().strip())
         proc.wait()
         logger.info('postmaster pid=%s', pid)
