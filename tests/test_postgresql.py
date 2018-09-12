@@ -8,13 +8,13 @@ import unittest
 
 from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.async_executor import CriticalTask
-from patroni.dcs import Cluster, Leader, Member, SyncState
+from patroni.dcs import Cluster, Leader, Member, RemoteMember, SyncState
 from patroni.exceptions import PostgresConnectionException, PostgresException
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
 from patroni.postmaster import PostmasterProcess
 from patroni.utils import RetryFailedError
 from six.moves import builtins
-from threading import Thread
+from threading import Thread, current_thread
 
 
 class MockCursor(object):
@@ -210,12 +210,11 @@ class TestPostgresql(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree('data')
 
-    def test_get_initdb_options(self):
-        self.assertEquals(self.p.get_initdb_options([{'encoding': 'UTF8'}, 'data-checksums']),
-                          ['--encoding=UTF8', '--data-checksums'])
-        self.assertRaises(Exception, self.p.get_initdb_options, [{'pgdata': 'bar'}])
-        self.assertRaises(Exception, self.p.get_initdb_options, [{'foo': 'bar', 1: 2}])
-        self.assertRaises(Exception, self.p.get_initdb_options, [1])
+    def test__initdb(self):
+        self.assertRaises(Exception, self.p.bootstrap, {'initdb': [{'pgdata': 'bar'}]})
+        self.assertRaises(Exception, self.p.bootstrap, {'initdb': [{'foo': 'bar', 1: 2}]})
+        self.assertRaises(Exception, self.p.bootstrap, {'initdb': [1]})
+        self.assertRaises(Exception, self.p.bootstrap, {'initdb': 1})
 
     @patch('os.path.exists', Mock(return_value=True))
     @patch('os.unlink', Mock())
@@ -402,7 +401,7 @@ class TestPostgresql(unittest.TestCase):
     @patch.object(Postgresql, 'is_running', Mock(return_value=False))
     @patch.object(Postgresql, 'start', Mock())
     def test_follow(self):
-        self.p.follow(None)
+        self.p.follow(RemoteMember('123', {'recovery_command': 'foo'}))
 
     @patch('subprocess.check_output', Mock(return_value=0, side_effect=pg_controldata_string))
     def test_can_rewind(self):
@@ -421,13 +420,36 @@ class TestPostgresql(unittest.TestCase):
     def test_create_replica(self, mock_cancellable_subprocess_call):
         self.p.delete_trigger_file = Mock(side_effect=OSError)
 
-        self.p.config['create_replica_method'] = ['wale', 'basebackup']
+        self.p.config['create_replica_methods'] = ['wale', 'basebackup']
         self.p.config['wale'] = {'command': 'foo'}
         mock_cancellable_subprocess_call.return_value = 0
         self.assertEquals(self.p.create_replica(self.leader), 0)
         del self.p.config['wale']
         self.assertEquals(self.p.create_replica(self.leader), 0)
 
+        self.p.config['create_replica_methods'] = ['basebackup']
+        self.p.config['basebackup'] = [{'max_rate': '100M'}, 'no-sync']
+        self.assertEquals(self.p.create_replica(self.leader), 0)
+
+        self.p.config['basebackup'] = [{'max_rate': '100M', 'compress': '9'}]
+        with mock.patch('patroni.postgresql.logger.error', new_callable=Mock()) as mock_logger:
+            self.p.create_replica(self.leader)
+            mock_logger.assert_called_once()
+            self.assertTrue("only one key-value is allowed and value should be a string" in mock_logger.call_args[0][0],
+                            "not matching {0}".format(mock_logger.call_args[0][0]))
+
+        self.p.config['basebackup'] = [42]
+        with mock.patch('patroni.postgresql.logger.error', new_callable=Mock()) as mock_logger:
+            self.p.create_replica(self.leader)
+            mock_logger.assert_called_once()
+            self.assertTrue("value should be string value or a single key-value pair" in mock_logger.call_args[0][0],
+                            "not matching {0}".format(mock_logger.call_args[0][0]))
+
+        self.p.config['basebackup'] = {"foo": "bar"}
+        self.assertEquals(self.p.create_replica(self.leader), 0)
+
+        self.p.config['create_replica_methods'] = ['wale', 'basebackup']
+        del self.p.config['basebackup']
         mock_cancellable_subprocess_call.return_value = 1
         self.assertEquals(self.p.create_replica(self.leader), 1)
 
@@ -443,9 +465,34 @@ class TestPostgresql(unittest.TestCase):
         self.p.cancel()
         self.assertEquals(self.p.create_replica(self.leader), 1)
 
+    @patch('time.sleep', Mock())
+    @patch.object(Postgresql, 'cancellable_subprocess_call')
+    @patch.object(Postgresql, 'remove_data_directory', Mock(return_value=True))
+    def test_create_replica_old_format(self, mock_cancellable_subprocess_call):
+        """ The same test as before but with old 'create_replica_method'
+            to test backward compatibility
+        """
+        self.p.delete_trigger_file = Mock(side_effect=OSError)
+
+        self.p.config['create_replica_method'] = ['wale', 'basebackup']
+        self.p.config['wale'] = {'command': 'foo'}
+        mock_cancellable_subprocess_call.return_value = 0
+        self.assertEquals(self.p.create_replica(self.leader), 0)
+        del self.p.config['wale']
+        self.assertEquals(self.p.create_replica(self.leader), 0)
+
+        self.p.config['create_replica_method'] = ['basebackup']
+        self.p.config['basebackup'] = [{'max_rate': '100M'}, 'no-sync']
+        self.assertEquals(self.p.create_replica(self.leader), 0)
+
+        self.p.config['create_replica_method'] = ['wale', 'basebackup']
+        del self.p.config['basebackup']
+        mock_cancellable_subprocess_call.return_value = 1
+        self.assertEquals(self.p.create_replica(self.leader), 1)
+
     def test_basebackup(self):
         self.p.cancel()
-        self.p.basebackup(None, None)
+        self.p.basebackup(None, None, {'foo': 'bar'})
 
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def test_sync_replication_slots(self):
@@ -463,8 +510,10 @@ class TestPostgresql(unittest.TestCase):
             cluster.members.extend([alias1, alias2])
             self.p.sync_replication_slots(cluster)
             errorlog_mock.assert_called_once()
-            assert "test-3" in errorlog_mock.call_args[0][1]
-            assert "test.3" in errorlog_mock.call_args[0][1]
+            self.assertTrue("test-3" in errorlog_mock.call_args[0][1],
+                            "non matching {0}".format(errorlog_mock.call_args[0][1]))
+            self.assertTrue("test.3" in errorlog_mock.call_args[0][1],
+                            "non matching {0}".format(errorlog_mock.call_args[0][1]))
 
     @patch.object(MockCursor, 'execute', Mock(side_effect=psycopg2.OperationalError))
     def test__query(self):
@@ -610,6 +659,12 @@ class TestPostgresql(unittest.TestCase):
         self.p.config.pop('pg_hba')
         self.p.post_bootstrap({}, task)
         self.assertTrue(task.result)
+
+        self.p.bootstrap(config)
+        with patch.object(Postgresql, 'pending_restart', PropertyMock(return_value=True)), \
+                patch.object(Postgresql, 'restart', Mock()) as mock_restart:
+            self.p.post_bootstrap({}, task)
+            mock_restart.assert_called_once()
 
         self.p.bootstrap(config)
         self.p.set_state('stopped')
@@ -766,10 +821,12 @@ class TestPostgresql(unittest.TestCase):
 
     def test_wait_for_startup(self):
         state = {'sleeps': 0, 'num_rejects': 0, 'final_return': 0}
+        self.__thread_ident = current_thread().ident
 
         def increment_sleeps(*args):
-            print("Sleep")
-            state['sleeps'] += 1
+            if current_thread().ident == self.__thread_ident:
+                print("Sleep")
+                state['sleeps'] += 1
 
         def isready_return(*args):
             ret = 1 if state['sleeps'] < state['num_rejects'] else state['final_return']
@@ -807,16 +864,6 @@ class TestPostgresql(unittest.TestCase):
             self.p.cancel()
             self.p._state = 'starting'
             self.assertIsNone(self.p.wait_for_startup())
-
-    def test_read_pid_file(self):
-        pidfile = os.path.join(self.data_dir, 'postmaster.pid')
-        if os.path.exists(pidfile):
-            os.remove(pidfile)
-        self.assertEquals(self.p._read_pid_file(), {})
-        with open(pidfile, 'w') as fd:
-            fd.write("123\n/foo/bar\n123456789\n5432")
-        self.assertEquals(self.p._read_pid_file(), {"pid": "123", "data_dir": "/foo/bar",
-                                                    "start_time": "123456789", "port": "5432"})
 
     def test_pick_sync_standby(self):
         cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None,
@@ -955,3 +1002,14 @@ class TestPostgresql(unittest.TestCase):
         self.p.cancel()
         type(self.p._cancellable).returncode = PropertyMock(side_effect=[None, -15])
         self.p.cancel()
+
+    @patch.object(Postgresql, 'get_postgres_role_from_data_directory', Mock(return_value='replica'))
+    def test__build_effective_configuration(self):
+        with patch.object(Postgresql, 'controldata',
+                          Mock(return_value={'max_connections setting': '200',
+                                             'max_worker_processes setting': '20',
+                                             'max_prepared_xacts setting': '100',
+                                             'max_locks_per_xact setting': '100'})):
+            self.p.cancel()
+            self.assertFalse(self.p.start())
+            self.assertTrue(self.p.pending_restart)

@@ -25,7 +25,7 @@ When Patroni runs in a paused mode, it does not change the state of PostgreSQL, 
 
 - If there is no leader lock in the cluster, the running master acquires the lock. If there is more than one master node, then the first master to acquire the lock wins. If there are no masters altogether, Patroni does not try to promote any replicas. There is an exception in this rule: if there is no leader lock because the old master has demoted itself due to the manual promotion, then only the candidate node mentioned in the promotion request may take the leader lock. When the new leader lock is granted (i.e. after promoting a replica manually), Patroni makes sure the replicas that were streaming from the previous leader will switch to the new one.
 
-- When Postgres is stopped, Patroni does not try to start it. When Patroni is stopped, it does not to stop Postgres instance it is managing.
+- When Postgres is stopped, Patroni does not try to start it. When Patroni is stopped, it does not try to stop the Postgres instance it is managing.
 
 User guide
 ----------

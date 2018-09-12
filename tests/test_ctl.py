@@ -225,6 +225,22 @@ class TestCtl(unittest.TestCase):
         result = self.runner.invoke(ctl, ['dsn', 'alpha', '--member', 'dummy'])
         assert result.exit_code == 1
 
+    @patch('requests.post')
+    @patch('patroni.ctl.get_dcs')
+    def test_reload(self, mock_get_dcs, mock_post):
+        mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
+
+        result = self.runner.invoke(ctl, ['reload', 'alpha'], input='y')
+        assert 'Failed: reload for member' in result.output
+
+        mock_post.return_value.status_code = 200
+        result = self.runner.invoke(ctl, ['reload', 'alpha'], input='y')
+        assert 'No changes to apply on member' in result.output
+
+        mock_post.return_value.status_code = 202
+        result = self.runner.invoke(ctl, ['reload', 'alpha'], input='y')
+        assert 'Reload request received for member' in result.output
+
     @patch('requests.post', requests_get)
     @patch('patroni.ctl.get_dcs')
     def test_restart_reinit(self, mock_get_dcs):
@@ -328,8 +344,14 @@ class TestCtl(unittest.TestCase):
         assert result.exit_code == 0
 
     @patch('requests.post', Mock(side_effect=requests.exceptions.ConnectionError('foo')))
-    def test_request_patroni(self):
+    @patch('click.get_current_context')
+    def test_request_patroni(self, mock_context):
         member = get_cluster_initialized_with_leader().leader.member
+
+        mock_context.return_value.obj = {'ctl': {'cacert': 'cert.pem'}}
+        self.assertRaises(requests.exceptions.ConnectionError, request_patroni, member, 'post', 'dummy', {})
+
+        mock_context.return_value.obj = {'ctl': {'insecure': True}}
         self.assertRaises(requests.exceptions.ConnectionError, request_patroni, member, 'post', 'dummy', {})
 
     def test_ctl(self):

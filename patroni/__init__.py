@@ -129,7 +129,10 @@ class Patroni(object):
         signal.signal(signal.SIGTERM, self.sigterm_handler)
 
     def shutdown(self):
-        self.api.shutdown()
+        try:
+            self.api.shutdown()
+        except Exception:
+            logger.exception('Exception during RestApi.shutdown')
         self.ha.shutdown()
 
 
@@ -185,7 +188,7 @@ def main():
                 if ret == (0, 0):
                     break
                 elif ret[0] != pid:
-                    logging.info('Reaped pid=%s, exit status=%s', *ret)
+                    logger.info('Reaped pid=%s, exit status=%s', *ret)
         except OSError:
             pass
 

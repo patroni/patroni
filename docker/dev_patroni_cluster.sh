@@ -84,7 +84,7 @@ function docker_run()
 ETCD_CONTAINER="${PATRONI_SCOPE}_etcd"
 docker_run ${ETCD_CONTAINER} ${DOCKER_IMAGE} --etcd
 
-DOCKER_ARGS="--link=${ETCD_CONTAINER}:${ETCD_CONTAINER} -e PATRONI_SCOPE=${PATRONI_SCOPE} -e PATRONI_ETCD_HOST=${ETCD_CONTAINER}:2379"
+DOCKER_ARGS="--link=${ETCD_CONTAINER}:${ETCD_CONTAINER} -e PATRONI_SCOPE=${PATRONI_SCOPE} -e PATRONI_ETCD_URL=http://${ETCD_CONTAINER}:2379"
 PATRONI_ENV=$(sed 's/#.*//g' docker/patroni-secrets.env | sed -n 's/^PATRONI_.*$/-e &/p' | tr '\n' ' ')
 PATRONI_VOLUME="-v $(dirname $(dirname $(realpath $0)))/patroni:/patroni"
 

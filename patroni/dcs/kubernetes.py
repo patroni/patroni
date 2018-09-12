@@ -161,7 +161,7 @@ class Kubernetes(AbstractDCS):
             leader = nodes.get(self.leader_path)
             metadata = leader and leader.metadata
             self._leader_resource_version = metadata.resource_version if metadata else None
-            self._leader_observed_subsets = leader.subsets if self.__subsets and leader else []
+            self._leader_observed_subsets = leader.subsets if self.__subsets and leader and leader.subsets else []
             annotations = metadata and metadata.annotations or {}
 
             # get last leader operation
@@ -399,7 +399,7 @@ class Kubernetes(AbstractDCS):
                 except KeyboardInterrupt:
                     raise
                 except Exception:
-                    logging.exception('watch')
+                    logger.exception('watch')
 
                 timeout = end_time - time.time()
 
