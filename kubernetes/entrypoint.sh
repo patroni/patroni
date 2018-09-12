@@ -20,4 +20,4 @@ postgresql:
   connect_address: '${PATRONI_KUBERNETES_POD_IP}:5432'
 __EOF__
 
-exec /usr/bin/python /usr/local/bin/patroni /home/postgres/patroni.yml
+exec /usr/bin/python3 /usr/local/bin/patroni /home/postgres/patroni.yml
