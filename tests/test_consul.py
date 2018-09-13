@@ -74,10 +74,12 @@ class TestConsul(unittest.TestCase):
     @patch.object(consul.Consul.KV, 'delete', Mock())
     def setUp(self):
         Consul({'ttl': 30, 'scope': 't', 'name': 'p', 'url': 'https://l:1', 'retry_timeout': 10,
-                'verify': 'on', 'key': 'foo', 'cert': 'bar', 'cacert': 'buz', 'token': 'asd', 'dc': 'dc1'})
-        Consul({'ttl': 30, 'scope': 't', 'name': 'p', 'url': 'https://l:1', 'retry_timeout': 10,
-                'verify': 'on', 'cert': 'bar', 'cacert': 'buz'})
-        self.c = Consul({'ttl': 30, 'scope': 'test', 'name': 'postgresql1', 'host': 'localhost:1', 'retry_timeout': 10})
+                'verify': 'on', 'key': 'foo', 'cert': 'bar', 'cacert': 'buz', 'token': 'asd', 'dc': 'dc1',
+                'register_service': True})
+        Consul({'ttl': 30, 'scope': 't_', 'name': 'p', 'url': 'https://l:1', 'retry_timeout': 10,
+                'verify': 'on', 'cert': 'bar', 'cacert': 'buz', 'register_service': True})
+        self.c = Consul({'ttl': 30, 'scope': 'test', 'name': 'postgresql1', 'host': 'localhost:1', 'retry_timeout': 10,
+                         'register_service': True})
         self.c._base_path = '/service/good'
         self.c._load_cluster()
 
@@ -111,12 +113,14 @@ class TestConsul(unittest.TestCase):
     @patch.object(consul.Consul.KV, 'delete', Mock(side_effect=[ConsulException, True, True]))
     @patch.object(consul.Consul.KV, 'put', Mock(side_effect=[True, ConsulException]))
     def test_touch_member(self):
+        self.c._register_service = True
         self.c.refresh_session = Mock(return_value=True)
         self.c.touch_member({'balbla': 'blabla'})
         self.c.touch_member({'balbla': 'blabla'})
         self.c.touch_member({'balbla': 'blabla'})
         self.c.refresh_session = Mock(return_value=False)
-        self.c.touch_member({'balbla': 'blabla'})
+        self.c.touch_member({'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
+                             'api_url': 'http://127.0.0.1:8009/patroni'})
 
     @patch.object(consul.Consul.KV, 'put', Mock(return_value=False))
     def test_take_leader(self):
@@ -176,3 +180,19 @@ class TestConsul(unittest.TestCase):
     @patch.object(consul.Consul.KV, 'put', Mock(return_value=True))
     def test_set_history_value(self):
         self.assertTrue(self.c.set_history_value('{}'))
+
+    @patch.object(consul.Consul.Agent.Service, 'register', Mock(side_effect=(False, True)))
+    @patch.object(consul.Consul.Agent.Service, 'deregister', Mock(return_value=True))
+    def test_update_service(self):
+        d = {'role': 'replica', 'api_url': 'http://a/t', 'conn_url': 'pg://c:1', 'state': 'running'}
+        self.assertIsNone(self.c.update_service({}, {}))
+        self.assertFalse(self.c.update_service({}, d))
+        self.assertTrue(self.c.update_service(d, d))
+        self.assertIsNone(self.c.update_service(d, d))
+        d['state'] = 'stopped'
+        self.assertTrue(self.c.update_service(d, d, force=True))
+        d['state'] = 'unknown'
+        self.assertIsNone(self.c.update_service({}, d))
+        d['state'] = 'running'
+        d['role'] = 'bla'
+        self.assertIsNone(self.c.update_service({}, d))

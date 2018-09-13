@@ -2,8 +2,10 @@ import datetime
 import etcd
 import os
 import unittest
+import sys
 
 from mock import Mock, MagicMock, PropertyMock, patch
+from patroni.async_executor import CriticalTask
 from patroni.config import Config
 from patroni.dcs import Cluster, ClusterConfig, Failover, Leader, Member, get_dcs, SyncState, TimelineHistory
 from patroni.dcs.etcd import Client
@@ -26,16 +28,17 @@ def false(*args, **kwargs):
     return False
 
 
-def get_cluster(initialize, leader, members, failover, sync):
+def get_cluster(initialize, leader, members, failover, sync, cluster_config=None):
     history = TimelineHistory(1, [(1, 67197376, 'no recovery target specified', datetime.datetime.now().isoformat())])
-    return Cluster(initialize, ClusterConfig(1, {1: 2}, 1), leader, 10, members, failover, sync, history)
+    cluster_config = cluster_config or ClusterConfig(1, {1: 2}, 1)
+    return Cluster(initialize, cluster_config, leader, 10, members, failover, sync, history)
 
 
-def get_cluster_not_initialized_without_leader():
-    return get_cluster(None, None, [], None, SyncState(None, None, None))
+def get_cluster_not_initialized_without_leader(cluster_config=None):
+    return get_cluster(None, None, [], None, SyncState(None, None, None), cluster_config)
 
 
-def get_cluster_initialized_without_leader(leader=False, failover=None, sync=None):
+def get_cluster_initialized_without_leader(leader=False, failover=None, sync=None, cluster_config=None):
     m1 = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
                                   'api_url': 'http://127.0.0.1:8008/patroni', 'xlog_location': 4})
     leader = Leader(0, 0, m1) if leader else None
@@ -47,16 +50,38 @@ def get_cluster_initialized_without_leader(leader=False, failover=None, sync=Non
                                  'scheduled_restart': {'schedule': "2100-01-01 10:53:07.560445+00:00",
                                                        'postgres_version': '99.0.0'}})
     syncstate = SyncState(0 if sync else None, sync and sync[0], sync and sync[1])
-    return get_cluster(SYSID, leader, [m1, m2], failover, syncstate)
+    return get_cluster(SYSID, leader, [m1, m2], failover, syncstate, cluster_config)
 
 
 def get_cluster_initialized_with_leader(failover=None, sync=None):
     return get_cluster_initialized_without_leader(leader=True, failover=failover, sync=sync)
 
 
-def get_cluster_initialized_with_only_leader(failover=None):
+def get_cluster_initialized_with_only_leader(failover=None, cluster_config=None):
     leader = get_cluster_initialized_without_leader(leader=True, failover=failover).leader
-    return get_cluster(True, leader, [leader], failover, None)
+    return get_cluster(True, leader, [leader], failover, None, cluster_config)
+
+
+def get_cluster_not_initialized_standby(failover=None, sync=None):
+    return get_cluster_not_initialized_without_leader(
+        cluster_config=ClusterConfig(1, {
+            "standby_cluster": {
+                "host": "localhost",
+                "port": 5432,
+                "primary_slot_name": "",
+            }}, 1)
+    )
+
+
+def get_standby_cluster_initialized_with_only_leader(failover=None, sync=None):
+    return get_cluster_initialized_with_only_leader(
+        cluster_config=ClusterConfig(1, {
+            "standby_cluster": {
+                "host": "localhost",
+                "port": 5432,
+                "primary_slot_name": "",
+            }}, 1)
+    )
 
 
 def get_node_status(reachable=True, in_recovery=True, wal_position=10, nofailover=False, watchdog_failed=False):
@@ -97,6 +122,10 @@ zookeeper:
     hosts: [localhost]
     port: 8181
 """
+        # We rely on sys.argv in Config, so it's necessary to reset
+        # all the extra values that are coming from py.test
+        sys.argv = sys.argv[:1]
+
         self.config = Config()
         self.postgresql = p
         self.dcs = d
@@ -181,6 +210,50 @@ class TestHa(unittest.TestCase):
     def test_start_as_replica(self):
         self.p.is_healthy = false
         self.assertEquals(self.ha.run_cycle(), 'starting as a secondary')
+
+    @patch('patroni.dcs.etcd.Etcd.initialize', return_value=True)
+    def test_start_as_standby_leader(self, initialize):
+        self.p.data_directory_empty = true
+        self.ha.cluster = get_cluster_not_initialized_standby()
+        self.ha.cluster.is_unlocked = true
+        self.ha.patroni.config._dynamic_configuration = {"standby_cluster": {
+            "host": "localhost",
+            "port": 5432,
+            "primary_slot_name": "",
+        }}
+        self.assertEquals(
+            self.ha.run_cycle(),
+            'trying to bootstrap a new standby leader'
+        )
+
+    @patch.object(Cluster, 'get_clone_member',
+                  Mock(return_value=Member(0, 'test', 1, {'api_url': 'http://127.0.0.1:8011/patroni'})))
+    @patch.object(Postgresql, 'create_replica', Mock(return_value=0))
+    def test_start_as_cascade_replica_in_standby_cluster(self):
+        self.p.data_directory_empty = true
+        self.ha.cluster = get_standby_cluster_initialized_with_only_leader()
+        self.ha.cluster.is_unlocked = false
+        self.ha.patroni.config._dynamic_configuration = {"standby_cluster": {
+            "host": "localhost",
+            "port": 5432,
+            "primary_slot_name": "",
+        }}
+        self.assertEquals(
+            self.ha.run_cycle(),
+            "trying to bootstrap from replica 'test'"
+        )
+
+    @patch.object(Postgresql, 'create_replica', Mock(return_value=0))
+    def test_bootstrap_standby_leader(self):
+        self.ha.cluster = get_cluster_not_initialized_standby()
+        self.ha.cluster.is_unlocked = true
+        self.ha.patroni.config._dynamic_configuration = {"standby_cluster": {
+            "host": "localhost",
+            "port": 5432,
+            "primary_slot_name": "",
+        }}
+        self.ha._post_bootstrap_task = CriticalTask()
+        self.assertEquals(self.ha.bootstrap_standby_leader(), True)
 
     def test_recover_replica_failed(self):
         self.p.controldata = lambda: {'Database cluster state': 'in recovery', 'Database system identifier': SYSID}
@@ -615,6 +688,61 @@ class TestHa(unittest.TestCase):
         self.assertEquals(self.ha.run_cycle(), 'PAUSE: removed leader lock because postgres is not running as master')
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, '', self.p.name, None))
         self.assertEquals(self.ha.run_cycle(), 'PAUSE: waiting to become master after promote...')
+
+    def test_process_healthy_standby_cluster_as_standby_leader(self):
+        self.p.is_leader = false
+        self.p.name = 'leader'
+        self.ha.patroni.config._dynamic_configuration = {"standby_cluster": {
+            "host": "localhost",
+            "port": 5432,
+            "primary_slot_name": "",
+        }}
+        self.ha.cluster = get_standby_cluster_initialized_with_only_leader()
+        msg = 'no action.  i am the standby leader with the lock'
+        self.assertEquals(self.ha.run_cycle(), msg)
+
+    def test_process_healthy_standby_cluster_as_cascade_replica(self):
+        self.p.is_leader = false
+        self.p.name = 'replica'
+        self.ha.patroni.config._dynamic_configuration = {"standby_cluster": {
+            "host": "localhost",
+            "port": 5432,
+            "primary_slot_name": "",
+        }}
+        self.ha.cluster = get_standby_cluster_initialized_with_only_leader()
+        msg = 'no action.  i am a secondary and i am following a leader'
+        self.assertEquals(self.ha.run_cycle(), msg)
+
+    @patch('patroni.dcs.etcd.Etcd.initialize', return_value=True)
+    def test_process_unhealthy_standby_cluster_as_standby_leader(self, initialize):
+        self.p.is_leader = false
+        self.p.name = 'leader'
+        self.ha.patroni.config._dynamic_configuration = {"standby_cluster": {
+            "host": "localhost",
+            "port": 5432,
+            "primary_slot_name": "",
+        }}
+        self.ha.cluster = get_standby_cluster_initialized_with_only_leader()
+        self.ha.cluster.is_unlocked = true
+        self.ha.sysid_valid = true
+        self.p._sysid = True
+        msg = 'promoted self to a standby leader because i had the session lock'
+        self.assertEquals(self.ha.run_cycle(), msg)
+
+    @patch.object(Postgresql, 'rewind_needed_and_possible', Mock(return_value=True))
+    @patch('patroni.dcs.etcd.Etcd.initialize', return_value=True)
+    def test_process_unhealthy_standby_cluster_as_cascade_replica(self, initialize):
+        self.p.is_leader = false
+        self.p.name = 'replica'
+        self.ha.patroni.config._dynamic_configuration = {"standby_cluster": {
+            "host": "localhost",
+            "port": 5432,
+            "primary_slot_name": "",
+        }}
+        self.ha.cluster = get_standby_cluster_initialized_with_only_leader()
+        self.ha.is_unlocked = true
+        msg = 'running pg_rewind from leader'
+        self.assertEquals(self.ha.run_cycle(), msg)
 
     def test_failed_to_update_lock_in_pause(self):
         self.ha.update_lock = false

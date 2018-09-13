@@ -191,7 +191,7 @@ def main():
                 if ret == (0, 0):
                     break
                 elif ret[0] != pid:
-                    logging.info('Reaped pid=%s, exit status=%s', *ret)
+                    logger.info('Reaped pid=%s, exit status=%s', *ret)
         except OSError:
             pass
 
