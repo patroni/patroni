@@ -128,7 +128,7 @@ class Config(object):
                 with os.fdopen(fd, 'w') as f:
                     fd = None
                     json.dump(self.dynamic_configuration, f)
-                tmpfile = os.rename(tmpfile, self._cache_file)
+                tmpfile = os.replace(tmpfile, self._cache_file)
                 self._cache_needs_saving = False
             except Exception:
                 logger.exception('Exception when saving file: %s', self._cache_file)

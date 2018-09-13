@@ -640,7 +640,8 @@ class Postgresql(object):
             return os.environ.copy()
 
         with open(self._pgpass, 'w') as f:
-            os.fchmod(f.fileno(), 0o600)
+            if os.name != 'nt':
+                os.fchmod(f.fileno(), 0o600)
             f.write('{host}:{port}:*:{user}:{password}\n'.format(**record))
 
         env = os.environ.copy()

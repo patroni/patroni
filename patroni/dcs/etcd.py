@@ -448,7 +448,7 @@ class Etcd(AbstractDCS):
     def _load_cluster(self):
         try:
             result = self.retry(self._client.read, self.client_path(''), recursive=True)
-            nodes = {os.path.relpath(node.key, result.key): node for node in result.leaves}
+            nodes = {os.path.relpath(node.key, result.key).replace('\\', '/'): node for node in result.leaves}
 
             # get initialize flag
             initialize = nodes.get(self._INITIALIZE)
