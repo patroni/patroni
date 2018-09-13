@@ -155,19 +155,8 @@ class PostmasterProcess(psutil.Process):
         except psutil.NoSuchProcess:
             pass
 
-        # Windows doesn't support close_fds.
-        # Warning: The preexec_fn parameter is not safe to use in the presence of threads in your application. 
-        # The child process could deadlock before exec is called. If you must use it, keep it trivial! 
-        # Minimize the number of libraries you call into.
-        # If you need to modify the environment for the child use the env parameter rather than doing it in a preexec_fn. 
-        # The start_new_session parameter can take the place of a previously common use of preexec_fn to call 
-        # os.setsid() in the child. 
-        proc = call_self(['pg_ctl_start', pgcommand, '-D', data_dir,
-                          '--config-file={}'.format(conf)] + options,
-                          close_fds=True if os.name != 'nt' else False,         
-                           _fn=os.setsid if os.name != 'nt' else None,    
-                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
-                          env=env)
+        proc = call_self(['pg_ctl_start', pgcommand, '-D', data_dir, '--config-file={}'.format(conf)] + options,
+                         close_fds=(os.name != 'nt'), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
         pid = int(proc.stdout.readline().strip())
         proc.wait()
         logger.info('postmaster pid=%s', pid)

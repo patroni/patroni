@@ -155,6 +155,8 @@ def patroni_main():
 
 def pg_ctl_start(args):
     import subprocess
+    if os.name != 'nt':
+        os.setsid()
     postmaster = subprocess.Popen(args)
     print(postmaster.pid)
 

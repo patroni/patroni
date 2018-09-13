@@ -1114,9 +1114,10 @@ class Postgresql(object):
             # therefore we need to make sure that hba_file is not overriden
             # after changing superuser password we will "revert" all these "changes"
             if self._running_custom_bootstrap or 'hba_file' not in self._server_parameters:
-                f.write("hba_file = '{0}'\n".format(self._pg_hba_conf.replace('\\','\\\\'))) # escaping windows path
+                f.write("hba_file = '{0}'\n".format(self._pg_hba_conf.replace('\\', '\\\\')))
             if 'ident_file' not in self._server_parameters:
-                f.write("ident_file = '{0}'\n".format(os.path.join(self._config_dir, 'pg_ident.conf').replace('\\','\\\\'))) # escaping windows path
+                s = "ident_file = '{0}'\n".format(os.path.join(self._config_dir, 'pg_ident.conf').replace('\\', '\\\\'))
+                f.write(s)
 
     def is_healthy(self):
         if not self.is_running():
