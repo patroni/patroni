@@ -154,9 +154,11 @@ class PostmasterProcess(psutil.Process):
                 env['PG_GRANDPARENT_PID'] = str(proc.pid)
         except psutil.NoSuchProcess:
             pass
-
-        proc = call_self(['pg_ctl_start', pgcommand, '-D', data_dir, '--config-file={}'.format(conf)] + options,
-                         close_fds=(os.name != 'nt'), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+        cmdline = [pgcommand, '-D', data_dir, '--config-file={}'.format(conf)] + options
+        logger.debug("Starting postgres: %s", " ".join(cmdline))
+        proc = call_self(['pg_ctl_start'] + cmdline,
+                         close_fds=(os.name != 'nt'), stdout=subprocess.PIPE, 
+                         stderr=subprocess.STDOUT, env=env)
         pid = int(proc.stdout.readline().strip())
         proc.wait()
         logger.info('postmaster pid=%s', pid)
