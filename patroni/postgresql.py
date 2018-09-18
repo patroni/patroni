@@ -1224,8 +1224,8 @@ class Postgresql(object):
         if self._version_file_exists() and self.state != 'creating replica':
             try:
                 data = subprocess.check_output([self._pgcommand('pg_controldata'), self._data_dir],
-                                               env={'LANG': 'C', 'LC_ALL': 'C', 'PATH': os.environ.get('PATH'),
-                                               'SYSTEMROOT': os.environ.get('SYSTEMROOT')})
+                                               env={'LANG': 'C', 'LC_ALL': 'C', 'PATH': os.getenv('PATH'),
+                                               'SYSTEMROOT': os.getenv('SYSTEMROOT', '')})
                 if data:
                     data = data.decode('utf-8').splitlines()
                     # pg_controldata output depends on major verion. Some of parameters are prefixed by 'Current '
