@@ -156,9 +156,8 @@ class PostmasterProcess(psutil.Process):
             pass
         cmdline = [pgcommand, '-D', data_dir, '--config-file={}'.format(conf)] + options
         logger.debug("Starting postgres: %s", " ".join(cmdline))
-        proc = call_self(['pg_ctl_start'] + cmdline,
-                         close_fds=(os.name != 'nt'), stdout=subprocess.PIPE,
-                         stderr=subprocess.STDOUT, env=env)
+        proc = call_self(['pg_ctl_start'] + cmdline, close_fds=(os.name != 'nt'),
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
         pid = int(proc.stdout.readline().strip())
         proc.wait()
         logger.info('postmaster pid=%s', pid)

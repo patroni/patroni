@@ -107,6 +107,8 @@ class PyTest(TestCommand):
         silence = logging.WARNING
         logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=os.getenv('LOGLEVEL', silence))
         params['args'] += ['-s' if logging.getLogger().getEffectiveLevel() < silence else '--capture=fd']
+        if not os.getenv('SYSTEMROOT'):
+            os.environ['SYSTEMROOT'] = '/'
         errno = pytest.main(**params)
         sys.exit(errno)
 
