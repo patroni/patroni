@@ -500,13 +500,13 @@ class TestCtl(unittest.TestCase):
                                                              ["postgresql.parameters.work_mem = 5MB",
                                                               "ttl=15", "postgresql.use_pg_rewind=off", 'a.b=c'])
         self.assertEqual(changed_config, {"a": {"b": "c"}, "postgresql": {"parameters": {"work_mem": "5MB"},
-                                                                           "use_pg_rewind": False}, "ttl": 15})
+                                                                          "use_pg_rewind": False}, "ttl": 15})
 
         # postgresql.parameters namespace is flattened
         after_editing, changed_config = apply_config_changes(before_editing, config,
                                                              ["postgresql.parameters.work_mem.sub = x"])
         self.assertEqual(changed_config, {"postgresql": {"parameters": {"work_mem": "4MB", "work_mem.sub": "x"},
-                                                          "use_pg_rewind": True}, "ttl": 30})
+                                                         "use_pg_rewind": True}, "ttl": 30})
 
         # Setting to null deletes
         after_editing, changed_config = apply_config_changes(before_editing, config,

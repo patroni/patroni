@@ -750,7 +750,7 @@ class TestHa(unittest.TestCase):
         self.p.name = 'leader'
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.assertEqual(self.ha.run_cycle(),
-                          'PAUSE: continue to run as master after failing to update leader lock in DCS')
+                         'PAUSE: continue to run as master after failing to update leader lock in DCS')
 
     def test_postgres_unhealthy_in_pause(self):
         self.ha.is_paused = true
@@ -784,7 +784,7 @@ class TestHa(unittest.TestCase):
         self.p.time_in_state = lambda: 350
         self.ha.fetch_node_status = get_node_status(reachable=False)  # inaccessible, in_recovery
         self.assertEqual(self.ha.run_cycle(),
-                          'master start has timed out, but continuing to wait because failover is not possible')
+                         'master start has timed out, but continuing to wait because failover is not possible')
         check_calls([(update_lock, True), (demote, False)])
 
         self.ha.fetch_node_status = get_node_status()  # accessible, in_recovery
