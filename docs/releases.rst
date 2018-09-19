@@ -6,49 +6,49 @@ Release notes
 Version 1.5.0                                                                                                                           
 -------------                                                                                                                           
                                                                                                                                         
-This version adds standby cluster support, makes it possible to run Patroni on Windows, and enhances support of Consul by optionally registering service.
+This version enables Patroni HA cluster to operate in a standby mode, introduces experimental support for running on Windows, and provides a new configuration parameter to register a PostgreSQL service in Consul.
 
 **New features**                                                                                                                        
 
 - Standby cluster (Dmitry Dolgov)                                                                                                       
 
-  Standby cluster is running alongside the primary one (i.e. in another datacenter) and consisting of only standby nodes, replicating from the primary one. Such cluster will have no master, there will be one "main" replica replicating from the master in the primary cluster, and all the other cascading replicas replicating from the main one. You can find more details configuration example :ref:`here <standby_cluster>`.
+  One or more Patroni nodes can form a standby cluster that runs alongside the primary one (i.e. in another datacenter) and consists of standby nodes that replicate from the master in the primary cluster. All PostgreSQL nodes in the standby cluster are replicas; one of those replicas elects itself to replicate directly from the remote master, while the others replicate from it in a cascading manner. More detailed description of this feature and some configuration example is available at :ref:`here <standby_cluster>`.
 
 - Register Services in Consul (Pavel Kirillov, Alexander Kukushkin)
                                                                                                                                         
-  If `register_service` parameter in the consul :ref:`configuration <consul_settings>` is enabled, the node will register a service with the name `scope` and with tag `master`, `replica` or `standby-leader`.
+  If `register_service` parameter in the consul :ref:`configuration <consul_settings>` is enabled, the node will register a service with the name `scope` and the tag `master`, `replica` or `standby-leader`.
 
 - Experimental Windows support (Pavel Golub)
 
-  From now on it is possible to run HA PostgreSQL cluster on Windows, although it is not well tested yet.
+  From now on it is possible to run Patroni on Windows, although Windows support is brand-new and hasn't received as much real-world testing as its Linux counterpart. We welcome your feedback!
 
 **Improvements in patronictl**
 
 - Add patronictl -k/--insecure flag and support for restapi cert (Wilfried Roset)
 
-  If the REST API is protected by self-signed certificates `patronictl` was failing to verify them and there was no way neither disable verification or provide files for server certificate verification. It is possible to configure behavior of `patronictl` in the :ref:`ctl: <patronictl_settings>` section of configuration.
+  In the past if the REST API was protected by the self-signed certificates `patronictl` would fail to verify them. There was no way to  disable that verification. It is now possible to configure `patronictl` to skip the certificate verification altogether or provide CA and client certificates in the :ref:`ctl: <patronictl_settings>` section of configuration.
 
 - Exclude members with nofailover tag from patronictl switchover/failover output (Alexander Anikin)
 
-  It was very confusing that such nodes were shown in the list, but REST API was returning the error.
+  Previously, those members were incorrectly shown as candidates when performing interactive switchover or failover via patronictl.
 
 **Stability improvements**
 
-- Check if the output lines of pg_controldata are possible to split (Alexander Anikin)
+- Avoid parsing non-key-value output lines of pg_controldata (Alexander Anikin)
 
-  Missing colon character was leading to scary stack traces in the logs and masking the real problems. Usually it happens if you try to use incompatible binaries, for example 9.6 cluster with 10 binaries.
+  Under certain circuimstances pg_controldata outputs lines without a colon character. That would trigger an error in Patroni code that parsed pg_controldata output, hiding the actual problem; often such lines are emitted in a warning shown by pg_controldata before the regular output, i.e. when the binary major version does not match the one of the PostgreSQL data directory.
 
-- Add member name to the error message during leader elections (Jan Mussler)
+- Add member name to the error message during the leader election (Jan Mussler)
 
-  When doing leader elections Patroni connects to all known members of the cluster and requests their status. Such status is reported to Patroni log and includes the name of node. If the node is not accessible, error message was containing only failing url and lacking node name.
+  During the leader election, Patroni connects to all known members of the cluster and requests their status. Such status is reported to Patroni log and includes the name of the member. Previously, if the member was not accessible, the error message did not indicate its name, containing only the URL.
 
-- Immediately reserve LSN on upon creation of replication slot (Alexander Kukushkin)
+- Immediately reserve the WAL position upon creation of the replication slot (Alexander Kukushkin)
 
-  Starting from 9.6 `pg_create_physical_replication_slot` function supports additional boolean parameter, `immediately_reserve`. Default value if `false`, therefore primary was reserving LSN only when replication slot was used the first time.
+  Starting from 9.6, `pg_create_physical_replication_slot` function provides an additional boolean parameter `immediately_reserve`. When it is set to `false`, which is also the default, the slot doesn't reserve the WAL position until it receives the first client connection, potentially losing some segments required by the client in a time window between the slot creation and the intiial client connection.
 
 - Fix bug in strict synchronous replication (Alexander Kukushkin)
 
-  When we are using `synchronous_mode_strict: true`, in some cases Patroni may put `*` into `synchronous_standby_names`, what changes sync state for most of the replication connections to `potential`, while Patroni was choosing the new synchronous among `async`.
+  When running with `synchronous_mode_strict: true`, in some cases Patroni puts `*` into the `synchronous_standby_names`, changing the sync state for most of the replication connections to `potential`. Previously, Patroni couldn't pick a synchronous candidate under such curcuimstances, as it only considered those with the state `async`.
 
 
 Version 1.4.6
