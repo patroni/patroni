@@ -52,6 +52,7 @@ CLASSIFIERS = [
     'Operating System :: MacOS',
     'Operating System :: POSIX :: Linux',
     'Operating System :: POSIX :: BSD :: FreeBSD',
+    'Operating System :: Microsoft :: Windows',
     'Programming Language :: Python',
     'Programming Language :: Python :: 2.7',
     'Programming Language :: Python :: 3',
@@ -106,6 +107,8 @@ class PyTest(TestCommand):
         silence = logging.WARNING
         logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=os.getenv('LOGLEVEL', silence))
         params['args'] += ['-s' if logging.getLogger().getEffectiveLevel() < silence else '--capture=fd']
+        if not os.getenv('SYSTEMROOT'):
+            os.environ['SYSTEMROOT'] = '/'
         errno = pytest.main(**params)
         sys.exit(errno)
 

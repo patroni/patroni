@@ -46,7 +46,7 @@ class TestPostmasterProcess(unittest.TestCase):
     @patch('psutil.Process.__init__')
     def test_from_pid(self, mock_init):
         mock_init.side_effect = psutil.NoSuchProcess(123)
-        self.assertEquals(PostmasterProcess.from_pid(123), None)
+        self.assertEqual(PostmasterProcess.from_pid(123), None)
         mock_init.side_effect = None
         self.assertNotEquals(PostmasterProcess.from_pid(123), None)
 
@@ -55,13 +55,13 @@ class TestPostmasterProcess(unittest.TestCase):
     @patch('psutil.Process.pid', Mock(return_value=123))
     def test_signal_stop(self, mock_send_signal):
         proc = PostmasterProcess(-123)
-        self.assertEquals(proc.signal_stop('immediate'), False)
+        self.assertEqual(proc.signal_stop('immediate'), False)
 
         mock_send_signal.side_effect = [None, psutil.NoSuchProcess(123), psutil.AccessDenied()]
         proc = PostmasterProcess(123)
-        self.assertEquals(proc.signal_stop('immediate'), None)
-        self.assertEquals(proc.signal_stop('immediate'), True)
-        self.assertEquals(proc.signal_stop('immediate'), False)
+        self.assertEqual(proc.signal_stop('immediate'), None)
+        self.assertEqual(proc.signal_stop('immediate'), True)
+        self.assertEqual(proc.signal_stop('immediate'), False)
 
     @patch('psutil.Process.__init__', Mock())
     @patch('psutil.wait_procs')
@@ -89,11 +89,11 @@ class TestPostmasterProcess(unittest.TestCase):
         mock_frompidfile.return_value._is_postmaster_process.return_value = False
         mock_frompid.return_value = "proc 123"
         mock_popen.return_value.stdout.readline.return_value = '123'
-        self.assertEquals(PostmasterProcess.start('true', '/tmp', '/tmp/test.conf', []), "proc 123")
+        self.assertEqual(PostmasterProcess.start('true', '/tmp', '/tmp/test.conf', []), "proc 123")
         mock_frompid.assert_called_with(123)
 
         mock_frompidfile.side_effect = psutil.NoSuchProcess(123)
-        self.assertEquals(PostmasterProcess.start('true', '/tmp', '/tmp/test.conf', []), "proc 123")
+        self.assertEqual(PostmasterProcess.start('true', '/tmp', '/tmp/test.conf', []), "proc 123")
 
     @patch('psutil.Process.__init__', Mock(side_effect=psutil.NoSuchProcess(123)))
     def test_read_postmaster_pidfile(self):

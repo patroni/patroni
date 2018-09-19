@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import pkgutil
+import re
 import six
 import sys
 
@@ -420,7 +421,7 @@ class AbstractDCS(object):
             i.e.: `zookeeper` for zookeeper, `etcd` for etcd, etc...
         """
         self._name = config['name']
-        self._base_path = os.path.join('/', config.get('namespace', '/service/').strip('/'), config['scope'])
+        self._base_path = re.sub('/+', '/', '/'.join(['', config.get('namespace', 'service'), config['scope']]))
         self._set_loop_wait(config.get('loop_wait', 10))
 
         self._ctl = bool(config.get('patronictl', False))

@@ -196,7 +196,7 @@ class TestCtl(unittest.TestCase):
             self.assertTrue('False' in str(rows))
 
             rows = query_member(None, None, None, 'replica', 'SELECT pg_is_in_recovery()', {})
-            self.assertEquals(rows, (None, None))
+            self.assertEqual(rows, (None, None))
 
             with patch('test_postgresql.MockCursor.execute', Mock(side_effect=OperationalError('bla'))):
                 rows = query_member(None, None, None, 'replica', 'SELECT pg_is_in_recovery()', {})
@@ -364,20 +364,20 @@ class TestCtl(unittest.TestCase):
         self.assertIsNone(get_any_member(get_cluster_initialized_without_leader(), role='master'))
 
         m = get_any_member(get_cluster_initialized_with_leader(), role='master')
-        self.assertEquals(m.name, 'leader')
+        self.assertEqual(m.name, 'leader')
 
     def test_get_all_members(self):
-        self.assertEquals(list(get_all_members(get_cluster_initialized_without_leader(), role='master')), [])
+        self.assertEqual(list(get_all_members(get_cluster_initialized_without_leader(), role='master')), [])
 
         r = list(get_all_members(get_cluster_initialized_with_leader(), role='master'))
-        self.assertEquals(len(r), 1)
-        self.assertEquals(r[0].name, 'leader')
+        self.assertEqual(len(r), 1)
+        self.assertEqual(r[0].name, 'leader')
 
         r = list(get_all_members(get_cluster_initialized_with_leader(), role='replica'))
-        self.assertEquals(len(r), 1)
-        self.assertEquals(r[0].name, 'other')
+        self.assertEqual(len(r), 1)
+        self.assertEqual(r[0].name, 'other')
 
-        self.assertEquals(len(list(get_all_members(get_cluster_initialized_without_leader(), role='replica'))), 2)
+        self.assertEqual(len(list(get_all_members(get_cluster_initialized_without_leader(), role='replica'))), 2)
 
     @patch('patroni.ctl.get_dcs')
     def test_members(self, mock_get_dcs):
@@ -499,23 +499,23 @@ class TestCtl(unittest.TestCase):
         after_editing, changed_config = apply_config_changes(before_editing, config,
                                                              ["postgresql.parameters.work_mem = 5MB",
                                                               "ttl=15", "postgresql.use_pg_rewind=off", 'a.b=c'])
-        self.assertEquals(changed_config, {"a": {"b": "c"}, "postgresql": {"parameters": {"work_mem": "5MB"},
-                                                                           "use_pg_rewind": False}, "ttl": 15})
+        self.assertEqual(changed_config, {"a": {"b": "c"}, "postgresql": {"parameters": {"work_mem": "5MB"},
+                                                                          "use_pg_rewind": False}, "ttl": 15})
 
         # postgresql.parameters namespace is flattened
         after_editing, changed_config = apply_config_changes(before_editing, config,
                                                              ["postgresql.parameters.work_mem.sub = x"])
-        self.assertEquals(changed_config, {"postgresql": {"parameters": {"work_mem": "4MB", "work_mem.sub": "x"},
-                                                          "use_pg_rewind": True}, "ttl": 30})
+        self.assertEqual(changed_config, {"postgresql": {"parameters": {"work_mem": "4MB", "work_mem.sub": "x"},
+                                                         "use_pg_rewind": True}, "ttl": 30})
 
         # Setting to null deletes
         after_editing, changed_config = apply_config_changes(before_editing, config,
                                                              ["postgresql.parameters.work_mem=null"])
-        self.assertEquals(changed_config, {"postgresql": {"use_pg_rewind": True}, "ttl": 30})
+        self.assertEqual(changed_config, {"postgresql": {"use_pg_rewind": True}, "ttl": 30})
         after_editing, changed_config = apply_config_changes(before_editing, config,
                                                              ["postgresql.use_pg_rewind=null",
                                                               "postgresql.parameters.work_mem=null"])
-        self.assertEquals(changed_config, {"ttl": 30})
+        self.assertEqual(changed_config, {"ttl": 30})
 
         self.assertRaises(PatroniCtlException, apply_config_changes, before_editing, config, ['a'])
 
@@ -572,5 +572,5 @@ class TestCtl(unittest.TestCase):
             assert 'failed to get version' in result.output
 
     def test_format_pg_version(self):
-        self.assertEquals(format_pg_version(100001), '10.1')
-        self.assertEquals(format_pg_version(90605), '9.6.5')
+        self.assertEqual(format_pg_version(100001), '10.1')
+        self.assertEqual(format_pg_version(90605), '9.6.5')

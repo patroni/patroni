@@ -1,11 +1,11 @@
 import base64
-import fcntl
 import json
 import logging
 import psycopg2
 import time
 import dateutil.parser
 import datetime
+import os
 
 from patroni.postgresql import PostgresConnectionException, PostgresException, Postgresql
 from patroni.utils import deep_compare, parse_bool, patch_config, Retry, \
@@ -87,7 +87,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
         replica_status_code = 200 if not patroni.noloadbalance and response.get('role') == 'replica' else 503
         status_code = 503
 
-        if 'master' in path:
+        if patroni.config.is_standby_cluster and ('standby_leader' in path or 'standby-leader' in path):
+            status_code = 200 if patroni.ha.is_leader() else 503
+        elif 'master' in path or 'leader' in path or 'primary' in path:
             status_code = 200 if patroni.ha.is_leader() else 503
         elif 'replica' in path:
             status_code = replica_status_code
@@ -479,8 +481,10 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
     @staticmethod
     def _set_fd_cloexec(fd):
-        flags = fcntl.fcntl(fd, fcntl.F_GETFD)
-        fcntl.fcntl(fd, fcntl.F_SETFD, flags | fcntl.FD_CLOEXEC)
+        if os.name != 'nt':
+            import fcntl
+            flags = fcntl.fcntl(fd, fcntl.F_GETFD)
+            fcntl.fcntl(fd, fcntl.F_SETFD, flags | fcntl.FD_CLOEXEC)
 
     def check_basic_auth_key(self, key):
         return self.__auth_key == key
