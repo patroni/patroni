@@ -377,7 +377,7 @@ class Consul(AbstractDCS):
 
     def _update_service(self, data):
         service_name = self._service_name
-        role = data['role']
+        role = data['role'].replace('_', '-')
         state = data['state']
         api_parts = urlparse(data['api_url'])
         api_parts = api_parts._replace(path='/{0}'.format(role))
@@ -394,7 +394,7 @@ class Consul(AbstractDCS):
         if state == 'stopped':
             return self.deregister_service(params['service_id'])
 
-        if role in ['master', 'replica']:
+        if role in ['master', 'replica', 'standby-leader']:
             if state != 'running':
                 return
             return self.register_service(service_name, **params)
