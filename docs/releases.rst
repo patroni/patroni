@@ -6,13 +6,13 @@ Release notes
 Version 1.5.0                                                                                                                           
 -------------                                                                                                                           
                                                                                                                                         
-This version enables Patroni HA cluster to operate in a standby mode, introduces experimental support for running on Windows, and provides a new configuration parameter to register a PostgreSQL service in Consul.
+This version enables Patroni HA cluster to operate in a standby mode, introduces experimental support for running on Windows, and provides a new configuration parameter to register PostgreSQL service in Consul.
 
 **New features**                                                                                                                        
 
 - Standby cluster (Dmitry Dolgov)                                                                                                       
 
-  One or more Patroni nodes can form a standby cluster that runs alongside the primary one (i.e. in another datacenter) and consists of standby nodes that replicate from the master in the primary cluster. All PostgreSQL nodes in the standby cluster are replicas; one of those replicas elects itself to replicate directly from the remote master, while the others replicate from it in a cascading manner. More detailed description of this feature and some configuration example is available at :ref:`here <standby_cluster>`.
+  One or more Patroni nodes can form a standby cluster that runs alongside the primary one (i.e. in another datacenter) and consists of standby nodes that replicate from the master in the primary cluster. All PostgreSQL nodes in the standby cluster are replicas; one of those replicas elects itself to replicate directly from the remote master, while the others replicate from it in a cascading manner. More detailed description of this feature and some configuration examples can be found at :ref:`here <standby_cluster>`.
 
 - Register Services in Consul (Pavel Kirillov, Alexander Kukushkin)
                                                                                                                                         
@@ -30,7 +30,7 @@ This version enables Patroni HA cluster to operate in a standby mode, introduces
 
 - Exclude members with nofailover tag from patronictl switchover/failover output (Alexander Anikin)
 
-  Previously, those members were incorrectly shown as candidates when performing interactive switchover or failover via patronictl.
+  Previously, those members were incorrectly proposed as candidates when performing interactive switchover or failover via patronictl.
 
 **Stability improvements**
 
@@ -40,7 +40,7 @@ This version enables Patroni HA cluster to operate in a standby mode, introduces
 
 - Add member name to the error message during the leader election (Jan Mussler)
 
-  During the leader election, Patroni connects to all known members of the cluster and requests their status. Such status is reported to Patroni log and includes the name of the member. Previously, if the member was not accessible, the error message did not indicate its name, containing only the URL.
+  During the leader election, Patroni connects to all known members of the cluster and requests their status. Such status is written to the Patroni log and includes the name of the member. Previously, if the member was not accessible, the error message did not indicate its name, containing only the URL.
 
 - Immediately reserve the WAL position upon creation of the replication slot (Alexander Kukushkin)
 
