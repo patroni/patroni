@@ -640,7 +640,8 @@ class Postgresql(object):
             return os.environ.copy()
 
         with open(self._pgpass, 'w') as f:
-            os.fchmod(f.fileno(), 0o600)
+            if os.name != 'nt':
+                os.fchmod(f.fileno(), 0o600)
             f.write('{host}:{port}:*:{user}:{password}\n'.format(**record))
 
         env = os.environ.copy()
@@ -1124,9 +1125,10 @@ class Postgresql(object):
             # therefore we need to make sure that hba_file is not overriden
             # after changing superuser password we will "revert" all these "changes"
             if self._running_custom_bootstrap or 'hba_file' not in self._server_parameters:
-                f.write("hba_file = '{0}'\n".format(self._pg_hba_conf))
+                f.write("hba_file = '{0}'\n".format(self._pg_hba_conf.replace('\\', '\\\\')))
             if 'ident_file' not in self._server_parameters:
-                f.write("ident_file = '{0}'\n".format(os.path.join(self._config_dir, 'pg_ident.conf')))
+                s = "ident_file = '{0}'\n".format(os.path.join(self._config_dir, 'pg_ident.conf').replace('\\', '\\\\'))
+                f.write(s)
 
     def is_healthy(self):
         if not self.is_running():
@@ -1221,8 +1223,10 @@ class Postgresql(object):
         # Don't try to call pg_controldata during backup restore
         if self._version_file_exists() and self.state != 'creating replica':
             try:
-                data = subprocess.check_output([self._pgcommand('pg_controldata'), self._data_dir],
-                                               env={'LANG': 'C', 'LC_ALL': 'C', 'PATH': os.environ['PATH']})
+                env = {'LANG': 'C', 'LC_ALL': 'C', 'PATH': os.getenv('PATH')}
+                if os.getenv('SYSTEMROOT') is not None:
+                    env['SYSTEMROOT'] = os.getenv('SYSTEMROOT')
+                data = subprocess.check_output([self._pgcommand('pg_controldata'), self._data_dir], env=env)
                 if data:
                     data = data.decode('utf-8').splitlines()
                     # pg_controldata output depends on major verion. Some of parameters are prefixed by 'Current '

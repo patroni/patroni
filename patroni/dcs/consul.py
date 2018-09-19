@@ -288,7 +288,7 @@ class Consul(AbstractDCS):
             nodes = {}
             for node in results:
                 node['Value'] = (node['Value'] or b'').decode('utf-8')
-                nodes[os.path.relpath(node['Key'], path)] = node
+                nodes[os.path.relpath(node['Key'], path).replace('\\', '/')] = node
 
             # get initialize flag
             initialize = nodes.get(self._INITIALIZE)

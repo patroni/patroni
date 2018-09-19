@@ -1,11 +1,11 @@
 import base64
-import fcntl
 import json
 import logging
 import psycopg2
 import time
 import dateutil.parser
 import datetime
+import os
 
 from patroni.postgresql import PostgresConnectionException, PostgresException, Postgresql
 from patroni.utils import deep_compare, parse_bool, patch_config, Retry, \
@@ -479,8 +479,10 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
     @staticmethod
     def _set_fd_cloexec(fd):
-        flags = fcntl.fcntl(fd, fcntl.F_GETFD)
-        fcntl.fcntl(fd, fcntl.F_SETFD, flags | fcntl.FD_CLOEXEC)
+        if os.name != 'nt':
+            import fcntl
+            flags = fcntl.fcntl(fd, fcntl.F_GETFD)
+            fcntl.fcntl(fd, fcntl.F_SETFD, flags | fcntl.FD_CLOEXEC)
 
     def check_basic_auth_key(self, key):
         return self.__auth_key == key
