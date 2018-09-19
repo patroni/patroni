@@ -154,6 +154,8 @@ REST API
         -  **certfile**: Specifies the file with the certificate in the PEM format. If the certfile is not specified or is left empty, the API server will work without SSL.
         -  **keyfile**: Specifies the file with the secret key in the PEM format.
 
+.. _patronictl_settings:
+
 CTL
 ---
 -  **Optional**:

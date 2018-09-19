@@ -3,6 +3,54 @@
 Release notes
 =============
 
+Version 1.5.0                                                                                                                           
+-------------                                                                                                                           
+                                                                                                                                        
+This version adds standby cluster support, makes it possible to run Patroni on Windows, and enhances support of Consul by optionally registering service.
+
+**New features**                                                                                                                        
+
+- Standby cluster (Dmitry Dolgov)                                                                                                       
+
+  Standby cluster is running alongside the primary one (i.e. in another datacenter) and consisting of only standby nodes, replicating from the primary one. Such cluster will have no master, there will be one "main" replica replicating from the master in the primary cluster, and all the other cascading replicas replicating from the main one. You can find more details configuration example :ref:`here <standby_cluster>`.
+
+- Register Services in Consul (Pavel Kirillov, Alexander Kukushkin)
+                                                                                                                                        
+  If `register_service` parameter in the consul :ref:`configuration <consul_settings>` is enabled, the node will register a service with the name `scope` and with tag `master`, `replica` or `standby-leader`.
+
+- Experimental Windows support (Pavel Golub)
+
+  From now on it is possible to run HA PostgreSQL cluster on Windows, although it is not well tested yet.
+
+**Improvements in patronictl**
+
+- Add patronictl -k/--insecure flag and support for restapi cert (Wilfried Roset)
+
+  If the REST API is protected by self-signed certificates `patronictl` was failing to verify them and there was no way neither disable verification or provide files for server certificate verification. It is possible to configure behavior of `patronictl` in the :ref:`ctl: <patronictl_settings>` section of configuration.
+
+- Exclude members with nofailover tag from patronictl switchover/failover output (Alexander Anikin)
+
+  It was very confusing that such nodes were shown in the list, but REST API was returning the error.
+
+**Stability improvements**
+
+- Check if the output lines of pg_controldata are possible to split (Alexander Anikin)
+
+  Missing colon character was leading to scary stack traces in the logs and masking the real problems. Usually it happens if you try to use incompatible binaries, for example 9.6 cluster with 10 binaries.
+
+- Add member name to the error message during leader elections (Jan Mussler)
+
+  When doing leader elections Patroni connects to all known members of the cluster and requests their status. Such status is reported to Patroni log and includes the name of node. If the node is not accessible, error message was containing only failing url and lacking node name.
+
+- Immediately reserve LSN on upon creation of replication slot (Alexander Kukushkin)
+
+  Starting from 9.6 `pg_create_physical_replication_slot` function supports additional boolean parameter, `immediately_reserve`. Default value if `false`, therefore primary was reserving LSN only when replication slot was used the first time.
+
+- Fix bug in strict synchronous replication (Alexander Kukushkin)
+
+  When we are using `synchronous_mode_strict: true`, in some cases Patroni may put `*` into `synchronous_standby_names`, what changes sync state for most of the replication connections to `potential`, while Patroni was choosing the new synchronous among `async`.
+
+
 Version 1.4.6
 -------------
 
