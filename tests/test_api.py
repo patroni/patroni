@@ -167,7 +167,7 @@ class TestRestApiHandler(unittest.TestCase):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /master'))
         with patch.object(RestApiServer, 'query', Mock(return_value=[('', 1, '', '', '', '', False, '')])):
             self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /patroni'))
-        MockPatroni.config.is_standby_cluster = Mock(return_value=True)
+        MockPatroni.config.is_standby_cluster = PropertyMock(return_value=True)
         MockRestApiServer(RestApiHandler, 'GET /standby_leader')
 
     def test_do_OPTIONS(self):
