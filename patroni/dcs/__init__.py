@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import pkgutil
+import re
 import six
 import sys
 
@@ -419,7 +420,6 @@ class AbstractDCS(object):
         :param config: dict, reference to config section of selected DCS.
             i.e.: `zookeeper` for zookeeper, `etcd` for etcd, etc...
         """
-        import re
         self._name = config['name']
         self._base_path = re.sub('/+', '/', '/'.join(['', config.get('namespace', 'service'), config['scope']]))
         self._set_loop_wait(config.get('loop_wait', 10))
