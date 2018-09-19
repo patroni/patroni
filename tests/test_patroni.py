@@ -73,7 +73,7 @@ class TestPatroni(unittest.TestCase):
         mock_getpid.return_value = 2
         _main()
 
-        with patch('sys.frozen', Mock(return_value=True), create=True):
+        with patch('sys.frozen', Mock(return_value=True), create=True), patch('os.setsid', Mock()):
             sys.argv = ['/patroni', 'pg_ctl_start', 'postgres', '-D', '/data', '--max_connections=100']
             _main()
 
