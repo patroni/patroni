@@ -130,6 +130,8 @@ and
 
 If all replica creation methods fail, Patroni will try again all methods in order during the next event loop cycle.
 
+.. _standby_cluster:
+
 Standby cluster
 ---------------
 
