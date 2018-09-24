@@ -238,7 +238,7 @@ class Raft(AbstractDCS):
         if not response:
             self._cluster = Cluster(None, None, None, None, [], None, None, None)
             return
-        nodes = {os.path.relpath(key, prefix): value for key, value in response.items()}
+        nodes = {os.path.relpath(key, prefix).replace('\\', '/'): value for key, value in response.items()}
 
         # get initialize flag
         initialize = nodes.get(self._INITIALIZE)
