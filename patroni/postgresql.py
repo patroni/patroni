@@ -15,10 +15,12 @@ from patroni.callback_executor import CallbackExecutor
 from patroni.exceptions import PostgresConnectionException, PostgresException
 from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, split_host_port
 from patroni.postmaster import PostmasterProcess
+from patroni.dcs import RemoteMember
 from requests.structures import CaseInsensitiveDict
 from six import string_types
 from six.moves.urllib.parse import quote_plus
 from threading import current_thread, Lock
+
 
 logger = logging.getLogger(__name__)
 
@@ -638,7 +640,8 @@ class Postgresql(object):
             return os.environ.copy()
 
         with open(self._pgpass, 'w') as f:
-            os.fchmod(f.fileno(), 0o600)
+            if os.name != 'nt':
+                os.fchmod(f.fileno(), 0o600)
             f.write('{host}:{port}:*:{user}:{password}\n'.format(**record))
 
         env = os.environ.copy()
@@ -665,9 +668,17 @@ class Postgresql(object):
         self.set_state('creating replica')
         self._sysid = None
 
-        # get list of replica methods from config.
-        # If there is no configuration key, or no value is specified, use basebackup
-        replica_methods = self._create_replica_methods or ['basebackup']
+        is_remote_master = isinstance(clone_member, RemoteMember)
+        create_replica_methods = is_remote_master and clone_member.create_replica_methods
+
+        # get list of replica methods either from clone member or from
+        # the config. If there is no configuration key, or no value is
+        # specified, use basebackup
+        replica_methods = (
+            create_replica_methods
+            or self._create_replica_methods
+            or ['basebackup']
+        )
 
         if clone_member and clone_member.conn_url:
             r = clone_member.conn_kwargs(self._replication)
@@ -945,7 +956,7 @@ class Postgresql(object):
                         return 'is_in_recovery=true'
                 return cur.execute('CHECKPOINT')
         except psycopg2.Error:
-            logging.exception('Exception during CHECKPOINT')
+            logger.exception('Exception during CHECKPOINT')
             return 'not accessible or not healty'
 
     def stop(self, mode='fast', block_callbacks=False, checkpoint=None, on_safepoint=None):
@@ -1114,9 +1125,10 @@ class Postgresql(object):
             # therefore we need to make sure that hba_file is not overriden
             # after changing superuser password we will "revert" all these "changes"
             if self._running_custom_bootstrap or 'hba_file' not in self._server_parameters:
-                f.write("hba_file = '{0}'\n".format(self._pg_hba_conf))
+                f.write("hba_file = '{0}'\n".format(self._pg_hba_conf.replace('\\', '\\\\')))
             if 'ident_file' not in self._server_parameters:
-                f.write("ident_file = '{0}'\n".format(os.path.join(self._config_dir, 'pg_ident.conf')))
+                s = "ident_file = '{0}'\n".format(os.path.join(self._config_dir, 'pg_ident.conf').replace('\\', '\\\\'))
+                f.write(s)
 
     def is_healthy(self):
         if not self.is_running():
@@ -1211,12 +1223,15 @@ class Postgresql(object):
         # Don't try to call pg_controldata during backup restore
         if self._version_file_exists() and self.state != 'creating replica':
             try:
-                data = subprocess.check_output([self._pgcommand('pg_controldata'), self._data_dir],
-                                               env={'LANG': 'C', 'LC_ALL': 'C', 'PATH': os.environ['PATH']})
+                env = {'LANG': 'C', 'LC_ALL': 'C', 'PATH': os.getenv('PATH')}
+                if os.getenv('SYSTEMROOT') is not None:
+                    env['SYSTEMROOT'] = os.getenv('SYSTEMROOT')
+                data = subprocess.check_output([self._pgcommand('pg_controldata'), self._data_dir], env=env)
                 if data:
                     data = data.decode('utf-8').splitlines()
                     # pg_controldata output depends on major verion. Some of parameters are prefixed by 'Current '
-                    result = {l.split(':')[0].replace('Current ', '', 1): l.split(':', 1)[1].strip() for l in data if l}
+                    result = {l.split(':')[0].replace('Current ', '', 1): l.split(':', 1)[1].strip() for l in data
+                              if l and ':' in l}
             except subprocess.CalledProcessError:
                 logger.exception("Error when calling pg_controldata")
         return result
@@ -1412,6 +1427,12 @@ class Postgresql(object):
         return self._rewind_state == REWIND_STATUS.FAILED
 
     def follow(self, member, timeout=None):
+        is_remote_master = isinstance(member, RemoteMember)
+        no_replication_slot = is_remote_master and member.no_replication_slot
+        restore_command = is_remote_master and member.restore_command
+        min_apply_delay = is_remote_master and member.recovery_min_apply_delay
+        archive_cleanup = is_remote_master and member.archive_cleanup_command
+
         primary_conninfo = self.primary_conninfo(member)
         change_role = self.role in ('master', 'demoted')
 
@@ -1419,8 +1440,16 @@ class Postgresql(object):
         recovery_params.update({'standby_mode': 'on', 'recovery_target_timeline': 'latest'})
         if primary_conninfo:
             recovery_params['primary_conninfo'] = primary_conninfo
-        if self.use_slots:
-            recovery_params['primary_slot_name'] = slot_name_from_member_name(self.name)
+        if self.use_slots and not no_replication_slot:
+            required_name = is_remote_master and member.data.get('primary_slot_name')
+            name = required_name or slot_name_from_member_name(self.name)
+            recovery_params['primary_slot_name'] = name
+        if restore_command:
+            recovery_params['restore_command'] = restore_command
+        if min_apply_delay:
+            recovery_params['recovery_min_apply_delay'] = min_apply_delay
+        if archive_cleanup:
+            recovery_params['archive_cleanup_command'] = archive_cleanup
 
         self.write_recovery_conf(recovery_params)
 
@@ -1532,7 +1561,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
                 # the current master, because that member would replicate from elsewhere. We still create the slot if
                 # the replicatefrom destination member is currently not a member of the cluster (fallback to the
                 # master), or if replicatefrom destination member happens to be the current master
-                if self.role == 'master':
+                if self.role in ('master', 'standby_leader'):
                     slot_members = [m.name for m in cluster.members if m.name != self.name and
                                     (m.replicatefrom is None or m.replicatefrom == self.name or
                                      not cluster.has_member(m.replicatefrom))]
@@ -1560,11 +1589,13 @@ $$""".format(name, ' '.join(options)), name, password, password)
                     if cursor.rowcount != 1:  # Either slot doesn't exists or it is still active
                         self._schedule_load_slots = True  # schedule load_replication_slots on the next iteration
 
+                immediately_reserve = ', true' if self._major_version >= 90600 else ''
+
                 # create new slots
                 for slot in slots - set(self._replication_slots):
-                    self._query("""SELECT pg_create_physical_replication_slot(%s)
+                    self._query("""SELECT pg_create_physical_replication_slot(%s{0})
                                     WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots
-                                    WHERE slot_name = %s)""", slot, slot)
+                                    WHERE slot_name = %s)""".format(immediately_reserve), slot, slot)
 
                 self._replication_slots = slots
             except Exception:
@@ -1733,7 +1764,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
             if sync_state == 'potential' and app_name == current:
                 # Prefer current even if not the best one any more to avoid indecisivness and spurious swaps.
                 return current, False
-            if sync_state == 'async':
+            if sync_state in ('async', 'potential'):
                 candidates.append(app_name)
 
         if candidates:

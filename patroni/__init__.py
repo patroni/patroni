@@ -125,7 +125,8 @@ class Patroni(object):
     def setup_signal_handlers(self):
         self._received_sighup = False
         self._received_sigterm = False
-        signal.signal(signal.SIGHUP, self.sighup_handler)
+        if os.name != 'nt':
+            signal.signal(signal.SIGHUP, self.sighup_handler)
         signal.signal(signal.SIGTERM, self.sigterm_handler)
 
     def shutdown(self):
@@ -154,6 +155,8 @@ def patroni_main():
 
 def pg_ctl_start(args):
     import subprocess
+    if os.name != 'nt':
+        os.setsid()
     postmaster = subprocess.Popen(args)
     print(postmaster.pid)
 
@@ -188,7 +191,7 @@ def main():
                 if ret == (0, 0):
                     break
                 elif ret[0] != pid:
-                    logging.info('Reaped pid=%s, exit status=%s', *ret)
+                    logger.info('Reaped pid=%s, exit status=%s', *ret)
         except OSError:
             pass
 
@@ -197,11 +200,13 @@ def main():
             os.kill(pid, signo)
 
     signal.signal(signal.SIGCHLD, sigchld_handler)
-    signal.signal(signal.SIGHUP, passtochild)
+    if os.name != 'nt':
+        signal.signal(signal.SIGHUP, passtochild)
+        signal.signal(signal.SIGQUIT, passtochild)
     signal.signal(signal.SIGINT, passtochild)
     signal.signal(signal.SIGUSR1, passtochild)
     signal.signal(signal.SIGUSR2, passtochild)
-    signal.signal(signal.SIGQUIT, passtochild)
+    signal.signal(signal.SIGABRT, passtochild)
     signal.signal(signal.SIGTERM, passtochild)
 
     patroni = call_self(sys.argv[1:])

@@ -32,9 +32,10 @@ VERSION = read_version(MAIN_PACKAGE)
 DESCRIPTION = 'PostgreSQL High-Available orchestrator and CLI'
 LICENSE = 'The MIT License'
 URL = 'https://github.com/zalando/patroni'
-AUTHOR = 'Alexander Kukushkin, Oleksii Kliukin, Feike Steenbergen'
-AUTHOR_EMAIL = 'alexander.kukushkin@zalando.de, oleksii.kliukin@zalando.de, feike.steenbergen@zalando.de'
-KEYWORDS = 'etcd governor patroni postgresql postgres ha haproxy confd zookeeper exhibitor consul streaming replication'
+AUTHOR = 'Alexander Kukushkin, Dmitrii Dolgov, Oleksii Kliukin'
+AUTHOR_EMAIL = 'alexander.kukushkin@zalando.de, dmitrii.dolgov@zalando.de, alexk@hintbits.com'
+KEYWORDS = 'etcd governor patroni postgresql postgres ha haproxy confd' +\
+    ' zookeeper exhibitor consul streaming replication kubernetes k8s'
 
 COVERAGE_XML = True
 COVERAGE_HTML = False
@@ -43,14 +44,18 @@ JUNIT_XML = True
 # Add here all kinds of additional classifiers as defined under
 # https://pypi.python.org/pypi?%3Aaction=list_classifiers
 CLASSIFIERS = [
-    'Development Status :: 4 - Beta',
+    'Development Status :: 5 - Production/Stable',
     'Environment :: Console',
     'Intended Audience :: Developers',
     'Intended Audience :: System Administrators',
     'License :: OSI Approved :: MIT License',
+    'Operating System :: MacOS',
     'Operating System :: POSIX :: Linux',
+    'Operating System :: POSIX :: BSD :: FreeBSD',
+    'Operating System :: Microsoft :: Windows',
     'Programming Language :: Python',
     'Programming Language :: Python :: 2.7',
+    'Programming Language :: Python :: 3',
     'Programming Language :: Python :: 3.4',
     'Programming Language :: Python :: 3.5',
     'Programming Language :: Python :: 3.6',
@@ -102,6 +107,8 @@ class PyTest(TestCommand):
         silence = logging.WARNING
         logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=os.getenv('LOGLEVEL', silence))
         params['args'] += ['-s' if logging.getLogger().getEffectiveLevel() < silence else '--capture=fd']
+        if not os.getenv('SYSTEMROOT'):
+            os.environ['SYSTEMROOT'] = '/'
         errno = pytest.main(**params)
         sys.exit(errno)
 

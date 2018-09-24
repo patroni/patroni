@@ -3,6 +3,71 @@
 Release notes
 =============
 
+Version 1.5.0                                                                                                                           
+-------------                                                                                                                           
+                                                                                                                                        
+This version enables Patroni HA cluster to operate in a standby mode, introduces experimental support for running on Windows, and provides a new configuration parameter to register PostgreSQL service in Consul.
+
+**New features**                                                                                                                        
+
+- Standby cluster (Dmitry Dolgov)                                                                                                       
+
+  One or more Patroni nodes can form a standby cluster that runs alongside the primary one (i.e. in another datacenter) and consists of standby nodes that replicate from the master in the primary cluster. All PostgreSQL nodes in the standby cluster are replicas; one of those replicas elects itself to replicate directly from the remote master, while the others replicate from it in a cascading manner. More detailed description of this feature and some configuration examples can be found at :ref:`here <standby_cluster>`.
+
+- Register Services in Consul (Pavel Kirillov, Alexander Kukushkin)
+                                                                                                                                        
+  If `register_service` parameter in the consul :ref:`configuration <consul_settings>` is enabled, the node will register a service with the name `scope` and the tag `master`, `replica` or `standby-leader`.
+
+- Experimental Windows support (Pavel Golub)
+
+  From now on it is possible to run Patroni on Windows, although Windows support is brand-new and hasn't received as much real-world testing as its Linux counterpart. We welcome your feedback!
+
+**Improvements in patronictl**
+
+- Add patronictl -k/--insecure flag and support for restapi cert (Wilfried Roset)
+
+  In the past if the REST API was protected by the self-signed certificates `patronictl` would fail to verify them. There was no way to  disable that verification. It is now possible to configure `patronictl` to skip the certificate verification altogether or provide CA and client certificates in the :ref:`ctl: <patronictl_settings>` section of configuration.
+
+- Exclude members with nofailover tag from patronictl switchover/failover output (Alexander Anikin)
+
+  Previously, those members were incorrectly proposed as candidates when performing interactive switchover or failover via patronictl.
+
+**Stability improvements**
+
+- Avoid parsing non-key-value output lines of pg_controldata (Alexander Anikin)
+
+  Under certain circuimstances pg_controldata outputs lines without a colon character. That would trigger an error in Patroni code that parsed pg_controldata output, hiding the actual problem; often such lines are emitted in a warning shown by pg_controldata before the regular output, i.e. when the binary major version does not match the one of the PostgreSQL data directory.
+
+- Add member name to the error message during the leader election (Jan Mussler)
+
+  During the leader election, Patroni connects to all known members of the cluster and requests their status. Such status is written to the Patroni log and includes the name of the member. Previously, if the member was not accessible, the error message did not indicate its name, containing only the URL.
+
+- Immediately reserve the WAL position upon creation of the replication slot (Alexander Kukushkin)
+
+  Starting from 9.6, `pg_create_physical_replication_slot` function provides an additional boolean parameter `immediately_reserve`. When it is set to `false`, which is also the default, the slot doesn't reserve the WAL position until it receives the first client connection, potentially losing some segments required by the client in a time window between the slot creation and the intiial client connection.
+
+- Fix bug in strict synchronous replication (Alexander Kukushkin)
+
+  When running with `synchronous_mode_strict: true`, in some cases Patroni puts `*` into the `synchronous_standby_names`, changing the sync state for most of the replication connections to `potential`. Previously, Patroni couldn't pick a synchronous candidate under such curcuimstances, as it only considered those with the state `async`.
+
+
+Version 1.4.6
+-------------
+
+**Bug fixes and stability improvements**
+
+This release fixes a critical issue with Patroni API /master endpoint returning 200 for the non-master node. This is a
+reporting issue, no actual split-brain, but under certain circumstances clients might be directed to the read-only node.
+
+- Reset is_leader status on demote (Alexander Kukushkin, Oleksii Kliukin)
+
+  Make sure demoted cluster member stops responding with code 200 on the /master API call.
+
+- Add new "cluster_unlocked" field to the API output (Dmitry Dolgov)
+
+  This field indicates whether the cluster has the master running. It can be used when it is not possible to query any
+  other node but one of the replicas.
+
 Version 1.4.5
 -------------
 

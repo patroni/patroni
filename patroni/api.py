@@ -1,11 +1,11 @@
 import base64
-import fcntl
 import json
 import logging
 import psycopg2
 import time
 import dateutil.parser
 import datetime
+import os
 
 from patroni.postgresql import PostgresConnectionException, PostgresException, Postgresql
 from patroni.utils import deep_compare, parse_bool, patch_config, Retry, \
@@ -84,35 +84,22 @@ class RestApiHandler(BaseHTTPRequestHandler):
         patroni = self.server.patroni
         cluster = patroni.dcs.cluster
 
-        def is_synchronous():
-            return (cluster.is_synchronous_mode() and cluster.sync
-                    and cluster.sync.sync_standby == patroni.postgresql.name)
+        replica_status_code = 200 if not patroni.noloadbalance and response.get('role') == 'replica' else 503
+        status_code = 503
 
-        def is_balanceable_replica():
-            return response.get('role') == 'replica' and not patroni.noloadbalance
-
-        if cluster:  # dcs available
-            if patroni.ha.is_leader():
-                status_code = 200 if 'master' in path else 503
-            elif 'role' not in response:
-                status_code = 503
-            elif response['role'] == 'master':  # running as master but without leader lock!!!!
-                status_code = 503
-            elif path in ('/sync', '/synchronous'):
-                status_code = 200 if is_balanceable_replica() and is_synchronous() else 503
-            elif path in ('/async', '/asynchronous'):
-                status_code = 200 if is_balanceable_replica() and not is_synchronous() else 503
-            elif response['role'] in path:  # response['role'] != 'master'
-                status_code = 503 if patroni.noloadbalance else 200
-            else:
-                status_code = 503
-        elif 'role' in response and response['role'] in path:
-            status_code = 503 if response['role'] != 'master' and patroni.noloadbalance else 200
-        elif patroni.ha.restart_scheduled() and patroni.postgresql.role == 'master' and 'master' in path:
-            # exceptional case for master node when the postgres is being restarted via API
-            status_code = 200
-        else:
-            status_code = 503
+        if patroni.config.is_standby_cluster and ('standby_leader' in path or 'standby-leader' in path):
+            status_code = 200 if patroni.ha.is_leader() else 503
+        elif 'master' in path or 'leader' in path or 'primary' in path:
+            status_code = 200 if patroni.ha.is_leader() else 503
+        elif 'replica' in path:
+            status_code = replica_status_code
+        elif cluster:  # dcs is available
+            is_synchronous = cluster.is_synchronous_mode() and cluster.sync \
+                    and cluster.sync.sync_standby == patroni.postgresql.name
+            if path in ('/sync', '/synchronous') and is_synchronous:
+                status_code = replica_status_code
+            elif path in ('/async', '/asynchronous') and not is_synchronous:
+                status_code = replica_status_code
 
         if write_status_code_only:  # when haproxy sends OPTIONS request it reads only status code and nothing more
             message = self.responses[status_code][0]
@@ -494,8 +481,10 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
     @staticmethod
     def _set_fd_cloexec(fd):
-        flags = fcntl.fcntl(fd, fcntl.F_GETFD)
-        fcntl.fcntl(fd, fcntl.F_SETFD, flags | fcntl.FD_CLOEXEC)
+        if os.name != 'nt':
+            import fcntl
+            flags = fcntl.fcntl(fd, fcntl.F_GETFD)
+            fcntl.fcntl(fd, fcntl.F_SETFD, flags | fcntl.FD_CLOEXEC)
 
     def check_basic_auth_key(self, key):
         return self.__auth_key == key

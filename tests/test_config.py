@@ -23,7 +23,7 @@ class TestConfig(unittest.TestCase):
     def test_set_dynamic_configuration(self):
         with patch.object(Config, '_build_effective_configuration', Mock(side_effect=Exception)):
             self.assertIsNone(self.config.set_dynamic_configuration({'foo': 'bar'}))
-        self.assertTrue(self.config.set_dynamic_configuration({'synchronous_mode': True}))
+        self.assertTrue(self.config.set_dynamic_configuration({'synchronous_mode': True, 'standby_cluster': {}}))
 
     def test_reload_local_configuration(self):
         os.environ.update({
@@ -70,12 +70,13 @@ class TestConfig(unittest.TestCase):
                 self.assertRaises(Exception, config.reload_local_configuration, True)
             self.assertTrue(config.reload_local_configuration(True))
             self.assertTrue(config.reload_local_configuration())
+            self.assertIsNone(config.reload_local_configuration())
 
     @patch('tempfile.mkstemp', Mock(return_value=[3000, 'blabla']))
     @patch('os.path.exists', Mock(return_value=True))
     @patch('os.remove', Mock(side_effect=IOError))
     @patch('os.close', Mock(side_effect=IOError))
-    @patch('os.rename', Mock(return_value=None))
+    @patch('shutil.move', Mock(return_value=None))
     @patch('json.dump', Mock())
     def test_save_cache(self):
         self.config.set_dynamic_configuration({'ttl': 30, 'postgresql': {'foo': 'bar'}})
