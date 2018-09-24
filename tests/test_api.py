@@ -155,6 +155,7 @@ class TestRestApiHandler(unittest.TestCase):
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'replica'})):
             MockRestApiServer(RestApiHandler, 'GET /synchronous')
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'replica'})):
+            MockPatroni.dcs.cluster.sync.sync_standby = ''
             MockRestApiServer(RestApiHandler, 'GET /asynchronous')
         MockPatroni.ha.is_leader = Mock(return_value=True)
         MockRestApiServer(RestApiHandler, 'GET /replica')
@@ -166,6 +167,8 @@ class TestRestApiHandler(unittest.TestCase):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /master'))
         with patch.object(RestApiServer, 'query', Mock(return_value=[('', 1, '', '', '', '', False, '')])):
             self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /patroni'))
+        MockPatroni.config.is_standby_cluster = PropertyMock(return_value=True)
+        MockRestApiServer(RestApiHandler, 'GET /standby_leader')
 
     def test_do_OPTIONS(self):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'OPTIONS / HTTP/1.0'))
