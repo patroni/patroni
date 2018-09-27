@@ -154,7 +154,7 @@ class Postgresql(object):
         self._connection = None
         self._cursor_holder = None
         self._sysid = None
-        self._replication_slots = []  # list of already existing replication slots
+        self._replication_slots = {}  # already existing replication slots
         self.retry = Retry(max_tries=-1, deadline=config['retry_timeout']/2.0, max_delay=1,
                            retry_exceptions=PostgresConnectionException)
 
@@ -1542,8 +1542,14 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
     def load_replication_slots(self):
         if self.use_slots and self._schedule_load_slots:
-            cursor = self._query("SELECT slot_name FROM pg_replication_slots WHERE slot_type='physical'")
-            self._replication_slots = [r[0] for r in cursor]
+            replication_slots = {}
+            cursor = self._query('SELECT slot_name, slot_type, plugin, database FROM pg_replication_slots')
+            for r in cursor:
+                value = {'type': r[1]}
+                if r[1] == 'logical':
+                    value.update({'plugin': r[2], 'database': r[3]})
+                replication_slots[r[0]] = value
+            self._replication_slots = replication_slots
             self._schedule_load_slots = False
 
     def postmaster_start_time(self):
@@ -1569,7 +1575,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
                     # only manage slots for replicas that replicate from this one, except for the leader among them
                     slot_members = [m.name for m in cluster.members if m.replicatefrom == self.name and
                                     m.name != cluster.leader.name]
-                slots = set(slot_name_from_member_name(name) for name in slot_members)
+                slots = {slot_name_from_member_name(name): {'type': 'physical'} for name in slot_members}
 
                 if len(slots) < len(slot_members):
                     # Find which names are conflicting for a nicer error message
@@ -1581,21 +1587,21 @@ $$""".format(name, ' '.join(options)), name, password, password)
                                            for k, v in slot_conflicts.items() if len(v) > 1))
 
                 # drop unused slots
-                for slot in set(self._replication_slots) - slots:
-                    cursor = self._query("""SELECT pg_drop_replication_slot(%s)
-                                             WHERE EXISTS(SELECT 1 FROM pg_replication_slots
-                                             WHERE slot_name = %s AND NOT active)""", slot, slot)
+                for slot in set(self._replication_slots) - set(slots):
+                    cursor = self._query(('SELECT pg_drop_replication_slot(%s) WHERE EXISTS (SELECT 1 ' +
+                                          'FROM pg_replication_slots WHERE slot_name = %s AND NOT active)'), slot, slot)
 
                     if cursor.rowcount != 1:  # Either slot doesn't exists or it is still active
                         self._schedule_load_slots = True  # schedule load_replication_slots on the next iteration
 
                 immediately_reserve = ', true' if self._major_version >= 90600 else ''
 
-                # create new slots
-                for slot in slots - set(self._replication_slots):
-                    self._query("""SELECT pg_create_physical_replication_slot(%s{0})
-                                    WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots
-                                    WHERE slot_name = %s)""".format(immediately_reserve), slot, slot)
+                # create new physical slots
+                for slot, value in slots.items():
+                    if value['type'] == 'physical' and slot not in self._replication_slots:
+                        self._query(('SELECT pg_create_physical_replication_slot(%s{0})' +
+                                     ' WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots' +
+                                     ' WHERE slot_name = %s)').format(immediately_reserve), slot, slot)
 
                 self._replication_slots = slots
             except Exception:
