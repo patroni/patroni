@@ -11,6 +11,7 @@ import time
 
 from collections import defaultdict
 from contextlib import contextmanager
+from copy import deepcopy
 from patroni.callback_executor import CallbackExecutor
 from patroni.exceptions import PostgresConnectionException, PostgresException
 from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, split_host_port
@@ -38,6 +39,7 @@ STATE_UNKNOWN = 'unknown'
 STOP_POLLING_INTERVAL = 1
 REWIND_STATUS = type('Enum', (), {'INITIAL': 0, 'CHECK': 1, 'NEED': 2, 'NOT_NEED': 3, 'SUCCESS': 4, 'FAILED': 5})
 sync_standby_name_re = re.compile('^[A-Za-z_][A-Za-z_0-9\$]*$')
+slot_name_re = re.compile('^[a-z0-9_]{1,63}$')
 
 cluster_info_query = ("SELECT CASE WHEN pg_is_in_recovery() THEN 0 "
                       "ELSE ('x' || SUBSTR(pg_{0}file_name(pg_current_{0}_{1}()), 1, 8))::bit(32)::int END, "
@@ -1249,8 +1251,9 @@ class Postgresql(object):
                 yield cur
 
     @contextmanager
-    def _get_replication_connection_cursor(self, host='localhost', port=5432, **kwargs):
-        with self._get_connection_cursor(host=host, port=int(port), database=self._database, replication=1,
+    def _get_replication_connection_cursor(self, host='localhost', port=5432, database=None, **kwargs):
+        database = database or self._database
+        with self._get_connection_cursor(host=host, port=int(port), database=database, replication='database',
                                          user=self._replication['username'], password=self._replication['password'],
                                          connect_timeout=3, options='-c statement_timeout=2000') as cur:
             yield cur
@@ -1559,50 +1562,129 @@ $$""".format(name, ' '.join(options)), name, password, password)
         except psycopg2.Error:
             return None
 
+    def drop_replication_slot(self, name):
+        cursor = self._query(('SELECT pg_drop_replication_slot(%s) WHERE EXISTS (SELECT 1 ' +
+                              'FROM pg_replication_slots WHERE slot_name = %s AND NOT active)'), name, name)
+        # In normal situation rowcount should be 1, otherwise either slot doesn't exists or it is still active
+        return cursor.rowcount == 1
+
+    @staticmethod
+    def compare_slots(s1, s2):
+        return s1['type'] == s2['type'] and\
+                (s1['type'] == 'physical' or s1['database'] == s2['database'] and s1['plugin'] == s2['plugin'])
+
+    def _get_desired_replication_slots(self, cluster):
+        # if the replicatefrom tag is set on the member - we should not create the replication slot for it on
+        # the current master, because that member would replicate from elsewhere. We still create the slot if
+        # the replicatefrom destination member is currently not a member of the cluster (fallback to the
+        # master), or if replicatefrom destination member happens to be the current master
+        if self.role in ('master', 'standby_leader'):
+            slot_members = [m.name for m in cluster.members if m.name != self.name and
+                            (m.replicatefrom is None or m.replicatefrom == self.name or
+                             not cluster.has_member(m.replicatefrom))]
+            permanent_slots = (cluster.config and isinstance(cluster.config.data, dict) and
+                               (cluster.config.data.get('permanent_replication_slots') or
+                                cluster.config.data.get('permanent_slots') or
+                                cluster.config.data.get('slots')) or {}).copy()
+        else:
+            # only manage slots for replicas that replicate from this one, except for the leader among them
+            slot_members = [m.name for m in cluster.members if m.replicatefrom == self.name and
+                            m.name != cluster.leader.name]
+            permanent_slots = {}
+
+        slots = {slot_name_from_member_name(name): {'type': 'physical'} for name in slot_members}
+
+        if len(slots) < len(slot_members):
+            # Find which names are conflicting for a nicer error message
+            slot_conflicts = defaultdict(list)
+            for name in slot_members:
+                slot_conflicts[slot_name_from_member_name(name)].append(name)
+            logger.error("Following cluster members share a replication slot name: %s",
+                         "; ".join("{} map to {}".format(", ".join(v), k)
+                                   for k, v in slot_conflicts.items() if len(v) > 1))
+
+        # "merge" replication slots for members with permanent_replication_slots
+        for name, value in permanent_slots.items():
+            if not slot_name_re.match(name):
+                logger.error("Invalid permanent replication slot name '%s'", name)
+                logger.error("Slot name may only contain lower case letters, numbers, and the underscore chars")
+                continue
+
+            if name in slots:
+                logger.error("Permanent replication slot {'%s': %s} is conflicting with" +
+                             " physical replication slot for cluster member", name, value)
+                continue
+
+            value = deepcopy(value)
+            if not value:
+                value = {'type': 'physical'}
+
+            if isinstance(value, dict):
+                if 'type' not in value:
+                    value['type'] = 'logical'
+
+                if value['type'] == 'physical' or value['type'] == 'logical' \
+                        and value.get('database') and value.get('plugin'):
+                    slots[name] = value
+                    continue
+
+            logger.error("Bad value for slot '%s' in permanent_slots: %s", name, permanent_slots[name])
+
+        return slots
+
     def sync_replication_slots(self, cluster):
         if self.use_slots:
             try:
                 self.load_replication_slots()
-                # if the replicatefrom tag is set on the member - we should not create the replication slot for it on
-                # the current master, because that member would replicate from elsewhere. We still create the slot if
-                # the replicatefrom destination member is currently not a member of the cluster (fallback to the
-                # master), or if replicatefrom destination member happens to be the current master
-                if self.role in ('master', 'standby_leader'):
-                    slot_members = [m.name for m in cluster.members if m.name != self.name and
-                                    (m.replicatefrom is None or m.replicatefrom == self.name or
-                                     not cluster.has_member(m.replicatefrom))]
-                else:
-                    # only manage slots for replicas that replicate from this one, except for the leader among them
-                    slot_members = [m.name for m in cluster.members if m.replicatefrom == self.name and
-                                    m.name != cluster.leader.name]
-                slots = {slot_name_from_member_name(name): {'type': 'physical'} for name in slot_members}
 
-                if len(slots) < len(slot_members):
-                    # Find which names are conflicting for a nicer error message
-                    slot_conflicts = defaultdict(list)
-                    for name in slot_members:
-                        slot_conflicts[slot_name_from_member_name(name)].append(name)
-                    logger.error("Following cluster members share a replication slot name: %s",
-                                 "; ".join("{} map to {}".format(", ".join(v), k)
-                                           for k, v in slot_conflicts.items() if len(v) > 1))
+                slots = self._get_desired_replication_slots(cluster)
 
-                # drop unused slots
-                for slot in set(self._replication_slots) - set(slots):
-                    cursor = self._query(('SELECT pg_drop_replication_slot(%s) WHERE EXISTS (SELECT 1 ' +
-                                          'FROM pg_replication_slots WHERE slot_name = %s AND NOT active)'), slot, slot)
-
-                    if cursor.rowcount != 1:  # Either slot doesn't exists or it is still active
-                        self._schedule_load_slots = True  # schedule load_replication_slots on the next iteration
+                # drop old replication slots which are not presented in desired slots
+                for name in set(self._replication_slots) - set(slots):
+                    if not self.drop_replication_slot(name):
+                        logger.error("Failed to drop replication slot '%s'", name)
+                        self._schedule_load_slots = True
 
                 immediately_reserve = ', true' if self._major_version >= 90600 else ''
 
-                # create new physical slots
-                for slot, value in slots.items():
-                    if value['type'] == 'physical' and slot not in self._replication_slots:
-                        self._query(('SELECT pg_create_physical_replication_slot(%s{0})' +
-                                     ' WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots' +
-                                     ' WHERE slot_name = %s)').format(immediately_reserve), slot, slot)
+                logical_slots = defaultdict(dict)
+                for name, value in slots.items():
+                    if name in self._replication_slots and not self.compare_slots(value, self._replication_slots[name]):
+                        logger.info("Trying to drop replication slot '%s' because value is changing from %s to %s",
+                                    name, self._replication_slots[name], value)
+                        if not self.drop_replication_slot(name):
+                            logger.error("Failed to drop replication slot '%s'", name)
+                            self._schedule_load_slots = True
+                            continue
+                        self._replication_slots.pop(name)
+                    if name not in self._replication_slots:
+                        if value['type'] == 'physical':
+                            try:
+                                self._query(("SELECT pg_create_physical_replication_slot(%s{0})" +
+                                             " WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots" +
+                                             " WHERE slot_type = 'physical' AND slot_name = %s)").format(
+                                                 immediately_reserve), name, name)
+                            except Exception:
+                                logger.exception("Failed to create physical replication slot '%s'", name)
+                                self._schedule_load_slots = True
+                        elif value['type'] == 'logical' and name not in self._replication_slots:
+                            logical_slots[value['database']][name] = value
 
+                # create new logical slots
+                for database, values in logical_slots.items():
+                    conn_kwargs = self._local_connect_kwargs
+                    conn_kwargs['database'] = database
+                    with self._get_connection_cursor(**conn_kwargs) as cur:
+                        for name, value in values.items():
+                            try:
+                                cur.execute("SELECT pg_create_logical_replication_slot(%s, %s)" +
+                                            " WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots" +
+                                            " WHERE slot_type = 'logical' AND slot_name = %s)",
+                                            (name, value['plugin'], name))
+                            except Exception:
+                                logger.exception("Failed to create logical replication slot '%s' plugin='%s'",
+                                                 name, value['plugin'])
+                                self._schedule_load_slots = True
                 self._replication_slots = slots
             except Exception:
                 logger.exception('Exception when changing replication slots')
