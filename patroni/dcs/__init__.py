@@ -481,6 +481,12 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
 
         return slots
 
+    def has_permanent_logical_slots(self, name):
+        for slot in self.get_replication_slots(name, 'master').values():
+            if slot['type'] == 'logical':
+                return True
+        return False
+
 
 @six.add_metaclass(abc.ABCMeta)
 class AbstractDCS(object):
@@ -617,7 +623,7 @@ class AbstractDCS(object):
         You have to use CAS (Compare And Swap) operation in order to update leader key,
         for example for etcd `prevValue` parameter must be used."""
 
-    def update_leader(self, last_operation):
+    def update_leader(self, last_operation, access_is_restricted=False):
         """Update leader key (or session) ttl and optime/leader
 
         :param last_operation: absolute xlog location in bytes

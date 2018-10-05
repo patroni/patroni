@@ -279,7 +279,7 @@ class Kubernetes(AbstractDCS):
     def _update_leader(self):
         """Unused"""
 
-    def update_leader(self, last_operation):
+    def update_leader(self, last_operation, access_is_restricted=False):
         now = datetime.datetime.now(tzutc).isoformat()
         annotations = {self._LEADER: self._name, 'ttl': str(self._ttl), 'renewTime': now,
                        'acquireTime': self._leader_observed_record.get('acquireTime') or now,
@@ -287,7 +287,11 @@ class Kubernetes(AbstractDCS):
         if last_operation:
             annotations[self._OPTIME] = last_operation
 
-        ret = self.patch_or_create(self.leader_path, annotations, self._leader_resource_version, subsets=self.__subsets)
+        subsets = self.__subsets
+        if subsets is not None and access_is_restricted:
+            subsets = []
+
+        ret = self.patch_or_create(self.leader_path, annotations, self._leader_resource_version, subsets=subsets)
         if ret:
             self._leader_resource_version = ret.metadata.resource_version
         return ret
@@ -307,7 +311,8 @@ class Kubernetes(AbstractDCS):
             else:
                 annotations['acquireTime'] = self._leader_observed_record.get('acquireTime') or now
             annotations['transitions'] = str(transitions)
-        ret = self.patch_or_create(self.leader_path, annotations, self._leader_resource_version, subsets=self.__subsets)
+        subsets = [] if self.__subsets else None
+        ret = self.patch_or_create(self.leader_path, annotations, self._leader_resource_version, subsets=subsets)
         if ret:
             self._leader_resource_version = ret.metadata.resource_version
         else:

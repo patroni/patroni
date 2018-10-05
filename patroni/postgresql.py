@@ -1486,7 +1486,7 @@ class Postgresql(object):
             if data.get('Database cluster state') == 'in production':
                 return True
 
-    def promote(self, wait_seconds):
+    def promote(self, wait_seconds, access_is_restricted=False):
         if self.role == 'master':
             return True
         ret = self.pg_ctl('promote', '-W')
@@ -1494,7 +1494,8 @@ class Postgresql(object):
             self.set_role('master')
             logger.info("cleared rewind state after becoming the leader")
             self._rewind_state = REWIND_STATUS.INITIAL
-            self.call_nowait(ACTION_ON_ROLE_CHANGE)
+            if not access_is_restricted:
+                self.call_nowait(ACTION_ON_ROLE_CHANGE)
             ret = self._wait_promote(wait_seconds)
         return ret
 
