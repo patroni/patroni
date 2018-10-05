@@ -507,13 +507,13 @@ class TestPostgresql(unittest.TestCase):
         with mock.patch('patroni.postgresql.Postgresql.role', new_callable=PropertyMock(return_value='replica')):
             self.p.sync_replication_slots(cluster)
         with patch.object(Postgresql, 'drop_replication_slot', Mock(return_value=True)),\
-                patch('patroni.postgresql.logger.error', new_callable=Mock()) as errorlog_mock:
+                patch('patroni.dcs.logger.error', new_callable=Mock()) as errorlog_mock:
             self.p.query = Mock()
             alias1 = Member(0, 'test-3', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres'})
             alias2 = Member(0, 'test.3', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres'})
             cluster.members.extend([alias1, alias2])
             self.p.sync_replication_slots(cluster)
-            self.assertEqual(errorlog_mock.call_count, 8)
+            self.assertEqual(errorlog_mock.call_count, 5)
             ca = errorlog_mock.call_args_list[0][0][1]
             self.assertTrue("test-3" in ca, "non matching {0}".format(ca))
             self.assertTrue("test.3" in ca, "non matching {0}".format(ca))

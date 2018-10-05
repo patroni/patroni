@@ -11,12 +11,11 @@ import time
 
 from collections import defaultdict
 from contextlib import contextmanager
-from copy import deepcopy
 from patroni.callback_executor import CallbackExecutor
 from patroni.exceptions import PostgresConnectionException, PostgresException
 from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, split_host_port
 from patroni.postmaster import PostmasterProcess
-from patroni.dcs import RemoteMember
+from patroni.dcs import slot_name_from_member_name, RemoteMember
 from requests.structures import CaseInsensitiveDict
 from six import string_types
 from six.moves.urllib.parse import quote_plus
@@ -39,7 +38,6 @@ STATE_UNKNOWN = 'unknown'
 STOP_POLLING_INTERVAL = 1
 REWIND_STATUS = type('Enum', (), {'INITIAL': 0, 'CHECK': 1, 'NEED': 2, 'NOT_NEED': 3, 'SUCCESS': 4, 'FAILED': 5})
 sync_standby_name_re = re.compile('^[A-Za-z_][A-Za-z_0-9\$]*$')
-slot_name_re = re.compile('^[a-z0-9_]{1,63}$')
 
 cluster_info_query = ("SELECT CASE WHEN pg_is_in_recovery() THEN 0 "
                       "ELSE ('x' || SUBSTR(pg_{0}file_name(pg_current_{0}_{1}()), 1, 8))::bit(32)::int END, "
@@ -52,22 +50,6 @@ cluster_info_query = ("SELECT CASE WHEN pg_is_in_recovery() THEN 0 "
 def quote_ident(value):
     """Very simplified version of quote_ident"""
     return value if sync_standby_name_re.match(value) else '"' + value + '"'
-
-
-def slot_name_from_member_name(member_name):
-    """Translate member name to valid PostgreSQL slot name.
-
-    PostgreSQL replication slot names must be valid PostgreSQL names. This function maps the wider space of
-    member names to valid PostgreSQL names. Names are lowercased, dashes and periods common in hostnames
-    are replaced with underscores, other characters are encoded as their unicode codepoint. Name is truncated
-    to 64 characters. Multiple different member names may map to a single slot name."""
-
-    def replace_char(match):
-        c = match.group(0)
-        return '_' if c in '-.' else "u{:04d}".format(ord(c))
-
-    slot_name = re.sub('[^a-z0-9_]', replace_char, member_name.lower())
-    return slot_name[0:63]
 
 
 @contextmanager
@@ -1573,71 +1555,12 @@ $$""".format(name, ' '.join(options)), name, password, password)
         return s1['type'] == s2['type'] and\
                 (s1['type'] == 'physical' or s1['database'] == s2['database'] and s1['plugin'] == s2['plugin'])
 
-    def _get_desired_replication_slots(self, cluster):
-        # if the replicatefrom tag is set on the member - we should not create the replication slot for it on
-        # the current master, because that member would replicate from elsewhere. We still create the slot if
-        # the replicatefrom destination member is currently not a member of the cluster (fallback to the
-        # master), or if replicatefrom destination member happens to be the current master
-        if self.role in ('master', 'standby_leader'):
-            slot_members = [m.name for m in cluster.members if m.name != self.name and
-                            (m.replicatefrom is None or m.replicatefrom == self.name or
-                             not cluster.has_member(m.replicatefrom))]
-            permanent_slots = (cluster.config and isinstance(cluster.config.data, dict) and
-                               (cluster.config.data.get('permanent_replication_slots') or
-                                cluster.config.data.get('permanent_slots') or
-                                cluster.config.data.get('slots')) or {}).copy()
-        else:
-            # only manage slots for replicas that replicate from this one, except for the leader among them
-            slot_members = [m.name for m in cluster.members if m.replicatefrom == self.name and
-                            m.name != cluster.leader.name]
-            permanent_slots = {}
-
-        slots = {slot_name_from_member_name(name): {'type': 'physical'} for name in slot_members}
-
-        if len(slots) < len(slot_members):
-            # Find which names are conflicting for a nicer error message
-            slot_conflicts = defaultdict(list)
-            for name in slot_members:
-                slot_conflicts[slot_name_from_member_name(name)].append(name)
-            logger.error("Following cluster members share a replication slot name: %s",
-                         "; ".join("{} map to {}".format(", ".join(v), k)
-                                   for k, v in slot_conflicts.items() if len(v) > 1))
-
-        # "merge" replication slots for members with permanent_replication_slots
-        for name, value in permanent_slots.items():
-            if not slot_name_re.match(name):
-                logger.error("Invalid permanent replication slot name '%s'", name)
-                logger.error("Slot name may only contain lower case letters, numbers, and the underscore chars")
-                continue
-
-            if name in slots:
-                logger.error("Permanent replication slot {'%s': %s} is conflicting with" +
-                             " physical replication slot for cluster member", name, value)
-                continue
-
-            value = deepcopy(value)
-            if not value:
-                value = {'type': 'physical'}
-
-            if isinstance(value, dict):
-                if 'type' not in value:
-                    value['type'] = 'logical'
-
-                if value['type'] == 'physical' or value['type'] == 'logical' \
-                        and value.get('database') and value.get('plugin'):
-                    slots[name] = value
-                    continue
-
-            logger.error("Bad value for slot '%s' in permanent_slots: %s", name, permanent_slots[name])
-
-        return slots
-
     def sync_replication_slots(self, cluster):
         if self.use_slots:
             try:
                 self.load_replication_slots()
 
-                slots = self._get_desired_replication_slots(cluster)
+                slots = cluster.get_replication_slots(self.name, self.role)
 
                 # drop old replication slots which are not presented in desired slots
                 for name in set(self._replication_slots) - set(slots):
