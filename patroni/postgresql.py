@@ -706,8 +706,10 @@ class Postgresql(object):
                     # if basebackup succeeds, exit with success
                     break
             else:
-                if not self.data_directory_empty():
+                if not self.data_directory_empty() and not self.config.get(replica_method, {}).get('keep_data', False):
                     self.remove_data_directory()
+                else:
+                    logger.info('Leaving data directory uncleaned')
 
                 cmd = replica_method
                 method_config = {}
@@ -720,10 +722,18 @@ class Postgresql(object):
                     cmd = method_config.pop('command', cmd)
 
                 # add the default parameters
-                method_config.update({"scope": self.scope,
-                                      "role": "replica",
-                                      "datadir": self._data_dir,
-                                      "connstring": connstring})
+                if not method_config.get('no_params', False):
+                    method_config.update({"scope": self.scope,
+                                          "role": "replica",
+                                          "datadir": self._data_dir,
+                                          "connstring": connstring})
+                else:
+                    if 'no_params' in method_config:
+                        del method_config['no_params']
+                    if 'no_master' in method_config:
+                        del method_config['no_master']
+                    if 'keep_data' in method_config:
+                        del method_config['keep_data']
                 params = ["--{0}={1}".format(arg, val) for arg, val in method_config.items()]
                 try:
                     # call script with the full set of parameters
