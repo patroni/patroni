@@ -189,13 +189,12 @@ class RemoteMember(Member):
                 'create_replica_methods',
                 'restore_command',
                 'archive_cleanup_command',
-                'recovery_min_apply_delay')
+                'recovery_min_apply_delay',
+                'no_replication_slot')
 
     def __getattr__(self, name):
-        if name not in RemoteMember.allowed_keys():
-            return
-
-        return self.data.get(name)
+        if name in RemoteMember.allowed_keys():
+            return self.data.get(name)
 
 
 class Leader(namedtuple('Leader', 'index,session,member')):
