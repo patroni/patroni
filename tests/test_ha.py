@@ -692,11 +692,6 @@ class TestHa(unittest.TestCase):
     def test_process_healthy_standby_cluster_as_standby_leader(self):
         self.p.is_leader = false
         self.p.name = 'leader'
-        self.ha.patroni.config._dynamic_configuration = {"standby_cluster": {
-            "host": "localhost",
-            "port": 5432,
-            "primary_slot_name": "",
-        }}
         self.ha.cluster = get_standby_cluster_initialized_with_only_leader()
         msg = 'no action.  i am the standby leader with the lock'
         self.assertEqual(self.ha.run_cycle(), msg)
@@ -704,24 +699,13 @@ class TestHa(unittest.TestCase):
     def test_process_healthy_standby_cluster_as_cascade_replica(self):
         self.p.is_leader = false
         self.p.name = 'replica'
-        self.ha.patroni.config._dynamic_configuration = {"standby_cluster": {
-            "host": "localhost",
-            "port": 5432,
-            "primary_slot_name": "",
-        }}
         self.ha.cluster = get_standby_cluster_initialized_with_only_leader()
         msg = 'no action.  i am a secondary and i am following a leader'
         self.assertEqual(self.ha.run_cycle(), msg)
 
-    @patch('patroni.dcs.etcd.Etcd.initialize', return_value=True)
-    def test_process_unhealthy_standby_cluster_as_standby_leader(self, initialize):
+    def test_process_unhealthy_standby_cluster_as_standby_leader(self):
         self.p.is_leader = false
         self.p.name = 'leader'
-        self.ha.patroni.config._dynamic_configuration = {"standby_cluster": {
-            "host": "localhost",
-            "port": 5432,
-            "primary_slot_name": "",
-        }}
         self.ha.cluster = get_standby_cluster_initialized_with_only_leader()
         self.ha.cluster.is_unlocked = true
         self.ha.sysid_valid = true
@@ -730,19 +714,30 @@ class TestHa(unittest.TestCase):
         self.assertEqual(self.ha.run_cycle(), msg)
 
     @patch.object(Postgresql, 'rewind_needed_and_possible', Mock(return_value=True))
-    @patch('patroni.dcs.etcd.Etcd.initialize', return_value=True)
-    def test_process_unhealthy_standby_cluster_as_cascade_replica(self, initialize):
+    def test_process_unhealthy_standby_cluster_as_cascade_replica(self):
         self.p.is_leader = false
         self.p.name = 'replica'
-        self.ha.patroni.config._dynamic_configuration = {"standby_cluster": {
-            "host": "localhost",
-            "port": 5432,
-            "primary_slot_name": "",
-        }}
         self.ha.cluster = get_standby_cluster_initialized_with_only_leader()
         self.ha.is_unlocked = true
-        msg = 'running pg_rewind from leader'
-        self.assertEqual(self.ha.run_cycle(), msg)
+        self.assertTrue(self.ha.run_cycle().startswith('running pg_rewind from remote_master:'))
+
+    def test_recover_unhealthy_leader_in_standby_cluster(self):
+        self.p.is_leader = false
+        self.p.name = 'leader'
+        self.p.is_running = false
+        self.p.follow = false
+        self.ha.cluster = get_standby_cluster_initialized_with_only_leader()
+        self.assertEqual(self.ha.run_cycle(), 'starting as a standby leader because i had the session lock')
+
+    def test_recover_unhealthy_unlocked_standby_cluster(self):
+        self.p.is_leader = false
+        self.p.name = 'leader'
+        self.p.is_running = false
+        self.p.follow = false
+        self.ha.cluster = get_standby_cluster_initialized_with_only_leader()
+        self.ha.cluster.is_unlocked = true
+        self.ha.has_lock = false
+        self.assertEqual(self.ha.run_cycle(), 'trying to follow a remote master because standby cluster is unhealthy')
 
     def test_failed_to_update_lock_in_pause(self):
         self.ha.update_lock = false

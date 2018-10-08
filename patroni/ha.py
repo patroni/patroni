@@ -239,9 +239,11 @@ class Ha(object):
         return result
 
     def _handle_rewind(self):
-        if self.state_handler.rewind_needed_and_possible(self.cluster.leader):
-            self._async_executor.schedule('running pg_rewind from ' + self.cluster.leader.name)
-            self._async_executor.run_async(self.state_handler.rewind, (self.cluster.leader,))
+        cluster = self.cluster
+        leader = self.get_remote_master(cluster.config.data) if cluster.is_standby_cluster() else cluster.leader
+        if self.state_handler.rewind_needed_and_possible(leader):
+            self._async_executor.schedule('running pg_rewind from ' + leader.name)
+            self._async_executor.run_async(self.state_handler.rewind, (leader,))
             return True
 
     def recover(self):
@@ -273,16 +275,24 @@ class Ha(object):
 
         self.load_cluster_from_dcs()
 
-        if self.has_lock():
-            msg = "starting as readonly because i had the session lock"
-            node_to_follow = None
-        else:
+        if self.cluster.is_standby_cluster() or not self.has_lock():
             if not self.state_handler.rewind_executed:
                 self.state_handler.trigger_check_diverged_lsn()
             if self._handle_rewind():
                 return self._async_executor.scheduled_action
-            msg = "starting as a secondary"
-            node_to_follow = self._get_node_to_follow(self.cluster)
+
+            if self.has_lock():  # in standby cluster
+                msg = "starting as a standby leader because i had the session lock"
+                node_to_follow = self._get_node_to_follow(self.cluster)
+            elif self.cluster.is_standby_cluster() and self.cluster.is_unlocked():
+                msg = "trying to follow a remote master because standby cluster is unhealthy"
+                node_to_follow = self.get_remote_master(self.cluster.config.data)
+            else:
+                msg = "starting as a secondary"
+                node_to_follow = self._get_node_to_follow(self.cluster)
+        elif self.has_lock():
+            msg = "starting as readonly because i had the session lock"
+            node_to_follow = None
 
         self.recovering = True
 
@@ -295,7 +305,7 @@ class Ha(object):
         # try to follow the node mentioned there, otherwise, follow the leader.
         is_leader = self.cluster.leader and self.state_handler.name == self.cluster.leader.name
 
-        if self.cluster.is_standby_cluster() and is_leader:
+        if self.cluster.is_standby_cluster() and (is_leader or self.cluster.is_unlocked()):
             node_to_follow = self.get_remote_master(cluster.config.data)
         elif self.patroni.replicatefrom and self.patroni.replicatefrom != self.state_handler.name:
             node_to_follow = cluster.get_member(self.patroni.replicatefrom)
