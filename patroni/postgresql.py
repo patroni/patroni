@@ -1204,7 +1204,7 @@ class Postgresql(object):
             ('user', r.get('user')),
             ('host', r.get('host')),
             ('port', r.get('port')),
-            ('dbname', r.get('database')),
+            ('dbname', r.get('database') or self._database),
             ('sslmode', 'prefer'),
             ('sslcompression', '1'),
         ]
