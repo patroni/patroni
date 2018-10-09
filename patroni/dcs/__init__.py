@@ -189,13 +189,12 @@ class RemoteMember(Member):
                 'create_replica_methods',
                 'restore_command',
                 'archive_cleanup_command',
-                'recovery_min_apply_delay')
+                'recovery_min_apply_delay',
+                'no_replication_slot')
 
     def __getattr__(self, name):
-        if name not in RemoteMember.allowed_keys():
-            return
-
-        return self.data.get(name)
+        if name in RemoteMember.allowed_keys():
+            return self.data.get(name)
 
 
 class Leader(namedtuple('Leader', 'index,session,member')):
@@ -397,9 +396,6 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
 
     def is_synchronous_mode(self):
         return self.check_mode('synchronous_mode')
-
-    def is_standby_cluster(self):
-        return is_standby_cluster(self.config and self.config.data.get('standby_cluster'))
 
 
 @six.add_metaclass(abc.ABCMeta)
@@ -654,14 +650,3 @@ class AbstractDCS(object):
 
         self.event.wait(timeout)
         return self.event.isSet()
-
-
-def is_standby_cluster(config):
-    """ Check whether or not provided configuration describes a standby cluster.
-        Config can be both patroni config or cluster.config.data
-    """
-    return isinstance(config, dict) and (
-        config.get('host') or
-        config.get('port') or
-        config.get('restore_command')
-    )
