@@ -95,6 +95,10 @@ class MockHa(object):
     def is_paused():
         return True
 
+    @staticmethod
+    def is_standby_cluster():
+        return False
+
 
 class MockPatroni(object):
 
@@ -167,8 +171,8 @@ class TestRestApiHandler(unittest.TestCase):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /master'))
         with patch.object(RestApiServer, 'query', Mock(return_value=[('', 1, '', '', '', '', False, '')])):
             self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /patroni'))
-        MockPatroni.config.is_standby_cluster = PropertyMock(return_value=True)
-        MockRestApiServer(RestApiHandler, 'GET /standby_leader')
+        with patch.object(MockHa, 'is_standby_cluster', Mock(return_value=True)):
+            MockRestApiServer(RestApiHandler, 'GET /standby_leader')
 
     def test_do_OPTIONS(self):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'OPTIONS / HTTP/1.0'))
