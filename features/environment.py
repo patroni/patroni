@@ -182,6 +182,9 @@ class PatroniController(AbstractController):
                         dst[k] = v
             recursive_update(config, custom_config)
 
+        if config['postgresql'].get('callbacks', {}).get('on_role_change'):
+            config['postgresql']['callbacks']['on_role_change'] += ' ' + str(self.__PORT)
+
         with open(patroni_config_path, 'w') as f:
             yaml.safe_dump(config, f, default_flow_style=False)
 
