@@ -91,6 +91,18 @@ class Ha(object):
     def is_paused(self):
         return self.check_mode('pause')
 
+    def get_standby_cluster_config(self):
+        if self.cluster and self.cluster.config and self.cluster.config.modify_index:
+            config = self.cluster.config.data
+        else:
+            config = self.patroni.config.dynamic_configuration
+        return config.get('standby_cluster')
+
+    def is_standby_cluster(self):
+        config = self.get_standby_cluster_config()
+        # Check whether or not provided configuration describes a standby cluster
+        return isinstance(config, dict) and (config.get('host') or config.get('port') or config.get('restore_command'))
+
     def is_leader(self):
         with self._is_leader_lock:
             return self._is_leader
@@ -202,7 +214,7 @@ class Ha(object):
                 self.state_handler.bootstrapping = True
                 self._post_bootstrap_task = CriticalTask()
 
-                if self.patroni.config.is_standby_cluster:
+                if self.is_standby_cluster():
                     self._async_executor.schedule('bootstrap_standby_leader')
                     self._async_executor.run_async(self.bootstrap_standby_leader)
                     return 'trying to bootstrap a new standby leader'
@@ -228,8 +240,7 @@ class Ha(object):
             not a real master, but a 'standby leader', that will take base backup
             from a remote master and start follow it.
         """
-        patroni_config = self.patroni.config.dynamic_configuration
-        clone_source = self.get_remote_master(patroni_config)
+        clone_source = self.get_remote_master()
         msg = 'clone from remote master {0}'.format(clone_source.conn_url)
         result = self.clone(clone_source, msg)
         self._post_bootstrap_task.complete(result)
@@ -239,8 +250,7 @@ class Ha(object):
         return result
 
     def _handle_rewind(self):
-        cluster = self.cluster
-        leader = self.get_remote_master(cluster.config.data) if cluster.is_standby_cluster() else cluster.leader
+        leader = self.get_remote_master() if self.is_standby_cluster() else self.cluster.leader
         if self.state_handler.rewind_needed_and_possible(leader):
             self._async_executor.schedule('running pg_rewind from ' + leader.name)
             self._async_executor.run_async(self.state_handler.rewind, (leader,))
@@ -275,7 +285,7 @@ class Ha(object):
 
         self.load_cluster_from_dcs()
 
-        if self.cluster.is_standby_cluster() or not self.has_lock():
+        if self.is_standby_cluster() or not self.has_lock():
             if not self.state_handler.rewind_executed:
                 self.state_handler.trigger_check_diverged_lsn()
             if self._handle_rewind():
@@ -284,9 +294,9 @@ class Ha(object):
             if self.has_lock():  # in standby cluster
                 msg = "starting as a standby leader because i had the session lock"
                 node_to_follow = self._get_node_to_follow(self.cluster)
-            elif self.cluster.is_standby_cluster() and self.cluster.is_unlocked():
+            elif self.is_standby_cluster() and self.cluster.is_unlocked():
                 msg = "trying to follow a remote master because standby cluster is unhealthy"
-                node_to_follow = self.get_remote_master(self.cluster.config.data)
+                node_to_follow = self.get_remote_master()
             else:
                 msg = "starting as a secondary"
                 node_to_follow = self._get_node_to_follow(self.cluster)
@@ -305,8 +315,8 @@ class Ha(object):
         # try to follow the node mentioned there, otherwise, follow the leader.
         is_leader = self.cluster.leader and self.state_handler.name == self.cluster.leader.name
 
-        if self.cluster.is_standby_cluster() and (is_leader or self.cluster.is_unlocked()):
-            node_to_follow = self.get_remote_master(cluster.config.data)
+        if self.is_standby_cluster() and (is_leader or self.cluster.is_unlocked()):
+            node_to_follow = self.get_remote_master()
         elif self.patroni.replicatefrom and self.patroni.replicatefrom != self.state_handler.name:
             node_to_follow = cluster.get_member(self.patroni.replicatefrom)
         else:
@@ -790,7 +800,7 @@ class Ha(object):
                         self.dcs.manual_failover('', '')
                 self.load_cluster_from_dcs()
 
-                if self.cluster.is_standby_cluster():
+                if self.is_standby_cluster():
                     # standby leader disappeared, and this is a healthiest
                     # replica, so it should become a new standby leader.
                     # This imply that we need to start following a remote master
@@ -832,7 +842,7 @@ class Ha(object):
                 if msg is not None:
                     return msg
 
-                if self.cluster.is_standby_cluster():
+                if self.is_standby_cluster():
                     # in case of standby cluster we don't really need to
                     # enforce anything, since the leader is not a master.
                     # So just remind the role.
@@ -1285,15 +1295,14 @@ class Ha(object):
         This usually happens on the master or if the node is running async action"""
         self.dcs.event.set()
 
-    def get_remote_master(self, config):
+    def get_remote_master(self):
         """ In case of standby cluster this will tel us from which remote
             master to stream. Config can be both patroni config or
             cluster.config.data
         """
-        config = config or (self.config is not None and self.config.data)
+        cluster_params = self.get_standby_cluster_config()
 
-        if config and config.get('standby_cluster'):
-            cluster_params = config.get('standby_cluster')
+        if cluster_params:
             unique_name = 'remote_master:{}'.format(uuid.uuid1())
             data = {
                 'conn_kwargs': {

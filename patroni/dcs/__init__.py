@@ -397,9 +397,6 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
     def is_synchronous_mode(self):
         return self.check_mode('synchronous_mode')
 
-    def is_standby_cluster(self):
-        return is_standby_cluster(self.config and self.config.data.get('standby_cluster'))
-
 
 @six.add_metaclass(abc.ABCMeta)
 class AbstractDCS(object):
@@ -653,14 +650,3 @@ class AbstractDCS(object):
 
         self.event.wait(timeout)
         return self.event.isSet()
-
-
-def is_standby_cluster(config):
-    """ Check whether or not provided configuration describes a standby cluster.
-        Config can be both patroni config or cluster.config.data
-    """
-    return isinstance(config, dict) and (
-        config.get('host') or
-        config.get('port') or
-        config.get('restore_command')
-    )
