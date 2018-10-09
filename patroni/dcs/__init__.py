@@ -292,14 +292,17 @@ class ClusterConfig(namedtuple('ClusterConfig', 'index,data,modify_index')):
     def from_node(index, data, modify_index=None):
         """
         >>> ClusterConfig.from_node(1, '{') is None
-        True
+        False
         """
 
         try:
             data = json.loads(data)
         except (TypeError, ValueError):
-            return None
-        return ClusterConfig(index, data, modify_index or index)
+            data = None
+            modify_index = 0
+        if not isinstance(data, dict):
+            data = {}
+        return ClusterConfig(index, data, index if modify_index is None else modify_index)
 
     @property
     def permanent_slots(self):

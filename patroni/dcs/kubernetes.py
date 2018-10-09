@@ -152,7 +152,8 @@ class Kubernetes(AbstractDCS):
 
             # get global dynamic configuration
             config = ClusterConfig.from_node(metadata and metadata.resource_version,
-                                             annotations.get(self._CONFIG) or '{}')
+                                             annotations.get(self._CONFIG) or '{}',
+                                             metadata.resource_version if self._CONFIG in annotations else 0)
 
             # get timeline history
             history = TimelineHistory.from_node(metadata and metadata.resource_version,
