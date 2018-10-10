@@ -142,7 +142,7 @@ class Ha(object):
                 last_operation = self.state_handler.last_operation()
             except Exception:
                 logger.exception('Exception when called state_handler.last_operation()')
-        ret = self.dcs.update_leader(last_operation, not write_leader_optime)
+        ret = self.dcs.update_leader(last_operation, self._leader_access_is_restricted)
         self.set_is_leader(ret)
         if ret:
             self.watchdog.keepalive()
