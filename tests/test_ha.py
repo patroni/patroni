@@ -816,6 +816,7 @@ class TestHa(unittest.TestCase):
         # Test sync standby not touched when picking the same node
         self.p.pick_synchronous_standby = Mock(return_value=('other', True))
         self.ha.cluster = get_cluster_initialized_with_leader(sync=(1, ('leader', 'other')))
+        self.ha.state_handler.use_multiple_sync = False
         self.ha.run_cycle()
         mock_set_sync.assert_not_called()
 
@@ -841,12 +842,12 @@ class TestHa(unittest.TestCase):
         self.p.pick_synchronous_standby = Mock(return_value=('other2', True))
         self.ha.run_cycle()
         self.ha.dcs.get_cluster.assert_called_once()
-        self.assertEqual(self.ha.dcs.write_sync_state.call_count, 1)
+        self.assertEqual(self.ha.dcs.write_sync_state.call_count, 2)
 
         # Test updating sync standby key failed due to race
         self.ha.dcs.write_sync_state = Mock(side_effect=[True, False])
         self.ha.run_cycle()
-        self.assertEqual(self.ha.dcs.write_sync_state.call_count, 1)
+        self.assertEqual(self.ha.dcs.write_sync_state.call_count, 2)
 
         # Test changing sync standby failed due to race
         self.ha.dcs.write_sync_state = Mock(return_value=True)
@@ -896,6 +897,7 @@ class TestHa(unittest.TestCase):
         mock_acquire = self.ha.acquire_lock = Mock(return_value=True)
         mock_follow = self.p.follow = Mock()
         mock_promote = self.p.promote = Mock()
+        self.p.set_synchronous_state = Mock()
 
         # If we don't match the sync replica we are not allowed to acquire lock
         self.ha.run_cycle()
