@@ -499,7 +499,7 @@ class TestPostgresql(unittest.TestCase):
     def test_sync_replication_slots(self):
         self.p.start()
         config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'},
-                                             'A': 0, 'test_3': 0, 'b': {'plugin': '1'}}}, 1)
+                                             'A': 0, 'test_3': 0, 'b': {'type': 'logical', 'plugin': '1'}}}, 1)
         cluster = Cluster(True, config, self.leader, 0, [self.me, self.other, self.leadermem], None, None, None)
         with mock.patch('patroni.postgresql.Postgresql._query', Mock(side_effect=psycopg2.OperationalError)):
             self.p.sync_replication_slots(cluster)

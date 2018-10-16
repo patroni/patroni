@@ -469,7 +469,7 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
 
             if isinstance(value, dict):
                 if 'type' not in value:
-                    value['type'] = 'logical'
+                    value['type'] = 'logical' if value.get('database') and value.get('plugin') else 'physical'
 
                 if value['type'] == 'physical' or value['type'] == 'logical' \
                         and value.get('database') and value.get('plugin'):
@@ -481,10 +481,8 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
         return slots
 
     def has_permanent_logical_slots(self, name):
-        for slot in self.get_replication_slots(name, 'master').values():
-            if slot['type'] == 'logical':
-                return True
-        return False
+        slots = self.get_replication_slots(name, 'master').values()
+        return any(v for v in slots if v.get("type") == "logical")
 
 
 @six.add_metaclass(abc.ABCMeta)
