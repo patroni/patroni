@@ -722,8 +722,9 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
         role = ''
         if m.name == leader_name:
             role = 'Leader'
-        elif m.name == cluster.sync.sync_standby:
-            role = 'Sync standby'
+        else:
+            if m.name in cluster.sync.members:
+                role = 'Sync standby'
 
         xlog_location = m.data.get('xlog_location')
         lag = ''

@@ -47,6 +47,8 @@ class Config(object):
         'master_start_timeout': 300,
         'synchronous_mode': False,
         'synchronous_mode_strict': False,
+        'replication_factor': 1,
+        'minimum_replication_factor': 1,
         'standby_cluster': {
             'create_replica_methods': '',
             'host': '',
@@ -348,6 +350,12 @@ class Config(object):
         )
 
         pg_config.update({p: config[p] for p in updated_fields if p in config})
+
+        # Switch synchronous mode to replication factor
+        if config.get('synchronous_mode', False):
+            config['replication_factor'] = min(2, config['replication_factor'])
+        if config.get('synchronous_mode_strict', False):
+            config['minimum_replication_factor'] = min(2, config['minimum_replication_factor'])
 
         return config
 

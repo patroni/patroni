@@ -15,7 +15,7 @@ Feature: basic replication
 
   Scenario: check restart of sync replica
     Given I shut down postgres2
-    Then "sync" key in DCS has sync_standby=postgres1 after 5 seconds
+    Then "sync" key in DCS has members=postgres after 5 seconds
     When I start postgres2
     And I shut down postgres1
     Then "sync" key in DCS has sync_standby=postgres2 after 10 seconds

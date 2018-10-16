@@ -181,7 +181,7 @@ class TestPostgresql(unittest.TestCase):
     @patch('subprocess.call', Mock(return_value=0))
     @patch('psycopg2.connect', psycopg2_connect)
     @patch('os.rename', Mock())
-    @patch.object(Postgresql, 'get_major_version', Mock(return_value=90600))
+    @patch.object(Postgresql, 'get_major_version', Mock(return_value=90400))
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def setUp(self):
         self.data_dir = 'data/test0'
@@ -868,7 +868,7 @@ class TestPostgresql(unittest.TestCase):
 
     def test_pick_sync_standby(self):
         cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None,
-                          SyncState(0, self.me.name, self.leadermem.name), None)
+                          SyncState(0, self.me.name, self.leadermem.name, {self.leadermem.name}), None)
 
         with patch.object(Postgresql, "query", return_value=[
                     (self.leadermem.name, 'streaming', 'sync'),
@@ -908,21 +908,21 @@ class TestPostgresql(unittest.TestCase):
                         return line.strip()
 
         mock_reload = self.p.reload = Mock()
-        self.p.set_synchronous_standby('n1')
+        self.p.set_synchronous_state(1, {'n1'})
         self.assertEqual(value_in_conf(), "synchronous_standby_names = 'n1'")
         mock_reload.assert_called()
 
         mock_reload.reset_mock()
-        self.p.set_synchronous_standby('n1')
+        self.p.set_synchronous_state(1, {'n1'})
         mock_reload.assert_not_called()
         self.assertEqual(value_in_conf(), "synchronous_standby_names = 'n1'")
 
-        self.p.set_synchronous_standby('n2')
+        self.p.set_synchronous_state(1, {'n2'})
         mock_reload.assert_called()
         self.assertEqual(value_in_conf(), "synchronous_standby_names = 'n2'")
 
         mock_reload.reset_mock()
-        self.p.set_synchronous_standby(None)
+        self.p.set_synchronous_state(None)
         mock_reload.assert_called()
         self.assertEqual(value_in_conf(), None)
 
@@ -931,7 +931,7 @@ class TestPostgresql(unittest.TestCase):
         self.p.get_server_parameters(config)
         config['synchronous_mode_strict'] = True
         self.p.get_server_parameters(config)
-        self.p.set_synchronous_standby('foo')
+        self.p.set_synchronous_state(1, {'foo'})
         self.p.get_server_parameters(config)
 
     @patch('time.sleep', Mock())

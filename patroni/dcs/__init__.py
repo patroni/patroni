@@ -285,12 +285,12 @@ class ClusterConfig(namedtuple('ClusterConfig', 'index,data,modify_index')):
         return ClusterConfig(index, data, modify_index or index)
 
 
-class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
+class SyncState(namedtuple('SyncState', 'index,leader,quorum,members')):
     """Immutable object (namedtuple) which represents last observed synhcronous replication state
 
     :param index: modification index of a synchronization key in a Configuration Store
     :param leader: reference to member that was leader
-    :param sync_standby: standby that was last synchronized to leader
+    :param sync_standby: standby that was last synchronized to leader - deprecated
     """
 
     @staticmethod
@@ -308,25 +308,45 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
         True
         >>> SyncState.from_node(1, {"leader": "leader"}).leader == "leader"
         True
+        >>> SyncState.from_node(1, {"leader": "a", "sync_standby": "b"}).members == set("ab")
+        True
+        >>> SyncState.from_node(1, {"leader": "a", "members": "a, b, c", "quorum": 2}).members == set("abc")
+        True
         """
-        if isinstance(value, dict):
-            data = value
-        elif value:
-            try:
+        try:
+            if isinstance(value, dict):
+                data = value
+            elif value:
                 data = json.loads(value)
                 if not isinstance(data, dict):
-                    data = {}
-            except (TypeError, ValueError):
-                data = {}
-        else:
-            data = {}
-        return SyncState(index, data.get('leader'), data.get('sync_standby'))
+                    return SyncState.empty(index)
+            else:
+                return SyncState.empty(index)
+
+            if 'members' in data:
+                quorum = int(data['quorum'])
+                members = frozenset(data['members'].split(', '))
+            else:
+                # Interpret state from older version correctly
+                quorum = 1
+                members = frozenset(str(m) for m in [data.get('leader'), data.get('sync_standby')] if m)
+            return SyncState(index, data.get('leader'), quorum, members)
+        except (TypeError, ValueError):
+            return SyncState.empty(index)
+
+    @staticmethod
+    def empty(index):
+        return SyncState(index, None, None, frozenset())
+
+    @property
+    def is_empty(self):
+        return self.leader is None
 
     def matches(self, name):
         """
         Returns if a node name matches one of the nodes in the sync state
 
-        >>> s = SyncState(1, 'foo', 'bar')
+        >>> s = SyncState(1, 'foo', 1, frozenset(['foo', 'bar']))
         >>> s.matches('foo')
         True
         >>> s.matches('bar')
@@ -335,10 +355,10 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
         False
         >>> s.matches(None)
         False
-        >>> SyncState(1, None, None).matches('foo')
+        >>> SyncState.empty(1).matches('foo')
         False
         """
-        return name is not None and name in (self.leader, self.sync_standby)
+        return name is not None and name in self.members
 
 
 class TimelineHistory(namedtuple('TimelineHistory', 'index,lines')):
@@ -624,12 +644,12 @@ class AbstractDCS(object):
         """Delete cluster from DCS"""
 
     @staticmethod
-    def sync_state(leader, sync_standby):
+    def sync_state(leader, quorum, members):
         """Build sync_state dict"""
-        return {'leader': leader, 'sync_standby': sync_standby}
+        return {'leader': leader, 'quorum': str(quorum), 'members': ', '.join(members) if members else ""}
 
-    def write_sync_state(self, leader, sync_standby, index=None):
-        sync_value = self.sync_state(leader, sync_standby)
+    def write_sync_state(self, leader, quorum, members, index=None):
+        sync_value = self.sync_state(leader, quorum, members, )
         return self.set_sync_state_value(json.dumps(sync_value, separators=(',', ':')), index)
 
     @abc.abstractmethod
