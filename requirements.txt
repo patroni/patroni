@@ -1,4 +1,4 @@
-urllib3>=1.19.1,!=1.21
+urllib3==1.23
 boto
 psycopg2>=2.5.4
 PyYAML
