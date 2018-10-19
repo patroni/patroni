@@ -52,6 +52,10 @@ class MockHa(object):
     watchdog = MockWatchdog()
 
     @staticmethod
+    def is_leader():
+        return False
+
+    @staticmethod
     def reinitialize(_):
         return 'reinitialize'
 
@@ -90,6 +94,10 @@ class MockHa(object):
     @staticmethod
     def is_paused():
         return True
+
+    @staticmethod
+    def is_standby_cluster():
+        return False
 
 
 class MockPatroni(object):
@@ -151,8 +159,9 @@ class TestRestApiHandler(unittest.TestCase):
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'replica'})):
             MockRestApiServer(RestApiHandler, 'GET /synchronous')
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'replica'})):
+            MockPatroni.dcs.cluster.sync.sync_standby = ''
             MockRestApiServer(RestApiHandler, 'GET /asynchronous')
-        MockPatroni.dcs.cluster.leader.name = MockPostgresql.name
+        MockPatroni.ha.is_leader = Mock(return_value=True)
         MockRestApiServer(RestApiHandler, 'GET /replica')
         MockPatroni.dcs.cluster = None
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'master'})):
@@ -162,6 +171,8 @@ class TestRestApiHandler(unittest.TestCase):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /master'))
         with patch.object(RestApiServer, 'query', Mock(return_value=[('', 1, '', '', '', '', False, '')])):
             self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /patroni'))
+        with patch.object(MockHa, 'is_standby_cluster', Mock(return_value=True)):
+            MockRestApiServer(RestApiHandler, 'GET /standby_leader')
 
     def test_do_OPTIONS(self):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'OPTIONS / HTTP/1.0'))

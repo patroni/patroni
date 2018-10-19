@@ -73,14 +73,14 @@ class TestWatchdog(unittest.TestCase):
     @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
     def test_unsafe_timeout_disable_watchdog_and_exit(self):
         watchdog = Watchdog({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'required', 'safety_margin': -1}})
-        self.assertEquals(watchdog.activate(), False)
-        self.assertEquals(watchdog.is_running, False)
+        self.assertEqual(watchdog.activate(), False)
+        self.assertEqual(watchdog.is_running, False)
 
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'get_timeout', Mock(return_value=16))
     def test_timeout_does_not_ensure_safe_termination(self):
         Watchdog({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'auto', 'safety_margin': -1}}).activate()
-        self.assertEquals(len(mock_devices), 2)
+        self.assertEqual(len(mock_devices), 2)
 
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(Watchdog, 'is_running', PropertyMock(return_value=False))
@@ -99,29 +99,29 @@ class TestWatchdog(unittest.TestCase):
         watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'}})
         watchdog.activate()
 
-        self.assertEquals(len(mock_devices), 2)
+        self.assertEqual(len(mock_devices), 2)
         device = mock_devices[-1]
         self.assertTrue(device.open)
 
-        self.assertEquals(device.timeout, 24)
+        self.assertEqual(device.timeout, 24)
 
         watchdog.keepalive()
-        self.assertEquals(len(device.writes), 1)
+        self.assertEqual(len(device.writes), 1)
 
         watchdog.disable()
         self.assertFalse(device.open)
-        self.assertEquals(device.writes[-1], b'V')
+        self.assertEqual(device.writes[-1], b'V')
 
     def test_invalid_timings(self):
         watchdog = Watchdog({'ttl': 30, 'loop_wait': 20, 'watchdog': {'mode': 'automatic', 'safety_margin': -1}})
         watchdog.activate()
-        self.assertEquals(len(mock_devices), 1)
+        self.assertEqual(len(mock_devices), 1)
         self.assertFalse(watchdog.is_running)
 
     def test_parse_mode(self):
         with patch('patroni.watchdog.base.logger.warning', new_callable=Mock()) as warning_mock:
             watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'bad'}})
-            self.assertEquals(watchdog.config.mode, 'off')
+            self.assertEqual(watchdog.config.mode, 'off')
             warning_mock.assert_called_once()
 
     @patch('platform.system', Mock(return_value='Unknown'))
@@ -170,7 +170,7 @@ class TestNullWatchdog(unittest.TestCase):
         watchdog = NullWatchdog()
         self.assertTrue(watchdog.can_be_disabled)
         self.assertRaises(WatchdogError, watchdog.set_timeout, 1)
-        self.assertEquals(watchdog.describe(), 'NullWatchdog')
+        self.assertEqual(watchdog.describe(), 'NullWatchdog')
         self.assertIsInstance(NullWatchdog.from_config({}), NullWatchdog)
 
 
@@ -210,7 +210,7 @@ class TestLinuxWatchdogDevice(unittest.TestCase):
         self.assertRaises(WatchdogError, self.impl.get_timeout)
         self.assertRaises(WatchdogError, self.impl.set_timeout, 10)
         # We still try to output a reasonable string even if getting info errors
-        self.assertEquals(self.impl.describe(), "Linux watchdog device")
+        self.assertEqual(self.impl.describe(), "Linux watchdog device")
 
     @patch('os.open', Mock(side_effect=OSError))
     def test_open(self):

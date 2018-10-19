@@ -399,7 +399,7 @@ class Kubernetes(AbstractDCS):
                 except KeyboardInterrupt:
                     raise
                 except Exception:
-                    logging.exception('watch')
+                    logger.exception('watch')
 
                 timeout = end_time - time.time()
 

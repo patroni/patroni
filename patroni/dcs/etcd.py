@@ -448,7 +448,7 @@ class Etcd(AbstractDCS):
     def _load_cluster(self):
         try:
             result = self.retry(self._client.read, self.client_path(''), recursive=True)
-            nodes = {os.path.relpath(node.key, result.key): node for node in result.leaves}
+            nodes = {os.path.relpath(node.key, result.key).replace('\\', '/'): node for node in result.leaves}
 
             # get initialize flag
             initialize = nodes.get(self._INITIALIZE)
@@ -496,7 +496,7 @@ class Etcd(AbstractDCS):
     @catch_etcd_errors
     def touch_member(self, data, ttl=None, permanent=False):
         data = json.dumps(data, separators=(',', ':'))
-        return self.retry(self._client.set, self.member_path, data, None if permanent else ttl or self._ttl)
+        return self._client.set(self.member_path, data, None if permanent else ttl or self._ttl)
 
     @catch_etcd_errors
     def take_leader(self):

@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import pkgutil
+import re
 import six
 import sys
 
@@ -108,12 +109,29 @@ class Member(namedtuple('Member', 'index,name,session,data')):
 
     @property
     def conn_url(self):
-        return self.data.get('conn_url')
+        conn_url = self.data.get('conn_url')
+        conn_kwargs = self.data.get('conn_kwargs')
+        if conn_url:
+            return conn_url
+
+        if conn_kwargs:
+            conn_url = 'postgresql://{host}:{port}'.format(
+                host=conn_kwargs.get('host'),
+                port=conn_kwargs.get('port'),
+            )
+            self.data['conn_url'] = conn_url
+            return conn_url
 
     def conn_kwargs(self, auth=None):
+        defaults = {
+            "host": "",
+            "port": "",
+            "database": ""
+        }
         ret = self.data.get('conn_kwargs')
         if ret:
-            ret = ret.copy()
+            defaults.update(ret)
+            ret = defaults
         else:
             r = urlparse(self.conn_url)
             ret = {
@@ -157,6 +175,26 @@ class Member(namedtuple('Member', 'index,name,session,data')):
     @property
     def is_running(self):
         return self.state == 'running'
+
+
+class RemoteMember(Member):
+    """ Represents a remote master for a standby cluster
+    """
+    def __new__(cls, name, data):
+        return super(RemoteMember, cls).__new__(cls, None, name, None, data)
+
+    @staticmethod
+    def allowed_keys():
+        return ('primary_slot_name',
+                'create_replica_methods',
+                'restore_command',
+                'archive_cleanup_command',
+                'recovery_min_apply_delay',
+                'no_replication_slot')
+
+    def __getattr__(self, name):
+        if name in RemoteMember.allowed_keys():
+            return self.data.get(name)
 
 
 class Leader(namedtuple('Leader', 'index,session,member')):
@@ -379,7 +417,7 @@ class AbstractDCS(object):
             i.e.: `zookeeper` for zookeeper, `etcd` for etcd, etc...
         """
         self._name = config['name']
-        self._base_path = os.path.join('/', config.get('namespace', '/service/').strip('/'), config['scope'])
+        self._base_path = re.sub('/+', '/', '/'.join(['', config.get('namespace', 'service'), config['scope']]))
         self._set_loop_wait(config.get('loop_wait', 10))
 
         self._ctl = bool(config.get('patronictl', False))

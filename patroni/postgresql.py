@@ -15,10 +15,12 @@ from patroni.callback_executor import CallbackExecutor
 from patroni.exceptions import PostgresConnectionException, PostgresException
 from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, split_host_port
 from patroni.postmaster import PostmasterProcess
+from patroni.dcs import RemoteMember
 from requests.structures import CaseInsensitiveDict
 from six import string_types
 from six.moves.urllib.parse import quote_plus
 from threading import current_thread, Lock
+
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +181,8 @@ class Postgresql(object):
             self._write_postgresql_conf()  # we are "joining" already running postgres
             if self._replace_pg_hba():
                 self.reload()
+        elif self.role == 'master':
+            self.set_role('demoted')
 
     @property
     def _create_replica_methods(self):
@@ -335,10 +339,12 @@ class Postgresql(object):
                         if new_value is None or not compare_values(r[3], unit, r[1], new_value):
                             if r[4] == 'postmaster':
                                 pending_restart = True
+                                logger.info('Changed %s from %s to %s (restart required)', r[0], r[1], new_value)
                                 if config.get('use_unix_socket') and r[0] == 'unix_socket_directories'\
                                         or r[0] in ('listen_addresses', 'port'):
                                     local_connection_address_changed = True
                             else:
+                                logger.info('Changed %s from %s to %s', r[0], r[1], new_value)
                                 conf_changed = True
                 for param in changes:
                     if param in server_parameters:
@@ -349,11 +355,13 @@ class Postgresql(object):
             if not conf_changed:
                 for p, v in server_parameters.items():
                     if '.' in p and (p not in self._server_parameters or str(v) != str(self._server_parameters[p])):
+                        logger.info('Changed %s from %s to %s', p, self._server_parameters.get(p), v)
                         conf_changed = True
                         break
                 if not conf_changed:
                     for p, v in self._server_parameters.items():
                         if '.' in p and (p not in server_parameters or str(v) != str(server_parameters[p])):
+                            logger.info('Changed %s from %s to %s', p, v, server_parameters.get(p))
                             conf_changed = True
                             break
 
@@ -375,7 +383,10 @@ class Postgresql(object):
             self._replace_pg_hba()
 
         if conf_changed or hba_changed:
+            logger.info('PostgreSQL configuration items changed, reloading configuration.')
             self.reload()
+        elif not pending_restart:
+            logger.info('No PostgreSQL configuration items changed, nothing to reload.')
 
         self._is_leader_retry.deadline = self.retry.deadline = config['retry_timeout']/2.0
 
@@ -629,7 +640,8 @@ class Postgresql(object):
             return os.environ.copy()
 
         with open(self._pgpass, 'w') as f:
-            os.fchmod(f.fileno(), 0o600)
+            if os.name != 'nt':
+                os.fchmod(f.fileno(), 0o600)
             f.write('{host}:{port}:*:{user}:{password}\n'.format(**record))
 
         env = os.environ.copy()
@@ -656,9 +668,17 @@ class Postgresql(object):
         self.set_state('creating replica')
         self._sysid = None
 
-        # get list of replica methods from config.
-        # If there is no configuration key, or no value is specified, use basebackup
-        replica_methods = self._create_replica_methods or ['basebackup']
+        is_remote_master = isinstance(clone_member, RemoteMember)
+        create_replica_methods = is_remote_master and clone_member.create_replica_methods
+
+        # get list of replica methods either from clone member or from
+        # the config. If there is no configuration key, or no value is
+        # specified, use basebackup
+        replica_methods = (
+            create_replica_methods
+            or self._create_replica_methods
+            or ['basebackup']
+        )
 
         if clone_member and clone_member.conn_url:
             r = clone_member.conn_kwargs(self._replication)
@@ -686,8 +706,10 @@ class Postgresql(object):
                     # if basebackup succeeds, exit with success
                     break
             else:
-                if not self.data_directory_empty():
+                if not self.data_directory_empty() and not self.config.get(replica_method, {}).get('keep_data', False):
                     self.remove_data_directory()
+                else:
+                    logger.info('Leaving data directory uncleaned')
 
                 cmd = replica_method
                 method_config = {}
@@ -700,10 +722,18 @@ class Postgresql(object):
                     cmd = method_config.pop('command', cmd)
 
                 # add the default parameters
-                method_config.update({"scope": self.scope,
-                                      "role": "replica",
-                                      "datadir": self._data_dir,
-                                      "connstring": connstring})
+                if not method_config.get('no_params', False):
+                    method_config.update({"scope": self.scope,
+                                          "role": "replica",
+                                          "datadir": self._data_dir,
+                                          "connstring": connstring})
+                else:
+                    if 'no_params' in method_config:
+                        del method_config['no_params']
+                    if 'no_master' in method_config:
+                        del method_config['no_master']
+                    if 'keep_data' in method_config:
+                        del method_config['keep_data']
                 params = ["--{0}={1}".format(arg, val) for arg, val in method_config.items()]
                 try:
                     # call script with the full set of parameters
@@ -936,7 +966,7 @@ class Postgresql(object):
                         return 'is_in_recovery=true'
                 return cur.execute('CHECKPOINT')
         except psycopg2.Error:
-            logging.exception('Exception during CHECKPOINT')
+            logger.exception('Exception during CHECKPOINT')
             return 'not accessible or not healty'
 
     def stop(self, mode='fast', block_callbacks=False, checkpoint=None, on_safepoint=None):
@@ -1105,9 +1135,10 @@ class Postgresql(object):
             # therefore we need to make sure that hba_file is not overriden
             # after changing superuser password we will "revert" all these "changes"
             if self._running_custom_bootstrap or 'hba_file' not in self._server_parameters:
-                f.write("hba_file = '{0}'\n".format(self._pg_hba_conf))
+                f.write("hba_file = '{0}'\n".format(self._pg_hba_conf.replace('\\', '\\\\')))
             if 'ident_file' not in self._server_parameters:
-                f.write("ident_file = '{0}'\n".format(os.path.join(self._config_dir, 'pg_ident.conf')))
+                s = "ident_file = '{0}'\n".format(os.path.join(self._config_dir, 'pg_ident.conf').replace('\\', '\\\\'))
+                f.write(s)
 
     def is_healthy(self):
         if not self.is_running():
@@ -1183,7 +1214,7 @@ class Postgresql(object):
             ('user', r.get('user')),
             ('host', r.get('host')),
             ('port', r.get('port')),
-            ('dbname', r.get('database')),
+            ('dbname', r.get('database') or self._database),
             ('sslmode', 'prefer'),
             ('sslcompression', '1'),
         ]
@@ -1202,12 +1233,15 @@ class Postgresql(object):
         # Don't try to call pg_controldata during backup restore
         if self._version_file_exists() and self.state != 'creating replica':
             try:
-                data = subprocess.check_output([self._pgcommand('pg_controldata'), self._data_dir],
-                                               env={'LANG': 'C', 'LC_ALL': 'C', 'PATH': os.environ['PATH']})
+                env = {'LANG': 'C', 'LC_ALL': 'C', 'PATH': os.getenv('PATH')}
+                if os.getenv('SYSTEMROOT') is not None:
+                    env['SYSTEMROOT'] = os.getenv('SYSTEMROOT')
+                data = subprocess.check_output([self._pgcommand('pg_controldata'), self._data_dir], env=env)
                 if data:
                     data = data.decode('utf-8').splitlines()
                     # pg_controldata output depends on major verion. Some of parameters are prefixed by 'Current '
-                    result = {l.split(':')[0].replace('Current ', '', 1): l.split(':', 1)[1].strip() for l in data if l}
+                    result = {l.split(':')[0].replace('Current ', '', 1): l.split(':', 1)[1].strip() for l in data
+                              if l and ':' in l}
             except subprocess.CalledProcessError:
                 logger.exception("Error when calling pg_controldata")
         return result
@@ -1398,7 +1432,17 @@ class Postgresql(object):
     def rewind_executed(self):
         return self._rewind_state > REWIND_STATUS.NOT_NEED
 
+    @property
+    def rewind_failed(self):
+        return self._rewind_state == REWIND_STATUS.FAILED
+
     def follow(self, member, timeout=None):
+        is_remote_master = isinstance(member, RemoteMember)
+        no_replication_slot = is_remote_master and member.no_replication_slot
+        restore_command = is_remote_master and member.restore_command
+        min_apply_delay = is_remote_master and member.recovery_min_apply_delay
+        archive_cleanup = is_remote_master and member.archive_cleanup_command
+
         primary_conninfo = self.primary_conninfo(member)
         change_role = self.role in ('master', 'demoted')
 
@@ -1406,8 +1450,16 @@ class Postgresql(object):
         recovery_params.update({'standby_mode': 'on', 'recovery_target_timeline': 'latest'})
         if primary_conninfo:
             recovery_params['primary_conninfo'] = primary_conninfo
-        if self.use_slots:
-            recovery_params['primary_slot_name'] = slot_name_from_member_name(self.name)
+        if self.use_slots and not no_replication_slot:
+            required_name = is_remote_master and member.data.get('primary_slot_name')
+            name = required_name or slot_name_from_member_name(self.name)
+            recovery_params['primary_slot_name'] = name
+        if restore_command:
+            recovery_params['restore_command'] = restore_command
+        if min_apply_delay:
+            recovery_params['recovery_min_apply_delay'] = min_apply_delay
+        if archive_cleanup:
+            recovery_params['archive_cleanup_command'] = archive_cleanup
 
         self.write_recovery_conf(recovery_params)
 
@@ -1519,7 +1571,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
                 # the current master, because that member would replicate from elsewhere. We still create the slot if
                 # the replicatefrom destination member is currently not a member of the cluster (fallback to the
                 # master), or if replicatefrom destination member happens to be the current master
-                if self.role == 'master':
+                if self.role in ('master', 'standby_leader'):
                     slot_members = [m.name for m in cluster.members if m.name != self.name and
                                     (m.replicatefrom is None or m.replicatefrom == self.name or
                                      not cluster.has_member(m.replicatefrom))]
@@ -1547,11 +1599,13 @@ $$""".format(name, ' '.join(options)), name, password, password)
                     if cursor.rowcount != 1:  # Either slot doesn't exists or it is still active
                         self._schedule_load_slots = True  # schedule load_replication_slots on the next iteration
 
+                immediately_reserve = ', true' if self._major_version >= 90600 else ''
+
                 # create new slots
                 for slot in slots - set(self._replication_slots):
-                    self._query("""SELECT pg_create_physical_replication_slot(%s)
+                    self._query("""SELECT pg_create_physical_replication_slot(%s{0})
                                     WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots
-                                    WHERE slot_name = %s)""", slot, slot)
+                                    WHERE slot_name = %s)""".format(immediately_reserve), slot, slot)
 
                 self._replication_slots = slots
             except Exception:
@@ -1720,7 +1774,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
             if sync_state == 'potential' and app_name == current:
                 # Prefer current even if not the best one any more to avoid indecisivness and spurious swaps.
                 return current, False
-            if sync_state == 'async':
+            if sync_state in ('async', 'potential'):
                 candidates.append(app_name)
 
         if candidates:
