@@ -33,6 +33,11 @@ Bootstrap configuration
         -  **restore\_command**: command to restore WAL records from the remote master to standby leader, can be different from the list defined in :ref:`postgresql_settings`
         -  **archive\_cleanup\_command**: cleanup command for standby leader
         -  **recovery\_min\_apply\_delay**: how long to wait before actually apply WAL records on a standby leader
+    -  **slots**: define permanent replication slots. These slots will be preserved during switchover/failover. Patroni will try to create slots before opening connections to the cluster.
+        -  **my_slot_name**: the name of replication slot. It is the responsibility of the operator to make sure that there are no clashes in names between replication slots automatically created by Patroni for members and permanent replication slots.
+            -  **type**: slot type. Could be ``physical`` or ``logical``. If the slot is logical, you have to additionally define ``database`` and ``plugin``.
+               **database**: the database name where logical slots should be created.
+               **plugin**: the plugin name for the logical slot.
 -  **method**: custom script to use for bootstrapping this cluster.
    See :ref:`custom bootstrap methods documentation <custom_bootstrap>` for details.
    When ``initdb`` is specified revert to the default ``initdb`` command. ``initdb`` is also triggered when no ``method``
