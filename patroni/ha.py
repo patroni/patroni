@@ -169,6 +169,10 @@ class Ha(object):
                 'state': self.state_handler.state,
                 'role': self.state_handler.role
             }
+
+            # following two lines are mainly necessary for consul, to avoid creation of master service
+            if data['role'] == 'master' and not self.is_leader():
+                data['role'] = 'promoted'
             tags = self.get_effective_tags()
             if tags:
                 data['tags'] = tags
