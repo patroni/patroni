@@ -18,8 +18,14 @@ WorkingDirectory=~
 
 # Where to send early-startup messages from the server
 # This is normally controlled by the global default set by systemd
-# StandardOutput=syslog
+#StandardOutput=syslog
 
+# Pre-commands to start watchdog device
+# Uncomment if watchdog is part of your patroni setup
+#ExecStartPre=-/usr/bin/sudo /sbin/modprobe softdog
+#ExecStartPre=-/usr/bin/sudo /bin/chown postgres /dev/watchdog
+
+# Start the patroni process
 ExecStart=/bin/patroni /etc/patroni.yml
 
 # Send HUP to reload from patroni.yml
