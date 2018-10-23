@@ -90,7 +90,7 @@ def etcd_read(self, key, **kwargs):
         raise etcd.EtcdKeyNotFound
 
     response = {"action": "get", "node": {"key": "/service/batman5", "dir": True, "nodes": [
-                {"key": "/service/batman5/config", "value": '{"foo": "bar"}',
+                {"key": "/service/batman5/config", "value": '{"synchronous_mode": 0}',
                  "modifiedIndex": 1582, "createdIndex": 1582},
                 {"key": "/service/batman5/failover", "value": "",
                  "modifiedIndex": 1582, "createdIndex": 1582},
@@ -215,8 +215,8 @@ class TestClient(unittest.TestCase):
             self.assertRaises(etcd.EtcdException, self.client.api_execute, '/', 'GET')
 
     def test_get_srv_record(self):
-        self.assertEquals(self.client.get_srv_record('_etcd-server._tcp.blabla'), [])
-        self.assertEquals(self.client.get_srv_record('_etcd-server._tcp.exception'), [])
+        self.assertEqual(self.client.get_srv_record('_etcd-server._tcp.blabla'), [])
+        self.assertEqual(self.client.get_srv_record('_etcd-server._tcp.exception'), [])
 
     def test__get_machines_cache_from_srv(self):
         self.client._get_machines_cache_from_srv('foobar')
@@ -259,7 +259,7 @@ class TestEtcd(unittest.TestCase):
                               'host': 'localhost:2379', 'scope': 'test', 'name': 'foo'})
 
     def test_base_path(self):
-        self.assertEquals(self.etcd._base_path, '/patroni/test')
+        self.assertEqual(self.etcd._base_path, '/patroni/test')
 
     @patch('dns.resolver.query', dns_query)
     def test_get_etcd_client(self):
@@ -276,7 +276,9 @@ class TestEtcd(unittest.TestCase):
                                   {'hosts': 'foo:4001,bar', 'retry_timeout': 10})
 
     def test_get_cluster(self):
-        self.assertIsInstance(self.etcd.get_cluster(), Cluster)
+        cluster = self.etcd.get_cluster()
+        self.assertIsInstance(cluster, Cluster)
+        self.assertFalse(cluster.is_synchronous_mode())
         self.etcd._base_path = '/service/nocluster'
         cluster = self.etcd.get_cluster()
         self.assertIsInstance(cluster, Cluster)

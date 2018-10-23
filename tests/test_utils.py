@@ -8,7 +8,7 @@ from patroni.utils import Retry, RetryFailedError, polling_loop
 class TestUtils(unittest.TestCase):
 
     def test_polling_loop(self):
-        self.assertEquals(list(polling_loop(0.001, interval=0.001)), [0])
+        self.assertEqual(list(polling_loop(0.001, interval=0.001)), [0])
 
 
 @patch('time.sleep', Mock())
@@ -29,21 +29,21 @@ class TestRetrySleeper(unittest.TestCase):
     def test_reset(self):
         retry = Retry(delay=0, max_tries=2)
         retry(self._fail())
-        self.assertEquals(retry._attempts, 1)
+        self.assertEqual(retry._attempts, 1)
         retry.reset()
-        self.assertEquals(retry._attempts, 0)
+        self.assertEqual(retry._attempts, 0)
 
     def test_too_many_tries(self):
         retry = Retry(delay=0)
         self.assertRaises(RetryFailedError, retry, self._fail(times=999))
-        self.assertEquals(retry._attempts, 1)
+        self.assertEqual(retry._attempts, 1)
 
     def test_maximum_delay(self):
         retry = Retry(delay=10, max_tries=100)
         retry(self._fail(times=10))
         self.assertTrue(retry._cur_delay < 4000, retry._cur_delay)
         # gevent's sleep function is picky about the type
-        self.assertEquals(type(retry._cur_delay), float)
+        self.assertEqual(type(retry._cur_delay), float)
 
     def test_deadline(self):
         retry = Retry(deadline=0.0001)

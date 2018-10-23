@@ -1,14 +1,15 @@
 import base64
-import fcntl
 import json
 import logging
 import psycopg2
 import time
 import dateutil.parser
 import datetime
+import os
 
 from patroni.postgresql import PostgresConnectionException, PostgresException, Postgresql
-from patroni.utils import deep_compare, parse_bool, patch_config, Retry, RetryFailedError, parse_int, tzutc
+from patroni.utils import deep_compare, parse_bool, patch_config, Retry, \
+    RetryFailedError, parse_int, split_host_port, tzutc
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from six.moves.socketserver import ThreadingMixIn
 from threading import Thread
@@ -83,35 +84,22 @@ class RestApiHandler(BaseHTTPRequestHandler):
         patroni = self.server.patroni
         cluster = patroni.dcs.cluster
 
-        def is_synchronous():
-            return (cluster.is_synchronous_mode() and cluster.sync
-                    and cluster.sync.sync_standby == patroni.postgresql.name)
+        replica_status_code = 200 if not patroni.noloadbalance and response.get('role') == 'replica' else 503
+        status_code = 503
 
-        def is_balanceable_replica():
-            return response.get('role') == 'replica' and not patroni.noloadbalance
-
-        if cluster:  # dcs available
-            if cluster.leader and cluster.leader.name == patroni.postgresql.name:  # is_leader
-                status_code = 200 if 'master' in path else 503
-            elif 'role' not in response:
-                status_code = 503
-            elif response['role'] == 'master':  # running as master but without leader lock!!!!
-                status_code = 503
-            elif path in ('/sync', '/synchronous'):
-                status_code = 200 if is_balanceable_replica() and is_synchronous() else 503
-            elif path in ('/async', '/asynchronous'):
-                status_code = 200 if is_balanceable_replica() and not is_synchronous() else 503
-            elif response['role'] in path:  # response['role'] != 'master'
-                status_code = 503 if patroni.noloadbalance else 200
-            else:
-                status_code = 503
-        elif 'role' in response and response['role'] in path:
-            status_code = 503 if response['role'] != 'master' and patroni.noloadbalance else 200
-        elif patroni.ha.restart_scheduled() and patroni.postgresql.role == 'master' and 'master' in path:
-            # exceptional case for master node when the postgres is being restarted via API
-            status_code = 200
-        else:
-            status_code = 503
+        if patroni.ha.is_standby_cluster() and ('standby_leader' in path or 'standby-leader' in path):
+            status_code = 200 if patroni.ha.is_leader() else 503
+        elif 'master' in path or 'leader' in path or 'primary' in path:
+            status_code = 200 if patroni.ha.is_leader() else 503
+        elif 'replica' in path:
+            status_code = replica_status_code
+        elif cluster:  # dcs is available
+            is_synchronous = cluster.is_synchronous_mode() and cluster.sync \
+                    and cluster.sync.sync_standby == patroni.postgresql.name
+            if path in ('/sync', '/synchronous') and is_synchronous:
+                status_code = replica_status_code
+            elif path in ('/async', '/asynchronous') and not is_synchronous:
+                status_code = replica_status_code
 
         if write_status_code_only:  # when haproxy sends OPTIONS request it reads only status code and nothing more
             message = self.responses[status_code][0]
@@ -414,6 +402,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     def get_postgresql_status(self, retry=False):
         try:
+            cluster = self.server.patroni.dcs.cluster
+
             if self.server.patroni.postgresql.state not in ('running', 'restarting', 'starting'):
                 raise RetryFailedError('')
             stmt = ("WITH replication_info AS ("
@@ -438,6 +428,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 'postmaster_start_time': row[0],
                 'role': 'replica' if row[1] == 0 else 'master',
                 'server_version': self.server.patroni.postgresql.server_version,
+                'cluster_unlocked': bool(not cluster or cluster.is_unlocked()),
                 'xlog': ({
                     'received_location': row[3],
                     'replayed_location': row[4],
@@ -450,7 +441,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
             if row[1] > 0:
                 result['timeline'] = row[1]
             else:
-                cluster = self.server.patroni.dcs.cluster
                 leader_timeline = None if not cluster or cluster.is_unlocked() else cluster.leader.timeline
                 result['timeline'] = self.server.patroni.postgresql.replica_cached_timeline(leader_timeline)
 
@@ -473,6 +463,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
     def __init__(self, patroni, config):
         self.patroni = patroni
+        self.__listen = None
         self.__initialize(config)
         self.__set_config_parameters(config)
         self.daemon = True
@@ -490,8 +481,10 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
     @staticmethod
     def _set_fd_cloexec(fd):
-        flags = fcntl.fcntl(fd, fcntl.F_GETFD)
-        fcntl.fcntl(fd, fcntl.F_SETFD, flags | fcntl.FD_CLOEXEC)
+        if os.name != 'nt':
+            import fcntl
+            flags = fcntl.fcntl(fd, fcntl.F_GETFD)
+            fcntl.fcntl(fd, fcntl.F_SETFD, flags | fcntl.FD_CLOEXEC)
 
     def check_basic_auth_key(self, key):
         return self.__auth_key == key
@@ -507,18 +500,25 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
     def __get_ssl_options(config):
         return {option: config[option] for option in ['certfile', 'keyfile'] if option in config}
 
-    def __set_connection_string(self, connect_address):
-        self.connection_string = '{0}://{1}/patroni'.format(self.__protocol, connect_address or self.__listen)
-
     def __set_config_parameters(self, config):
         self.__auth_key = base64.b64encode(config['auth'].encode('utf-8')).decode('utf-8') if 'auth' in config else None
-        self.__set_connection_string(config.get('connect_address'))
+        self.connection_string = '{0}://{1}/patroni'.format(self.__protocol,
+                                                            config.get('connect_address') or self.__listen)
 
     def __initialize(self, config):
-        self.__ssl_options = self.__get_ssl_options(config)
+        try:
+            host, port = split_host_port(config['listen'], None)
+        except Exception:
+            raise ValueError('Invalid "restapi" config: expected <HOST>:<PORT> for "listen", but got "{0}"'
+                             .format(config['listen']))
+
+        if self.__listen is not None:  # changing config in runtime
+            self.shutdown()
+
         self.__listen = config['listen']
-        host, port = config['listen'].rsplit(':', 1)
-        HTTPServer.__init__(self, (host, int(port)), RestApiHandler)
+        self.__ssl_options = self.__get_ssl_options(config)
+
+        HTTPServer.__init__(self, (host, port), RestApiHandler)
         Thread.__init__(self, target=self.serve_forever)
         self._set_fd_cloexec(self.socket)
 
@@ -530,11 +530,13 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             import ssl
             self.socket = ssl.wrap_socket(self.socket, server_side=True, **self.__ssl_options)
             self.__protocol = 'https'
-        self.__set_connection_string(config.get('connect_address'))
+        return True
 
     def reload_config(self, config):
-        self.__set_config_parameters(config)
-        if self.__listen != config['listen'] or self.__ssl_options != self.__get_ssl_options(config):
-            self.shutdown()
-            self.__initialize(config)
+        if 'listen' not in config:  # changing config in runtime
+            raise ValueError('Can not find "restapi.listen" config')
+
+        elif (self.__listen != config['listen'] or self.__ssl_options != self.__get_ssl_options(config)) \
+                and self.__initialize(config):
             self.start()
+        self.__set_config_parameters(config)

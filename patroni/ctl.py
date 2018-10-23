@@ -103,15 +103,20 @@ option_watch = click.option('-W', is_flag=True, help='Auto update the screen eve
 option_force = click.option('--force', is_flag=True, help='Do not ask for confirmation at any point')
 arg_cluster_name = click.argument('cluster_name', required=False,
                                   default=lambda: click.get_current_context().obj.get('scope'))
+option_insecure = click.option('-k', '--insecure', is_flag=True, help='Allow connections to SSL sites without certs')
 
 
 @click.group()
 @click.option('--config-file', '-c', help='Configuration file', default=CONFIG_FILE_PATH)
 @click.option('--dcs', '-d', help='Use this DCS', envvar='DCS')
+@option_insecure
 @click.pass_context
-def ctl(ctx, config_file, dcs):
+def ctl(ctx, config_file, dcs, insecure):
     logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=os.environ.get('LOGLEVEL', 'WARNING'))
+    logging.captureWarnings(True)  # Capture eventual SSL warning
     ctx.obj = load_config(config_file, dcs)
+    # backward compatibility for configuration file where ctl section is not define
+    ctx.obj.setdefault('ctl', {})['insecure'] = ctx.obj.get('ctl', {}).get('insecure') or insecure
 
 
 def get_dcs(config, scope):
@@ -129,6 +134,7 @@ def auth_header(config):
 
 
 def request_patroni(member, request_type, endpoint, content=None, headers=None):
+    ctx = click.get_current_context()  # the current click context
     headers = headers or {}
     url_parts = urlparse(member.api_url)
     logging.debug(url_parts)
@@ -137,8 +143,21 @@ def request_patroni(member, request_type, endpoint, content=None, headers=None):
 
     url = '{0}://{1}/{2}'.format(url_parts.scheme, url_parts.netloc, endpoint)
 
+    insecure = ctx.obj.get('ctl', {}).get('insecure', False)
+    # Get certfile if any from several configuration namespace
+    cert = ctx.obj.get('ctl', {}).get('cacert') or \
+        ctx.obj.get('restapi', {}).get('cacert') or \
+        ctx.obj.get('restapi', {}).get('certfile')
+    # In the case we specificaly disable SSL cert verification we don't want to have the warning
+    if insecure:
+        verify = False
+    elif cert:
+        verify = cert
+    else:
+        verify = True
     return getattr(requests, request_type)(url, headers=headers,
-                                           data=json.dumps(content) if content else None, timeout=60)
+                                           data=json.dumps(content) if content else None, timeout=60,
+                                           verify=verify)
 
 
 def print_output(columns, rows=None, alignment=None, fmt='pretty', header=True, delimiter='\t'):
@@ -445,6 +464,33 @@ def parse_scheduled(scheduled):
     return None
 
 
+@ctl.command('reload', help='Reload cluster member configuration')
+@click.argument('cluster_name')
+@click.argument('member_names', nargs=-1)
+@click.option('--role', '-r', help='Reload only members with this role', default='any',
+              type=click.Choice(['master', 'replica', 'any']))
+@option_force
+@click.pass_obj
+def reload(obj, cluster_name, member_names, force, role):
+    cluster = get_dcs(obj, cluster_name).get_cluster()
+
+    members = get_members(cluster, cluster_name, member_names, role, force, 'reload')
+
+    content = {}
+    for member in members:
+        r = request_patroni(member, 'post', 'reload', content, auth_header(obj))
+        if r.status_code == 200:
+            click.echo('No changes to apply on member {0}'.format(member.name))
+        elif r.status_code == 202:
+            click.echo('Reload request received for member {0} and will be processed within {1} seconds'.format(
+                member.name, cluster.config.data.get('loop_wait'))
+            )
+        else:
+            click.echo('Failed: reload for member {0}, status code={1}, ({2})'.format(
+                member.name, r.status_code, r.text)
+            )
+
+
 @ctl.command('restart', help='Restart cluster member')
 @click.argument('cluster_name')
 @click.argument('member_names', nargs=-1)
@@ -558,7 +604,8 @@ def _do_failover_or_switchover(obj, action, cluster_name, master, candidate, for
     if master is not None and cluster.leader and cluster.leader.member.name != master:
         raise PatroniCtlException('Member {0} is not the leader of cluster {1}'.format(master, cluster_name))
 
-    candidate_names = [str(m.name) for m in cluster.members if m.name != master]
+    # excluding members with nofailover tag
+    candidate_names = [str(m.name) for m in cluster.members if m.name != master and not m.nofailover]
     # We sort the names for consistent output to the client
     candidate_names.sort()
 
@@ -875,7 +922,8 @@ def toggle_pause(config, cluster_name, paused, wait):
     for member in members:
         try:
             r = request_patroni(member, 'patch', 'config', {'pause': paused or None}, auth_header(config))
-        except Exception:
+        except Exception as err:
+            logging.warning(str(err))
             logging.warning('Member %s is not accessible', member.name)
             continue
 

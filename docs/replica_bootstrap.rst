@@ -68,7 +68,20 @@ scripts to clone a new replica. Those are configured in the ``postgresql`` confi
 .. code:: YAML
 
     postgresql:
-        create_replica_method:
+        create_replica_methods:
+            - <method name>
+        <method name>:
+            command: <command name>
+            keep_data: True
+            no_params: True
+            no_master: 1
+
+example: wal_e
+
+.. code:: YAML
+
+    postgresql:
+        create_replica_methods:
             - wal_e
             - basebackup
         wal_e:
@@ -76,13 +89,29 @@ scripts to clone a new replica. Those are configured in the ``postgresql`` confi
             no_master: 1
             envdir: {{WALE_ENV_DIR}}
             use_iam: 1
+        basebackup:
+            max-rate: '100M'
+
+example: pgbackrest
+
+.. code:: YAML
+
+    postgresql:
+        create_replica_methods:
+            - pgbackrest
+            - basebackup
+        pgbackrest:
+            command: /usr/bin/pgbackrest --stanza=mydb --deltarestore
+            keep_data: True
+            no_params: True
+        basebackup:
+            max-rate: '100M'
 
 
-The ``create_replica_method`` defines available replica creation methods and the order of executing them. Patroni will
-stop on the first one that returns 0. The basebackup is the built-in method and doesn't require any configuration. The
-rest of the methods should define a separate section in the configuration file, listing the command to execute and any
-custom parameters that should be passed to that command. All parameters will be passed in a ``--name=value`` format.
-Besides user-defined parameters, Patroni supplies a couple of cluster-specific ones:
+The ``create_replica_methods`` defines available replica creation methods and the order of executing them. Patroni will
+stop on the first one that returns 0. Each method should define a separate section in the configuration file, listing the command
+to execute and any custom parameters that should be passed to that command. All parameters will be passed in a
+``--name=value`` format. Besides user-defined parameters, Patroni supplies a couple of cluster-specific ones:
 
 --scope
     Which cluster this replica belongs to
@@ -98,4 +127,71 @@ A special ``no_master`` parameter, if defined, allows Patroni to call the replic
 running master or replicas. In that case, an empty string will be passed in a connection string. This is useful for
 restoring the formerly running cluster from the binary backup.
 
+A special ``keep_data`` parameter, if defined, will instuct Patroni to  not clean PGDATA folder before calling restore.
+
+A special ``no_params`` parameter, if defined, restricts passing parameters to custom command.
+
+A ``basebackup`` method is a special case: it will be used if
+``create_replica_methods`` is empty, although it is possible
+to list it explicitly among the ``create_replica_methods`` methods. This method initializes a new replica with the
+``pg_basebackup``, the base backup is taken from the master unless there are replicas with ``clonefrom`` tag, in which case one
+of such replicas will be used as the origin for pg_basebackup. It works without any configuration; however, it is
+possible to specify a ``basebackup`` configuration section. Same rules as with the other method configuration apply,
+namely, only long (with --) options should be specified there. Not all parameters make sense, if you override a connection
+string or provide an option to created tar-ed or compressed base backups, patroni won't be able to make a replica out
+of it. There is no validation performed on the names or values of the parameters passed to the ``basebackup`` section.
+You can specify basebackup parameters as either a map (key-value pairs) or a list of elements, where each element
+could be either a key-value pair or a single key (for options that does not receive any values, for instance, ``--verbose``).
+Consider those 2 examples:
+
+.. code:: YAML
+
+    postgresql:
+        basebackup:
+            max-rate: '100M'
+            checkpoint: 'fast'
+
+and
+
+.. code:: YAML
+
+    postgresql:
+        basebackup:
+            - verbose
+            - max-rate: '100M'
+
 If all replica creation methods fail, Patroni will try again all methods in order during the next event loop cycle.
+
+.. _standby_cluster:
+
+Standby cluster
+---------------
+
+Another available option is to run a "standby cluster", that contains only of
+standby nodes replicating from some remote master. This type of clusters has:
+
+* "standby leader", that behaves pretty much like a regular cluster leader,
+  except it replicates from a remote master.
+
+* cascade replicas, that are replicating from standby leader.
+
+Standby leader holds and updates a leader lock in DCS. If the leader lock
+expires, cascade replicas will perform an election to choose another leader
+from the standbys. For the sake of flexibility, you can specify different
+methods of creating a replica and recovery WAL records when a cluster is in the
+"standby mode", and after it was detached to function as a normal cluster.
+
+To configure such cluster you need to specify the section ``standby_cluster``
+in a patroni configuration:
+
+.. code:: YAML
+
+    bootstrap:
+        dcs:
+            standby_cluster:
+                host: 1.2.3.4
+                port: 5432
+                primary_slot_name: patroni
+
+Note, that these options will be applied only once during cluster bootstrap,
+and the only way to change them afterwards is through DCS.

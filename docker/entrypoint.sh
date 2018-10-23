@@ -38,10 +38,10 @@ while getopts "$optspec" optchar; do
                         done
                         exec $CONFD zookeeper -node ${PATRONI_ZOOKEEPER_HOSTS}
                     else
-                        while ! curl -s ${PATRONI_ETCD_HOST}/v2/members | jq -r '.members[0].clientURLs[0]' | grep -q http; do
+                        while ! curl -s ${PATRONI_ETCD_URL}/v2/members | jq -r '.members[0].clientURLs[0]' | grep -q http; do
                             sleep 1
                         done
-                        exec $CONFD etcd -node $PATRONI_ETCD_HOST
+                        exec $CONFD etcd -node $PATRONI_ETCD_URL
                     fi
                     ;;
                 etcd)
@@ -74,9 +74,9 @@ while getopts "$optspec" optchar; do
 done
 
 ## We start an etcd
-if [[ -z ${PATRONI_ETCD_HOST} && -z ${PATRONI_ZOOKEEPER_HOSTS} ]]; then
+if [[ -z ${PATRONI_ETCD_URL} && -z ${PATRONI_ZOOKEEPER_HOSTS} ]]; then
     etcd $ETCD_ARGS > /var/log/etcd.log 2> /var/log/etcd.err &
-    export PATRONI_ETCD_HOST="127.0.0.1:2379"
+    export PATRONI_ETCD_URL="http://127.0.0.1:2379"
 fi
 
 export PATRONI_SCOPE
@@ -108,7 +108,7 @@ __EOF__
 mkdir -p "$HOME/.config/patroni"
 [ -h "$HOME/.config/patroni/patronictl.yaml" ] || ln -s /patroni.yml "$HOME/.config/patroni/patronictl.yaml"
 
-[ -z $CHEAT ] && exec python /patroni.py /patroni.yml
+[ -z $CHEAT ] && exec python3 /patroni.py /patroni.yml
 
 while true; do
     sleep 60

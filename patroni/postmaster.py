@@ -12,11 +12,12 @@ logger = logging.getLogger(__name__)
 STOP_SIGNALS = {
     'smart': signal.SIGTERM,
     'fast': signal.SIGINT,
-    'immediate': signal.SIGQUIT,
+    'immediate': signal.SIGQUIT if os.name != 'nt' else signal.SIGABRT,
 }
 
 
 class PostmasterProcess(psutil.Process):
+
     def __init__(self, pid):
         self.is_single_user = False
         if pid < 0:
@@ -24,32 +25,56 @@ class PostmasterProcess(psutil.Process):
             self.is_single_user = True
         super(PostmasterProcess, self).__init__(pid)
 
-    @classmethod
-    def from_pidfile(cls, pidfile):
-        try:
-            pid = int(pidfile.get('pid', 0))
-            if not pid:
-                return None
-        except ValueError:
-            return None
+    @staticmethod
+    def _read_postmaster_pidfile(data_dir):
+        """Reads and parses postmaster.pid from the data directory
 
+        :returns dictionary of values if successful, empty dictionary otherwise
+        """
+        pid_line_names = ['pid', 'data_dir', 'start_time', 'port', 'socket_dir', 'listen_addr', 'shmem_key']
         try:
-            proc = cls(pid)
-        except psutil.NoSuchProcess:
-            return None
+            with open(os.path.join(data_dir, 'postmaster.pid')) as f:
+                return {name: line.rstrip('\n') for name, line in zip(pid_line_names, f)}
+        except IOError:
+            return {}
 
+    def _is_postmaster_process(self):
         try:
-            start_time = int(pidfile.get('start_time', 0))
-            if start_time and abs(proc.create_time() - start_time) > 3:
-                return None
+            start_time = int(self._postmaster_pid.get('start_time', 0))
+            if start_time and abs(self.create_time() - start_time) > 3:
+                logger.info('Process %s is not postmaster, too much difference between PID file start time %s and '
+                            'process start time %s', self.pid, self.create_time(), start_time)
+                return False
         except ValueError:
-            logger.warning("Garbage start time value in pid file: %r", pidfile.get('start_time'))
+            logger.warning('Garbage start time value in pid file: %r', self._postmaster_pid.get('start_time'))
 
         # Extra safety check. The process can't be ourselves, our parent or our direct child.
-        if proc.pid == os.getpid() or proc.pid == os.getppid() or proc.parent() == os.getpid():
-            return None
+        if self.pid == os.getpid() or self.pid == os.getppid() or self.ppid() == os.getpid():
+            logger.info('Patroni (pid=%s, ppid=%s), "fake postmaster" (pid=%s, ppid=%s)',
+                        os.getpid(), os.getppid(), self.pid, self.ppid())
+            return False
 
-        return proc
+        return True
+
+    @classmethod
+    def _from_pidfile(cls, data_dir):
+        postmaster_pid = PostmasterProcess._read_postmaster_pidfile(data_dir)
+        try:
+            pid = int(postmaster_pid.get('pid', 0))
+            if pid:
+                proc = cls(pid)
+                proc._postmaster_pid = postmaster_pid
+                return proc
+        except ValueError:
+            pass
+
+    @staticmethod
+    def from_pidfile(data_dir):
+        try:
+            proc = PostmasterProcess._from_pidfile(data_dir)
+            return proc if proc and proc._is_postmaster_process() else None
+        except psutil.NoSuchProcess:
+            return None
 
     @classmethod
     def from_pid(cls, pid):
@@ -100,8 +125,8 @@ class PostmasterProcess(psutil.Process):
         except psutil.Error:
             logger.exception('wait_for_user_backends_to_close')
 
-    @classmethod
-    def start(cls, pgcommand, data_dir, conf, options):
+    @staticmethod
+    def start(pgcommand, data_dir, conf, options):
         # Unfortunately `pg_ctl start` does not return postmaster pid to us. Without this information
         # it is hard to know the current state of postgres startup, so we had to reimplement pg_ctl start
         # in python. It will start postgres, wait for port to be open and wait until postgres will start
@@ -113,10 +138,26 @@ class PostmasterProcess(psutil.Process):
         # of init process to take care about postmaster.
         # In order to make everything portable we can't use fork&exec approach here, so  we will call
         # ourselves and pass list of arguments which must be used to start postgres.
-        proc = call_self(['pg_ctl_start', pgcommand, '-D', data_dir,
-                          '--config-file={}'.format(conf)] + options, close_fds=True,
-                         preexec_fn=os.setsid, stdout=subprocess.PIPE,
-                         env={p: os.environ[p] for p in ('PATH', 'LC_ALL', 'LANG') if p in os.environ})
+        # On Windows, in order to run a side-by-side assembly the specified env must include a valid SYSTEMROOT.
+        env = {p: os.environ[p] for p in ('PATH', 'LD_LIBRARY_PATH', 'LC_ALL', 'LANG', 'SYSTEMROOT') if p in os.environ}
+        try:
+            proc = PostmasterProcess._from_pidfile(data_dir)
+            if proc and not proc._is_postmaster_process():
+                # Upon start postmaster process performs various safety checks if there is a postmaster.pid
+                # file in the data directory. Although Patroni already detected that the running process
+                # corresponding to the postmaster.pid is not a postmaster, the new postmaster might fail
+                # to start, because it thinks that postmaster.pid is already locked.
+                # Important!!! Unlink of postmaster.pid isn't an option, because it has a lot of nasty race conditions.
+                # Luckily there is a workaround to this problem, we can pass the pid from postmaster.pid
+                # in the `PG_GRANDPARENT_PID` environment variable and postmaster will ignore it.
+                logger.info("Telling pg_ctl that it is safe to ignore postmaster.pid for process %s", proc.pid)
+                env['PG_GRANDPARENT_PID'] = str(proc.pid)
+        except psutil.NoSuchProcess:
+            pass
+        cmdline = [pgcommand, '-D', data_dir, '--config-file={}'.format(conf)] + options
+        logger.debug("Starting postgres: %s", " ".join(cmdline))
+        proc = call_self(['pg_ctl_start'] + cmdline, close_fds=(os.name != 'nt'),
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
         pid = int(proc.stdout.readline().strip())
         proc.wait()
         logger.info('postmaster pid=%s', pid)
