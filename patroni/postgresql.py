@@ -37,7 +37,7 @@ STATE_UNKNOWN = 'unknown'
 
 STOP_POLLING_INTERVAL = 1
 REWIND_STATUS = type('Enum', (), {'INITIAL': 0, 'CHECK': 1, 'NEED': 2, 'NOT_NEED': 3, 'SUCCESS': 4, 'FAILED': 5})
-sync_standby_name_re = re.compile('^[A-Za-z_][A-Za-z_0-9\$]*$')
+sync_standby_name_re = re.compile(r'^[A-Za-z_][A-Za-z_0-9\$]*$')
 
 cluster_info_query = ("SELECT CASE WHEN pg_is_in_recovery() THEN 0 "
                       "ELSE ('x' || SUBSTR(pg_{0}file_name(pg_current_{0}_{1}()), 1, 8))::bit(32)::int END, "
