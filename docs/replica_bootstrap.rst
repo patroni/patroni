@@ -101,7 +101,7 @@ example: pgbackrest
             - pgbackrest
             - basebackup
         pgbackrest:
-            command: /usr/bin/pgbackrest --stanza=mydb --deltarestore
+            command: pgbackrest.sh
             keep_data: True
             no_params: True
         basebackup:
