@@ -90,7 +90,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
         if patroni.ha.is_standby_cluster() and ('standby_leader' in path or 'standby-leader' in path):
             status_code = 200 if patroni.ha.is_leader() else 503
         elif 'master' in path or 'leader' in path or 'primary' in path:
-            status_code = 200 if patroni.ha.is_leader() else 503
+            # Round-robing across all masters in pause mode if DCS is not accessible
+            if not cluster and patroni.ha.is_paused():
+                status_code = 200 if response['role'] == 'master' else 503
+            else:
+                status_code = 200 if patroni.ha.is_leader() else 503
         elif 'replica' in path:
             status_code = replica_status_code
         elif cluster:  # dcs is available
