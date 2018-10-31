@@ -12,7 +12,7 @@ from collections import namedtuple
 from multiprocessing.pool import ThreadPool
 from patroni.async_executor import AsyncExecutor, CriticalTask
 from patroni.exceptions import DCSError, PostgresConnectionException, PatroniException
-from patroni.postgresql import ACTION_ON_START
+from patroni.postgresql import ACTION_ON_START, ACTION_ON_ROLE_CHANGE
 from patroni.utils import polling_loop, tzutc
 from patroni.dcs import RemoteMember
 from threading import RLock
@@ -61,6 +61,7 @@ class Ha(object):
         self.old_cluster = None
         self._is_leader = False
         self._is_leader_lock = RLock()
+        self._leader_access_is_restricted = False
         self._was_paused = False
         self._leader_timeline = None
         self.recovering = False
@@ -105,11 +106,15 @@ class Ha(object):
 
     def is_leader(self):
         with self._is_leader_lock:
-            return self._is_leader
+            return self._is_leader and not self._leader_access_is_restricted
 
     def set_is_leader(self, value):
         with self._is_leader_lock:
             self._is_leader = value
+
+    def set_leader_access_is_restricted(self, value):
+        with self._is_leader_lock:
+            self._leader_access_is_restricted = value
 
     def load_cluster_from_dcs(self):
         cluster = self.dcs.get_cluster()
@@ -125,6 +130,7 @@ class Ha(object):
         self._leader_timeline = None if cluster.is_unlocked() else cluster.leader.timeline
 
     def acquire_lock(self):
+        self.set_leader_access_is_restricted(self.cluster.has_permanent_logical_slots(self.state_handler.name))
         ret = self.dcs.attempt_to_acquire_leader()
         self.set_is_leader(ret)
         return ret
@@ -136,7 +142,7 @@ class Ha(object):
                 last_operation = self.state_handler.last_operation()
             except Exception:
                 logger.exception('Exception when called state_handler.last_operation()')
-        ret = self.dcs.update_leader(last_operation)
+        ret = self.dcs.update_leader(last_operation, self._leader_access_is_restricted)
         self.set_is_leader(ret)
         if ret:
             self.watchdog.keepalive()
@@ -163,6 +169,10 @@ class Ha(object):
                 'state': self.state_handler.state,
                 'role': self.state_handler.role
             }
+
+            # following two lines are mainly necessary for consul, to avoid creation of master service
+            if data['role'] == 'master' and not self.is_leader():
+                data['role'] = 'promoted'
             tags = self.get_effective_tags()
             if tags:
                 data['tags'] = tags
@@ -499,8 +509,10 @@ class Ha(object):
                     return 'Postponing promotion because synchronous replication state was updated by somebody else'
                 self.state_handler.set_synchronous_standby('*' if self.is_synchronous_mode_strict() else None)
             if self.state_handler.role != 'master':
+                self.set_leader_access_is_restricted(self.cluster.has_permanent_logical_slots(self.state_handler.name))
                 self._async_executor.schedule('promote')
-                self._async_executor.run_async(self.state_handler.promote, args=(self.dcs.loop_wait,))
+                self._async_executor.run_async(self.state_handler.promote,
+                                               args=(self.dcs.loop_wait, self._leader_access_is_restricted))
             return promote_message
 
     @staticmethod
@@ -837,6 +849,11 @@ class Ha(object):
                 self.dcs.reset_cluster()
                 return 'removed leader lock because postgres is not running as master'
 
+            if self.state_handler.is_leader() and self._leader_access_is_restricted:
+                self.state_handler.sync_replication_slots(self.cluster)
+                self.state_handler.call_nowait(ACTION_ON_ROLE_CHANGE)
+                self.set_leader_access_is_restricted(False)
+
             if self.update_lock(True):
                 msg = self.process_manual_failover_from_leader()
                 if msg is not None:
@@ -1076,6 +1093,7 @@ class Ha(object):
         if not self.watchdog.activate():
             logger.error('Cancelling bootstrap because watchdog activation failed')
             self.cancel_initialization()
+        self.state_handler.sync_replication_slots(self.cluster)
         self.dcs.take_leader()
         self.set_is_leader(True)
         self.state_handler.call_nowait(ACTION_ON_START)
@@ -1234,11 +1252,11 @@ class Ha(object):
                 # stops PostgreSQL, therefore, we only reload replication slots if no
                 # asynchronous processes are running (should be always the case for the master)
                 if not self._async_executor.busy and not self.state_handler.is_starting():
+                    self.state_handler.sync_replication_slots(self.cluster)
                     if not self.state_handler.cb_called:
                         if not self.state_handler.is_leader():
                             self.state_handler.trigger_check_diverged_lsn()
                         self.state_handler.call_nowait(ACTION_ON_START)
-                    self.state_handler.sync_replication_slots(self.cluster)
         except DCSError:
             dcs_failed = True
             logger.error('Error communicating with DCS')
