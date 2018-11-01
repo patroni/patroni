@@ -28,15 +28,15 @@ class MockCursor(object):
     def execute(self, sql, *params):
         if sql.startswith('blabla'):
             raise psycopg2.ProgrammingError()
-        elif sql == 'CHECKPOINT' or sql.startswith('SELECT pg_create_'):
+        elif sql == 'CHECKPOINT' or sql.startswith('SELECT pg_catalog.pg_create_'):
             raise psycopg2.OperationalError()
         elif sql.startswith('RetryFailedError'):
             raise RetryFailedError('retry')
         elif sql.startswith('SELECT slot_name'):
             self.results = [('blabla', 'physical'), ('foobar', 'physical'), ('ls', 'logical', 'a', 'b')]
-        elif sql.startswith('SELECT CASE WHEN pg_is_in_recovery()'):
+        elif sql.startswith('SELECT CASE WHEN pg_catalog.pg_is_in_recovery()'):
             self.results = [(1, 2)]
-        elif sql.startswith('SELECT pg_is_in_recovery()'):
+        elif sql.startswith('SELECT pg_catalog.pg_is_in_recovery()'):
             self.results = [(False, 2)]
         elif sql.startswith('WITH replication_info AS ('):
             replication_info = '[{"application_name":"walreceiver","client_addr":"1.2.3.4",' +\
@@ -53,7 +53,7 @@ class MockCursor(object):
             self.results = [('1', 2, '0/402EEC0', '')]
         elif sql.startswith('SELECT isdir, modification'):
             self.results = [(False, datetime.datetime.now())]
-        elif sql.startswith('SELECT pg_read_file'):
+        elif sql.startswith('SELECT pg_catalog.pg_read_file'):
             self.results = [('1\t0/40159C0\tno recovery target specified\n\n' +
                              '2\t1/40159C0\tno recovery target specified\n',)]
         elif sql.startswith('TIMELINE_HISTORY '):
@@ -421,9 +421,13 @@ class TestPostgresql(unittest.TestCase):
     def test_create_replica(self, mock_cancellable_subprocess_call):
         self.p.delete_trigger_file = Mock(side_effect=OSError)
 
+        self.p.config['create_replica_methods'] = ['pgBackRest']
+        self.p.config['pgBackRest'] = {'command': 'pgBackRest', 'keep_data': True, 'no_params': True}
+        mock_cancellable_subprocess_call.return_value = 0
+        self.assertEqual(self.p.create_replica(self.leader), 0)
+
         self.p.config['create_replica_methods'] = ['wale', 'basebackup']
         self.p.config['wale'] = {'command': 'foo'}
-        mock_cancellable_subprocess_call.return_value = 0
         self.assertEqual(self.p.create_replica(self.leader), 0)
         del self.p.config['wale']
         self.assertEqual(self.p.create_replica(self.leader), 0)

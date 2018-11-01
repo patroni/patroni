@@ -39,12 +39,14 @@ STOP_POLLING_INTERVAL = 1
 REWIND_STATUS = type('Enum', (), {'INITIAL': 0, 'CHECK': 1, 'NEED': 2, 'NOT_NEED': 3, 'SUCCESS': 4, 'FAILED': 5})
 sync_standby_name_re = re.compile(r'^[A-Za-z_][A-Za-z_0-9\$]*$')
 
-cluster_info_query = ("SELECT CASE WHEN pg_is_in_recovery() THEN 0 "
-                      "ELSE ('x' || SUBSTR(pg_{0}file_name(pg_current_{0}_{1}()), 1, 8))::bit(32)::int END, "
-                      "CASE WHEN pg_is_in_recovery() THEN GREATEST("
-                      " pg_{0}_{1}_diff(COALESCE(pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint,"
-                      " pg_{0}_{1}_diff(pg_last_{0}_replay_{1}(), '0/0')::bigint)"
-                      "ELSE pg_{0}_{1}_diff(pg_current_{0}_{1}(), '0/0')::bigint END")
+cluster_info_query = ("SELECT CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
+                      "ELSE ('x' || pg_catalog.substr(pg_catalog.pg_{0}file_name("
+                      "pg_catalog.pg_current_{0}_{1}()), 1, 8))::bit(32)::int END, "
+                      "CASE WHEN pg_catalog.pg_is_in_recovery() THEN GREATEST("
+                      " pg_catalog.pg_{0}_{1}_diff(COALESCE("
+                      "pg_catalog.pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint,"
+                      " pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint)"
+                      "ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), '0/0')::bigint END")
 
 
 def quote_ident(value):
@@ -308,8 +310,8 @@ class Postgresql(object):
                     changes['wal_segment_size'] = '16384kB'
                 # XXX: query can raise an exception
                 for r in self.query("""SELECT name, setting, unit, vartype, context
-                                         FROM pg_settings
-                                        WHERE LOWER(name) IN (""" + ', '.join(['%s'] * len(changes)) + """)
+                                         FROM pg_catalog.pg_settings
+                                        WHERE pg_catalog.lower(name) IN (""" + ', '.join(['%s'] * len(changes)) + """)
                                         ORDER BY 1 DESC""", *(k.lower() for k in changes.keys())):
                     if r[4] == 'internal':
                         if r[0] == 'wal_segment_size':
@@ -712,12 +714,8 @@ class Postgresql(object):
                                           "datadir": self._data_dir,
                                           "connstring": connstring})
                 else:
-                    if 'no_params' in method_config:
-                        del method_config['no_params']
-                    if 'no_master' in method_config:
-                        del method_config['no_master']
-                    if 'keep_data' in method_config:
-                        del method_config['keep_data']
+                    for param in ('no_params', 'no_master', 'keep_data'):
+                        method_config.pop(param, None)
                 params = ["--{0}={1}".format(arg, val) for arg, val in method_config.items()]
                 try:
                     # call script with the full set of parameters
@@ -945,7 +943,7 @@ class Postgresql(object):
             with self._get_connection_cursor(**connect_kwargs) as cur:
                 cur.execute("SET statement_timeout = 0")
                 if check_not_is_in_recovery:
-                    cur.execute('SELECT pg_is_in_recovery()')
+                    cur.execute('SELECT pg_catalog.pg_is_in_recovery()')
                     if cur.fetchone()[0]:
                         return 'is_in_recovery=true'
                 return cur.execute('CHECKPOINT')
@@ -1253,7 +1251,7 @@ class Postgresql(object):
     def check_leader_is_not_in_recovery(self, **kwargs):
         try:
             with self._get_connection_cursor(connect_timeout=3, options='-c statement_timeout=2000', **kwargs) as cur:
-                cur.execute('SELECT pg_is_in_recovery()')
+                cur.execute('SELECT pg_catalog.pg_is_in_recovery()')
                 if not cur.fetchone()[0]:
                     return True
                 logger.info('Leader is still in_recovery and therefore can\'t be used for rewind')
@@ -1364,10 +1362,10 @@ class Postgresql(object):
         history_path = 'pg_{0}/{1:08X}.history'.format(self.wal_name, timeline)
         try:
             cursor = self._cursor()
-            cursor.execute('SELECT isdir, modification FROM pg_stat_file(%s)', (history_path,))
+            cursor.execute('SELECT isdir, modification FROM pg_catalog.pg_stat_file(%s)', (history_path,))
             isdir, modification = cursor.fetchone()
             if not isdir:
-                cursor.execute('SELECT pg_read_file(%s)', (history_path,))
+                cursor.execute('SELECT pg_catalog.pg_read_file(%s)', (history_path,))
                 history = list(self.parse_history(cursor.fetchone()[0]))
                 if history[-1][0] == timeline - 1:
                     history[-1].append(modification.isoformat())
@@ -1539,7 +1537,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
     def load_replication_slots(self):
         if self.use_slots and self._schedule_load_slots:
             replication_slots = {}
-            cursor = self._query('SELECT slot_name, slot_type, plugin, database FROM pg_replication_slots')
+            cursor = self._query('SELECT slot_name, slot_type, plugin, database FROM pg_catalog.pg_replication_slots')
             for r in cursor:
                 value = {'type': r[1]}
                 if r[1] == 'logical':
@@ -1550,14 +1548,15 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
     def postmaster_start_time(self):
         try:
-            cursor = self.query("""SELECT to_char(pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ')""")
+            cursor = self.query("SELECT pg_catalog.to_char(pg_catalog.pg_postmaster_start_time(),"
+                                " 'YYYY-MM-DD HH24:MI:SS.MS TZ')")
             return cursor.fetchone()[0]
         except psycopg2.Error:
             return None
 
     def drop_replication_slot(self, name):
-        cursor = self._query(('SELECT pg_drop_replication_slot(%s) WHERE EXISTS (SELECT 1 ' +
-                              'FROM pg_replication_slots WHERE slot_name = %s AND NOT active)'), name, name)
+        cursor = self._query(('SELECT pg_catalog.pg_drop_replication_slot(%s) WHERE EXISTS (SELECT 1 ' +
+                              'FROM pg_catalog.pg_replication_slots WHERE slot_name = %s AND NOT active)'), name, name)
         # In normal situation rowcount should be 1, otherwise either slot doesn't exists or it is still active
         return cursor.rowcount == 1
 
@@ -1594,8 +1593,8 @@ $$""".format(name, ' '.join(options)), name, password, password)
                     if name not in self._replication_slots:
                         if value['type'] == 'physical':
                             try:
-                                self._query(("SELECT pg_create_physical_replication_slot(%s{0})" +
-                                             " WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots" +
+                                self._query(("SELECT pg_catalog.pg_create_physical_replication_slot(%s{0})" +
+                                             " WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_replication_slots" +
                                              " WHERE slot_type = 'physical' AND slot_name = %s)").format(
                                                  immediately_reserve), name, name)
                             except Exception:
@@ -1611,8 +1610,8 @@ $$""".format(name, ' '.join(options)), name, password, password)
                     with self._get_connection_cursor(**conn_kwargs) as cur:
                         for name, value in values.items():
                             try:
-                                cur.execute("SELECT pg_create_logical_replication_slot(%s, %s)" +
-                                            " WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots" +
+                                cur.execute("SELECT pg_catalog.pg_create_logical_replication_slot(%s, %s)" +
+                                            " WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_replication_slots" +
                                             " WHERE slot_type = 'logical' AND slot_name = %s)",
                                             (name, value['plugin'], name))
                             except Exception:
@@ -1775,9 +1774,9 @@ $$""".format(name, ' '.join(options)), name, password, password)
         # Pick candidates based on who has flushed WAL farthest.
         # TODO: for synchronous_commit = remote_write we actually want to order on write_location
         for app_name, state, sync_state in self.query(
-                """SELECT LOWER(application_name), state, sync_state
-                     FROM pg_stat_replication
-                    ORDER BY flush_{0} DESC""".format(self.lsn_name)):
+                "SELECT pg_catalog.lower(application_name), state, sync_state"
+                " FROM pg_catalog.pg_stat_replication"
+                " ORDER BY flush_{0} DESC".format(self.lsn_name)):
             member = members.get(app_name)
             if state != 'streaming' or not member or member.tags.get('nosync', False):
                 continue
