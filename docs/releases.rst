@@ -12,7 +12,7 @@ This version implements support of permanent replication slots, adds support of 
 
 - Permanent replication slots (Alexander Kukushkin)
 
-  Permanent replication slots are preserved on failover/switchover, that is Patroni on the new primary will create configured replication slots right after doing promote. Slots could be configured with the help of `patronictl edit-config`. The initial configuration could be also done in the :ref:`bootstrap.dcs <settings>`.
+  Permanent replication slots are preserved on failover/switchover, that is, Patroni on the new primary will create configured replication slots right after doing promote. Slots could be configured with the help of `patronictl edit-config`. The initial configuration could be also done in the :ref:`bootstrap.dcs <settings>`.
 
 - Add pgbackrest support (Yogesh Sharma)
 
