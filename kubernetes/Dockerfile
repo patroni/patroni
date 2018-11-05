@@ -12,14 +12,14 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     ## Make sure we have a en_US.UTF-8 locale available
     && localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8 \
 
-    && pip install setuptools \
-    && pip install 'git+https://github.com/zalando/patroni.git#egg=patroni[kubernetes]' \
+    && pip3 install setuptools \
+    && pip3 install 'git+https://github.com/zalando/patroni.git#egg=patroni[kubernetes]' \
 
     && mkdir -p /home/postgres \
     && chown postgres:postgres /home/postgres \
 
     # Clean up
-    && apt-get remove -y git python-pip python-wheel \
+    && apt-get remove -y git python3-pip python3-wheel \
     && apt-get autoremove -y \
     && apt-get clean -y \
     && rm -rf /var/lib/apt/lists/* /root/.cache
