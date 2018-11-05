@@ -19,7 +19,7 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     && chown postgres:postgres /home/postgres \
 
     # Clean up
-    && apt-get remove -y git python-pip python-wheel \
+    && apt-get remove -y git python3-pip python3-wheel \
     && apt-get autoremove -y \
     && apt-get clean -y \
     && rm -rf /var/lib/apt/lists/* /root/.cache
