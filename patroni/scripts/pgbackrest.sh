@@ -8,19 +8,20 @@ case $i in
     --datadir=*)
     DATADIR="${i#*=}"
     ;;
-    --role=*)
-    ROLE="${i#*=}"
-    ;;
-    --connstring=*)
-    CONNSTRING="${i#*=}"
-    ;;
+# Patroni switch not needed by pgbackrest
+#    --role=*)
+#    ROLE="${i#*=}"
+#    ;;
+#    --connstring=*)
+#    CONNSTRING="${i#*=}"
+#    ;;
     *)
             # unknown option
     ;;
 esac
 done
 
-mkdir ${DATADIR}
+mkdir -p ${DATADIR}
 chmod 0700 ${DATADIR}
 
 /usr/bin/pgbackrest --stanza=${SCOPE} --db-path=${DATADIR} --delta restore
