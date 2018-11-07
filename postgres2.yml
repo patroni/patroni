@@ -42,16 +42,15 @@ bootstrap:
 #        archive_command: mkdir -p ../wal_archive && test ! -f ../wal_archive/%f && cp %p ../wal_archive/%f
 #      recovery_conf:
 #        restore_command: cp ../wal_archive/%f %p
+       pg_hba:  # Add following lines to pg_hba.conf after running 'initdb'
+         - host     replication replicator  127.0.0.1/32  md5
+         - host     all         all         0.0.0.0/0     md5
+#         - hostssl  all         all         0.0.0.0/0     md5
 
   # some desired options for 'initdb'
   initdb:  # Note: It needs to be a list (some options need values, others are switches)
   - encoding: UTF8
   - data-checksums
-
-  pg_hba:  # Add following lines to pg_hba.conf after running 'initdb'
-  - host replication replicator 127.0.0.1/32 md5
-  - host all all 0.0.0.0/0 md5
-#  - hostssl all all 0.0.0.0/0 md5
 
   # Some additional users users which needs to be created after initializing new cluster
   users:
