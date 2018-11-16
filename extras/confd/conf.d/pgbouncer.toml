@@ -1,5 +1,5 @@
 [template]
-prefix = "/service/ats"
+prefix = "/service/batman"
 owner = "postgres"
 mode = "0644"
 src = "pgbouncer.tmpl"
@@ -8,5 +8,5 @@ dest = "/etc/pgbouncer/pgbouncer.ini"
 reload_cmd = "systemctl reload pgbouncer"
 
 keys = [
-    "/members/",
+    "/members/","/leader"
 ]
