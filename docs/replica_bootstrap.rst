@@ -101,7 +101,7 @@ example: pgbackrest
             - pgbackrest
             - basebackup
         pgbackrest:
-            command: pgbackrest.sh
+            command: /usr/bin/pgbackrest --stanza=<scope> --delta restore
             keep_data: True
             no_params: True
         basebackup:
