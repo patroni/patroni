@@ -4,6 +4,7 @@ Feature: standby cluster
     Then postgres1 is a leader after 10 seconds
     When I issue a PATCH request to http://127.0.0.1:8009/config with {"slots": {"test_logical": {"type": "logical", "database": "postgres", "plugin": "test_decoding"}}}
     Then I receive a response code 200
+    And Response on GET http://127.0.0.1:8009/config contains slots after 10 seconds
     When I issue a PATCH request to http://127.0.0.1:8009/config with {"slots": {"pm_1": {"type": "physical"}}, "postgresql": {"parameters": {"wal_level": "logical"}}}
     Then I receive a response code 200
     When I start postgres0 with callback configured
