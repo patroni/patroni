@@ -15,8 +15,14 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     && pip3 install setuptools \
     && pip3 install 'git+https://github.com/zalando/patroni.git#egg=patroni[kubernetes]' \
 
-    && mkdir -p /home/postgres \
-    && chown postgres:postgres /home/postgres \
+    && PGHOME=/home/postgres \
+    && mkdir -p $PGHOME \
+    && chown postgres $PGHOME \
+    && sed -i "s|/var/lib/postgresql.*|$PGHOME:/bin/bash|" /etc/passwd \
+
+    # Set permissions for OpenShift
+    && chmod 775 $PGHOME \
+    && chmod 664 /etc/passwd \
 
     # Clean up
     && apt-get remove -y git python3-pip python3-wheel \
@@ -24,7 +30,7 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     && apt-get clean -y \
     && rm -rf /var/lib/apt/lists/* /root/.cache
 
-ADD entrypoint.sh callback.py /
+ADD entrypoint.sh /
 
 EXPOSE 5432 8008
 ENV LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
