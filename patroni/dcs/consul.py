@@ -338,17 +338,15 @@ class Consul(AbstractDCS):
             logger.exception('get_cluster')
             raise ConsulError('Consul is not responding properly')
 
+    @catch_consul_errors
     def touch_member(self, data, ttl=None, permanent=False):
         cluster = self.cluster
         member = cluster and cluster.get_member(self._name, fallback_to_leader=False)
         create_member = not permanent and self.refresh_session()
 
         if member and (create_member or member.session != self._session):
-            try:
-                self._client.kv.delete(self.member_path)
-                create_member = True
-            except Exception:
-                return False
+            self._client.kv.delete(self.member_path)
+            create_member = True
 
         if not create_member and member and deep_compare(data, member.data):
             return True
