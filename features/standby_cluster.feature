@@ -2,6 +2,7 @@ Feature: standby cluster
   Scenario: check permanent logical slots are preserved on failover/switchover
     Given I start postgres1
     Then postgres1 is a leader after 10 seconds
+    And I sleep for 2 seconds
     When I issue a PATCH request to http://127.0.0.1:8009/config with {"slots": {"pm_1": {"type": "physical"}}, "postgresql": {"parameters": {"wal_level": "logical"}}}
     Then I receive a response code 200
     And Response on GET http://127.0.0.1:8009/config contains slots after 10 seconds
