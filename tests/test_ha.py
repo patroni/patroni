@@ -767,7 +767,7 @@ class TestHa(unittest.TestCase):
     @patch('patroni.ha.Ha.demote')
     def test_failover_immediately_on_zero_master_start_timeout(self, demote):
         self.p.is_running = false
-        self.ha.cluster = get_cluster_initialized_with_leader(sync=(self.p.name, 'other'))
+        self.ha.cluster = get_cluster_initialized_with_leader(sync=(1,(self.p.name, 'other')))
         self.ha.cluster.config.data['synchronous_mode'] = True
         self.ha.patroni.config.set_dynamic_configuration({'master_start_timeout': 0})
         self.ha.has_lock = true
@@ -808,7 +808,7 @@ class TestHa(unittest.TestCase):
         self.ha.is_synchronous_mode = true
 
         # Test sync standby not touched when picking the same node
-        self.p.pick_synchronous_standby = Mock(return_value=('other', True))
+        self.p.current_sync_state = Mock(return_value={'active': set(['other']), 'numsync': 2, 'sync': set(['leader', 'other'])})
         self.ha.cluster = get_cluster_initialized_with_leader(sync=(1,('leader', 'other')))
         self.ha.run_cycle()
         mock_set_sync.assert_not_called()
@@ -844,7 +844,7 @@ class TestHa(unittest.TestCase):
 
         # Test changing sync standby failed due to race
         self.ha.dcs.write_sync_state = Mock(return_value=True)
-        self.ha.dcs.get_cluster = Mock(return_value=get_cluster_initialized_with_leader(sync=('somebodyelse', None)))
+        self.ha.dcs.get_cluster = Mock(return_value=get_cluster_initialized_with_leader(sync=(1,('somebodyelse', None))))
         self.ha.run_cycle()
         self.assertEqual(self.ha.dcs.write_sync_state.call_count, 1)
 
@@ -919,7 +919,7 @@ class TestHa(unittest.TestCase):
         self.ha.cluster = get_cluster_initialized_with_leader(sync=(1,('leader', 'other')))
         self.ha.touch_member = Mock(return_value=True)
         self.ha.dcs.get_cluster = Mock(side_effect=[
-            get_cluster_initialized_with_leader(sync=('leader', syncstandby))
+            get_cluster_initialized_with_leader(sync=(1,('leader', syncstandby)))
             for syncstandby in ['other', None]])
 
         with patch('time.sleep') as mock_sleep:

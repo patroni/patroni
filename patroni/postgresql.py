@@ -1826,10 +1826,10 @@ $$""".format(name, ' '.join(options)), name, password, password)
         * sync: set of nodes potentially being synced to
         * active: set of nodes that are sync capable
         """
-        sync_standby_names = self.query("SHOW synchronous_standby_names")
+        sync_standby_names = self.query("SHOW synchronous_standby_names").fetchone()[0]
         result = parse_sync_standby_names(sync_standby_names)
 
-        active = []
+        active = [self.name]
         members = {m.name.lower(): m for m in cluster.members}
         current = None
         for app_name, state, sync_state in self.query(

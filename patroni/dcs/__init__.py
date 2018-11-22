@@ -335,7 +335,7 @@ class SyncState(namedtuple('SyncState', 'index,leader,quorum,members')):
 
     @staticmethod
     def empty(index):
-        return SyncState(index, None, None, frozenset())
+        return SyncState(index, None, 1, frozenset())
 
     @property
     def is_empty(self):
@@ -640,12 +640,13 @@ class AbstractDCS(object):
         """Delete cluster from DCS"""
 
     @staticmethod
-    def sync_state(leader, sync_standby):
+    def sync_state(leader, quorum, members):
         """Build sync_state dict"""
-        return {'leader': leader, 'sync_standby': sync_standby}
+        return {'leader': leader, 'quorum': quorum, 'members': list(members)}
 
-    def write_sync_state(self, leader, sync_standby, index=None):
-        sync_value = self.sync_state(leader, sync_standby)
+    def write_sync_state(self, leader, quorum, members, index=None):
+        sync_value = self.sync_state(leader, quorum, members)
+        #logger.info("Writing sync state: %r", sync_value)
         return self.set_sync_state_value(json.dumps(sync_value, separators=(',', ':')), index)
 
     @abc.abstractmethod

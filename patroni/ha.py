@@ -356,6 +356,7 @@ class Ha(object):
         return follow_reason
 
     def is_synchronous_mode(self):
+        return True
         return self.check_mode('synchronous_mode')
 
     def is_synchronous_mode_strict(self):
@@ -390,8 +391,16 @@ class Ha(object):
 
             if self.cluster.sync.is_empty:
                 quorum, voters = 1, frozenset([self.state_handler.name])
+                self.dcs.write_sync_state(leader=self.state_handler.name, quorum=quorum, members=voters)
             else:
                 quorum, voters = self.cluster.sync.quorum, self.cluster.sync.members
+
+            #logger.info("QuorumStateResolver(%r)", dict(quorum=quorum,
+            #                                                  voters=voters,
+            #                                                  numsync=sync_state['numsync'],
+            #                                                  sync=sync_state['sync'],
+            #                                                  active=sync_state['active'],
+            #                                                  sync_wanted=sync_wanted))
 
             for transition, num, nodes in QuorumStateResolver(quorum=quorum,
                                                               voters=voters,
@@ -410,7 +419,7 @@ class Ha(object):
                                 num, len(nodes), ", ".join(sorted(nodes)))
                     # Bump up number of num nodes to meet minimum replication factor. Commits will have to wait until
                     # we have enough nodes to meet replication target.
-                    if num < min_sync:
+                    if num + 1 < min_sync:
                         logger.warning("Replication factor %d requested, but only %d synchronous nodes available.",
                                        min_sync, num)
                         num = min_sync
@@ -427,8 +436,14 @@ class Ha(object):
             self.disable_synchronous_replication()
             return True
 
-        numsync = len(self.cluster.sync.members) + 1 - self.cluster.sync.quorum
-        sync = self.cluster.sync.members
+        if not self.cluster.sync.is_empty:
+            numsync = len(self.cluster.sync.members) + 1 - self.cluster.sync.quorum
+            sync = self.cluster.sync.members
+        else:
+            numsync = 1
+            sync = frozenset([self.state_handler.name])
+
+        logger.info("numsync: %d members: %s quorum: %s", numsync, self.cluster.sync.members, self.cluster.sync.quorum)
 
         assert numsync > 0
 

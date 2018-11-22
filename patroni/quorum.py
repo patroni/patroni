@@ -1,3 +1,7 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
 def clamp(value, min=None, max=None):
     if min is not None and value < min:
         value = min
@@ -20,7 +24,7 @@ class QuorumStateResolver(object):
         self.sync_wanted = sync_wanted
 
     def check_invariants(self):
-        if not (len(self.voters|self.sync) < self.quorum + self.numsync):
+        if self.quorum and not (len(self.voters|self.sync) < self.quorum + self.numsync):
             raise QuorumError("Quorum and sync not guaranteed to overlap: nodes %d >= quorum %d + sync %d" %
                               (len(self.voters|self.sync), self.quorum, self.numsync))
         if not (self.voters <= self.sync or self.sync <= self.voters):
@@ -55,6 +59,7 @@ class QuorumStateResolver(object):
 
         # Handle non steady state cases
         if self.sync < self.voters:
+            logger.info("Case 1")
             # Case 1: quorum is superset of sync nodes. In the middle of changing quorum.
             # Evict from quorum dead nodes that are not being synced.
             remove_from_quorum = self.voters - (self.sync | self.active)
@@ -67,6 +72,7 @@ class QuorumStateResolver(object):
             if add_to_sync:
                 yield self.sync_update(self.numsync, self.sync | add_to_sync)
         elif self.sync > self.voters:
+            logger.info("Case 2")
             # Case 2: sync is superset of quorum nodes. In the middle of changing replication factor.
             # Add to quorum voters nodes that are already synced and active
             add_to_quorum = (self.sync - self.voters) & self.active
@@ -86,6 +92,7 @@ class QuorumStateResolver(object):
 
         safety_margin = self.quorum + self.numsync - len(self.voters|self.sync)
         if safety_margin > 1:
+            logger.info("Case 3")
             # Case 3: quorum or replication factor is bigger than needed. In the middle of changing requested replication factor.
             if self.numsync > self.sync_wanted:
                 # Reduce replication factor
@@ -95,6 +102,7 @@ class QuorumStateResolver(object):
                 yield self.quorum_update(len(self.voters) + 1 - self.numsync, self.voters)
 
         # We are in a steady state point. Find if desired state is different and act accordingly.
+        logger.info("Steady state")
 
         # If any nodes have gone away, evict them
         to_remove = self.sync - self.active
