@@ -1,0 +1,43 @@
+pipeline {
+  agent any
+  stages {
+    stage ('Deploy test pod'){
+      when {
+          expression {
+            openshift.withCluster() {
+              openshift.withProject() {
+                return !openshift.selector( "dc", "pgbench" ).exists()
+              }
+            }
+          }
+        }
+      steps {
+        script {
+            openshift.withCluster() {
+                openshift.withProject() {
+                  def pgbench = openshift.newApp( "https://github.com/stewartshea/docker-pgbench/", "--name=pgbench", "-e PGPASSWORD=postgres", "-e PGUSER=postgres", "-e PGHOST=patroni-persistent-master", "-e PGDATABASE=postgres", "-e TEST_CLIENT_COUNT=20", "-e TEST_DURATION=120" )
+                  def pgbenchdc = openshift.selector( "dc", "pgbench" )
+                  timeout(5) { 
+                    pgbenchdc.rollout().status()
+                    }
+                  }
+                }
+            }
+        }
+    }
+    stage ('Run benchmark Test'){
+      steps {
+          sh '''
+          oc exec $(oc get pods -l app=pgbench | grep Running | awk '{print $1}')  ./test.sh
+          '''
+      }
+    }
+    stage ('Clean up pgtest pod'){
+      steps {
+          sh '''
+          oc delete all -l app=pgbench
+          '''
+      }
+    }
+  }
+}

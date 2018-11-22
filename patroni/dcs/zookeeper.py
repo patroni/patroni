@@ -37,7 +37,9 @@ class PatroniSequentialThreadingHandler(SequentialThreadingHandler):
                      `connect_timeout` (negotiated session timeout) as the second element."""
 
         args = list(args)
-        if len(args) == 1:
+        if len(args) == 0:  # kazoo 2.6.0 slightly changed the way how it calls create_connection method
+            kwargs['timeout'] = max(self._connect_timeout, kwargs.get('timeout', self._connect_timeout*10)/10.0)
+        elif len(args) == 1:
             args.append(self._connect_timeout)
         else:
             args[1] = max(self._connect_timeout, args[1]/10.0)

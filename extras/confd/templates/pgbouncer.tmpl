@@ -1,0 +1,17 @@
+[databases]
+{{with get "/leader"}}{{$leader := .Value}}{{$leadkey := printf "/members/%s" $leader}}{{with get $leadkey}}{{$data := json .Value}}{{$hostport := base (replace (index (split $data.conn_url "/") 2) "@" "/" -1)}}{{ $host := base (index (split $hostport ":") 0)}}{{ $port := base (index (split $hostport ":") 1)}}* = host={{ $host }} port={{ $port }} pool_size=10{{end}}{{end}}
+
+[pgbouncer]
+logfile = /var/log/postgresql/pgbouncer.log
+pidfile = /var/run/postgresql/pgbouncer.pid
+listen_addr = *
+listen_port = 6432
+unix_socket_dir = /var/run/postgresql
+auth_type = trust
+auth_file = /etc/pgbouncer/userlist.txt
+auth_hba_file = /etc/pgbouncer/pg_hba.txt
+admin_users = pgbouncer
+stats_users = pgbouncer
+pool_mode = session
+max_client_conn = 100
+default_pool_size = 20

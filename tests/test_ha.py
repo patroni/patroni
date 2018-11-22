@@ -146,7 +146,6 @@ def run_async(self, func, args=()):
 @patch.object(Postgresql, 'write_recovery_conf', Mock())
 @patch.object(Postgresql, 'query', Mock())
 @patch.object(Postgresql, 'checkpoint', Mock())
-@patch.object(Postgresql, 'call_nowait', Mock())
 @patch.object(Postgresql, 'cancellable_subprocess_call', Mock(return_value=0))
 @patch.object(etcd.Client, 'write', etcd_write)
 @patch.object(etcd.Client, 'read', etcd_read)
@@ -1000,4 +999,13 @@ class TestHa(unittest.TestCase):
         self.ha.is_paused = true
         self.assertEqual(self.ha.run_cycle(), 'PAUSE: no action.  i am the leader with the lock')
         self.ha.is_paused = false
+        self.assertEqual(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
+
+    @patch('psycopg2.connect', psycopg2_connect)
+    def test_permanent_logical_slots_after_promote(self):
+        config = ClusterConfig(1, {'slots': {'l': {'database': 'postgres', 'plugin': 'test_decoding'}}}, 1)
+        self.ha.cluster = get_cluster_initialized_without_leader(cluster_config=config)
+        self.assertEqual(self.ha.run_cycle(), 'acquired session lock as a leader')
+        self.ha.cluster = get_cluster_initialized_without_leader(leader=True, cluster_config=config)
+        self.ha.has_lock = true
         self.assertEqual(self.ha.run_cycle(), 'no action.  i am the leader with the lock')

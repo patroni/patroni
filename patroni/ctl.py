@@ -252,7 +252,7 @@ def get_cursor(cluster, connect_parameters, role='master', member=None):
     if role == 'any':
         return cursor
 
-    cursor.execute('SELECT pg_is_in_recovery()')
+    cursor.execute('SELECT pg_catalog.pg_is_in_recovery()')
     in_recovery = cursor.fetchone()[0]
 
     if in_recovery and role == 'replica' or not in_recovery and role == 'master':
@@ -392,7 +392,7 @@ def query_member(cluster, cursor, member, role, command, connect_parameters):
             logging.debug(message)
             return [[timestamp(0), message]], None
 
-        cursor.execute('SELECT pg_is_in_recovery()')
+        cursor.execute('SELECT pg_catalog.pg_is_in_recovery()')
         in_recovery = cursor.fetchone()[0]
 
         if in_recovery and role == 'master' or not in_recovery and role == 'replica':

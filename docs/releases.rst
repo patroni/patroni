@@ -3,19 +3,44 @@
 Release notes
 =============
 
-Version 1.5.0                                                                                                                           
--------------                                                                                                                           
-                                                                                                                                        
+Version 1.5.1
+-------------
+
+This version implements support of permanent replication slots, adds support of pgBackRest and fixes number of bugs.
+
+**New features**
+
+- Permanent replication slots (Alexander Kukushkin)
+
+  Permanent replication slots are preserved on failover/switchover, that is, Patroni on the new primary will create configured replication slots right after doing promote. Slots could be configured with the help of `patronictl edit-config`. The initial configuration could be also done in the :ref:`bootstrap.dcs <settings>`.
+
+- Add pgbackrest support (Yogesh Sharma)
+
+  pgBackrest can restore in existing $PGDATA folder, this allows speedy restore as files which have not changed since last backup are skipped, to support this feature new parameter `keep_data` has been introduced. See :ref:`replica creation method <custom_replica_creation>` section for additional examples.
+
+**Bug fixes**
+
+- A few bugfixes in the "standby cluster" workflow (Alexander)
+
+  Please see https://github.com/zalando/patroni/pull/823 for more details.
+
+- Fix REST API health check when cluster management is paused and DCS is not accessible (Alexander)
+
+  Regression was introduced in https://github.com/zalando/patroni/commit/90cf930036a9d5249265af15d2b787ec7517cf57
+
+Version 1.5.0
+-------------
+
 This version enables Patroni HA cluster to operate in a standby mode, introduces experimental support for running on Windows, and provides a new configuration parameter to register PostgreSQL service in Consul.
 
-**New features**                                                                                                                        
+**New features**
 
-- Standby cluster (Dmitry Dolgov)                                                                                                       
+- Standby cluster (Dmitry Dolgov)
 
   One or more Patroni nodes can form a standby cluster that runs alongside the primary one (i.e. in another datacenter) and consists of standby nodes that replicate from the master in the primary cluster. All PostgreSQL nodes in the standby cluster are replicas; one of those replicas elects itself to replicate directly from the remote master, while the others replicate from it in a cascading manner. More detailed description of this feature and some configuration examples can be found at :ref:`here <standby_cluster>`.
 
 - Register Services in Consul (Pavel Kirillov, Alexander Kukushkin)
-                                                                                                                                        
+
   If `register_service` parameter in the consul :ref:`configuration <consul_settings>` is enabled, the node will register a service with the name `scope` and the tag `master`, `replica` or `standby-leader`.
 
 - Experimental Windows support (Pavel Golub)
@@ -299,8 +324,8 @@ In addition to using Endpoints, Patroni supports ConfigMaps. You can find more i
 
 - Minimize the amount of SELECT's issued by Patroni on every loop of HA cylce (Alexander Kukushkin)
 
-  On every iteration of HA loop Patroni needs to know recovery status and absolute wal position. From now on Patroni will run only single SELECT to get this information instead of two on the replica and three on the master. 
-  
+  On every iteration of HA loop Patroni needs to know recovery status and absolute wal position. From now on Patroni will run only single SELECT to get this information instead of two on the replica and three on the master.
+
 - Remove leader key on shutdown only when we have the lock (Ants)
 
   Unconditional removal was generating unnecessary and missleading exceptions.
@@ -310,7 +335,7 @@ In addition to using Endpoints, Patroni supports ConfigMaps. You can find more i
 - Add version command to patronictl (Ants)
 
   It will show the version of installed Patroni and versions of running Patroni instances (if the cluster name is specified).
-  
+
 - Make optional specifying cluster_name argument for some of patronictl commands (Alexander, Ants)
 
   It will work if patronictl is using usual Patroni configuration file with the ``scope`` defined.
@@ -318,11 +343,11 @@ In addition to using Endpoints, Patroni supports ConfigMaps. You can find more i
 - Show information about scheduled switchover and maintenance mode (Alexander)
 
   Before that it was possible to get this information only from Patroni logs or directly from DCS.
-  
+
 - Improve ``patronictl reinit`` (Alexander)
 
   Sometimes ``patronictl reinit`` refused to proceed when Patroni was busy with other actions, namely trying to start postgres. `patronictl` didn't provide any commands to cancel such long running actions and the only (dangerous) workarond was removing a data directory manually. The new implementation of `reinit` forcefully cancells other long-running actions before proceeding with reinit.
-  
+
 - Implement ``--wait`` flag in ``patronictl pause`` and ``patronictl resume`` (Alexander)
 
   It will make ``patronictl`` wait until the requested action is acknowledged by all nodes in the cluster.
@@ -369,7 +394,7 @@ Version 1.3.6
   After a crash that doesn't clean up postmaster.pid there could be a new process with the same pid, resulting in a false positive for is_running(), which will lead to all kinds of bad behavior.
 
 - Shutdown postgresql before bootstrap when we lost data directory (ainlolcat)
-  
+
   When data directory on the master is forcefully removed, postgres process can still stay alive for some time and prevent the replica created in place of that former master from starting or replicating.
   The fix makes Patroni cache the postmaster pid and its start time and let it terminate the old postmaster in case it is still running after the corresponding data directory has been removed.
 
@@ -439,7 +464,7 @@ Version 1.3.4
 - Pass the consul token as a header (Andrew Colin Kissa)
 
   Headers are now the prefered way to pass the token to the consul `API <https://www.consul.io/api/index.html#authentication>`__.
-  
+
 
 - Advanced configuration for Consul (Alexander Kukushkin)
 
