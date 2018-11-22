@@ -143,6 +143,7 @@ def patroni_main():
     requests_loglevel = os.environ.get('PATRONI_REQUESTS_LOGLEVEL', 'WARNING')
     logging.basicConfig(format=logformat, level=loglevel)
     logging.getLogger('requests').setLevel(requests_loglevel)
+    logging.getLogger('patroni.quorum').setLevel(os.environ.get('PATRONI_QUORUM_LOGLEVEL', loglevel))
 
     patroni = Patroni()
     try:

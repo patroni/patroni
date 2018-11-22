@@ -772,6 +772,9 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
             info += '\n                      to: ' + cluster.failover.candidate
         service_info.append(info)
 
+    if cluster.sync:
+        service_info.append('Quorum {0} of {1}'.format(cluster.sync.quorum, ', '.join(cluster.sync.members)))
+
     if service_info:
         click.echo(' ' + '\n '.join(service_info))
 

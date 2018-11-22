@@ -15,13 +15,14 @@ class QuorumError(Exception):
 
 
 class QuorumStateResolver(object):
-    def __init__(self, quorum, voters, numsync, sync, active, sync_wanted):
+    def __init__(self, quorum, voters, numsync, sync, active, sync_wanted, min_sync):
         self.quorum = quorum
         self.voters = set(voters)
         self.numsync = numsync
         self.sync = set(sync)
         self.active = active
         self.sync_wanted = sync_wanted
+        self.min_sync = min_sync
 
     def check_invariants(self):
         if self.quorum and not (len(self.voters|self.sync) < self.quorum + self.numsync):
@@ -37,12 +38,14 @@ class QuorumStateResolver(object):
         self.quorum = quorum
         self.voters = voters
         self.check_invariants()
+        logger.debug('quorum %s %s', self.quorum, self.voters)
         return 'quorum', self.quorum, self.voters
 
     def sync_update(self, numsync, sync):
         self.numsync = numsync
         self.sync = sync
         self.check_invariants()
+        logger.debug('sync %s %s', self.numsync, self.sync)
         return 'sync', self.numsync, self.sync
 
     def __iter__(self):
@@ -55,11 +58,13 @@ class QuorumStateResolver(object):
             yield cur_transition
 
     def _generate_transitions(self):
+        logger.debug("Quorum state: quorum %s, voters %s, numsync %s, sync %s, active %s, sync_wanted %s", self.quorum, self.voters, self.numsync,
+            self.sync, self.active, self.sync_wanted)
         self.check_invariants()
 
         # Handle non steady state cases
         if self.sync < self.voters:
-            logger.info("Case 1")
+            logger.debug("Case 1: synchronous_standby_names subset of DCS state")
             # Case 1: quorum is superset of sync nodes. In the middle of changing quorum.
             # Evict from quorum dead nodes that are not being synced.
             remove_from_quorum = self.voters - (self.sync | self.active)
@@ -72,7 +77,7 @@ class QuorumStateResolver(object):
             if add_to_sync:
                 yield self.sync_update(self.numsync, self.sync | add_to_sync)
         elif self.sync > self.voters:
-            logger.info("Case 2")
+            logger.debug("Case 2: synchronous_standby_names superset of DCS state")
             # Case 2: sync is superset of quorum nodes. In the middle of changing replication factor.
             # Add to quorum voters nodes that are already synced and active
             add_to_quorum = (self.sync - self.voters) & self.active
@@ -91,8 +96,8 @@ class QuorumStateResolver(object):
         assert self.voters == self.sync
 
         safety_margin = self.quorum + self.numsync - len(self.voters|self.sync)
-        if safety_margin > 1:
-            logger.info("Case 3")
+        if safety_margin > 1 and self.numsync >= self.min_sync:
+            logger.debug("Case 3: replication factor is bigger than needed")
             # Case 3: quorum or replication factor is bigger than needed. In the middle of changing requested replication factor.
             if self.numsync > self.sync_wanted:
                 # Reduce replication factor
@@ -102,11 +107,12 @@ class QuorumStateResolver(object):
                 yield self.quorum_update(len(self.voters) + 1 - self.numsync, self.voters)
 
         # We are in a steady state point. Find if desired state is different and act accordingly.
-        logger.info("Steady state")
+        logger.debug("Steady state")
 
         # If any nodes have gone away, evict them
         to_remove = self.sync - self.active
         if to_remove:
+            logger.debug("Removing nodes: %s", to_remove)
             can_reduce_quorum_by = self.quorum - 1
             # If we can reduce quorum size try to do so first
             if can_reduce_quorum_by:
@@ -124,6 +130,7 @@ class QuorumStateResolver(object):
         to_add = self.active - self.sync
         if to_add:
             # First get to requested replication factor
+            logger.debug("Adding nodes: %s", to_add)
             increase_numsync_by = self.sync_wanted - self.numsync
             if increase_numsync_by:
                 add = set(sorted(to_add)[:increase_numsync_by])
@@ -138,9 +145,11 @@ class QuorumStateResolver(object):
         sync_increase = clamp(self.sync_wanted - self.numsync, min=2 - self.numsync, max=len(self.sync) - self.numsync)
         if sync_increase > 0:
             # Increase replication factor
+            logger.debug("Increasing replication factor to %s", self.numsync + sync_increase)
             yield self.sync_update(self.numsync + sync_increase, self.sync)
             yield self.quorum_update(self.quorum - sync_increase, self.voters)
-        elif sync_increase < 0:
+        elif sync_increase < 0 and self.numsync > self.min_sync:
             # Reduce replication factor
+            logger.debug("Reducing replication factor to %s", self.numsync + sync_increase)
             yield self.quorum_update(self.quorum - sync_increase, self.voters)
             yield self.sync_update(self.numsync + sync_increase, self.sync)

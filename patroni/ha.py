@@ -356,7 +356,6 @@ class Ha(object):
         return follow_reason
 
     def is_synchronous_mode(self):
-        return True
         return self.check_mode('synchronous_mode')
 
     def is_synchronous_mode_strict(self):
@@ -395,19 +394,13 @@ class Ha(object):
             else:
                 quorum, voters = self.cluster.sync.quorum, self.cluster.sync.members
 
-            #logger.info("QuorumStateResolver(%r)", dict(quorum=quorum,
-            #                                                  voters=voters,
-            #                                                  numsync=sync_state['numsync'],
-            #                                                  sync=sync_state['sync'],
-            #                                                  active=sync_state['active'],
-            #                                                  sync_wanted=sync_wanted))
-
             for transition, num, nodes in QuorumStateResolver(quorum=quorum,
                                                               voters=voters,
                                                               numsync=sync_state['numsync'],
                                                               sync=sync_state['sync'],
                                                               active=sync_state['active'],
-                                                              sync_wanted=sync_wanted):
+                                                              sync_wanted=sync_wanted,
+                                                              min_sync=min_sync):
                 if transition == 'quorum':
                     logger.info("Setting quorum to %d of %d (%s)", num, len(nodes), ", ".join(sorted(nodes)))
                     if not self.dcs.write_sync_state(leader=self.state_handler.name, quorum=num, members=list(nodes),
@@ -419,9 +412,9 @@ class Ha(object):
                                 num, len(nodes), ", ".join(sorted(nodes)))
                     # Bump up number of num nodes to meet minimum replication factor. Commits will have to wait until
                     # we have enough nodes to meet replication target.
-                    if num + 1 < min_sync:
-                        logger.warning("Replication factor %d requested, but only %d synchronous nodes available.",
-                                       min_sync, num)
+                    if num < min_sync:
+                        logger.warning("Replication factor %d requested, but %d synchronous standbys available. Commits will be delayed.",
+                                       min_sync, num - 1)
                         num = min_sync
                     self.state_handler.set_synchronous_state(num, nodes)
         else:
@@ -486,7 +479,7 @@ class Ha(object):
         publishing it to the DCS. As the window is rather tiny consequences are holding up commits for one cycle
         period we don't worry about it here."""
 
-        if not self.is_synchronous_mode() or self.patroni.nosync:
+        if not self.is_synchronous_mode() or self.patroni.nosync or self.has_lock():
             return func()
 
         with self._member_state_lock:
