@@ -15,14 +15,13 @@ class QuorumError(Exception):
 
 
 class QuorumStateResolver(object):
-    def __init__(self, quorum, voters, numsync, sync, active, sync_wanted, min_sync):
+    def __init__(self, quorum, voters, numsync, sync, active, sync_wanted):
         self.quorum = quorum
         self.voters = set(voters)
         self.numsync = numsync
         self.sync = set(sync)
         self.active = active
         self.sync_wanted = sync_wanted
-        self.min_sync = min_sync
 
     def check_invariants(self):
         if self.quorum and not (len(self.voters|self.sync) < self.quorum + self.numsync):
@@ -96,7 +95,7 @@ class QuorumStateResolver(object):
         assert self.voters == self.sync
 
         safety_margin = self.quorum + self.numsync - len(self.voters|self.sync)
-        if safety_margin > 1 and self.numsync >= self.min_sync:
+        if safety_margin > 1:
             logger.debug("Case 3: replication factor is bigger than needed")
             # Case 3: quorum or replication factor is bigger than needed. In the middle of changing requested replication factor.
             if self.numsync > self.sync_wanted:
@@ -148,7 +147,7 @@ class QuorumStateResolver(object):
             logger.debug("Increasing replication factor to %s", self.numsync + sync_increase)
             yield self.sync_update(self.numsync + sync_increase, self.sync)
             yield self.quorum_update(self.quorum - sync_increase, self.voters)
-        elif sync_increase < 0 and self.numsync > self.min_sync:
+        elif sync_increase < 0:
             # Reduce replication factor
             logger.debug("Reducing replication factor to %s", self.numsync + sync_increase)
             yield self.quorum_update(self.quorum - sync_increase, self.voters)

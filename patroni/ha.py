@@ -368,11 +368,8 @@ class Ha(object):
     def is_synchronous_mode(self):
         return self.check_mode('synchronous_mode')
 
-    def is_synchronous_mode_strict(self):
-        return self.check_mode('synchronous_mode_strict')
-
     def disable_synchronous_replication(self):
-        if self.cluster.sync.leader and self.dcs.delete_sync_state(index=self.cluster.sync.index):
+        if not self.cluster.sync.is_empty and self.dcs.delete_sync_state(index=self.cluster.sync.index):
             logger.info("Disabled synchronous replication")
         self.state_handler.set_synchronous_state(None)
 
@@ -389,6 +386,7 @@ class Ha(object):
         """
         if self.is_synchronous_mode():
             sync_state = self.state_handler.current_sync_state(self.cluster)
+            numsync = min(sync_state['numsync'], len(sync_state['sync']))
 
             min_sync = self.patroni.config['minimum_replication_factor']
             sync_wanted = max(self.patroni.config['replication_factor'], min_sync)
@@ -400,17 +398,18 @@ class Ha(object):
 
             if self.cluster.sync.is_empty:
                 quorum, voters = 1, frozenset([self.state_handler.name])
-                self.dcs.write_sync_state(leader=self.state_handler.name, quorum=quorum, members=voters)
+                if not self.dcs.write_sync_state(leader=self.state_handler.name, quorum=quorum, members=voters):
+                    logger.warning("Updating sync state failed")
+                    return
             else:
                 quorum, voters = self.cluster.sync.quorum, self.cluster.sync.members
 
             for transition, num, nodes in QuorumStateResolver(quorum=quorum,
                                                               voters=voters,
-                                                              numsync=sync_state['numsync'],
+                                                              numsync=numsync,
                                                               sync=sync_state['sync'],
                                                               active=sync_state['active'],
-                                                              sync_wanted=sync_wanted,
-                                                              min_sync=min_sync):
+                                                              sync_wanted=sync_wanted):
                 if transition == 'quorum':
                     logger.info("Setting quorum to %d of %d (%s)", num, len(nodes), ", ".join(sorted(nodes)))
                     if not self.dcs.write_sync_state(leader=self.state_handler.name, quorum=num, members=list(nodes),
@@ -445,8 +444,6 @@ class Ha(object):
         else:
             numsync = 1
             sync = frozenset([self.state_handler.name])
-
-        logger.info("numsync: %d members: %s quorum: %s", numsync, self.cluster.sync.members, self.cluster.sync.quorum)
 
         assert numsync > 0
 
@@ -725,7 +722,7 @@ class Ha(object):
         all_known_members = self.cluster.members + self.old_cluster.members
         members = {m.name: m for m in all_known_members}
 
-        if self.is_synchronous_mode() and self.cluster.sync.leader:
+        if self.is_synchronous_mode() and not self.cluster.sync.is_empty:
             if not self.cluster.sync.matches(self.state_handler.name):
                 return False
             quorum = self.cluster.sync.quorum

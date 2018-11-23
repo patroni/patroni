@@ -1854,11 +1854,10 @@ $$""".format(name, ' '.join(options)), name, password, password)
         * active: set of nodes that are sync capable
         """
         sync_standby_names = self.query("SHOW synchronous_standby_names").fetchone()[0]
-        result = parse_sync_standby_names(sync_standby_names)
+        ssn_data = parse_sync_standby_names(sync_standby_names)
 
         active = [self.name]
         members = {m.name.lower(): m for m in cluster.members}
-        current = None
         for app_name, state, sync_state in self.query(
                 "SELECT pg_catalog.lower(application_name), state, sync_state"
                 " FROM pg_catalog.pg_stat_replication"
@@ -1866,15 +1865,13 @@ $$""".format(name, ' '.join(options)), name, password, password)
             member = members.get(app_name)
             if state != 'streaming' or not member or member.tags.get('nosync', False):
                 continue
-            if state == 'sync' or (state == 'potential' and current is None):
-                current = member.name
             active.append(member.name)
 
-        result['active'] = set(active)
-        result['numsync'] = result['num'] + 1 if not result.get('has_star') else 1
-        result['sync'] = set([self.name] + result['members']).difference(['*'])
-
-        return result
+        return {
+            'active': set(active),
+            'numsync': ssn_data['num'] + 1 if not ssn_data.get('has_star') else 1,
+            'sync': set([self.name] + ssn_data['members']).difference(['*']),
+        }
 
     def set_synchronous_state(self, num, sync=None):
         """Updates synchronization state.
@@ -1901,7 +1898,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
         else:
             assert self.name in sync
             sync_standbys = sync.difference([self.name])
-            standby_list = ", ".join(sorted(sync_standbys)) if sync_standbys else "*"
+            standby_list = ", ".join(sorted(map(quote_ident, sync_standbys))) if sync_standbys else "*"
             if self.use_multiple_sync:
                 ssn = "{0}{1} ({2})".format("ANY " if self.use_quorum_commit else "", num - 1, standby_list)
             else:

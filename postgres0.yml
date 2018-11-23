@@ -29,8 +29,8 @@ bootstrap:
     maximum_lag_on_failover: 1048576
 #    master_start_timeout: 300
 #    synchronous_mode: false
-    replication_factor: 2
-    minimum_replication_factor: 1
+#    replication_factor: 2
+#    minimum_replication_factor: 1
     #standby_cluster:
       #host: 127.0.0.1
       #port: 1111

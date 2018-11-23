@@ -10,7 +10,7 @@ from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.async_executor import CriticalTask
 from patroni.dcs import Cluster, ClusterConfig, Leader, Member, RemoteMember, SyncState
 from patroni.exceptions import PostgresConnectionException, PostgresException
-from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
+from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE, quote_ident, parse_sync_standby_names
 from patroni.postmaster import PostmasterProcess
 from patroni.utils import RetryFailedError
 from six.moves import builtins
@@ -905,6 +905,49 @@ class TestPostgresql(unittest.TestCase):
 
         with patch.object(Postgresql, "query", return_value=[]):
             self.assertEqual(self.p.pick_synchronous_standby(cluster), (None, False))
+
+    def test_current_sync_state(self):
+        self.p.name = self.me.name
+        mock_cursor = Mock()
+        mock_result = mock_cursor.fetchone = Mock()
+        mock_cluster = Mock()
+ 
+        with patch.object(Postgresql, "query", side_effect=[mock_cursor, [
+                (self.other.name, 'streaming', 'sync'),
+                (self.leadermem.name, 'streaming', 'async'),
+            ]]):
+            mock_result.return_value = ['ANY 1 ({0})'.format(quote_ident(self.other.name))]
+            mock_cluster.members = [self.me, self.other]
+            self.assertEqual(self.p.current_sync_state(mock_cluster), {
+                'active': {self.me.name, self.other.name},
+                'numsync': 2,
+                'sync': {self.me.name, self.other.name}
+            })
+
+        with patch.object(Postgresql, "query", side_effect=[mock_cursor, [
+                (self.other.name, 'streaming', 'sync'),
+                (self.leadermem.name, 'streaming', 'async'),
+            ]]):
+            mock_result.return_value = ['']
+            mock_cluster.members = [self.me, self.other, self.leadermem]
+            self.assertEqual(self.p.current_sync_state(mock_cluster), {
+                'active': {self.me.name, self.other.name, self.leadermem.name},
+                'numsync': 1,
+                'sync': {self.me.name}
+            })
+
+    def test_parse_sync_standby_names(self):
+        self.assertEqual(parse_sync_standby_names(" FIRST   1  (   foo ,bar )   "),
+            {'type': 'priority', 'num': 1, 'members': ['foo', 'bar']})
+        self.assertEqual(parse_sync_standby_names("ANY 3 (5)"),
+            {'type': 'quorum', 'num': 3, 'members': ['5']})
+        self.assertEqual(parse_sync_standby_names('1("asdf asdf")'),
+            {'type': 'priority', 'num': 1, 'members': ['asdf asdf']})
+        self.assertEqual(parse_sync_standby_names('a,1'),
+            {'type': 'priority', 'num': 1, 'members': ['a','1']})
+        self.assertEqual(parse_sync_standby_names('*'),
+            {'type': 'priority', 'num': 1, 'members': ['*'], 'has_star': True})
+        self.assertRaises(ValueError, parse_sync_standby_names, '()')
 
     def test_set_synchronous_state(self):
         def value_in_conf():

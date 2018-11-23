@@ -380,11 +380,11 @@ class Kubernetes(AbstractDCS):
     def set_sync_state_value(self, value, index=None):
         """Unused"""
 
-    def write_sync_state(self, leader, sync_standby, index=None):
-        return self.patch_or_create(self.sync_path, self.sync_state(leader, sync_standby), index, False)
+    def write_sync_state(self, leader, quorum, members, index=None):
+        return self.patch_or_create(self.sync_path, self.sync_state(leader, quorum, members), index, False)
 
     def delete_sync_state(self, index=None):
-        return self.write_sync_state(None, None, index)
+        return self.write_sync_state(None, 1, frozenset(), index)
 
     def watch(self, leader_index, timeout):
         if self.__do_not_watch:
