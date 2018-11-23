@@ -316,8 +316,11 @@ class SyncState(namedtuple('SyncState', 'index,leader,quorum,members')):
     """Immutable object (namedtuple) which represents last observed synhcronous replication state
 
     :param index: modification index of a synchronization key in a Configuration Store
-    :param leader: reference to member that was leader
-    :param sync_standby: standby that was last synchronized to leader - deprecated
+    :param leader: reference to member that was leader. Currently mostly information, used to tell
+                   if SyncState is empty.
+    :param quorum: number of servers from synchronous set we need to see to know we see the latest
+                   commit.
+    :param members: set of member names that participate in determining quorum.
     """
 
     @staticmethod
@@ -733,7 +736,6 @@ class AbstractDCS(object):
 
     def write_sync_state(self, leader, quorum, members, index=None):
         sync_value = self.sync_state(leader, quorum, members)
-        #logger.info("Writing sync state: %r", sync_value)
         return self.set_sync_state_value(json.dumps(sync_value, separators=(',', ':')), index)
 
     @abc.abstractmethod

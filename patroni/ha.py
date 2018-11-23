@@ -422,7 +422,8 @@ class Ha(object):
                     # Bump up number of num nodes to meet minimum replication factor. Commits will have to wait until
                     # we have enough nodes to meet replication target.
                     if num < min_sync:
-                        logger.warning("Replication factor %d requested, but %d synchronous standbys available. Commits will be delayed.",
+                        logger.warning("Replication factor %d requested, but %d synchronous standbys available."
+                                       " Commits will be delayed.",
                                        min_sync, num - 1)
                         num = min_sync
                     self.state_handler.set_synchronous_state(num, nodes)
@@ -457,8 +458,8 @@ class Ha(object):
             self.state_handler.set_synchronous_state(numsync, set([self.state_handler.name]))
 
             if self.dcs.write_sync_state(leader=self.state_handler.name,
-                                             quorum=1, members=[self.state_handler.name],
-                                             index=self.cluster.sync.index):
+                                         quorum=1, members=[self.state_handler.name],
+                                         index=self.cluster.sync.index):
                 # TODO: would be nice if we could get the new sync state while writing and update the state locally.
                 self.load_cluster_from_dcs()
                 return True
@@ -607,8 +608,8 @@ class Ha(object):
 
         # Prepare list of nodes to run check against
         members = [m for m in members if m.name != self.state_handler.name and
-                                         m.api_url and
-                                         (not m.nofailover or m.name in voting_set)]
+                   m.api_url and
+                   (not m.nofailover or m.name in voting_set)]
 
         # If there is a quorum active then at least one of the quorum contains latest commit. A quorum member saying
         # their WAL position is not ahead counts as a vote saying we may become new leader. Note that a node doesn't

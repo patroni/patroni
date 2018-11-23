@@ -30,7 +30,7 @@ class QuorumTest(unittest.TestCase):
         self.assertEqual(list(QuorumStateResolver(*state, active=set("abc"), sync_wanted=3)), [
             ('sync', 3, set('abc')),
             ('quorum', 1, set('abc')),
-        ])        
+        ])
         # Add multiple nodes by increasing both sync and quorum
         self.assertEqual(list(QuorumStateResolver(*state, active=set("abcde"), sync_wanted=3)), [
             ('sync', 3, set('abc')),

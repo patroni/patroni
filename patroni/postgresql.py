@@ -54,22 +54,6 @@ def quote_ident(value):
     return value if sync_standby_name_re.match(value) else '"' + value + '"'
 
 
-def slot_name_from_member_name(member_name):
-    """Translate member name to valid PostgreSQL slot name.
-
-    PostgreSQL replication slot names must be valid PostgreSQL names. This function maps the wider space of
-    member names to valid PostgreSQL names. Names are lowercased, dashes and periods common in hostnames
-    are replaced with underscores, other characters are encoded as their unicode codepoint. Name is truncated
-    to 64 characters. Multiple different member names may map to a single slot name."""
-
-    def replace_char(match):
-        c = match.group(0)
-        return '_' if c in '-.' else "u{:04d}".format(ord(c))
-
-    slot_name = re.sub('[^a-z0-9_]', replace_char, member_name.lower())
-    return slot_name[0:63]
-
-
 def pairwise(seq):
     it = iter(list(seq)+[None])
     return zip(it, it)
@@ -105,15 +89,15 @@ def parse_sync_standby_names(sync_standby_names):
               for m in sync_rep_parser_re.finditer(sync_standby_names)
               if m.lastgroup != 'space']
     if not tokens:
-         return {'type': 'off', 'num': 0, 'members': []}
+        return {'type': 'off', 'num': 0, 'members': []}
 
-    if [t[0] for t in tokens[0:3]] == ['any','num','parenstart'] and tokens[-1][0] == 'parenend':
+    if [t[0] for t in tokens[0:3]] == ['any', 'num', 'parenstart'] and tokens[-1][0] == 'parenend':
         result = {'type': 'quorum', 'num': int(tokens[1][1])}
         synclist = tokens[3:-1]
-    elif [t[0] for t in tokens[0:3]] == ['first','num','parenstart'] and tokens[-1][0] == 'parenend':
+    elif [t[0] for t in tokens[0:3]] == ['first', 'num', 'parenstart'] and tokens[-1][0] == 'parenend':
         result = {'type': 'priority', 'num': int(tokens[1][1])}
         synclist = tokens[3:-1]
-    elif [t[0] for t in tokens[0:2]] == ['num','parenstart'] and tokens[-1][0] == 'parenend':
+    elif [t[0] for t in tokens[0:2]] == ['num', 'parenstart'] and tokens[-1][0] == 'parenend':
         result = {'type': 'priority', 'num': int(tokens[0][1])}
         synclist = tokens[2:-1]
     else:
@@ -127,9 +111,10 @@ def parse_sync_standby_names(sync_standby_names):
             result['members'].append(a_value)
             result['has_star'] = True
         elif a_type == 'dquot':
-            result['members'].append(a_value[1:-1].replace('""','"'))
+            result['members'].append(a_value[1:-1].replace('""', '"'))
         else:
-            raise ValueError("Unparseable synchronous_standby_names value %r: %s" % (sync_standby_names, "Unexpected token %s %r at %d" % (a_type, a_value, a_pos)))
+            raise ValueError("Unparseable synchronous_standby_names value %r: Unexpected token %s %r at %d" %
+                             (sync_standby_names, a_type, a_value, a_pos))
 
     return result
 

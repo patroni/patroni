@@ -2,6 +2,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 def clamp(value, min=None, max=None):
     if min is not None and value < min:
         value = min
@@ -15,6 +16,38 @@ class QuorumError(Exception):
 
 
 class QuorumStateResolver(object):
+    """
+    Calculates a list of state transition tuples of the form `('sync'/'quorum',number,set_of_names)`
+
+    Synchronous replication state is set in two places. PostgreSQL configuration sets how many and which nodes are
+    needed for a commit to succeed, abbreviated as `numsync` and `sync` set here. DCS contains information about how
+    many and which nodes need to be interrogated to be sure to see an xlog position containing latest confirmed commit,
+    abbreviated as `quorum` and `voters` set. Both pairs have the meaning "ANY n OF set".
+
+    The number of nodes needed for commit to succeed, `numsync`, is also called the replication factor.
+
+    To guarantee zero lost transactions on failover we need to keep the invariant that at all times any subset of
+    nodes that can acknowledge a commit overlaps with any subset of nodes that can achieve quorum to promote a new
+    leader. Given a desired replication factor and a set of nodes able to participate in sync replication there
+    is one optimal state satisfying this condition. Given the node set `active`, the optimal state is:
+
+        sync = voters = active
+        numsync = min(replication_factor, len(active))
+        quorum = len(active) + 1 - numsync
+
+    We need to be able to produce a series of state changes that take the system to this desired state from any
+    other state arbitrary given arbitrary changes is node availability, configuration and interrupted transitions.
+
+    To keep the invariant the rule to follow is that when increasing `numsync` or `quorum`, we need to perform the
+    increasing operation first. When decreasing either, the decreasing operation needs to be performed later.
+
+    For simplicity all sync members are considered equal. In Patroni the leader is actually special in that the last
+    known leader is always guaranteed to have latest state. This leads to suboptimal number of transitions when
+    increasing replication factor and quorum at the same time. If quorum must include leader, which happens when
+    transitioning to sync replication, i.e. `quorum, voters = 1, {'leader'}`, then the special leader semantics
+    mean that we could set `numsync, sync = 2, {'leader', 's1', 's2'}` in one step without worrying of the case that
+    s1, s2 have latest xlog, but not leader. The benefit seems too small to warrant adding any complexity.
+    """
     def __init__(self, quorum, voters, numsync, sync, active, sync_wanted):
         self.quorum = quorum
         self.voters = set(voters)
@@ -24,9 +57,9 @@ class QuorumStateResolver(object):
         self.sync_wanted = sync_wanted
 
     def check_invariants(self):
-        if self.quorum and not (len(self.voters|self.sync) < self.quorum + self.numsync):
+        if self.quorum and not (len(self.voters | self.sync) < self.quorum + self.numsync):
             raise QuorumError("Quorum and sync not guaranteed to overlap: nodes %d >= quorum %d + sync %d" %
-                              (len(self.voters|self.sync), self.quorum, self.numsync))
+                              (len(self.voters | self.sync), self.quorum, self.numsync))
         if not (self.voters <= self.sync or self.sync <= self.voters):
             raise QuorumError("Mismatched sets: quorum only=%s sync only=%s" %
                               (self.voters - self.sync, self.sync - self.voters))
@@ -57,8 +90,8 @@ class QuorumStateResolver(object):
             yield cur_transition
 
     def _generate_transitions(self):
-        logger.debug("Quorum state: quorum %s, voters %s, numsync %s, sync %s, active %s, sync_wanted %s", self.quorum, self.voters, self.numsync,
-            self.sync, self.active, self.sync_wanted)
+        logger.debug("Quorum state: quorum %s, voters %s, numsync %s, sync %s, active %s, sync_wanted %s",
+                     self.quorum, self.voters, self.numsync, self.sync, self.active, self.sync_wanted)
         self.check_invariants()
 
         # Handle non steady state cases
@@ -94,10 +127,10 @@ class QuorumStateResolver(object):
         # After handling these two cases quorum and sync must match.
         assert self.voters == self.sync
 
-        safety_margin = self.quorum + self.numsync - len(self.voters|self.sync)
+        safety_margin = self.quorum + self.numsync - len(self.voters | self.sync)
         if safety_margin > 1:
             logger.debug("Case 3: replication factor is bigger than needed")
-            # Case 3: quorum or replication factor is bigger than needed. In the middle of changing requested replication factor.
+            # Case 3: quorum or replication factor is bigger than needed. In the middle of changing replication factor.
             if self.numsync > self.sync_wanted:
                 # Reduce replication factor
                 yield self.sync_update(min(self.sync_wanted, len(self.sync)), self.sync)
@@ -106,7 +139,6 @@ class QuorumStateResolver(object):
                 yield self.quorum_update(len(self.voters) + 1 - self.numsync, self.voters)
 
         # We are in a steady state point. Find if desired state is different and act accordingly.
-        logger.debug("Steady state")
 
         # If any nodes have gone away, evict them
         to_remove = self.sync - self.active
@@ -115,7 +147,7 @@ class QuorumStateResolver(object):
             can_reduce_quorum_by = self.quorum - 1
             # If we can reduce quorum size try to do so first
             if can_reduce_quorum_by:
-                 # Pick nodes to remove by sorted order to provide deterministic behavior for tests
+                # Pick nodes to remove by sorted order to provide deterministic behavior for tests
                 remove = set(sorted(to_remove, reverse=True)[:can_reduce_quorum_by])
                 yield self.sync_update(self.numsync, self.sync - remove)
                 yield self.quorum_update(self.quorum - can_reduce_quorum_by, self.voters - remove)
