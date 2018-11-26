@@ -113,6 +113,7 @@ class TestPatroniSequentialThreadingHandler(unittest.TestCase):
     def test_create_connection(self):
         self.assertIsNotNone(self.handler.create_connection(()))
         self.assertIsNotNone(self.handler.create_connection((), 40))
+        self.assertIsNotNone(self.handler.create_connection(timeout=40))
 
 
 class TestZooKeeper(unittest.TestCase):

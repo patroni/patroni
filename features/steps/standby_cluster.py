@@ -1,3 +1,4 @@
+import os
 import time
 
 from behave import step
@@ -8,19 +9,13 @@ SELECT * FROM pg_catalog.pg_stat_replication
 WHERE application_name = '{0}'
 """
 
-create_replication_slot_query = """
-SELECT pg_create_physical_replication_slot('{0}')
-"""
 
-
-@step('I start {name:w} without slots sync')
-def start_patroni_without_slots_sync(context, name):
+@step('I start {name:w} with callback configured')
+def start_patroni_with_callbacks(context, name):
     return context.pctl.start(name, custom_config={
-        "bootstrap": {
-            "dcs": {
-                "postgresql": {
-                    "use_slots": False
-                }
+        "postgresql": {
+            "callbacks": {
+                "on_role_change": "features/callback.sh"
             }
         }
     })
@@ -35,6 +30,10 @@ def start_patroni(context, name, cluster_name):
 
 @step('I start {name:w} in a standby cluster {cluster_name:w} as a clone of {name2:w}')
 def start_patroni_stanby_cluster(context, name, cluster_name, name2):
+    ctl = context.pctl._processes.pop(name, None)
+    # we need to remove patroni.dynamic.json in order to "bootstrap" standby cluster with existing PGDATA
+    if ctl:
+        os.unlink(os.path.join(ctl._data_dir, 'patroni.dynamic.json'))
     port = context.pctl._processes[name2]._connkwargs.get('port')
     return context.pctl.start(name, custom_config={
         "scope": cluster_name,
@@ -43,7 +42,7 @@ def start_patroni_stanby_cluster(context, name, cluster_name, name2):
                 "standby_cluster": {
                     "host": "localhost",
                     "port": port,
-                    "primary_slot_name": "postgres1",
+                    "primary_slot_name": "pm_1",
                 }
             }
         }
@@ -67,12 +66,3 @@ def check_replication_status(context, pg_name1, pg_name2, timeout):
         time.sleep(1)
 
     return False
-
-
-@step('I create a replication slot {slot_name:w} on {pg_name:w}')
-def create_replication_slot(context, slot_name, pg_name):
-    return context.pctl.query(
-        pg_name,
-        create_replication_slot_query.format(slot_name),
-        fail_ok=True
-    )

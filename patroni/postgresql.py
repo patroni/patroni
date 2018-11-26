@@ -15,7 +15,7 @@ from patroni.callback_executor import CallbackExecutor
 from patroni.exceptions import PostgresConnectionException, PostgresException
 from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, split_host_port
 from patroni.postmaster import PostmasterProcess
-from patroni.dcs import RemoteMember
+from patroni.dcs import slot_name_from_member_name, RemoteMember
 from requests.structures import CaseInsensitiveDict
 from six import string_types
 from six.moves.urllib.parse import quote_plus
@@ -37,35 +37,21 @@ STATE_UNKNOWN = 'unknown'
 
 STOP_POLLING_INTERVAL = 1
 REWIND_STATUS = type('Enum', (), {'INITIAL': 0, 'CHECK': 1, 'NEED': 2, 'NOT_NEED': 3, 'SUCCESS': 4, 'FAILED': 5})
-sync_standby_name_re = re.compile('^[A-Za-z_][A-Za-z_0-9\$]*$')
+sync_standby_name_re = re.compile(r'^[A-Za-z_][A-Za-z_0-9\$]*$')
 
-cluster_info_query = ("SELECT CASE WHEN pg_is_in_recovery() THEN 0 "
-                      "ELSE ('x' || SUBSTR(pg_{0}file_name(pg_current_{0}_{1}()), 1, 8))::bit(32)::int END, "
-                      "CASE WHEN pg_is_in_recovery() THEN GREATEST("
-                      " pg_{0}_{1}_diff(COALESCE(pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint,"
-                      " pg_{0}_{1}_diff(pg_last_{0}_replay_{1}(), '0/0')::bigint)"
-                      "ELSE pg_{0}_{1}_diff(pg_current_{0}_{1}(), '0/0')::bigint END")
+cluster_info_query = ("SELECT CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
+                      "ELSE ('x' || pg_catalog.substr(pg_catalog.pg_{0}file_name("
+                      "pg_catalog.pg_current_{0}_{1}()), 1, 8))::bit(32)::int END, "
+                      "CASE WHEN pg_catalog.pg_is_in_recovery() THEN GREATEST("
+                      " pg_catalog.pg_{0}_{1}_diff(COALESCE("
+                      "pg_catalog.pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint,"
+                      " pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint)"
+                      "ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), '0/0')::bigint END")
 
 
 def quote_ident(value):
     """Very simplified version of quote_ident"""
     return value if sync_standby_name_re.match(value) else '"' + value + '"'
-
-
-def slot_name_from_member_name(member_name):
-    """Translate member name to valid PostgreSQL slot name.
-
-    PostgreSQL replication slot names must be valid PostgreSQL names. This function maps the wider space of
-    member names to valid PostgreSQL names. Names are lowercased, dashes and periods common in hostnames
-    are replaced with underscores, other characters are encoded as their unicode codepoint. Name is truncated
-    to 64 characters. Multiple different member names may map to a single slot name."""
-
-    def replace_char(match):
-        c = match.group(0)
-        return '_' if c in '-.' else "u{:04d}".format(ord(c))
-
-    slot_name = re.sub('[^a-z0-9_]', replace_char, member_name.lower())
-    return slot_name[0:63]
 
 
 @contextmanager
@@ -154,7 +140,7 @@ class Postgresql(object):
         self._connection = None
         self._cursor_holder = None
         self._sysid = None
-        self._replication_slots = []  # list of already existing replication slots
+        self._replication_slots = {}  # already existing replication slots
         self.retry = Retry(max_tries=-1, deadline=config['retry_timeout']/2.0, max_delay=1,
                            retry_exceptions=PostgresConnectionException)
 
@@ -324,8 +310,8 @@ class Postgresql(object):
                     changes['wal_segment_size'] = '16384kB'
                 # XXX: query can raise an exception
                 for r in self.query("""SELECT name, setting, unit, vartype, context
-                                         FROM pg_settings
-                                        WHERE LOWER(name) IN (""" + ', '.join(['%s'] * len(changes)) + """)
+                                         FROM pg_catalog.pg_settings
+                                        WHERE pg_catalog.lower(name) IN (""" + ', '.join(['%s'] * len(changes)) + """)
                                         ORDER BY 1 DESC""", *(k.lower() for k in changes.keys())):
                     if r[4] == 'internal':
                         if r[0] == 'wal_segment_size':
@@ -728,12 +714,8 @@ class Postgresql(object):
                                           "datadir": self._data_dir,
                                           "connstring": connstring})
                 else:
-                    if 'no_params' in method_config:
-                        del method_config['no_params']
-                    if 'no_master' in method_config:
-                        del method_config['no_master']
-                    if 'keep_data' in method_config:
-                        del method_config['keep_data']
+                    for param in ('no_params', 'no_master', 'keep_data'):
+                        method_config.pop(param, None)
                 params = ["--{0}={1}".format(arg, val) for arg, val in method_config.items()]
                 try:
                     # call script with the full set of parameters
@@ -961,7 +943,7 @@ class Postgresql(object):
             with self._get_connection_cursor(**connect_kwargs) as cur:
                 cur.execute("SET statement_timeout = 0")
                 if check_not_is_in_recovery:
-                    cur.execute('SELECT pg_is_in_recovery()')
+                    cur.execute('SELECT pg_catalog.pg_is_in_recovery()')
                     if cur.fetchone()[0]:
                         return 'is_in_recovery=true'
                 return cur.execute('CHECKPOINT')
@@ -1259,8 +1241,9 @@ class Postgresql(object):
                 yield cur
 
     @contextmanager
-    def _get_replication_connection_cursor(self, host='localhost', port=5432, **kwargs):
-        with self._get_connection_cursor(host=host, port=int(port), database=self._database, replication=1,
+    def _get_replication_connection_cursor(self, host='localhost', port=5432, database=None, **kwargs):
+        database = database or self._database
+        with self._get_connection_cursor(host=host, port=int(port), database=database, replication='database',
                                          user=self._replication['username'], password=self._replication['password'],
                                          connect_timeout=3, options='-c statement_timeout=2000') as cur:
             yield cur
@@ -1268,7 +1251,7 @@ class Postgresql(object):
     def check_leader_is_not_in_recovery(self, **kwargs):
         try:
             with self._get_connection_cursor(connect_timeout=3, options='-c statement_timeout=2000', **kwargs) as cur:
-                cur.execute('SELECT pg_is_in_recovery()')
+                cur.execute('SELECT pg_catalog.pg_is_in_recovery()')
                 if not cur.fetchone()[0]:
                     return True
                 logger.info('Leader is still in_recovery and therefore can\'t be used for rewind')
@@ -1379,10 +1362,10 @@ class Postgresql(object):
         history_path = 'pg_{0}/{1:08X}.history'.format(self.wal_name, timeline)
         try:
             cursor = self._cursor()
-            cursor.execute('SELECT isdir, modification FROM pg_stat_file(%s)', (history_path,))
+            cursor.execute('SELECT isdir, modification FROM pg_catalog.pg_stat_file(%s)', (history_path,))
             isdir, modification = cursor.fetchone()
             if not isdir:
-                cursor.execute('SELECT pg_read_file(%s)', (history_path,))
+                cursor.execute('SELECT pg_catalog.pg_read_file(%s)', (history_path,))
                 history = list(self.parse_history(cursor.fetchone()[0]))
                 if history[-1][0] == timeline - 1:
                     history[-1].append(modification.isoformat())
@@ -1511,7 +1494,7 @@ class Postgresql(object):
             if data.get('Database cluster state') == 'in production':
                 return True
 
-    def promote(self, wait_seconds):
+    def promote(self, wait_seconds, access_is_restricted=False):
         if self.role == 'master':
             return True
         ret = self.pg_ctl('promote', '-W')
@@ -1519,7 +1502,8 @@ class Postgresql(object):
             self.set_role('master')
             logger.info("cleared rewind state after becoming the leader")
             self._rewind_state = REWIND_STATUS.INITIAL
-            self.call_nowait(ACTION_ON_ROLE_CHANGE)
+            if not access_is_restricted:
+                self.call_nowait(ACTION_ON_ROLE_CHANGE)
             ret = self._wait_promote(wait_seconds)
         return ret
 
@@ -1552,61 +1536,88 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
     def load_replication_slots(self):
         if self.use_slots and self._schedule_load_slots:
-            cursor = self._query("SELECT slot_name FROM pg_replication_slots WHERE slot_type='physical'")
-            self._replication_slots = [r[0] for r in cursor]
+            replication_slots = {}
+            cursor = self._query('SELECT slot_name, slot_type, plugin, database FROM pg_catalog.pg_replication_slots')
+            for r in cursor:
+                value = {'type': r[1]}
+                if r[1] == 'logical':
+                    value.update({'plugin': r[2], 'database': r[3]})
+                replication_slots[r[0]] = value
+            self._replication_slots = replication_slots
             self._schedule_load_slots = False
 
     def postmaster_start_time(self):
         try:
-            cursor = self.query("""SELECT to_char(pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ')""")
+            cursor = self.query("SELECT pg_catalog.to_char(pg_catalog.pg_postmaster_start_time(),"
+                                " 'YYYY-MM-DD HH24:MI:SS.MS TZ')")
             return cursor.fetchone()[0]
         except psycopg2.Error:
             return None
+
+    def drop_replication_slot(self, name):
+        cursor = self._query(('SELECT pg_catalog.pg_drop_replication_slot(%s) WHERE EXISTS (SELECT 1 ' +
+                              'FROM pg_catalog.pg_replication_slots WHERE slot_name = %s AND NOT active)'), name, name)
+        # In normal situation rowcount should be 1, otherwise either slot doesn't exists or it is still active
+        return cursor.rowcount == 1
+
+    @staticmethod
+    def compare_slots(s1, s2):
+        return s1['type'] == s2['type'] and\
+                (s1['type'] == 'physical' or s1['database'] == s2['database'] and s1['plugin'] == s2['plugin'])
 
     def sync_replication_slots(self, cluster):
         if self.use_slots:
             try:
                 self.load_replication_slots()
-                # if the replicatefrom tag is set on the member - we should not create the replication slot for it on
-                # the current master, because that member would replicate from elsewhere. We still create the slot if
-                # the replicatefrom destination member is currently not a member of the cluster (fallback to the
-                # master), or if replicatefrom destination member happens to be the current master
-                if self.role in ('master', 'standby_leader'):
-                    slot_members = [m.name for m in cluster.members if m.name != self.name and
-                                    (m.replicatefrom is None or m.replicatefrom == self.name or
-                                     not cluster.has_member(m.replicatefrom))]
-                else:
-                    # only manage slots for replicas that replicate from this one, except for the leader among them
-                    slot_members = [m.name for m in cluster.members if m.replicatefrom == self.name and
-                                    m.name != cluster.leader.name]
-                slots = set(slot_name_from_member_name(name) for name in slot_members)
 
-                if len(slots) < len(slot_members):
-                    # Find which names are conflicting for a nicer error message
-                    slot_conflicts = defaultdict(list)
-                    for name in slot_members:
-                        slot_conflicts[slot_name_from_member_name(name)].append(name)
-                    logger.error("Following cluster members share a replication slot name: %s",
-                                 "; ".join("{} map to {}".format(", ".join(v), k)
-                                           for k, v in slot_conflicts.items() if len(v) > 1))
+                slots = cluster.get_replication_slots(self.name, self.role)
 
-                # drop unused slots
-                for slot in set(self._replication_slots) - slots:
-                    cursor = self._query("""SELECT pg_drop_replication_slot(%s)
-                                             WHERE EXISTS(SELECT 1 FROM pg_replication_slots
-                                             WHERE slot_name = %s AND NOT active)""", slot, slot)
-
-                    if cursor.rowcount != 1:  # Either slot doesn't exists or it is still active
-                        self._schedule_load_slots = True  # schedule load_replication_slots on the next iteration
+                # drop old replication slots which are not presented in desired slots
+                for name in set(self._replication_slots) - set(slots):
+                    if not self.drop_replication_slot(name):
+                        logger.error("Failed to drop replication slot '%s'", name)
+                        self._schedule_load_slots = True
 
                 immediately_reserve = ', true' if self._major_version >= 90600 else ''
 
-                # create new slots
-                for slot in slots - set(self._replication_slots):
-                    self._query("""SELECT pg_create_physical_replication_slot(%s{0})
-                                    WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots
-                                    WHERE slot_name = %s)""".format(immediately_reserve), slot, slot)
+                logical_slots = defaultdict(dict)
+                for name, value in slots.items():
+                    if name in self._replication_slots and not self.compare_slots(value, self._replication_slots[name]):
+                        logger.info("Trying to drop replication slot '%s' because value is changing from %s to %s",
+                                    name, self._replication_slots[name], value)
+                        if not self.drop_replication_slot(name):
+                            logger.error("Failed to drop replication slot '%s'", name)
+                            self._schedule_load_slots = True
+                            continue
+                        self._replication_slots.pop(name)
+                    if name not in self._replication_slots:
+                        if value['type'] == 'physical':
+                            try:
+                                self._query(("SELECT pg_catalog.pg_create_physical_replication_slot(%s{0})" +
+                                             " WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_replication_slots" +
+                                             " WHERE slot_type = 'physical' AND slot_name = %s)").format(
+                                                 immediately_reserve), name, name)
+                            except Exception:
+                                logger.exception("Failed to create physical replication slot '%s'", name)
+                                self._schedule_load_slots = True
+                        elif value['type'] == 'logical' and name not in self._replication_slots:
+                            logical_slots[value['database']][name] = value
 
+                # create new logical slots
+                for database, values in logical_slots.items():
+                    conn_kwargs = self._local_connect_kwargs
+                    conn_kwargs['database'] = database
+                    with self._get_connection_cursor(**conn_kwargs) as cur:
+                        for name, value in values.items():
+                            try:
+                                cur.execute("SELECT pg_catalog.pg_create_logical_replication_slot(%s, %s)" +
+                                            " WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_replication_slots" +
+                                            " WHERE slot_type = 'logical' AND slot_name = %s)",
+                                            (name, value['plugin'], name))
+                            except Exception:
+                                logger.exception("Failed to create logical replication slot '%s' plugin='%s'",
+                                                 name, value['plugin'])
+                                self._schedule_load_slots = True
                 self._replication_slots = slots
             except Exception:
                 logger.exception('Exception when changing replication slots')
@@ -1763,9 +1774,9 @@ $$""".format(name, ' '.join(options)), name, password, password)
         # Pick candidates based on who has flushed WAL farthest.
         # TODO: for synchronous_commit = remote_write we actually want to order on write_location
         for app_name, state, sync_state in self.query(
-                """SELECT LOWER(application_name), state, sync_state
-                     FROM pg_stat_replication
-                    ORDER BY flush_{0} DESC""".format(self.lsn_name)):
+                "SELECT pg_catalog.lower(application_name), state, sync_state"
+                " FROM pg_catalog.pg_stat_replication"
+                " ORDER BY flush_{0} DESC".format(self.lsn_name)):
             member = members.get(app_name)
             if state != 'streaming' or not member or member.tags.get('nosync', False):
                 continue

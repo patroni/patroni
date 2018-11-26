@@ -1,5 +1,12 @@
 #!/bin/bash
 
+if [[ $UID -ge 10000 ]]; then
+    GID=$(id -g)
+    sed -e "s/^postgres:x:[^:]*:[^:]*:/postgres:x:$UID:$GID:/" /etc/passwd > /tmp/passwd
+    cat /tmp/passwd > /etc/passwd
+    rm /tmp/passwd
+fi
+
 cat > /home/postgres/patroni.yml <<__EOF__
 bootstrap:
   dcs:
@@ -23,14 +30,10 @@ postgresql:
       password: '${PATRONI_SUPERUSER_PASSWORD}'
     replication:
       password: '${PATRONI_REPLICATION_PASSWORD}'
-  callbacks:
-    on_start: /callback.py
-    on_stop: /callback.py
-    on_role_change: /callback.py
 __EOF__
 
 unset PATRONI_SUPERUSER_PASSWORD PATRONI_REPLICATION_PASSWORD
 export KUBERNETES_NAMESPACE=$PATRONI_KUBERNETES_NAMESPACE
 export POD_NAME=$PATRONI_NAME
 
-exec /usr/bin/python /usr/local/bin/patroni /home/postgres/patroni.yml
+exec /usr/bin/python3 /usr/local/bin/patroni /home/postgres/patroni.yml

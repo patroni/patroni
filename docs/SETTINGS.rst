@@ -33,6 +33,11 @@ Bootstrap configuration
         -  **restore\_command**: command to restore WAL records from the remote master to standby leader, can be different from the list defined in :ref:`postgresql_settings`
         -  **archive\_cleanup\_command**: cleanup command for standby leader
         -  **recovery\_min\_apply\_delay**: how long to wait before actually apply WAL records on a standby leader
+    -  **slots**: define permanent replication slots. These slots will be preserved during switchover/failover. Patroni will try to create slots before opening connections to the cluster.
+        -  **my_slot_name**: the name of replication slot. It is the responsibility of the operator to make sure that there are no clashes in names between replication slots automatically created by Patroni for members and permanent replication slots.
+            -  **type**: slot type. Could be ``physical`` or ``logical``. If the slot is logical, you have to additionally define ``database`` and ``plugin``.
+               **database**: the database name where logical slots should be created.
+               **plugin**: the plugin name for the logical slot.
 -  **method**: custom script to use for bootstrapping this cluster.
    See :ref:`custom bootstrap methods documentation <custom_bootstrap>` for details.
    When ``initdb`` is specified revert to the default ``initdb`` command. ``initdb`` is also triggered when no ``method``
@@ -69,6 +74,8 @@ Most of the parameters are optional, but you have to specify one of the **host**
 -  **key**: (optional) file with the client key. Can be empty if the key is part of **cert**.
 -  **dc**: (optional) Datacenter to communicate with. By default the datacenter of the host is used.
 -  **checks**: (optional) list of Consul health checks used for the session. If not specified Consul will use "serfHealth" in additional to the TTL based check created by Patroni. Additional checks, in particular the "serfHealth", may cause the leader lock to expire faster than in `ttl` seconds when the leader instance becomes unavailable
+-  **register\_service**: (optional) whether or not to register a service with the name defined by the scope parameter and the tag master, replica or standby-leader depending on the node's role. Defaults to **false**
+-  **service\_check\_interval**: (optional) how often to perform health check against registered url
 
 Etcd
 ----
@@ -144,8 +151,10 @@ PostgreSQL
 
 REST API
 -------- 
--  **connect\_address**: IP address (or hostname) and port, to access the Patroni's REST API. It can serve as a endpoint for HTTP health checks (read below about the "listen" REST API parameter), and also for user queries (either directly or via the REST API), as well as for the health checks done by the cluster members during leader elections (for example, to determine whether the master is still running, or if there is a node which has a WAL position that is ahead of the one doing the query; etc.) The connect_address is put in the member key in DCS, making it possible to translate the member name into the address to connect to its REST API.
--  **listen**: IP address (or hostname) and port that Patroni will listen to for the REST API - to provide also the same health checks and cluster messaging between the participating nodes, as described above. to provide health-check information for HAProxy (or any other load balancer capable of doing a HTTP "OPTION" or "GET" checks)  
+-  **connect\_address**: IP address (or hostname) and port, to access the Patroni's REST API. All the members of the cluster must be able to connect to this address, so unless the Patroni setup is intended for a demo inside the localhost, this address must be a non "localhost" or loopback addres (ie: "localhost" or "127.0.0.1"). It can serve as a endpoint for HTTP health checks (read below about the "listen" REST API parameter), and also for user queries (either directly or via the REST API), as well as for the health checks done by the cluster members during leader elections (for example, to determine whether the master is still running, or if there is a node which has a WAL position that is ahead of the one doing the query; etc.) The connect_address is put in the member key in DCS, making it possible to translate the member name into the address to connect to its REST API.
+
+-  **listen**: IP address (or hostname) and port that Patroni will listen to for the REST API - to provide also the same health checks and cluster messaging between the participating nodes, as described above. to provide health-check information for HAProxy (or any other load balancer capable of doing a HTTP "OPTION" or "GET" checks).
+
 -  **Optional**:
         -  **authentication**:
             -  **username**: Basic-auth username to protect unsafe REST API endpoints.
