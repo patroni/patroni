@@ -9,7 +9,7 @@ import yaml
 
 from collections import defaultdict
 from copy import deepcopy
-from patroni.dcs import ClusterConfig, is_standby_cluster
+from patroni.dcs import ClusterConfig
 from patroni.postgresql import Postgresql
 from patroni.utils import deep_compare, parse_bool, parse_int, patch_config
 from requests.structures import CaseInsensitiveDict
@@ -98,10 +98,6 @@ class Config(object):
     @property
     def dynamic_configuration(self):
         return deepcopy(self._dynamic_configuration)
-
-    @property
-    def is_standby_cluster(self):
-        return is_standby_cluster(self._dynamic_configuration.get('standby_cluster'))
 
     def check_mode(self, mode):
         return bool(parse_bool(self._dynamic_configuration.get(mode)))

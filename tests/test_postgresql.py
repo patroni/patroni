@@ -8,7 +8,7 @@ import unittest
 
 from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.async_executor import CriticalTask
-from patroni.dcs import Cluster, Leader, Member, RemoteMember, SyncState
+from patroni.dcs import Cluster, ClusterConfig, Leader, Member, RemoteMember, SyncState
 from patroni.exceptions import PostgresConnectionException, PostgresException
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
 from patroni.postmaster import PostmasterProcess
@@ -28,15 +28,15 @@ class MockCursor(object):
     def execute(self, sql, *params):
         if sql.startswith('blabla'):
             raise psycopg2.ProgrammingError()
-        elif sql == 'CHECKPOINT':
+        elif sql == 'CHECKPOINT' or sql.startswith('SELECT pg_catalog.pg_create_'):
             raise psycopg2.OperationalError()
         elif sql.startswith('RetryFailedError'):
             raise RetryFailedError('retry')
         elif sql.startswith('SELECT slot_name'):
-            self.results = [('blabla',), ('foobar',)]
-        elif sql.startswith('SELECT CASE WHEN pg_is_in_recovery()'):
+            self.results = [('blabla', 'physical'), ('foobar', 'physical'), ('ls', 'logical', 'a', 'b')]
+        elif sql.startswith('SELECT CASE WHEN pg_catalog.pg_is_in_recovery()'):
             self.results = [(1, 2)]
-        elif sql.startswith('SELECT pg_is_in_recovery()'):
+        elif sql.startswith('SELECT pg_catalog.pg_is_in_recovery()'):
             self.results = [(False, 2)]
         elif sql.startswith('WITH replication_info AS ('):
             replication_info = '[{"application_name":"walreceiver","client_addr":"1.2.3.4",' +\
@@ -53,7 +53,7 @@ class MockCursor(object):
             self.results = [('1', 2, '0/402EEC0', '')]
         elif sql.startswith('SELECT isdir, modification'):
             self.results = [(False, datetime.datetime.now())]
-        elif sql.startswith('SELECT pg_read_file'):
+        elif sql.startswith('SELECT pg_catalog.pg_read_file'):
             self.results = [('1\t0/40159C0\tno recovery target specified\n\n' +
                              '2\t1/40159C0\tno recovery target specified\n',)]
         elif sql.startswith('TIMELINE_HISTORY '):
@@ -421,9 +421,13 @@ class TestPostgresql(unittest.TestCase):
     def test_create_replica(self, mock_cancellable_subprocess_call):
         self.p.delete_trigger_file = Mock(side_effect=OSError)
 
+        self.p.config['create_replica_methods'] = ['pgBackRest']
+        self.p.config['pgBackRest'] = {'command': 'pgBackRest', 'keep_data': True, 'no_params': True}
+        mock_cancellable_subprocess_call.return_value = 0
+        self.assertEqual(self.p.create_replica(self.leader), 0)
+
         self.p.config['create_replica_methods'] = ['wale', 'basebackup']
         self.p.config['wale'] = {'command': 'foo'}
-        mock_cancellable_subprocess_call.return_value = 0
         self.assertEqual(self.p.create_replica(self.leader), 0)
         del self.p.config['wale']
         self.assertEqual(self.p.create_replica(self.leader), 0)
@@ -498,23 +502,25 @@ class TestPostgresql(unittest.TestCase):
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def test_sync_replication_slots(self):
         self.p.start()
-        cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None, None, None)
+        config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'},
+                                             'A': 0, 'test_3': 0, 'b': {'type': 'logical', 'plugin': '1'}}}, 1)
+        cluster = Cluster(True, config, self.leader, 0, [self.me, self.other, self.leadermem], None, None, None)
         with mock.patch('patroni.postgresql.Postgresql._query', Mock(side_effect=psycopg2.OperationalError)):
             self.p.sync_replication_slots(cluster)
         self.p.sync_replication_slots(cluster)
         with mock.patch('patroni.postgresql.Postgresql.role', new_callable=PropertyMock(return_value='replica')):
             self.p.sync_replication_slots(cluster)
-        with mock.patch('patroni.postgresql.logger.error', new_callable=Mock()) as errorlog_mock:
+        with patch.object(Postgresql, 'drop_replication_slot', Mock(return_value=True)),\
+                patch('patroni.dcs.logger.error', new_callable=Mock()) as errorlog_mock:
             self.p.query = Mock()
             alias1 = Member(0, 'test-3', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres'})
             alias2 = Member(0, 'test.3', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres'})
             cluster.members.extend([alias1, alias2])
             self.p.sync_replication_slots(cluster)
-            errorlog_mock.assert_called_once()
-            self.assertTrue("test-3" in errorlog_mock.call_args[0][1],
-                            "non matching {0}".format(errorlog_mock.call_args[0][1]))
-            self.assertTrue("test.3" in errorlog_mock.call_args[0][1],
-                            "non matching {0}".format(errorlog_mock.call_args[0][1]))
+            self.assertEqual(errorlog_mock.call_count, 5)
+            ca = errorlog_mock.call_args_list[0][0][1]
+            self.assertTrue("test-3" in ca, "non matching {0}".format(ca))
+            self.assertTrue("test.3" in ca, "non matching {0}".format(ca))
 
     @patch.object(MockCursor, 'execute', Mock(side_effect=psycopg2.OperationalError))
     def test__query(self):

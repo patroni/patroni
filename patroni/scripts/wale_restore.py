@@ -224,13 +224,12 @@ class WALERestore(object):
                             lsn_name = 'location'
                         con.autocommit = True
                         with con.cursor() as cur:
-                            cur.execute("""SELECT CASE WHEN pg_is_in_recovery()
-                                                       THEN GREATEST(
-                                                                pg_{0}_{1}_diff(COALESCE(
-                                                                  pg_last_{0}_receive_{1}(), '0/0'), %s)::bigint,
-                                                                pg_{0}_{1}_diff(pg_last_{0}_replay_{1}(), %s)::bigint)
-                                                       ELSE pg_{0}_{1}_diff(pg_current_{0}_{1}(), %s)::bigint
-                                                   END""".format(wal_name, lsn_name),
+                            cur.execute(("SELECT CASE WHEN pg_catalog.pg_is_in_recovery()"
+                                         " THEN GREATEST(pg_catalog.pg_{0}_{1}_diff(COALESCE("
+                                         "pg_last_{0}_receive_{1}(), '0/0'), %s)::bigint, "
+                                         "pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), %s)::bigint)"
+                                         " ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), %s)::bigint"
+                                         " END").format(wal_name, lsn_name),
                                         (backup_start_lsn, backup_start_lsn, backup_start_lsn))
 
                             diff_in_bytes = int(cur.fetchone()[0])

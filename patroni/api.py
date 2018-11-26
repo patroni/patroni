@@ -87,10 +87,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
         replica_status_code = 200 if not patroni.noloadbalance and response.get('role') == 'replica' else 503
         status_code = 503
 
-        if patroni.config.is_standby_cluster and ('standby_leader' in path or 'standby-leader' in path):
+        if patroni.ha.is_standby_cluster() and ('standby_leader' in path or 'standby-leader' in path):
             status_code = 200 if patroni.ha.is_leader() else 503
         elif 'master' in path or 'leader' in path or 'primary' in path:
-            status_code = 200 if patroni.ha.is_leader() else 503
+            # Round-robing across all masters in pause mode if DCS is not accessible
+            if not cluster and patroni.ha.is_paused():
+                status_code = 200 if response['role'] == 'master' else 503
+            else:
+                status_code = 200 if patroni.ha.is_leader() else 503
         elif 'replica' in path:
             status_code = replica_status_code
         elif cluster:  # dcs is available
@@ -408,17 +412,20 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 raise RetryFailedError('')
             stmt = ("WITH replication_info AS ("
                     "SELECT usename, application_name, client_addr, state, sync_state, sync_priority"
-                    " FROM pg_stat_replication) SELECT"
-                    " to_char(pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),"
-                    " CASE WHEN pg_is_in_recovery() THEN 0"
-                    " ELSE ('x' || SUBSTR(pg_{0}file_name(pg_current_{0}_{1}()), 1, 8))::bit(32)::int END,"
-                    " CASE WHEN pg_is_in_recovery() THEN 0"
-                    " ELSE pg_{0}_{1}_diff(pg_current_{0}_{1}(), '0/0')::bigint END,"
-                    " pg_{0}_{1}_diff(COALESCE(pg_last_{0}_receive_{1}(), pg_last_{0}_replay_{1}()), '0/0')::bigint,"
-                    " pg_{0}_{1}_diff(pg_last_{0}_replay_{1}(), '0/0')::bigint,"
-                    " to_char(pg_last_xact_replay_timestamp(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),"
-                    " pg_is_in_recovery() AND pg_is_{0}_replay_paused(),"
-                    " (SELECT array_to_json(array_agg(row_to_json(ri))) FROM replication_info ri)")
+                    " FROM pg_catalog.pg_stat_replication) SELECT"
+                    " pg_catalog.to_char(pg_catalog.pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),"
+                    " CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0"
+                    " ELSE ('x' || pg_catalog.substr(pg_catalog.pg_{0}file_name("
+                    "pg_catalog.pg_current_{0}_{1}()), 1, 8))::bit(32)::int END,"
+                    " CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0"
+                    " ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), '0/0')::bigint END,"
+                    " pg_catalog.pg_{0}_{1}_diff(COALESCE(pg_catalog.pg_last_{0}_receive_{1}(),"
+                    " pg_catalog.pg_last_{0}_replay_{1}()), '0/0')::bigint,"
+                    " pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint,"
+                    " pg_catalog.to_char(pg_catalog.pg_last_xact_replay_timestamp(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),"
+                    " pg_catalog.pg_is_in_recovery() AND pg_catalog.pg_is_{0}_replay_paused(), "
+                    "(SELECT pg_catalog.array_to_json(pg_catalog.array_agg("
+                    "pg_catalog.row_to_json(ri))) FROM replication_info ri)")
 
             row = self.query(stmt.format(self.server.patroni.postgresql.wal_name,
                                          self.server.patroni.postgresql.lsn_name), retry=retry)[0]

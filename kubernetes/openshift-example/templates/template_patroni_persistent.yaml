@@ -1,0 +1,303 @@
+apiVersion: v1
+kind: Template
+metadata:
+  name: patroni-pgsql-persistent
+  annotations:
+    description: |-
+      Patroni Postgresql database cluster, with persistent storage.
+
+      WARNING: Any data stored will be lost upon pod destruction. Only use this template for testing.
+    iconClass: icon-postgresql
+    openshift.io/display-name: Patroni Postgresql (Persistent)
+    openshift.io/long-description: This template deploys a a patroni postgresql HA cluster without persistent storage.
+    tags: postgresql
+objects:
+- apiVersion: v1
+  kind: Service
+  metadata:
+    creationTimestamp: null
+    labels:
+      application: ${APPLICATION_NAME}
+      cluster-name: ${PATRONI_CLUSTER_NAME}
+    name: ${PATRONI_CLUSTER_NAME}
+  spec:
+    ports:
+    - port: 5432
+      protocol: TCP
+      targetPort: 5432
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    creationTimestamp: null
+    labels:
+      application: ${APPLICATION_NAME}
+      cluster-name: ${PATRONI_CLUSTER_NAME}
+    name: ${PATRONI_MASTER_SERVICE_NAME}
+  spec:
+    ports:
+    - port: 5432
+      protocol: TCP
+      targetPort: 5432
+    selector:
+      application: ${APPLICATION_NAME}
+      cluster-name: ${PATRONI_CLUSTER_NAME}
+      role: master
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Secret
+  metadata:
+    name: ${PATRONI_CLUSTER_NAME}
+    labels:
+      application: ${APPLICATION_NAME}
+      cluster-name: ${PATRONI_CLUSTER_NAME}
+  stringData:
+    superuser-password: ${PATRONI_SUPERUSER_PASSWORD}
+    replication-password: ${PATRONI_REPLICATION_PASSWORD}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    creationTimestamp: null
+    labels:
+      application: ${APPLICATION_NAME}
+      cluster-name: ${PATRONI_CLUSTER_NAME}
+    name: ${PATRONI_REPLICA_SERVICE_NAME}
+  spec:
+    ports:
+    - port: 5432
+      protocol: TCP
+      targetPort: 5432
+    selector:
+      application: ${APPLICATION_NAME}
+      cluster-name: ${PATRONI_CLUSTER_NAME}
+      role: replica
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: apps/v1
+  kind: StatefulSet
+  metadata:
+    creationTimestamp: null
+    generation: 3
+    labels:
+      application: ${APPLICATION_NAME}
+      cluster-name: ${PATRONI_CLUSTER_NAME}
+    name: ${APPLICATION_NAME}
+  spec:
+    podManagementPolicy: OrderedReady
+    replicas: 3
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        application: ${APPLICATION_NAME}
+        cluster-name: ${PATRONI_CLUSTER_NAME}
+    serviceName: ${APPLICATION_NAME}
+    template:
+      metadata:
+        creationTimestamp: null
+        labels:
+          application: ${APPLICATION_NAME}
+          cluster-name: ${PATRONI_CLUSTER_NAME}
+      spec:
+        containers:
+        - env:
+          - name: POD_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          - name: PATRONI_KUBERNETES_NAMESPACE
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+          - name: PATRONI_KUBERNETES_LABELS
+            value: '{application: ${APPLICATION_NAME}, cluster-name: ${PATRONI_CLUSTER_NAME}}'
+          - name: PATRONI_SUPERUSER_USERNAME
+            value: ${PATRONI_SUPERUSER_USERNAME}
+          - name: PATRONI_SUPERUSER_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: superuser-password
+                name: ${PATRONI_CLUSTER_NAME}
+          - name: PATRONI_REPLICATION_USERNAME
+            value: ${PATRONI_REPLICATION_USERNAME}
+          - name: PATRONI_REPLICATION_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: replication-password
+                name: ${PATRONI_CLUSTER_NAME}
+          - name: PATRONI_SCOPE
+            value: ${PATRONI_CLUSTER_NAME}
+          - name: PATRONI_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: PATRONI_POSTGRESQL_DATA_DIR
+            value: /home/postgres/pgdata/pgroot/data
+          - name: PATRONI_POSTGRESQL_PGPASS
+            value: /tmp/pgpass
+          - name: PATRONI_POSTGRESQL_LISTEN
+            value: 0.0.0.0:5432
+          - name: PATRONI_RESTAPI_LISTEN
+            value: 0.0.0.0:8008
+          image: docker-registry.default.svc:5000/${NAMESPACE}/patroni:latest
+          imagePullPolicy: IfNotPresent
+          name: ${APPLICATION_NAME}
+          ports:
+          - containerPort: 8008
+            protocol: TCP
+          - containerPort: 5432
+            protocol: TCP
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /home/postgres/pgdata
+            name: ${APPLICATION_NAME}
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        serviceAccount: ${SERVICE_ACCOUNT}
+        serviceAccountName: ${SERVICE_ACCOUNT}
+        terminationGracePeriodSeconds: 0
+        volumes:
+        - name: ${APPLICATION_NAME}
+          persistentVolumeClaim: 
+            claimName: ${APPLICATION_NAME}
+    volumeClaimTemplates:
+    - metadata:
+        labels:
+          application: ${APPLICATION_NAME}
+        name: ${APPLICATION_NAME}
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: ${PVC_SIZE}
+    updateStrategy:
+      type: OnDelete
+- apiVersion: v1
+  kind: Endpoints
+  metadata:
+    name: ${APPLICATION_NAME}
+    labels:
+      application: ${APPLICATION_NAME}
+      cluster-name: ${PATRONI_CLUSTER_NAME}
+  subsets: []
+- apiVersion: v1
+  kind: ServiceAccount
+  metadata:
+    name: ${SERVICE_ACCOUNT}
+- apiVersion: rbac.authorization.k8s.io/v1
+  kind: Role
+  metadata:
+    name: ${SERVICE_ACCOUNT}
+  rules:
+  - apiGroups:
+    - ""
+    resources:
+    - configmaps
+    verbs:
+    - create
+    - get
+    - list
+    - patch
+    - update
+    - watch
+    # delete is required only for 'patronictl remove'
+    - delete
+  - apiGroups:
+    - ""
+    resources:
+    - endpoints
+    verbs:
+    - get
+    - patch
+    - update
+    # the following three privileges are necessary only when using endpoints
+    - create
+    - list
+    - watch
+    # delete is required only for for 'patronictl remove'
+    - delete
+  - apiGroups:
+    - ""
+    resources:
+    - pods
+    verbs:
+    - get
+    - list
+    - patch
+    - update
+    - watch
+- apiVersion: rbac.authorization.k8s.io/v1
+  kind: RoleBinding
+  metadata:
+    name: ${SERVICE_ACCOUNT}
+  roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: Role
+    name: ${SERVICE_ACCOUNT}
+  subjects:
+  - kind: ServiceAccount
+    name: ${SERVICE_ACCOUNT}
+parameters:
+- description: The name of the application for labelling all artifacts.
+  displayName: Application Name
+  name: APPLICATION_NAME
+  value: patroni-persistent
+- description: The name of the patroni-pgsql cluster.
+  displayName: Cluster Name
+  name: PATRONI_CLUSTER_NAME
+  value: patroni-persistent
+- description: The name of the OpenShift Service exposed for the patroni-persistent-master container.
+  displayName: Master service name.  
+  name: PATRONI_MASTER_SERVICE_NAME
+  value: patroni-persistent-master
+- description: The name of the OpenShift Service exposed for the patroni-persistent-replica containers.
+  displayName: Replica service name. 
+  name: PATRONI_REPLICA_SERVICE_NAME
+  value: patroni-persistent-replica
+- description: Maximum amount of memory the container can use.
+  displayName: Memory Limit
+  name: MEMORY_LIMIT
+  value: 512Mi
+- description: The OpenShift Namespace where the patroni and postgresql ImageStream resides.
+  displayName: ImageStream Namespace
+  name: NAMESPACE
+  value: openshift
+- description: Username of the superuser account for initialization.
+  displayName: Superuser Username
+  name: PATRONI_SUPERUSER_USERNAME
+  value: postgres
+- description: Password of the superuser account for initialization.
+  displayName: Superuser Passsword
+  name: PATRONI_SUPERUSER_PASSWORD
+  value: postgres
+- description: Username of the replication account for initialization.
+  displayName: Replication Username
+  name: PATRONI_REPLICATION_USERNAME
+  value: postgres
+- description: Password of the replication account for initialization.
+  displayName: Repication Passsword
+  name: PATRONI_REPLICATION_PASSWORD
+  value: postgres
+- description: Service account name used for pods and rolebindings to form a cluster in the project. 
+  displayName: Service Account
+  name: SERVICE_ACCOUNT
+  value: patroni-persistent
+- description: The size of the persistent volume to create. 
+  displayName: Persistent Volume Size
+  name: PVC_SIZE
+  value: 5Gi

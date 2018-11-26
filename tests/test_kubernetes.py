@@ -50,6 +50,13 @@ class TestKubernetes(unittest.TestCase):
                         'labels': {'f': 'b'}, 'use_endpoints': True, 'pod_ip': '10.0.0.0'})
         self.assertIsNotNone(k.update_leader('123'))
 
+    @patch('kubernetes.config.load_kube_config', Mock())
+    @patch.object(k8s_client.CoreV1Api, 'create_namespaced_endpoints', Mock())
+    def test_update_leader_with_restricted_access(self):
+        k = Kubernetes({'ttl': 30, 'scope': 'test', 'name': 'p-0', 'retry_timeout': 10,
+                        'labels': {'f': 'b'}, 'use_endpoints': True, 'pod_ip': '10.0.0.0'})
+        self.assertIsNotNone(k.update_leader('123', True))
+
     def test_take_leader(self):
         self.k.take_leader()
         self.k._leader_observed_record['leader'] = 'test'

@@ -10,14 +10,32 @@ import re
 import six
 import sys
 
-from collections import namedtuple
+from collections import defaultdict, namedtuple
+from copy import deepcopy
 from patroni.exceptions import PatroniException
 from patroni.utils import parse_bool
 from random import randint
 from six.moves.urllib_parse import urlparse, urlunparse, parse_qsl
 from threading import Event, Lock
 
+slot_name_re = re.compile('^[a-z0-9_]{1,63}$')
 logger = logging.getLogger(__name__)
+
+
+def slot_name_from_member_name(member_name):
+    """Translate member name to valid PostgreSQL slot name.
+
+    PostgreSQL replication slot names must be valid PostgreSQL names. This function maps the wider space of
+    member names to valid PostgreSQL names. Names are lowercased, dashes and periods common in hostnames
+    are replaced with underscores, other characters are encoded as their unicode codepoint. Name is truncated
+    to 64 characters. Multiple different member names may map to a single slot name."""
+
+    def replace_char(match):
+        c = match.group(0)
+        return '_' if c in '-.' else "u{:04d}".format(ord(c))
+
+    slot_name = re.sub('[^a-z0-9_]', replace_char, member_name.lower())
+    return slot_name[0:63]
 
 
 def parse_connection_string(value):
@@ -189,13 +207,12 @@ class RemoteMember(Member):
                 'create_replica_methods',
                 'restore_command',
                 'archive_cleanup_command',
-                'recovery_min_apply_delay')
+                'recovery_min_apply_delay',
+                'no_replication_slot')
 
     def __getattr__(self, name):
-        if name not in RemoteMember.allowed_keys():
-            return
-
-        return self.data.get(name)
+        if name in RemoteMember.allowed_keys():
+            return self.data.get(name)
 
 
 class Leader(namedtuple('Leader', 'index,session,member')):
@@ -275,14 +292,24 @@ class ClusterConfig(namedtuple('ClusterConfig', 'index,data,modify_index')):
     def from_node(index, data, modify_index=None):
         """
         >>> ClusterConfig.from_node(1, '{') is None
-        True
+        False
         """
 
         try:
             data = json.loads(data)
         except (TypeError, ValueError):
-            return None
-        return ClusterConfig(index, data, modify_index or index)
+            data = None
+            modify_index = 0
+        if not isinstance(data, dict):
+            data = {}
+        return ClusterConfig(index, data, index if modify_index is None else modify_index)
+
+    @property
+    def permanent_slots(self):
+        return isinstance(self.data, dict) and (
+                self.data.get('permanent_replication_slots') or
+                self.data.get('permanent_slots') or self.data.get('slots')
+        ) or {}
 
 
 class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
@@ -398,8 +425,64 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
     def is_synchronous_mode(self):
         return self.check_mode('synchronous_mode')
 
-    def is_standby_cluster(self):
-        return is_standby_cluster(self.config and self.config.data.get('standby_cluster'))
+    def get_replication_slots(self, name, role):
+        # if the replicatefrom tag is set on the member - we should not create the replication slot for it on
+        # the current master, because that member would replicate from elsewhere. We still create the slot if
+        # the replicatefrom destination member is currently not a member of the cluster (fallback to the
+        # master), or if replicatefrom destination member happens to be the current master
+        if role in ('master', 'standby_leader'):
+            slot_members = [m.name for m in self.members if m.name != name and
+                            (m.replicatefrom is None or m.replicatefrom == name or
+                             not self.has_member(m.replicatefrom))]
+            permanent_slots = (self.config and self.config.permanent_slots or {}).copy()
+        else:
+            # only manage slots for replicas that replicate from this one, except for the leader among them
+            slot_members = [m.name for m in self.members if m.replicatefrom == name and m.name != self.leader.name]
+            permanent_slots = {}
+
+        slots = {slot_name_from_member_name(name): {'type': 'physical'} for name in slot_members}
+
+        if len(slots) < len(slot_members):
+            # Find which names are conflicting for a nicer error message
+            slot_conflicts = defaultdict(list)
+            for name in slot_members:
+                slot_conflicts[slot_name_from_member_name(name)].append(name)
+            logger.error("Following cluster members share a replication slot name: %s",
+                         "; ".join("{} map to {}".format(", ".join(v), k)
+                                   for k, v in slot_conflicts.items() if len(v) > 1))
+
+        # "merge" replication slots for members with permanent_replication_slots
+        for name, value in permanent_slots.items():
+            if not slot_name_re.match(name):
+                logger.error("Invalid permanent replication slot name '%s'", name)
+                logger.error("Slot name may only contain lower case letters, numbers, and the underscore chars")
+                continue
+
+            if name in slots:
+                logger.error("Permanent replication slot {'%s': %s} is conflicting with" +
+                             " physical replication slot for cluster member", name, value)
+                continue
+
+            value = deepcopy(value)
+            if not value:
+                value = {'type': 'physical'}
+
+            if isinstance(value, dict):
+                if 'type' not in value:
+                    value['type'] = 'logical' if value.get('database') and value.get('plugin') else 'physical'
+
+                if value['type'] == 'physical' or value['type'] == 'logical' \
+                        and value.get('database') and value.get('plugin'):
+                    slots[name] = value
+                    continue
+
+            logger.error("Bad value for slot '%s' in permanent_slots: %s", name, permanent_slots[name])
+
+        return slots
+
+    def has_permanent_logical_slots(self, name):
+        slots = self.get_replication_slots(name, 'master').values()
+        return any(v for v in slots if v.get("type") == "logical")
 
 
 @six.add_metaclass(abc.ABCMeta)
@@ -537,7 +620,7 @@ class AbstractDCS(object):
         You have to use CAS (Compare And Swap) operation in order to update leader key,
         for example for etcd `prevValue` parameter must be used."""
 
-    def update_leader(self, last_operation):
+    def update_leader(self, last_operation, access_is_restricted=False):
         """Update leader key (or session) ttl and optime/leader
 
         :param last_operation: absolute xlog location in bytes
@@ -654,14 +737,3 @@ class AbstractDCS(object):
 
         self.event.wait(timeout)
         return self.event.isSet()
-
-
-def is_standby_cluster(config):
-    """ Check whether or not provided configuration describes a standby cluster.
-        Config can be both patroni config or cluster.config.data
-    """
-    return isinstance(config, dict) and (
-        config.get('host') or
-        config.get('port') or
-        config.get('restore_command')
-    )
