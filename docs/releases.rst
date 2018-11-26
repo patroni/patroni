@@ -3,6 +3,19 @@
 Release notes
 =============
 
+Version 1.5.2
+-------------
+
+Compatibility and bugfix release.
+
+- Compatibility with kazoo-2.6.0 (Alexander Kukushkin)
+
+  In order to make sure that requests are performed with an appropriate timeout, Patroni redefines create_connection method from python-kazoo module. The last release of kazoo slightly changed the way how create_connection method is called.
+
+- Fix Patroni crash when Consul cluster loses the leader (Alexander)
+
+  The crash was happening due to incorrect implementation of touch_member method, it should return boolean and not raise any exceptions.
+
 Version 1.5.1
 -------------
 
