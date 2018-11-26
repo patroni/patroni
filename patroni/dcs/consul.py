@@ -499,4 +499,5 @@ class Consul(AbstractDCS):
         try:
             return super(Consul, self).watch(None, timeout)
         finally:
+            self._last_session_refresh = 0
             self.event.clear()
