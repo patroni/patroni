@@ -120,7 +120,7 @@ class TestConsul(unittest.TestCase):
                              'api_url': 'http://127.0.0.1:8009/patroni'})
         self.c._register_service = True
         self.c.refresh_session = Mock(return_value=True)
-        for a in range(0, 4):
+        for _ in range(0, 4):
             self.c.touch_member({'balbla': 'blabla'})
 
     @patch.object(consul.Consul.KV, 'put', Mock(side_effect=InvalidSession))
