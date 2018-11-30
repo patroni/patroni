@@ -28,7 +28,7 @@ spec:
         - mountPath: /home/postgres/pgdata
           name: pgdata
         env:
-        - name: POD_IP
+        - name: PATRONI_KUBERNETES_POD_IP
           valueFrom:
             fieldRef:
               fieldPath: status.podIP
