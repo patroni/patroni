@@ -43,7 +43,7 @@ Scenario: check dynamic configuration change via DCS
 	And I receive a response loop_wait 2
 	When I issue a GET request to http://127.0.0.1:8008/patroni
 	Then I receive a response code 200
-	And I receive a response tags {'tag': 'new_value'}
+	And I receive a response tags {'new_tag': 'new_value'}
 
 Scenario: check API requests for the primary-replica pair in the pause mode
 	Given I run patronictl.py pause batman
