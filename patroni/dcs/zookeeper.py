@@ -1,5 +1,6 @@
 import json
 import logging
+import select
 import time
 
 from kazoo.client import KazooClient, KazooState, KazooRetry
@@ -44,6 +45,13 @@ class PatroniSequentialThreadingHandler(SequentialThreadingHandler):
         else:
             args[1] = max(self._connect_timeout, args[1]/10.0)
         return super(PatroniSequentialThreadingHandler, self).create_connection(*args, **kwargs)
+
+    def select(self, *args, **kwargs):
+        """Python3 raises `ValueError` if socket is closed, because fd == -1"""
+        try:
+            return super(PatroniSequentialThreadingHandler, self).select(*args, **kwargs)
+        except ValueError as e:
+            raise select.error(9, str(e))
 
 
 class ZooKeeper(AbstractDCS):
