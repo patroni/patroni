@@ -350,7 +350,6 @@ class Consul(AbstractDCS):
         member = cluster and cluster.get_member(self._name, fallback_to_leader=False)
         create_member = not permanent and self.refresh_session()
 
-        logger.error(self._session)
         if member and (create_member or member.session != self._session):
             self._client.kv.delete(self.member_path)
             create_member = True
