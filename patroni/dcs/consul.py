@@ -27,8 +27,12 @@ class ConsulInternalError(ConsulException):
     """An internal Consul server error occurred"""
 
 
-class InvalidSessionTTL(ConsulInternalError):
+class InvalidSessionTTL(ConsulException):
     """Session TTL is too small or too big"""
+
+
+class InvalidSession(ConsulException):
+    """invalid session"""
 
 
 class HTTPClient(object):
@@ -72,6 +76,8 @@ class HTTPClient(object):
             msg = '{0} {1}'.format(response.status, data)
             if data.startswith('Invalid Session TTL'):
                 raise InvalidSessionTTL(msg)
+            elif data.startswith('invalid session'):
+                raise InvalidSession(msg)
             else:
                 raise ConsulInternalError(msg)
         return base.Response(response.status, response.headers, data)
@@ -357,6 +363,9 @@ class Consul(AbstractDCS):
             if self._register_service:
                 self.update_service(not create_member and member and member.data or {}, data)
             return True
+        except InvalidSession:
+            self._session = None
+            logger.error('Our session disappeared from Consul, can not "touch_member"')
         except Exception:
             logger.exception('touch_member')
         return False
@@ -414,14 +423,21 @@ class Consul(AbstractDCS):
             return self._update_service(new_data)
 
     @catch_consul_errors
-    def _do_attempt_to_acquire_leader(self, kwargs):
-        return self.retry(self._client.kv.put, self.leader_path, self._name, **kwargs)
+    def _do_attempt_to_acquire_leader(self, permanent):
+        try:
+            kwargs = {} if permanent else {'acquire': self._session}
+            return self.retry(self._client.kv.put, self.leader_path, self._name, **kwargs)
+        except InvalidSession:
+            self._session = None
+            logger.error('Our session disappeared from Consul. Will try to get a new one and retry attempt')
+            self.refresh_session()
+            return self.retry(self._client.kv.put, self.leader_path, self._name, acquire=self._session)
 
     def attempt_to_acquire_leader(self, permanent=False):
         if not self._session and not permanent:
             self.refresh_session()
 
-        ret = self._do_attempt_to_acquire_leader({} if permanent else {'acquire': self._session})
+        ret = self._do_attempt_to_acquire_leader(permanent)
         if not ret:
             logger.info('Could not take out TTL lock')
 
@@ -499,4 +515,5 @@ class Consul(AbstractDCS):
         try:
             return super(Consul, self).watch(None, timeout)
         finally:
+            self._last_session_refresh = 0
             self.event.clear()
