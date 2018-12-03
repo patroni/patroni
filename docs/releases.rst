@@ -3,6 +3,23 @@
 Release notes
 =============
 
+Version 1.5.3
+-------------
+
+Compatibility and bugfix release.
+
+- Improve stability when running with python3 against zookeeper (Alexander Kukushkin)
+
+  Change of `loop_wait` was causing Patroni to disconnect from zookeeper and never reconnect back.
+
+- Fix broken compatibility with postgres 9.3 (Alexander)
+
+  When opening a replication connection we should specify replication=1, beacuse 9.3 does not understand replication='database'
+
+- Make sure we refresh Consul session at least once per HA loop and improve handling of consul sessions exceptions (Alexander)
+
+  Restart of local consul agent invalidates all sessions related to the node. Not calling session refresh on time and not doing proper handling of session errors was causing demote of the primary.
+
 Version 1.5.2
 -------------
 
