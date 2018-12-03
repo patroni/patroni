@@ -1,3 +1,4 @@
+import select
 import six
 import unittest
 
@@ -114,6 +115,10 @@ class TestPatroniSequentialThreadingHandler(unittest.TestCase):
         self.assertIsNotNone(self.handler.create_connection(()))
         self.assertIsNotNone(self.handler.create_connection((), 40))
         self.assertIsNotNone(self.handler.create_connection(timeout=40))
+
+    @patch.object(SequentialThreadingHandler, 'select', Mock(side_effect=ValueError))
+    def test_select(self):
+        self.assertRaises(select.error, self.handler.select)
 
 
 class TestZooKeeper(unittest.TestCase):

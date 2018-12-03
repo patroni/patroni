@@ -117,12 +117,24 @@ class PatroniController(AbstractController):
         except IOError:
             return None
 
-    def add_tag_to_config(self, tag, value):
+    @staticmethod
+    def recursive_update(dst, src):
+        for k, v in src.items():
+            if k in dst and isinstance(dst[k], dict):
+                PatroniController.recursive_update(dst[k], v)
+            else:
+                dst[k] = v
+
+    def update_config(self, custom_config):
         with open(self._config) as r:
             config = yaml.safe_load(r)
-            config['tags']['tag'] = value
+            self.recursive_update(config, custom_config)
             with open(self._config, 'w') as w:
                 yaml.safe_dump(config, w, default_flow_style=False)
+        self._scope = config.get('scope', 'batman')
+
+    def add_tag_to_config(self, tag, value):
+        self.update_config({'tags': {tag: value}})
 
     def _start(self):
         if self.watchdog:
@@ -179,13 +191,7 @@ class PatroniController(AbstractController):
                 config['bootstrap']['initdb'].extend([{'auth': 'md5'}, {'auth-host': 'md5'}])
 
         if custom_config is not None:
-            def recursive_update(dst, src):
-                for k, v in src.items():
-                    if k in dst and isinstance(dst[k], dict):
-                        recursive_update(dst[k], v)
-                    else:
-                        dst[k] = v
-            recursive_update(config, custom_config)
+            self.recursive_update(config, custom_config)
 
         if config['postgresql'].get('callbacks', {}).get('on_role_change'):
             config['postgresql']['callbacks']['on_role_change'] += ' ' + str(self.__PORT)
