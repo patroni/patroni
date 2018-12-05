@@ -28,7 +28,9 @@ def false(*args, **kwargs):
 
 
 def get_cluster(initialize, leader, members, failover, sync, cluster_config=None):
-    history = TimelineHistory(1, [(1, 67197376, 'no recovery target specified', datetime.datetime.now().isoformat())])
+    t = datetime.datetime.now().isoformat()
+    history = TimelineHistory(1, '[[1,67197376,"no recovery target specified","' + t + '"]]',
+                              [(1, 67197376, 'no recovery target specified', t)])
     cluster_config = cluster_config or ClusterConfig(1, {1: 2}, 1)
     return Cluster(initialize, cluster_config, leader, 10, members, failover, sync, history)
 
@@ -72,12 +74,13 @@ def get_standby_cluster_initialized_with_only_leader(failover=None, sync=None):
     )
 
 
-def get_node_status(reachable=True, in_recovery=True, wal_position=10, nofailover=False, watchdog_failed=False):
+def get_node_status(reachable=True, in_recovery=True, timeline=2,
+                    wal_position=10, nofailover=False, watchdog_failed=False):
     def fetch_node_status(e):
         tags = {}
         if nofailover:
             tags['nofailover'] = True
-        return _MemberStatus(e, reachable, in_recovery, wal_position, tags, watchdog_failed)
+        return _MemberStatus(e, reachable, in_recovery, timeline, wal_position, tags, watchdog_failed)
     return fetch_node_status
 
 
@@ -147,6 +150,7 @@ def run_async(self, func, args=()):
 @patch.object(Postgresql, 'query', Mock())
 @patch.object(Postgresql, 'checkpoint', Mock())
 @patch.object(Postgresql, 'cancellable_subprocess_call', Mock(return_value=0))
+@patch.object(Postgresql, '_get_local_timeline_lsn_from_replication_connection', Mock(return_value=[2, 10]))
 @patch.object(etcd.Client, 'write', etcd_write)
 @patch.object(etcd.Client, 'read', etcd_read)
 @patch.object(etcd.Client, 'delete', Mock(side_effect=etcd.EtcdException))

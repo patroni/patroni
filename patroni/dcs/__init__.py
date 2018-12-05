@@ -368,7 +368,7 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
         return name is not None and name in (self.leader, self.sync_standby)
 
 
-class TimelineHistory(namedtuple('TimelineHistory', 'index,lines')):
+class TimelineHistory(namedtuple('TimelineHistory', 'index,value,lines')):
     """Object representing timeline history file"""
 
     @staticmethod
@@ -384,7 +384,7 @@ class TimelineHistory(namedtuple('TimelineHistory', 'index,lines')):
             lines = None
         if not isinstance(lines, list):
             lines = []
-        return TimelineHistory(index, lines)
+        return TimelineHistory(index, value, lines)
 
 
 class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operation,members,failover,sync,history')):
@@ -483,6 +483,18 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
     def has_permanent_logical_slots(self, name):
         slots = self.get_replication_slots(name, 'master').values()
         return any(v for v in slots if v.get("type") == "logical")
+
+    @property
+    def timeline(self):
+        if self.history:
+            if self.history.lines:
+                try:
+                    return int(self.history.lines[-1][0]) + 1
+                except Exception:
+                    logger.error('Failed to parse cluster history from DCS: %s', self.history.lines)
+            elif self.history.value == '[]':
+                return 1
+        return 0
 
 
 @six.add_metaclass(abc.ABCMeta)
