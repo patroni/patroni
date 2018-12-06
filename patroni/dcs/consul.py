@@ -389,7 +389,8 @@ class Consul(AbstractDCS):
         api_parts = urlparse(data['api_url'])
         api_parts = api_parts._replace(path='/{0}'.format(role))
         conn_parts = urlparse(data['conn_url'])
-        check = base.Check.http(api_parts.geturl(), self._service_check_interval, deregister=self._client.http.ttl * 10)
+        check = base.Check.http(api_parts.geturl(), self._service_check_interval,
+                                deregister='{0}s'.format(self._client.http.ttl * 10))
         params = {
             'service_id': '{0}/{1}'.format(self._scope, self._name),
             'address': conn_parts.hostname,
