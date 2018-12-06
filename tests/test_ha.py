@@ -465,6 +465,8 @@ class TestHa(unittest.TestCase):
         self.assertEqual(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
         self.ha.fetch_node_status = get_node_status(watchdog_failed=True)
         self.assertEqual(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
+        self.ha.fetch_node_status = get_node_status(timeline=1)
+        self.assertEqual(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
         self.ha.fetch_node_status = get_node_status(wal_position=1)
         self.assertEqual(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
         # manual failover from the previous leader to us won't happen if we hold the nofailover flag
@@ -575,6 +577,8 @@ class TestHa(unittest.TestCase):
         self.ha.fetch_node_status = get_node_status(wal_position=11)  # accessible, in_recovery, wal position ahead
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         with patch('patroni.postgresql.Postgresql.timeline_wal_position', return_value=(1, 1)):
+            self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
+        with patch('patroni.postgresql.Postgresql.replica_cached_timeline', return_value=1):
             self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         self.ha.patroni.nofailover = True
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))

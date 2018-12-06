@@ -486,6 +486,14 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
 
     @property
     def timeline(self):
+        """
+        >>> Cluster(0, 0, 0, 0, 0, 0, 0, 0).timeline
+        0
+        >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[]')).timeline
+        1
+        >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[["a"]]')).timeline
+        0
+        """
         if self.history:
             if self.history.lines:
                 try:
