@@ -553,11 +553,14 @@ class Ha(object):
 
         _, my_wal_position = self.state_handler.timeline_wal_position()
         if check_replication_lag and self.is_lagging(my_wal_position):
+            logger.info('My wal position exceeds maximum replication lag')
             return False  # Too far behind last reported wal position on master
 
         if not self.is_standby_cluster():
             cluster_timeline = self.cluster.timeline
-            if self.state_handler.replica_cached_timeline(cluster_timeline) < cluster_timeline:
+            my_timeline = self.state_handler.replica_cached_timeline(cluster_timeline)
+            if my_timeline < cluster_timeline:
+                logger.info('My timeline %s is behind last known cluster timeline %s', my_timeline, cluster_timeline)
                 return False
 
         # Prepare list of nodes to run check against
@@ -570,6 +573,7 @@ class Ha(object):
                         logger.warning('Master (%s) is still alive', st.member.name)
                         return False
                     if my_wal_position < st.wal_position:
+                        logger.info('Wal position of %s is ahead of my wal position', st.member.name)
                         return False
         return True
 
