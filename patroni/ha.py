@@ -95,6 +95,9 @@ class Ha(object):
     def is_paused(self):
         return self.check_mode('pause')
 
+    def check_timeline(self):
+        return self.check_mode('check_timeline')
+
     def get_standby_cluster_config(self):
         if self.cluster and self.cluster.config and self.cluster.config.modify_index:
             config = self.cluster.config.data
@@ -546,7 +549,7 @@ class Ha(object):
         :returns True when node is lagging
         """
         lag = (self.cluster.last_leader_operation or 0) - wal_position
-        return lag > self.state_handler.config.get('maximum_lag_on_failover', 0)
+        return lag > self.patroni.config.get('maximum_lag_on_failover', 0)
 
     def _is_healthiest_node(self, members, check_replication_lag=True):
         """This method tries to determine whether I am healthy enough to became a new leader candidate or not."""
@@ -556,7 +559,7 @@ class Ha(object):
             logger.info('My wal position exceeds maximum replication lag')
             return False  # Too far behind last reported wal position on master
 
-        if not self.is_standby_cluster():
+        if not self.is_standby_cluster() and self.check_timeline():
             cluster_timeline = self.cluster.timeline
             my_timeline = self.state_handler.replica_cached_timeline(cluster_timeline)
             if my_timeline < cluster_timeline:
@@ -588,7 +591,7 @@ class Ha(object):
                     logger.info('Member %s is %s', st.member.name, not_allowed_reason)
                 elif self.is_lagging(st.wal_position):
                     logger.info('Member %s exceeds maximum replication lag', st.member.name)
-                elif not st.timeline or st.timeline < cluster_timeline:
+                elif self.check_timeline() and (not st.timeline or st.timeline < cluster_timeline):
                     logger.info('Timeline %s of member %s is behind the cluster timeline %s',
                                 st.timeline, st.member.name, cluster_timeline)
                 else:

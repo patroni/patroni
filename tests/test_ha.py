@@ -31,7 +31,7 @@ def get_cluster(initialize, leader, members, failover, sync, cluster_config=None
     t = datetime.datetime.now().isoformat()
     history = TimelineHistory(1, '[[1,67197376,"no recovery target specified","' + t + '"]]',
                               [(1, 67197376, 'no recovery target specified', t)])
-    cluster_config = cluster_config or ClusterConfig(1, {1: 2}, 1)
+    cluster_config = cluster_config or ClusterConfig(1, {'check_timeline': True}, 1)
     return Cluster(initialize, cluster_config, leader, 10, members, failover, sync, history)
 
 
@@ -118,6 +118,7 @@ zookeeper:
         sys.argv = sys.argv[:1]
 
         self.config = Config()
+        self.config.set_dynamic_configuration({'maximum_lag_on_failover': 5})
         self.postgresql = p
         self.dcs = d
         self.api = Mock()
@@ -170,7 +171,6 @@ class TestHa(unittest.TestCase):
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
             self.p = Postgresql({'name': 'postgresql0', 'scope': 'dummy', 'listen': '127.0.0.1:5432',
                                  'data_dir': 'data/postgresql0', 'retry_timeout': 10,
-                                 'maximum_lag_on_failover': 5,
                                  'authentication': {'superuser': {'username': 'foo', 'password': 'bar'},
                                                     'replication': {'username': '', 'password': ''}},
                                  'parameters': {'wal_level': 'hot_standby', 'max_replication_slots': 5, 'foo': 'bar',

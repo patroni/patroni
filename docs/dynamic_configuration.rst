@@ -76,6 +76,7 @@ Also, the following Patroni configuration options can be changed only dynamicall
 - loop_wait: 10
 - retry_timeouts: 10
 - maximum_lag_on_failover: 1048576
+- check_timeline: false
 - postgresql.use_slots: true
 
 Upon changing these options, Patroni will read the relevant section of the configuration stored in DCS and change its

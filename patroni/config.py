@@ -44,6 +44,7 @@ class Config(object):
     __DEFAULT_CONFIG = {
         'ttl': 30, 'loop_wait': 10, 'retry_timeout': 10,
         'maximum_lag_on_failover': 1048576,
+        'check_timeline': False,
         'master_start_timeout': 300,
         'synchronous_mode': False,
         'synchronous_mode_strict': False,
@@ -340,7 +341,7 @@ class Config(object):
             'scope',
             'retry_timeout',
             'synchronous_mode',
-            'maximum_lag_on_failover'
+            'synchronous_mode_strict',
         )
 
         pg_config.update({p: config[p] for p in updated_fields if p in config})
