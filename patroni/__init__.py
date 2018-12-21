@@ -140,23 +140,21 @@ class Patroni(object):
 
 def patroni_main():
     logdir = os.environ.get('PATRONI_FILE_LOG_DIR', None)
-    logsize = os.environ.get('PATRONI_FILE_LOG_SIZE', 25000000)
-    lognum = os.environ.get('PATRONI_FILE_LOG_NUM', 4)
     logformat = os.environ.get('PATRONI_LOGFORMAT', '%(asctime)s %(levelname)s: %(message)s')
     loglevel = os.environ.get('PATRONI_LOGLEVEL', 'INFO')
-    requests_loglevel = os.environ.get('PATRONI_REQUESTS_LOGLEVEL', 'WARNING')
 
-    logging.getLogger('requests').setLevel(requests_loglevel)
     if not logdir:
         logging.basicConfig(format=logformat, level=loglevel)
     else:
+        logsize = os.environ.get('PATRONI_FILE_LOG_SIZE', 25000000)
+        lognum = os.environ.get('PATRONI_FILE_LOG_NUM', 4)
+
         root_logger = logging.getLogger()
         root_logger.setLevel(loglevel)
         handler = RotatingFileHandler(os.path.join(logdir, 'patroni.log'), mode='a', maxBytes=logsize,
                                       backupCount=lognum)
         handler.setFormatter(logging.Formatter(logformat))
         root_logger.addHandler(handler)
-        logging.getLogger('requests').addHandler(handler)
 
     patroni = Patroni()
     try:
@@ -164,17 +162,8 @@ def patroni_main():
     except KeyboardInterrupt:
         pass
     finally:
-        root_handlers = logging.getLogger().handlers
-        requests_handlers = logging.getLogger('requests').handlers
-
-        for handler in root_handlers:
-            logging.getLogger().removeHandler(handler)
-            handler.close()
-        for handler in requests_handlers:
-            logging.getLogger('requests').removeHandler(handler)
-            handler.close()
-
         patroni.shutdown()
+        logging.shutdown()
 
 
 def pg_ctl_start(args):

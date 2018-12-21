@@ -8,14 +8,13 @@ It is possible to override some of the configuration parameters defined in the P
 Global/Universal
 ----------------
 -  **PATRONI\_CONFIGURATION**: it is possible to set the entire configuration for the Patroni via ``PATRONI_CONFIGURATION`` environment variable. In this case any other environment variables will not be considered!
--  **PATRONI\_FILE\_LOG\_DIR**: Directory to write application logs to. The directory must exist and be writable by the user executing Patroni.
+-  **PATRONI\_FILE\_LOG\_DIR**: Directory to write application logs to. The directory must exist and be writable by the user executing Patroni. If you set this env variable, the application will retain 4 25MB logs by default. You can tune those retention values with PATRONI_LOG_FILE_NUM and PATRONI_LOG_FILE_SIZE (see below).
 -  **PATRONI\_FILE\_LOG\_NUM**: The number of application logs to retain.
 -  **PATRONI\_FILE\_LOG\_SIZE**: Size of log application log file that triggers a log rolling.
 -  **PATRONI\_NAME**: name of the node where the current instance of Patroni is running. Must be unique for the cluster.
 -  **PATRONI\_NAMESPACE**: path within the configuration store where Patroni will keep information about the cluster. Default value: "/service"
 -  **PATRONI\_SCOPE**: cluster name
 -  **PATRONI\_LOGLEVEL**: sets the general logging level (see `the docs for Python logging <https://docs.python.org/3.6/library/logging.html#levels>`_)
--  **PATRONI\_REQUESTS_LOGLEVEL**: sets the logging level for all HTTP requests e.g. Kubernetes API calls (see `the docs for Python logging <https://docs.python.org/3.6/library/logging.html#levels>`_)
 
 Bootstrap configuration
 -----------------------
