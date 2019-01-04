@@ -1185,7 +1185,7 @@ class Postgresql(object):
         return not primary_conninfo
 
     def write_recovery_conf(self, recovery_params):
-        with open(self._recovery_conf, 'w') as f:
+        with open(os.open(self._recovery_conf, os.O_CREAT | os.O_TRUNC | os.O_WRONLY, 0o600), 'w') as f:
             for name, value in recovery_params.items():
                 f.write("{0} = '{1}'\n".format(name, value))
 
