@@ -139,7 +139,7 @@ class Patroni(object):
 
 
 def patroni_main():
-    logdir = os.environ.get('PATRONI_FILE_LOG_DIR', None)
+    logdir = os.environ.get('PATRONI_FILE_LOG_DIR')
     logformat = os.environ.get('PATRONI_LOGFORMAT', '%(asctime)s %(levelname)s: %(message)s')
     loglevel = os.environ.get('PATRONI_LOGLEVEL', 'INFO')
 
