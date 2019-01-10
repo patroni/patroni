@@ -50,6 +50,7 @@ class Patroni(object):
                 break
             except DCSError:
                 logger.warning('Can not get cluster from dcs')
+                time.sleep(5)
 
     def get_tags(self):
         return {tag: value for tag, value in self.config.get('tags', {}).items()
