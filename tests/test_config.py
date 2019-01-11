@@ -84,3 +84,22 @@ class TestConfig(unittest.TestCase):
             self.config.save_cache()
         with patch('os.fdopen', MagicMock()):
             self.config.save_cache()
+
+    def test_standby_cluster_parameters(self):
+        dynamic_configuration = {
+            'standby_cluster': {
+                'create_replica_methods': ['wal_e', 'basebackup'],
+                'host': '',
+                'port': '',
+                'primary_slot_name': '',
+                'restore_command': '',
+                'archive_cleanup_command': '',
+                'recovery_min_apply_delay': ''
+            }
+        }
+        config = self.config._safe_copy_dynamic_configuration(dynamic_configuration)
+        for k in dynamic_configuration['standby_cluster'].keys():
+            self.assertEqual(
+                config['standby_cluster'][k],
+                dynamic_configuration['standby_cluster'][k]
+            )

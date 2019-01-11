@@ -48,7 +48,7 @@ class Config(object):
         'synchronous_mode': False,
         'synchronous_mode_strict': False,
         'standby_cluster': {
-            'create_replica_methods': '',
+            'create_replica_methods': [],
             'host': '',
             'port': '',
             'primary_slot_name': '',
@@ -198,7 +198,9 @@ class Config(object):
                 allowed_keys = self.__DEFAULT_CONFIG['standby_cluster'].keys()
                 expected = {
                     k: v for k, v in (value or {}).items()
-                    if (k in allowed_keys and isinstance(v, six.string_types))
+                    if (k in allowed_keys and (
+                        isinstance(v, six.string_types) or
+                        isinstance(v, list)))
                 }
                 config['standby_cluster'].update(expected)
             elif name in config:  # only variables present in __DEFAULT_CONFIG allowed to be overriden from DCS
