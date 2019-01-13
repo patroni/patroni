@@ -195,13 +195,23 @@ class Config(object):
                     elif name not in ('connect_address', 'listen', 'data_dir', 'pgpass', 'authentication'):
                         config['postgresql'][name] = deepcopy(value)
             elif name == 'standby_cluster':
+                def type_is_valid(option, value):
+                    if option != 'create_replica_methods':
+                        return isinstance(value, six.string_types)
+
+                    # checks for create_replica_methods
+                    if isinstance(value, six.string_types):
+                        return True
+                    if (isinstance(value, list) and
+                        all(isinstance(v, six.string_types) for v in value)):
+                        return True
+
                 allowed_keys = self.__DEFAULT_CONFIG['standby_cluster'].keys()
                 expected = {
                     k: v for k, v in (value or {}).items()
-                    if (k in allowed_keys and (
-                        isinstance(v, six.string_types) or
-                        isinstance(v, list)))
+                    if (k in allowed_keys and type_is_valid(k, v))
                 }
+
                 config['standby_cluster'].update(expected)
             elif name in config:  # only variables present in __DEFAULT_CONFIG allowed to be overriden from DCS
                 if name in ('synchronous_mode', 'synchronous_mode_strict'):
