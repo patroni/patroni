@@ -203,7 +203,7 @@ class Config(object):
                     if isinstance(value, six.string_types):
                         return True
                     if (isinstance(value, list) and
-                        all(isinstance(v, six.string_types) for v in value)):
+                            all(isinstance(v, six.string_types) for v in value)):
                         return True
 
                 allowed_keys = self.__DEFAULT_CONFIG['standby_cluster'].keys()
