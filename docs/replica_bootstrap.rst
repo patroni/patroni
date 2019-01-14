@@ -195,3 +195,5 @@ in a patroni configuration:
 
 Note, that these options will be applied only once during cluster bootstrap,
 and the only way to change them afterwards is through DCS.
+
+If you use replication slots on the standby cluster, you must also create the corresponding replication slot on the primary cluster.  It will not be done automatically by the standby cluster implementation.  You can use Patroni's permenant replication slots feature on the primary cluster to maintain a replication slot with the same name as ``primary_slot_name``, or its default value if ``primary_slot_name`` is not provided.
