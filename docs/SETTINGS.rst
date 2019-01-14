@@ -17,7 +17,7 @@ Log
 -  **dateformat**: sets the datetime formatting string. (see the `formatTime() documentation <https://docs.python.org/3.6/library/logging.html#logging.Formatter.formatTime>`_)
 -  **dir**: Directory to write application logs to. The directory must exist and be writable by the user executing Patroni. If you set this value, the application will retain 4 25MB logs by default. You can tune those retention values with `file_num` and `file_size` (see below).
 -  **file\_num**: The number of application logs to retain.
--  **file\_size**: Size of log application log file that triggers a log rolling.
+-  **file\_size**: Size of patroni.log file (in bytes) that triggers a log rolling.
 -  **loggers**: This section allows redefining logging level per python module
     -  **patroni.postmaster: WARNING**
     -  **urllib3: DEBUG**
