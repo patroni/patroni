@@ -220,6 +220,15 @@ class Config(object):
             if value:
                 ret[param] = value
 
+        def _fix_log_env(name, oldname):
+            value = _popenv(oldname)
+            name = Config.PATRONI_ENV_PREFIX + 'LOG_' + name.upper()
+            if value and name not in os.environ:
+                os.environ[name] = value
+
+        for name, oldname in (('level', 'loglevel'), ('format', 'logformat'), ('dateformat', 'log_datefmt')):
+            _fix_log_env(name, oldname)
+
         def _set_section_values(section, params):
             for param in params:
                 value = _popenv(section + '_' + param)
@@ -228,6 +237,22 @@ class Config(object):
 
         _set_section_values('restapi', ['listen', 'connect_address', 'certfile', 'keyfile'])
         _set_section_values('postgresql', ['listen', 'connect_address', 'data_dir', 'pgpass', 'bin_dir'])
+        _set_section_values('log', ['level', 'format', 'dateformat', 'dir', 'file_size', 'file_num', 'loggers'])
+
+        def _parse_dict(value):
+            if not value.strip().startswith('{'):
+                value = '{{{0}}}'.format(value)
+            try:
+                return yaml.safe_load(value)
+            except Exception:
+                logger.exception('Exception when parsing dict %s', value)
+                return None
+
+        value = ret.get('log', {}).pop('loggers', None)
+        if value:
+            value = _parse_dict(value)
+            if value:
+                ret['log']['loggers'] = value
 
         def _get_auth(name):
             ret = {}
@@ -275,13 +300,7 @@ class Config(object):
                         elif suffix in ('HOSTS', 'PORTS', 'CHECKS'):
                             value = value and _parse_list(value)
                         elif suffix == 'LABELS':
-                            if not value.strip().startswith('{'):
-                                value = '{{{0}}}'.format(value)
-                            try:
-                                value = yaml.safe_load(value)
-                            except Exception:
-                                logger.exception('Exception when parsing dict %s', value)
-                                value = None
+                            value = _parse_dict(value)
                         if value:
                             ret[name.lower()][suffix.lower()] = value
                     # PATRONI_<username>_PASSWORD=<password>, PATRONI_<username>_OPTIONS=<option1,option2,...>
