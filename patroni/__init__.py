@@ -142,9 +142,10 @@ def patroni_main():
     logdir = os.environ.get('PATRONI_FILE_LOG_DIR', None)
     logformat = os.environ.get('PATRONI_LOGFORMAT', '%(asctime)s %(levelname)s: %(message)s')
     loglevel = os.environ.get('PATRONI_LOGLEVEL', 'INFO')
+    logdatefmt = os.environ.get('PATRONI_LOGDATEFMT', '%Y-%m-%d %H:%M:%S')
 
     if not logdir:
-        logging.basicConfig(format=logformat, level=loglevel)
+        logging.basicConfig(format=logformat, level=loglevel, datefmt=logdatefmt)
     else:
         logsize = os.environ.get('PATRONI_FILE_LOG_SIZE', 25000000)
         lognum = os.environ.get('PATRONI_FILE_LOG_NUM', 4)
@@ -153,7 +154,7 @@ def patroni_main():
         root_logger.setLevel(loglevel)
         handler = RotatingFileHandler(os.path.join(logdir, 'patroni.log'), mode='a', maxBytes=logsize,
                                       backupCount=lognum)
-        handler.setFormatter(logging.Formatter(logformat))
+        handler.setFormatter(logging.Formatter(logformat, logdatefmt))
         root_logger.addHandler(handler)
 
     patroni = Patroni()
