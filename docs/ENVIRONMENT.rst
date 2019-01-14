@@ -42,7 +42,7 @@ Consul
 Etcd
 ----
 -  **PATRONI\_ETCD\_HOST**: the host:port for the etcd endpoint.
--  **PATRONI\_ETCD\_HOSTS**: list of etcd endpoints in format host1:port1,host2:port2,etc...
+-  **PATRONI\_ETCD\_HOSTS**: list of etcd endpoints in format 'host1:port1','host2:port2',etc...
 -  **PATRONI\_ETCD\_URL**: url for the etcd, in format: http(s)://(username:password@)host:port
 -  **PATRONI\_ETCD\_PROXY**: proxy url for the etcd. If you are connecting to the etcd using proxy, use this parameter instead of **PATRONI\_ETCD\_URL**
 -  **PATRONI\_ETCD\_SRV**: Domain to search the SRV record(s) for cluster autodiscovery.
@@ -81,7 +81,7 @@ PostgreSQL
 -  **PATRONI\_SUPERUSER\_PASSWORD**: password for the superuser, set during initialization (initdb).
 
 REST API
--------- 
+--------
 -  **PATRONI\_RESTAPI\_CONNECT\_ADDRESS**: IP address and port to access the REST API.
 -  **PATRONI\_RESTAPI\_LISTEN**: IP address and port that Patroni will listen to, to provide health-check information for HAProxy.
 -  **PATRONI\_RESTAPI\_USERNAME**: Basic-auth username to protect unsafe REST API endpoints.
