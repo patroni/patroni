@@ -1,5 +1,4 @@
 import etcd
-import os
 import signal
 import sys
 import time
@@ -62,9 +61,7 @@ class TestPatroni(unittest.TestCase):
 
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
             with patch.object(Patroni, 'run', Mock(side_effect=SleepException)):
-                os.environ['PATRONI_FILE_LOG_DIR'] = '/tmp'
                 self.assertRaises(SleepException, patroni_main)
-                os.environ.pop('PATRONI_FILE_LOG_DIR')
             with patch.object(Patroni, 'run', Mock(side_effect=KeyboardInterrupt())):
                 with patch('patroni.ha.Ha.is_paused', Mock(return_value=True)):
                     patroni_main()
