@@ -73,7 +73,7 @@ class MockHa(object):
 
     @staticmethod
     def fetch_nodes_statuses(members):
-        return [_MemberStatus(None, True, None, None, {}, False)]
+        return [_MemberStatus(None, True, None, 0, None, {}, False)]
 
     @staticmethod
     def schedule_future_restart(data):
