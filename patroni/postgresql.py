@@ -5,6 +5,7 @@ import re
 import shlex
 import shutil
 import socket
+import stat
 import subprocess
 import tempfile
 import time
@@ -391,7 +392,7 @@ class Postgresql(object):
             we have either wal_log_hints or checksums turned on
         """
         # low-hanging fruit: check if pg_rewind configuration is there
-        if not (self.config.get('use_pg_rewind') and all(self._superuser.get(n) for n in ('username', 'password'))):
+        if not self.config.get('use_pg_rewind'):
             return False
 
         cmd = [self._pgcommand('pg_rewind'), '--help']
@@ -1110,8 +1111,12 @@ class Postgresql(object):
             f.write(self._CONFIG_WARNING_HEADER)
             f.write("include '{0}'\n\n".format(self.config.get('custom_conf') or self._postgresql_base_conf_name))
             for name, value in sorted((configuration or self._server_parameters).items()):
-                if not self._running_custom_bootstrap or name != 'hba_file':
+                if not self._running_custom_bootstrap or name not in ('hba_file', 'archive_mode'):
                     f.write("{0} = '{1}'\n".format(name, value))
+            # we want to set archive_mode to 'off' during the custom bootstrap
+            # in order to avoid premature archiving of wals and history files
+            if self._running_custom_bootstrap:
+                f.write("archive_mode = 'off'\n")
             # when we are doing custom bootstrap we assume that we don't know superuser password
             # and in order to be able to change it, we are opening trust access from a certain address
             # therefore we need to make sure that hba_file is not overriden
@@ -1154,8 +1159,10 @@ class Postgresql(object):
             with open(self._pg_hba_conf, 'w') as f:
                 f.write(self._CONFIG_WARNING_HEADER)
                 for address, t in addresses.items():
-                    f.write('{0}\t{1}\t{2}\t{3}\ttrust\n'.format(t, 'all',
-                                                                 self._superuser.get('username') or 'all', address))
+                    f.write((
+                        '{0}\treplication\t{1}\t{3}\ttrust\n'
+                        '{0}\tall\t{2}\t{3}\ttrust\n'
+                    ).format(t, self._replication['username'], self._superuser.get('username') or 'all', address))
         elif not self._server_parameters.get('hba_file') and self.config.get('pg_hba'):
             with open(self._pg_hba_conf, 'w') as f:
                 f.write(self._CONFIG_WARNING_HEADER)
@@ -1186,6 +1193,7 @@ class Postgresql(object):
 
     def write_recovery_conf(self, recovery_params):
         with open(self._recovery_conf, 'w') as f:
+            os.chmod(self._recovery_conf, stat.S_IWRITE | stat.S_IREAD)
             for name, value in recovery_params.items():
                 f.write("{0} = '{1}'\n".format(name, value))
 
@@ -1665,7 +1673,8 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
     def post_bootstrap(self, config, task):
         try:
-            self.create_or_update_role(self._superuser['username'], self._superuser['password'], ['SUPERUSER'])
+            if 'username' in self._superuser and 'password' in self._superuser:
+                self.create_or_update_role(self._superuser['username'], self._superuser['password'], ['SUPERUSER'])
 
             task.complete(self.run_bootstrap_post_init(config))
             if task.result:
@@ -1684,17 +1693,11 @@ $$""".format(name, ' '.join(options)), name, password, password)
                         os.unlink(self._pg_hba_conf)
                         self.restore_configuration_files()
                     self._write_postgresql_conf()
-                    if self._server_parameters.get('hba_file') and \
-                            self._server_parameters['hba_file'] != self._pg_hba_conf:
-                        self.restart()
-                    else:
-                        self._replace_pg_hba()
-                        if self.pending_restart:
-                            self.restart()
-                        else:
-                            self.reload()
-                            time.sleep(1)  # give a time to postgres to "reload" configuration files
-                            self.close_connection()  # close connection to reconnect with a new password
+                    self._replace_pg_hba()
+                    # at this point there should be no recovery.conf
+                    if os.path.isfile(self._recovery_conf) or os.path.islink(self._recovery_conf):
+                        os.unlink(self._recovery_conf)
+                    self.restart()
         except Exception:
             logger.exception('post_bootstrap')
             task.complete(False)

@@ -20,25 +20,28 @@ from threading import RLock
 logger = logging.getLogger(__name__)
 
 
-class _MemberStatus(namedtuple('_MemberStatus', 'member,reachable,in_recovery,wal_position,tags,watchdog_failed')):
+class _MemberStatus(namedtuple('_MemberStatus', ['member', 'reachable', 'in_recovery', 'timeline',
+                                                 'wal_position', 'tags', 'watchdog_failed'])):
     """Node status distilled from API response:
 
         member - dcs.Member object of the node
         reachable - `!False` if the node is not reachable or is not responding with correct JSON
         in_recovery - `!True` if pg_is_in_recovery() == true
-        wal_position - value of `replayed_location` or `location` from JSON, dependin on its role.
+        timeline - timeline value from JSON
+        wal_position - maximum value of `replayed_location` or `received_location` from JSON
         tags - dictionary with values of different tags (i.e. nofailover)
         watchdog_failed - indicates that watchdog is required by configuration but not available or failed
     """
     @classmethod
     def from_api_response(cls, member, json):
         is_master = json['role'] == 'master'
+        timeline = json.get('timeline', 0)
         wal = not is_master and max(json['xlog'].get('received_location', 0), json['xlog'].get('replayed_location', 0))
-        return cls(member, True, not is_master, wal, json.get('tags', {}), json.get('watchdog_failed', False))
+        return cls(member, True, not is_master, timeline, wal, json.get('tags', {}), json.get('watchdog_failed', False))
 
     @classmethod
     def unknown(cls, member):
-        return cls(member, False, None, 0, {}, False)
+        return cls(member, False, None, 0, 0, {}, False)
 
     def failover_limitation(self):
         """Returns reason why this node can't promote or None if everything is ok."""
@@ -91,6 +94,9 @@ class Ha(object):
 
     def is_paused(self):
         return self.check_mode('pause')
+
+    def check_timeline(self):
+        return self.check_mode('check_timeline')
 
     def get_standby_cluster_config(self):
         if self.cluster and self.cluster.config and self.cluster.config.modify_index:
@@ -543,14 +549,22 @@ class Ha(object):
         :returns True when node is lagging
         """
         lag = (self.cluster.last_leader_operation or 0) - wal_position
-        return lag > self.state_handler.config.get('maximum_lag_on_failover', 0)
+        return lag > self.patroni.config.get('maximum_lag_on_failover', 0)
 
     def _is_healthiest_node(self, members, check_replication_lag=True):
         """This method tries to determine whether I am healthy enough to became a new leader candidate or not."""
 
         _, my_wal_position = self.state_handler.timeline_wal_position()
         if check_replication_lag and self.is_lagging(my_wal_position):
+            logger.info('My wal position exceeds maximum replication lag')
             return False  # Too far behind last reported wal position on master
+
+        if not self.is_standby_cluster() and self.check_timeline():
+            cluster_timeline = self.cluster.timeline
+            my_timeline = self.state_handler.replica_cached_timeline(cluster_timeline)
+            if my_timeline < cluster_timeline:
+                logger.info('My timeline %s is behind last known cluster timeline %s', my_timeline, cluster_timeline)
+                return False
 
         # Prepare list of nodes to run check against
         members = [m for m in members if m.name != self.state_handler.name and not m.nofailover and m.api_url]
@@ -562,11 +576,13 @@ class Ha(object):
                         logger.warning('Master (%s) is still alive', st.member.name)
                         return False
                     if my_wal_position < st.wal_position:
+                        logger.info('Wal position of %s is ahead of my wal position', st.member.name)
                         return False
         return True
 
     def is_failover_possible(self, members):
         ret = False
+        cluster_timeline = self.cluster.timeline
         members = [m for m in members if m.name != self.state_handler.name and not m.nofailover and m.api_url]
         if members:
             for st in self.fetch_nodes_statuses(members):
@@ -575,6 +591,9 @@ class Ha(object):
                     logger.info('Member %s is %s', st.member.name, not_allowed_reason)
                 elif self.is_lagging(st.wal_position):
                     logger.info('Member %s exceeds maximum replication lag', st.member.name)
+                elif self.check_timeline() and (not st.timeline or st.timeline < cluster_timeline):
+                    logger.info('Timeline %s of member %s is behind the cluster timeline %s',
+                                st.timeline, st.member.name, cluster_timeline)
                 else:
                     ret = True
         else:

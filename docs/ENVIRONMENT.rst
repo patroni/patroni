@@ -11,11 +11,13 @@ Global/Universal
 -  **PATRONI\_NAME**: name of the node where the current instance of Patroni is running. Must be unique for the cluster.
 -  **PATRONI\_NAMESPACE**: path within the configuration store where Patroni will keep information about the cluster. Default value: "/service"
 -  **PATRONI\_SCOPE**: cluster name
--  **PATRONI\_LOGLEVEL**: sets the general logging level (see `the docs for Python logging <https://docs.python.org/3.6/library/logging.html#levels>`_)
--  **PATRONI\_FILE\_LOG\_DIR**: Directory to write application logs to. The directory must exist and be writable by the user executing Patroni. If you set this env variable, the application will retain 4 25MB logs by default. You can tune those retention values with PATRONI_LOG_FILE_NUM and PATRONI_LOG_FILE_SIZE (see below).
--  **PATRONI\_FILE\_LOG\_NUM**: The number of application logs to retain.
--  **PATRONI\_FILE\_LOG\_SIZE**: Size of log application log file that triggers a log rolling.
--  **PATRONI\_LOGDATEFMT**: Allow for specialized date formatting, default value is `%Y-%m-%d %H:%M:%S`
+-  **PATRONI\_LOG\_LEVEL**: sets the general logging level. Default value is **INFO** (see `the docs for Python logging <https://docs.python.org/3.6/library/logging.html#levels>`_)
+-  **PATRONI\_LOG\_FORMAT**: sets the log formatting string. Default value is **%(asctime)s %(levelname)s: %(message)s** (see `the LogRecord attributes <https://docs.python.org/3.6/library/logging.html#logrecord-attributes>`_)
+-  **PATRONI\_LOG\_DATEFORMAT**: sets the datetime formatting string. (see the `formatTime() documentation <https://docs.python.org/3.6/library/logging.html#logging.Formatter.formatTime>`_)
+-  **PATRONI\_LOG\_DIR**: Directory to write application logs to. The directory must exist and be writable by the user executing Patroni. If you set this env variable, the application will retain 4 25MB logs by default. You can tune those retention values with `PATRONI_LOG_FILE_NUM` and `PATRONI_LOG_FILE_SIZE` (see below).
+-  **PATRONI\_LOG\_FILE\_NUM**: The number of application logs to retain.
+-  **PATRONI\_LOG\_FILE\_SIZE**: Size of patroni.log file (in bytes) that triggers a log rolling.
+-  **PATRONI\_LOG\_LOGGERS**: Redefine logging level per python module. Example ``PATRONI_LOG_LOGGERS="{patroni.postmaster: WARNING, urllib3: DEBUG}"``
 
 Bootstrap configuration
 -----------------------
@@ -45,7 +47,7 @@ Consul
 Etcd
 ----
 -  **PATRONI\_ETCD\_HOST**: the host:port for the etcd endpoint.
--  **PATRONI\_ETCD\_HOSTS**: list of etcd endpoints in format host1:port1,host2:port2,etc...
+-  **PATRONI\_ETCD\_HOSTS**: list of etcd endpoints in format 'host1:port1','host2:port2',etc...
 -  **PATRONI\_ETCD\_URL**: url for the etcd, in format: http(s)://(username:password@)host:port
 -  **PATRONI\_ETCD\_PROXY**: proxy url for the etcd. If you are connecting to the etcd using proxy, use this parameter instead of **PATRONI\_ETCD\_URL**
 -  **PATRONI\_ETCD\_SRV**: Domain to search the SRV record(s) for cluster autodiscovery.
@@ -84,7 +86,7 @@ PostgreSQL
 -  **PATRONI\_SUPERUSER\_PASSWORD**: password for the superuser, set during initialization (initdb).
 
 REST API
--------- 
+--------
 -  **PATRONI\_RESTAPI\_CONNECT\_ADDRESS**: IP address and port to access the REST API.
 -  **PATRONI\_RESTAPI\_LISTEN**: IP address and port that Patroni will listen to, to provide health-check information for HAProxy.
 -  **PATRONI\_RESTAPI\_USERNAME**: Basic-auth username to protect unsafe REST API endpoints.

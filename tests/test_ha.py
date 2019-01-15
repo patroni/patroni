@@ -28,8 +28,10 @@ def false(*args, **kwargs):
 
 
 def get_cluster(initialize, leader, members, failover, sync, cluster_config=None):
-    history = TimelineHistory(1, [(1, 67197376, 'no recovery target specified', datetime.datetime.now().isoformat())])
-    cluster_config = cluster_config or ClusterConfig(1, {1: 2}, 1)
+    t = datetime.datetime.now().isoformat()
+    history = TimelineHistory(1, '[[1,67197376,"no recovery target specified","' + t + '"]]',
+                              [(1, 67197376, 'no recovery target specified', t)])
+    cluster_config = cluster_config or ClusterConfig(1, {'check_timeline': True}, 1)
     return Cluster(initialize, cluster_config, leader, 10, members, failover, sync, history)
 
 
@@ -72,12 +74,13 @@ def get_standby_cluster_initialized_with_only_leader(failover=None, sync=None):
     )
 
 
-def get_node_status(reachable=True, in_recovery=True, wal_position=10, nofailover=False, watchdog_failed=False):
+def get_node_status(reachable=True, in_recovery=True, timeline=2,
+                    wal_position=10, nofailover=False, watchdog_failed=False):
     def fetch_node_status(e):
         tags = {}
         if nofailover:
             tags['nofailover'] = True
-        return _MemberStatus(e, reachable, in_recovery, wal_position, tags, watchdog_failed)
+        return _MemberStatus(e, reachable, in_recovery, timeline, wal_position, tags, watchdog_failed)
     return fetch_node_status
 
 
@@ -115,6 +118,7 @@ zookeeper:
         sys.argv = sys.argv[:1]
 
         self.config = Config()
+        self.config.set_dynamic_configuration({'maximum_lag_on_failover': 5})
         self.postgresql = p
         self.dcs = d
         self.api = Mock()
@@ -147,6 +151,7 @@ def run_async(self, func, args=()):
 @patch.object(Postgresql, 'query', Mock())
 @patch.object(Postgresql, 'checkpoint', Mock())
 @patch.object(Postgresql, 'cancellable_subprocess_call', Mock(return_value=0))
+@patch.object(Postgresql, '_get_local_timeline_lsn_from_replication_connection', Mock(return_value=[2, 10]))
 @patch.object(etcd.Client, 'write', etcd_write)
 @patch.object(etcd.Client, 'read', etcd_read)
 @patch.object(etcd.Client, 'delete', Mock(side_effect=etcd.EtcdException))
@@ -166,7 +171,6 @@ class TestHa(unittest.TestCase):
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
             self.p = Postgresql({'name': 'postgresql0', 'scope': 'dummy', 'listen': '127.0.0.1:5432',
                                  'data_dir': 'data/postgresql0', 'retry_timeout': 10,
-                                 'maximum_lag_on_failover': 5,
                                  'authentication': {'superuser': {'username': 'foo', 'password': 'bar'},
                                                     'replication': {'username': '', 'password': ''}},
                                  'parameters': {'wal_level': 'hot_standby', 'max_replication_slots': 5, 'foo': 'bar',
@@ -461,6 +465,8 @@ class TestHa(unittest.TestCase):
         self.assertEqual(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
         self.ha.fetch_node_status = get_node_status(watchdog_failed=True)
         self.assertEqual(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
+        self.ha.fetch_node_status = get_node_status(timeline=1)
+        self.assertEqual(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
         self.ha.fetch_node_status = get_node_status(wal_position=1)
         self.assertEqual(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
         # manual failover from the previous leader to us won't happen if we hold the nofailover flag
@@ -571,6 +577,8 @@ class TestHa(unittest.TestCase):
         self.ha.fetch_node_status = get_node_status(wal_position=11)  # accessible, in_recovery, wal position ahead
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         with patch('patroni.postgresql.Postgresql.timeline_wal_position', return_value=(1, 1)):
+            self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
+        with patch('patroni.postgresql.Postgresql.replica_cached_timeline', return_value=1):
             self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         self.ha.patroni.nofailover = True
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))

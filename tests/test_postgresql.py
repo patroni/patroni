@@ -651,6 +651,7 @@ class TestPostgresql(unittest.TestCase):
 
     @patch('time.sleep', Mock())
     @patch('os.unlink', Mock())
+    @patch('os.path.isfile', Mock(return_value=True))
     @patch.object(Postgresql, 'run_bootstrap_post_init', Mock(return_value=True))
     @patch.object(Postgresql, '_custom_bootstrap', Mock(return_value=True))
     @patch.object(Postgresql, 'start', Mock(return_value=True))
