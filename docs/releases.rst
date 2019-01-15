@@ -6,6 +6,7 @@ Release notes
 Version 1.5.4
 -------------
 
+This version implements flexible logging and fixes a number of bugs.
 
 **New features**
 
@@ -17,17 +18,13 @@ Version 1.5.4
 
   It could happen that the node is considering itself as a healthiest one although it is currently not on the latest known timeline. In some cases we want to avoid promoting of such node, which could be achieved by setting `check_timeline` parameter to `true` (default behavior remains unchanged).
 
-- Explicitly secure rw perms for recovery.conf at creation time (Lucas)
-
-  We don't want anybody except patroni/postgres user reading this file, because it contains replication user and password.
-
 - Relaxed requirements on superuser credentials
 
   Libpq allows opening connections without explicitly specifying neither username nor password. Depending on situation it relies either on pgpass file or trust authentication method in pg_hba.conf. Since pg_rewind is also using libpq, it will work the same way.
 
-- Redirect HTTPServer exceptions to logger (Julien Riou)
+- Implemented possibility to configure Consul Service registration and check interval via environment variables (Alexander Kukushkin)
 
-  By default, such exceptions were logged on standard output messing with regular logs.
+  Registration of service in Consul was added in the 1.5.0, but so far it was only possible to turn it on via patroni.yaml.
 
 **Stability Improvements**
 
@@ -42,6 +39,14 @@ Version 1.5.4
 - Reduce amount of error messages generated on shutdown (Alexander Kukushkin)
 
   They were harmless but rather annoying and sometimes scary.
+
+- Explicitly secure rw perms for recovery.conf at creation time (Lucas)
+
+  We don't want anybody except patroni/postgres user reading this file, because it contains replication user and password.
+
+- Redirect HTTPServer exceptions to logger (Julien Riou)
+
+  By default, such exceptions were logged on standard output messing with regular logs.
 
 **Bug fixes**
 
