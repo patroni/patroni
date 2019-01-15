@@ -392,7 +392,7 @@ class Postgresql(object):
             we have either wal_log_hints or checksums turned on
         """
         # low-hanging fruit: check if pg_rewind configuration is there
-        if not (self.config.get('use_pg_rewind') and all(self._superuser.get(n) for n in ('username', 'password'))):
+        if not self.config.get('use_pg_rewind'):
             return False
 
         cmd = [self._pgcommand('pg_rewind'), '--help']
@@ -1673,7 +1673,8 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
     def post_bootstrap(self, config, task):
         try:
-            self.create_or_update_role(self._superuser['username'], self._superuser['password'], ['SUPERUSER'])
+            if 'username' in self._superuser and 'password' in self._superuser:
+                self.create_or_update_role(self._superuser['username'], self._superuser['password'], ['SUPERUSER'])
 
             task.complete(self.run_bootstrap_post_init(config))
             if task.result:
