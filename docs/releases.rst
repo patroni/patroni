@@ -3,6 +3,60 @@
 Release notes
 =============
 
+Version 1.5.4
+-------------
+
+
+**New features**
+
+- Improvements in logging infrastructure (Alexander Kukushkin, Lucas Capistrant, Alexander Anikin)
+
+  Logging configuration could be configured not only from environment variables but also from Patroni config file. It makes it possible to change logging configuration in runtime by updating config and doing reload or sending SIGHUP to the Patroni process. By default Patroni writes logs to stderr, but now it becomes possible to write logs directly into the file and rotate when it reaches a certain size. In addition to that added support of custom dateformat and the possibility to fine-tune log level for each python module.
+
+- Make it possible to take into account the current timeline during leader elections (Alexander Kukushkin)
+
+  It could happen that the node is considering itself as a healthiest one although it is currently not on the latest known timeline. In some cases we want to avoid promoting of such node, which could be achieved by setting `check_timeline` parameter to `true` (default behavior remains unchanged).
+
+- Explicitly secure rw perms for recovery.conf at creation time (Lucas)
+
+  We don't want anybody except patroni/postgres user reading this file, because it contains replication user and password.
+
+- Relaxed requirements on superuser credentials
+
+  Libpq allows opening connections without explicitly specifying neither username nor password. Depending on situation it relies either on pgpass file or trust authentication method in pg_hba.conf. Since pg_rewind is also using libpq, it will work the same way.
+
+- Redirect HTTPServer exceptions to logger (Julien Riou)
+
+  By default, such exceptions were logged on standard output messing with regular logs.
+
+**Stability Improvements**
+
+- Set archive_mode to off during the custom bootstrap (Alexander Kukushkin)
+
+  We want to avoid archiving wals and history files until the cluster is fully functional.  It really helps if the custom bootstrap involves pg_upgrade.
+
+- Apply five seconds backoff when loading global config on start (Alexander Kukushkin)
+
+  It helps to avoid hammering DCS when Patroni just starting up.
+
+- Reduce amount of error messages generated on shutdown (Alexander Kukushkin)
+
+  They were harmless but rather annoying and sometimes scary.
+
+**Bug fixes**
+
+- Removed stderr pipe to stdout on pg_ctl process (Cody Coons)
+
+  Inheriting stderr from the main Patroni process allows all Postgres logs to be seen along with all patroni logs. This is very useful in a container environment as Patroni and Postgres logs may be consumed using standard tools (docker logs, kubectl, etc). In addition to that, this change fixes a bug with Patroni not being able to catch postmaster pid when postgres writing some warnings into stderr.
+
+- Set Consul service check deregister timeout in Go time format (Pavel Kirillov)
+
+  Without explicitly mentioned time unit registration was failing.
+
+- Relax checks of standby_cluster cluster configuration (Dmitry Dolgov, Alexander Kukushkin)
+
+  It was accepting only strings as valid values and therefore it was not possible to specify the port as integer and create_replica_methods as a list.
+
 Version 1.5.3
 -------------
 
