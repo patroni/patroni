@@ -372,6 +372,7 @@ class ConsulController(AbstractDcsController):
     def __init__(self, context):
         super(ConsulController, self).__init__(context)
         os.environ['PATRONI_CONSUL_HOST'] = 'localhost:8500'
+        os.environ['PATRONI_CONSUL_REGISTER_SERVICE'] = 'on'
         self._client = consul.Consul()
         self._config_file = None
 
