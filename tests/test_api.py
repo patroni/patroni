@@ -403,4 +403,7 @@ class TestRestApiServer(unittest.TestCase):
         srv.reload_config({'listen': '127.0.0.2:8008'})
 
     def test_handle_error(self):
-        self.assertIsNone(MockRestApiServer.handle_error(None, ('127.0.0.1', 55555)))
+        try:
+            raise Exception()
+        except Exception:
+            self.assertIsNone(MockRestApiServer.handle_error(None, ('127.0.0.1', 55555)))

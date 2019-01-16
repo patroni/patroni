@@ -48,7 +48,7 @@ class TestPostmasterProcess(unittest.TestCase):
         mock_init.side_effect = psutil.NoSuchProcess(123)
         self.assertEqual(PostmasterProcess.from_pid(123), None)
         mock_init.side_effect = None
-        self.assertNotEquals(PostmasterProcess.from_pid(123), None)
+        self.assertNotEqual(PostmasterProcess.from_pid(123), None)
 
     @patch('psutil.Process.__init__', Mock())
     @patch('psutil.Process.send_signal')

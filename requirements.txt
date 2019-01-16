@@ -11,6 +11,6 @@ click>=4.1
 prettytable>=0.7
 tzlocal
 python-dateutil
-psutil
+psutil>=2.0.0
 cdiff
 kubernetes>=2.0.0,<=7.0.0,!=4.0.*,!=5.0.*
