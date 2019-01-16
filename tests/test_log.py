@@ -11,8 +11,8 @@ from patroni.log import PatroniLogger
 class TestPatroniLogger(unittest.TestCase):
 
     @patch('logging.FileHandler._open', Mock())
-    def setUp(self):
-        self.config = {
+    def test_patroni_logger(self):
+        config = {
             'log': {
                 'dir': 'foo',
                 'file_size': 4096,
@@ -24,15 +24,13 @@ class TestPatroniLogger(unittest.TestCase):
             'restapi': {}, 'postgresql': {'data_dir': 'foo'}
         }
         sys.argv = ['patroni.py']
-        os.environ[Config.PATRONI_CONFIG_VARIABLE] = yaml.dump(self.config, default_flow_style=False)
-        self.logger = PatroniLogger()
-        config = Config()
-        self.logger.reload_config(config['log'])
+        os.environ[Config.PATRONI_CONFIG_VARIABLE] = yaml.dump(config, default_flow_style=False)
+        logger = PatroniLogger()
+        patroni_config = Config()
+        logger.reload_config(patroni_config['log'])
 
-    def test_rotating_handler(self):
-        self.assertEqual(self.logger.handler.maxBytes, self.config['log']['file_size'])
-        self.assertEqual(self.logger.handler.backupCount, self.config['log']['file_num'])
+        self.assertEqual(logger.handler.maxBytes, config['log']['file_size'])
+        self.assertEqual(logger.handler.backupCount, config['log']['file_num'])
 
-    def test_reload_config(self):
-        self.config['log'].pop('dir')
-        self.logger.reload_config(self.config['log'])
+        config['log'].pop('dir')
+        logger.reload_config(config['log'])
