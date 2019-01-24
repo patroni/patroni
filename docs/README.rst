@@ -66,6 +66,8 @@ Note that external tools to call in the replica creation or custom bootstrap scr
 independently of Patroni.
 
 
+.. _running_configuring:
+
 Running and Configuring
 -----------------------
 
