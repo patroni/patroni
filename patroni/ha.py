@@ -265,11 +265,20 @@ class Ha(object):
 
         return result
 
-    def _handle_rewind(self):
+    def _handle_rewind_or_reinitialize(self):
         leader = self.get_remote_master() if self.is_standby_cluster() else self.cluster.leader
-        if self.state_handler.rewind_needed_and_possible(leader):
+        if not self.state_handler.rewind_or_reinitialize_needed_and_possible(leader):
+            return None
+
+        if self.state_handler.can_rewind:
             self._async_executor.schedule('running pg_rewind from ' + leader.name)
             self._async_executor.run_async(self.state_handler.rewind, (leader,))
+            return True
+
+        # remove_data_directory_on_diverged_timelines is set
+        if not self.is_standby_cluster():
+            self._async_executor.schedule('reinitializing due to diverged timelines')
+            self._async_executor.run_async(self._do_reinitialize, args=(self.cluster, ))
             return True
 
     def recover(self):
@@ -304,7 +313,7 @@ class Ha(object):
         if self.is_standby_cluster() or not self.has_lock():
             if not self.state_handler.rewind_executed:
                 self.state_handler.trigger_check_diverged_lsn()
-            if self._handle_rewind():
+            if self._handle_rewind_or_reinitialize():
                 return self._async_executor.scheduled_action
 
             if self.has_lock():  # in standby cluster
@@ -338,9 +347,7 @@ class Ha(object):
         else:
             node_to_follow = cluster.leader
 
-        return (node_to_follow if
-                node_to_follow and
-                node_to_follow.name != self.state_handler.name else None)
+        return node_to_follow if node_to_follow and node_to_follow.name != self.state_handler.name else None
 
     def follow(self, demote_reason, follow_reason, refresh=True):
         if refresh:
@@ -351,7 +358,8 @@ class Ha(object):
         node_to_follow = self._get_node_to_follow(self.cluster)
 
         if self.is_paused():
-            if not (self.state_handler.need_rewind and self.state_handler.can_rewind) or self.cluster.is_unlocked():
+            if not (self.state_handler.need_rewind and self.state_handler.can_rewind_or_reinitialize_allowed)\
+                    or self.cluster.is_unlocked():
                 self.state_handler.set_role('master' if is_leader else 'replica')
                 if is_leader:
                     return 'continue to run as master without lock'
@@ -361,7 +369,7 @@ class Ha(object):
             self.demote('immediate-nolock')
             return demote_reason
 
-        if self._handle_rewind():
+        if self._handle_rewind_or_reinitialize():
             return self._async_executor.scheduled_action
 
         if not self.state_handler.check_recovery_conf(node_to_follow):
@@ -733,7 +741,7 @@ class Ha(object):
         else:
             if self.is_synchronous_mode():
                 self.state_handler.set_synchronous_standby(None)
-            if self.state_handler.rewind_needed_and_possible(leader):
+            if self.state_handler.rewind_or_reinitialize_needed_and_possible(leader):
                 return False  # do not start postgres, but run pg_rewind on the next iteration
             self.state_handler.follow(node_to_follow)
 
@@ -1253,8 +1261,8 @@ class Ha(object):
                     # the demote code follows through to starting Postgres right away, however, in the rewind case
                     # it returns from demote and reaches this point to start PostgreSQL again after rewind. In that
                     # case it makes no sense to continue to recover() unless rewind has finished successfully.
-                    elif (self.state_handler.rewind_failed or
-                          not (self.state_handler.need_rewind and self.state_handler.can_rewind)):
+                    elif self.state_handler.rewind_failed or not self.state_handler.need_rewind \
+                            or not self.state_handler.can_rewind_or_reinitialize_allowed:
                         return 'postgres is not running'
 
                 # try to start dead postgres

@@ -16,7 +16,7 @@ from patroni.callback_executor import CallbackExecutor
 from patroni.exceptions import PostgresConnectionException, PostgresException
 from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, split_host_port
 from patroni.postmaster import PostmasterProcess
-from patroni.dcs import slot_name_from_member_name, RemoteMember
+from patroni.dcs import slot_name_from_member_name, RemoteMember, Leader
 from requests.structures import CaseInsensitiveDict
 from six import string_types
 from six.moves.urllib.parse import quote_plus
@@ -403,6 +403,10 @@ class Postgresql(object):
         except OSError:
             return False
         return self.configuration_allows_rewind(self.controldata())
+
+    @property
+    def can_rewind_or_reinitialize_allowed(self):
+        return self.config.get('remove_data_directory_on_diverged_timelines') or self.can_rewind
 
     @property
     def sysid(self):
@@ -1323,7 +1327,11 @@ class Postgresql(object):
         if local_timeline is None or local_lsn is None:
             return
 
-        if not self.check_leader_is_not_in_recovery(**leader.conn_kwargs(self._superuser)):
+        if isinstance(leader, Leader):
+            if leader.member.data.get('role') != 'master':
+                return
+        # standby cluster
+        elif not self.check_leader_is_not_in_recovery(**leader.conn_kwargs(self._superuser)):
             return
 
         history = need_rewind = None
@@ -1403,19 +1411,21 @@ class Postgresql(object):
         else:
             logger.error('Failed to rewind from healty master: %s', leader.name)
 
-            if self.config.get('remove_data_directory_on_rewind_failure', False):
-                logger.warning('remove_data_directory_on_rewind_failure is set. removing...')
-                self.remove_data_directory()
-                self._rewind_state = REWIND_STATUS.INITIAL
+            for name in ('remove_data_directory_on_rewind_failure', 'remove_data_directory_on_diverged_timelines'):
+                if self.config.get(name):
+                    logger.warning('%s is set. removing...', name)
+                    self.remove_data_directory()
+                    self._rewind_state = REWIND_STATUS.INITIAL
+                    break
             else:
                 self._rewind_state = REWIND_STATUS.FAILED
         return False
 
     def trigger_check_diverged_lsn(self):
-        if self.can_rewind and self._rewind_state != REWIND_STATUS.NEED:
+        if self.can_rewind_or_reinitialize_allowed and self._rewind_state != REWIND_STATUS.NEED:
             self._rewind_state = REWIND_STATUS.CHECK
 
-    def rewind_needed_and_possible(self, leader):
+    def rewind_or_reinitialize_needed_and_possible(self, leader):
         if leader and leader.name != self.name and leader.conn_url and self._rewind_state == REWIND_STATUS.CHECK:
             self._check_timeline_and_lsn(leader)
         return leader and leader.conn_url and self._rewind_state == REWIND_STATUS.NEED
@@ -1652,6 +1662,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
                base backup)
         """
 
+        self._rewind_state = REWIND_STATUS.INITIAL
         ret = self.create_replica(clone_member) == 0
         if ret:
             self._post_restore()
