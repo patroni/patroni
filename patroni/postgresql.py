@@ -1254,9 +1254,7 @@ class Postgresql(object):
 
     @contextmanager
     def _get_replication_connection_cursor(self, host='localhost', port=5432, database=None, **kwargs):
-        database = database or self._database
-        replication = 'database' if self._major_version >= 90400 else 1
-        with self._get_connection_cursor(host=host, port=int(port), database=database, replication=replication,
+        with self._get_connection_cursor(host=host, port=int(port), database=database or self._database, replication=1,
                                          user=self._replication['username'], password=self._replication['password'],
                                          connect_timeout=3, options='-c statement_timeout=2000') as cur:
             yield cur
