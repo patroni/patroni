@@ -241,11 +241,19 @@ class TestHa(unittest.TestCase):
         self.p.controldata = lambda: {'Database cluster state': 'in production', 'Database system identifier': SYSID}
         self.assertEqual(self.ha.run_cycle(), 'doing crash recovery in a single user mode')
 
-    @patch.object(Postgresql, 'rewind_needed_and_possible', Mock(return_value=True))
+    @patch.object(Postgresql, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
+    @patch.object(Postgresql, 'can_rewind', PropertyMock(return_value=True))
     def test_recover_with_rewind(self):
         self.p.is_running = false
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.assertEqual(self.ha.run_cycle(), 'running pg_rewind from leader')
+
+    @patch.object(Postgresql, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
+    @patch.object(Postgresql, 'create_replica', Mock(return_value=1))
+    def test_recover_with_reinitialize(self):
+        self.p.is_running = false
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.assertEqual(self.ha.run_cycle(), 'reinitializing due to diverged timelines')
 
     @patch('sys.exit', return_value=1)
     @patch('patroni.ha.Ha.sysid_valid', MagicMock(return_value=True))
@@ -345,7 +353,8 @@ class TestHa(unittest.TestCase):
         self.p.is_leader = false
         self.assertEqual(self.ha.run_cycle(), 'PAUSE: no action')
 
-    @patch.object(Postgresql, 'rewind_needed_and_possible', Mock(return_value=True))
+    @patch.object(Postgresql, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
+    @patch.object(Postgresql, 'can_rewind', PropertyMock(return_value=True))
     def test_follow_triggers_rewind(self):
         self.p.is_leader = false
         self.p.trigger_check_diverged_lsn()
@@ -459,7 +468,7 @@ class TestHa(unittest.TestCase):
         f = Failover(0, self.p.name, '', None)
         self.ha.cluster = get_cluster_initialized_with_leader(f)
         self.assertEqual(self.ha.run_cycle(), 'manual failover: demoting myself')
-        self.p.rewind_needed_and_possible = true
+        self.p.rewind_or_reinitialize_needed_and_possible = true
         self.assertEqual(self.ha.run_cycle(), 'manual failover: demoting myself')
         self.ha.fetch_node_status = get_node_status(nofailover=True)
         self.assertEqual(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
@@ -681,7 +690,8 @@ class TestHa(unittest.TestCase):
         msg = 'promoted self to a standby leader because i had the session lock'
         self.assertEqual(self.ha.run_cycle(), msg)
 
-    @patch.object(Postgresql, 'rewind_needed_and_possible', Mock(return_value=True))
+    @patch.object(Postgresql, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
+    @patch.object(Postgresql, 'can_rewind', PropertyMock(return_value=True))
     def test_process_unhealthy_standby_cluster_as_cascade_replica(self):
         self.p.is_leader = false
         self.p.name = 'replica'

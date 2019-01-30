@@ -345,10 +345,10 @@ class TestPostgresql(unittest.TestCase):
                           Mock(return_value={'Database cluster state': 'shut down in recovery',
                                              'Minimum recovery ending location': '0/0',
                                              "Min recovery ending loc's timeline": '0'})):
-            self.p.rewind_needed_and_possible(self.leader)
+            self.p.rewind_or_reinitialize_needed_and_possible(self.leader)
         with patch.object(Postgresql, 'is_running', Mock(return_value=True)):
             with patch.object(MockCursor, 'fetchone', Mock(side_effect=[(False, ), Exception])):
-                self.p.rewind_needed_and_possible(self.leader)
+                self.p.rewind_or_reinitialize_needed_and_possible(self.leader)
 
     @patch.object(Postgresql, 'start', Mock())
     @patch.object(Postgresql, 'can_rewind', PropertyMock(return_value=True))
@@ -357,21 +357,23 @@ class TestPostgresql(unittest.TestCase):
     def test__check_timeline_and_lsn(self, mock_check_leader_is_not_in_recovery):
         mock_check_leader_is_not_in_recovery.return_value = False
         self.p.trigger_check_diverged_lsn()
-        self.assertFalse(self.p.rewind_needed_and_possible(self.leader))
+        self.assertFalse(self.p.rewind_or_reinitialize_needed_and_possible(self.leader))
+        self.leader = self.leader.member
+        self.assertFalse(self.p.rewind_or_reinitialize_needed_and_possible(self.leader))
         mock_check_leader_is_not_in_recovery.return_value = True
-        self.assertFalse(self.p.rewind_needed_and_possible(self.leader))
+        self.assertFalse(self.p.rewind_or_reinitialize_needed_and_possible(self.leader))
         self.p.trigger_check_diverged_lsn()
         with patch('psycopg2.connect', Mock(side_effect=Exception)):
-            self.assertFalse(self.p.rewind_needed_and_possible(self.leader))
+            self.assertFalse(self.p.rewind_or_reinitialize_needed_and_possible(self.leader))
         self.p.trigger_check_diverged_lsn()
         with patch.object(MockCursor, 'fetchone', Mock(side_effect=[('', 2, '0/0'), ('', b'3\t0/40159C0\tn\n')])):
-            self.assertFalse(self.p.rewind_needed_and_possible(self.leader))
+            self.assertFalse(self.p.rewind_or_reinitialize_needed_and_possible(self.leader))
         self.p.trigger_check_diverged_lsn()
         with patch.object(MockCursor, 'fetchone', Mock(return_value=('', 1, '0/0'))):
             with patch.object(Postgresql, '_get_local_timeline_lsn', Mock(return_value=(1, '0/0'))):
-                self.assertFalse(self.p.rewind_needed_and_possible(self.leader))
+                self.assertFalse(self.p.rewind_or_reinitialize_needed_and_possible(self.leader))
             self.p.trigger_check_diverged_lsn()
-            self.assertTrue(self.p.rewind_needed_and_possible(self.leader))
+            self.assertTrue(self.p.rewind_or_reinitialize_needed_and_possible(self.leader))
 
     @patch.object(MockCursor, 'fetchone', Mock(side_effect=[(True,), Exception]))
     def test_check_leader_is_not_in_recovery(self):
