@@ -177,9 +177,15 @@ standby nodes replicating from some remote master. This type of clusters has:
 
 Standby leader holds and updates a leader lock in DCS. If the leader lock
 expires, cascade replicas will perform an election to choose another leader
-from the standbys. For the sake of flexibility, you can specify different
-methods of creating a replica and recovery WAL records when a cluster is in the
-"standby mode", and after it was detached to function as a normal cluster.
+from the standbys.
+
+For the sake of flexibility, you can specify methods of creating a replica and
+recovery WAL records when a cluster is in the "standby mode" by providing
+`create_replica_methods` key in `standby_cluster` section. It is distinct from
+creating replicas, when cluster is detached and functions as a normal cluster,
+which is controlled by `create_replica_methods` in `postgresql` section. Both
+"standby" and "normal" `create_replica_methods` reference  keys in `postgresql`
+section.
 
 To configure such cluster you need to specify the section ``standby_cluster``
 in a patroni configuration:
@@ -192,6 +198,8 @@ in a patroni configuration:
                 host: 1.2.3.4
                 port: 5432
                 primary_slot_name: patroni
+                create_replica_methods:
+                - basebackup
 
 Note, that these options will be applied only once during cluster bootstrap,
 and the only way to change them afterwards is through DCS.
