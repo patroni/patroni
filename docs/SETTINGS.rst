@@ -22,6 +22,8 @@ Log
     -  **patroni.postmaster: WARNING**
     -  **urllib3: DEBUG**
 
+.. _bootstrap_settings:
+
 Bootstrap configuration
 -----------------------
 -  **dcs**: This section will be written into `/<namespace>/<scope>/config` of a given configuration store after initializing of new cluster. This is the global configuration for the cluster. If you want to change some parameters for all cluster nodes - just do it in DCS (or via Patroni API) and all nodes will apply this configuration.
@@ -35,7 +37,7 @@ Bootstrap configuration
     -  **postgresql**:
         -  **use\_pg\_rewind**: whether or not to use pg_rewind
         -  **use\_slots**: whether or not to use replication_slots. Must be False for PostgreSQL 9.3. You should comment out max_replication_slots before it becomes ineligible for leader status.
-        -  **recovery\_conf**: additional configuration settings written to recovery.conf when configuring follower. 
+        -  **recovery\_conf**: additional configuration settings written to recovery.conf when configuring follower.
         -  **parameters**: list of configuration settings for Postgres. Many of these are required for replication to work.
     -  **standby\_cluster**: if this section is defined, we want to bootstrap a standby cluster.
         -  **host**: an address of remote master
@@ -144,7 +146,7 @@ PostgreSQL
 -  **create\_replica\_methods**: an ordered list of the create methods for turning a Patroni node into a new replica.
    "basebackup" is the default method; other methods are assumed to refer to scripts, each of which is configured as its
    own config item. See :ref:`custom replica creation methods documentation <custom_replica_creation>` for further explanation.
--  **data\_dir**: The location of the Postgres data directory, either existing or to be initialized by Patroni.
+-  **data\_dir**: The location of the Postgres data directory, either :ref:`existing <existing_data>` or to be initialized by Patroni.
 -  **config\_dir**: The location of the Postgres configuration directory, defaults to the data directory. Must be writable by Patroni.
 -  **bin\_dir**: Path to PostgreSQL binaries (pg_ctl, pg_rewind, pg_basebackup, postgres). The default value is an empty string meaning that PATH environment variable will be used to find the executables.
 -  **listen**: IP address + port that Postgres listens to; must be accessible from other nodes in the cluster, if you're using streaming replication. Multiple comma-separated addresses are permitted, as long as the port component is appended after to the last one with a colon, i.e. ``listen: 127.0.0.1,127.0.0.2:5432``. Patroni will use the first address from this list to establish local connections to the PostgreSQL node.
@@ -162,7 +164,7 @@ PostgreSQL
 -  **replica\_method**: for each create_replica_methods other than basebackup, you would add a configuration section of the same name. At a minimum, this should include "command" with a full path to the actual script to be executed. Other configuration parameters will be passed along to the script in the form "parameter=value".
 
 REST API
--------- 
+--------
 -  **connect\_address**: IP address (or hostname) and port, to access the Patroni's REST API. All the members of the cluster must be able to connect to this address, so unless the Patroni setup is intended for a demo inside the localhost, this address must be a non "localhost" or loopback addres (ie: "localhost" or "127.0.0.1"). It can serve as a endpoint for HTTP health checks (read below about the "listen" REST API parameter), and also for user queries (either directly or via the REST API), as well as for the health checks done by the cluster members during leader elections (for example, to determine whether the master is still running, or if there is a node which has a WAL position that is ahead of the one doing the query; etc.) The connect_address is put in the member key in DCS, making it possible to translate the member name into the address to connect to its REST API.
 
 -  **listen**: IP address (or hostname) and port that Patroni will listen to for the REST API - to provide also the same health checks and cluster messaging between the participating nodes, as described above. to provide health-check information for HAProxy (or any other load balancer capable of doing a HTTP "OPTION" or "GET" checks).
@@ -180,7 +182,7 @@ REST API
 CTL
 ---
 -  **Optional**:
-    -  **insecure**: Allow connections to REST API without verifying SSL certs. 
+    -  **insecure**: Allow connections to REST API without verifying SSL certs.
     -  **cacert**: Specifices the file with the CA_BUNDLE file or directory with certificates of trusted CAs to use while verifying REST API SSL certs.
     -  **certfile**: Specifies the file with the certificate in the PEM format to use while verifying REST API SSL certs. If not provided patronictl will use the value provided for REST API "certfile" parameter.
 
