@@ -102,7 +102,12 @@ class HTTPClient(object):
                 params = {k: v for k, v in params}
             kwargs = {'retries': 0, 'preload_content': False, 'body': data}
             if method == 'get' and isinstance(params, dict) and 'index' in params:
-                kwargs['timeout'] = (float(params['wait'][:-1]) if 'wait' in params else 300) + 1
+                timeout = float(params['wait'][:-1]) if 'wait' in params else 300
+                # According to the documentation a small random amount of additional wait time is added to the
+                # supplied maximum wait time to spread out the wake up time of any concurrent requests. This adds
+                # up to wait / 16 additional time to the maximum duration. Since our goal is actually getting a
+                # response rather read timeout we will add to the timeout a sligtly bigger value.
+                kwargs['timeout'] = timeout + max(timeout/15.0, 1)
             else:
                 kwargs['timeout'] = self._read_timeout
             token = params.pop('token', self.token) if isinstance(params, dict) else self.token
