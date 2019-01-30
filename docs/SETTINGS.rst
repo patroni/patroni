@@ -101,10 +101,10 @@ Most of the parameters are optional, but you have to specify one of the **host**
 -  **proxy**: proxy url for the etcd. If you are connecting to the etcd using proxy, use this parameter instead of **url**
 -  **srv**: Domain to search the SRV record(s) for cluster autodiscovery.
 -  **protocol**: (optional) http or https, if not specified http is used. If the **url** or **proxy** is specified - will take protocol from them.
--  **username**: (optional) username for etcd authentication
+-  **username**: (optional) username for etcd authentication.
 -  **password**: (optional) password for etcd authentication.
 -  **cacert**: (optional) The ca certificate. If present it will enable validation.
--  **cert**: (optional) file with the client certificate
+-  **cert**: (optional) file with the client certificate.
 -  **key**: (optional) file with the client key. Can be empty if the key is part of **cert**.
 
 Exhibitor
