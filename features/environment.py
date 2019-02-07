@@ -84,7 +84,7 @@ class AbstractController(object):
 
 
 class PatroniController(AbstractController):
-    __PORT = 5440
+    __PORT = 5340
     PATRONI_CONFIG = '{}.yml'
     """ starts and stops individual patronis"""
 
