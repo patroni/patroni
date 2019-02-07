@@ -142,7 +142,12 @@ class PatroniController(AbstractController):
         if isinstance(self._context.dcs_ctl, KubernetesController):
             self._context.dcs_ctl.create_pod(self._name[8:], self._scope)
             os.environ['PATRONI_KUBERNETES_POD_IP'] = '10.0.0.' + self._name[-1]
-        return subprocess.Popen(['coverage', 'run', '--source=patroni', '-p', 'patroni.py', self._config],
+
+        COVERAGE_BIN=shutil.which('coverage')
+        if not COVERAGE_BIN:
+            COVERAGE_BIN=shutil.which('python3-coverage')
+
+        return subprocess.Popen([COVERAGE_BIN, 'run', '--source=patroni', '-p', 'patroni.py', self._config],
                                 stdout=self._log, stderr=subprocess.STDOUT, cwd=self._work_directory)
 
     def stop(self, kill=False, timeout=15, postgres=False):
@@ -809,8 +814,13 @@ def before_all(context):
 
 def after_all(context):
     context.dcs_ctl.stop()
-    subprocess.call(['coverage', 'combine'])
-    subprocess.call(['coverage', 'report'])
+
+    COVERAGE_BIN=shutil.which('coverage')
+    if not COVERAGE_BIN:
+        COVERAGE_BIN=shutil.which('python3-coverage')
+
+    subprocess.call([COVERAGE_BIN, 'combine'])
+    subprocess.call([COVERAGE_BIN, 'report'])
 
 
 def before_feature(context, feature):

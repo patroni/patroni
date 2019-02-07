@@ -4,6 +4,7 @@ import os
 import parse
 import requests
 import shlex
+import shutil
 import subprocess
 import time
 import yaml
@@ -95,7 +96,11 @@ def do_request(context, request_method, url, data):
 
 @step('I run {cmd}')
 def do_run(context, cmd):
-    cmd = ['coverage', 'run', '--source=patroni', '-p'] + shlex.split(cmd)
+    COVERAGE_BIN=shutil.which('coverage')
+    if not COVERAGE_BIN:
+        COVERAGE_BIN=shutil.which('python3-coverage')
+
+    cmd = [COVERAGE_BIN, 'run', '--source=patroni', '-p'] + shlex.split(cmd)
     try:
         # XXX: Dirty hack! We need to take name/passwd from the config!
         env = os.environ.copy()
