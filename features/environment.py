@@ -1,4 +1,5 @@
 import abc
+import consul
 import datetime
 import distutils.spawn
 import etcd
@@ -84,7 +85,7 @@ class AbstractController(object):
 
 
 class PatroniController(AbstractController):
-    __PORT = 5340
+    __PORT = 5440
     PATRONI_CONFIG = '{}.yml'
     """ starts and stops individual patronis"""
 
@@ -147,7 +148,7 @@ class PatroniController(AbstractController):
         if not COVERAGE_BIN:
             COVERAGE_BIN = distutils.spawn.find_executable('python3-coverage')
 
-        return subprocess.Popen([COVERAGE_BIN, 'run', '-p', '/usr/bin/patroni', self._config],
+        return subprocess.Popen([COVERAGE_BIN, 'run', '--source=patroni', '-p', 'patroni.py', self._config],
                                 stdout=self._log, stderr=subprocess.STDOUT, cwd=self._work_directory)
 
     def stop(self, kill=False, timeout=15, postgres=False):
@@ -375,7 +376,6 @@ class AbstractDcsController(AbstractController):
 class ConsulController(AbstractDcsController):
 
     def __init__(self, context):
-        import consul
         super(ConsulController, self).__init__(context)
         os.environ['PATRONI_CONSUL_HOST'] = 'localhost:8500'
         os.environ['PATRONI_CONSUL_REGISTER_SERVICE'] = 'on'
@@ -834,5 +834,3 @@ def after_feature(context, feature):
     context.pctl.stop_all()
     shutil.rmtree(os.path.join(context.pctl.patroni_path, 'data'))
     context.dcs_ctl.cleanup_service_tree()
-    if feature.status == 'failed':
-        shutil.copytree(context.pctl.output_dir, context.pctl.output_dir + "_failed")
