@@ -823,3 +823,5 @@ def after_feature(context, feature):
     context.pctl.stop_all()
     shutil.rmtree(os.path.join(context.pctl.patroni_path, 'data'))
     context.dcs_ctl.cleanup_service_tree()
+    if feature.status == 'failed':
+        shutil.copytree(context.pctl.output_dir, context.pctl.output_dir + "_failed")
