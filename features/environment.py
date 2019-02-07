@@ -1,6 +1,6 @@
 import abc
-import consul
 import datetime
+import distutils.spawn
 import etcd
 import kazoo.client
 import kazoo.exceptions
@@ -84,7 +84,7 @@ class AbstractController(object):
 
 
 class PatroniController(AbstractController):
-    __PORT = 5440
+    __PORT = 5340
     PATRONI_CONFIG = '{}.yml'
     """ starts and stops individual patronis"""
 
@@ -143,11 +143,11 @@ class PatroniController(AbstractController):
             self._context.dcs_ctl.create_pod(self._name[8:], self._scope)
             os.environ['PATRONI_KUBERNETES_POD_IP'] = '10.0.0.' + self._name[-1]
 
-        COVERAGE_BIN=shutil.which('coverage')
+        COVERAGE_BIN = distutils.spawn.find_executable('coverage')
         if not COVERAGE_BIN:
-            COVERAGE_BIN=shutil.which('python3-coverage')
+            COVERAGE_BIN = distutils.spawn.find_executable('python3-coverage')
 
-        return subprocess.Popen([COVERAGE_BIN, 'run', '--source=patroni', '-p', 'patroni.py', self._config],
+        return subprocess.Popen([COVERAGE_BIN, 'run', '-p', '/usr/bin/patroni', self._config],
                                 stdout=self._log, stderr=subprocess.STDOUT, cwd=self._work_directory)
 
     def stop(self, kill=False, timeout=15, postgres=False):
@@ -375,6 +375,7 @@ class AbstractDcsController(AbstractController):
 class ConsulController(AbstractDcsController):
 
     def __init__(self, context):
+        import consul
         super(ConsulController, self).__init__(context)
         os.environ['PATRONI_CONSUL_HOST'] = 'localhost:8500'
         os.environ['PATRONI_CONSUL_REGISTER_SERVICE'] = 'on'
@@ -815,9 +816,9 @@ def before_all(context):
 def after_all(context):
     context.dcs_ctl.stop()
 
-    COVERAGE_BIN=shutil.which('coverage')
+    COVERAGE_BIN = distutils.spawn.find_executable('coverage')
     if not COVERAGE_BIN:
-        COVERAGE_BIN=shutil.which('python3-coverage')
+        COVERAGE_BIN = distutils.spawn.find_executable('python3-coverage')
 
     subprocess.call([COVERAGE_BIN, 'combine'])
     subprocess.call([COVERAGE_BIN, 'report'])
@@ -833,3 +834,5 @@ def after_feature(context, feature):
     context.pctl.stop_all()
     shutil.rmtree(os.path.join(context.pctl.patroni_path, 'data'))
     context.dcs_ctl.cleanup_service_tree()
+    if feature.status == 'failed':
+        shutil.copytree(context.pctl.output_dir, context.pctl.output_dir + "_failed")

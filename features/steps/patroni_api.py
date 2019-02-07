@@ -1,10 +1,10 @@
 import base64
+import distutils.spawn
 import json
 import os
 import parse
 import requests
 import shlex
-import shutil
 import subprocess
 import time
 import yaml
@@ -96,9 +96,9 @@ def do_request(context, request_method, url, data):
 
 @step('I run {cmd}')
 def do_run(context, cmd):
-    COVERAGE_BIN=shutil.which('coverage')
+    COVERAGE_BIN = distutils.spawn.find_executable('coverage')
     if not COVERAGE_BIN:
-        COVERAGE_BIN=shutil.which('python3-coverage')
+        COVERAGE_BIN = distutils.spawn.find_executable('python3-coverage')
 
     cmd = [COVERAGE_BIN, 'run', '--source=patroni', '-p'] + shlex.split(cmd)
     try:
