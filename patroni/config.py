@@ -272,8 +272,6 @@ class Config(object):
         if authentication:
             ret['postgresql']['authentication'] = authentication
 
-        users = {}
-
         def _parse_list(value):
             if not (value.strip().startswith('-') or '[' in value):
                 value = '[{0}]'.format(value)
@@ -285,34 +283,40 @@ class Config(object):
 
         for param in list(os.environ.keys()):
             if param.startswith(Config.PATRONI_ENV_PREFIX):
+                # PATRONI_(ETCD|CONSUL|ZOOKEEPER|EXHIBITOR|...)_(HOSTS?|PORT|..)
                 name, suffix = (param[8:].split('_', 1) + [''])[:2]
-                if name and suffix:
-                    # PATRONI_(ETCD|CONSUL|ZOOKEEPER|EXHIBITOR|...)_(HOSTS?|PORT|..)
-                    if suffix in ('HOST', 'HOSTS', 'PORT', 'PROTOCOL', 'SRV', 'URL', 'PROXY', 'CACERT', 'CERT',
-                                  'KEY', 'USERNAME', 'PASSWORD', 'VERIFY', 'TOKEN', 'CHECKS', 'DC', 'REGISTER_SERVICE',
-                                  'SERVICE_CHECK_INTERVAL', 'NAMESPACE', 'CONTEXT', 'USE_ENDPOINTS', 'SCOPE_LABEL',
-                                  'ROLE_LABEL', 'POD_IP', 'PORTS', 'LABELS'):
-                        value = os.environ.pop(param)
-                        if suffix == 'PORT':
-                            value = value and parse_int(value)
-                        elif suffix in ('HOSTS', 'PORTS', 'CHECKS'):
-                            value = value and _parse_list(value)
-                        elif suffix == 'LABELS':
-                            value = _parse_dict(value)
-                        elif suffix == 'REGISTER_SERVICE':
-                            value = parse_bool(value)
-                        if value:
-                            ret[name.lower()][suffix.lower()] = value
-                    # PATRONI_<username>_PASSWORD=<password>, PATRONI_<username>_OPTIONS=<option1,option2,...>
-                    # CREATE USER "<username>" WITH <OPTIONS> PASSWORD '<password>'
-                    elif suffix == 'PASSWORD':
-                        password = os.environ.pop(param)
-                        if password:
-                            users[name] = {'password': password}
-                            options = os.environ.pop(param[:-9] + '_OPTIONS', None)
-                            options = options and _parse_list(options)
-                            if options:
-                                users[name]['options'] = options
+                if suffix in ('HOST', 'HOSTS', 'PORT', 'PROTOCOL', 'SRV', 'URL', 'PROXY', 'CACERT', 'CERT', 'KEY',
+                              'VERIFY', 'TOKEN', 'CHECKS', 'DC', 'REGISTER_SERVICE', 'SERVICE_CHECK_INTERVAL',
+                              'NAMESPACE', 'CONTEXT', 'USE_ENDPOINTS', 'SCOPE_LABEL', 'ROLE_LABEL', 'POD_IP',
+                              'PORTS', 'LABELS') and name:
+                    value = os.environ.pop(param)
+                    if suffix == 'PORT':
+                        value = value and parse_int(value)
+                    elif suffix in ('HOSTS', 'PORTS', 'CHECKS'):
+                        value = value and _parse_list(value)
+                    elif suffix == 'LABELS':
+                        value = _parse_dict(value)
+                    elif suffix == 'REGISTER_SERVICE':
+                        value = parse_bool(value)
+                    if value:
+                        ret[name.lower()][suffix.lower()] = value
+        if 'etcd' in ret:
+            ret['etcd'].update(_get_auth('etcd'))
+
+        users = {}
+        for param in list(os.environ.keys()):
+            if param.startswith(Config.PATRONI_ENV_PREFIX):
+                name, suffix = (param[8:].rsplit('_', 1) + [''])[:2]
+                # PATRONI_<username>_PASSWORD=<password>, PATRONI_<username>_OPTIONS=<option1,option2,...>
+                # CREATE USER "<username>" WITH <OPTIONS> PASSWORD '<password>'
+                if name and suffix == 'PASSWORD':
+                    password = os.environ.pop(param)
+                    if password:
+                        users[name] = {'password': password}
+                        options = os.environ.pop(param[:-9] + '_OPTIONS', None)
+                        options = options and _parse_list(options)
+                        if options:
+                            users[name]['options'] = options
         if users:
             ret['bootstrap']['users'] = users
 
