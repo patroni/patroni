@@ -611,6 +611,8 @@ class PatroniPoolController(object):
         feature_dir = os.path.join(self.patroni_path, 'features/output', feature_name.replace(' ', '_'))
         if os.path.exists(feature_dir):
             shutil.rmtree(feature_dir)
+        if os.path.exists(feature_dir + '_failed'):
+            shutil.rmtree(feature_dir + '_failed')
         os.makedirs(feature_dir)
         self._output_dir = feature_dir
 
@@ -824,4 +826,4 @@ def after_feature(context, feature):
     shutil.rmtree(os.path.join(context.pctl.patroni_path, 'data'))
     context.dcs_ctl.cleanup_service_tree()
     if feature.status == 'failed':
-        shutil.copytree(context.pctl.output_dir, context.pctl.output_dir + "_failed")
+        shutil.copytree(context.pctl.output_dir, context.pctl.output_dir + '_failed')
