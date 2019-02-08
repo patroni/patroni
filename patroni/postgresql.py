@@ -1400,7 +1400,16 @@ class Postgresql(object):
         # make it store the new timeline (5540277D.8020309@iki.fi)
         leader_status = self.checkpoint(r)
         if leader_status:
-            return logger.warning('Can not use %s for rewind: %s', leader.name, leader_status)
+            logger.warning('Can not use %s for rewind: %s', leader.name, leader_status)
+            for name in ('remove_data_directory_on_rewind_failure', 'remove_data_directory_on_diverged_timelines'):
+                if self.config.get(name):
+                    logger.warning('%s is set. removing...', name)
+                    self.remove_data_directory()
+                    self._rewind_state = REWIND_STATUS.INITIAL
+                    break
+            else:
+                self._rewind_state = REWIND_STATUS.FAILED
+            return False
 
         if self.pg_rewind(r):
             self._rewind_state = REWIND_STATUS.SUCCESS
