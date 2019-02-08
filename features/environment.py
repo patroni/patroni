@@ -1,7 +1,6 @@
 import abc
 import consul
 import datetime
-import distutils.spawn
 import etcd
 import kazoo.client
 import kazoo.exceptions
@@ -13,6 +12,7 @@ import shutil
 import signal
 import six
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -144,11 +144,8 @@ class PatroniController(AbstractController):
             self._context.dcs_ctl.create_pod(self._name[8:], self._scope)
             os.environ['PATRONI_KUBERNETES_POD_IP'] = '10.0.0.' + self._name[-1]
 
-        COVERAGE_BIN = distutils.spawn.find_executable('coverage')
-        if not COVERAGE_BIN:
-            COVERAGE_BIN = distutils.spawn.find_executable('python3-coverage')
-
-        return subprocess.Popen([COVERAGE_BIN, 'run', '--source=patroni', '-p', 'patroni.py', self._config],
+        return subprocess.Popen([sys.executable, '-m', 'coverage', 'run',
+                                '--source=patroni', '-p', 'patroni.py', self._config],
                                 stdout=self._log, stderr=subprocess.STDOUT, cwd=self._work_directory)
 
     def stop(self, kill=False, timeout=15, postgres=False):
@@ -816,12 +813,8 @@ def before_all(context):
 def after_all(context):
     context.dcs_ctl.stop()
 
-    COVERAGE_BIN = distutils.spawn.find_executable('coverage')
-    if not COVERAGE_BIN:
-        COVERAGE_BIN = distutils.spawn.find_executable('python3-coverage')
-
-    subprocess.call([COVERAGE_BIN, 'combine'])
-    subprocess.call([COVERAGE_BIN, 'report'])
+    subprocess.call([sys.executable, '-m', 'coverage', 'combine'])
+    subprocess.call([sys.executable, '-m', 'coverage', 'report'])
 
 
 def before_feature(context, feature):

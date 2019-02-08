@@ -1,11 +1,11 @@
 import base64
-import distutils.spawn
 import json
 import os
 import parse
 import requests
 import shlex
 import subprocess
+import sys
 import time
 import yaml
 
@@ -96,11 +96,8 @@ def do_request(context, request_method, url, data):
 
 @step('I run {cmd}')
 def do_run(context, cmd):
-    COVERAGE_BIN = distutils.spawn.find_executable('coverage')
-    if not COVERAGE_BIN:
-        COVERAGE_BIN = distutils.spawn.find_executable('python3-coverage')
 
-    cmd = [COVERAGE_BIN, 'run', '--source=patroni', '-p'] + shlex.split(cmd)
+    cmd = [sys.executable, '-m', 'coverage', 'run', '--source=patroni', '-p'] + shlex.split(cmd)
     try:
         # XXX: Dirty hack! We need to take name/passwd from the config!
         env = os.environ.copy()
