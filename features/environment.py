@@ -143,7 +143,6 @@ class PatroniController(AbstractController):
         if isinstance(self._context.dcs_ctl, KubernetesController):
             self._context.dcs_ctl.create_pod(self._name[8:], self._scope)
             os.environ['PATRONI_KUBERNETES_POD_IP'] = '10.0.0.' + self._name[-1]
-
         return subprocess.Popen([sys.executable, '-m', 'coverage', 'run',
                                 '--source=patroni', '-p', 'patroni.py', self._config],
                                 stdout=self._log, stderr=subprocess.STDOUT, cwd=self._work_directory)
@@ -812,7 +811,6 @@ def before_all(context):
 
 def after_all(context):
     context.dcs_ctl.stop()
-
     subprocess.call([sys.executable, '-m', 'coverage', 'combine'])
     subprocess.call([sys.executable, '-m', 'coverage', 'report'])
 

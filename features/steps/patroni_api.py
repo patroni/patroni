@@ -96,7 +96,6 @@ def do_request(context, request_method, url, data):
 
 @step('I run {cmd}')
 def do_run(context, cmd):
-
     cmd = [sys.executable, '-m', 'coverage', 'run', '--source=patroni', '-p'] + shlex.split(cmd)
     try:
         # XXX: Dirty hack! We need to take name/passwd from the config!
