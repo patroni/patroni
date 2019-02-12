@@ -611,8 +611,6 @@ class PatroniPoolController(object):
         feature_dir = os.path.join(self.patroni_path, 'features/output', feature_name.replace(' ', '_'))
         if os.path.exists(feature_dir):
             shutil.rmtree(feature_dir)
-        if os.path.exists(feature_dir + '_failed'):
-            shutil.rmtree(feature_dir + '_failed')
         os.makedirs(feature_dir)
         self._output_dir = feature_dir
 
