@@ -137,7 +137,7 @@ script:
             echo Running acceptance tests using python${pv}
             if ! PATH=.:/usr/lib/postgresql/9.6/bin:$PATH $TEST_SUITE; then
                 # output all log files when tests are failing
-                grep . features/output/*/*postgres?.*
+                grep . features/output/*_failed/*postgres?.*
                 exit 1
             fi
         fi
