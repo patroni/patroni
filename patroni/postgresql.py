@@ -952,9 +952,12 @@ class Postgresql(object):
                     if cur.fetchone()[0]:
                         return 'is_in_recovery=true'
                 return cur.execute('CHECKPOINT')
-        except psycopg2.Error:
+        except psycopg2.Error as e:
             logger.exception('Exception during CHECKPOINT')
-            return 'not accessible or not healty'
+            if str(e).strip()  == 'fe_sendauth: no password supplied':
+                return 'no password'
+            else:
+                return 'not accessible or not healty'
 
     def stop(self, mode='fast', block_callbacks=False, checkpoint=None, on_safepoint=None):
         """Stop PostgreSQL
@@ -1402,7 +1405,7 @@ class Postgresql(object):
         if leader_status:
             logger.warning('Can not use %s for rewind: %s', leader.name, leader_status)
             for name in ('remove_data_directory_on_rewind_failure', 'remove_data_directory_on_diverged_timelines'):
-                if self.config.get(name):
+                if self.config.get(name) and leader_status == 'no password':
                     logger.warning('%s is set. removing...', name)
                     self.remove_data_directory()
                     self._rewind_state = REWIND_STATUS.INITIAL
