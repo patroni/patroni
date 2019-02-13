@@ -954,7 +954,7 @@ class Postgresql(object):
                 return cur.execute('CHECKPOINT')
         except psycopg2.Error as e:
             logger.exception('Exception during CHECKPOINT')
-            if str(e).strip()  == 'fe_sendauth: no password supplied':
+            if str(e).strip() == 'fe_sendauth: no password supplied':
                 return 'no password'
             else:
                 return 'not accessible or not healty'
