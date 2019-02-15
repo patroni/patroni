@@ -3,6 +3,44 @@
 Release notes
 =============
 
+Version 1.5.5
+-------------
+
+This version introduces the possibility of automatic reinit of the former master, improves patronictl list output and fixes a number of bugs.
+
+**New features**
+
+- Add support of `PATRONI_ETCD_PROTOCOL`, `PATRONI_ETCD_USERNAME` and `PATRONI_ETCD_PASSWORD` environment variables (Étienne M)
+
+  Before it was possible to configure them only in the config file or as a part of `PATRONI_ETCD_URL`, which is not always convenient.
+
+- Make it possible to automatically reinit the former master (Alexander Kukushkin)
+
+  If the pg_rewind is disabled or can't be used, the former master could fail to start as a new replica due to diverged timelines. In this case, the only way to fix it is wiping the data directory and reinitializing. This behavior could be changed by setting `postgresql.remove_data_directory_on_diverged_timelines`. When it is set, Patroni will wipe the data directory and reinitialize the former master automatically.
+
+- Show information about timelines in patronictl list (Alexander)
+
+  It helps to detect stale replicas. In addition to that, `Host` will include ':{port}' if the port value isn't default or there is more than one member running on the same host.
+
+- Create a headless service associated with the $SCOPE-config endpoint (Alexander)
+
+  The "config" endpoint keeps information about the cluster-wide Patroni and Postgres configuration, history file, and last but the most important, it holds the `initialize` key. When the Kubernetes master node is restarted or upgraded, it removes endpoints without services. The headless service will prevent it from being removed.
+
+**Bug fixes**
+
+- Adjust the read timeout for the leader watch blocking query (Alexander)
+
+  According to the Consul documentation, the actual response timeout is increased by a small random amount of additional wait time added to the supplied maximum wait time to spread out the wake up time of any concurrent requests. It adds up to `wait / 16` additional time to the maximum duration. In our case we are adding `wait / 15` or 1 second depending on what is bigger.
+
+- Always use replication=1 when connecting via replication protocol to the postgres (Alexander)
+
+  Starting from Postgres 10 the line in the pg_hba.conf with database=replication doesn't accept connections with the parameter replication=database.
+
+- Don't write primary_conninfo into recovery.conf for wal-only standby cluster (Alexander)
+
+  Despite not having neither `host` nor `port` defined in the `standby_cluster` config, Patroni was putting the `primary_conninfo` into the `recovery.conf`, which is useless and generating a lot of errors.
+
+
 Version 1.5.4
 -------------
 
