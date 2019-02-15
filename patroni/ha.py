@@ -1350,16 +1350,11 @@ class Ha(object):
 
         if cluster_params:
             unique_name = 'remote_master:{}'.format(uuid.uuid1())
-            data = {
-                'conn_kwargs': {
-                    "host": cluster_params.get('host'),
-                    "port": cluster_params.get('port'),
-                },
-                'no_replication_slot': 'primary_slot_name' not in cluster_params,
-            }
-            data.update({
-                k: v for k, v in cluster_params.items()
-                if k in RemoteMember.allowed_keys()
-            })
+
+            data = {k: v for k, v in cluster_params.items() if k in RemoteMember.allowed_keys()}
+            data['no_replication_slot'] = 'primary_slot_name' not in cluster_params
+            conn_kwargs = {k: cluster_params[k] for k in ('host', 'port') if k in cluster_params}
+            if conn_kwargs:
+                data['conn_kwargs'] = conn_kwargs
 
             return RemoteMember(unique_name, data)
