@@ -72,7 +72,7 @@ class TestKubernetes(unittest.TestCase):
 
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_pod', Mock(return_value=True))
     def test_touch_member(self):
-        self.k.touch_member({})
+        self.k.touch_member({'role': 'replica'})
         self.k._name = 'p-1'
         self.k.touch_member({'state': 'running', 'role': 'replica'})
         self.k.touch_member({'state': 'stopped', 'role': 'master'})
@@ -112,3 +112,15 @@ class TestKubernetes(unittest.TestCase):
 
     def test_set_history_value(self):
         self.k.set_history_value('{}')
+
+    @patch('kubernetes.config.load_kube_config', Mock())
+    @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_pod', Mock(return_value=True))
+    @patch.object(k8s_client.CoreV1Api, 'create_namespaced_endpoints', Mock())
+    @patch.object(k8s_client.CoreV1Api, 'create_namespaced_service',
+                  Mock(side_effect=[True, False, k8s_client.rest.ApiException(500, '')]))
+    def test__create_config_service(self):
+        k = Kubernetes({'ttl': 30, 'scope': 'test', 'name': 'p-0', 'retry_timeout': 10,
+                        'labels': {'f': 'b'}, 'use_endpoints': True, 'pod_ip': '10.0.0.0'})
+        self.assertIsNotNone(k.patch_or_create_config({'foo': 'bar'}))
+        self.assertIsNotNone(k.patch_or_create_config({'foo': 'bar'}))
+        k.touch_member({'state': 'running', 'role': 'replica'})
