@@ -6,13 +6,13 @@ Release notes
 Version 1.5.5
 -------------
 
-This version intoduces possibility of automatic reinit of the former master, improves patronictl list output and fixes a number of bags.
+This version introduces the possibility of automatic reinit of the former master, improves patronictl list output and fixes a number of bugs.
 
 **New features**
 
 - Add support of `PATRONI_ETCD_PROTOCOL`, `PATRONI_ETCD_USERNAME` and `PATRONI_ETCD_PASSWORD` environment variables (Étienne M)
 
-  Before it was possible to configure them only in the config file or as a part of `PATRONI_ETCD_URL`, which is not always convinient.
+  Before it was possible to configure them only in the config file or as a part of `PATRONI_ETCD_URL`, which is not always convenient.
 
 - Make it possible to automatically reinit the former master (Alexander Kukushkin)
 
@@ -30,7 +30,7 @@ This version intoduces possibility of automatic reinit of the former master, imp
 
 - Adjust the read timeout for the leader watch blocking query (Alexander)
 
-  According to the Consul documentation the actual response timeout is increased by a small random amount of additional wait time added to the supplied maximum wait time to spread out the wake up time of any concurrent requests. It adds up to `wait / 16` additional time to the maximum duration. In our case we are adding `wait / 15` or 1 second depending on what is bigger.
+  According to the Consul documentation, the actual response timeout is increased by a small random amount of additional wait time added to the supplied maximum wait time to spread out the wake up time of any concurrent requests. It adds up to `wait / 16` additional time to the maximum duration. In our case we are adding `wait / 15` or 1 second depending on what is bigger.
 
 - Always use replication=1 when connecting via replication protocol to the postgres (Alexander)
 
