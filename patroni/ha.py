@@ -206,7 +206,7 @@ class Ha(object):
             return self.dcs.touch_member(data)
 
     def clone(self, clone_member=None, msg='(without leader)'):
-        if self.is_standby_cluster():
+        if self.is_standby_cluster() and not isinstance(clone_member, RemoteMember):
             clone_member = self.get_remote_member(clone_member)
 
         if self.state_handler.clone(clone_member):
