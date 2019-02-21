@@ -14,6 +14,7 @@ class Patroni(object):
         from patroni.config import Config
         from patroni.dcs import get_dcs
         from patroni.ha import Ha
+        from patroni.log import PatroniLogger
         from patroni.postgresql import Postgresql
         from patroni.version import __version__
         from patroni.watchdog import Watchdog
@@ -21,7 +22,9 @@ class Patroni(object):
         self.setup_signal_handlers()
 
         self.version = __version__
+        self.logger = PatroniLogger()
         self.config = Config()
+        self.logger.reload_config(self.config.get('log', {}))
         self.dcs = get_dcs(self.config)
         self.watchdog = Watchdog(self.config)
         self.load_dynamic_configuration()
@@ -49,6 +52,7 @@ class Patroni(object):
                 break
             except DCSError:
                 logger.warning('Can not get cluster from dcs')
+                time.sleep(5)
 
     def get_tags(self):
         return {tag: value for tag, value in self.config.get('tags', {}).items()
@@ -65,6 +69,7 @@ class Patroni(object):
     def reload_config(self):
         try:
             self.tags = self.get_tags()
+            self.logger.reload_config(self.config.get('log', {}))
             self.dcs.reload_config(self.config)
             self.watchdog.reload_config(self.config)
             self.api.reload_config(self.config['restapi'])
@@ -138,12 +143,6 @@ class Patroni(object):
 
 
 def patroni_main():
-    logformat = os.environ.get('PATRONI_LOGFORMAT', '%(asctime)s %(levelname)s: %(message)s')
-    loglevel = os.environ.get('PATRONI_LOGLEVEL', 'INFO')
-    requests_loglevel = os.environ.get('PATRONI_REQUESTS_LOGLEVEL', 'WARNING')
-    logging.basicConfig(format=logformat, level=loglevel)
-    logging.getLogger('requests').setLevel(requests_loglevel)
-
     patroni = Patroni()
     try:
         patroni.run()
@@ -151,6 +150,7 @@ def patroni_main():
         pass
     finally:
         patroni.shutdown()
+        logging.shutdown()
 
 
 def pg_ctl_start(args):

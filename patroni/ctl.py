@@ -180,7 +180,7 @@ def print_output(columns, rows=None, alignment=None, fmt='pretty', header=True, 
 
     if fmt == 'tsv':
         if columns is not None and header:
-            click.echo(delimiter.join(columns) + '\n')
+            click.echo(delimiter.join(columns))
 
         for r in rows:
             c = [str(c) for c in r]
@@ -716,6 +716,10 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
     has_scheduled_restarts = any(m.data.get('scheduled_restart') for m in cluster.members)
     has_pending_restarts = any(m.data.get('pending_restart') for m in cluster.members)
 
+    # Show Host as 'host:port' if somebody is running on non-standard port or two nodes are running on the same host
+    append_port = any(str(m.conn_kwargs()['port']) != '5432' for m in cluster.members) or\
+        len(set(m.conn_kwargs()['host'] for m in cluster.members)) < len(cluster.members)
+
     for m in cluster.members:
         logging.debug(m)
 
@@ -732,7 +736,11 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
         elif xlog_location_cluster >= xlog_location:
             lag = round((xlog_location_cluster - xlog_location)/1024/1024)
 
-        row = [name, m.name, m.conn_kwargs()['host'], role, m.data.get('state', ''), lag]
+        host = m.conn_kwargs()['host']
+        if append_port:
+            host += ':{0}'.format(m.conn_kwargs()['port'])
+
+        row = [name, m.name, host, role, m.data.get('state', ''), m.data.get('timeline', ''), lag]
 
         if extended or has_pending_restarts:
             row.append('*' if m.data.get('pending_restart') else '')
@@ -749,8 +757,8 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
 
         rows.append(row)
 
-    columns = ['Cluster', 'Member', 'Host', 'Role', 'State', 'Lag in MB']
-    alignment = {'Lag in MB': 'r'}
+    columns = ['Cluster', 'Member', 'Host', 'Role', 'State', 'TL', 'Lag in MB']
+    alignment = {'Lag in MB': 'r', 'TL': 'r'}
 
     if extended or has_pending_restarts:
         columns.append('Pending restart')

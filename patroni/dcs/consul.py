@@ -27,8 +27,12 @@ class ConsulInternalError(ConsulException):
     """An internal Consul server error occurred"""
 
 
-class InvalidSessionTTL(ConsulInternalError):
+class InvalidSessionTTL(ConsulException):
     """Session TTL is too small or too big"""
+
+
+class InvalidSession(ConsulException):
+    """invalid session"""
 
 
 class HTTPClient(object):
@@ -72,6 +76,8 @@ class HTTPClient(object):
             msg = '{0} {1}'.format(response.status, data)
             if data.startswith('Invalid Session TTL'):
                 raise InvalidSessionTTL(msg)
+            elif data.startswith('invalid session'):
+                raise InvalidSession(msg)
             else:
                 raise ConsulInternalError(msg)
         return base.Response(response.status, response.headers, data)
@@ -96,7 +102,12 @@ class HTTPClient(object):
                 params = {k: v for k, v in params}
             kwargs = {'retries': 0, 'preload_content': False, 'body': data}
             if method == 'get' and isinstance(params, dict) and 'index' in params:
-                kwargs['timeout'] = (float(params['wait'][:-1]) if 'wait' in params else 300) + 1
+                timeout = float(params['wait'][:-1]) if 'wait' in params else 300
+                # According to the documentation a small random amount of additional wait time is added to the
+                # supplied maximum wait time to spread out the wake up time of any concurrent requests. This adds
+                # up to wait / 16 additional time to the maximum duration. Since our goal is actually getting a
+                # response rather read timeout we will add to the timeout a sligtly bigger value.
+                kwargs['timeout'] = timeout + max(timeout/15.0, 1)
             else:
                 kwargs['timeout'] = self._read_timeout
             token = params.pop('token', self.token) if isinstance(params, dict) else self.token
@@ -357,6 +368,9 @@ class Consul(AbstractDCS):
             if self._register_service:
                 self.update_service(not create_member and member and member.data or {}, data)
             return True
+        except InvalidSession:
+            self._session = None
+            logger.error('Our session disappeared from Consul, can not "touch_member"')
         except Exception:
             logger.exception('touch_member')
         return False
@@ -380,7 +394,8 @@ class Consul(AbstractDCS):
         api_parts = urlparse(data['api_url'])
         api_parts = api_parts._replace(path='/{0}'.format(role))
         conn_parts = urlparse(data['conn_url'])
-        check = base.Check.http(api_parts.geturl(), self._service_check_interval, deregister=self._client.http.ttl * 10)
+        check = base.Check.http(api_parts.geturl(), self._service_check_interval,
+                                deregister='{0}s'.format(self._client.http.ttl * 10))
         params = {
             'service_id': '{0}/{1}'.format(self._scope, self._name),
             'address': conn_parts.hostname,
@@ -414,14 +429,21 @@ class Consul(AbstractDCS):
             return self._update_service(new_data)
 
     @catch_consul_errors
-    def _do_attempt_to_acquire_leader(self, kwargs):
-        return self.retry(self._client.kv.put, self.leader_path, self._name, **kwargs)
+    def _do_attempt_to_acquire_leader(self, permanent):
+        try:
+            kwargs = {} if permanent else {'acquire': self._session}
+            return self.retry(self._client.kv.put, self.leader_path, self._name, **kwargs)
+        except InvalidSession:
+            self._session = None
+            logger.error('Our session disappeared from Consul. Will try to get a new one and retry attempt')
+            self.refresh_session()
+            return self.retry(self._client.kv.put, self.leader_path, self._name, acquire=self._session)
 
     def attempt_to_acquire_leader(self, permanent=False):
         if not self._session and not permanent:
             self.refresh_session()
 
-        ret = self._do_attempt_to_acquire_leader({} if permanent else {'acquire': self._session})
+        ret = self._do_attempt_to_acquire_leader(permanent)
         if not ret:
             logger.info('Could not take out TTL lock')
 
@@ -499,4 +521,5 @@ class Consul(AbstractDCS):
         try:
             return super(Consul, self).watch(None, timeout)
         finally:
+            self._last_session_refresh = 0
             self.event.clear()

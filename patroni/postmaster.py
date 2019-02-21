@@ -102,28 +102,31 @@ class PostmasterProcess(psutil.Process):
         return None
 
     def wait_for_user_backends_to_close(self):
-        # These regexps are cross checked against versions PostgreSQL 9.1 .. 9.6
-        aux_proc_re = re.compile("(?:postgres:)( .*:)? (?:""(?:startup|logger|checkpointer|writer|wal writer|"
-                                 "autovacuum launcher|autovacuum worker|stats collector|wal receiver|archiver|"
-                                 "wal sender) process|bgworker: )")
+        # These regexps are cross checked against versions PostgreSQL 9.1 .. 11
+        aux_proc_re = re.compile("(?:postgres:)( .*:)? (?:(?:archiver|startup|autovacuum launcher|autovacuum worker|"
+                                 "checkpointer|logger|stats collector|wal receiver|wal writer|writer)(?: process  )?|"
+                                 "walreceiver|wal sender process|walsender|walwriter|background writer|"
+                                 "logical replication launcher|logical replication worker for|bgworker:) ")
 
         try:
-            user_backends = []
-            user_backends_cmdlines = []
-            for child in self.children():
-                try:
-                    cmdline = child.cmdline()[0]
-                    if not aux_proc_re.match(cmdline):
-                        user_backends.append(child)
-                        user_backends_cmdlines.append(cmdline)
-                except psutil.NoSuchProcess:
-                    pass
-            if user_backends:
-                logger.debug('Waiting for user backends %s to close', ', '.join(user_backends_cmdlines))
-                psutil.wait_procs(user_backends)
-            logger.debug("Backends closed")
+            children = self.children()
         except psutil.Error:
-            logger.exception('wait_for_user_backends_to_close')
+            return logger.debug('Failed to get list of postmaster children')
+
+        user_backends = []
+        user_backends_cmdlines = []
+        for child in children:
+            try:
+                cmdline = child.cmdline()[0]
+                if not aux_proc_re.match(cmdline):
+                    user_backends.append(child)
+                    user_backends_cmdlines.append(cmdline)
+            except psutil.NoSuchProcess:
+                pass
+        if user_backends:
+            logger.debug('Waiting for user backends %s to close', ', '.join(user_backends_cmdlines))
+            psutil.wait_procs(user_backends)
+        logger.debug("Backends closed")
 
     @staticmethod
     def start(pgcommand, data_dir, conf, options):
@@ -157,7 +160,7 @@ class PostmasterProcess(psutil.Process):
         cmdline = [pgcommand, '-D', data_dir, '--config-file={}'.format(conf)] + options
         logger.debug("Starting postgres: %s", " ".join(cmdline))
         proc = call_self(['pg_ctl_start'] + cmdline, close_fds=(os.name != 'nt'),
-                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+                         stdout=subprocess.PIPE, env=env)
         pid = int(proc.stdout.readline().strip())
         proc.wait()
         logger.info('postmaster pid=%s', pid)

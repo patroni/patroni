@@ -3,6 +3,7 @@ import json
 import logging
 import psycopg2
 import time
+import traceback
 import dateutil.parser
 import datetime
 import os
@@ -547,3 +548,9 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
                 and self.__initialize(config):
             self.start()
         self.__set_config_parameters(config)
+
+    @staticmethod
+    def handle_error(request, client_address):
+        address, port = client_address
+        logger.warning('Exception happened during processing of request from {}:{}'.format(address, port))
+        logger.warning(traceback.format_exc())

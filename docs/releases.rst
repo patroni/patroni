@@ -3,6 +3,120 @@
 Release notes
 =============
 
+Version 1.5.5
+-------------
+
+This version introduces the possibility of automatic reinit of the former master, improves patronictl list output and fixes a number of bugs.
+
+**New features**
+
+- Add support of `PATRONI_ETCD_PROTOCOL`, `PATRONI_ETCD_USERNAME` and `PATRONI_ETCD_PASSWORD` environment variables (Étienne M)
+
+  Before it was possible to configure them only in the config file or as a part of `PATRONI_ETCD_URL`, which is not always convenient.
+
+- Make it possible to automatically reinit the former master (Alexander Kukushkin)
+
+  If the pg_rewind is disabled or can't be used, the former master could fail to start as a new replica due to diverged timelines. In this case, the only way to fix it is wiping the data directory and reinitializing. This behavior could be changed by setting `postgresql.remove_data_directory_on_diverged_timelines`. When it is set, Patroni will wipe the data directory and reinitialize the former master automatically.
+
+- Show information about timelines in patronictl list (Alexander)
+
+  It helps to detect stale replicas. In addition to that, `Host` will include ':{port}' if the port value isn't default or there is more than one member running on the same host.
+
+- Create a headless service associated with the $SCOPE-config endpoint (Alexander)
+
+  The "config" endpoint keeps information about the cluster-wide Patroni and Postgres configuration, history file, and last but the most important, it holds the `initialize` key. When the Kubernetes master node is restarted or upgraded, it removes endpoints without services. The headless service will prevent it from being removed.
+
+**Bug fixes**
+
+- Adjust the read timeout for the leader watch blocking query (Alexander)
+
+  According to the Consul documentation, the actual response timeout is increased by a small random amount of additional wait time added to the supplied maximum wait time to spread out the wake up time of any concurrent requests. It adds up to `wait / 16` additional time to the maximum duration. In our case we are adding `wait / 15` or 1 second depending on what is bigger.
+
+- Always use replication=1 when connecting via replication protocol to the postgres (Alexander)
+
+  Starting from Postgres 10 the line in the pg_hba.conf with database=replication doesn't accept connections with the parameter replication=database.
+
+- Don't write primary_conninfo into recovery.conf for wal-only standby cluster (Alexander)
+
+  Despite not having neither `host` nor `port` defined in the `standby_cluster` config, Patroni was putting the `primary_conninfo` into the `recovery.conf`, which is useless and generating a lot of errors.
+
+
+Version 1.5.4
+-------------
+
+This version implements flexible logging and fixes a number of bugs.
+
+**New features**
+
+- Improvements in logging infrastructure (Alexander Kukushkin, Lucas Capistrant, Alexander Anikin)
+
+  Logging configuration could be configured not only from environment variables but also from Patroni config file. It makes it possible to change logging configuration in runtime by updating config and doing reload or sending SIGHUP to the Patroni process. By default Patroni writes logs to stderr, but now it becomes possible to write logs directly into the file and rotate when it reaches a certain size. In addition to that added support of custom dateformat and the possibility to fine-tune log level for each python module.
+
+- Make it possible to take into account the current timeline during leader elections (Alexander Kukushkin)
+
+  It could happen that the node is considering itself as a healthiest one although it is currently not on the latest known timeline. In some cases we want to avoid promoting of such node, which could be achieved by setting `check_timeline` parameter to `true` (default behavior remains unchanged).
+
+- Relaxed requirements on superuser credentials
+
+  Libpq allows opening connections without explicitly specifying neither username nor password. Depending on situation it relies either on pgpass file or trust authentication method in pg_hba.conf. Since pg_rewind is also using libpq, it will work the same way.
+
+- Implemented possibility to configure Consul Service registration and check interval via environment variables (Alexander Kukushkin)
+
+  Registration of service in Consul was added in the 1.5.0, but so far it was only possible to turn it on via patroni.yaml.
+
+**Stability Improvements**
+
+- Set archive_mode to off during the custom bootstrap (Alexander Kukushkin)
+
+  We want to avoid archiving wals and history files until the cluster is fully functional.  It really helps if the custom bootstrap involves pg_upgrade.
+
+- Apply five seconds backoff when loading global config on start (Alexander Kukushkin)
+
+  It helps to avoid hammering DCS when Patroni just starting up.
+
+- Reduce amount of error messages generated on shutdown (Alexander Kukushkin)
+
+  They were harmless but rather annoying and sometimes scary.
+
+- Explicitly secure rw perms for recovery.conf at creation time (Lucas)
+
+  We don't want anybody except patroni/postgres user reading this file, because it contains replication user and password.
+
+- Redirect HTTPServer exceptions to logger (Julien Riou)
+
+  By default, such exceptions were logged on standard output messing with regular logs.
+
+**Bug fixes**
+
+- Removed stderr pipe to stdout on pg_ctl process (Cody Coons)
+
+  Inheriting stderr from the main Patroni process allows all Postgres logs to be seen along with all patroni logs. This is very useful in a container environment as Patroni and Postgres logs may be consumed using standard tools (docker logs, kubectl, etc). In addition to that, this change fixes a bug with Patroni not being able to catch postmaster pid when postgres writing some warnings into stderr.
+
+- Set Consul service check deregister timeout in Go time format (Pavel Kirillov)
+
+  Without explicitly mentioned time unit registration was failing.
+
+- Relax checks of standby_cluster cluster configuration (Dmitry Dolgov, Alexander Kukushkin)
+
+  It was accepting only strings as valid values and therefore it was not possible to specify the port as integer and create_replica_methods as a list.
+
+Version 1.5.3
+-------------
+
+Compatibility and bugfix release.
+
+- Improve stability when running with python3 against zookeeper (Alexander Kukushkin)
+
+  Change of `loop_wait` was causing Patroni to disconnect from zookeeper and never reconnect back.
+
+- Fix broken compatibility with postgres 9.3 (Alexander)
+
+  When opening a replication connection we should specify replication=1, beacuse 9.3 does not understand replication='database'
+
+- Make sure we refresh Consul session at least once per HA loop and improve handling of consul sessions exceptions (Alexander)
+
+  Restart of local consul agent invalidates all sessions related to the node. Not calling session refresh on time and not doing proper handling of session errors was causing demote of the primary.
+
 Version 1.5.2
 -------------
 

@@ -11,8 +11,13 @@ Global/Universal
 -  **PATRONI\_NAME**: name of the node where the current instance of Patroni is running. Must be unique for the cluster.
 -  **PATRONI\_NAMESPACE**: path within the configuration store where Patroni will keep information about the cluster. Default value: "/service"
 -  **PATRONI\_SCOPE**: cluster name
--  **PATRONI\_LOGLEVEL**: sets the general logging level (see `the docs for Python logging <https://docs.python.org/3.6/library/logging.html#levels>`_)
--  **PATRONI\_REQUESTS_LOGLEVEL**: sets the logging level for all HTTP requests e.g. Kubernetes API calls (see `the docs for Python logging <https://docs.python.org/3.6/library/logging.html#levels>`_)
+-  **PATRONI\_LOG\_LEVEL**: sets the general logging level. Default value is **INFO** (see `the docs for Python logging <https://docs.python.org/3.6/library/logging.html#levels>`_)
+-  **PATRONI\_LOG\_FORMAT**: sets the log formatting string. Default value is **%(asctime)s %(levelname)s: %(message)s** (see `the LogRecord attributes <https://docs.python.org/3.6/library/logging.html#logrecord-attributes>`_)
+-  **PATRONI\_LOG\_DATEFORMAT**: sets the datetime formatting string. (see the `formatTime() documentation <https://docs.python.org/3.6/library/logging.html#logging.Formatter.formatTime>`_)
+-  **PATRONI\_LOG\_DIR**: Directory to write application logs to. The directory must exist and be writable by the user executing Patroni. If you set this env variable, the application will retain 4 25MB logs by default. You can tune those retention values with `PATRONI_LOG_FILE_NUM` and `PATRONI_LOG_FILE_SIZE` (see below).
+-  **PATRONI\_LOG\_FILE\_NUM**: The number of application logs to retain.
+-  **PATRONI\_LOG\_FILE\_SIZE**: Size of patroni.log file (in bytes) that triggers a log rolling.
+-  **PATRONI\_LOG\_LOGGERS**: Redefine logging level per python module. Example ``PATRONI_LOG_LOGGERS="{patroni.postmaster: WARNING, urllib3: DEBUG}"``
 
 Bootstrap configuration
 -----------------------
@@ -36,16 +41,22 @@ Consul
 -  **PATRONI\_CONSUL\_KEY**: (optional) File with the client key. Can be empty if the key is part of certificate.
 -  **PATRONI\_CONSUL\_DC**: (optional) Datacenter to communicate with. By default the datacenter of the host is used.
 -  **PATRONI\_CONSUL\_CHECKS**: (optional) list of Consul health checks used for the session. If not specified Consul will use "serfHealth" in additional to the TTL based check created by Patroni. Additional checks, in particular the "serfHealth", may cause the leader lock to expire faster than in `ttl` seconds when the leader instance becomes unavailable.
+-  **PATRONI\_CONSUL\_REGISTER\_SERVICE**: (optional) whether or not to register a service with the name defined by the scope parameter and the tag master, replica or standby-leader depending on the node's role. Defaults to **false**
+-  **PATRONI\_CONSUL\_SERVICE\_CHECK\_INTERVAL**: (optional) how often to perform health check against registered url
 
 Etcd
 ----
--  **PATRONI\_ETCD\_HOST**: the host:port for the etcd endpoint.
--  **PATRONI\_ETCD\_HOSTS**: list of etcd endpoints in format host1:port1,host2:port2,etc...
--  **PATRONI\_ETCD\_URL**: url for the etcd, in format: http(s)://(username:password@)host:port
+
 -  **PATRONI\_ETCD\_PROXY**: proxy url for the etcd. If you are connecting to the etcd using proxy, use this parameter instead of **PATRONI\_ETCD\_URL**
+-  **PATRONI\_ETCD\_URL**: url for the etcd, in format: http(s)://(username:password@)host:port
+-  **PATRONI\_ETCD\_HOSTS**: list of etcd endpoints in format 'host1:port1','host2:port2',etc...
+-  **PATRONI\_ETCD\_PROTOCOL**: http or https, if not specified http is used. If the **url** or **proxy** is specified - will take protocol from them.
+-  **PATRONI\_ETCD\_HOST**: the host:port for the etcd endpoint.
 -  **PATRONI\_ETCD\_SRV**: Domain to search the SRV record(s) for cluster autodiscovery.
+-  **PATRONI\_ETCD\_USERNAME**: username for etcd authentication.
+-  **PATRONI\_ETCD\_PASSWORD**: password for etcd authentication.
 -  **PATRONI\_ETCD\_CACERT**: The ca certificate. If present it will enable validation.
--  **PATRONI\_ETCD\_CERT**: File with the client certificate
+-  **PATRONI\_ETCD\_CERT**: File with the client certificate.
 -  **PATRONI\_ETCD\_KEY**: File with the client key. Can be empty if the key is part of certificate.
 
 Exhibitor
@@ -79,7 +90,7 @@ PostgreSQL
 -  **PATRONI\_SUPERUSER\_PASSWORD**: password for the superuser, set during initialization (initdb).
 
 REST API
--------- 
+--------
 -  **PATRONI\_RESTAPI\_CONNECT\_ADDRESS**: IP address and port to access the REST API.
 -  **PATRONI\_RESTAPI\_LISTEN**: IP address and port that Patroni will listen to, to provide health-check information for HAProxy.
 -  **PATRONI\_RESTAPI\_USERNAME**: Basic-auth username to protect unsafe REST API endpoints.

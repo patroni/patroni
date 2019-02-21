@@ -73,7 +73,7 @@ class MockHa(object):
 
     @staticmethod
     def fetch_nodes_statuses(members):
-        return [_MemberStatus(None, True, None, None, {}, False)]
+        return [_MemberStatus(None, True, None, 0, None, {}, False)]
 
     @staticmethod
     def schedule_future_restart(data):
@@ -401,3 +401,9 @@ class TestRestApiServer(unittest.TestCase):
         self.assertRaises(ValueError, srv.reload_config, bad_config)
         self.assertRaises(ValueError, srv.reload_config, {})
         srv.reload_config({'listen': '127.0.0.2:8008'})
+
+    def test_handle_error(self):
+        try:
+            raise Exception()
+        except Exception:
+            self.assertIsNone(MockRestApiServer.handle_error(None, ('127.0.0.1', 55555)))

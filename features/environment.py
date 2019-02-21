@@ -12,6 +12,7 @@ import shutil
 import signal
 import six
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -84,7 +85,7 @@ class AbstractController(object):
 
 
 class PatroniController(AbstractController):
-    __PORT = 5440
+    __PORT = 5360
     PATRONI_CONFIG = '{}.yml'
     """ starts and stops individual patronis"""
 
@@ -142,7 +143,8 @@ class PatroniController(AbstractController):
         if isinstance(self._context.dcs_ctl, KubernetesController):
             self._context.dcs_ctl.create_pod(self._name[8:], self._scope)
             os.environ['PATRONI_KUBERNETES_POD_IP'] = '10.0.0.' + self._name[-1]
-        return subprocess.Popen(['coverage', 'run', '--source=patroni', '-p', 'patroni.py', self._config],
+        return subprocess.Popen([sys.executable, '-m', 'coverage', 'run',
+                                '--source=patroni', '-p', 'patroni.py', self._config],
                                 stdout=self._log, stderr=subprocess.STDOUT, cwd=self._work_directory)
 
     def stop(self, kill=False, timeout=15, postgres=False):
@@ -377,6 +379,7 @@ class ConsulController(AbstractDcsController):
     def __init__(self, context):
         super(ConsulController, self).__init__(context)
         os.environ['PATRONI_CONSUL_HOST'] = 'localhost:8500'
+        os.environ['PATRONI_CONSUL_REGISTER_SERVICE'] = 'on'
         self._client = consul.Consul()
         self._config_file = None
 
@@ -844,8 +847,8 @@ def before_all(context):
 
 def after_all(context):
     context.dcs_ctl.stop()
-    subprocess.call(['coverage', 'combine'])
-    subprocess.call(['coverage', 'report'])
+    subprocess.call([sys.executable, '-m', 'coverage', 'combine'])
+    subprocess.call([sys.executable, '-m', 'coverage', 'report'])
 
 
 def before_feature(context, feature):
@@ -858,3 +861,5 @@ def after_feature(context, feature):
     context.pctl.stop_all()
     shutil.rmtree(os.path.join(context.pctl.patroni_path, 'data'))
     context.dcs_ctl.cleanup_service_tree()
+    if feature.status == 'failed':
+        shutil.copytree(context.pctl.output_dir, context.pctl.output_dir + '_failed')
