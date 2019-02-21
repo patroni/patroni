@@ -206,6 +206,9 @@ class Ha(object):
             return self.dcs.touch_member(data)
 
     def clone(self, clone_member=None, msg='(without leader)'):
+        if self.is_standby_cluster() and not isinstance(clone_member, RemoteMember):
+            clone_member = self.get_remote_member(clone_member)
+
         if self.state_handler.clone(clone_member):
             logger.info('bootstrapped %s', msg)
             cluster = self.dcs.get_cluster()
@@ -1341,7 +1344,7 @@ class Ha(object):
         This usually happens on the master or if the node is running async action"""
         self.dcs.event.set()
 
-    def get_remote_master(self):
+    def get_remote_member(self, member=None):
         """ In case of standby cluster this will tel us from which remote
             master to stream. Config can be both patroni config or
             cluster.config.data
@@ -1349,12 +1352,16 @@ class Ha(object):
         cluster_params = self.get_standby_cluster_config()
 
         if cluster_params:
-            unique_name = 'remote_master:{}'.format(uuid.uuid1())
+            name = member.name if member else 'remote_master:{}'.format(uuid.uuid1())
 
             data = {k: v for k, v in cluster_params.items() if k in RemoteMember.allowed_keys()}
             data['no_replication_slot'] = 'primary_slot_name' not in cluster_params
-            conn_kwargs = {k: cluster_params[k] for k in ('host', 'port') if k in cluster_params}
+            conn_kwargs = member.conn_kwargs() if member else \
+                {k: cluster_params[k] for k in ('host', 'port') if k in cluster_params}
             if conn_kwargs:
                 data['conn_kwargs'] = conn_kwargs
 
-            return RemoteMember(unique_name, data)
+            return RemoteMember(name, data)
+
+    def get_remote_master(self):
+        return self.get_remote_member()

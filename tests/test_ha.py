@@ -211,7 +211,8 @@ class TestHa(unittest.TestCase):
         self.assertEqual(self.ha.run_cycle(), 'trying to bootstrap a new standby leader')
 
     @patch.object(Cluster, 'get_clone_member',
-                  Mock(return_value=Member(0, 'test', 1, {'api_url': 'http://127.0.0.1:8011/patroni'})))
+                  Mock(return_value=Member(0, 'test', 1, {'api_url': 'http://127.0.0.1:8011/patroni',
+                                                          'conn_url': 'postgres://127.0.0.1:5432/postgres'})))
     @patch.object(Postgresql, 'create_replica', Mock(return_value=0))
     def test_start_as_cascade_replica_in_standby_cluster(self):
         self.p.data_directory_empty = true
