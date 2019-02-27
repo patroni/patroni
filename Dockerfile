@@ -20,7 +20,6 @@ RUN set -ex \
     && export DEBIAN_FRONTEND=noninteractive \
     && echo 'APT::Install-Recommends "0";\nAPT::Install-Suggests "0";' > /etc/apt/apt.conf.d/01norecommend \
     && apt-get update -y \
-    && apt-get upgrade -y \
     # postgres:10 is based on debian, which has the patroni package. We will install all required dependencies
     && apt-cache depends patroni | sed -n -e 's/.*Depends: \(python3-.\+\)$/\1/p' \
             | grep -Ev '^python3-(sphinx|etcd|consul|kazoo|kubernetes)' \
@@ -92,18 +91,20 @@ RUN set -ex \
 # perform compression if it is necessary
 ARG COMPRESS
 RUN if [ "$COMPRESS" = "true" ]; then \
-        cd / \
-        && set -ex \
+        set -ex \
         # Allow certain sudo commands from postgres
         && echo 'postgres ALL=(ALL) NOPASSWD: /bin/tar xpJf /a.tar.xz -C /, /bin/rm /a.tar.xz, /bin/ln -snf dash /bin/sh' >> /etc/sudoers \
         && ln -snf busybox /bin/sh \
         && files="/bin/sh /usr/bin/sudo /usr/lib/sudo/sudoers.so /lib/x86_64-linux-gnu/security/pam_*.so" \
         && libs="$(ldd $files | awk '{print $3;}' | grep '^/' | sort -u) /lib/x86_64-linux-gnu/ld-linux-x86-64.so.* /lib/x86_64-linux-gnu/libnsl.so.* /lib/x86_64-linux-gnu/libnss_compat.so.*" \
         && (echo /var/run $files $libs | tr ' ' '\n' && realpath $files $libs) | sort -u | sed 's/^\///' > /exclude \
-        && find /lib/x86_64-linux-gnu/security/ -type f >> /exclude \
         && find /etc/alternatives -xtype l -delete \
         && save_dirs="usr lib var bin sbin etc/ssl etc/init.d etc/alternatives etc/apt" \
         && XZ_OPT=-e9v tar -X /exclude -cpJf a.tar.xz $save_dirs \
+        # we call "cat /exclude" to avoid including files from the $save_dirs that are also among
+        # the exceptions listed in the /exclude, as "uniq -u" eliminates all non-unique lines.
+        # By calling "cat /exclude" a second time we guarantee that there will be at least two lines
+        # for each exception and therefore they will be excluded from the output passed to 'rm'.
         && /bin/busybox sh -c "(find $save_dirs -not -type d && cat /exclude /exclude && echo exclude) | sort | uniq -u | xargs /bin/busybox rm" \
         && /bin/busybox --install -s \
         && /bin/busybox sh -c "find $save_dirs -type d -depth -exec rmdir -p {} \; 2> /dev/null"; \
@@ -126,11 +127,11 @@ ARG PGBIN=/usr/lib/postgresql/$PG_MAJOR/bin
 ENV LC_ALL=$LC_ALL LANG=$LANG EDITOR=/usr/bin/editor
 ENV PGDATA=$PGDATA PATH=$PATH:$PGBIN
 
-ADD patroni /patroni/
-ADD extras/confd/conf.d/haproxy.toml /etc/confd/conf.d/
-ADD extras/confd/templates/haproxy.tmpl /etc/confd/templates/
-ADD patroni*.py docker/entrypoint.sh /
-ADD postgres?.yml $PGHOME/
+COPY patroni /patroni/
+COPY extras/confd/conf.d/haproxy.toml /etc/confd/conf.d/
+COPY extras/confd/templates/haproxy.tmpl /etc/confd/templates/
+COPY patroni*.py docker/entrypoint.sh /
+COPY postgres?.yml $PGHOME/
 
 WORKDIR $PGHOME
 
