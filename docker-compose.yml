@@ -12,7 +12,7 @@ services:
         env_file: docker/etcd.env
         container_name: demo-etcd1
         hostname: etcd1
-        command: etcd -name etcd1 -initial-advertise-peer-urls http://etcd1:2380 -advertise-client-urls http://etcd1:2379
+        command: etcd -name etcd1 -initial-advertise-peer-urls http://etcd1:2380
 
     etcd2:
         image: patroni
@@ -20,7 +20,7 @@ services:
         env_file: docker/etcd.env
         container_name: demo-etcd2
         hostname: etcd2
-        command: etcd -name etcd2 -initial-advertise-peer-urls http://etcd2:2380 -advertise-client-urls http://etcd2:2379
+        command: etcd -name etcd2 -initial-advertise-peer-urls http://etcd2:2380
 
     etcd3:
         image: patroni
@@ -28,7 +28,7 @@ services:
         env_file: docker/etcd.env
         container_name: demo-etcd3
         hostname: etcd3
-        command: etcd -name etcd3 -initial-advertise-peer-urls http://etcd3:2380 -advertise-client-urls http://etcd3:2379
+        command: etcd -name etcd3 -initial-advertise-peer-urls http://etcd3:2380
 
     patroni1:
         image: patroni

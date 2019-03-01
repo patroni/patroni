@@ -10,6 +10,7 @@ fi
 readonly PATRONI_SCOPE=${PATRONI_SCOPE:-batman}
 PATRONI_NAMESPACE=${PATRONI_NAMESPACE:-/service}
 readonly PATRONI_NAMESPACE=${PATRONI_NAMESPACE%/}
+readonly DOCKER_IP=$(hostname --ip-address)
 
 case "$1" in
     haproxy)
@@ -28,7 +29,7 @@ case "$1" in
         fi
         ;;
     etcd)
-        exec "$@"
+        exec "$@" -advertise-client-urls http://$DOCKER_IP:2379
         ;;
     zookeeper)
         exec /usr/share/zookeeper/bin/zkServer.sh start-foreground
@@ -41,7 +42,6 @@ if [ -z "$PATRONI_ETCD_HOSTS" ] && [ -z "$PATRONI_ZOOKEEPER_HOSTS" ]; then
     etcd --data-dir /tmp/etcd.data -advertise-client-urls=$PATRONI_ETCD_URL -listen-client-urls=http://0.0.0.0:2379 > /var/log/etcd.log 2> /var/log/etcd.err &
 fi
 
-DOCKER_IP=$(hostname --ip-address)
 export PATRONI_SCOPE
 export PATRONI_NAMESPACE
 export PATRONI_NAME="${PATRONI_NAME:-$(hostname)}"
