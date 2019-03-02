@@ -209,13 +209,15 @@ class ZooKeeper(AbstractDCS):
         return Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
 
     def _load_cluster(self):
-        if self._fetch_cluster or self.cluster is None:
+        cluster = self.cluster
+        if self._fetch_cluster or cluster is None:
             try:
-                return self._client.retry(self._inner_load_cluster)
+                cluster = self._client.retry(self._inner_load_cluster)
             except Exception:
                 logger.exception('get_cluster')
                 self.cluster_watcher(None)
                 raise ZooKeeperError('ZooKeeper in not responding properly')
+        return cluster
 
     def _create(self, path, value, retry=False, ephemeral=False):
         try:
