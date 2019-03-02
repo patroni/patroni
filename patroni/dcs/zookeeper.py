@@ -206,12 +206,12 @@ class ZooKeeper(AbstractDCS):
         failover = self.get_node(self.failover_path, watch=self.cluster_watcher) if self._FAILOVER in nodes else None
         failover = failover and Failover.from_node(failover[1].version, failover[0])
 
-        self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
+        return Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
 
     def _load_cluster(self):
-        if self._fetch_cluster or self._cluster is None:
+        if self._fetch_cluster or self.cluster is None:
             try:
-                self._client.retry(self._inner_load_cluster)
+                return self._client.retry(self._inner_load_cluster)
             except Exception:
                 logger.exception('get_cluster')
                 self.cluster_watcher(None)

@@ -201,7 +201,7 @@ class Kubernetes(AbstractDCS):
             metadata = sync and sync.metadata
             sync = SyncState.from_node(metadata and metadata.resource_version,  metadata and metadata.annotations)
 
-            self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
+            return Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
         except Exception:
             logger.exception('get_cluster')
             raise KubernetesError('Kubernetes API is not responding properly')

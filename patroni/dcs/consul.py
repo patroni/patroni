@@ -342,9 +342,9 @@ class Consul(AbstractDCS):
             sync = nodes.get(self._SYNC)
             sync = SyncState.from_node(sync and sync['ModifyIndex'], sync and sync['Value'])
 
-            self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
+            return Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
         except NotFound:
-            self._cluster = Cluster(None, None, None, None, [], None, None, None)
+            return Cluster(None, None, None, None, [], None, None, None)
         except Exception:
             logger.exception('get_cluster')
             raise ConsulError('Consul is not responding properly')

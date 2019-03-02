@@ -603,13 +603,15 @@ class AbstractDCS(object):
            instance would be demoted."""
 
     def get_cluster(self):
+        try:
+            cluster = self._load_cluster()
+        except Exception:
+            self.reset_cluster()
+            raise
+
         with self._cluster_thread_lock:
-            try:
-                self._load_cluster()
-            except Exception:
-                self._cluster = None
-                raise
-            return self._cluster
+            self._cluster = cluster
+            return cluster
 
     @property
     def cluster(self):

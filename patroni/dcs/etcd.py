@@ -446,6 +446,7 @@ class Etcd(AbstractDCS):
         return Member.from_node(node.modifiedIndex, os.path.basename(node.key), node.ttl, node.value)
 
     def _load_cluster(self):
+        cluster = None
         try:
             result = self.retry(self._client.read, self.client_path(''), recursive=True)
             nodes = {os.path.relpath(node.key, result.key).replace('\\', '/'): node for node in result.leaves}
@@ -486,12 +487,13 @@ class Etcd(AbstractDCS):
             sync = nodes.get(self._SYNC)
             sync = SyncState.from_node(sync and sync.modifiedIndex, sync and sync.value)
 
-            self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
+            cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
         except etcd.EtcdKeyNotFound:
-            self._cluster = Cluster(None, None, None, None, [], None, None, None)
+            cluster = Cluster(None, None, None, None, [], None, None, None)
         except Exception as e:
             self._handle_exception(e, 'get_cluster', raise_ex=EtcdError('Etcd is not responding properly'))
         self._has_failed = False
+        return cluster
 
     @catch_etcd_errors
     def touch_member(self, data, ttl=None, permanent=False):

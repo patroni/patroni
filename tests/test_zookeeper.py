@@ -24,7 +24,7 @@ class MockKazooClient(Mock):
 
     @staticmethod
     def retry(func, *args, **kwargs):
-        func(*args, **kwargs)
+        return func(*args, **kwargs)
 
     def get(self, path, watch=None):
         if not isinstance(path, six.string_types):
