@@ -9,6 +9,8 @@ SELECT * FROM pg_catalog.pg_stat_replication
 WHERE application_name = '{0}'
 """
 
+callback = "bash -c 'echo \"${*: -3:1} ${*: -2:1} ${*: -1:1}\" >> data/$1/$1_cb.log' -- "
+
 
 @step('I start {name:w} with callback configured')
 def start_patroni_with_callbacks(context, name):
@@ -24,7 +26,10 @@ def start_patroni_with_callbacks(context, name):
 @step('I start {name:w} in a cluster {cluster_name:w}')
 def start_patroni(context, name, cluster_name):
     return context.pctl.start(name, custom_config={
-        "scope": cluster_name
+        "scope": cluster_name,
+        "postgresql": {
+            "callbacks": {c: callback + name for c in ('on_start', 'on_stop', 'on_restart', 'on_role_change')}
+        }
     })
 
 
@@ -37,12 +42,18 @@ def start_patroni_stanby_cluster(context, name, cluster_name, name2):
         "scope": cluster_name,
         "bootstrap": {
             "dcs": {
+                "ttl": 20,
+                "loop_wait": 2,
+                "retry_timeout": 5,
                 "standby_cluster": {
                     "host": "localhost",
                     "port": port,
                     "primary_slot_name": "pm_1",
                 }
             }
+        },
+        "postgresql": {
+            "callbacks": {c: callback + name for c in ('on_start', 'on_stop', 'on_restart', 'on_role_change')}
         }
     })
     return context.pctl.start(name)
@@ -60,8 +71,8 @@ def check_replication_status(context, pg_name1, pg_name2, timeout):
         )
 
         if cur and len(cur.fetchall()) != 0:
-            return True
+            break
 
         time.sleep(1)
-
-    return False
+    else:
+        assert False, "{0} is not replicating from {1} after {2} seconds".format(pg_name1, pg_name2, timeout)

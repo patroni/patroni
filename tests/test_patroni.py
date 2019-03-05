@@ -122,6 +122,7 @@ class TestPatroni(unittest.TestCase):
         self.assertRaises(SystemExit, self.p.sigterm_handler)
 
     def test_schedule_next_run(self):
+        self.p.ha.cluster = Mock()
         self.p.ha.dcs.watch = Mock(return_value=True)
         self.p.schedule_next_run()
         self.p.next_run = time.time() - self.p.dcs.loop_wait - 1

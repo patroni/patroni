@@ -138,10 +138,10 @@ PostgreSQL
         -  **password**: replication password; the user will be created during initialization.
 -  **callbacks**: callback scripts to run on certain actions. Patroni will pass the action, role and cluster name. (See scripts/aws.py as an example of how to write them.)
         -  **on\_reload**: run this script when configuration reload is triggered.
-        -  **on\_restart**: run this script when the cluster restarts.
-        -  **on\_role\_change**: run this script when the cluster is being promoted or demoted.
-        -  **on\_start**: run this script when the cluster starts.
-        -  **on\_stop**: run this script when the cluster stops.
+        -  **on\_restart**: run this script when the postgres restarts (without changing role).
+        -  **on\_role\_change**: run this script when the postgres is being promoted or demoted.
+        -  **on\_start**: run this script when the postgres starts.
+        -  **on\_stop**: run this script when the postgres stops.
 -  **connect\_address**: IP address + port through which Postgres is accessible from other nodes and applications.
 -  **create\_replica\_methods**: an ordered list of the create methods for turning a Patroni node into a new replica.
    "basebackup" is the default method; other methods are assumed to refer to scripts, each of which is configured as its

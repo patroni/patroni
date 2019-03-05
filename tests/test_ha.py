@@ -671,8 +671,9 @@ class TestHa(unittest.TestCase):
         self.p.is_leader = false
         self.p.name = 'leader'
         self.ha.cluster = get_standby_cluster_initialized_with_only_leader()
-        msg = 'no action.  i am the standby leader with the lock'
-        self.assertEqual(self.ha.run_cycle(), msg)
+        self.p.check_recovery_conf = true
+        self.assertEqual(self.ha.run_cycle(), 'promoted self to a standby leader because i had the session lock')
+        self.assertEqual(self.ha.run_cycle(), 'no action.  i am the standby leader with the lock')
 
     def test_process_healthy_standby_cluster_as_cascade_replica(self):
         self.p.is_leader = false
@@ -688,8 +689,7 @@ class TestHa(unittest.TestCase):
         self.ha.cluster.is_unlocked = true
         self.ha.sysid_valid = true
         self.p._sysid = True
-        msg = 'promoted self to a standby leader because i had the session lock'
-        self.assertEqual(self.ha.run_cycle(), msg)
+        self.assertEqual(self.ha.run_cycle(), 'promoted self to a standby leader by acquiring session lock')
 
     @patch.object(Postgresql, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
     @patch.object(Postgresql, 'can_rewind', PropertyMock(return_value=True))

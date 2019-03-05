@@ -9,9 +9,10 @@ def start_patroni_with_a_name_value_tag(context, name, tag_name, tag_value):
     return context.pctl.start(name, custom_config={'tags': {tag_name: tag_value}})
 
 
-@then('There is a label with "{content:w}" in {name:w} data directory')
-def check_label(context, content, name):
-    label = context.pctl.read_label(name)
+@then('There is a {label} with "{content}" in {name:w} data directory')
+def check_label(context, label, content, name):
+    label = context.pctl.read_label(name, label)
+    label = label.replace('\n', '\\n')
     assert label == content, "{0} is not equal to {1}".format(label, content)
 
 

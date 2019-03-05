@@ -446,6 +446,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 })
             }
 
+            if result['role'] == 'replica' and self.server.patroni.ha.is_standby_cluster():
+                result['role'] = self.server.patroni.postgresql.role
+
             if row[1] > 0:
                 result['timeline'] = row[1]
             else:
