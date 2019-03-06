@@ -679,8 +679,9 @@ class TestHa(unittest.TestCase):
         self.p.is_leader = false
         self.p.name = 'replica'
         self.ha.cluster = get_standby_cluster_initialized_with_only_leader()
-        msg = 'no action.  i am a secondary and i am following a leader'
-        self.assertEqual(self.ha.run_cycle(), msg)
+        self.assertEqual(self.ha.run_cycle(), 'no action.  i am a secondary and i am following a standby leader')
+        with patch.object(Leader, 'conn_url', PropertyMock(return_value='')):
+            self.assertEqual(self.ha.run_cycle(), 'continue following the old known standby leader')
 
     def test_process_unhealthy_standby_cluster_as_standby_leader(self):
         self.p.is_leader = false

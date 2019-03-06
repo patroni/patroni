@@ -377,7 +377,11 @@ class Ha(object):
             return self._async_executor.scheduled_action
 
         role = 'standby_leader' if isinstance(node_to_follow, RemoteMember) and self.has_lock(False) else 'replica'
-        if not self.state_handler.check_recovery_conf(node_to_follow):
+        # It might happen that leader key in the standby cluster references non-exiting member.
+        # In this case it is safe to continue running without changing recovery.conf
+        if self.is_standby_cluster() and role == 'replica' and not (node_to_follow and node_to_follow.conn_url):
+            return 'continue following the old known standby leader'
+        elif not self.state_handler.check_recovery_conf(node_to_follow):
             self._async_executor.schedule('changing primary_conninfo and restarting')
             self._async_executor.run_async(self.state_handler.follow, (node_to_follow, role))
         elif role == 'standby_leader' and self.state_handler.role != role:
@@ -917,6 +921,9 @@ class Ha(object):
                     return 'not promoting because failed to update leader lock in DCS'
         else:
             logger.info('does not have lock')
+        if self.is_standby_cluster():
+            return self.follow('cannot be a real master in standby cluster',
+                               'no action.  i am a secondary and i am following a standby leader', refresh=False)
         return self.follow('demoting self because i do not have the lock and i was a leader',
                            'no action.  i am a secondary and i am following a leader', refresh=False)
 
