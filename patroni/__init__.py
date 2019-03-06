@@ -153,34 +153,11 @@ def patroni_main():
         logging.shutdown()
 
 
-def pg_ctl_start(args):
-    import subprocess
-    if os.name != 'nt':
-        os.setsid()
-    postmaster = subprocess.Popen(args)
-    print(postmaster.pid)
-
-
-def call_self(args, **kwargs):
-    """This function executes Patroni once again with provided arguments.
-
-    :args: list of arguments to call Patroni with.
-    :returns: `Popen` object"""
-
-    exe = [sys.executable]
-    if not getattr(sys, 'frozen', False):  # Binary distribution?
-        exe.append(sys.argv[0])
-
-    import subprocess
-    return subprocess.Popen(exe + args, **kwargs)
-
-
 def main():
     if os.getpid() != 1:
-        if len(sys.argv) > 5 and sys.argv[1] == 'pg_ctl_start':
-            return pg_ctl_start(sys.argv[2:])
         return patroni_main()
 
+    # Patroni started with PID=1, it looks like we are in the container
     pid = 0
 
     # Looks like we are in a docker, so we will act like init
@@ -209,6 +186,8 @@ def main():
     signal.signal(signal.SIGABRT, passtochild)
     signal.signal(signal.SIGTERM, passtochild)
 
-    patroni = call_self(sys.argv[1:])
+    import multiprocessing
+    patroni = multiprocessing.Process(target=patroni_main)
+    patroni.start()
     pid = patroni.pid
-    patroni.wait()
+    patroni.join()

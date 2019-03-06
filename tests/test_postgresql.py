@@ -632,7 +632,7 @@ class TestPostgresql(unittest.TestCase):
         self.assertFalse(self.p.bootstrap(config))
 
         mock_cancellable_subprocess_call.return_value = 0
-        with patch('subprocess.Popen', Mock(side_effect=Exception("42"))),\
+        with patch('multiprocessing.Process', Mock(side_effect=Exception("42"))),\
                 patch('os.path.isfile', Mock(return_value=True)),\
                 patch('os.unlink', Mock()),\
                 patch.object(Postgresql, 'save_configuration_files', Mock()),\
