@@ -1,58 +1,68 @@
 # docker compose file for running a 3-node PostgreSQL cluster
-# with etcd as the SIS
+# with 3-node etcd cluster as the DCS and one haproxy node
+version: "2"
 
-patroni_etcd:
-    container_name: patroni_etcd
-    image: patroni
-    command: --etcd
+networks:
+    demo:
 
-dbnode1:
-    image: patroni
-    hostname: dbnode1
-    links:
-        - patroni_etcd:patroni_etcd
-    volumes:
-        - ./patroni:/patroni
-    env_file: docker/patroni-secrets.env
-    environment:
-        PATRONI_ETCD_URL: http://patroni_etcd:2379
-        PATRONI_NAME: dbnode1
-        PATRONI_SCOPE: testcluster
+services:
+    etcd1:
+        image: patroni
+        networks: [ demo ]
+        env_file: docker/etcd.env
+        container_name: demo-etcd1
+        hostname: etcd1
+        command: etcd -name etcd1 -initial-advertise-peer-urls http://etcd1:2380
 
-dbnode2:
-    image: patroni
-    hostname: dbnode2
-    links:
-        - patroni_etcd:patroni_etcd
-    volumes:
-        - ./patroni:/patroni
-    env_file: docker/patroni-secrets.env
-    environment:
-        PATRONI_ETCD_URL: http://patroni_etcd:2379
-        PATRONI_NAME: dbnode2
-        PATRONI_SCOPE: testcluster
+    etcd2:
+        image: patroni
+        networks: [ demo ]
+        env_file: docker/etcd.env
+        container_name: demo-etcd2
+        hostname: etcd2
+        command: etcd -name etcd2 -initial-advertise-peer-urls http://etcd2:2380
 
-dbnode3:
-    image: patroni
-    hostname: dbnode3
-    links:
-        - patroni_etcd:patroni_etcd
-    volumes:
-        - ./patroni:/patroni
-    env_file: docker/patroni-secrets.env
-    environment:
-        PATRONI_ETCD_URL: http://patroni_etcd:2379
-        PATRONI_NAME: dbnode3
-        PATRONI_SCOPE: testcluster
+    etcd3:
+        image: patroni
+        networks: [ demo ]
+        env_file: docker/etcd.env
+        container_name: demo-etcd3
+        hostname: etcd3
+        command: etcd -name etcd3 -initial-advertise-peer-urls http://etcd3:2380
 
-haproxy:
-    image: patroni
-    links:
-        - patroni_etcd:patroni_etcd
-    ports:
-        - "5000:5000"
-        - "5001:5001"
-    environment:
-        PATRONI_ETCD_URL: http://patroni_etcd:2379
-        PATRONI_SCOPE: testcluster
-    command: --confd
+    patroni1:
+        image: patroni
+        networks: [ demo ]
+        env_file: docker/patroni.env
+        hostname: patroni1
+        container_name: demo-patroni1
+        environment:
+            PATRONI_NAME: patroni1
+
+    patroni2:
+        image: patroni
+        networks: [ demo ]
+        env_file: docker/patroni.env
+        hostname: patroni2
+        container_name: demo-patroni2
+        environment:
+            PATRONI_NAME: patroni2
+
+    patroni3:
+        image: patroni
+        networks: [ demo ]
+        env_file: docker/patroni.env
+        hostname: patroni3
+        container_name: demo-patroni3
+        environment:
+            PATRONI_NAME: patroni3
+
+    haproxy:
+        image: patroni
+        networks: [ demo ]
+        env_file: docker/patroni.env
+        container_name: demo-haproxy
+        ports:
+            - "5000:5000"
+            - "5001:5001"
+        command: haproxy
