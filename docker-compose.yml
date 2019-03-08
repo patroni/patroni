@@ -61,6 +61,7 @@ services:
         image: patroni
         networks: [ demo ]
         env_file: docker/patroni.env
+        hostname: haproxy
         container_name: demo-haproxy
         ports:
             - "5000:5000"
