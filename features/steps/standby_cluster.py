@@ -34,7 +34,7 @@ def start_patroni(context, name, cluster_name):
 
 
 @step('I start {name:w} in a standby cluster {cluster_name:w} as a clone of {name2:w}')
-def start_patroni_stanby_cluster(context, name, cluster_name, name2):
+def start_patroni_standby_cluster(context, name, cluster_name, name2):
     # we need to remove patroni.dynamic.json in order to "bootstrap" standby cluster with existing PGDATA
     os.unlink(os.path.join(context.pctl._processes[name]._data_dir, 'patroni.dynamic.json'))
     port = context.pctl._processes[name2]._connkwargs.get('port')
