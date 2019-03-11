@@ -19,8 +19,13 @@ class CallbackExecutor(Thread):
     def call(self, cmd):
         with self._lock:
             if self._process and self._process.poll() is None:
-                self._process.kill()
-                logger.warning('Killed the old callback process because it was still running: %s', self._cmd)
+                try:
+                    self._process.kill()
+                    logger.warning('Killed the old callback process because it was still running: %s', self._cmd)
+                except OSError:
+                    logger.exception('Failed to kill the old callback')
+                    logger.warning('Wait until callback end')
+                    self._process.wait()
         self._cmd = cmd
         self._callback_event.set()
 

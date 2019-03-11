@@ -89,7 +89,7 @@ class Client(etcd.Client):
         super(Client, self).__init__(read_timeout=config['retry_timeout'], **args)
         self._config = config
         self._load_machines_cache()
-        self._allow_reconnect = not self._use_proxies
+        self._allow_reconnect = True
 
     def _build_request_parameters(self):
         kwargs = {'headers': self._get_headers(), 'redirect': self.allow_redirect}
@@ -128,8 +128,11 @@ class Client(etcd.Client):
         while True:
             try:
                 response = self.http.request(self._MGET, self._base_uri + self.version_prefix + '/machines', **kwargs)
-                machines = [n.strip() for n in self._handle_server_response(response).data.decode('utf-8').split(',')]
+                data = self._handle_server_response(response).data.decode('utf-8')
+                machines = [m.strip() for m in data.split(',') if m.strip()]
                 logger.debug("Retrieved list of machines: %s", machines)
+                if not machines:
+                    raise etcd.EtcdException
                 random.shuffle(machines)
                 for url in machines:
                     r = urlparse(url)
@@ -186,10 +189,8 @@ class Client(etcd.Client):
         # Update machines_cache if previous attempt of update has failed
         if self._update_machines_cache:
             self._load_machines_cache()
-        elif time.time() - self._machines_cache_updated > self._machines_cache_ttl:
-            self._machines_cache = self.machines
-            if self._base_uri in self._machines_cache:
-                self._machines_cache.remove(self._base_uri)
+        elif not self._use_proxies and time.time() - self._machines_cache_updated > self._machines_cache_ttl:
+            self._refresh_machines_cache()
             self._machines_cache_updated = time.time()
 
         kwargs.update(self._build_request_parameters())
@@ -206,10 +207,8 @@ class Client(etcd.Client):
 
                 if response is False:
                     some_request_failed = True
-            if some_request_failed and not self._use_proxies:
-                self._machines_cache = self.machines
-                if self._base_uri in self._machines_cache:
-                    self._machines_cache.remove(self._base_uri)
+            if some_request_failed:
+                self._refresh_machines_cache()
         except etcd.EtcdConnectionFailed as e:
             if isinstance(e, etcd.EtcdWatchTimedOut) and self._machines_cache:
                 self._base_uri = self._next_server()
@@ -268,6 +267,21 @@ class Client(etcd.Client):
                 return list(set(ret))
         return [uri(self.protocol, host, port)]
 
+    def _get_machines_cache_from_config(self):
+        if 'proxy' in self._config:
+            return [uri(self.protocol, self._config['host'], self._config['port'])]
+
+        machines_cache = []
+        if 'srv' in self._config:
+            machines_cache = self._get_machines_cache_from_srv(self._config['srv'])
+
+        if not machines_cache and 'hosts' in self._config:
+            machines_cache = list(self._config['hosts'])
+
+        if not machines_cache and 'host' in self._config:
+            machines_cache = self._get_machines_cache_from_dns(self._config['host'], self._config['port'])
+        return machines_cache
+
     def _load_machines_cache(self):
         """This method should fill up `_machines_cache` from scratch.
         It could happen only in two cases:
@@ -279,19 +293,7 @@ class Client(etcd.Client):
         if 'srv' not in self._config and 'host' not in self._config and 'hosts' not in self._config:
             raise Exception('Neither srv, hosts, host nor url are defined in etcd section of config')
 
-        if self._use_proxies:
-            self._machines_cache = [uri(self.protocol, self._config['host'], self._config['port'])]
-        else:
-            self._machines_cache = []
-
-            if 'srv' in self._config:
-                self._machines_cache = self._get_machines_cache_from_srv(self._config['srv'])
-
-            if not self._machines_cache and 'hosts' in self._config:
-                self._machines_cache = list(self._config['hosts'])
-
-            if not self._machines_cache and 'host' in self._config:
-                self._machines_cache = self._get_machines_cache_from_dns(self._config['host'], self._config['port'])
+        self._machines_cache = self._get_machines_cache_from_config()
 
         # Can not bootstrap list of etcd-cluster members, giving up
         if not self._machines_cache:
@@ -299,13 +301,15 @@ class Client(etcd.Client):
 
         # After filling up initial list of machines_cache we should ask etcd-cluster about actual list
         self._base_uri = self._next_server()
-        self._machines_cache = self.machines
-
-        if self._base_uri in self._machines_cache:
-            self._machines_cache.remove(self._base_uri)
+        self._refresh_machines_cache()
 
         self._update_machines_cache = False
         self._machines_cache_updated = time.time()
+
+    def _refresh_machines_cache(self):
+        self._machines_cache = self._get_machines_cache_from_config() if self._use_proxies else self.machines
+        if self._base_uri in self._machines_cache:
+            self._machines_cache.remove(self._base_uri)
 
 
 class Etcd(AbstractDCS):
@@ -426,6 +430,8 @@ class Etcd(AbstractDCS):
         while not client:
             try:
                 client = Client(config, dns_resolver)
+                if 'use_proxies' in config and not client.machines:
+                    raise etcd.EtcdException
             except etcd.EtcdException:
                 logger.info('waiting on etcd')
                 time.sleep(5)
