@@ -38,6 +38,9 @@ RUN set -ex \
     # haproxy dummy config
     && echo 'global\n        stats socket /run/haproxy/admin.sock mode 660 level admin' > /etc/haproxy/haproxy.cfg \
 \
+    # vim config
+    && echo 'syntax on\nfiletype plugin indent on\nset mouse-=a\nautocmd FileType yaml setlocal ts=2 sts=2 sw=2 expandtab' > /etc/vim/vimrc.local \
+\
     # Prepare postgres/patroni/haproxy environment
     && mkdir -p $PGHOME/.config/patroni /patroni /run/haproxy \
     && ln -s ../../patroni.yaml $PGHOME/.config/patroni/patronictl.yaml \
