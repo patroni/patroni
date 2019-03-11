@@ -720,6 +720,8 @@ class TestPostgresql(unittest.TestCase):
         self.assertEqual(self.p.get_postgres_role_from_data_directory(), 'replica')
 
     def test_remove_data_directory(self):
+        os.makedirs(os.path.join(self.data_dir, 'foo'))
+        os.symlink('foo', os.path.join(self.data_dir, 'pg_wal'))
         self.p.remove_data_directory()
         open(self.data_dir, 'w').close()
         self.p.remove_data_directory()
