@@ -864,11 +864,15 @@ class TestHa(unittest.TestCase):
         self.ha.run_cycle()
         self.assertEqual(self.ha.dcs.write_sync_state.call_count, 2)
 
-        # Test changing sync standby failed due to race
+        # Test updating sync standby key failed due to DCS being not accessible
         self.ha.dcs.write_sync_state = Mock(return_value=True)
+        self.ha.dcs.get_cluster = Mock(side_effect=DCSError('foo'))
+        self.ha.run_cycle()
+
+        # Test changing sync standby failed due to race
         self.ha.dcs.get_cluster = Mock(return_value=get_cluster_initialized_with_leader(sync=('somebodyelse', None)))
         self.ha.run_cycle()
-        self.assertEqual(self.ha.dcs.write_sync_state.call_count, 1)
+        self.assertEqual(self.ha.dcs.write_sync_state.call_count, 2)
 
         # Test sync set to '*' when synchronous_mode_strict is enabled
         mock_set_sync.reset_mock()
