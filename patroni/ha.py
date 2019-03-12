@@ -727,12 +727,11 @@ class Ha(object):
             'immediate-nolock': dict(stop='immediate', checkpoint=False, release=False, offline=False, async_req=True),
         }[mode]
 
-        self.set_is_leader(False)  # stop reporting itself as a leader
-        self.state_handler.set_role('demoting')
         self.state_handler.trigger_check_diverged_lsn()
         self.state_handler.stop(mode_control['stop'], checkpoint=mode_control['checkpoint'],
                                 on_safepoint=self.watchdog.disable if self.watchdog.is_running else None)
         self.state_handler.set_role('demoted')
+        self.set_is_leader(False)
 
         if mode_control['release']:
             self.release_leader_key_voluntarily()
