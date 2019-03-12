@@ -107,6 +107,7 @@ class Kubernetes(AbstractDCS):
         self._leader_observed_time = None
         self._leader_resource_version = None
         self._leader_observed_subsets = []
+        self._config_resource_version = None
         self.__do_not_watch = False
 
     def retry(self, *args, **kwargs):
@@ -150,6 +151,7 @@ class Kubernetes(AbstractDCS):
 
             config = nodes.get(self.config_path)
             metadata = config and config.metadata
+            self._config_resource_version = metadata.resource_version if metadata else None
             annotations = metadata and metadata.annotations or {}
 
             # get initialize flag
@@ -284,7 +286,10 @@ class Kubernetes(AbstractDCS):
         if self.__subsets and not patch and not resource_version:
             self._should_create_config_service = True
             self._create_config_service()
-        return self.patch_or_create(self.config_path, annotations, resource_version, patch, retry)
+        ret = self.patch_or_create(self.config_path, annotations, resource_version, patch, retry)
+        if ret:
+            self._config_resource_version = ret.metadata.resource_version
+        return ret
 
     def _create_config_service(self):
         metadata = k8s_client.V1ObjectMeta(namespace=self._namespace, name=self.config_path, labels=self._labels)
@@ -353,8 +358,7 @@ class Kubernetes(AbstractDCS):
         return self.patch_or_create(self.failover_path, annotations, index, bool(index or patch), False)
 
     def set_config_value(self, value, index=None):
-        patch = bool(index or self.cluster and self.cluster.config and self.cluster.config.index)
-        return self.patch_or_create_config({self._CONFIG: value}, index, patch, False)
+        return self.patch_or_create_config({self._CONFIG: value}, index, bool(self._config_resource_version), False)
 
     @catch_kubernetes_errors
     def touch_member(self, data, permanent=False):
@@ -390,15 +394,14 @@ class Kubernetes(AbstractDCS):
             self.reset_cluster()
 
     def cancel_initialization(self):
-        self.patch_or_create_config({self._INITIALIZE: None}, self.cluster.config.index, True)
+        self.patch_or_create_config({self._INITIALIZE: None}, self._config_resource_version, True)
 
     @catch_kubernetes_errors
     def delete_cluster(self):
         self.retry(self._api.delete_collection_namespaced_kind, self._namespace, label_selector=self._label_selector)
 
     def set_history_value(self, value):
-        patch = bool(self.cluster and self.cluster.config and self.cluster.config.index)
-        return self.patch_or_create_config({self._HISTORY: value}, None, patch, False)
+        return self.patch_or_create_config({self._HISTORY: value}, None, bool(self._config_resource_version), False)
 
     def set_sync_state_value(self, value, index=None):
         """Unused"""

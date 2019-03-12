@@ -727,7 +727,8 @@ class Ha(object):
         self.set_is_leader(False)
 
         if mode_control['release']:
-            self.release_leader_key_voluntarily()
+            with self._async_executor:
+                self.release_leader_key_voluntarily()
             time.sleep(2)  # Give a time to somebody to take the leader lock
         if mode_control['offline']:
             node_to_follow, leader = None, None
@@ -1264,8 +1265,8 @@ class Ha(object):
                     # the demote code follows through to starting Postgres right away, however, in the rewind case
                     # it returns from demote and reaches this point to start PostgreSQL again after rewind. In that
                     # case it makes no sense to continue to recover() unless rewind has finished successfully.
-                    elif self.state_handler.rewind_failed or not self.state_handler.need_rewind \
-                            or not self.state_handler.can_rewind_or_reinitialize_allowed:
+                    elif self.state_handler.rewind_failed or not self.state_handler.rewind_executed and not \
+                            (self.state_handler.need_rewind and self.state_handler.can_rewind_or_reinitialize_allowed):
                         return 'postgres is not running'
 
                 # try to start dead postgres
