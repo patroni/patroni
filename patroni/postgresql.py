@@ -1742,6 +1742,16 @@ $$""".format(name, ' '.join(options)), name, password, password)
             elif os.path.isfile(self._data_dir):
                 os.remove(self._data_dir)
             elif os.path.isdir(self._data_dir):
+
+                # let's see if pg_xlog|pg_wal is a symlink, in this case we
+                # should clean the target
+                for pg_wal_dir in ('pg_xlog', 'pg_wal'):
+                    pg_wal_path = os.path.join(self._data_dir, pg_wal_dir)
+                    if os.path.exists(pg_wal_path) and os.path.islink(pg_wal_path):
+                        pg_wal_realpath = os.path.realpath(pg_wal_path)
+                        logger.info('Removing WAL directory: %s', pg_wal_realpath)
+                        shutil.rmtree(pg_wal_realpath)
+
                 shutil.rmtree(self._data_dir)
         except (IOError, OSError):
             logger.exception('Could not remove data directory %s', self._data_dir)

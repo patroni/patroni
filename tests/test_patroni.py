@@ -67,15 +67,11 @@ class TestPatroni(unittest.TestCase):
                     patroni_main()
 
     @patch('os.getpid')
-    @patch('subprocess.Popen', )
+    @patch('multiprocessing.Process')
     @patch('patroni.patroni_main', Mock())
-    def test_patroni_main(self, mock_popen, mock_getpid):
+    def test_patroni_main(self, mock_process, mock_getpid):
         mock_getpid.return_value = 2
         _main()
-
-        with patch('sys.frozen', Mock(return_value=True), create=True), patch('os.setsid', Mock()):
-            sys.argv = ['/patroni', 'pg_ctl_start', 'postgres', '-D', '/data', '--max_connections=100']
-            _main()
 
         mock_getpid.return_value = 1
 
@@ -94,10 +90,10 @@ class TestPatroni(unittest.TestCase):
             if signo == signal.SIGHUP:
                 ref['passtochild'] = handler
 
-        def mock_wait():
+        def mock_join():
             ref['passtochild'](0, None)
 
-        mock_popen.return_value.wait = mock_wait
+        mock_process.return_value.join = mock_join
         with patch('signal.signal', mock_sighup), patch('os.kill', Mock()):
             self.assertIsNone(_main())
 

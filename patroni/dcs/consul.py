@@ -237,6 +237,10 @@ class Consul(AbstractDCS):
             self._session = None
             self.__do_not_watch = True
 
+    @property
+    def ttl(self):
+        return self._client.http.ttl
+
     def set_retry_timeout(self, retry_timeout):
         self._retry.deadline = retry_timeout
         self._client.http.set_read_timeout(retry_timeout)
@@ -299,7 +303,7 @@ class Consul(AbstractDCS):
             nodes = {}
             for node in results:
                 node['Value'] = (node['Value'] or b'').decode('utf-8')
-                nodes[os.path.relpath(node['Key'], path).replace('\\', '/')] = node
+                nodes[node['Key'][len(path):].lstrip('/')] = node
 
             # get initialize flag
             initialize = nodes.get(self._INITIALIZE)
@@ -342,15 +346,15 @@ class Consul(AbstractDCS):
             sync = nodes.get(self._SYNC)
             sync = SyncState.from_node(sync and sync['ModifyIndex'], sync and sync['Value'])
 
-            self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
+            return Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
         except NotFound:
-            self._cluster = Cluster(None, None, None, None, [], None, None, None)
+            return Cluster(None, None, None, None, [], None, None, None)
         except Exception:
             logger.exception('get_cluster')
             raise ConsulError('Consul is not responding properly')
 
     @catch_consul_errors
-    def touch_member(self, data, ttl=None, permanent=False):
+    def touch_member(self, data, permanent=False):
         cluster = self.cluster
         member = cluster and cluster.get_member(self._name, fallback_to_leader=False)
         create_member = not permanent and self.refresh_session()
@@ -503,6 +507,7 @@ class Consul(AbstractDCS):
         return self.retry(self._client.kv.delete, self.sync_path, cas=index)
 
     def watch(self, leader_index, timeout):
+        self._last_session_refresh = 0
         if self.__do_not_watch:
             self.__do_not_watch = False
             return True
@@ -521,5 +526,4 @@ class Consul(AbstractDCS):
         try:
             return super(Consul, self).watch(None, timeout)
         finally:
-            self._last_session_refresh = 0
             self.event.clear()
