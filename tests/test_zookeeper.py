@@ -17,6 +17,7 @@ class MockKazooClient(Mock):
 
     def __init__(self, *args, **kwargs):
         super(MockKazooClient, self).__init__()
+        self._session_timeout = 30
 
     @property
     def client_id(self):
@@ -24,7 +25,7 @@ class MockKazooClient(Mock):
 
     @staticmethod
     def retry(func, *args, **kwargs):
-        func(*args, **kwargs)
+        return func(*args, **kwargs)
 
     def get(self, path, watch=None):
         if not isinstance(path, six.string_types):

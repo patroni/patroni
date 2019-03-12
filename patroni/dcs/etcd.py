@@ -443,6 +443,10 @@ class Etcd(AbstractDCS):
         self._ttl = ttl
         self._client.set_machines_cache_ttl(ttl*10)
 
+    @property
+    def ttl(self):
+        return self._ttl
+
     def set_retry_timeout(self, retry_timeout):
         self._retry.deadline = retry_timeout
         self._client.set_read_timeout(retry_timeout)
@@ -452,6 +456,7 @@ class Etcd(AbstractDCS):
         return Member.from_node(node.modifiedIndex, os.path.basename(node.key), node.ttl, node.value)
 
     def _load_cluster(self):
+        cluster = None
         try:
             result = self.retry(self._client.read, self.client_path(''), recursive=True)
             nodes = {node.key[len(result.key):].lstrip('/'): node for node in result.leaves}
@@ -492,17 +497,18 @@ class Etcd(AbstractDCS):
             sync = nodes.get(self._SYNC)
             sync = SyncState.from_node(sync and sync.modifiedIndex, sync and sync.value)
 
-            self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
+            cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
         except etcd.EtcdKeyNotFound:
-            self._cluster = Cluster(None, None, None, None, [], None, None, None)
+            cluster = Cluster(None, None, None, None, [], None, None, None)
         except Exception as e:
             self._handle_exception(e, 'get_cluster', raise_ex=EtcdError('Etcd is not responding properly'))
         self._has_failed = False
+        return cluster
 
     @catch_etcd_errors
-    def touch_member(self, data, ttl=None, permanent=False):
+    def touch_member(self, data, permanent=False):
         data = json.dumps(data, separators=(',', ':'))
-        return self._client.set(self.member_path, data, None if permanent else ttl or self._ttl)
+        return self._client.set(self.member_path, data, None if permanent else self._ttl)
 
     @catch_etcd_errors
     def take_leader(self):
