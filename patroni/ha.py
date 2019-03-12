@@ -734,7 +734,8 @@ class Ha(object):
         self.set_is_leader(False)
 
         if mode_control['release']:
-            self.release_leader_key_voluntarily()
+            with self._async_executor:
+                self.release_leader_key_voluntarily()
             time.sleep(2)  # Give a time to somebody to take the leader lock
         if mode_control['offline']:
             node_to_follow, leader = None, None
