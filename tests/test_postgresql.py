@@ -624,6 +624,7 @@ class TestPostgresql(unittest.TestCase):
             self.assertTrue('host replication replicator 127.0.0.1/32 md5\n' in lines)
 
     @patch.object(Postgresql, 'cancellable_subprocess_call')
+    @patch.object(Postgresql, 'get_major_version', Mock(return_value=90600))
     def test_custom_bootstrap(self, mock_cancellable_subprocess_call):
         self.p.config.pop('pg_hba')
         config = {'method': 'foo', 'foo': {'command': 'bar'}}
@@ -632,7 +633,7 @@ class TestPostgresql(unittest.TestCase):
         self.assertFalse(self.p.bootstrap(config))
 
         mock_cancellable_subprocess_call.return_value = 0
-        with patch('subprocess.Popen', Mock(side_effect=Exception("42"))),\
+        with patch('multiprocessing.Process', Mock(side_effect=Exception("42"))),\
                 patch('os.path.isfile', Mock(return_value=True)),\
                 patch('os.unlink', Mock()),\
                 patch.object(Postgresql, 'save_configuration_files', Mock()),\
@@ -653,10 +654,12 @@ class TestPostgresql(unittest.TestCase):
 
     @patch('time.sleep', Mock())
     @patch('os.unlink', Mock())
+    @patch('shutil.copy', Mock())
     @patch('os.path.isfile', Mock(return_value=True))
     @patch.object(Postgresql, 'run_bootstrap_post_init', Mock(return_value=True))
     @patch.object(Postgresql, '_custom_bootstrap', Mock(return_value=True))
     @patch.object(Postgresql, 'start', Mock(return_value=True))
+    @patch.object(Postgresql, 'get_major_version', Mock(return_value=90600))
     def test_post_bootstrap(self):
         config = {'method': 'foo', 'foo': {'command': 'bar'}}
         self.p.bootstrap(config)
@@ -680,7 +683,7 @@ class TestPostgresql(unittest.TestCase):
         self.p.set_state('stopped')
         self.p.reload_config({'authentication': {'superuser': {'username': 'p', 'password': 'p'},
                                                  'replication': {'username': 'r', 'password': 'r'}},
-                              'listen': '*', 'retry_timeout': 10, 'parameters': {'hba_file': 'foo'}})
+                              'listen': '*', 'retry_timeout': 10, 'parameters': {'wal_level': '', 'hba_file': 'foo'}})
         with patch.object(Postgresql, 'restart', Mock()) as mock_restart:
             self.p.post_bootstrap({}, task)
             mock_restart.assert_called_once()
@@ -717,6 +720,8 @@ class TestPostgresql(unittest.TestCase):
         self.assertEqual(self.p.get_postgres_role_from_data_directory(), 'replica')
 
     def test_remove_data_directory(self):
+        os.makedirs(os.path.join(self.data_dir, 'foo'))
+        os.symlink('foo', os.path.join(self.data_dir, 'pg_wal'))
         self.p.remove_data_directory()
         open(self.data_dir, 'w').close()
         self.p.remove_data_directory()
@@ -990,7 +995,9 @@ class TestPostgresql(unittest.TestCase):
         self.p.cleanup_archive_status()
 
     @patch('os.unlink', Mock())
+    @patch('os.listdir', Mock(return_value=[]))
     @patch('os.path.isfile', Mock(return_value=True))
+    @patch.object(Postgresql, 'read_postmaster_opts', Mock(return_value={}))
     @patch.object(Postgresql, 'single_user_mode', Mock(return_value=0))
     def test_fix_cluster_state(self):
         self.assertTrue(self.p.fix_cluster_state())

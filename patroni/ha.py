@@ -419,7 +419,10 @@ class Ha(object):
                     time.sleep(2)
                     picked, allow_promote = self.state_handler.pick_synchronous_standby(self.cluster)
                 if allow_promote:
-                    cluster = self.dcs.get_cluster()
+                    try:
+                        cluster = self.dcs.get_cluster()
+                    except DCSError:
+                        return logger.warning("Could not get cluster state from DCS during process_sync_replication()")
                     if cluster.sync.leader and cluster.sync.leader != self.state_handler.name:
                         logger.info("Synchronous replication key updated by someone else")
                         return
@@ -696,10 +699,14 @@ class Ha(object):
 
         return self._is_healthiest_node(members.values())
 
-    def release_leader_key_voluntarily(self):
+    def _delete_leader(self):
+        self.set_is_leader(False)
         self.dcs.delete_leader()
-        self.touch_member()
         self.dcs.reset_cluster()
+
+    def release_leader_key_voluntarily(self):
+        self._delete_leader()
+        self.touch_member()
         logger.info("Leader key released")
 
     def demote(self, mode):
@@ -876,8 +883,7 @@ class Ha(object):
                 if self.cluster.failover and self.cluster.failover.candidate == self.state_handler.name:
                     return 'waiting to become master after promote...'
 
-                self.dcs.delete_leader()
-                self.dcs.reset_cluster()
+                self._delete_leader()
                 return 'removed leader lock because postgres is not running as master'
 
             if self.state_handler.is_leader() and self._leader_access_is_restricted:
@@ -1090,8 +1096,7 @@ class Ha(object):
             self.watchdog.disable()
             if self.has_lock():
                 self.state_handler.set_role('demoted')
-                self.dcs.delete_leader()
-                self.dcs.reset_cluster()
+                self._delete_leader()
                 return 'removed leader key after trying and failing to start postgres'
             return 'failed to start postgres'
         self._crash_recovery_executed = False
@@ -1257,8 +1262,7 @@ class Ha(object):
             if not self.state_handler.is_healthy():
                 if self.is_paused():
                     if self.has_lock():
-                        self.dcs.delete_leader()
-                        self.dcs.reset_cluster()
+                        self._delete_leader()
                         return 'removed leader lock because postgres is not running'
                     # Normally we don't start Postgres in a paused state. We make an exception for the demoted primary
                     # that needs to be started after it had been stopped by demote. When there is no need to call rewind

@@ -548,13 +548,14 @@ class TestCtl(unittest.TestCase):
     def test_edit_config(self, mock_get_dcs):
         mock_get_dcs.return_value = self.e
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
+        mock_get_dcs.return_value.set_config_value = Mock(return_value=False)
         os.environ['EDITOR'] = 'true'
         self.runner.invoke(ctl, ['edit-config', 'dummy'])
         self.runner.invoke(ctl, ['edit-config', 'dummy', '-s', 'foo=bar'])
         self.runner.invoke(ctl, ['edit-config', 'dummy', '--replace', 'postgres0.yml'])
         self.runner.invoke(ctl, ['edit-config', 'dummy', '--apply', '-'], input='foo: bar')
         self.runner.invoke(ctl, ['edit-config', 'dummy', '--force', '--apply', '-'], input='foo: bar')
-        mock_get_dcs.return_value.set_config_value = Mock(return_value=True)
+        mock_get_dcs.return_value.set_config_value.return_value = True
         self.runner.invoke(ctl, ['edit-config', 'dummy', '--force', '--apply', '-'], input='foo: bar')
 
     @patch('patroni.ctl.get_dcs')

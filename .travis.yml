@@ -1,6 +1,10 @@
 sudo: true
 dist: trusty
 language: python
+addons:
+  apt:
+    packages:
+      - expect-dev # for unbuffer
 env:
   global:
   - ETCDVERSION=3.0.17 ZKVERSION=3.4.11 CONSULVERSION=0.7.4
@@ -131,11 +135,11 @@ script:
 
         if [[ $TEST_SUITE != "behave" ]]; then
             echo Running unit tests using python${pv}
-            $TEST_SUITE test
+            unbuffer $TEST_SUITE test
             $TEST_SUITE flake8
         elif [[ $pv != $EXCLUDE_BEHAVE ]]; then
             echo Running acceptance tests using python${pv}
-            if ! PATH=.:/usr/lib/postgresql/9.6/bin:$PATH $TEST_SUITE; then
+            if ! PATH=.:/usr/lib/postgresql/9.6/bin:$PATH unbuffer $TEST_SUITE; then
                 # output all log files when tests are failing
                 grep . features/output/*_failed/*postgres?.*
                 exit 1

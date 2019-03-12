@@ -87,12 +87,15 @@ class TestPostmasterProcess(unittest.TestCase):
     def test_start(self, mock_frompidfile, mock_frompid, mock_popen):
         mock_frompidfile.return_value._is_postmaster_process.return_value = False
         mock_frompid.return_value = "proc 123"
-        mock_popen.return_value.stdout.readline.return_value = '123'
+        mock_popen.return_value.pid = 123
         self.assertEqual(PostmasterProcess.start('true', '/tmp', '/tmp/test.conf', []), "proc 123")
         mock_frompid.assert_called_with(123)
 
         mock_frompidfile.side_effect = psutil.NoSuchProcess(123)
         self.assertEqual(PostmasterProcess.start('true', '/tmp', '/tmp/test.conf', []), "proc 123")
+
+        mock_popen.side_effect = Exception
+        self.assertIsNone(PostmasterProcess.start('true', '/tmp', '/tmp/test.conf', []))
 
     @patch('psutil.Process.__init__', Mock(side_effect=psutil.NoSuchProcess(123)))
     def test_read_postmaster_pidfile(self):
