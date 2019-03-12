@@ -17,6 +17,7 @@ class MockKazooClient(Mock):
 
     def __init__(self, *args, **kwargs):
         super(MockKazooClient, self).__init__()
+        self._session_timeout = 30
 
     @property
     def client_id(self):

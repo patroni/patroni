@@ -124,6 +124,10 @@ class Kubernetes(AbstractDCS):
         self.__do_not_watch = self._ttl != ttl
         self._ttl = ttl
 
+    @property
+    def ttl(self):
+        return self._ttl
+
     def set_retry_timeout(self, retry_timeout):
         self._retry.deadline = retry_timeout
         self._api.set_timeout(retry_timeout)
@@ -353,7 +357,7 @@ class Kubernetes(AbstractDCS):
         return self.patch_or_create_config({self._CONFIG: value}, index, patch, False)
 
     @catch_kubernetes_errors
-    def touch_member(self, data, ttl=None, permanent=False):
+    def touch_member(self, data, permanent=False):
         cluster = self.cluster
         if cluster and cluster.leader and cluster.leader.name == self._name:
             role = 'promoted' if data['role'] in ('replica', 'promoted') else 'master'

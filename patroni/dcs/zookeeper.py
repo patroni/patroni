@@ -126,6 +126,10 @@ class ZooKeeper(AbstractDCS):
             self._client.restart()
             return True
 
+    @property
+    def ttl(self):
+        return self._client._session_timeout
+
     def set_retry_timeout(self, retry_timeout):
         retry = self._client.retry if isinstance(self._client.retry, KazooRetry) else self._client._retry
         retry.deadline = retry_timeout
@@ -266,7 +270,7 @@ class ZooKeeper(AbstractDCS):
         return self._create(self.initialize_path, sysid, retry=True) if create_new \
             else self._client.retry(self._client.set, self.initialize_path, sysid)
 
-    def touch_member(self, data, ttl=None, permanent=False):
+    def touch_member(self, data, permanent=False):
         cluster = self.cluster
         member = cluster and cluster.get_member(self._name, fallback_to_leader=False)
         encoded_data = json.dumps(data, separators=(',', ':')).encode('utf-8')

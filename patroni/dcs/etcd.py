@@ -437,6 +437,10 @@ class Etcd(AbstractDCS):
         self._ttl = ttl
         self._client.set_machines_cache_ttl(ttl*10)
 
+    @property
+    def ttl(self):
+        return self._ttl
+
     def set_retry_timeout(self, retry_timeout):
         self._retry.deadline = retry_timeout
         self._client.set_read_timeout(retry_timeout)
@@ -496,9 +500,9 @@ class Etcd(AbstractDCS):
         return cluster
 
     @catch_etcd_errors
-    def touch_member(self, data, ttl=None, permanent=False):
+    def touch_member(self, data, permanent=False):
         data = json.dumps(data, separators=(',', ':'))
-        return self._client.set(self.member_path, data, None if permanent else ttl or self._ttl)
+        return self._client.set(self.member_path, data, None if permanent else self._ttl)
 
     @catch_etcd_errors
     def take_leader(self):

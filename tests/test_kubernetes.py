@@ -1,3 +1,4 @@
+import time
 import unittest
 
 from mock import Mock, patch
@@ -33,13 +34,14 @@ class TestKubernetes(unittest.TestCase):
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_pod', mock_list_namespaced_pod)
     def setUp(self):
         self.k = Kubernetes({'ttl': 30, 'scope': 'test', 'name': 'p-0', 'retry_timeout': 10, 'labels': {'f': 'b'}})
-        with patch('time.time', Mock(return_value=1)):
+        self.k.get_cluster()
+
+    def test_get_cluster(self):
+        with patch.object(k8s_client.CoreV1Api, 'list_namespaced_config_map', mock_list_namespaced_config_map), \
+                patch.object(k8s_client.CoreV1Api, 'list_namespaced_pod', mock_list_namespaced_pod), \
+                patch('time.time', Mock(return_value=time.time() + 31)):
             self.k.get_cluster()
 
-    @patch.object(k8s_client.CoreV1Api, 'list_namespaced_config_map', mock_list_namespaced_config_map)
-    @patch.object(k8s_client.CoreV1Api, 'list_namespaced_pod', mock_list_namespaced_pod)
-    def test_get_cluster(self):
-        self.k.get_cluster()
         with patch.object(k8s_client.CoreV1Api, 'list_namespaced_pod', Mock(side_effect=Exception)):
             self.assertRaises(KubernetesError, self.k.get_cluster)
 

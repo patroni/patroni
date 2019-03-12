@@ -112,11 +112,11 @@ class Ha(object):
 
     def is_leader(self):
         with self._is_leader_lock:
-            return self._is_leader and not self._leader_access_is_restricted
+            return self._is_leader > time.time() and not self._leader_access_is_restricted
 
     def set_is_leader(self, value):
         with self._is_leader_lock:
-            self._is_leader = value
+            self._is_leader = time.time() + self.dcs.ttl if value else 0
 
     def set_leader_access_is_restricted(self, value):
         with self._is_leader_lock:
