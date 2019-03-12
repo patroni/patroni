@@ -210,8 +210,8 @@ class TestClient(unittest.TestCase):
         self.client.api_execute('/', 'POST', timeout=0)
         self.client._machines_cache = [self.client._base_uri]
         self.assertRaises(etcd.EtcdWatchTimedOut, self.client.api_execute, '/timeout', 'POST', params={'wait': 'true'})
+        self.assertRaises(etcd.EtcdWatchTimedOut, self.client.api_execute, '/timeout', 'POST', params={'wait': 'true'})
         self.assertRaises(etcd.EtcdException, self.client.api_execute, '/', '')
-        self.client._update_machines_cache = True
         with patch.object(Client, '_load_machines_cache', Mock(side_effect=etcd.EtcdException)):
             self.assertRaises(etcd.EtcdException, self.client.api_execute, '/', 'GET')
 
