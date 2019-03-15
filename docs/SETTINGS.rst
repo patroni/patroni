@@ -10,6 +10,20 @@ Global/Universal
 -  **namespace**: path within the configuration store where Patroni will keep information about the cluster. Default value: "/service"
 -  **scope**: cluster name
 
+Log
+---
+-  **level**: sets the general logging level. Default value is **INFO** (see `the docs for Python logging <https://docs.python.org/3.6/library/logging.html#levels>`_)
+-  **format**: sets the log formatting string. Default value is **%(asctime)s %(levelname)s: %(message)s** (see `the LogRecord attributes <https://docs.python.org/3.6/library/logging.html#logrecord-attributes>`_)
+-  **dateformat**: sets the datetime formatting string. (see the `formatTime() documentation <https://docs.python.org/3.6/library/logging.html#logging.Formatter.formatTime>`_)
+-  **dir**: Directory to write application logs to. The directory must exist and be writable by the user executing Patroni. If you set this value, the application will retain 4 25MB logs by default. You can tune those retention values with `file_num` and `file_size` (see below).
+-  **file\_num**: The number of application logs to retain.
+-  **file\_size**: Size of patroni.log file (in bytes) that triggers a log rolling.
+-  **loggers**: This section allows redefining logging level per python module
+    -  **patroni.postmaster: WARNING**
+    -  **urllib3: DEBUG**
+
+.. _bootstrap_settings:
+
 Bootstrap configuration
 -----------------------
 -  **dcs**: This section will be written into `/<namespace>/<scope>/config` of a given configuration store after initializing of new cluster. This is the global configuration for the cluster. If you want to change some parameters for all cluster nodes - just do it in DCS (or via Patroni API) and all nodes will apply this configuration.
@@ -23,7 +37,7 @@ Bootstrap configuration
     -  **postgresql**:
         -  **use\_pg\_rewind**: whether or not to use pg_rewind
         -  **use\_slots**: whether or not to use replication_slots. Must be False for PostgreSQL 9.3. You should comment out max_replication_slots before it becomes ineligible for leader status.
-        -  **recovery\_conf**: additional configuration settings written to recovery.conf when configuring follower. 
+        -  **recovery\_conf**: additional configuration settings written to recovery.conf when configuring follower.
         -  **parameters**: list of configuration settings for Postgres. Many of these are required for replication to work.
     -  **standby\_cluster**: if this section is defined, we want to bootstrap a standby cluster.
         -  **host**: an address of remote master
@@ -36,8 +50,8 @@ Bootstrap configuration
     -  **slots**: define permanent replication slots. These slots will be preserved during switchover/failover. Patroni will try to create slots before opening connections to the cluster.
         -  **my_slot_name**: the name of replication slot. It is the responsibility of the operator to make sure that there are no clashes in names between replication slots automatically created by Patroni for members and permanent replication slots.
             -  **type**: slot type. Could be ``physical`` or ``logical``. If the slot is logical, you have to additionally define ``database`` and ``plugin``.
-               **database**: the database name where logical slots should be created.
-               **plugin**: the plugin name for the logical slot.
+            -  **database**: the database name where logical slots should be created.
+            -  **plugin**: the plugin name for the logical slot.
 -  **method**: custom script to use for bootstrapping this cluster.
    See :ref:`custom bootstrap methods documentation <custom_bootstrap>` for details.
    When ``initdb`` is specified revert to the default ``initdb`` command. ``initdb`` is also triggered when no ``method``
@@ -83,14 +97,15 @@ Most of the parameters are optional, but you have to specify one of the **host**
 
 -  **host**: the host:port for the etcd endpoint.
 -  **hosts**: list of etcd endpoint in format host1:port1,host2:port2,etc... Could be a comma separated string or an actual yaml list.
+-  **use\_proxies**: If this parameter is set to true, Patroni will consider **hosts** as a list of proxies and will not perform a topology discovery of etcd cluster.
 -  **url**: url for the etcd
 -  **proxy**: proxy url for the etcd. If you are connecting to the etcd using proxy, use this parameter instead of **url**
 -  **srv**: Domain to search the SRV record(s) for cluster autodiscovery.
 -  **protocol**: (optional) http or https, if not specified http is used. If the **url** or **proxy** is specified - will take protocol from them.
--  **username**: (optional) username for etcd authentication
+-  **username**: (optional) username for etcd authentication.
 -  **password**: (optional) password for etcd authentication.
 -  **cacert**: (optional) The ca certificate. If present it will enable validation.
--  **cert**: (optional) file with the client certificate
+-  **cert**: (optional) file with the client certificate.
 -  **key**: (optional) file with the client key. Can be empty if the key is part of **cert**.
 
 Exhibitor
@@ -132,7 +147,7 @@ PostgreSQL
 -  **create\_replica\_methods**: an ordered list of the create methods for turning a Patroni node into a new replica.
    "basebackup" is the default method; other methods are assumed to refer to scripts, each of which is configured as its
    own config item. See :ref:`custom replica creation methods documentation <custom_replica_creation>` for further explanation.
--  **data\_dir**: The location of the Postgres data directory, either existing or to be initialized by Patroni.
+-  **data\_dir**: The location of the Postgres data directory, either :ref:`existing <existing_data>` or to be initialized by Patroni.
 -  **config\_dir**: The location of the Postgres configuration directory, defaults to the data directory. Must be writable by Patroni.
 -  **bin\_dir**: Path to PostgreSQL binaries (pg_ctl, pg_rewind, pg_basebackup, postgres). The default value is an empty string meaning that PATH environment variable will be used to find the executables.
 -  **listen**: IP address + port that Postgres listens to; must be accessible from other nodes in the cluster, if you're using streaming replication. Multiple comma-separated addresses are permitted, as long as the port component is appended after to the last one with a colon, i.e. ``listen: 127.0.0.1,127.0.0.2:5432``. Patroni will use the first address from this list to establish local connections to the PostgreSQL node.
@@ -147,10 +162,11 @@ PostgreSQL
 -  **pg\_ctl\_timeout**: How long should pg_ctl wait when doing ``start``, ``stop`` or ``restart``. Default value is 60 seconds.
 -  **use\_pg\_rewind**: try to use pg\_rewind on the former leader when it joins cluster as a replica.
 -  **remove\_data\_directory\_on\_rewind\_failure**: If this option is enabled, Patroni will remove postgres data directory and recreate replica. Otherwise it will try to follow the new leader. Default value is **false**.
+-  **remove\_data\_directory\_on\_diverged\_timelines**: Patroni will remove postgres data directory and recreate replica if it notices that timelines are diverging and the former master can not start streaming from the new master. This option is useful when ``pg_rewind`` can not be used. Default value is **false**.
 -  **replica\_method**: for each create_replica_methods other than basebackup, you would add a configuration section of the same name. At a minimum, this should include "command" with a full path to the actual script to be executed. Other configuration parameters will be passed along to the script in the form "parameter=value".
 
 REST API
--------- 
+--------
 -  **connect\_address**: IP address (or hostname) and port, to access the Patroni's REST API. All the members of the cluster must be able to connect to this address, so unless the Patroni setup is intended for a demo inside the localhost, this address must be a non "localhost" or loopback addres (ie: "localhost" or "127.0.0.1"). It can serve as a endpoint for HTTP health checks (read below about the "listen" REST API parameter), and also for user queries (either directly or via the REST API), as well as for the health checks done by the cluster members during leader elections (for example, to determine whether the master is still running, or if there is a node which has a WAL position that is ahead of the one doing the query; etc.) The connect_address is put in the member key in DCS, making it possible to translate the member name into the address to connect to its REST API.
 
 -  **listen**: IP address (or hostname) and port that Patroni will listen to for the REST API - to provide also the same health checks and cluster messaging between the participating nodes, as described above. to provide health-check information for HAProxy (or any other load balancer capable of doing a HTTP "OPTION" or "GET" checks).
@@ -168,7 +184,7 @@ REST API
 CTL
 ---
 -  **Optional**:
-    -  **insecure**: Allow connections to REST API without verifying SSL certs. 
+    -  **insecure**: Allow connections to REST API without verifying SSL certs.
     -  **cacert**: Specifices the file with the CA_BUNDLE file or directory with certificates of trusted CAs to use while verifying REST API SSL certs.
     -  **certfile**: Specifies the file with the certificate in the PEM format to use while verifying REST API SSL certs. If not provided patronictl will use the value provided for REST API "certfile" parameter.
 

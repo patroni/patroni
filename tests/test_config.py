@@ -1,6 +1,6 @@
 import os
-import unittest
 import sys
+import unittest
 
 from mock import MagicMock, Mock, patch
 from patroni.config import Config
@@ -30,6 +30,8 @@ class TestConfig(unittest.TestCase):
             'PATRONI_NAME': 'postgres0',
             'PATRONI_NAMESPACE': '/patroni/',
             'PATRONI_SCOPE': 'batman2',
+            'PATRONI_LOGLEVEL': 'ERROR',
+            'PATRONI_LOG_LOGGERS': 'patroni.postmaster: WARNING, urllib3: DEBUG',
             'PATRONI_RESTAPI_USERNAME': 'username',
             'PATRONI_RESTAPI_PASSWORD': 'password',
             'PATRONI_RESTAPI_LISTEN': '0.0.0.0:8008',
@@ -49,6 +51,7 @@ class TestConfig(unittest.TestCase):
             'PATRONI_ETCD_CERT': '/cert',
             'PATRONI_ETCD_KEY': '/key',
             'PATRONI_CONSUL_HOST': '127.0.0.1:8500',
+            'PATRONI_CONSUL_REGISTER_SERVICE': 'on',
             'PATRONI_KUBERNETES_LABELS': 'a:b:c',
             'PATRONI_KUBERNETES_SCOPE_LABEL': 'a',
             'PATRONI_KUBERNETES_PORTS': '[{"name": "postgresql"}]',
@@ -84,3 +87,15 @@ class TestConfig(unittest.TestCase):
             self.config.save_cache()
         with patch('os.fdopen', MagicMock()):
             self.config.save_cache()
+
+    def test_standby_cluster_parameters(self):
+        dynamic_configuration = {
+            'standby_cluster': {
+                'create_replica_methods': ['wal_e', 'basebackup'],
+                'host': 'localhost',
+                'port': 5432
+            }
+        }
+        self.config.set_dynamic_configuration(dynamic_configuration)
+        for name, value in dynamic_configuration['standby_cluster'].items():
+            self.assertEqual(self.config['standby_cluster'][name], value)

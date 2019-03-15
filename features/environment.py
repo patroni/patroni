@@ -12,6 +12,7 @@ import shutil
 import signal
 import six
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -84,7 +85,7 @@ class AbstractController(object):
 
 
 class PatroniController(AbstractController):
-    __PORT = 5440
+    __PORT = 5360
     PATRONI_CONFIG = '{}.yml'
     """ starts and stops individual patronis"""
 
@@ -117,12 +118,24 @@ class PatroniController(AbstractController):
         except IOError:
             return None
 
-    def add_tag_to_config(self, tag, value):
+    @staticmethod
+    def recursive_update(dst, src):
+        for k, v in src.items():
+            if k in dst and isinstance(dst[k], dict):
+                PatroniController.recursive_update(dst[k], v)
+            else:
+                dst[k] = v
+
+    def update_config(self, custom_config):
         with open(self._config) as r:
             config = yaml.safe_load(r)
-            config['tags']['tag'] = value
+            self.recursive_update(config, custom_config)
             with open(self._config, 'w') as w:
                 yaml.safe_dump(config, w, default_flow_style=False)
+        self._scope = config.get('scope', 'batman')
+
+    def add_tag_to_config(self, tag, value):
+        self.update_config({'tags': {tag: value}})
 
     def _start(self):
         if self.watchdog:
@@ -130,7 +143,8 @@ class PatroniController(AbstractController):
         if isinstance(self._context.dcs_ctl, KubernetesController):
             self._context.dcs_ctl.create_pod(self._name[8:], self._scope)
             os.environ['PATRONI_KUBERNETES_POD_IP'] = '10.0.0.' + self._name[-1]
-        return subprocess.Popen(['coverage', 'run', '--source=patroni', '-p', 'patroni.py', self._config],
+        return subprocess.Popen([sys.executable, '-m', 'coverage', 'run',
+                                '--source=patroni', '-p', 'patroni.py', self._config],
                                 stdout=self._log, stderr=subprocess.STDOUT, cwd=self._work_directory)
 
     def stop(self, kill=False, timeout=15, postgres=False):
@@ -174,13 +188,7 @@ class PatroniController(AbstractController):
                 config['bootstrap']['initdb'].extend([{'auth': 'md5'}, {'auth-host': 'md5'}])
 
         if custom_config is not None:
-            def recursive_update(dst, src):
-                for k, v in src.items():
-                    if k in dst and isinstance(dst[k], dict):
-                        recursive_update(dst[k], v)
-                    else:
-                        dst[k] = v
-            recursive_update(config, custom_config)
+            self.recursive_update(config, custom_config)
 
         if config['postgresql'].get('callbacks', {}).get('on_role_change'):
             config['postgresql']['callbacks']['on_role_change'] += ' ' + str(self.__PORT)
@@ -366,6 +374,7 @@ class ConsulController(AbstractDcsController):
     def __init__(self, context):
         super(ConsulController, self).__init__(context)
         os.environ['PATRONI_CONSUL_HOST'] = 'localhost:8500'
+        os.environ['PATRONI_CONSUL_REGISTER_SERVICE'] = 'on'
         self._client = consul.Consul()
         self._config_file = None
 
@@ -802,8 +811,8 @@ def before_all(context):
 
 def after_all(context):
     context.dcs_ctl.stop()
-    subprocess.call(['coverage', 'combine'])
-    subprocess.call(['coverage', 'report'])
+    subprocess.call([sys.executable, '-m', 'coverage', 'combine'])
+    subprocess.call([sys.executable, '-m', 'coverage', 'report'])
 
 
 def before_feature(context, feature):
@@ -816,3 +825,5 @@ def after_feature(context, feature):
     context.pctl.stop_all()
     shutil.rmtree(os.path.join(context.pctl.patroni_path, 'data'))
     context.dcs_ctl.cleanup_service_tree()
+    if feature.status == 'failed':
+        shutil.copytree(context.pctl.output_dir, context.pctl.output_dir + '_failed')

@@ -92,13 +92,14 @@ class Kubernetes(AbstractDCS):
         self.__subsets = None
         use_endpoints = config.get('use_endpoints') and (config.get('patronictl') or 'pod_ip' in config)
         if use_endpoints:
-            addresses = [k8s_client.V1EndpointAddress(ip=config['pod_ip'])]
+            addresses = [k8s_client.V1EndpointAddress(ip='127.0.0.1' if config.get('patronictl') else config['pod_ip'])]
             ports = []
             for p in config.get('ports', [{}]):
                 port = {'port': int(p.get('port', '5432'))}
                 port.update({n: p[n] for n in ('name', 'protocol') if p.get(n)})
                 ports.append(k8s_client.V1EndpointPort(**port))
             self.__subsets = [k8s_client.V1EndpointSubset(addresses=addresses, ports=ports)]
+            self._should_create_config_service = True
         self._api = CoreV1ApiProxy(use_endpoints)
         self.set_retry_timeout(config['retry_timeout'])
         self.set_ttl(config.get('ttl') or 30)
@@ -106,6 +107,7 @@ class Kubernetes(AbstractDCS):
         self._leader_observed_time = None
         self._leader_resource_version = None
         self._leader_observed_subsets = []
+        self._config_resource_version = None
         self.__do_not_watch = False
 
     def retry(self, *args, **kwargs):
@@ -122,6 +124,10 @@ class Kubernetes(AbstractDCS):
         ttl = int(ttl)
         self.__do_not_watch = self._ttl != ttl
         self._ttl = ttl
+
+    @property
+    def ttl(self):
+        return self._ttl
 
     def set_retry_timeout(self, retry_timeout):
         self._retry.deadline = retry_timeout
@@ -145,6 +151,7 @@ class Kubernetes(AbstractDCS):
 
             config = nodes.get(self.config_path)
             metadata = config and config.metadata
+            self._config_resource_version = metadata.resource_version if metadata else None
             annotations = metadata and metadata.annotations or {}
 
             # get initialize flag
@@ -200,7 +207,7 @@ class Kubernetes(AbstractDCS):
             metadata = sync and sync.metadata
             sync = SyncState.from_node(metadata and metadata.resource_version,  metadata and metadata.annotations)
 
-            self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
+            return Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
         except Exception:
             logger.exception('get_cluster')
             raise KubernetesError('Kubernetes API is not responding properly')
@@ -274,6 +281,27 @@ class Kubernetes(AbstractDCS):
             body = k8s_client.V1ConfigMap(metadata=metadata)
         return self.retry(func, self._namespace, body) if retry else func(self._namespace, body)
 
+    def patch_or_create_config(self, annotations, resource_version=None, patch=False, retry=True):
+        # SCOPE-config endpoint requires corresponding service otherwise it might be "cleaned" by k8s master
+        if self.__subsets and not patch and not resource_version:
+            self._should_create_config_service = True
+            self._create_config_service()
+        ret = self.patch_or_create(self.config_path, annotations, resource_version, patch, retry)
+        if ret:
+            self._config_resource_version = ret.metadata.resource_version
+        return ret
+
+    def _create_config_service(self):
+        metadata = k8s_client.V1ObjectMeta(namespace=self._namespace, name=self.config_path, labels=self._labels)
+        body = k8s_client.V1Service(metadata=metadata, spec=k8s_client.V1ServiceSpec(cluster_ip='None'))
+        try:
+            if not self._api.create_namespaced_service(self._namespace, body):
+                return
+        except Exception as e:
+            if not isinstance(e, k8s_client.rest.ApiException) or e.status != 409:  # Service already exists
+                return logger.exception('create_config_service failed')
+        self._should_create_config_service = False
+
     def _write_leader_optime(self, last_operation):
         """Unused"""
 
@@ -288,9 +316,7 @@ class Kubernetes(AbstractDCS):
         if last_operation:
             annotations[self._OPTIME] = last_operation
 
-        subsets = self.__subsets
-        if subsets is not None and access_is_restricted:
-            subsets = []
+        subsets = [] if access_is_restricted else self.__subsets
 
         ret = self.patch_or_create(self.leader_path, annotations, self._leader_resource_version, subsets=subsets)
         if ret:
@@ -332,14 +358,13 @@ class Kubernetes(AbstractDCS):
         return self.patch_or_create(self.failover_path, annotations, index, bool(index or patch), False)
 
     def set_config_value(self, value, index=None):
-        patch = bool(index or self.cluster and self.cluster.config and self.cluster.config.index)
-        return self.patch_or_create(self.config_path, {self._CONFIG: value}, index, patch, False)
+        return self.patch_or_create_config({self._CONFIG: value}, index, bool(self._config_resource_version), False)
 
     @catch_kubernetes_errors
-    def touch_member(self, data, ttl=None, permanent=False):
+    def touch_member(self, data, permanent=False):
         cluster = self.cluster
         if cluster and cluster.leader and cluster.leader.name == self._name:
-            role = 'master'
+            role = 'promoted' if data['role'] in ('replica', 'promoted') else 'master'
         elif data['state'] == 'running' and data['role'] != 'master':
             role = data['role']
         else:
@@ -354,12 +379,14 @@ class Kubernetes(AbstractDCS):
                         'annotations': {'status': json.dumps(data, separators=(',', ':'))}}
             body = k8s_client.V1Pod(metadata=k8s_client.V1ObjectMeta(**metadata))
             ret = self._api.patch_namespaced_pod(self._name, self._namespace, body)
+        if self.__subsets and self._should_create_config_service:
+            self._create_config_service()
         return ret
 
     def initialize(self, create_new=True, sysid=""):
         cluster = self.cluster
         resource_version = cluster.config.index if cluster and cluster.config and cluster.config.index else None
-        return self.patch_or_create(self.config_path, {self._INITIALIZE: sysid}, resource_version)
+        return self.patch_or_create_config({self._INITIALIZE: sysid}, resource_version)
 
     def delete_leader(self):
         if self.cluster and isinstance(self.cluster.leader, Leader) and self.cluster.leader.name == self._name:
@@ -367,15 +394,14 @@ class Kubernetes(AbstractDCS):
             self.reset_cluster()
 
     def cancel_initialization(self):
-        self.patch_or_create(self.config_path, {self._INITIALIZE: None}, self.cluster.config.index, True)
+        self.patch_or_create_config({self._INITIALIZE: None}, self._config_resource_version, True)
 
     @catch_kubernetes_errors
     def delete_cluster(self):
         self.retry(self._api.delete_collection_namespaced_kind, self._namespace, label_selector=self._label_selector)
 
     def set_history_value(self, value):
-        patch = bool(self.cluster and self.cluster.config and self.cluster.config.index)
-        return self.patch_or_create(self.config_path, {self._HISTORY: value}, None, patch, False)
+        return self.patch_or_create_config({self._HISTORY: value}, None, bool(self._config_resource_version), False)
 
     def set_sync_state_value(self, value, index=None):
         """Unused"""

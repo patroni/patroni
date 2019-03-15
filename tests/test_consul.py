@@ -4,7 +4,7 @@ import unittest
 from consul import ConsulException, NotFound
 from mock import Mock, patch
 from patroni.dcs.consul import AbstractDCS, Cluster, Consul, ConsulInternalError, \
-                                ConsulError, HTTPClient, InvalidSessionTTL
+                                ConsulError, HTTPClient, InvalidSessionTTL, InvalidSession
 from test_etcd import SleepException
 
 
@@ -52,6 +52,8 @@ class TestHTTPClient(unittest.TestCase):
         self.assertRaises(ConsulInternalError, self.client.get, Mock(), '')
         self.client.http.request.return_value.data = b"Invalid Session TTL '3000000000', must be between [10s=24h0m0s]"
         self.assertRaises(InvalidSessionTTL, self.client.get, Mock(), '')
+        self.client.http.request.return_value.data = b"invalid session '16492f43-c2d6-5307-432f-e32d6f7bcbd0'"
+        self.assertRaises(InvalidSession, self.client.get, Mock(), '')
 
     def test_unknown_method(self):
         try:
@@ -81,7 +83,7 @@ class TestConsul(unittest.TestCase):
         self.c = Consul({'ttl': 30, 'scope': 'test', 'name': 'postgresql1', 'host': 'localhost:1', 'retry_timeout': 10,
                          'register_service': True})
         self.c._base_path = '/service/good'
-        self.c._load_cluster()
+        self.c.get_cluster()
 
     @patch('time.sleep', Mock(side_effect=SleepException))
     @patch.object(consul.Consul.Session, 'create', Mock(side_effect=ConsulException))
@@ -110,19 +112,18 @@ class TestConsul(unittest.TestCase):
         self.c._session = 'fd4f44fe-2cac-bba5-a60b-304b51ff39b8'
         self.assertIsInstance(self.c.get_cluster(), Cluster)
 
-    @patch.object(consul.Consul.KV, 'delete', Mock(side_effect=[ConsulException, True, True]))
-    @patch.object(consul.Consul.KV, 'put', Mock(side_effect=[True, ConsulException]))
+    @patch.object(consul.Consul.KV, 'delete', Mock(side_effect=[ConsulException, True, True, True]))
+    @patch.object(consul.Consul.KV, 'put', Mock(side_effect=[True, ConsulException, InvalidSession]))
     def test_touch_member(self):
-        self.c._register_service = True
-        self.c.refresh_session = Mock(return_value=True)
-        self.c.touch_member({'balbla': 'blabla'})
-        self.c.touch_member({'balbla': 'blabla'})
-        self.c.touch_member({'balbla': 'blabla'})
         self.c.refresh_session = Mock(return_value=False)
         self.c.touch_member({'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
                              'api_url': 'http://127.0.0.1:8009/patroni'})
+        self.c._register_service = True
+        self.c.refresh_session = Mock(return_value=True)
+        for _ in range(0, 4):
+            self.c.touch_member({'balbla': 'blabla'})
 
-    @patch.object(consul.Consul.KV, 'put', Mock(return_value=False))
+    @patch.object(consul.Consul.KV, 'put', Mock(side_effect=InvalidSession))
     def test_take_leader(self):
         self.c.set_ttl(20)
         self.c.refresh_session = Mock()

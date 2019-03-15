@@ -17,6 +17,9 @@ class TestCallbackExecutor(unittest.TestCase):
 
         self.assertIsNone(ce.call([]))
 
+        mock_popen.return_value.kill.side_effect = OSError
+        self.assertRaises(Exception, ce.call, [])
+
         mock_popen.side_effect = Exception
         ce = CallbackExecutor()
         ce._callback_event.wait = Mock(side_effect=[None, Exception])

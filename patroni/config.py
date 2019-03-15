@@ -2,7 +2,6 @@ import json
 import logging
 import os
 import shutil
-import six
 import sys
 import tempfile
 import yaml
@@ -44,6 +43,7 @@ class Config(object):
     __DEFAULT_CONFIG = {
         'ttl': 30, 'loop_wait': 10, 'retry_timeout': 10,
         'maximum_lag_on_failover': 1048576,
+        'check_timeline': False,
         'master_start_timeout': 300,
         'synchronous_mode': False,
         'synchronous_mode_strict': False,
@@ -195,12 +195,9 @@ class Config(object):
                     elif name not in ('connect_address', 'listen', 'data_dir', 'pgpass', 'authentication'):
                         config['postgresql'][name] = deepcopy(value)
             elif name == 'standby_cluster':
-                allowed_keys = self.__DEFAULT_CONFIG['standby_cluster'].keys()
-                expected = {
-                    k: v for k, v in (value or {}).items()
-                    if (k in allowed_keys and isinstance(v, six.string_types))
-                }
-                config['standby_cluster'].update(expected)
+                for name, value in (value or {}).items():
+                    if name in self.__DEFAULT_CONFIG['standby_cluster']:
+                        config['standby_cluster'][name] = deepcopy(value)
             elif name in config:  # only variables present in __DEFAULT_CONFIG allowed to be overriden from DCS
                 if name in ('synchronous_mode', 'synchronous_mode_strict'):
                     config[name] = value
@@ -220,6 +217,15 @@ class Config(object):
             if value:
                 ret[param] = value
 
+        def _fix_log_env(name, oldname):
+            value = _popenv(oldname)
+            name = Config.PATRONI_ENV_PREFIX + 'LOG_' + name.upper()
+            if value and name not in os.environ:
+                os.environ[name] = value
+
+        for name, oldname in (('level', 'loglevel'), ('format', 'logformat'), ('dateformat', 'log_datefmt')):
+            _fix_log_env(name, oldname)
+
         def _set_section_values(section, params):
             for param in params:
                 value = _popenv(section + '_' + param)
@@ -227,7 +233,23 @@ class Config(object):
                     ret[section][param] = value
 
         _set_section_values('restapi', ['listen', 'connect_address', 'certfile', 'keyfile'])
-        _set_section_values('postgresql', ['listen', 'connect_address', 'data_dir', 'pgpass', 'bin_dir'])
+        _set_section_values('postgresql', ['listen', 'connect_address', 'config_dir', 'data_dir', 'pgpass', 'bin_dir'])
+        _set_section_values('log', ['level', 'format', 'dateformat', 'dir', 'file_size', 'file_num', 'loggers'])
+
+        def _parse_dict(value):
+            if not value.strip().startswith('{'):
+                value = '{{{0}}}'.format(value)
+            try:
+                return yaml.safe_load(value)
+            except Exception:
+                logger.exception('Exception when parsing dict %s', value)
+                return None
+
+        value = ret.get('log', {}).pop('loggers', None)
+        if value:
+            value = _parse_dict(value)
+            if value:
+                ret['log']['loggers'] = value
 
         def _get_auth(name):
             ret = {}
@@ -250,8 +272,6 @@ class Config(object):
         if authentication:
             ret['postgresql']['authentication'] = authentication
 
-        users = {}
-
         def _parse_list(value):
             if not (value.strip().startswith('-') or '[' in value):
                 value = '[{0}]'.format(value)
@@ -263,37 +283,40 @@ class Config(object):
 
         for param in list(os.environ.keys()):
             if param.startswith(Config.PATRONI_ENV_PREFIX):
+                # PATRONI_(ETCD|CONSUL|ZOOKEEPER|EXHIBITOR|...)_(HOSTS?|PORT|..)
                 name, suffix = (param[8:].split('_', 1) + [''])[:2]
-                if name and suffix:
-                    # PATRONI_(ETCD|CONSUL|ZOOKEEPER|EXHIBITOR|...)_(HOSTS?|PORT|..)
-                    if suffix in ('HOST', 'HOSTS', 'PORT', 'SRV', 'URL', 'PROXY', 'CACERT', 'CERT',
-                                  'KEY', 'VERIFY', 'TOKEN', 'CHECKS', 'DC', 'NAMESPACE', 'CONTEXT',
-                                  'USE_ENDPOINTS', 'SCOPE_LABEL', 'ROLE_LABEL', 'POD_IP', 'PORTS', 'LABELS'):
-                        value = os.environ.pop(param)
-                        if suffix == 'PORT':
-                            value = value and parse_int(value)
-                        elif suffix in ('HOSTS', 'PORTS', 'CHECKS'):
-                            value = value and _parse_list(value)
-                        elif suffix == 'LABELS':
-                            if not value.strip().startswith('{'):
-                                value = '{{{0}}}'.format(value)
-                            try:
-                                value = yaml.safe_load(value)
-                            except Exception:
-                                logger.exception('Exception when parsing dict %s', value)
-                                value = None
-                        if value:
-                            ret[name.lower()][suffix.lower()] = value
-                    # PATRONI_<username>_PASSWORD=<password>, PATRONI_<username>_OPTIONS=<option1,option2,...>
-                    # CREATE USER "<username>" WITH <OPTIONS> PASSWORD '<password>'
-                    elif suffix == 'PASSWORD':
-                        password = os.environ.pop(param)
-                        if password:
-                            users[name] = {'password': password}
-                            options = os.environ.pop(param[:-9] + '_OPTIONS', None)
-                            options = options and _parse_list(options)
-                            if options:
-                                users[name]['options'] = options
+                if suffix in ('HOST', 'HOSTS', 'PORT', 'USE_PROXIES', 'PROTOCOL', 'SRV', 'URL', 'PROXY',
+                              'CACERT', 'CERT', 'KEY', 'VERIFY', 'TOKEN', 'CHECKS', 'DC', 'REGISTER_SERVICE',
+                              'SERVICE_CHECK_INTERVAL', 'NAMESPACE', 'CONTEXT', 'USE_ENDPOINTS', 'SCOPE_LABEL',
+                              'ROLE_LABEL', 'POD_IP', 'PORTS', 'LABELS') and name:
+                    value = os.environ.pop(param)
+                    if suffix == 'PORT':
+                        value = value and parse_int(value)
+                    elif suffix in ('HOSTS', 'PORTS', 'CHECKS'):
+                        value = value and _parse_list(value)
+                    elif suffix == 'LABELS':
+                        value = _parse_dict(value)
+                    elif suffix in ('USE_PROXIES', 'REGISTER_SERVICE'):
+                        value = parse_bool(value)
+                    if value:
+                        ret[name.lower()][suffix.lower()] = value
+        if 'etcd' in ret:
+            ret['etcd'].update(_get_auth('etcd'))
+
+        users = {}
+        for param in list(os.environ.keys()):
+            if param.startswith(Config.PATRONI_ENV_PREFIX):
+                name, suffix = (param[8:].rsplit('_', 1) + [''])[:2]
+                # PATRONI_<username>_PASSWORD=<password>, PATRONI_<username>_OPTIONS=<option1,option2,...>
+                # CREATE USER "<username>" WITH <OPTIONS> PASSWORD '<password>'
+                if name and suffix == 'PASSWORD':
+                    password = os.environ.pop(param)
+                    if password:
+                        users[name] = {'password': password}
+                        options = os.environ.pop(param[:-9] + '_OPTIONS', None)
+                        options = options and _parse_list(options)
+                        if options:
+                            users[name]['options'] = options
         if users:
             ret['bootstrap']['users'] = users
 
@@ -340,7 +363,7 @@ class Config(object):
             'scope',
             'retry_timeout',
             'synchronous_mode',
-            'maximum_lag_on_failover'
+            'synchronous_mode_strict',
         )
 
         pg_config.update({p: config[p] for p in updated_fields if p in config})

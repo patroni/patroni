@@ -5,6 +5,7 @@ import re
 import shlex
 import shutil
 import socket
+import stat
 import subprocess
 import tempfile
 import time
@@ -15,7 +16,7 @@ from patroni.callback_executor import CallbackExecutor
 from patroni.exceptions import PostgresConnectionException, PostgresException
 from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, split_host_port
 from patroni.postmaster import PostmasterProcess
-from patroni.dcs import slot_name_from_member_name, RemoteMember
+from patroni.dcs import slot_name_from_member_name, RemoteMember, Leader
 from requests.structures import CaseInsensitiveDict
 from six import string_types
 from six.moves.urllib.parse import quote_plus
@@ -391,7 +392,7 @@ class Postgresql(object):
             we have either wal_log_hints or checksums turned on
         """
         # low-hanging fruit: check if pg_rewind configuration is there
-        if not (self.config.get('use_pg_rewind') and all(self._superuser.get(n) for n in ('username', 'password'))):
+        if not self.config.get('use_pg_rewind'):
             return False
 
         cmd = [self._pgcommand('pg_rewind'), '--help']
@@ -402,6 +403,10 @@ class Postgresql(object):
         except OSError:
             return False
         return self.configuration_allows_rewind(self.controldata())
+
+    @property
+    def can_rewind_or_reinitialize_allowed(self):
+        return self.config.get('remove_data_directory_on_diverged_timelines') or self.can_rewind
 
     @property
     def sysid(self):
@@ -1110,8 +1115,12 @@ class Postgresql(object):
             f.write(self._CONFIG_WARNING_HEADER)
             f.write("include '{0}'\n\n".format(self.config.get('custom_conf') or self._postgresql_base_conf_name))
             for name, value in sorted((configuration or self._server_parameters).items()):
-                if not self._running_custom_bootstrap or name != 'hba_file':
+                if not self._running_custom_bootstrap or name not in ('hba_file', 'archive_mode'):
                     f.write("{0} = '{1}'\n".format(name, value))
+            # we want to set archive_mode to 'off' during the custom bootstrap
+            # in order to avoid premature archiving of wals and history files
+            if self._running_custom_bootstrap:
+                f.write("archive_mode = 'off'\n")
             # when we are doing custom bootstrap we assume that we don't know superuser password
             # and in order to be able to change it, we are opening trust access from a certain address
             # therefore we need to make sure that hba_file is not overriden
@@ -1154,8 +1163,10 @@ class Postgresql(object):
             with open(self._pg_hba_conf, 'w') as f:
                 f.write(self._CONFIG_WARNING_HEADER)
                 for address, t in addresses.items():
-                    f.write('{0}\t{1}\t{2}\t{3}\ttrust\n'.format(t, 'all',
-                                                                 self._superuser.get('username') or 'all', address))
+                    f.write((
+                        '{0}\treplication\t{1}\t{3}\ttrust\n'
+                        '{0}\tall\t{2}\t{3}\ttrust\n'
+                    ).format(t, self._replication['username'], self._superuser.get('username') or 'all', address))
         elif not self._server_parameters.get('hba_file') and self.config.get('pg_hba'):
             with open(self._pg_hba_conf, 'w') as f:
                 f.write(self._CONFIG_WARNING_HEADER)
@@ -1186,6 +1197,7 @@ class Postgresql(object):
 
     def write_recovery_conf(self, recovery_params):
         with open(self._recovery_conf, 'w') as f:
+            os.chmod(self._recovery_conf, stat.S_IWRITE | stat.S_IREAD)
             for name, value in recovery_params.items():
                 f.write("{0} = '{1}'\n".format(name, value))
 
@@ -1242,8 +1254,7 @@ class Postgresql(object):
 
     @contextmanager
     def _get_replication_connection_cursor(self, host='localhost', port=5432, database=None, **kwargs):
-        database = database or self._database
-        with self._get_connection_cursor(host=host, port=int(port), database=database, replication='database',
+        with self._get_connection_cursor(host=host, port=int(port), database=database or self._database, replication=1,
                                          user=self._replication['username'], password=self._replication['password'],
                                          connect_timeout=3, options='-c statement_timeout=2000') as cur:
             yield cur
@@ -1314,7 +1325,11 @@ class Postgresql(object):
         if local_timeline is None or local_lsn is None:
             return
 
-        if not self.check_leader_is_not_in_recovery(**leader.conn_kwargs(self._superuser)):
+        if isinstance(leader, Leader):
+            if leader.member.data.get('role') != 'master':
+                return
+        # standby cluster
+        elif not self.check_leader_is_not_in_recovery(**leader.conn_kwargs(self._superuser)):
             return
 
         history = need_rewind = None
@@ -1394,19 +1409,21 @@ class Postgresql(object):
         else:
             logger.error('Failed to rewind from healty master: %s', leader.name)
 
-            if self.config.get('remove_data_directory_on_rewind_failure', False):
-                logger.warning('remove_data_directory_on_rewind_failure is set. removing...')
-                self.remove_data_directory()
-                self._rewind_state = REWIND_STATUS.INITIAL
+            for name in ('remove_data_directory_on_rewind_failure', 'remove_data_directory_on_diverged_timelines'):
+                if self.config.get(name):
+                    logger.warning('%s is set. removing...', name)
+                    self.remove_data_directory()
+                    self._rewind_state = REWIND_STATUS.INITIAL
+                    break
             else:
                 self._rewind_state = REWIND_STATUS.FAILED
         return False
 
     def trigger_check_diverged_lsn(self):
-        if self.can_rewind and self._rewind_state != REWIND_STATUS.NEED:
+        if self.can_rewind_or_reinitialize_allowed and self._rewind_state != REWIND_STATUS.NEED:
             self._rewind_state = REWIND_STATUS.CHECK
 
-    def rewind_needed_and_possible(self, leader):
+    def rewind_or_reinitialize_needed_and_possible(self, leader):
         if leader and leader.name != self.name and leader.conn_url and self._rewind_state == REWIND_STATUS.CHECK:
             self._check_timeline_and_lsn(leader)
         return leader and leader.conn_url and self._rewind_state == REWIND_STATUS.NEED
@@ -1643,6 +1660,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
                base backup)
         """
 
+        self._rewind_state = REWIND_STATUS.INITIAL
         ret = self.create_replica(clone_member) == 0
         if ret:
             self._post_restore()
@@ -1664,7 +1682,8 @@ $$""".format(name, ' '.join(options)), name, password, password)
 
     def post_bootstrap(self, config, task):
         try:
-            self.create_or_update_role(self._superuser['username'], self._superuser['password'], ['SUPERUSER'])
+            if 'username' in self._superuser and 'password' in self._superuser:
+                self.create_or_update_role(self._superuser['username'], self._superuser['password'], ['SUPERUSER'])
 
             task.complete(self.run_bootstrap_post_init(config))
             if task.result:
@@ -1683,17 +1702,11 @@ $$""".format(name, ' '.join(options)), name, password, password)
                         os.unlink(self._pg_hba_conf)
                         self.restore_configuration_files()
                     self._write_postgresql_conf()
-                    if self._server_parameters.get('hba_file') and \
-                            self._server_parameters['hba_file'] != self._pg_hba_conf:
-                        self.restart()
-                    else:
-                        self._replace_pg_hba()
-                        if self.pending_restart:
-                            self.restart()
-                        else:
-                            self.reload()
-                            time.sleep(1)  # give a time to postgres to "reload" configuration files
-                            self.close_connection()  # close connection to reconnect with a new password
+                    self._replace_pg_hba()
+                    # at this point there should be no recovery.conf
+                    if os.path.isfile(self._recovery_conf) or os.path.islink(self._recovery_conf):
+                        os.unlink(self._recovery_conf)
+                    self.restart()
         except Exception:
             logger.exception('post_bootstrap')
             task.complete(False)
@@ -1719,6 +1732,16 @@ $$""".format(name, ' '.join(options)), name, password, password)
             elif os.path.isfile(self._data_dir):
                 os.remove(self._data_dir)
             elif os.path.isdir(self._data_dir):
+
+                # let's see if pg_xlog|pg_wal is a symlink, in this case we
+                # should clean the target
+                for pg_wal_dir in ('pg_xlog', 'pg_wal'):
+                    pg_wal_path = os.path.join(self._data_dir, pg_wal_dir)
+                    if os.path.exists(pg_wal_path) and os.path.islink(pg_wal_path):
+                        pg_wal_realpath = os.path.realpath(pg_wal_path)
+                        logger.info('Removing WAL directory: %s', pg_wal_realpath)
+                        shutil.rmtree(pg_wal_realpath)
+
                 shutil.rmtree(self._data_dir)
         except (IOError, OSError):
             logger.exception('Could not remove data directory %s', self._data_dir)

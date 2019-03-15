@@ -1,3 +1,15 @@
+# headless service to avoid deletion of patronidemo-config endpoint
+apiVersion: v1
+kind: Service
+metadata:
+  name: patronidemo-config
+  labels:
+    application: patroni
+    cluster-name: patronidemo
+spec:
+  clusterIP: None
+
+---
 apiVersion: apps/v1beta1
 kind: StatefulSet
 metadata:
@@ -28,7 +40,7 @@ spec:
         - mountPath: /home/postgres/pgdata
           name: pgdata
         env:
-        - name: POD_IP
+        - name: PATRONI_KUBERNETES_POD_IP
           valueFrom:
             fieldRef:
               fieldPath: status.podIP
@@ -173,6 +185,16 @@ rules:
   - patch
   - update
   - watch
+# The following privilege is only necessary for creation of headless service
+# for patronidemo-config endpoint, in order to prevent cleaning it up by the
+# k8s master. You can avoid giving this privilege by explicitly creating the
+# service like it is done in this manifest (lines 2..10)
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - create
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
