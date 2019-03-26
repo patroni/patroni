@@ -1,9 +1,11 @@
 import psutil
 import unittest
+import os
 
 from mock import Mock, patch, mock_open
 from patroni.postmaster import PostmasterProcess
 from six.moves import builtins
+from tempfile import gettempdir
 
 
 class TestPostmasterProcess(unittest.TestCase):
@@ -88,14 +90,14 @@ class TestPostmasterProcess(unittest.TestCase):
         mock_frompidfile.return_value._is_postmaster_process.return_value = False
         mock_frompid.return_value = "proc 123"
         mock_popen.return_value.pid = 123
-        self.assertEqual(PostmasterProcess.start('true', '/tmp', '/tmp/test.conf', []), "proc 123")
+        self.assertEqual(PostmasterProcess.start('true', gettempdir(), os.path.join(gettempdir(), 'test.conf'), []), "proc 123")
         mock_frompid.assert_called_with(123)
 
         mock_frompidfile.side_effect = psutil.NoSuchProcess(123)
-        self.assertEqual(PostmasterProcess.start('true', '/tmp', '/tmp/test.conf', []), "proc 123")
+        self.assertEqual(PostmasterProcess.start('true', gettempdir(), os.path.join(gettempdir(), 'test.conf'), []), "proc 123")
 
         mock_popen.side_effect = Exception
-        self.assertIsNone(PostmasterProcess.start('true', '/tmp', '/tmp/test.conf', []))
+        self.assertIsNone(PostmasterProcess.start('true', gettempdir(), os.path.join(gettempdir(), 'test.conf'), []))
 
     @patch('psutil.Process.__init__', Mock(side_effect=psutil.NoSuchProcess(123)))
     def test_read_postmaster_pidfile(self):
