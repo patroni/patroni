@@ -35,6 +35,9 @@ bootstrap:
       #primary_slot_name: patroni
     postgresql:
       use_pg_rewind: true
+      # Fully qualified kerberos ticket file for the running user
+      # same as KRB5CCNAME used by the GSS
+#     krb_server_keyfile: /var/spool/ketabs/postgres
 #      use_slots: true
       parameters:
 #        wal_level: hot_standby
@@ -71,6 +74,8 @@ bootstrap:
         - createdb
 
 postgresql:
+  # Server side kerberos spn
+#  krbsrvname: postgres
   listen: 127.0.0.1:5432
   connect_address: 127.0.0.1:5432
   data_dir: data/postgresql0
