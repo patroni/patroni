@@ -165,7 +165,6 @@ class TestWatchdog(unittest.TestCase):
         watchdog.reload_config({'ttl': 60, 'loop_wait': 15, 'watchdog': {'mode': 'required'}})
         watchdog.keepalive()
 
-@unittest.skipUnless(os.name != 'nt', "Windows not supported")
 class TestNullWatchdog(unittest.TestCase):
 
     def test_basics(self):
