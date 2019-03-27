@@ -63,8 +63,8 @@ def parse_dcs(dcs):
     elif scheme not in DCS_DEFAULTS:
         raise PatroniCtlException('Unknown dcs scheme: {}'.format(scheme))
 
-    dcs_info = DCS_DEFAULTS[scheme]
-    return yaml.safe_load(dcs_info['template'].format(host=parsed.hostname or 'localhost', port=port or dcs_info['port']))
+    default = DCS_DEFAULTS[scheme]
+    return yaml.safe_load(default['template'].format(host=parsed.hostname or 'localhost', port=port or default['port']))
 
 
 def load_config(path, dcs):

@@ -62,7 +62,7 @@ def mock_close(fd):
     mock_devices[fd].open = False
 
 
-@unittest.skipUnless(os.name != 'nt', "Windows not supported")
+@unittest.skipIf(os.name == 'nt', "Windows not supported")
 @patch('os.open', mock_open)
 @patch('os.write', mock_write)
 @patch('os.close', mock_close)
@@ -165,6 +165,7 @@ class TestWatchdog(unittest.TestCase):
         watchdog.reload_config({'ttl': 60, 'loop_wait': 15, 'watchdog': {'mode': 'required'}})
         watchdog.keepalive()
 
+
 class TestNullWatchdog(unittest.TestCase):
 
     def test_basics(self):
@@ -174,7 +175,7 @@ class TestNullWatchdog(unittest.TestCase):
         self.assertEqual(watchdog.describe(), 'NullWatchdog')
         self.assertIsInstance(NullWatchdog.from_config({}), NullWatchdog)
 
-@unittest.skipUnless(os.name != 'nt', "Windows not supported")
+@unittest.skipIf(os.name == 'nt', "Windows not supported")
 class TestLinuxWatchdogDevice(unittest.TestCase):
 
     def setUp(self):
