@@ -533,7 +533,8 @@ class TestCtl(unittest.TestCase):
         show_diff(b"foo:\n  bar: \xc3\xb6\xc3\xb6\n".decode('utf-8'),
                   b"foo:\n  bar: \xc3\xbc\xc3\xbc\n".decode('utf-8'))
 
-    def test_invoke_editor(self):
+    @patch('subprocess.call', return_value=1)
+    def test_invoke_editor(self, mock_subprocess_call):
         for e in ('', 'false'):
             os.environ['EDITOR'] = e
             self.assertRaises(PatroniCtlException, invoke_editor, 'foo: bar\n', 'test')
