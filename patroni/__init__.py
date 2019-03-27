@@ -176,13 +176,13 @@ def main():
         if pid:
             os.kill(pid, signo)
 
-    signal.signal(signal.SIGCHLD, sigchld_handler)
     if os.name != 'nt':
+        signal.signal(signal.SIGCHLD, sigchld_handler)
         signal.signal(signal.SIGHUP, passtochild)
         signal.signal(signal.SIGQUIT, passtochild)
+        signal.signal(signal.SIGUSR1, passtochild)
+        signal.signal(signal.SIGUSR2, passtochild)
     signal.signal(signal.SIGINT, passtochild)
-    signal.signal(signal.SIGUSR1, passtochild)
-    signal.signal(signal.SIGUSR2, passtochild)
     signal.signal(signal.SIGABRT, passtochild)
     signal.signal(signal.SIGTERM, passtochild)
 
