@@ -109,11 +109,11 @@ class TestPatroni(unittest.TestCase):
         self.p.ha.dcs.watch = Mock(side_effect=SleepException)
         self.p.api.start = Mock()
         self.p.config._dynamic_configuration = {}
-        # self.assertRaises(SleepException, self.p.run)
-        # with patch('patroni.config.Config.set_dynamic_configuration', Mock(return_value=True)):
-        #     self.assertRaises(SleepException, self.p.run)
-        # with patch('patroni.postgresql.Postgresql.data_directory_empty', Mock(return_value=False)):
-        #     self.assertRaises(SleepException, self.p.run)
+        self.assertRaises(SleepException, self.p.run)
+        with patch('patroni.config.Config.set_dynamic_configuration', Mock(return_value=True)):
+            self.assertRaises(SleepException, self.p.run)
+        with patch('patroni.postgresql.Postgresql.data_directory_empty', Mock(return_value=False)):
+            self.assertRaises(SleepException, self.p.run)
 
     def test_sigterm_handler(self):
         self.assertRaises(SystemExit, self.p.sigterm_handler)
