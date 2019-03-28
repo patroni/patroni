@@ -1550,17 +1550,16 @@ class Postgresql(object):
             params.extend([password, password])
 
         sql = """DO $$
-            BEGIN
-                SET local synchronous_commit = 'local';
-                PERFORM * FROM pg_authid WHERE rolname = %s;
-                IF FOUND THEN
-                    ALTER ROLE "{0}" WITH {1};
-                ELSE
-                    CREATE ROLE "{0}" WITH {1};
-                END IF;
-            END;
-            $$""".format(name, ' '.join(options))
-            self.query(sql, *params)
+BEGIN
+    SET local synchronous_commit = 'local';
+    PERFORM * FROM pg_authid WHERE rolname = %s;
+    IF FOUND THEN
+        ALTER ROLE "{0}" WITH {1};
+    ELSE
+        CREATE ROLE "{0}" WITH {1};
+    END IF;
+END;$$""".format(name, ' '.join(options))
+        self.query(sql, *params)
 
     def timeline_wal_position(self):
         # This method could be called from different threads (simultaneously with some other `_query` calls).
