@@ -31,9 +31,6 @@ bootstrap:
       use_pg_rewind: true
 #      use_slots: true
       parameters:
-        # Fully qualified kerberos ticket file for the running user
-        # same as KRB5CCNAME used by the GSS
-#        krb_server_keyfile: /var/spool/ketabs/postgres
 #        wal_level: hot_standby
 #        hot_standby: "on"
 #        wal_keep_segments: 8
@@ -71,6 +68,10 @@ bootstrap:
         - createdb
 
 postgresql:
+  # Fully qualified kerberos ticket file for the running user
+  # same as KRB5CCNAME used by the GSS
+#  krb_server_keyfile: /var/spool/keytabs/postgres
+
   # Server side kerberos spn
 #  krbsrvname: postgres
   listen: 127.0.0.1:5433
