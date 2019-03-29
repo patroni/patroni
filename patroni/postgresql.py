@@ -1516,7 +1516,7 @@ class Postgresql(object):
             logger.exception('unable to restore configuration files from backup')
 
     def _wait_promote(self, wait_seconds):
-        for _ in polling_loop(wait_seconds - 1):
+        for _ in polling_loop(wait_seconds):
             data = self.controldata()
             if data.get('Database cluster state') == 'in production':
                 return True

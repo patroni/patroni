@@ -14,7 +14,7 @@ Feature: standby cluster
     And replication works from postgres1 to postgres0 after 15 seconds
     When I shut down postgres1
     Then postgres0 is a leader after 10 seconds
-    And I sleep for 2 seconds
+    And "members/postgres0" key in DCS has role=master after 3 seconds
     When I issue a GET request to http://127.0.0.1:8008/
     Then I receive a response code 200
     And there is a label with "test_logical" in postgres0 data directory
