@@ -1,11 +1,10 @@
 import logging
+import multiprocessing
 import os
 import psutil
 import re
 import signal
 import subprocess
-
-from patroni import call_self
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +13,18 @@ STOP_SIGNALS = {
     'fast': signal.SIGINT,
     'immediate': signal.SIGQUIT if os.name != 'nt' else signal.SIGABRT,
 }
+
+
+def pg_ctl_start(conn, cmdline, env):
+    if os.name != 'nt':
+        os.setsid()
+    try:
+        postmaster = subprocess.Popen(cmdline, close_fds=True, env=env)
+        conn.send(postmaster.pid)
+    except Exception:
+        logger.exception('Failed to execute %s', cmdline)
+        conn.send(None)
+    conn.close()
 
 
 class PostmasterProcess(psutil.Process):
@@ -159,10 +170,13 @@ class PostmasterProcess(psutil.Process):
             pass
         cmdline = [pgcommand, '-D', data_dir, '--config-file={}'.format(conf)] + options
         logger.debug("Starting postgres: %s", " ".join(cmdline))
-        proc = call_self(['pg_ctl_start'] + cmdline, close_fds=(os.name != 'nt'),
-                         stdout=subprocess.PIPE, env=env)
-        pid = int(proc.stdout.readline().strip())
-        proc.wait()
+        parent_conn, child_conn = multiprocessing.Pipe(False)
+        proc = multiprocessing.Process(target=pg_ctl_start, args=(child_conn, cmdline, env))
+        proc.start()
+        pid = parent_conn.recv()
+        proc.join()
+        if pid is None:
+            return
         logger.info('postmaster pid=%s', pid)
 
         # TODO: In an extremely unlikely case, the process could have exited and the pid reassigned. The start

@@ -152,6 +152,8 @@ def run_async(self, func, args=()):
 @patch.object(Postgresql, 'checkpoint', Mock())
 @patch.object(Postgresql, 'cancellable_subprocess_call', Mock(return_value=0))
 @patch.object(Postgresql, '_get_local_timeline_lsn_from_replication_connection', Mock(return_value=[2, 10]))
+@patch.object(Postgresql, 'get_master_timeline', Mock(return_value=2))
+@patch.object(Postgresql, 'restore_configuration_files', Mock())
 @patch.object(etcd.Client, 'write', etcd_write)
 @patch.object(etcd.Client, 'read', etcd_read)
 @patch.object(etcd.Client, 'delete', Mock(side_effect=etcd.EtcdException))
@@ -322,7 +324,7 @@ class TestHa(unittest.TestCase):
             self.assertEqual(self.ha.run_cycle(), 'Not promoting self because watchdog could not be activated')
 
     def test_leader_with_lock(self):
-        self.ha.cluster = get_cluster_not_initialized_without_leader()
+        self.ha.cluster = get_cluster_initialized_with_leader()
         self.ha.cluster.is_unlocked = false
         self.ha.has_lock = true
         self.assertEqual(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
@@ -577,6 +579,7 @@ class TestHa(unittest.TestCase):
         self.ha.is_paused = true
         self.assertFalse(self.ha.is_healthiest_node())
 
+    @patch('requests.get', requests_get)
     def test__is_healthiest_node(self):
         self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         self.p.is_leader = false
@@ -681,6 +684,7 @@ class TestHa(unittest.TestCase):
         msg = 'no action.  i am a secondary and i am following a leader'
         self.assertEqual(self.ha.run_cycle(), msg)
 
+    @patch('requests.get', requests_get)
     def test_process_unhealthy_standby_cluster_as_standby_leader(self):
         self.p.is_leader = false
         self.p.name = 'leader'
@@ -860,11 +864,15 @@ class TestHa(unittest.TestCase):
         self.ha.run_cycle()
         self.assertEqual(self.ha.dcs.write_sync_state.call_count, 2)
 
-        # Test changing sync standby failed due to race
+        # Test updating sync standby key failed due to DCS being not accessible
         self.ha.dcs.write_sync_state = Mock(return_value=True)
+        self.ha.dcs.get_cluster = Mock(side_effect=DCSError('foo'))
+        self.ha.run_cycle()
+
+        # Test changing sync standby failed due to race
         self.ha.dcs.get_cluster = Mock(return_value=get_cluster_initialized_with_leader(sync=('somebodyelse', None)))
         self.ha.run_cycle()
-        self.assertEqual(self.ha.dcs.write_sync_state.call_count, 1)
+        self.assertEqual(self.ha.dcs.write_sync_state.call_count, 2)
 
         # Test sync set to '*' when synchronous_mode_strict is enabled
         mock_set_sync.reset_mock()
@@ -999,13 +1007,16 @@ class TestHa(unittest.TestCase):
         # will not say bootstrap from leader as replica can't self elect
         self.assertEqual(self.ha.run_cycle(), "trying to bootstrap from replica 'other'")
 
+    @patch('psycopg2.connect', psycopg2_connect)
     def test_update_cluster_history(self):
-        self.p.get_master_timeline = Mock(return_value=1)
         self.ha.has_lock = true
         self.ha.cluster.is_unlocked = false
-        self.assertEqual(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
+        for tl in (1, 3):
+            self.p.get_master_timeline = Mock(return_value=tl)
+            self.assertEqual(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
 
     @patch('sys.exit', return_value=1)
+    @patch('requests.get', requests_get)
     def test_abort_join(self, exit_mock):
         self.ha.cluster = get_cluster_not_initialized_without_leader()
         self.p.is_leader = false

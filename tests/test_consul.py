@@ -83,7 +83,7 @@ class TestConsul(unittest.TestCase):
         self.c = Consul({'ttl': 30, 'scope': 'test', 'name': 'postgresql1', 'host': 'localhost:1', 'retry_timeout': 10,
                          'register_service': True})
         self.c._base_path = '/service/good'
-        self.c._load_cluster()
+        self.c.get_cluster()
 
     @patch('time.sleep', Mock(side_effect=SleepException))
     @patch.object(consul.Consul.Session, 'create', Mock(side_effect=ConsulException))

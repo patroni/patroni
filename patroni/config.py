@@ -233,7 +233,7 @@ class Config(object):
                     ret[section][param] = value
 
         _set_section_values('restapi', ['listen', 'connect_address', 'certfile', 'keyfile'])
-        _set_section_values('postgresql', ['listen', 'connect_address', 'data_dir', 'pgpass', 'bin_dir'])
+        _set_section_values('postgresql', ['listen', 'connect_address', 'config_dir', 'data_dir', 'pgpass', 'bin_dir'])
         _set_section_values('log', ['level', 'format', 'dateformat', 'dir', 'file_size', 'file_num', 'loggers'])
 
         def _parse_dict(value):
@@ -289,10 +289,10 @@ class Config(object):
             if param.startswith(Config.PATRONI_ENV_PREFIX):
                 # PATRONI_(ETCD|CONSUL|ZOOKEEPER|EXHIBITOR|...)_(HOSTS?|PORT|..)
                 name, suffix = (param[8:].split('_', 1) + [''])[:2]
-                if suffix in ('HOST', 'HOSTS', 'PORT', 'PROTOCOL', 'SRV', 'URL', 'PROXY', 'CACERT', 'CERT', 'KEY',
-                              'VERIFY', 'TOKEN', 'CHECKS', 'DC', 'REGISTER_SERVICE', 'SERVICE_CHECK_INTERVAL',
-                              'NAMESPACE', 'CONTEXT', 'USE_ENDPOINTS', 'SCOPE_LABEL', 'ROLE_LABEL', 'POD_IP',
-                              'PORTS', 'LABELS') and name:
+                if suffix in ('HOST', 'HOSTS', 'PORT', 'USE_PROXIES', 'PROTOCOL', 'SRV', 'URL', 'PROXY',
+                              'CACERT', 'CERT', 'KEY', 'VERIFY', 'TOKEN', 'CHECKS', 'DC', 'REGISTER_SERVICE',
+                              'SERVICE_CHECK_INTERVAL', 'NAMESPACE', 'CONTEXT', 'USE_ENDPOINTS', 'SCOPE_LABEL',
+                              'ROLE_LABEL', 'POD_IP', 'PORTS', 'LABELS') and name:
                     value = os.environ.pop(param)
                     if suffix == 'PORT':
                         value = value and parse_int(value)
@@ -300,7 +300,7 @@ class Config(object):
                         value = value and _parse_list(value)
                     elif suffix == 'LABELS':
                         value = _parse_dict(value)
-                    elif suffix == 'REGISTER_SERVICE':
+                    elif suffix in ('USE_PROXIES', 'REGISTER_SERVICE'):
                         value = parse_bool(value)
                     if value:
                         ret[name.lower()][suffix.lower()] = value

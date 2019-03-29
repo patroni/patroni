@@ -1,47 +1,117 @@
 # Patroni Dockerfile
-You can run Patroni in a docker container using this Dockerfile, or by using one of the Docker image at
-
-    https://registry.opensource.zalan.do/v1/repositories/acid/patroni/tags
+You can run Patroni in a docker container using this Dockerfile
 
 This Dockerfile is meant in aiding development of Patroni and quick testing of features. It is not a production-worthy
 Dockerfile
+
+    docker build -t patroni .
 
 # Examples
 
 ## Standalone Patroni
 
-    docker run -d registry.opensource.zalan.do/acid/patroni:1.0-SNAPSHOT
+    docker run -d patroni
 
-## Multiple Patroni's communicating with a standalone etcd inside Docker
-
-Basically what you would do would be: 
-
-* Run 1 container which provides etcd
-
-        docker run -d <IMAGE> --etcd-only
-
-* Run n containers running Patroni, passing the `--etcd` option to the `docker run` command
-
-        docker run -d <IMAGE> --etcd=<IP FROM etcd CONTAINER:PORT>
-
-To automate this you can run the following script:
-
-    dev_patroni_cluster.sh [OPTIONS]
-
-    Options:
-
-        --image     IMAGE    The Docker image to use for the cluster
-        --members   INT      The number of members for the cluster
-        --name      NAME     The name of the new cluster
+## Three-node Patroni cluster with three-node etcd cluster and one haproxy container using docker-compose
 
 Example session:
 
-    $ ./dev_patroni_cluster.sh --image registry.opensource.zalan.do/acid/patroni:1.0-SNAPSHOT --members=2 --name=bravo
-    The etcd container is 6be871a11cb373406ca5ea1c6b39e1.0-SNAPSHOTfdde9fb1d6177212d6ad0c0d1bd9b563, ip=172.17.1.24
-    Started Patroni container 67e611f2eca7c40f9e6e0e24a4a8f2cba7e3e56d22a420e15ab9240a37a9d7a4, ip=172.17.1.25
-    Started Patroni container 47dd12ae635ab83b039f5889e250048b606ed5e48e3650b69e365e7e1d4acbcf, ip=172.17.1.26
+    $ docker-compose up -d
+    Creating demo-haproxy ...
+    Creating demo-patroni2 ...
+    Creating demo-patroni1 ...
+    Creating demo-patroni3 ...
+    Creating demo-etcd2 ...
+    Creating demo-etcd1 ...
+    Creating demo-etcd3 ...
+    Creating demo-haproxy
+    Creating demo-patroni2
+    Creating demo-patroni1
+    Creating demo-patroni3
+    Creating demo-etcd1
+    Creating demo-etcd2
+    Creating demo-etcd2 ... done
+
     $ docker ps
-    CONTAINER ID        IMAGE                                         COMMAND                CREATED             STATUS              PORTS                          NAMES
-    47dd12ae635a        registry.opensource.zalan.do/acid/patroni:1.0-SNAPSHOT   "/bin/bash /entrypoi   10 seconds ago      Up 8 seconds        4001/tcp, 5432/tcp, 2380/tcp   bravo_OR64g8bx
-    67e611f2eca7        registry.opensource.zalan.do/acid/patroni:1.0-SNAPSHOT   "/bin/bash /entrypoi   11 seconds ago      Up 10 seconds       2380/tcp, 4001/tcp, 5432/tcp   bravo_si9no8iz
-    6be871a11cb3        registry.opensource.zalan.do/acid/patroni:1.0-SNAPSHOT   "/bin/bash /entrypoi   12 seconds ago      Up 10 seconds       4001/tcp, 5432/tcp, 2380/tcp   bravo_etcd
+    CONTAINER ID        IMAGE               COMMAND                  CREATED             STATUS              PORTS                              NAMES
+    5b7a90b4cfbf        patroni             "/bin/sh /entrypoint…"   29 seconds ago      Up 27 seconds                                          demo-etcd2
+    e30eea5222f2        patroni             "/bin/sh /entrypoint…"   29 seconds ago      Up 27 seconds                                          demo-etcd1
+    83bcf3cb208f        patroni             "/bin/sh /entrypoint…"   29 seconds ago      Up 27 seconds                                          demo-etcd3
+    922532c56e7d        patroni             "/bin/sh /entrypoint…"   29 seconds ago      Up 28 seconds                                          demo-patroni3
+    14f875e445f3        patroni             "/bin/sh /entrypoint…"   29 seconds ago      Up 28 seconds                                          demo-patroni2
+    110d1073b383        patroni             "/bin/sh /entrypoint…"   29 seconds ago      Up 28 seconds                                          demo-patroni1
+    5af5e6e36028        patroni             "/bin/sh /entrypoint…"   29 seconds ago      Up 28 seconds       0.0.0.0:5000-5001->5000-5001/tcp   demo-haproxy
+
+    $ docker logs demo-patroni1
+    2019-02-20 08:19:32,714 INFO: Failed to import patroni.dcs.consul
+    2019-02-20 08:19:32,737 INFO: Selected new etcd server http://etcd3:2379
+    2019-02-20 08:19:35,140 INFO: Lock owner: None; I am patroni1
+    2019-02-20 08:19:35,174 INFO: trying to bootstrap a new cluster
+    ...
+    2019-02-20 08:19:39,310 INFO: postmaster pid=37
+    2019-02-20 08:19:39.314 UTC [37] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+    2019-02-20 08:19:39.321 UTC [37] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+    2019-02-20 08:19:39.353 UTC [39] LOG:  database system was shut down at 2019-02-20 08:19:36 UTC
+    2019-02-20 08:19:39.354 UTC [40] FATAL:  the database system is starting up
+    localhost:5432 - rejecting connections
+    2019-02-20 08:19:39.369 UTC [37] LOG:  database system is ready to accept connections
+    localhost:5432 - accepting connections
+    2019-02-20 08:19:39,383 INFO: establishing a new patroni connection to the postgres cluster
+    2019-02-20 08:19:39,408 INFO: running post_bootstrap
+    2019-02-20 08:19:39,432 WARNING: Could not activate Linux watchdog device: "Can't open watchdog device: [Errno 2] No such file or directory: '/dev/watchdog'"
+    2019-02-20 08:19:39,515 INFO: initialized a new cluster
+    2019-02-20 08:19:49,424 INFO: Lock owner: patroni1; I am patroni1
+    2019-02-20 08:19:49,447 INFO: Lock owner: patroni1; I am patroni1
+    2019-02-20 08:19:49,480 INFO: no action.  i am the leader with the lock
+    2019-02-20 08:19:59,422 INFO: Lock owner: patroni1; I am patroni1
+
+    $ docker exec -ti demo-patroni1 bash
+    postgres@patroni1:~$ patronictl list
+    +-------------+----------+------------+--------+---------+----+-----------+
+    |   Cluster   |  Member  |    Host    |  Role  |  State  | TL | Lag in MB |
+    +-------------+----------+------------+--------+---------+----+-----------+
+    | testcluster | patroni1 | 172.21.0.3 | Leader | running |  1 |         0 |
+    | testcluster | patroni2 | 172.21.0.4 |        | running |  1 |         0 |
+    | testcluster | patroni3 | 172.21.0.5 |        | running |  1 |         0 |
+    +-------------+----------+------------+--------+---------+----+-----------+
+
+    postgres@patroni1:~$ etcdctl ls --recursive --sort -p /service/testcluster
+    /service/testcluster/config
+    /service/testcluster/initialize
+    /service/testcluster/leader
+    /service/testcluster/members/
+    /service/testcluster/members/patroni1
+    /service/testcluster/members/patroni2
+    /service/testcluster/members/patroni3
+    /service/testcluster/optime/
+    /service/testcluster/optime/leader
+
+    postgres@patroni1:~$ etcdctl member list
+    1bab629f01fa9065: name=etcd3 peerURLs=http://etcd3:2380 clientURLs=http://etcd3:2379 isLeader=false
+    8ecb6af518d241cc: name=etcd2 peerURLs=http://etcd2:2380 clientURLs=http://etcd2:2379 isLeader=true
+    b2e169fcb8a34028: name=etcd1 peerURLs=http://etcd1:2380 clientURLs=http://etcd1:2379 isLeader=false
+    postgres@patroni1:~$ exit
+
+    $ psql -h localhost -p 5000 -U postgres -W
+    Password: postgres
+    psql (11.2 (Ubuntu 11.2-1.pgdg18.04+1), server 10.7 (Debian 10.7-1.pgdg90+1))
+    Type "help" for help.
+
+    localhost/postgres=# select pg_is_in_recovery();
+     pg_is_in_recovery
+    ───────────────────
+     f
+    (1 row)
+
+    localhost/postgres=# \q
+
+    $ psql -h localhost -p 5001 -U postgres -W
+    Password: postgres
+    psql (11.2 (Ubuntu 11.2-1.pgdg18.04+1), server 10.7 (Debian 10.7-1.pgdg90+1))
+    Type "help" for help.
+
+    localhost/postgres=# select pg_is_in_recovery();
+     pg_is_in_recovery
+    ───────────────────
+     t
+    (1 row)

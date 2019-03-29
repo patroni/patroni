@@ -54,3 +54,6 @@ docs/source/_templates/
 
 # Pycharm IDE
 .idea/
+
+#VSCode IDE
+.vscode/
