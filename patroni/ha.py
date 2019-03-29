@@ -130,7 +130,7 @@ class Ha(object):
             self.old_cluster = cluster
         self.cluster = cluster
 
-        if self.cluster.is_unlocked() or self.cluster.leader.name != self.state_handler.name:
+        if not self.has_lock(False):
             self.set_is_leader(False)
 
         self._leader_timeline = None if cluster.is_unlocked() else cluster.leader.timeline
@@ -154,9 +154,10 @@ class Ha(object):
             self.watchdog.keepalive()
         return ret
 
-    def has_lock(self):
+    def has_lock(self, info=True):
         lock_owner = self.cluster.leader and self.cluster.leader.name
-        logger.info('Lock owner: %s; I am %s', lock_owner, self.state_handler.name)
+        if info:
+            logger.info('Lock owner: %s; I am %s', lock_owner, self.state_handler.name)
         return lock_owner == self.state_handler.name
 
     def get_effective_tags(self):
@@ -313,6 +314,7 @@ class Ha(object):
 
         self.load_cluster_from_dcs()
 
+        role = 'replica'
         if self.is_standby_cluster() or not self.has_lock():
             if not self.state_handler.rewind_executed:
                 self.state_handler.trigger_check_diverged_lsn()
@@ -321,6 +323,7 @@ class Ha(object):
 
             if self.has_lock():  # in standby cluster
                 msg = "starting as a standby leader because i had the session lock"
+                role = 'standby_leader'
                 node_to_follow = self._get_node_to_follow(self.cluster)
             elif self.is_standby_cluster() and self.cluster.is_unlocked():
                 msg = "trying to follow a remote master because standby cluster is unhealthy"
@@ -335,15 +338,13 @@ class Ha(object):
         self.recovering = True
 
         self._async_executor.schedule('restarting after failure')
-        self._async_executor.run_async(self.state_handler.follow, (node_to_follow, timeout))
+        self._async_executor.run_async(self.state_handler.follow, (node_to_follow, role, timeout))
         return msg
 
     def _get_node_to_follow(self, cluster):
         # determine the node to follow. If replicatefrom tag is set,
         # try to follow the node mentioned there, otherwise, follow the leader.
-        is_leader = self.cluster.leader and self.state_handler.name == self.cluster.leader.name
-
-        if self.is_standby_cluster() and (is_leader or self.cluster.is_unlocked()):
+        if self.is_standby_cluster() and (self.cluster.is_unlocked() or self.has_lock(False)):
             node_to_follow = self.get_remote_master()
         elif self.patroni.replicatefrom and self.patroni.replicatefrom != self.state_handler.name:
             node_to_follow = cluster.get_member(self.patroni.replicatefrom)
@@ -375,9 +376,17 @@ class Ha(object):
         if self._handle_rewind_or_reinitialize():
             return self._async_executor.scheduled_action
 
-        if not self.state_handler.check_recovery_conf(node_to_follow):
+        role = 'standby_leader' if isinstance(node_to_follow, RemoteMember) and self.has_lock(False) else 'replica'
+        # It might happen that leader key in the standby cluster references non-exiting member.
+        # In this case it is safe to continue running without changing recovery.conf
+        if self.is_standby_cluster() and role == 'replica' and not (node_to_follow and node_to_follow.conn_url):
+            return 'continue following the old known standby leader'
+        elif not self.state_handler.check_recovery_conf(node_to_follow):
             self._async_executor.schedule('changing primary_conninfo and restarting')
-            self._async_executor.run_async(self.state_handler.follow, (node_to_follow,))
+            self._async_executor.run_async(self.state_handler.follow, (node_to_follow, role))
+        elif role == 'standby_leader' and self.state_handler.role != role:
+            self.state_handler.set_role(role)
+            self.state_handler.call_nowait(ACTION_ON_ROLE_CHANGE)
 
         return follow_reason
 
@@ -495,9 +504,7 @@ class Ha(object):
                 self.dcs.set_history_value(json.dumps(history, separators=(',', ':')))
 
     def enforce_follow_remote_master(self, message):
-        self.state_handler.set_role('standby_leader')
         demote_reason = 'cannot be a real master in standby cluster'
-
         return self.follow(demote_reason, message)
 
     def enforce_master_role(self, message, promote_message):
@@ -854,7 +861,7 @@ class Ha(object):
                     # standby leader disappeared, and this is a healthiest
                     # replica, so it should become a new standby leader.
                     # This imply that we need to start following a remote master
-                    msg = 'promoted self to a standby leader because i had the session lock'
+                    msg = 'promoted self to a standby leader by acquiring session lock'
                     return self.enforce_follow_remote_master(msg)
                 else:
                     return self.enforce_master_role(
@@ -900,7 +907,9 @@ class Ha(object):
                     # in case of standby cluster we don't really need to
                     # enforce anything, since the leader is not a master.
                     # So just remind the role.
-                    msg = 'no action.  i am the standby leader with the lock'
+                    msg = 'no action.  i am the standby leader with the lock' \
+                          if self.state_handler.role == 'standby_leader' else \
+                          'promoted self to a standby leader because i had the session lock'
                     return self.enforce_follow_remote_master(msg)
                 else:
                     return self.enforce_master_role(
@@ -919,6 +928,9 @@ class Ha(object):
                     return 'not promoting because failed to update leader lock in DCS'
         else:
             logger.info('does not have lock')
+        if self.is_standby_cluster():
+            return self.follow('cannot be a real master in standby cluster',
+                               'no action.  i am a secondary and i am following a standby leader', refresh=False)
         return self.follow('demoting self because i do not have the lock and i was a leader',
                            'no action.  i am a secondary and i am following a leader', refresh=False)
 
@@ -1050,7 +1062,7 @@ class Ha(object):
             if self.cluster.is_unlocked():
                 return 'Cluster has no leader, can not reinitialize'
 
-            if self.cluster.leader.name == self.state_handler.name:
+            if self.has_lock(False):
                 return 'I am the leader, can not reinitialize'
 
         if force:
@@ -1333,13 +1345,11 @@ class Ha(object):
                              (" Leaving watchdog running." if self.watchdog.is_running else ""))
 
     def watch(self, timeout):
-        cluster = self.cluster
         # watch on leader key changes if the postgres is running and leader is known and current node is not lock owner
-        if not self._async_executor.busy and cluster and cluster.leader \
-                and cluster.leader.name != self.state_handler.name:
-            leader_index = cluster.leader.index
-        else:
+        if self._async_executor.busy or self.cluster.is_unlocked() or self.has_lock(False):
             leader_index = None
+        else:
+            leader_index = self.cluster.leader.index
 
         return self.dcs.watch(leader_index, timeout)
 

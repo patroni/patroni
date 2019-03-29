@@ -30,6 +30,7 @@ ACTION_ON_STOP = "on_stop"
 ACTION_ON_RESTART = "on_restart"
 ACTION_ON_RELOAD = "on_reload"
 ACTION_ON_ROLE_CHANGE = "on_role_change"
+ACTION_NOOP = "noop"
 
 STATE_RUNNING = 'running'
 STATE_REJECT = 'rejecting connections'
@@ -697,10 +698,11 @@ class Postgresql(object):
                     # if basebackup succeeds, exit with success
                     break
             else:
-                if not self.data_directory_empty() and not self.config.get(replica_method, {}).get('keep_data', False):
-                    self.remove_data_directory()
-                else:
-                    logger.info('Leaving data directory uncleaned')
+                if not self.data_directory_empty():
+                    if self.config.get(replica_method, {}).get('keep_data', False):
+                        logger.info('Leaving data directory uncleaned')
+                    else:
+                        self.remove_data_directory()
 
                 cmd = replica_method
                 method_config = {}
@@ -870,7 +872,7 @@ class Postgresql(object):
                 self._pending_restart = True
         return effective_configuration
 
-    def start(self, timeout=None, block_callbacks=False, task=None):
+    def start(self, timeout=None, task=None, block_callbacks=False, role=None):
         """Start PostgreSQL
 
         Waits for postmaster to open ports or terminate so pg_isready can be used to check startup completion
@@ -890,7 +892,7 @@ class Postgresql(object):
         if not block_callbacks:
             self.__cb_pending = ACTION_ON_START
 
-        self.set_role(self.get_postgres_role_from_data_directory())
+        self.set_role(role or self.get_postgres_role_from_data_directory())
 
         self.set_state('starting')
         self._pending_restart = False
@@ -1091,7 +1093,7 @@ class Postgresql(object):
 
         return self.state == 'running'
 
-    def restart(self, timeout=None, task=None):
+    def restart(self, timeout=None, task=None, block_callbacks=False, role=None):
         """Restarts PostgreSQL.
 
         When timeout parameter is set the call will block either until PostgreSQL has started, failed to start or
@@ -1100,8 +1102,9 @@ class Postgresql(object):
         :returns: True when restart was successful and timeout did not expire when waiting.
         """
         self.set_state('restarting')
-        self.__cb_pending = ACTION_ON_RESTART
-        ret = self.stop(block_callbacks=True) and self.start(timeout=timeout, block_callbacks=True, task=task)
+        if not block_callbacks:
+            self.__cb_pending = ACTION_ON_RESTART
+        ret = self.stop(block_callbacks=True) and self.start(timeout, task, True, role)
         if not ret and not self.is_starting():
             self.set_state('restart failed ({0})'.format(self.state))
         return ret
@@ -1436,7 +1439,7 @@ class Postgresql(object):
     def rewind_failed(self):
         return self._rewind_state == REWIND_STATUS.FAILED
 
-    def follow(self, member, timeout=None):
+    def follow(self, member, role='replica', timeout=None):
         is_remote_master = isinstance(member, RemoteMember)
         no_replication_slot = is_remote_master and member.no_replication_slot
         restore_command = is_remote_master and member.restore_command
@@ -1444,7 +1447,8 @@ class Postgresql(object):
         archive_cleanup = is_remote_master and member.archive_cleanup_command
 
         primary_conninfo = self.primary_conninfo(member)
-        change_role = self.role in ('master', 'demoted')
+        change_role = self.cb_called and (self.role in ('master', 'demoted') or
+                                          not {'standby_leader', 'replica'} - {self.role, role})
 
         recovery_params = self.config.get('recovery_conf', {}).copy()
         recovery_params.update({'standby_mode': 'on', 'recovery_target_timeline': 'latest'})
@@ -1463,11 +1467,17 @@ class Postgresql(object):
 
         self.write_recovery_conf(recovery_params)
 
+        # When we demoting the master or standby_leader to replica or promoting replica to a standby_leader
+        # and we know for sure that postgres was already running before, we will only execute on_role_change
+        # callback and prevent execution of on_restart/on_start callback.
+        # If the role remains the same (replica or standby_leader), we will execute on_start or on_restart
+        if change_role:
+            self.__cb_pending = ACTION_NOOP
+
         if self.is_running():
-            self.restart()
+            self.restart(block_callbacks=change_role, role=role)
         else:
-            self.start(timeout=timeout)
-        self.set_role('replica')
+            self.start(timeout=timeout, block_callbacks=change_role, role=role)
 
         if change_role:
             # TODO: postpone this until start completes, or maybe do even earlier
@@ -1506,7 +1516,7 @@ class Postgresql(object):
             logger.exception('unable to restore configuration files from backup')
 
     def _wait_promote(self, wait_seconds):
-        for _ in polling_loop(wait_seconds - 1):
+        for _ in polling_loop(wait_seconds):
             data = self.controldata()
             if data.get('Database cluster state') == 'in production':
                 return True
