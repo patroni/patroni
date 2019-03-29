@@ -111,9 +111,9 @@ class PatroniController(AbstractController):
         with open(os.path.join(self._data_dir, 'label'), 'w') as f:
             f.write(content)
 
-    def read_label(self):
+    def read_label(self, label):
         try:
-            with open(os.path.join(self._data_dir, 'label'), 'r') as f:
+            with open(os.path.join(self._data_dir, label), 'r') as f:
                 return f.read().strip()
         except IOError:
             return None
