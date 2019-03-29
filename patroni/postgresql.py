@@ -1189,7 +1189,7 @@ class Postgresql(object):
             return None
         r = member.conn_kwargs(self._replication)
         r.update(application_name=self.name, sslmode='prefer', sslcompression='1', krbsrvname=self._krbsrvname)
-        keywords = 'host port sslmode sslcompression application_name krbsrvname'.split()
+        keywords = 'user password host port sslmode sslcompression application_name krbsrvname'.split()
         return ' '.join('{0}={{{0}}}'.format(kw) for kw in keywords if r.get(kw)).format(**r)
 
     def check_recovery_conf(self, member):
