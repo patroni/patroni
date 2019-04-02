@@ -1,6 +1,5 @@
 import psutil
 import unittest
-import os
 
 from mock import Mock, patch, mock_open
 from patroni.postmaster import PostmasterProcess
