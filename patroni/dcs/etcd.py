@@ -87,6 +87,9 @@ class Client(etcd.Client):
         args = {p: config.get(p) for p in ('host', 'port', 'protocol', 'use_proxies', 'username', 'password',
                                            'cert', 'ca_cert') if config.get(p)}
         super(Client, self).__init__(read_timeout=config['retry_timeout'], **args)
+        # For some reason python3-etcd on debian and ubuntu are not based on the latest version
+        # Workaround for the case when https://github.com/jplana/python-etcd/pull/196 is not applied
+        self.http.connection_pool_kw.pop('ssl_version', None)
         self._config = config
         self._load_machines_cache()
         self._allow_reconnect = True
