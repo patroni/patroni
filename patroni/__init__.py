@@ -85,9 +85,10 @@ class Patroni(object):
         self._received_sighup = True
 
     def sigterm_handler(self, *args):
-        if not self._received_sigterm:
-            self._received_sigterm = True
-            sys.exit()
+        with self._sigterm_lock:
+            if not self._received_sigterm:
+                self._received_sigterm = True
+                sys.exit()
 
     @property
     def noloadbalance(self):
@@ -106,11 +107,16 @@ class Patroni(object):
         elif self.ha.watch(nap_time):
             self.next_run = time.time()
 
+    @property
+    def received_sigterm(self):
+        with self._sigterm_lock:
+            return self._received_sigterm
+
     def run(self):
         self.api.start()
         self.next_run = time.time()
 
-        while not self._received_sigterm:
+        while not self.received_sigterm:
             if self._received_sighup:
                 self._received_sighup = False
                 if self.config.reload_local_configuration():
@@ -128,13 +134,18 @@ class Patroni(object):
             self.schedule_next_run()
 
     def setup_signal_handlers(self):
+        from threading import Lock
+
         self._received_sighup = False
+        self._sigterm_lock = Lock()
         self._received_sigterm = False
         if os.name != 'nt':
             signal.signal(signal.SIGHUP, self.sighup_handler)
         signal.signal(signal.SIGTERM, self.sigterm_handler)
 
     def shutdown(self):
+        with self._sigterm_lock:
+            self._received_sigterm = True
         try:
             self.api.shutdown()
         except Exception:
