@@ -190,7 +190,8 @@ class TestPostgresql(unittest.TestCase):
         if not os.path.exists(self.data_dir):
             os.makedirs(self.data_dir)
         self.p = Postgresql({'name': 'test0', 'scope': 'batman', 'data_dir': self.data_dir,
-                             'config_dir': self.config_dir, 'retry_timeout': 10, 'pgpass': os.path.join(gettempdir(), 'pgpass0'),
+                             'config_dir': self.config_dir, 'retry_timeout': 10,
+                             'pgpass': os.path.join(gettempdir(), 'pgpass0'),
                              'listen': '127.0.0.2, 127.0.0.3:5432', 'connect_address': '127.0.0.2:5432',
                              'authentication': {'superuser': {'username': 'test', 'password': 'test'},
                                                 'replication': {'username': 'replicator', 'password': 'rep-pass'}},
@@ -725,8 +726,8 @@ class TestPostgresql(unittest.TestCase):
             try:
                 os.symlink(src, dst)
             except OSError:
-                if os.name == 'nt': # os.symlink under Windows needs admin rights
-                    pass            # skip it
+                if os.name == 'nt':  # os.symlink under Windows needs admin rights skip it
+                    pass
         os.makedirs(os.path.join(self.data_dir, 'foo'))
         _symlink('foo', os.path.join(self.data_dir, 'pg_wal'))
         self.p.remove_data_directory()
