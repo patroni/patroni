@@ -175,6 +175,7 @@ class TestNullWatchdog(unittest.TestCase):
         self.assertEqual(watchdog.describe(), 'NullWatchdog')
         self.assertIsInstance(NullWatchdog.from_config({}), NullWatchdog)
 
+
 @unittest.skipIf(os.name == 'nt', "Windows not supported")
 class TestLinuxWatchdogDevice(unittest.TestCase):
 
