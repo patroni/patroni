@@ -87,7 +87,7 @@ class TestPatroni(unittest.TestCase):
         ref = {'passtochild': lambda signo, stack_frame: 0}
 
         def mock_sighup(signo, handler):
-            if signo == signal.SIGHUP:
+            if hasattr(signal, 'SIGHUP') and signo == signal.SIGHUP:
                 ref['passtochild'] = handler
 
         def mock_join():

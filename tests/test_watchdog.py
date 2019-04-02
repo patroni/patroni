@@ -2,6 +2,7 @@ import ctypes
 import patroni.watchdog.linux as linuxwd
 import sys
 import unittest
+import os
 
 from mock import patch, Mock, PropertyMock
 from patroni.watchdog import Watchdog, WatchdogError
@@ -61,6 +62,7 @@ def mock_close(fd):
     mock_devices[fd].open = False
 
 
+@unittest.skipIf(os.name == 'nt', "Windows not supported")
 @patch('os.open', mock_open)
 @patch('os.write', mock_write)
 @patch('os.close', mock_close)
@@ -174,6 +176,7 @@ class TestNullWatchdog(unittest.TestCase):
         self.assertIsInstance(NullWatchdog.from_config({}), NullWatchdog)
 
 
+@unittest.skipIf(os.name == 'nt', "Windows not supported")
 class TestLinuxWatchdogDevice(unittest.TestCase):
 
     def setUp(self):

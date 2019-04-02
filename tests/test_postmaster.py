@@ -6,6 +6,18 @@ from patroni.postmaster import PostmasterProcess
 from six.moves import builtins
 
 
+class MockProcess(object):
+    def __init__(self, target, args):
+        self.target = target
+        self.args = args
+
+    def start(self):
+        self.target(*self.args)
+
+    def join(self):
+        pass
+
+
 class TestPostmasterProcess(unittest.TestCase):
     @patch('psutil.Process.__init__', Mock())
     def test_init(self):
@@ -82,6 +94,8 @@ class TestPostmasterProcess(unittest.TestCase):
             self.assertIsNone(proc.wait_for_user_backends_to_close())
 
     @patch('subprocess.Popen')
+    @patch('os.setsid', Mock(), create=True)
+    @patch('multiprocessing.Process', MockProcess)
     @patch.object(PostmasterProcess, 'from_pid')
     @patch.object(PostmasterProcess, '_from_pidfile')
     def test_start(self, mock_frompidfile, mock_frompid, mock_popen):
