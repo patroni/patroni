@@ -93,7 +93,7 @@ class TestPostmasterProcess(unittest.TestCase):
 
     @patch('subprocess.Popen')
     @patch('os.setsid', Mock(), create=True)
-    @patch('multiprocessing.Process', MockProcess)    
+    @patch('multiprocessing.Process', MockProcess)
     @patch.object(PostmasterProcess, 'from_pid')
     @patch.object(PostmasterProcess, '_from_pidfile')
     def test_start(self, mock_frompidfile, mock_frompid, mock_popen):
