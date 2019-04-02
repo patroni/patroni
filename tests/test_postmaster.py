@@ -5,6 +5,7 @@ from mock import Mock, patch, mock_open
 from patroni.postmaster import PostmasterProcess
 from six.moves import builtins
 
+
 class MockProcess(object):
     def __init__(self, target, args):
         self.target = target
@@ -15,6 +16,7 @@ class MockProcess(object):
 
     def join(self):
         pass
+
 
 class TestPostmasterProcess(unittest.TestCase):
     @patch('psutil.Process.__init__', Mock())
