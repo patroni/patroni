@@ -17,9 +17,6 @@ class MockProcess(object):
     def join(self):
         pass
 
-if os.name == 'nt':
-    os.setsid = Mock()
-
 class TestPostmasterProcess(unittest.TestCase):
     @patch('psutil.Process.__init__', Mock())
     def test_init(self):
@@ -96,7 +93,7 @@ class TestPostmasterProcess(unittest.TestCase):
             self.assertIsNone(proc.wait_for_user_backends_to_close())
 
     @patch('subprocess.Popen')
-    @patch('os.setsid', Mock())
+    @patch('os.setsid', Mock(), create=True)
     @patch('multiprocessing.Process', MockProcess)    
     @patch.object(PostmasterProcess, 'from_pid')
     @patch.object(PostmasterProcess, '_from_pidfile')
