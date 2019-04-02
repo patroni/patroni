@@ -305,6 +305,7 @@ class Ha(object):
             timeout = None
 
         data = self.state_handler.controldata()
+        logger.info('pg_controldata:\n%s\n', '\n'.join('  {0}: {1}'.format(k, v) for k, v in data.items()))
         if data.get('Database cluster state') in ('in production', 'shutting down', 'in crash recovery') and \
                 not self._crash_recovery_executed and (self.cluster.is_unlocked() or self.state_handler.can_rewind):
             self._crash_recovery_executed = True
