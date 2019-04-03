@@ -3,6 +3,49 @@
 Release notes
 =============
 
+Version 1.5.6
+-------------
+
+**New features**
+
+- Support work with etcd cluster via set of proxies (Alexander Kukushkin)
+
+  It might happen that etcd cluster is not accessible directly but via set of proxies. In this case Patroni will not perform etcd topology discovery but just round-robin via proxy hosts. Behavior is controlled by `etcd.use_proxies`.
+
+- Changed callbacks behavior when role on the node is changed (Alexander)
+
+  If the role was changed from `master` or `standby_leader` to `replica` or from `replica` to `standby_leader`, `on_restart` callback will not be called anymore in favor of `on_role_change` callback.
+
+- Change the way how we start postgres (Alexander)
+
+  Use `multiprocessing.Process` instead of executing itself and `multiprocessing.Pipe` to transmit the postmaster pid to the Patroni process. Before that we were using pipes, what was leaving postmaster process with stdin closed.
+
+**Bug fixes**
+
+- Fix role returned by REST API for the standby leader (Alexander)
+
+  It was incorrectly returning `replica` instead of `standby_leader`
+
+- Wait for callback end if it could not be killed (Julien Tachoires)
+
+  Patroni doesn't have enough privileges to terminate the callback script running under `sudo` what was cancelling the new callback. If the running script could not be killed, Patroni will wait until it finishes and then run the next callback.
+
+- Reduce lock time taken by dcs.get_cluster method (Alexander)
+
+  Due to the lock being held DCS slowness was affecting the REST API health checks causing false positives.
+
+- Improve cleaning of PGDATA when `pg_wal`/`pg_xlog` is a symlink (Julien)
+
+  In this case Patroni will explicitly remove files from the target directory.
+
+- Remove unnecessary usage of os.path.relpath (Ants Aasma)
+
+  It depends on being able to resolve the working directory, what will fail if Patroni is started in a directory that is later unlinked from the filesystem.
+
+- Do not enforce ssl version when communicating with Etcd (Alexander)
+
+  For some unknown reason python3-etcd on debian and ubuntu are not based on the latest version of the package and therefore it enforces TLSv1 which is not supported by Etcd v3. We solved this problem on Patroni side.
+
 Version 1.5.5
 -------------
 
