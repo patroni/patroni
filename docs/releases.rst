@@ -28,7 +28,7 @@ Version 1.5.6
 
 - Wait for callback end if it could not be killed (Julien Tachoires)
 
-  Patroni doesn't have enough privileges to terminate the callback script running under `sudo` what was cancelling the new callback. Is the running script could not be killed Patroni will just wait until it finish and run the next callback.
+  Patroni doesn't have enough privileges to terminate the callback script running under `sudo` what was cancelling the new callback. If the running script could not be killed, Patroni will wait until it finishes and then run the next callback.
 
 - Reduce lock time taken by dcs.get_cluster method (Alexander)
 
