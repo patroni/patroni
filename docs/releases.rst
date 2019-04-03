@@ -22,7 +22,7 @@ Version 1.5.6
 
 **Bug fixes**
 
-- Fix role retuned by REST API for the standby leader (Alexander)
+- Fix role returned by REST API for the standby leader (Alexander)
 
   It was incorrectly returning `replica` instead of `standby_leader`
 
