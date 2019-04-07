@@ -134,7 +134,6 @@ class MockRestApiServer(RestApiServer):
     def __init__(self, Handler, request, config=None):
         self.socket = 0
         self.serve_forever = Mock()
-        BaseHTTPServer.HTTPServer.__init__ = Mock()
         MockRestApiServer._BaseServer__is_shut_down = Mock()
         MockRestApiServer._BaseServer__shutdown_request = True
         config = config or {'listen': '127.0.0.1:8008', 'auth': 'test:test', 'certfile': 'dumb'}
@@ -143,6 +142,7 @@ class MockRestApiServer(RestApiServer):
 
 
 @patch('ssl.wrap_socket', Mock(return_value=0))
+@patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
 class TestRestApiHandler(unittest.TestCase):
 
     _authorization = '\nAuthorization: Basic dGVzdDp0ZXN0'
@@ -392,6 +392,7 @@ class TestRestApiHandler(unittest.TestCase):
 
 
 @patch('ssl.wrap_socket', Mock(return_value=0))
+@patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
 class TestRestApiServer(unittest.TestCase):
 
     def test_reload_config(self):

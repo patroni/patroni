@@ -11,9 +11,27 @@ import sys
 from setuptools.command.test import test as TestCommand
 from setuptools import find_packages, setup
 
-if sys.version_info < (2, 7, 0):
-    sys.stderr.write('FATAL: patroni needs to be run with Python 2.7+\n')
+
+def fatal(string, *args):
+    sys.stderr.write('FATAL: ' + string.format(*args) + '\n')
     sys.exit(1)
+
+
+if sys.version_info < (2, 7, 0):
+    fatal('patroni needs to be run with Python 2.7+')
+
+
+min_psycopg2 = (2, 5, 4)
+min_psycopg2_str = '.'.join(map(str, min_psycopg2))
+
+try:
+    import psycopg2
+    version_str = psycopg2.__version__.split(' ')[0]
+    version = tuple(map(int, version_str.split('.')))
+    if version < min_psycopg2:
+        fatal('Patroni requires psycopg2>={0}, but only {1} is available', min_psycopg2_str, version_str)
+except ImportError:
+    fatal('psycopg2>={0} or psycopg2-binary must be installed before Patroni', min_psycopg2_str)
 
 __location__ = os.path.join(os.getcwd(), os.path.dirname(inspect.getfile(inspect.currentframe())))
 
@@ -126,9 +144,6 @@ def setup_package():
     # Assemble additional setup commands
     cmdclass = {'test': PyTest}
 
-    # Some helper variables
-    version = os.getenv('GO_PIPELINE_LABEL', VERSION)
-
     install_requires = []
     extras_require = {'aws': ['boto'], 'etcd': ['python-etcd'], 'consul': ['python-consul'],
                       'exhibitor': ['kazoo'], 'zookeeper': ['kazoo'], 'kubernetes': ['kubernetes']}
@@ -152,7 +167,7 @@ def setup_package():
 
     setup(
         name=NAME,
-        version=version,
+        version=VERSION,
         url=URL,
         author=AUTHOR,
         author_email=AUTHOR_EMAIL,
