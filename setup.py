@@ -11,36 +11,28 @@ import sys
 from setuptools.command.test import test as TestCommand
 from setuptools import find_packages, setup
 
-
-def fatal(string, *args):
-    sys.stderr.write('FATAL: ' + string.format(*args) + '\n')
-    sys.exit(1)
-
-
-if sys.version_info < (2, 7, 0):
-    fatal('patroni needs to be run with Python 2.7+')
-
-
-min_psycopg2 = (2, 5, 4)
-min_psycopg2_str = '.'.join(map(str, min_psycopg2))
-
-try:
-    import psycopg2
-    version_str = psycopg2.__version__.split(' ')[0]
-    version = tuple(map(int, version_str.split('.')))
-    if version < min_psycopg2:
-        fatal('Patroni requires psycopg2>={0}, but only {1} is available', min_psycopg2_str, version_str)
-except ImportError:
-    fatal('psycopg2>={0} or psycopg2-binary must be installed before Patroni', min_psycopg2_str)
-
 __location__ = os.path.join(os.getcwd(), os.path.dirname(inspect.getfile(inspect.currentframe())))
+
+
+def read(fname):
+    with open(os.path.join(__location__, fname)) as fd:
+        return fd.read()
 
 
 def read_version(package):
     data = {}
-    with open(os.path.join(package, 'version.py'), 'r') as fd:
-        exec(fd.read(), data)
+    exec(read(os.path.join(package, 'version.py')), data)
     return data['__version__']
+
+
+def check_requirements(package):
+    helpers = {}
+    exec(read(os.path.join(package, '__init__.py')), helpers)
+
+    if sys.version_info < (2, 7, 0):
+        helpers['fatal']('patroni needs to be run with Python 2.7+')
+
+    helpers['check_psycopg2']()
 
 
 NAME = 'patroni'
@@ -131,15 +123,6 @@ class PyTest(TestCommand):
         sys.exit(errno)
 
 
-def get_install_requirements(path):
-    content = open(os.path.join(__location__, path)).read()
-    return [req for req in content.split('\n') if req != '']
-
-
-def read(fname):
-    return open(os.path.join(__location__, fname)).read()
-
-
 def setup_package():
     # Assemble additional setup commands
     cmdclass = {'test': PyTest}
@@ -148,7 +131,10 @@ def setup_package():
     extras_require = {'aws': ['boto'], 'etcd': ['python-etcd'], 'consul': ['python-consul'],
                       'exhibitor': ['kazoo'], 'zookeeper': ['kazoo'], 'kubernetes': ['kubernetes']}
 
-    for r in get_install_requirements('requirements.txt'):
+    for r in read('requirements.txt').split('\n'):
+        r = r.strip()
+        if r == '':
+            continue
         extra = False
         for e, v in extras_require.items():
             if r.startswith(v[0]):
@@ -189,4 +175,5 @@ def setup_package():
 
 
 if __name__ == '__main__':
+    check_requirements(MAIN_PACKAGE)
     setup_package()
