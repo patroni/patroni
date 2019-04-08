@@ -625,6 +625,7 @@ def _do_failover_or_switchover(obj, action, cluster_name, master, candidate, for
         raise PatroniCtlException('Member {0} does not exist in cluster {1}'.format(candidate, cluster_name))
 
     scheduled_at_str = None
+    scheduled_at = None
 
     if action == 'switchover':
         if scheduled is None and not force:
