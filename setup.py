@@ -8,37 +8,22 @@ import inspect
 import os
 import sys
 
+from patroni import check_psycopg2, fatal
+from patroni.version import __version__ as VERSION
 from setuptools.command.test import test as TestCommand
 from setuptools import find_packages, setup
 
+if sys.version_info < (2, 7, 0):
+    fatal('patroni needs to be run with Python 2.7+')
+check_psycopg2()
+del sys.modules['patroni']
+del sys.modules['patroni.version']
+
 __location__ = os.path.join(os.getcwd(), os.path.dirname(inspect.getfile(inspect.currentframe())))
-
-
-def read(fname):
-    with open(os.path.join(__location__, fname)) as fd:
-        return fd.read()
-
-
-def read_version(package):
-    data = {}
-    exec(read(os.path.join(package, 'version.py')), data)
-    return data['__version__']
-
-
-def check_requirements(package):
-    helpers = {}
-    exec(read(os.path.join(package, '__init__.py')), helpers)
-
-    if sys.version_info < (2, 7, 0):
-        helpers['fatal']('patroni needs to be run with Python 2.7+')
-
-    helpers['check_psycopg2']()
-
 
 NAME = 'patroni'
 MAIN_PACKAGE = NAME
 SCRIPTS = 'scripts'
-VERSION = read_version(MAIN_PACKAGE)
 DESCRIPTION = 'PostgreSQL High-Available orchestrator and CLI'
 LICENSE = 'The MIT License'
 URL = 'https://github.com/zalando/patroni'
@@ -123,6 +108,11 @@ class PyTest(TestCommand):
         sys.exit(errno)
 
 
+def read(fname):
+    with open(os.path.join(__location__, fname)) as fd:
+        return fd.read()
+
+
 def setup_package():
     # Assemble additional setup commands
     cmdclass = {'test': PyTest}
@@ -175,5 +165,4 @@ def setup_package():
 
 
 if __name__ == '__main__':
-    check_requirements(MAIN_PACKAGE)
     setup_package()
