@@ -887,6 +887,7 @@ class Postgresql(object):
 
         if self.is_running():
             logger.error('Cannot start PostgreSQL because one is already running.')
+            self.set_state('starting')
             return True
 
         if not block_callbacks:
@@ -1118,12 +1119,8 @@ class Postgresql(object):
             f.write(self._CONFIG_WARNING_HEADER)
             f.write("include '{0}'\n\n".format(self.config.get('custom_conf') or self._postgresql_base_conf_name))
             for name, value in sorted((configuration or self._server_parameters).items()):
-                if not self._running_custom_bootstrap or name not in ('hba_file', 'archive_mode'):
+                if not self._running_custom_bootstrap or name != 'hba_file':
                     f.write("{0} = '{1}'\n".format(name, value))
-            # we want to set archive_mode to 'off' during the custom bootstrap
-            # in order to avoid premature archiving of wals and history files
-            if self._running_custom_bootstrap:
-                f.write("archive_mode = 'off'\n")
             # when we are doing custom bootstrap we assume that we don't know superuser password
             # and in order to be able to change it, we are opening trust access from a certain address
             # therefore we need to make sure that hba_file is not overriden
@@ -1712,11 +1709,20 @@ $$""".format(name, ' '.join(options)), name, password, password)
                         os.unlink(self._pg_hba_conf)
                         self.restore_configuration_files()
                     self._write_postgresql_conf()
-                    self._replace_pg_hba()
                     # at this point there should be no recovery.conf
                     if os.path.isfile(self._recovery_conf) or os.path.islink(self._recovery_conf):
                         os.unlink(self._recovery_conf)
-                    self.restart()
+                    if self._server_parameters.get('hba_file') and \
+                            self._server_parameters['hba_file'] != self._pg_hba_conf:
+                        self.restart()
+                    else:
+                        self._replace_pg_hba()
+                        if self.pending_restart:
+                            self.restart()
+                        else:
+                            self.reload()
+                            time.sleep(1)  # give a time to postgres to "reload" configuration files
+                            self.close_connection()  # close connection to reconnect with a new password
         except Exception:
             logger.exception('post_bootstrap')
             task.complete(False)
