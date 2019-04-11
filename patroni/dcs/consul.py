@@ -131,14 +131,14 @@ class ConsulClient(base.Consul):
             kwargs['cert'] = self._cert
         if self._ca_cert:
             kwargs['ca_cert'] = self._ca_cert
-        if self._token:
-            kwargs['token'] = self._token
+        if self.token:
+            kwargs['token'] = self.token
         return HTTPClient(**kwargs)
 
     def set_token(self, token):
-        if token:
-            self.token = token
-            self.http.token = self.token
+        self.token = token
+        self.http.token = self.token
+
 
 def catch_consul_errors(func):
     def wrapper(*args, **kwargs):
