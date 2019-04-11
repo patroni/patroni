@@ -232,6 +232,9 @@ class Consul(AbstractDCS):
                 logger.info('waiting on consul')
                 time.sleep(5)
 
+    def reload_config(self, config):
+        self.token = config['token']
+
     def set_ttl(self, ttl):
         if self._client.http.set_ttl(ttl/2.0):  # Consul multiplies the TTL by 2x
             self._session = None
