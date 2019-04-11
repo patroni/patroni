@@ -122,7 +122,7 @@ class ConsulClient(base.Consul):
     def __init__(self, *args, **kwargs):
         self._cert = kwargs.pop('cert', None)
         self._ca_cert = kwargs.pop('ca_cert', None)
-        self._token = kwargs.get('token')
+        self.token = kwargs.get('token')
         super(ConsulClient, self).__init__(*args, **kwargs)
 
     def connect(self, *args, **kwargs):
@@ -136,8 +136,9 @@ class ConsulClient(base.Consul):
         return HTTPClient(**kwargs)
 
     def set_token(self, token):
-        self._token = token
-        self._client.http.token = self._token
+        if token:
+            self.token = token
+            self.http.token = self.token
 
 def catch_consul_errors(func):
     def wrapper(*args, **kwargs):
@@ -236,9 +237,7 @@ class Consul(AbstractDCS):
                 time.sleep(5)
 
     def reload_config(self, config):
-        if config['token']:
-            self._client.set_token(config['token'])
-
+        self._client.set_token(config.get('token'))
         super(Consul, self).reload_config(config)
 
     def set_ttl(self, ttl):
