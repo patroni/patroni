@@ -159,8 +159,9 @@ rules:
   - patch
   - update
   - watch
-  # delete is required only for 'patronictl remove'
+  # delete and deletecollection are required only for 'patronictl remove'
   - delete
+  - deletecollection
 - apiGroups:
   - ""
   resources:
@@ -173,8 +174,9 @@ rules:
   - create
   - list
   - watch
-  # delete is required only for for 'patronictl remove'
+  # delete and deletecollection are required only for for 'patronictl remove'
   - delete
+  - deletecollection
 - apiGroups:
   - ""
   resources:
