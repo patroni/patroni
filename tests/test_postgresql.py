@@ -397,6 +397,14 @@ class TestPostgresql(unittest.TestCase):
             self.p.config['remove_data_directory_on_rewind_failure'] = False
             self.p.trigger_check_diverged_lsn()
             self.p.rewind(self.leader)
+
+        self.leader.member.data.update(version='1.5.7', checkpoint_after_promote=False)
+        self.assertIsNone(self.p.rewind(self.leader))
+
+        self.leader.member.data['checkpoint_after_promote'] = True
+        with patch.object(Postgresql, 'check_leader_is_not_in_recovery', Mock(return_value=False)):
+            self.assertIsNone(self.p.rewind(self.leader))
+
         with patch.object(Postgresql, 'is_running', Mock(return_value=True)):
             self.p.rewind(self.leader)
             self.p.is_leader = Mock(return_value=False)
@@ -662,7 +670,7 @@ class TestPostgresql(unittest.TestCase):
     @patch.object(Postgresql, 'run_bootstrap_post_init', Mock(return_value=True))
     @patch.object(Postgresql, '_custom_bootstrap', Mock(return_value=True))
     @patch.object(Postgresql, 'start', Mock(return_value=True))
-    @patch.object(Postgresql, 'get_major_version', Mock(return_value=90600))
+    @patch.object(Postgresql, 'get_major_version', Mock(return_value=110000))
     def test_post_bootstrap(self):
         config = {'method': 'foo', 'foo': {'command': 'bar'}}
         self.p.bootstrap(config)
@@ -685,7 +693,8 @@ class TestPostgresql(unittest.TestCase):
         self.p.bootstrap(config)
         self.p.set_state('stopped')
         self.p.reload_config({'authentication': {'superuser': {'username': 'p', 'password': 'p'},
-                                                 'replication': {'username': 'r', 'password': 'r'}},
+                                                 'replication': {'username': 'r', 'password': 'r'},
+                                                 'rewind': {'username': 'rw', 'password': 'rw'}},
                               'listen': '*', 'retry_timeout': 10, 'parameters': {'wal_level': '', 'hba_file': 'foo'}})
         with patch.object(Postgresql, 'restart', Mock()) as mock_restart:
             self.p.post_bootstrap({}, task)
@@ -1039,3 +1048,7 @@ class TestPostgresql(unittest.TestCase):
             self.p.cancel()
             self.assertFalse(self.p.start())
             self.assertTrue(self.p.pending_restart)
+
+    @patch.object(Postgresql, 'controldata', Mock(return_value={"Latest checkpoint's TimeLineID": 1}))
+    def test_check_for_checkpoint_after_promote(self):
+        self.p.check_for_checkpoint_after_promote()

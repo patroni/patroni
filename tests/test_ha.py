@@ -119,6 +119,7 @@ zookeeper:
 
         self.config = Config()
         self.config.set_dynamic_configuration({'maximum_lag_on_failover': 5})
+        self.version = '1.5.7'
         self.postgresql = p
         self.dcs = d
         self.api = Mock()

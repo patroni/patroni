@@ -84,6 +84,9 @@ postgresql:
     superuser:
       username: postgres
       password: zalando
+    rewind:  # Has no effect on postgres 10 and lower
+      username: rewind_user
+      password: rewind_password
   parameters:
     unix_socket_directories: '.'
 

@@ -38,7 +38,8 @@ STATE_NO_RESPONSE = 'not responding'
 STATE_UNKNOWN = 'unknown'
 
 STOP_POLLING_INTERVAL = 1
-REWIND_STATUS = type('Enum', (), {'INITIAL': 0, 'CHECK': 1, 'NEED': 2, 'NOT_NEED': 3, 'SUCCESS': 4, 'FAILED': 5})
+REWIND_STATUS = type('Enum', (), {'INITIAL': 0, 'CHECKPOINT': 1, 'CHECK': 2, 'NEED': 3,
+                                  'NOT_NEED': 4, 'SUCCESS': 5, 'FAILED': 6})
 sync_standby_name_re = re.compile(r'^[A-Za-z_][A-Za-z_0-9\$]*$')
 
 cluster_info_query = ("SELECT CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
@@ -195,6 +196,11 @@ class Postgresql(object):
     @property
     def _replication(self):
         return self.config['authentication']['replication']
+
+    @property
+    def _rewind_credentials(self):
+        return self.config['authentication'].get('rewind', self._superuser) \
+                if self._major_version >= 110000 else self._superuser
 
     @property
     def callback(self):
@@ -1036,6 +1042,18 @@ class Postgresql(object):
             self.call_nowait(ACTION_ON_RELOAD)
         return ret
 
+    def check_for_checkpoint_after_promote(self):
+        if self._rewind_state == REWIND_STATUS.INITIAL and self.is_leader():
+            try:
+                timeline = int(self.controldata().get("Latest checkpoint's TimeLineID"))
+                if self.get_master_timeline() == timeline:
+                    self._rewind_state = REWIND_STATUS.CHECKPOINT
+            except (TypeError, ValueError):
+                logger.exception('Failed to parse timeline from pg_controldata output')
+
+    def checkpoint_after_promote(self):
+        return self._rewind_state == REWIND_STATUS.CHECKPOINT
+
     def check_for_startup(self):
         """Checks PostgreSQL status and returns if PostgreSQL is in the middle of startup."""
         return self.is_starting() and not self.check_startup_state_changed()
@@ -1332,7 +1350,7 @@ class Postgresql(object):
             if leader.member.data.get('role') != 'master':
                 return
         # standby cluster
-        elif not self.check_leader_is_not_in_recovery(**leader.conn_kwargs(self._superuser)):
+        elif not self.check_leader_is_not_in_recovery(**leader.conn_kwargs(self._replication)):
             return
 
         history = need_rewind = None
@@ -1396,14 +1414,21 @@ class Postgresql(object):
             return logger.warning('Can not run pg_rewind because postgres is still running')
 
         # prepare pg_rewind connection
-        r = leader.conn_kwargs(self._superuser)
+        r = leader.conn_kwargs(self._rewind_credentials)
 
-        # first make sure that we are really trying to rewind
-        # from the master and run a checkpoint on it in order to
-        # make it store the new timeline (5540277D.8020309@iki.fi)
-        leader_status = self.checkpoint(r)
-        if leader_status:
-            return logger.warning('Can not use %s for rewind: %s', leader.name, leader_status)
+        # 1. make sure that we are really trying to rewind from the master
+        # 2. make sure that pg_control contains the new timeline by:
+        #   running a checkpoint or
+        #   waiting until Patroni on the master will expose checkpoint_after_promote=True
+        checkpoint_status = leader.checkpoint_after_promote if isinstance(leader, Leader) else None
+        if checkpoint_status is None:  # master still runs the old Patroni
+            leader_status = self.checkpoint(leader.conn_kwargs(self._superuser))
+            if leader_status:
+                return logger.warning('Can not use %s for rewind: %s', leader.name, leader_status)
+        elif not checkpoint_status:
+            return logger.info('Waiting for checkpoint on %s before rewind', leader.name)
+        elif not self.check_leader_is_not_in_recovery(**r):
+            return
 
         if self.pg_rewind(r):
             self._rewind_state = REWIND_STATUS.SUCCESS
@@ -1699,6 +1724,14 @@ $$""".format(name, ' '.join(options)), name, password, password)
             if task.result:
                 self.create_or_update_role(self._replication['username'],
                                            self._replication['password'], ['REPLICATION'])
+
+                if self._major_version >= 110000 and 'rewind' in self.config['authentication']:
+                    rewind = self.config['authentication']['rewind']
+                    self.create_or_update_role(rewind['username'], rewind['password'], [])
+                    for f in ('pg_ls_dir(text, boolean, boolean)', 'pg_stat_file(text, boolean)',
+                              'pg_read_binary_file(text)', 'pg_read_binary_file(text, bigint, bigint, boolean)'):
+                        self.query('GRANT EXECUTE ON function pg_catalog.{0} TO "{1}"'.format(f, rewind['username']))
+
                 for name, value in (config.get('users') or {}).items():
                     if name not in (self._superuser.get('username'), self._replication['username']):
                         self.create_or_update_role(name, value['password'], value.get('options', []))
