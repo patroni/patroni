@@ -200,6 +200,7 @@ class TestPostgresql(unittest.TestCase):
                              'parameters': self._PARAMETERS,
                              'recovery_conf': {'foo': 'bar'},
                              'pg_hba': ['host all all 0.0.0.0/0 md5'],
+                             'pg_ident': ['krb realm postgres'],
                              'callbacks': {'on_start': 'true', 'on_stop': 'true', 'on_reload': 'true',
                                            'on_restart': 'true', 'on_role_change': 'true'}})
         self.p._callback_executor = Mock()
@@ -785,7 +786,7 @@ class TestPostgresql(unittest.TestCase):
     def test_reload_config(self):
         parameters = self._PARAMETERS.copy()
         parameters.pop('f.oo')
-        config = {'pg_hba': [''], 'use_unix_socket': True, 'authentication': {},
+        config = {'pg_hba': [''], 'pg_ident': [''], 'use_unix_socket': True, 'authentication': {},
                   'retry_timeout': 10, 'listen': '*', 'parameters': parameters}
         self.p.reload_config(config)
         parameters['b.ar'] = 'bar'
