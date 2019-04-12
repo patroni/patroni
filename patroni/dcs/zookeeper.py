@@ -274,7 +274,10 @@ class ZooKeeper(AbstractDCS):
         cluster = self.cluster
         member = cluster and cluster.get_member(self._name, fallback_to_leader=False)
         encoded_data = json.dumps(data, separators=(',', ':')).encode('utf-8')
-        if member and self._client.client_id is not None and member.session != self._client.client_id[0]:
+        if member and (self._client.client_id is not None and member.session != self._client.client_id[0] or
+                       not (deep_compare(member.data.get('tags', {}), data.get('tags', {})) and
+                            member.data.get('version') == data.get('version') and
+                            member.data.get('checkpoint_after_promote') == data.get('checkpoint_after_promote'))):
             try:
                 self._client.delete_async(self.member_path).get(timeout=1)
             except NoNodeError:
