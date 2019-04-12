@@ -24,8 +24,6 @@ class CallbackExecutor(Thread):
                     logger.warning('Killed the old callback process because it was still running: %s', self._cmd)
                 except OSError:
                     logger.exception('Failed to kill the old callback')
-                    logger.warning('Wait until callback end')
-                    self._process.wait()
         self._cmd = cmd
         self._callback_event.set()
 
