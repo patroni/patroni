@@ -237,7 +237,10 @@ class Consul(AbstractDCS):
                 time.sleep(5)
 
     def reload_config(self, config):
-        self._client.set_token(config.get('token'))
+        consul = config.get('consul')
+        if consul:
+            self._client.set_token(consul.get('token'))
+
         super(Consul, self).reload_config(config)
 
     def set_ttl(self, ttl):
