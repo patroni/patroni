@@ -141,7 +141,8 @@ class MockRestApiServer(RestApiServer):
         Handler(MockRequest(request), ('0.0.0.0', 8080), self)
 
 
-@patch('ssl.wrap_socket', Mock(return_value=0))
+@patch('ssl.SSLContext.load_cert_chain', Mock())
+@patch('ssl.SSLContext.wrap_socket', Mock(return_value=0))
 @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
 class TestRestApiHandler(unittest.TestCase):
 
@@ -391,7 +392,8 @@ class TestRestApiHandler(unittest.TestCase):
         MockRestApiServer(RestApiHandler, post + '37\n\n{"candidate":"2","scheduled_at": "1"}')
 
 
-@patch('ssl.wrap_socket', Mock(return_value=0))
+@patch('ssl.SSLContext.load_cert_chain', Mock())
+@patch('ssl.SSLContext.wrap_socket', Mock(return_value=0))
 @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
 class TestRestApiServer(unittest.TestCase):
 

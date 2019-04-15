@@ -542,7 +542,9 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         # Sometime it's also needed to pass reference to a 'keyfile'.
         if self.__ssl_options.get('certfile'):
             import ssl
-            self.socket = ssl.wrap_socket(self.socket, server_side=True, **self.__ssl_options)
+            ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+            ctx.load_cert_chain(**self.__ssl_options)
+            self.socket = ctx.wrap_socket(self.socket, server_side=True)
             self.__protocol = 'https'
         return True
 
