@@ -8,27 +8,22 @@ import inspect
 import os
 import sys
 
+from patroni import check_psycopg2, fatal
+from patroni.version import __version__ as VERSION
 from setuptools.command.test import test as TestCommand
 from setuptools import find_packages, setup
 
 if sys.version_info < (2, 7, 0):
-    sys.stderr.write('FATAL: patroni needs to be run with Python 2.7+\n')
-    sys.exit(1)
+    fatal('patroni needs to be run with Python 2.7+')
+check_psycopg2()
+del sys.modules['patroni']
+del sys.modules['patroni.version']
 
 __location__ = os.path.join(os.getcwd(), os.path.dirname(inspect.getfile(inspect.currentframe())))
-
-
-def read_version(package):
-    data = {}
-    with open(os.path.join(package, 'version.py'), 'r') as fd:
-        exec(fd.read(), data)
-    return data['__version__']
-
 
 NAME = 'patroni'
 MAIN_PACKAGE = NAME
 SCRIPTS = 'scripts'
-VERSION = read_version(MAIN_PACKAGE)
 DESCRIPTION = 'PostgreSQL High-Available orchestrator and CLI'
 LICENSE = 'The MIT License'
 URL = 'https://github.com/zalando/patroni'
@@ -113,27 +108,23 @@ class PyTest(TestCommand):
         sys.exit(errno)
 
 
-def get_install_requirements(path):
-    content = open(os.path.join(__location__, path)).read()
-    return [req for req in content.split('\n') if req != '']
-
-
 def read(fname):
-    return open(os.path.join(__location__, fname)).read()
+    with open(os.path.join(__location__, fname)) as fd:
+        return fd.read()
 
 
 def setup_package():
     # Assemble additional setup commands
     cmdclass = {'test': PyTest}
 
-    # Some helper variables
-    version = os.getenv('GO_PIPELINE_LABEL', VERSION)
-
     install_requires = []
     extras_require = {'aws': ['boto'], 'etcd': ['python-etcd'], 'consul': ['python-consul'],
                       'exhibitor': ['kazoo'], 'zookeeper': ['kazoo'], 'kubernetes': ['kubernetes']}
 
-    for r in get_install_requirements('requirements.txt'):
+    for r in read('requirements.txt').split('\n'):
+        r = r.strip()
+        if r == '':
+            continue
         extra = False
         for e, v in extras_require.items():
             if r.startswith(v[0]):
@@ -152,7 +143,7 @@ def setup_package():
 
     setup(
         name=NAME,
-        version=version,
+        version=VERSION,
         url=URL,
         author=AUTHOR,
         author_email=AUTHOR_EMAIL,

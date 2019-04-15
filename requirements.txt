@@ -1,6 +1,5 @@
 urllib3>=1.19.1,!=1.21
 boto
-psycopg2>=2.5.4
 PyYAML
 requests
 six >= 1.7

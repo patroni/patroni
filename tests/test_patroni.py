@@ -1,4 +1,5 @@
 import etcd
+import psycopg2
 import signal
 import sys
 import time
@@ -9,8 +10,8 @@ from patroni.api import RestApiServer
 from patroni.async_executor import AsyncExecutor
 from patroni.dcs.etcd import Client
 from patroni.exceptions import DCSError
-from patroni import Patroni, main as _main, patroni_main
-from six.moves import BaseHTTPServer
+from patroni import Patroni, main as _main, patroni_main, check_psycopg2
+from six.moves import BaseHTTPServer, builtins
 from test_etcd import SleepException, etcd_read, etcd_write
 from test_postgresql import Postgresql, psycopg2_connect, MockPostmaster
 
@@ -36,6 +37,7 @@ class TestPatroni(unittest.TestCase):
 
     @patch('pkgutil.get_importer', Mock(return_value=MockFrozenImporter()))
     @patch('sys.frozen', Mock(return_value=True), create=True)
+    @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
     @patch.object(etcd.Client, 'read', etcd_read)
     def setUp(self):
         RestApiServer._BaseServer__is_shut_down = Mock()
@@ -153,3 +155,9 @@ class TestPatroni(unittest.TestCase):
     def test_shutdown(self):
         self.p.api.shutdown = Mock(side_effect=Exception)
         self.p.shutdown()
+
+    def test_check_psycopg2(self):
+        with patch.object(builtins, '__import__', Mock(side_effect=ImportError)):
+            self.assertRaises(SystemExit, check_psycopg2)
+        with patch.object(psycopg2, '__version__', return_value='2.5.3 a b c'):
+            self.assertRaises(SystemExit, check_psycopg2)
