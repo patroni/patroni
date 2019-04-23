@@ -130,6 +130,7 @@ class Postgresql(object):
         self._postgresql_base_conf_name = config_base_name + '.base.conf'
         self._postgresql_base_conf = os.path.join(self._config_dir, self._postgresql_base_conf_name)
         self._pg_hba_conf = os.path.join(self._config_dir, 'pg_hba.conf')
+        self._pg_ident_conf = os.path.join(self._config_dir, 'pg_ident.conf')
         self._recovery_conf = os.path.join(self._data_dir, 'recovery.conf')
         self._trigger_file = config.get('recovery_conf', {}).get('trigger_file') or 'promote'
         self._trigger_file = os.path.abspath(os.path.join(self._data_dir, self._trigger_file))
@@ -167,7 +168,7 @@ class Postgresql(object):
             self.set_state('running')
             self.set_role('master' if self.is_leader() else 'replica')
             self._write_postgresql_conf()  # we are "joining" already running postgres
-            if self._replace_pg_hba():
+            if self._replace_pg_hba() or self._replace_pg_ident():
                 self.reload()
         elif self.role == 'master':
             self.set_role('demoted')
@@ -303,7 +304,7 @@ class Postgresql(object):
         self._superuser = config['authentication'].get('superuser', {})
         server_parameters = self.get_server_parameters(config)
 
-        conf_changed = hba_changed = local_connection_address_changed = pending_restart = False
+        conf_changed = hba_changed = ident_changed = local_connection_address_changed = pending_restart = False
         if self.state == 'running':
             changes = CaseInsensitiveDict({p: v for p, v in server_parameters.items() if '.' not in p})
             changes.update({p: None for p in self._server_parameters.keys() if not ('.' in p or p in changes)})
@@ -356,6 +357,9 @@ class Postgresql(object):
             if not server_parameters.get('hba_file') and config.get('pg_hba'):
                 hba_changed = self.config.get('pg_hba', []) != config['pg_hba']
 
+            if not server_parameters.get('ident_file') and config.get('pg_ident'):
+                ident_changed = self.config.get('pg_ident', []) != config['pg_ident']
+
         self.config = config
         self._pending_restart = pending_restart
         self._server_parameters = server_parameters
@@ -370,7 +374,10 @@ class Postgresql(object):
         if hba_changed:
             self._replace_pg_hba()
 
-        if conf_changed or hba_changed:
+        if ident_changed:
+            self._replace_pg_ident()
+
+        if conf_changed or hba_changed or ident_changed:
             logger.info('PostgreSQL configuration items changed, reloading configuration.')
             self.reload()
         elif not pending_restart:
@@ -902,6 +909,7 @@ class Postgresql(object):
         self._write_postgresql_conf(configuration)
         self.resolve_connection_addresses()
         self._replace_pg_hba()
+        self._replace_pg_ident()
 
         options = ['--{0}={1}'.format(p, configuration[p]) for p in self.CMDLINE_OPTIONS
                    if p in configuration and p != 'wal_keep_segments']
@@ -1128,8 +1136,7 @@ class Postgresql(object):
             if self._running_custom_bootstrap or 'hba_file' not in self._server_parameters:
                 f.write("hba_file = '{0}'\n".format(self._pg_hba_conf.replace('\\', '\\\\')))
             if 'ident_file' not in self._server_parameters:
-                s = "ident_file = '{0}'\n".format(os.path.join(self._config_dir, 'pg_ident.conf').replace('\\', '\\\\'))
-                f.write(s)
+                f.write("ident_file = '{0}'\n".format(self._pg_ident_conf.replace('\\', '\\\\')))
 
     def is_healthy(self):
         if not self.is_running():
@@ -1137,7 +1144,7 @@ class Postgresql(object):
             return False
         return True
 
-    def write_pg_hba(self, config):
+    def append_pg_hba(self, config):
         if not self._server_parameters.get('hba_file') and not self.config.get('pg_hba'):
             with open(self._pg_hba_conf, 'a') as f:
                 f.write('\n{}\n'.format('\n'.join(config)))
@@ -1171,6 +1178,21 @@ class Postgresql(object):
             with open(self._pg_hba_conf, 'w') as f:
                 f.write(self._CONFIG_WARNING_HEADER)
                 for line in self.config['pg_hba']:
+                    f.write('{0}\n'.format(line))
+            return True
+
+    def _replace_pg_ident(self):
+        """
+        Replace pg_ident.conf content in the PGDATA if ident_file is not defined in the
+        `postgresql.parameters` and pg_ident is defined in the `postgresql` section.
+
+        :returns: True if pg_ident.conf was rewritten.
+        """
+
+        if not self._server_parameters.get('ident_file') and self.config.get('pg_ident'):
+            with open(self._pg_ident_conf, 'w') as f:
+                f.write(self._CONFIG_WARNING_HEADER)
+                for line in self.config['pg_ident']:
                     f.write('{0}\n'.format(line))
             return True
 
@@ -1684,7 +1706,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
             config = config[method]
         else:
             do_initialize = self._initdb
-        return do_initialize(config) and self.write_pg_hba(pg_hba) and self.save_configuration_files() \
+        return do_initialize(config) and self.append_pg_hba(pg_hba) and self.save_configuration_files() \
             and self._configure_server_parameters() and self.start()
 
     def post_bootstrap(self, config, task):
@@ -1709,6 +1731,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
                         os.unlink(self._pg_hba_conf)
                         self.restore_configuration_files()
                     self._write_postgresql_conf()
+                    self._replace_pg_ident()
                     # at this point there should be no recovery.conf
                     if os.path.isfile(self._recovery_conf) or os.path.islink(self._recovery_conf):
                         os.unlink(self._recovery_conf)
