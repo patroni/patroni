@@ -164,7 +164,27 @@ def patroni_main():
         logging.shutdown()
 
 
+def fatal(string, *args):
+    sys.stderr.write('FATAL: ' + string.format(*args) + '\n')
+    sys.exit(1)
+
+
+def check_psycopg2():
+    min_psycopg2 = (2, 5, 4)
+    min_psycopg2_str = '.'.join(map(str, min_psycopg2))
+
+    try:
+        import psycopg2
+        version_str = psycopg2.__version__.split(' ')[0]
+        version = tuple(map(int, version_str.split('.')))
+        if version < min_psycopg2:
+            fatal('Patroni requires psycopg2>={0}, but only {1} is available', min_psycopg2_str, version_str)
+    except ImportError:
+        fatal('Patroni requires psycopg2>={0} or psycopg2-binary', min_psycopg2_str)
+
+
 def main():
+    check_psycopg2()
     if os.getpid() != 1:
         return patroni_main()
 

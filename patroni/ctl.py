@@ -14,7 +14,6 @@ import io
 import json
 import logging
 import os
-import psycopg2
 import random
 import requests
 import subprocess
@@ -246,6 +245,7 @@ def get_cursor(cluster, connect_parameters, role='master', member=None):
     else:
         params.pop('database')
 
+    import psycopg2
     conn = psycopg2.connect(**params)
     conn.autocommit = True
     cursor = conn.cursor()
@@ -380,6 +380,7 @@ def query(
 
 
 def query_member(cluster, cursor, member, role, command, connect_parameters):
+    import psycopg2
     try:
         if cursor is None:
             cursor = get_cursor(cluster, connect_parameters, role=role, member=member)

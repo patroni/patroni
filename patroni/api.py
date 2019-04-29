@@ -85,19 +85,22 @@ class RestApiHandler(BaseHTTPRequestHandler):
         patroni = self.server.patroni
         cluster = patroni.dcs.cluster
 
+        if not cluster and patroni.ha.is_paused():
+            primary_status_code = 200 if response['role'] == 'master' else 503
+        else:
+            primary_status_code = 200 if patroni.ha.is_leader() else 503
+
         replica_status_code = 200 if not patroni.noloadbalance and response.get('role') == 'replica' else 503
         status_code = 503
 
         if patroni.ha.is_standby_cluster() and ('standby_leader' in path or 'standby-leader' in path):
             status_code = 200 if patroni.ha.is_leader() else 503
-        elif 'master' in path or 'leader' in path or 'primary' in path:
-            # Round-robing across all masters in pause mode if DCS is not accessible
-            if not cluster and patroni.ha.is_paused():
-                status_code = 200 if response['role'] == 'master' else 503
-            else:
-                status_code = 200 if patroni.ha.is_leader() else 503
+        elif 'master' in path or 'leader' in path or 'primary' in path or 'read-write' in path:
+            status_code = primary_status_code
         elif 'replica' in path:
             status_code = replica_status_code
+        elif 'read-only' in path:
+            status_code = 200 if primary_status_code == 200 else replica_status_code
         elif cluster:  # dcs is available
             is_synchronous = cluster.is_synchronous_mode() and cluster.sync \
                     and cluster.sync.sync_standby == patroni.postgresql.name
@@ -539,7 +542,9 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         # Sometime it's also needed to pass reference to a 'keyfile'.
         if self.__ssl_options.get('certfile'):
             import ssl
-            self.socket = ssl.wrap_socket(self.socket, server_side=True, **self.__ssl_options)
+            ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+            ctx.load_cert_chain(**self.__ssl_options)
+            self.socket = ctx.wrap_socket(self.socket, server_side=True)
             self.__protocol = 'https'
         return True
 

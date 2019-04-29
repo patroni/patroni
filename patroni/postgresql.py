@@ -115,6 +115,12 @@ class Postgresql(object):
         self._configure_server_parameters()
 
         self._connect_address = config.get('connect_address')
+        self._krbsrvname = config.get('krbsrvname')
+
+        # for not so obvious connection attempts that may happen outside of pyscopg2
+        if self._krbsrvname:
+            os.environ['PGKRBSRVNAME'] = self._krbsrvname
+
         self._superuser = config['authentication'].get('superuser', {})
         self.resolve_connection_addresses()
 
@@ -131,6 +137,7 @@ class Postgresql(object):
         self._postgresql_base_conf_name = config_base_name + '.base.conf'
         self._postgresql_base_conf = os.path.join(self._config_dir, self._postgresql_base_conf_name)
         self._pg_hba_conf = os.path.join(self._config_dir, 'pg_hba.conf')
+        self._pg_ident_conf = os.path.join(self._config_dir, 'pg_ident.conf')
         self._recovery_conf = os.path.join(self._data_dir, 'recovery.conf')
         self._trigger_file = config.get('recovery_conf', {}).get('trigger_file') or 'promote'
         self._trigger_file = os.path.abspath(os.path.join(self._data_dir, self._trigger_file))
@@ -155,7 +162,6 @@ class Postgresql(object):
         self.set_state('stopped')
         self._role_lock = Lock()
         self.set_role(self.get_postgres_role_from_data_directory())
-
         self._state_entry_timestamp = None
 
         self._cluster_info_state = {}
@@ -168,7 +174,7 @@ class Postgresql(object):
             self.set_state('running')
             self.set_role('master' if self.is_leader() else 'replica')
             self._write_postgresql_conf()  # we are "joining" already running postgres
-            if self._replace_pg_hba():
+            if self._replace_pg_hba() or self._replace_pg_ident():
                 self.reload()
         elif self.role == 'master':
             self.set_role('demoted')
@@ -309,7 +315,7 @@ class Postgresql(object):
         self._superuser = config['authentication'].get('superuser', {})
         server_parameters = self.get_server_parameters(config)
 
-        conf_changed = hba_changed = local_connection_address_changed = pending_restart = False
+        conf_changed = hba_changed = ident_changed = local_connection_address_changed = pending_restart = False
         if self.state == 'running':
             changes = CaseInsensitiveDict({p: v for p, v in server_parameters.items() if '.' not in p})
             changes.update({p: None for p in self._server_parameters.keys() if not ('.' in p or p in changes)})
@@ -362,10 +368,18 @@ class Postgresql(object):
             if not server_parameters.get('hba_file') and config.get('pg_hba'):
                 hba_changed = self.config.get('pg_hba', []) != config['pg_hba']
 
+            if not server_parameters.get('ident_file') and config.get('pg_ident'):
+                ident_changed = self.config.get('pg_ident', []) != config['pg_ident']
+
         self.config = config
         self._pending_restart = pending_restart
         self._server_parameters = server_parameters
         self._connect_address = config.get('connect_address')
+        self._krbsrvname = config.get('krbsrvname')
+
+        # for not so obvious connection attempts that may happen outside of pyscopg2
+        if self._krbsrvname:
+            os.environ['PGKRBSRVNAME'] = self._krbsrvname
 
         if not local_connection_address_changed:
             self.resolve_connection_addresses()
@@ -376,7 +390,10 @@ class Postgresql(object):
         if hba_changed:
             self._replace_pg_hba()
 
-        if conf_changed or hba_changed:
+        if ident_changed:
+            self._replace_pg_ident()
+
+        if conf_changed or hba_changed or ident_changed:
             logger.info('PostgreSQL configuration items changed, reloading configuration.')
             self.reload()
         elif not pending_restart:
@@ -893,6 +910,7 @@ class Postgresql(object):
 
         if self.is_running():
             logger.error('Cannot start PostgreSQL because one is already running.')
+            self.set_state('starting')
             return True
 
         if not block_callbacks:
@@ -907,6 +925,7 @@ class Postgresql(object):
         self._write_postgresql_conf(configuration)
         self.resolve_connection_addresses()
         self._replace_pg_hba()
+        self._replace_pg_ident()
 
         options = ['--{0}={1}'.format(p, configuration[p]) for p in self.CMDLINE_OPTIONS
                    if p in configuration and p != 'wal_keep_segments']
@@ -1136,12 +1155,8 @@ class Postgresql(object):
             f.write(self._CONFIG_WARNING_HEADER)
             f.write("include '{0}'\n\n".format(self.config.get('custom_conf') or self._postgresql_base_conf_name))
             for name, value in sorted((configuration or self._server_parameters).items()):
-                if not self._running_custom_bootstrap or name not in ('hba_file', 'archive_mode'):
+                if not self._running_custom_bootstrap or name != 'hba_file':
                     f.write("{0} = '{1}'\n".format(name, value))
-            # we want to set archive_mode to 'off' during the custom bootstrap
-            # in order to avoid premature archiving of wals and history files
-            if self._running_custom_bootstrap:
-                f.write("archive_mode = 'off'\n")
             # when we are doing custom bootstrap we assume that we don't know superuser password
             # and in order to be able to change it, we are opening trust access from a certain address
             # therefore we need to make sure that hba_file is not overriden
@@ -1149,8 +1164,7 @@ class Postgresql(object):
             if self._running_custom_bootstrap or 'hba_file' not in self._server_parameters:
                 f.write("hba_file = '{0}'\n".format(self._pg_hba_conf.replace('\\', '\\\\')))
             if 'ident_file' not in self._server_parameters:
-                s = "ident_file = '{0}'\n".format(os.path.join(self._config_dir, 'pg_ident.conf').replace('\\', '\\\\'))
-                f.write(s)
+                f.write("ident_file = '{0}'\n".format(self._pg_ident_conf.replace('\\', '\\\\')))
 
     def is_healthy(self):
         if not self.is_running():
@@ -1158,7 +1172,7 @@ class Postgresql(object):
             return False
         return True
 
-    def write_pg_hba(self, config):
+    def append_pg_hba(self, config):
         if not self._server_parameters.get('hba_file') and not self.config.get('pg_hba'):
             with open(self._pg_hba_conf, 'a') as f:
                 f.write('\n{}\n'.format('\n'.join(config)))
@@ -1195,13 +1209,28 @@ class Postgresql(object):
                     f.write('{0}\n'.format(line))
             return True
 
+    def _replace_pg_ident(self):
+        """
+        Replace pg_ident.conf content in the PGDATA if ident_file is not defined in the
+        `postgresql.parameters` and pg_ident is defined in the `postgresql` section.
+
+        :returns: True if pg_ident.conf was rewritten.
+        """
+
+        if not self._server_parameters.get('ident_file') and self.config.get('pg_ident'):
+            with open(self._pg_ident_conf, 'w') as f:
+                f.write(self._CONFIG_WARNING_HEADER)
+                for line in self.config['pg_ident']:
+                    f.write('{0}\n'.format(line))
+            return True
+
     def primary_conninfo(self, member):
         if not (member and member.conn_url) or member.name == self.name:
             return None
         r = member.conn_kwargs(self._replication)
-        r.update({'application_name': self.name, 'sslmode': 'prefer', 'sslcompression': '1'})
-        keywords = 'user password host port sslmode sslcompression application_name'.split()
-        return ' '.join('{0}={{{0}}}'.format(kw) for kw in keywords).format(**r)
+        r.update(application_name=self.name, sslmode='prefer', sslcompression='1', krbsrvname=self._krbsrvname)
+        keywords = 'user password host port sslmode sslcompression application_name krbsrvname'.split()
+        return ' '.join('{0}={{{0}}}'.format(kw) for kw in keywords if r.get(kw)).format(**r)
 
     def check_recovery_conf(self, member):
         # TODO: recovery.conf could be stale, would be nice to detect that.
@@ -1276,7 +1305,7 @@ class Postgresql(object):
     @contextmanager
     def _get_replication_connection_cursor(self, host='localhost', port=5432, database=None, **kwargs):
         with self._get_connection_cursor(host=host, port=int(port), database=database or self._database, replication=1,
-                                         user=self._replication['username'], password=self._replication['password'],
+                                         user=self._replication['username'], password=self._replication.get('password'),
                                          connect_timeout=3, options='-c statement_timeout=2000') as cur:
             yield cur
 
@@ -1564,17 +1593,22 @@ class Postgresql(object):
         if 'NOLOGIN' not in options and 'LOGIN' not in options:
             options.append('LOGIN')
 
-        self.query("""DO $$
+        params = [name]
+        if password:
+            options.extend(['PASSWORD', '%s'])
+            params.extend([password, password])
+
+        sql = """DO $$
 BEGIN
     SET local synchronous_commit = 'local';
     PERFORM * FROM pg_authid WHERE rolname = %s;
     IF FOUND THEN
-        ALTER ROLE "{0}" WITH {1} PASSWORD %s;
+        ALTER ROLE "{0}" WITH {1};
     ELSE
-        CREATE ROLE "{0}" WITH {1} PASSWORD %s;
+        CREATE ROLE "{0}" WITH {1};
     END IF;
-END;
-$$""".format(name, ' '.join(options)), name, password, password)
+END;$$""".format(name, ' '.join(options))
+        self.query(sql, *params)
 
     def timeline_wal_position(self):
         # This method could be called from different threads (simultaneously with some other `_query` calls).
@@ -1712,7 +1746,7 @@ $$""".format(name, ' '.join(options)), name, password, password)
             config = config[method]
         else:
             do_initialize = self._initdb
-        return do_initialize(config) and self.write_pg_hba(pg_hba) and self.save_configuration_files() \
+        return do_initialize(config) and self.append_pg_hba(pg_hba) and self.save_configuration_files() \
             and self._configure_server_parameters() and self.start()
 
     def post_bootstrap(self, config, task):
@@ -1723,18 +1757,18 @@ $$""".format(name, ' '.join(options)), name, password, password)
             task.complete(self.run_bootstrap_post_init(config))
             if task.result:
                 self.create_or_update_role(self._replication['username'],
-                                           self._replication['password'], ['REPLICATION'])
+                                           self._replication.get('password'), ['REPLICATION'])
 
                 if self._major_version >= 110000 and 'rewind' in self.config['authentication']:
                     rewind = self.config['authentication']['rewind']
-                    self.create_or_update_role(rewind['username'], rewind['password'], [])
+                    self.create_or_update_role(rewind['username'], rewind.get('password'), [])
                     for f in ('pg_ls_dir(text, boolean, boolean)', 'pg_stat_file(text, boolean)',
                               'pg_read_binary_file(text)', 'pg_read_binary_file(text, bigint, bigint, boolean)'):
                         self.query('GRANT EXECUTE ON function pg_catalog.{0} TO "{1}"'.format(f, rewind['username']))
 
                 for name, value in (config.get('users') or {}).items():
                     if name not in (self._superuser.get('username'), self._replication['username']):
-                        self.create_or_update_role(name, value['password'], value.get('options', []))
+                        self.create_or_update_role(name, value.get('password'), value.get('options', []))
 
                 # We were doing a custom bootstrap instead of running initdb, therefore we opened trust
                 # access from certain addresses to be able to reach cluster and change password
@@ -1745,11 +1779,21 @@ $$""".format(name, ' '.join(options)), name, password, password)
                         os.unlink(self._pg_hba_conf)
                         self.restore_configuration_files()
                     self._write_postgresql_conf()
-                    self._replace_pg_hba()
+                    self._replace_pg_ident()
                     # at this point there should be no recovery.conf
                     if os.path.isfile(self._recovery_conf) or os.path.islink(self._recovery_conf):
                         os.unlink(self._recovery_conf)
-                    self.restart()
+                    if self._server_parameters.get('hba_file') and \
+                            self._server_parameters['hba_file'] != self._pg_hba_conf:
+                        self.restart()
+                    else:
+                        self._replace_pg_hba()
+                        if self.pending_restart:
+                            self.restart()
+                        else:
+                            self.reload()
+                            time.sleep(1)  # give a time to postgres to "reload" configuration files
+                            self.close_connection()  # close connection to reconnect with a new password
         except Exception:
             logger.exception('post_bootstrap')
             task.complete(False)
