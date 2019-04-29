@@ -49,6 +49,9 @@ bootstrap:
   - data-checksums
 
   pg_hba:  # Add following lines to pg_hba.conf after running 'initdb'
+  # For kerberos gss based connectivity (discard @.*$)
+  #- host replication replicator 127.0.0.1/32 gss include_realm=0
+  #- host all all 0.0.0.0/0 gss include_realm=0
   - host replication replicator 127.0.0.1/32 md5
   - host all all 0.0.0.0/0 md5
 #  - hostssl all all 0.0.0.0/0 md5
@@ -65,6 +68,12 @@ bootstrap:
         - createdb
 
 postgresql:
+  # Fully qualified kerberos ticket file for the running user
+  # same as KRB5CCNAME used by the GSS
+#  krb_server_keyfile: /var/spool/keytabs/postgres
+
+  # Server side kerberos spn
+#  krbsrvname: postgres
   listen: 127.0.0.1:5433
   connect_address: 127.0.0.1:5433
   data_dir: data/postgresql1

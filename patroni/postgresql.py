@@ -114,6 +114,12 @@ class Postgresql(object):
         self._configure_server_parameters()
 
         self._connect_address = config.get('connect_address')
+        self._krbsrvname = config.get('krbsrvname')
+
+        # for not so obvious connection attempts that may happen outside of pyscopg2
+        if self._krbsrvname:
+            os.environ['PGKRBSRVNAME'] = self._krbsrvname
+
         self._superuser = config['authentication'].get('superuser', {})
         self.resolve_connection_addresses()
 
@@ -155,7 +161,6 @@ class Postgresql(object):
         self.set_state('stopped')
         self._role_lock = Lock()
         self.set_role(self.get_postgres_role_from_data_directory())
-
         self._state_entry_timestamp = None
 
         self._cluster_info_state = {}
@@ -364,6 +369,11 @@ class Postgresql(object):
         self._pending_restart = pending_restart
         self._server_parameters = server_parameters
         self._connect_address = config.get('connect_address')
+        self._krbsrvname = config.get('krbsrvname')
+
+        # for not so obvious connection attempts that may happen outside of pyscopg2
+        if self._krbsrvname:
+            os.environ['PGKRBSRVNAME'] = self._krbsrvname
 
         if not local_connection_address_changed:
             self.resolve_connection_addresses()
@@ -1200,9 +1210,9 @@ class Postgresql(object):
         if not (member and member.conn_url) or member.name == self.name:
             return None
         r = member.conn_kwargs(self._replication)
-        r.update({'application_name': self.name, 'sslmode': 'prefer', 'sslcompression': '1'})
-        keywords = 'user password host port sslmode sslcompression application_name'.split()
-        return ' '.join('{0}={{{0}}}'.format(kw) for kw in keywords).format(**r)
+        r.update(application_name=self.name, sslmode='prefer', sslcompression='1', krbsrvname=self._krbsrvname)
+        keywords = 'user password host port sslmode sslcompression application_name krbsrvname'.split()
+        return ' '.join('{0}={{{0}}}'.format(kw) for kw in keywords if r.get(kw)).format(**r)
 
     def check_recovery_conf(self, member):
         # TODO: recovery.conf could be stale, would be nice to detect that.
@@ -1277,7 +1287,7 @@ class Postgresql(object):
     @contextmanager
     def _get_replication_connection_cursor(self, host='localhost', port=5432, database=None, **kwargs):
         with self._get_connection_cursor(host=host, port=int(port), database=database or self._database, replication=1,
-                                         user=self._replication['username'], password=self._replication['password'],
+                                         user=self._replication['username'], password=self._replication.get('password'),
                                          connect_timeout=3, options='-c statement_timeout=2000') as cur:
             yield cur
 
@@ -1558,17 +1568,22 @@ class Postgresql(object):
         if 'NOLOGIN' not in options and 'LOGIN' not in options:
             options.append('LOGIN')
 
-        self.query("""DO $$
+        params = [name]
+        if password:
+            options.extend(['PASSWORD', '%s'])
+            params.extend([password, password])
+
+        sql = """DO $$
 BEGIN
     SET local synchronous_commit = 'local';
     PERFORM * FROM pg_authid WHERE rolname = %s;
     IF FOUND THEN
-        ALTER ROLE "{0}" WITH {1} PASSWORD %s;
+        ALTER ROLE "{0}" WITH {1};
     ELSE
-        CREATE ROLE "{0}" WITH {1} PASSWORD %s;
+        CREATE ROLE "{0}" WITH {1};
     END IF;
-END;
-$$""".format(name, ' '.join(options)), name, password, password)
+END;$$""".format(name, ' '.join(options))
+        self.query(sql, *params)
 
     def timeline_wal_position(self):
         # This method could be called from different threads (simultaneously with some other `_query` calls).
@@ -1717,10 +1732,10 @@ $$""".format(name, ' '.join(options)), name, password, password)
             task.complete(self.run_bootstrap_post_init(config))
             if task.result:
                 self.create_or_update_role(self._replication['username'],
-                                           self._replication['password'], ['REPLICATION'])
+                                           self._replication.get('password'), ['REPLICATION'])
                 for name, value in (config.get('users') or {}).items():
                     if name not in (self._superuser.get('username'), self._replication['username']):
-                        self.create_or_update_role(name, value['password'], value.get('options', []))
+                        self.create_or_update_role(name, value.get('password'), value.get('options', []))
 
                 # We were doing a custom bootstrap instead of running initdb, therefore we opened trust
                 # access from certain addresses to be able to reach cluster and change password
