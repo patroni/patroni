@@ -14,6 +14,7 @@ from collections import defaultdict
 from contextlib import contextmanager
 from patroni.callback_executor import CallbackExecutor
 from patroni.postgresql.cancellable import CancellableSubprocess
+from patroni.postgresql.connection import Connection
 from patroni.postgresql.misc import postgres_major_version_to_int
 from patroni.exceptions import PostgresConnectionException
 from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, split_host_port
@@ -116,6 +117,7 @@ class Postgresql(object):
         self._synchronous_standby_names = None
         self._configure_server_parameters()
 
+        self._connection = Connection()
         self._connect_address = config.get('connect_address')
         self._krbsrvname = config.get('krbsrvname')
 
@@ -146,9 +148,6 @@ class Postgresql(object):
 
         self.cancellable = CancellableSubprocess()
 
-        self._connection_lock = Lock()
-        self._connection = None
-        self._cursor_holder = None
         self._sysid = None
         self._replication_slots = {}  # already existing replication slots
         self.retry = Retry(max_tries=-1, deadline=config['retry_timeout']/2.0, max_delay=1,
@@ -272,6 +271,8 @@ class Postgresql(object):
 
         self.connection_string = 'postgres://{0}/{1}'.format(
             self._connect_address or tcp_local_address + ':' + port, self._database)
+
+        self._connection.set_conn_kwargs(self._local_connect_kwargs)
 
     def _pgcommand(self, cmd):
         """Returns path to the specified PostgreSQL command"""
@@ -472,25 +473,12 @@ class Postgresql(object):
             ret['password'] = self._superuser['password']
         return ret
 
+    @property
+    def server_version(self):
+        return self._connection.server_version
+
     def connection(self):
-        with self._connection_lock:
-            if not self._connection or self._connection.closed != 0:
-                self._connection = psycopg2.connect(**self._local_connect_kwargs)
-                self._connection.autocommit = True
-                self.server_version = self._connection.server_version
-        return self._connection
-
-    def _cursor(self):
-        if not self._cursor_holder or self._cursor_holder.closed or self._cursor_holder.connection.closed != 0:
-            logger.info("establishing a new patroni connection to the postgres cluster")
-            self._cursor_holder = self.connection().cursor()
-        return self._cursor_holder
-
-    def close_connection(self):
-        if self._connection and self._connection.closed == 0:
-            self._connection.close()
-            logger.info("closed patroni connection to the postgresql cluster")
-        self._cursor_holder = self._connection = None
+        return self._connection.get()
 
     def _query(self, sql, *params):
         """We are always using the same cursor, therefore this method is not thread-safe!!!
@@ -498,7 +486,7 @@ class Postgresql(object):
         because the main thread is always holding this lock when running HA cycle."""
         cursor = None
         try:
-            cursor = self._cursor()
+            cursor = self._connection.cursor()
             cursor.execute(sql, params)
             return cursor
         except psycopg2.Error as e:
@@ -506,9 +494,9 @@ class Postgresql(object):
                 # When connected via unix socket, psycopg2 can't recoginze 'connection lost'
                 # and leaves `_cursor_holder.connection.closed == 0`, but psycopg2.OperationalError
                 # is still raised (what is correct). It doesn't make sense to continiue with existing
-                # connection and we will close it, to avoid its reuse by the `_cursor` method.
+                # connection and we will close it, to avoid its reuse by the `cursor` method.
                 if isinstance(e, psycopg2.OperationalError):
-                    self.close_connection()
+                    self._connection.close()
                 else:
                     raise e
             if self.state == 'restarting':
@@ -900,7 +888,7 @@ class Postgresql(object):
         # the former node, otherwise, we might get a stalled one
         # after kill -9, which would report incorrect data to
         # patroni.
-        self.close_connection()
+        self._connection.close()
 
         if self.is_running():
             logger.error('Cannot start PostgreSQL because one is already running.')
@@ -1415,7 +1403,7 @@ class Postgresql(object):
     def get_history(self, timeline):
         history_path = 'pg_{0}/{1:08X}.history'.format(self.wal_name, timeline)
         try:
-            cursor = self._cursor()
+            cursor = self._connection.cursor()
             cursor.execute('SELECT isdir, modification FROM pg_catalog.pg_stat_file(%s)', (history_path,))
             isdir, modification = cursor.fetchone()
             if not isdir:
@@ -1782,7 +1770,7 @@ END;$$""".format(name, ' '.join(options))
                         else:
                             self.reload()
                             time.sleep(1)  # give a time to postgres to "reload" configuration files
-                            self.close_connection()  # close connection to reconnect with a new password
+                            self._connection.close()  # close connection to reconnect with a new password
         except Exception:
             logger.exception('post_bootstrap')
             task.complete(False)
