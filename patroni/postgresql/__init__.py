@@ -16,9 +16,9 @@ from patroni.callback_executor import CallbackExecutor
 from patroni.postgresql.cancellable import CancellableSubprocess
 from patroni.postgresql.connection import Connection
 from patroni.postgresql.misc import postgres_major_version_to_int
+from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.exceptions import PostgresConnectionException
 from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, split_host_port
-from patroni.postmaster import PostmasterProcess
 from patroni.dcs import slot_name_from_member_name, RemoteMember, Leader
 from requests.structures import CaseInsensitiveDict
 from six import string_types

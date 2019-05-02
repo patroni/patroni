@@ -12,7 +12,7 @@ from patroni.dcs import Cluster, ClusterConfig, Leader, Member, RemoteMember, Sy
 from patroni.exceptions import PostgresConnectionException
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
 from patroni.postgresql.cancellable import CancellableSubprocess
-from patroni.postmaster import PostmasterProcess
+from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.utils import RetryFailedError
 from six.moves import builtins
 from threading import Thread, current_thread

@@ -2,7 +2,7 @@ import psutil
 import unittest
 
 from mock import Mock, patch, mock_open
-from patroni.postmaster import PostmasterProcess
+from patroni.postgresql.postmaster import PostmasterProcess
 from six.moves import builtins
 
 
@@ -26,7 +26,7 @@ class TestPostmasterProcess(unittest.TestCase):
 
     @patch('psutil.Process.create_time')
     @patch('psutil.Process.__init__')
-    @patch('patroni.postmaster.PostmasterProcess._read_postmaster_pidfile')
+    @patch.object(PostmasterProcess, '_read_postmaster_pidfile')
     def test_from_pidfile(self, mock_read, mock_init, mock_create_time):
         mock_init.side_effect = psutil.NoSuchProcess(123)
         mock_read.return_value = {}
