@@ -14,7 +14,8 @@ from collections import defaultdict
 from contextlib import contextmanager
 from patroni.callback_executor import CallbackExecutor
 from patroni.postgresql.cancellable import CancellableSubprocess
-from patroni.exceptions import PostgresConnectionException, PostgresException
+from patroni.postgresql.misc import postgres_major_version_to_int
+from patroni.exceptions import PostgresConnectionException
 from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, split_host_port
 from patroni.postmaster import PostmasterProcess
 from patroni.dcs import slot_name_from_member_name, RemoteMember, Leader
@@ -211,13 +212,9 @@ class Postgresql(object):
     def callback(self):
         return self.config.get('callbacks') or {}
 
-    @staticmethod
-    def _wal_name(version):
-        return 'wal' if version >= 100000 else 'xlog'
-
     @property
     def wal_name(self):
-        return self._wal_name(self._major_version)
+        return 'wal' if self._major_version >= 100000 else 'xlog'
 
     @property
     def lsn_name(self):
@@ -230,7 +227,7 @@ class Postgresql(object):
         if self._version_file_exists():
             try:
                 with open(self._version_file) as f:
-                    return self.postgres_major_version_to_int(f.read().strip())
+                    return postgres_major_version_to_int(f.read().strip())
             except Exception:
                 logger.exception('Failed to read PG_VERSION from %s', self._data_dir)
         return 0
@@ -1906,55 +1903,6 @@ END;$$""".format(name, ' '.join(options))
             if self.state == 'running':
                 self._write_postgresql_conf()
                 self.reload()
-
-    @staticmethod
-    def postgres_version_to_int(pg_version):
-        """Convert the server_version to integer
-
-        >>> Postgresql.postgres_version_to_int('9.5.3')
-        90503
-        >>> Postgresql.postgres_version_to_int('9.3.13')
-        90313
-        >>> Postgresql.postgres_version_to_int('10.1')
-        100001
-        >>> Postgresql.postgres_version_to_int('10')  # doctest: +IGNORE_EXCEPTION_DETAIL
-        Traceback (most recent call last):
-            ...
-        PostgresException: 'Invalid PostgreSQL version format: X.Y or X.Y.Z is accepted: 10'
-        >>> Postgresql.postgres_version_to_int('9.6')  # doctest: +IGNORE_EXCEPTION_DETAIL
-        Traceback (most recent call last):
-            ...
-        PostgresException: 'Invalid PostgreSQL version format: X.Y or X.Y.Z is accepted: 9.6'
-        >>> Postgresql.postgres_version_to_int('a.b.c')  # doctest: +IGNORE_EXCEPTION_DETAIL
-        Traceback (most recent call last):
-            ...
-        PostgresException: 'Invalid PostgreSQL version: a.b.c'
-        """
-
-        try:
-            components = list(map(int, pg_version.split('.')))
-        except ValueError:
-            raise PostgresException('Invalid PostgreSQL version: {0}'.format(pg_version))
-
-        if len(components) < 2 or len(components) == 2 and components[0] < 10 or len(components) > 3:
-            raise PostgresException('Invalid PostgreSQL version format: X.Y or X.Y.Z is accepted: {0}'
-                                    .format(pg_version))
-
-        if len(components) == 2:
-            # new style verion numbers, i.e. 10.1 becomes 100001
-            components.insert(1, 0)
-
-        return int(''.join('{0:02d}'.format(c) for c in components))
-
-    @staticmethod
-    def postgres_major_version_to_int(pg_version):
-        """
-        >>> Postgresql.postgres_major_version_to_int('10')
-        100000
-        >>> Postgresql.postgres_major_version_to_int('9.6')
-        90600
-        """
-        return Postgresql.postgres_version_to_int(pg_version + '.0')
 
     def read_postmaster_opts(self):
         """returns the list of option names/values from postgres.opts, Empty dict if read failed or no file"""

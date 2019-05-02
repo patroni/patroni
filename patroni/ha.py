@@ -13,6 +13,7 @@ from multiprocessing.pool import ThreadPool
 from patroni.async_executor import AsyncExecutor, CriticalTask
 from patroni.exceptions import DCSError, PostgresConnectionException, PatroniException
 from patroni.postgresql import ACTION_ON_START, ACTION_ON_ROLE_CHANGE
+from patroni.postgresql.misc import postgres_version_to_int
 from patroni.utils import polling_loop, tzutc
 from patroni.dcs import RemoteMember
 from threading import RLock
@@ -974,8 +975,7 @@ class Ha(object):
         if role and role != self.state_handler.role:
             reason_to_cancel = "host role mismatch"
 
-        if (postgres_version and
-           self.state_handler.postgres_version_to_int(postgres_version) <= int(self.state_handler.server_version)):
+        if postgres_version and postgres_version_to_int(postgres_version) <= int(self.state_handler.server_version):
             reason_to_cancel = "postgres version mismatch"
 
         if pending_restart and not self.state_handler.pending_restart:

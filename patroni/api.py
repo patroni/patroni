@@ -8,7 +8,8 @@ import dateutil.parser
 import datetime
 import os
 
-from patroni.postgresql import PostgresConnectionException, PostgresException, Postgresql
+from patroni.postgresql import PostgresConnectionException
+from patroni.postgresql.misc import postgres_version_to_int, PostgresException
 from patroni.utils import deep_compare, parse_bool, patch_config, Retry, \
     RetryFailedError, parse_int, split_host_port, tzutc
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
@@ -232,7 +233,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     break
             elif k == 'postgres_version':
                 try:
-                    Postgresql.postgres_version_to_int(request[k])
+                    postgres_version_to_int(request[k])
                 except PostgresException as e:
                     status_code = 400
                     data = e.value
