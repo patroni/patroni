@@ -65,12 +65,6 @@ bootstrap:
         - createdb
 
 postgresql:
-  # Fully qualified kerberos ticket file for the running user
-  # same as KRB5CCNAME used by the GSS
-#  krb_server_keyfile: /var/spool/keytabs/postgres
-
-  # Server side kerberos spn
-#  krbsrvname: postgres
   listen: 127.0.0.1:5434
   connect_address: 127.0.0.1:5434
   data_dir: data/postgresql2
@@ -84,7 +78,15 @@ postgresql:
     superuser:
       username: postgres
       password: zalando
+    rewind:  # Has no effect on postgres 10 and lower
+      username: rewind_user
+      password: rewind_password
+  # Server side kerberos spn
+#  krbsrvname: postgres
   parameters:
+    # Fully qualified kerberos ticket file for the running user
+    # same as KRB5CCNAME used by the GSS
+#    krb_server_keyfile: /var/spool/keytabs/postgres
     unix_socket_directories: '.'
 tags:
     nofailover: false

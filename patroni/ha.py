@@ -174,12 +174,15 @@ class Ha(object):
                 'conn_url': self.state_handler.connection_string,
                 'api_url': self.patroni.api.connection_string,
                 'state': self.state_handler.state,
-                'role': self.state_handler.role
+                'role': self.state_handler.role,
+                'version': self.patroni.version
             }
 
             # following two lines are mainly necessary for consul, to avoid creation of master service
             if data['role'] == 'master' and not self.is_leader():
                 data['role'] = 'promoted'
+            if self.is_leader():
+                data['checkpoint_after_promote'] = self.state_handler.checkpoint_after_promote()
             tags = self.get_effective_tags()
             if tags:
                 data['tags'] = tags
@@ -903,6 +906,9 @@ class Ha(object):
                 msg = self.process_manual_failover_from_leader()
                 if msg is not None:
                     return msg
+
+                # check if the node is ready to be used by pg_rewind
+                self.state_handler.check_for_checkpoint_after_promote()
 
                 if self.is_standby_cluster():
                     # in case of standby cluster we don't really need to

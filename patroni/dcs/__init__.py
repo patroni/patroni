@@ -239,6 +239,19 @@ class Leader(namedtuple('Leader', 'index,session,member')):
     def timeline(self):
         return self.member.data.get('timeline')
 
+    @property
+    def checkpoint_after_promote(self):
+        """
+        >>> Leader(1, '', Member.from_node(1, '', '', '{"version":"z"}')).checkpoint_after_promote
+        """
+        version = self.member.data.get('version')
+        if version:
+            try:
+                if tuple(map(int, version.split('.'))) >= (1, 5, 6):
+                    return bool(self.member.data.get('checkpoint_after_promote'))
+            except Exception:
+                logger.debug('Failed to parse Patroni version %s', version)
+
 
 class Failover(namedtuple('Failover', 'index,leader,candidate,scheduled_at')):
 
