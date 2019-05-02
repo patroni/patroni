@@ -217,7 +217,7 @@ class Ha(object):
             clone_member = self.get_remote_member(clone_member)
 
         self._rewind.reset_state()
-        if self.state_handler.clone(clone_member):
+        if self.state_handler.bootstrap.clone(clone_member):
             logger.info('bootstrapped %s', msg)
             cluster = self.dcs.get_cluster()
             node_to_follow = self._get_node_to_follow(cluster)
@@ -248,7 +248,7 @@ class Ha(object):
                 else:
                     self._async_executor.schedule('bootstrap')
                     self._async_executor.run_async(
-                        self.state_handler.bootstrap,
+                        self.state_handler.bootstrap.bootstrap,
                         args=(self.patroni.config['bootstrap'],)
                     )
                     return 'trying to bootstrap a new cluster'
@@ -1148,7 +1148,7 @@ class Ha(object):
 
             self.state_handler.set_role('master')
             self._async_executor.schedule('post_bootstrap')
-            self._async_executor.run_async(self.state_handler.post_bootstrap,
+            self._async_executor.run_async(self.state_handler.bootstrap.post_bootstrap,
                                            args=(self.patroni.config['bootstrap'], self._post_bootstrap_task))
             return 'running post_bootstrap'
 

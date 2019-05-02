@@ -25,7 +25,7 @@ class MockFrozenImporter(object):
 @patch('subprocess.call', Mock(return_value=0))
 @patch('psycopg2.connect', psycopg2_connect)
 @patch.object(Postgresql, 'append_pg_hba', Mock())
-@patch.object(Postgresql, '_write_postgresql_conf', Mock())
+@patch.object(Postgresql, 'write_postgresql_conf', Mock())
 @patch.object(Postgresql, 'write_recovery_conf', Mock())
 @patch.object(Postgresql, 'is_running', Mock(return_value=MockPostmaster()))
 @patch.object(Postgresql, 'call_nowait', Mock())

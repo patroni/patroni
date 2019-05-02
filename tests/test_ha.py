@@ -11,6 +11,7 @@ from patroni.dcs.etcd import Client
 from patroni.exceptions import DCSError, PostgresConnectionException, PatroniException
 from patroni.ha import Ha, _MemberStatus
 from patroni.postgresql import Postgresql
+from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.cancellable import CancellableSubprocess
 from patroni.postgresql.rewind import Rewind
 from patroni.watchdog import Watchdog
@@ -218,7 +219,7 @@ class TestHa(unittest.TestCase):
     @patch.object(Cluster, 'get_clone_member',
                   Mock(return_value=Member(0, 'test', 1, {'api_url': 'http://127.0.0.1:8011/patroni',
                                                           'conn_url': 'postgres://127.0.0.1:5432/postgres'})))
-    @patch.object(Postgresql, 'create_replica', Mock(return_value=0))
+    @patch.object(Bootstrap, 'create_replica', Mock(return_value=0))
     def test_start_as_cascade_replica_in_standby_cluster(self):
         self.p.data_directory_empty = true
         self.ha.cluster = get_standby_cluster_initialized_with_only_leader()
@@ -255,7 +256,7 @@ class TestHa(unittest.TestCase):
         self.assertEqual(self.ha.run_cycle(), 'running pg_rewind from leader')
 
     @patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
-    @patch.object(Postgresql, 'create_replica', Mock(return_value=1))
+    @patch.object(Bootstrap, 'create_replica', Mock(return_value=1))
     def test_recover_with_reinitialize(self):
         self.p.is_running = false
         self.ha.cluster = get_cluster_initialized_with_leader()

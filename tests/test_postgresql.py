@@ -11,7 +11,6 @@ from patroni.async_executor import CriticalTask
 from patroni.dcs import Cluster, ClusterConfig, Leader, Member, RemoteMember, SyncState
 from patroni.exceptions import PostgresConnectionException
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
-from patroni.postgresql.cancellable import CancellableSubprocess
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.utils import RetryFailedError
 from six.moves import builtins
@@ -214,17 +213,6 @@ class TestPostgresql(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree('data')
 
-    def test__initdb(self):
-        self.assertRaises(Exception, self.p.bootstrap, {'initdb': [{'pgdata': 'bar'}]})
-        self.assertRaises(Exception, self.p.bootstrap, {'initdb': [{'foo': 'bar', 1: 2}]})
-        self.assertRaises(Exception, self.p.bootstrap, {'initdb': [1]})
-        self.assertRaises(Exception, self.p.bootstrap, {'initdb': 1})
-
-    @patch('os.path.exists', Mock(return_value=True))
-    @patch('os.unlink', Mock())
-    def test_delete_trigger_file(self):
-        self.p.delete_trigger_file()
-
     @patch('subprocess.Popen')
     @patch.object(Postgresql, 'wait_for_startup')
     @patch.object(Postgresql, 'wait_for_port_open')
@@ -339,90 +327,6 @@ class TestPostgresql(unittest.TestCase):
         m = RemoteMember('1', {'restore_command': '2', 'recovery_min_apply_delay': 3, 'archive_cleanup_command': '4'})
         self.p.follow(m)
 
-    @patch('time.sleep', Mock())
-    @patch.object(CancellableSubprocess, 'call')
-    @patch.object(Postgresql, 'remove_data_directory', Mock(return_value=True))
-    def test_create_replica(self, mock_cancellable_subprocess_call):
-        self.p.delete_trigger_file = Mock(side_effect=OSError)
-
-        self.p.config['create_replica_methods'] = ['pgBackRest']
-        self.p.config['pgBackRest'] = {'command': 'pgBackRest', 'keep_data': True, 'no_params': True}
-        mock_cancellable_subprocess_call.return_value = 0
-        self.assertEqual(self.p.create_replica(self.leader), 0)
-
-        self.p.config['create_replica_methods'] = ['wale', 'basebackup']
-        self.p.config['wale'] = {'command': 'foo'}
-        self.assertEqual(self.p.create_replica(self.leader), 0)
-        del self.p.config['wale']
-        self.assertEqual(self.p.create_replica(self.leader), 0)
-
-        self.p.config['create_replica_methods'] = ['basebackup']
-        self.p.config['basebackup'] = [{'max_rate': '100M'}, 'no-sync']
-        self.assertEqual(self.p.create_replica(self.leader), 0)
-
-        self.p.config['basebackup'] = [{'max_rate': '100M', 'compress': '9'}]
-        with mock.patch('patroni.postgresql.logger.error', new_callable=Mock()) as mock_logger:
-            self.p.create_replica(self.leader)
-            mock_logger.assert_called_once()
-            self.assertTrue("only one key-value is allowed and value should be a string" in mock_logger.call_args[0][0],
-                            "not matching {0}".format(mock_logger.call_args[0][0]))
-
-        self.p.config['basebackup'] = [42]
-        with mock.patch('patroni.postgresql.logger.error', new_callable=Mock()) as mock_logger:
-            self.p.create_replica(self.leader)
-            mock_logger.assert_called_once()
-            self.assertTrue("value should be string value or a single key-value pair" in mock_logger.call_args[0][0],
-                            "not matching {0}".format(mock_logger.call_args[0][0]))
-
-        self.p.config['basebackup'] = {"foo": "bar"}
-        self.assertEqual(self.p.create_replica(self.leader), 0)
-
-        self.p.config['create_replica_methods'] = ['wale', 'basebackup']
-        del self.p.config['basebackup']
-        mock_cancellable_subprocess_call.return_value = 1
-        self.assertEqual(self.p.create_replica(self.leader), 1)
-
-        mock_cancellable_subprocess_call.side_effect = Exception('foo')
-        self.assertEqual(self.p.create_replica(self.leader), 1)
-
-        mock_cancellable_subprocess_call.side_effect = [1, 0]
-        self.assertEqual(self.p.create_replica(self.leader), 0)
-
-        mock_cancellable_subprocess_call.side_effect = [Exception(), 0]
-        self.assertEqual(self.p.create_replica(self.leader), 0)
-
-        self.p.cancellable.cancel()
-        self.assertEqual(self.p.create_replica(self.leader), 1)
-
-    @patch('time.sleep', Mock())
-    @patch.object(CancellableSubprocess, 'call')
-    @patch.object(Postgresql, 'remove_data_directory', Mock(return_value=True))
-    def test_create_replica_old_format(self, mock_cancellable_subprocess_call):
-        """ The same test as before but with old 'create_replica_method'
-            to test backward compatibility
-        """
-        self.p.delete_trigger_file = Mock(side_effect=OSError)
-
-        self.p.config['create_replica_method'] = ['wale', 'basebackup']
-        self.p.config['wale'] = {'command': 'foo'}
-        mock_cancellable_subprocess_call.return_value = 0
-        self.assertEqual(self.p.create_replica(self.leader), 0)
-        del self.p.config['wale']
-        self.assertEqual(self.p.create_replica(self.leader), 0)
-
-        self.p.config['create_replica_method'] = ['basebackup']
-        self.p.config['basebackup'] = [{'max_rate': '100M'}, 'no-sync']
-        self.assertEqual(self.p.create_replica(self.leader), 0)
-
-        self.p.config['create_replica_method'] = ['wale', 'basebackup']
-        del self.p.config['basebackup']
-        mock_cancellable_subprocess_call.return_value = 1
-        self.assertEqual(self.p.create_replica(self.leader), 1)
-
-    def test_basebackup(self):
-        self.p.cancellable.cancel()
-        self.p.basebackup(None, None, {'foo': 'bar'})
-
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def test_sync_replication_slots(self):
         self.p.start()
@@ -522,120 +426,6 @@ class TestPostgresql(unittest.TestCase):
         self.p.move_data_directory()
         with patch('os.rename', Mock(side_effect=OSError)):
             self.p.move_data_directory()
-
-    @patch.object(Postgresql, 'is_running', Mock(return_value=True))
-    def test_bootstrap(self):
-        with patch('subprocess.call', Mock(return_value=1)):
-            self.assertFalse(self.p.bootstrap({}))
-
-        config = {'users': {'replicator': {'password': 'rep-pass', 'options': ['replication']}}}
-
-        self.p.bootstrap(config)
-        with open(os.path.join(self.config_dir, 'pg_hba.conf')) as f:
-            lines = f.readlines()
-            self.assertTrue('host all all 0.0.0.0/0 md5\n' in lines)
-
-        self.p.config.pop('pg_hba')
-        config.update({'post_init': '/bin/false',
-                       'pg_hba': ['host replication replicator 127.0.0.1/32 md5',
-                                  'hostssl all all 0.0.0.0/0 md5',
-                                  'host all all 0.0.0.0/0 md5']})
-        self.p.bootstrap(config)
-        with open(os.path.join(self.data_dir, 'pg_hba.conf')) as f:
-            lines = f.readlines()
-            self.assertTrue('host replication replicator 127.0.0.1/32 md5\n' in lines)
-
-    @patch.object(CancellableSubprocess, 'call')
-    @patch.object(Postgresql, 'get_major_version', Mock(return_value=90600))
-    def test_custom_bootstrap(self, mock_cancellable_subprocess_call):
-        self.p.config.pop('pg_hba')
-        config = {'method': 'foo', 'foo': {'command': 'bar'}}
-
-        mock_cancellable_subprocess_call.return_value = 1
-        self.assertFalse(self.p.bootstrap(config))
-
-        mock_cancellable_subprocess_call.return_value = 0
-        with patch('multiprocessing.Process', Mock(side_effect=Exception("42"))),\
-                patch('os.path.isfile', Mock(return_value=True)),\
-                patch('os.unlink', Mock()),\
-                patch.object(Postgresql, 'save_configuration_files', Mock()),\
-                patch.object(Postgresql, 'restore_configuration_files', Mock()),\
-                patch.object(Postgresql, 'write_recovery_conf', Mock()):
-            with self.assertRaises(Exception) as e:
-                self.p.bootstrap(config)
-            self.assertEqual(str(e.exception), '42')
-
-            config['foo']['recovery_conf'] = {'foo': 'bar'}
-
-            with self.assertRaises(Exception) as e:
-                self.p.bootstrap(config)
-            self.assertEqual(str(e.exception), '42')
-
-        mock_cancellable_subprocess_call.side_effect = Exception
-        self.assertFalse(self.p.bootstrap(config))
-
-    @patch('time.sleep', Mock())
-    @patch('os.unlink', Mock())
-    @patch('shutil.copy', Mock())
-    @patch('os.path.isfile', Mock(return_value=True))
-    @patch.object(Postgresql, 'run_bootstrap_post_init', Mock(return_value=True))
-    @patch.object(Postgresql, '_custom_bootstrap', Mock(return_value=True))
-    @patch.object(Postgresql, 'start', Mock(return_value=True))
-    @patch.object(Postgresql, 'get_major_version', Mock(return_value=110000))
-    def test_post_bootstrap(self):
-        config = {'method': 'foo', 'foo': {'command': 'bar'}}
-        self.p.bootstrap(config)
-
-        task = CriticalTask()
-        with patch.object(Postgresql, 'create_or_update_role', Mock(side_effect=Exception)):
-            self.p.post_bootstrap({}, task)
-            self.assertFalse(task.result)
-
-        self.p.config.pop('pg_hba')
-        self.p.post_bootstrap({}, task)
-        self.assertTrue(task.result)
-
-        self.p.bootstrap(config)
-        with patch.object(Postgresql, 'pending_restart', PropertyMock(return_value=True)), \
-                patch.object(Postgresql, 'restart', Mock()) as mock_restart:
-            self.p.post_bootstrap({}, task)
-            mock_restart.assert_called_once()
-
-        self.p.bootstrap(config)
-        self.p.set_state('stopped')
-        self.p.reload_config({'authentication': {'superuser': {'username': 'p', 'password': 'p'},
-                                                 'replication': {'username': 'r', 'password': 'r'},
-                                                 'rewind': {'username': 'rw', 'password': 'rw'}},
-                              'listen': '*', 'retry_timeout': 10, 'parameters': {'wal_level': '', 'hba_file': 'foo'}})
-        with patch.object(Postgresql, 'restart', Mock()) as mock_restart:
-            self.p.post_bootstrap({}, task)
-            mock_restart.assert_called_once()
-
-    @patch.object(CancellableSubprocess, 'call')
-    def test_run_bootstrap_post_init(self, mock_cancellable_subprocess_call):
-        mock_cancellable_subprocess_call.return_value = 1
-        self.assertFalse(self.p.run_bootstrap_post_init({'post_init': '/bin/false'}))
-
-        mock_cancellable_subprocess_call.return_value = 0
-        self.p._superuser.pop('username')
-        self.assertTrue(self.p.run_bootstrap_post_init({'post_init': '/bin/false'}))
-        mock_cancellable_subprocess_call.assert_called()
-        args, kwargs = mock_cancellable_subprocess_call.call_args
-        self.assertTrue('PGPASSFILE' in kwargs['env'])
-        self.assertEqual(args[0], ['/bin/false', 'postgres://127.0.0.2:5432/postgres'])
-
-        mock_cancellable_subprocess_call.reset_mock()
-        self.p._local_address.pop('host')
-        self.assertTrue(self.p.run_bootstrap_post_init({'post_init': '/bin/false'}))
-        mock_cancellable_subprocess_call.assert_called()
-        self.assertEqual(mock_cancellable_subprocess_call.call_args[0][0], ['/bin/false', 'postgres://:5432/postgres'])
-
-        mock_cancellable_subprocess_call.side_effect = OSError
-        self.assertFalse(self.p.run_bootstrap_post_init({'post_init': '/bin/false'}))
-
-    @patch('patroni.postgresql.Postgresql.create_replica', Mock(return_value=0))
-    def test_clone(self):
-        self.p.clone(self.leader)
 
     @patch('os.listdir', Mock(return_value=['recovery.conf']))
     @patch('os.path.exists', Mock(return_value=True))
