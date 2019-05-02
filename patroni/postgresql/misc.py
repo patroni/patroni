@@ -1,4 +1,8 @@
+import logging
+
 from patroni.exceptions import PostgresException
+
+logger = logging.getLogger(__name__)
 
 
 def postgres_version_to_int(pg_version):
@@ -47,3 +51,20 @@ def postgres_major_version_to_int(pg_version):
     90600
     """
     return postgres_version_to_int(pg_version + '.0')
+
+
+def parse_lsn(lsn):
+    t = lsn.split('/')
+    return int(t[0], 16) * 0x100000000 + int(t[1], 16)
+
+
+def parse_history(data):
+    for line in data.split('\n'):
+        values = line.strip().split('\t')
+        if len(values) == 3:
+            try:
+                values[0] = int(values[0])
+                values[1] = parse_lsn(values[1])
+                yield values
+            except (IndexError, ValueError):
+                logger.exception('Exception when parsing timeline history line "%s"', values)

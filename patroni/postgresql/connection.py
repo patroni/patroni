@@ -1,6 +1,7 @@
 import logging
 import psycopg2
 
+from contextlib import contextmanager
 from threading import Lock
 
 logger = logging.getLogger(__name__)
@@ -35,3 +36,11 @@ class Connection(object):
             self._connection.close()
             logger.info("closed patroni connection to the postgresql cluster")
         self._cursor_holder = self._connection = None
+
+
+@contextmanager
+def get_connection_cursor(**kwargs):
+    with psycopg2.connect(**kwargs) as conn:
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            yield cur

@@ -326,91 +326,11 @@ class TestPostgresql(unittest.TestCase):
             self.assertIsNone(self.p.checkpoint())
         self.assertEqual(self.p.checkpoint(), 'not accessible or not healty')
 
-    @patch.object(CancellableSubprocess, 'call')
-    @patch('patroni.postgresql.Postgresql.write_pgpass', MagicMock(return_value=dict()))
-    def test_pg_rewind(self, mock_cancellable_subprocess_call):
-        r = {'user': '', 'host': '', 'port': '', 'database': '', 'password': ''}
-        mock_cancellable_subprocess_call.return_value = 0
-        self.assertTrue(self.p.pg_rewind(r))
-        mock_cancellable_subprocess_call.side_effect = OSError
-        self.assertFalse(self.p.pg_rewind(r))
-
     def test_check_recovery_conf(self):
         self.p.write_recovery_conf({'primary_conninfo': 'foo'})
         self.assertFalse(self.p.check_recovery_conf(None))
         self.p.write_recovery_conf({})
         self.assertTrue(self.p.check_recovery_conf(None))
-
-    @patch.object(Postgresql, 'start', Mock())
-    @patch.object(Postgresql, 'can_rewind', PropertyMock(return_value=True))
-    def test__get_local_timeline_lsn(self):
-        self.p.trigger_check_diverged_lsn()
-        with patch.object(Postgresql, 'controldata',
-                          Mock(return_value={'Database cluster state': 'shut down in recovery',
-                                             'Minimum recovery ending location': '0/0',
-                                             "Min recovery ending loc's timeline": '0'})):
-            self.p.rewind_or_reinitialize_needed_and_possible(self.leader)
-        with patch.object(Postgresql, 'is_running', Mock(return_value=True)):
-            with patch.object(MockCursor, 'fetchone', Mock(side_effect=[(False, ), Exception])):
-                self.p.rewind_or_reinitialize_needed_and_possible(self.leader)
-
-    @patch.object(Postgresql, 'start', Mock())
-    @patch.object(Postgresql, 'can_rewind', PropertyMock(return_value=True))
-    @patch.object(Postgresql, '_get_local_timeline_lsn', Mock(return_value=(2, '40159C1')))
-    @patch.object(Postgresql, 'check_leader_is_not_in_recovery')
-    def test__check_timeline_and_lsn(self, mock_check_leader_is_not_in_recovery):
-        mock_check_leader_is_not_in_recovery.return_value = False
-        self.p.trigger_check_diverged_lsn()
-        self.assertFalse(self.p.rewind_or_reinitialize_needed_and_possible(self.leader))
-        self.leader = self.leader.member
-        self.assertFalse(self.p.rewind_or_reinitialize_needed_and_possible(self.leader))
-        mock_check_leader_is_not_in_recovery.return_value = True
-        self.assertFalse(self.p.rewind_or_reinitialize_needed_and_possible(self.leader))
-        self.p.trigger_check_diverged_lsn()
-        with patch('psycopg2.connect', Mock(side_effect=Exception)):
-            self.assertFalse(self.p.rewind_or_reinitialize_needed_and_possible(self.leader))
-        self.p.trigger_check_diverged_lsn()
-        with patch.object(MockCursor, 'fetchone', Mock(side_effect=[('', 2, '0/0'), ('', b'3\t0/40159C0\tn\n')])):
-            self.assertFalse(self.p.rewind_or_reinitialize_needed_and_possible(self.leader))
-        self.p.trigger_check_diverged_lsn()
-        with patch.object(MockCursor, 'fetchone', Mock(return_value=('', 1, '0/0'))):
-            with patch.object(Postgresql, '_get_local_timeline_lsn', Mock(return_value=(1, '0/0'))):
-                self.assertFalse(self.p.rewind_or_reinitialize_needed_and_possible(self.leader))
-            self.p.trigger_check_diverged_lsn()
-            self.assertTrue(self.p.rewind_or_reinitialize_needed_and_possible(self.leader))
-
-    @patch.object(MockCursor, 'fetchone', Mock(side_effect=[(True,), Exception]))
-    def test_check_leader_is_not_in_recovery(self):
-        self.p.check_leader_is_not_in_recovery()
-        self.p.check_leader_is_not_in_recovery()
-
-    @patch.object(CancellableSubprocess, 'call', Mock(return_value=0))
-    @patch.object(Postgresql, 'checkpoint', side_effect=['', '1'])
-    @patch.object(Postgresql, 'stop', Mock(return_value=False))
-    @patch.object(Postgresql, 'start', Mock())
-    def test_rewind(self, mock_checkpoint):
-        self.p.rewind(self.leader)
-        with patch.object(Postgresql, 'pg_rewind', Mock(return_value=False)):
-            mock_checkpoint.side_effect = ['1', '', '', '']
-            self.p.rewind(self.leader)
-            self.p.rewind(self.leader)
-            with patch.object(Postgresql, 'check_leader_is_not_in_recovery', Mock(return_value=False)):
-                self.p.rewind(self.leader)
-            self.p.config['remove_data_directory_on_rewind_failure'] = False
-            self.p.trigger_check_diverged_lsn()
-            self.p.rewind(self.leader)
-
-        self.leader.member.data.update(version='1.5.7', checkpoint_after_promote=False)
-        self.assertIsNone(self.p.rewind(self.leader))
-
-        self.leader.member.data['checkpoint_after_promote'] = True
-        with patch.object(Postgresql, 'check_leader_is_not_in_recovery', Mock(return_value=False)):
-            self.assertIsNone(self.p.rewind(self.leader))
-
-        with patch.object(Postgresql, 'is_running', Mock(return_value=True)):
-            self.p.rewind(self.leader)
-            self.p.is_leader = Mock(return_value=False)
-            self.p.rewind(self.leader)
 
     @patch.object(Postgresql, 'is_running', Mock(return_value=False))
     @patch.object(Postgresql, 'start', Mock())
@@ -418,17 +338,6 @@ class TestPostgresql(unittest.TestCase):
         self.p.call_nowait('on_start')
         m = RemoteMember('1', {'restore_command': '2', 'recovery_min_apply_delay': 3, 'archive_cleanup_command': '4'})
         self.p.follow(m)
-
-    @patch('subprocess.check_output', Mock(return_value=0, side_effect=pg_controldata_string))
-    def test_can_rewind(self):
-        with patch('subprocess.call', MagicMock(return_value=1)):
-            self.assertFalse(self.p.can_rewind)
-        with patch('subprocess.call', side_effect=OSError):
-            self.assertFalse(self.p.can_rewind)
-        with patch.object(Postgresql, 'controldata', Mock(return_value={'wal_log_hints setting': 'on'})):
-            self.assertTrue(self.p.can_rewind)
-        self.p.config['use_pg_rewind'] = False
-        self.assertFalse(self.p.can_rewind)
 
     @patch('time.sleep', Mock())
     @patch.object(CancellableSubprocess, 'call')
@@ -1038,7 +947,3 @@ class TestPostgresql(unittest.TestCase):
             self.p.cancellable.cancel()
             self.assertFalse(self.p.start())
             self.assertTrue(self.p.pending_restart)
-
-    @patch.object(Postgresql, 'controldata', Mock(return_value={"Latest checkpoint's TimeLineID": 1}))
-    def test_check_for_checkpoint_after_promote(self):
-        self.p.check_for_checkpoint_after_promote()
