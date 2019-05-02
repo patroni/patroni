@@ -71,7 +71,7 @@ class Ha(object):
         self._post_bootstrap_task = None
         self._crash_recovery_executed = False
         self._start_timeout = None
-        self._async_executor = AsyncExecutor(self.state_handler, self.wakeup)
+        self._async_executor = AsyncExecutor(self.state_handler.cancellable, self.wakeup)
         self.watchdog = patroni.watchdog
 
         # Each member publishes various pieces of information to the DCS using touch_member. This lock protects

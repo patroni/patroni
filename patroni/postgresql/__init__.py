@@ -13,6 +13,7 @@ import time
 from collections import defaultdict
 from contextlib import contextmanager
 from patroni.callback_executor import CallbackExecutor
+from patroni.postgresql.cancellable import CancellableSubprocess
 from patroni.exceptions import PostgresConnectionException, PostgresException
 from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, split_host_port
 from patroni.postmaster import PostmasterProcess
@@ -142,9 +143,7 @@ class Postgresql(object):
         self._trigger_file = config.get('recovery_conf', {}).get('trigger_file') or 'promote'
         self._trigger_file = os.path.abspath(os.path.join(self._data_dir, self._trigger_file))
 
-        self._is_cancelled = False
-        self._cancellable = None
-        self._cancellable_lock = Lock()
+        self.cancellable = CancellableSubprocess()
 
         self._connection_lock = Lock()
         self._connection = None
@@ -591,7 +590,7 @@ class Postgresql(object):
         params = ['--scope=' + self.scope, '--datadir=' + self._data_dir]
         try:
             logger.info('Running custom bootstrap script: %s', config['command'])
-            if self.cancellable_subprocess_call(shlex.split(config['command']) + params) != 0:
+            if self.cancellable.call(shlex.split(config['command']) + params) != 0:
                 self.set_state('custom bootstrap failed')
                 return False
         except Exception:
@@ -637,7 +636,7 @@ class Postgresql(object):
             env = self.write_pgpass(r) if 'password' in r else None
 
             try:
-                ret = self.cancellable_subprocess_call(shlex.split(cmd) + [connstring], env=env)
+                ret = self.cancellable.call(shlex.split(cmd) + [connstring], env=env)
             except OSError:
                 logger.error('post_init script %s failed', cmd)
                 return False
@@ -710,9 +709,8 @@ class Postgresql(object):
         # go through them in priority order
         ret = 1
         for replica_method in replica_methods:
-            with self._cancellable_lock:
-                if self._is_cancelled:
-                    break
+            if self.cancellable.is_cancelled:
+                break
             # if the method is basebackup, then use the built-in
             if replica_method == "basebackup":
                 ret = self.basebackup(connstring, env, self.config.get(replica_method, {}))
@@ -749,7 +747,7 @@ class Postgresql(object):
                 params = ["--{0}={1}".format(arg, val) for arg, val in method_config.items()]
                 try:
                     # call script with the full set of parameters
-                    ret = self.cancellable_subprocess_call(shlex.split(cmd) + params, env=env)
+                    ret = self.cancellable.call(shlex.split(cmd) + params, env=env)
                     # if we succeeded, stop
                     if ret == 0:
                         logger.info('replica has been created using %s', replica_method)
@@ -847,9 +845,8 @@ class Postgresql(object):
     def wait_for_port_open(self, postmaster, timeout):
         """Waits until PostgreSQL opens ports."""
         for _ in polling_loop(timeout):
-            with self._cancellable_lock:
-                if self._is_cancelled:
-                    return False
+            if self.cancellable.is_cancelled:
+                return False
 
             if not postmaster.is_running():
                 logger.error('postmaster is not running')
@@ -930,9 +927,8 @@ class Postgresql(object):
         options = ['--{0}={1}'.format(p, configuration[p]) for p in self.CMDLINE_OPTIONS
                    if p in configuration and p != 'wal_keep_segments']
 
-        with self._cancellable_lock:
-            if self._is_cancelled:
-                return False
+        if self.cancellable.is_cancelled:
+            return False
 
         with task or null_context():
             if task and task.is_cancelled:
@@ -1121,10 +1117,7 @@ class Postgresql(object):
             logger.warning("wait_for_startup() called when not in starting state")
 
         while not self.check_startup_state_changed():
-            with self._cancellable_lock:
-                if self._is_cancelled:
-                    return None
-            if timeout and self.time_in_state() > timeout:
+            if self.cancellable.is_cancelled or timeout and self.time_in_state() > timeout:
                 return None
             time.sleep(1)
 
@@ -1265,9 +1258,8 @@ class Postgresql(object):
         dsn = " ".join("{0}={1}".format(k, v) for k, v in dsn_attrs if v is not None)
         logger.info('running pg_rewind from %s', dsn)
         try:
-            return self.cancellable_subprocess_call([self._pgcommand('pg_rewind'),
-                                                     '-D', self._data_dir,
-                                                     '--source-server', dsn], env=env) == 0
+            return self.cancellable.call([self._pgcommand('pg_rewind'), '-D', self._data_dir,
+                                          '--source-server', dsn], env=env) == 0
         except OSError:
             return False
 
@@ -1847,14 +1839,13 @@ END;$$""".format(name, ' '.join(options))
         user_options = self.process_user_options('basebackup', options, not_allowed_options, logger.error)
 
         for bbfailures in range(0, maxfailures):
-            with self._cancellable_lock:
-                if self._is_cancelled:
-                    break
+            if self.cancellable.is_cancelled:
+                break
             if not self.data_directory_empty():
                 self.remove_data_directory()
             try:
-                ret = self.cancellable_subprocess_call([self._pgcommand('pg_basebackup'), '--pgdata=' + self._data_dir,
-                                                       '-X', 'stream', '--dbname=' + conn_url] + user_options, env=env)
+                ret = self.cancellable.call([self._pgcommand('pg_basebackup'), '--pgdata=' + self._data_dir,
+                                             '-X', 'stream', '--dbname=' + conn_url] + user_options, env=env)
                 if ret == 0:
                     break
                 else:
@@ -1986,7 +1977,7 @@ END;$$""".format(name, ' '.join(options))
             cmd.extend(['-c', '{0}={1}'.format(opt, val)])
         # need a database name to connect
         cmd.append(self._database)
-        return self.cancellable_subprocess_call(cmd, communicate_input=command)
+        return self.cancellable.call(cmd, communicate_input=command)
 
     def cleanup_archive_status(self):
         status_dir = os.path.join(self._data_dir, 'pg_' + self.wal_name, 'archive_status')
@@ -2012,59 +2003,6 @@ END;$$""".format(name, ' '.join(options))
         if os.path.isfile(self._recovery_conf) or os.path.islink(self._recovery_conf):
             os.unlink(self._recovery_conf)
         return self.single_user_mode(options=opts) == 0 or None
-
-    def cancellable_subprocess_call(self, *args, **kwargs):
-        for s in ('stdin', 'stdout', 'stderr'):
-            kwargs.pop(s, None)
-
-        communicate_input = 'communicate_input' in kwargs
-        if communicate_input:
-            input_data = kwargs.pop('communicate_input', None)
-            if not isinstance(input_data, string_types):
-                input_data = ''
-            if input_data and input_data[-1] != '\n':
-                input_data += '\n'
-            kwargs['stdin'] = subprocess.PIPE
-            kwargs['stdout'] = open(os.devnull, 'w')
-            kwargs['stderr'] = subprocess.STDOUT
-
-        try:
-            with self._cancellable_lock:
-                if self._is_cancelled:
-                    raise PostgresException('cancelled')
-
-                self._is_cancelled = False
-                self._cancellable = subprocess.Popen(*args, **kwargs)
-
-            if communicate_input:
-                if input_data:
-                    self._cancellable.communicate(input_data)
-                self._cancellable.stdin.close()
-
-            return self._cancellable.wait()
-        finally:
-            with self._cancellable_lock:
-                self._cancellable = None
-
-    def reset_is_cancelled(self):
-        with self._cancellable_lock:
-            self._is_cancelled = False
-
-    def cancel(self):
-        with self._cancellable_lock:
-            self._is_cancelled = True
-            if self._cancellable is None or self._cancellable.returncode is not None:
-                return
-            self._cancellable.terminate()
-
-        for _ in polling_loop(10):
-            with self._cancellable_lock:
-                if self._cancellable is None or self._cancellable.returncode is not None:
-                    return
-
-        with self._cancellable_lock:
-            if self._cancellable is not None and self._cancellable.returncode is None:
-                self._cancellable.kill()
 
     def schedule_sanity_checks_after_pause(self):
         """

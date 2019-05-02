@@ -11,6 +11,7 @@ from patroni.dcs.etcd import Client
 from patroni.exceptions import DCSError, PostgresConnectionException, PatroniException
 from patroni.ha import Ha, _MemberStatus
 from patroni.postgresql import Postgresql
+from patroni.postgresql.cancellable import CancellableSubprocess
 from patroni.watchdog import Watchdog
 from patroni.utils import tzutc
 from test_etcd import socket_getaddrinfo, etcd_read, etcd_write, requests_get
@@ -151,7 +152,7 @@ def run_async(self, func, args=()):
 @patch.object(Postgresql, 'write_recovery_conf', Mock())
 @patch.object(Postgresql, 'query', Mock())
 @patch.object(Postgresql, 'checkpoint', Mock())
-@patch.object(Postgresql, 'cancellable_subprocess_call', Mock(return_value=0))
+@patch.object(CancellableSubprocess, 'call', Mock(return_value=0))
 @patch.object(Postgresql, '_get_local_timeline_lsn_from_replication_connection', Mock(return_value=[2, 10]))
 @patch.object(Postgresql, 'get_master_timeline', Mock(return_value=2))
 @patch.object(Postgresql, 'restore_configuration_files', Mock())

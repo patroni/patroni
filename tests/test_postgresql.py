@@ -9,8 +9,9 @@ import unittest
 from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.async_executor import CriticalTask
 from patroni.dcs import Cluster, ClusterConfig, Leader, Member, RemoteMember, SyncState
-from patroni.exceptions import PostgresConnectionException, PostgresException
+from patroni.exceptions import PostgresConnectionException
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
+from patroni.postgresql.cancellable import CancellableSubprocess
 from patroni.postmaster import PostmasterProcess
 from patroni.utils import RetryFailedError
 from six.moves import builtins
@@ -256,7 +257,7 @@ class TestPostgresql(unittest.TestCase):
             task.cancel()
             self.assertFalse(self.p.start(task=task))
 
-        self.p.cancel()
+        self.p.cancellable.cancel()
         self.assertFalse(self.p.start())
 
     @patch.object(Postgresql, 'pg_isready')
@@ -278,7 +279,7 @@ class TestPostgresql(unittest.TestCase):
         self.assertTrue(self.p.wait_for_port_open(mock_postmaster, 1))
 
         # cancelled
-        self.p.cancel()
+        self.p.cancellable.cancel()
         self.assertFalse(self.p.wait_for_port_open(mock_postmaster, 1))
 
     @patch('time.sleep', Mock())
@@ -325,7 +326,7 @@ class TestPostgresql(unittest.TestCase):
             self.assertIsNone(self.p.checkpoint())
         self.assertEqual(self.p.checkpoint(), 'not accessible or not healty')
 
-    @patch.object(Postgresql, 'cancellable_subprocess_call')
+    @patch.object(CancellableSubprocess, 'call')
     @patch('patroni.postgresql.Postgresql.write_pgpass', MagicMock(return_value=dict()))
     def test_pg_rewind(self, mock_cancellable_subprocess_call):
         r = {'user': '', 'host': '', 'port': '', 'database': '', 'password': ''}
@@ -383,7 +384,7 @@ class TestPostgresql(unittest.TestCase):
         self.p.check_leader_is_not_in_recovery()
         self.p.check_leader_is_not_in_recovery()
 
-    @patch.object(Postgresql, 'cancellable_subprocess_call', Mock(return_value=0))
+    @patch.object(CancellableSubprocess, 'call', Mock(return_value=0))
     @patch.object(Postgresql, 'checkpoint', side_effect=['', '1'])
     @patch.object(Postgresql, 'stop', Mock(return_value=False))
     @patch.object(Postgresql, 'start', Mock())
@@ -430,7 +431,7 @@ class TestPostgresql(unittest.TestCase):
         self.assertFalse(self.p.can_rewind)
 
     @patch('time.sleep', Mock())
-    @patch.object(Postgresql, 'cancellable_subprocess_call')
+    @patch.object(CancellableSubprocess, 'call')
     @patch.object(Postgresql, 'remove_data_directory', Mock(return_value=True))
     def test_create_replica(self, mock_cancellable_subprocess_call):
         self.p.delete_trigger_file = Mock(side_effect=OSError)
@@ -481,11 +482,11 @@ class TestPostgresql(unittest.TestCase):
         mock_cancellable_subprocess_call.side_effect = [Exception(), 0]
         self.assertEqual(self.p.create_replica(self.leader), 0)
 
-        self.p.cancel()
+        self.p.cancellable.cancel()
         self.assertEqual(self.p.create_replica(self.leader), 1)
 
     @patch('time.sleep', Mock())
-    @patch.object(Postgresql, 'cancellable_subprocess_call')
+    @patch.object(CancellableSubprocess, 'call')
     @patch.object(Postgresql, 'remove_data_directory', Mock(return_value=True))
     def test_create_replica_old_format(self, mock_cancellable_subprocess_call):
         """ The same test as before but with old 'create_replica_method'
@@ -510,7 +511,7 @@ class TestPostgresql(unittest.TestCase):
         self.assertEqual(self.p.create_replica(self.leader), 1)
 
     def test_basebackup(self):
-        self.p.cancel()
+        self.p.cancellable.cancel()
         self.p.basebackup(None, None, {'foo': 'bar'})
 
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
@@ -635,7 +636,7 @@ class TestPostgresql(unittest.TestCase):
             lines = f.readlines()
             self.assertTrue('host replication replicator 127.0.0.1/32 md5\n' in lines)
 
-    @patch.object(Postgresql, 'cancellable_subprocess_call')
+    @patch.object(CancellableSubprocess, 'call')
     @patch.object(Postgresql, 'get_major_version', Mock(return_value=90600))
     def test_custom_bootstrap(self, mock_cancellable_subprocess_call):
         self.p.config.pop('pg_hba')
@@ -701,7 +702,7 @@ class TestPostgresql(unittest.TestCase):
             self.p.post_bootstrap({}, task)
             mock_restart.assert_called_once()
 
-    @patch.object(Postgresql, 'cancellable_subprocess_call')
+    @patch.object(CancellableSubprocess, 'call')
     def test_run_bootstrap_post_init(self, mock_cancellable_subprocess_call):
         mock_cancellable_subprocess_call.return_value = 1
         self.assertFalse(self.p.run_bootstrap_post_init({'post_init': '/bin/false'}))
@@ -895,7 +896,7 @@ class TestPostgresql(unittest.TestCase):
                 self.assertEqual(state['sleeps'], 3)
 
         with patch.object(Postgresql, 'check_startup_state_changed', Mock(return_value=False)):
-            self.p.cancel()
+            self.p.cancellable.cancel()
             self.p._state = 'starting'
             self.assertIsNone(self.p.wait_for_startup())
 
@@ -1027,18 +1028,6 @@ class TestPostgresql(unittest.TestCase):
     def test_get_master_timeline(self):
         self.assertEqual(self.p.get_master_timeline(), 1)
 
-    def test_cancellable_subprocess_call(self):
-        self.p.cancel()
-        self.assertRaises(PostgresException, self.p.cancellable_subprocess_call, communicate_input=None)
-
-    @patch('patroni.postgresql.polling_loop', Mock(return_value=[0, 0]))
-    def test_cancel(self):
-        self.p._cancellable = Mock()
-        self.p._cancellable.returncode = None
-        self.p.cancel()
-        type(self.p._cancellable).returncode = PropertyMock(side_effect=[None, -15])
-        self.p.cancel()
-
     @patch.object(Postgresql, 'get_postgres_role_from_data_directory', Mock(return_value='replica'))
     def test__build_effective_configuration(self):
         with patch.object(Postgresql, 'controldata',
@@ -1046,7 +1035,7 @@ class TestPostgresql(unittest.TestCase):
                                              'max_worker_processes setting': '20',
                                              'max_prepared_xacts setting': '100',
                                              'max_locks_per_xact setting': '100'})):
-            self.p.cancel()
+            self.p.cancellable.cancel()
             self.assertFalse(self.p.start())
             self.assertTrue(self.p.pending_restart)
 
