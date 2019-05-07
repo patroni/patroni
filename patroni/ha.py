@@ -251,12 +251,14 @@ class Ha(object):
             else:
                 return 'failed to acquire initialize lock'
         else:
-            if self.state_handler.can_create_replica_without_replication_connection():
+            create_replica_methods = self.get_standby_cluster_config().get('create_replica_methods', []) \
+                                     if self.is_standby_cluster() else None
+            if self.state_handler.can_create_replica_without_replication_connection(create_replica_methods):
                 msg = 'bootstrap (without leader)'
                 self._async_executor.schedule(msg)
                 self._async_executor.run_async(self.clone)
                 return 'trying to ' + msg
-            return 'waiting for leader to bootstrap'
+            return 'waiting for {0}leader to bootstrap'.format('standby_' if self.is_standby_cluster() else '')
 
     def bootstrap_standby_leader(self):
         """ If we found 'standby' key in the configuration, we need to bootstrap

@@ -206,12 +206,18 @@ class TestHa(unittest.TestCase):
         self.assertEqual(self.ha.run_cycle(), 'starting as a secondary')
 
     @patch('patroni.dcs.etcd.Etcd.initialize', return_value=True)
-    def test_start_as_standby_leader(self, initialize):
+    def test_bootstrap_as_standby_leader(self, initialize):
         self.p.data_directory_empty = true
         self.ha.cluster = get_cluster_not_initialized_without_leader(cluster_config=ClusterConfig(0, {}, 0))
         self.ha.cluster.is_unlocked = true
         self.ha.patroni.config._dynamic_configuration = {"standby_cluster": {"port": 5432}}
         self.assertEqual(self.ha.run_cycle(), 'trying to bootstrap a new standby leader')
+
+    def test_bootstrap_waiting_for_standby_leader(self):
+        self.p.data_directory_empty = true
+        self.ha.cluster = get_cluster_initialized_without_leader()
+        self.ha.cluster.config.data.update({'standby_cluster': {'port': 5432}})
+        self.assertEqual(self.ha.run_cycle(), 'waiting for standby_leader to bootstrap')
 
     @patch.object(Cluster, 'get_clone_member',
                   Mock(return_value=Member(0, 'test', 1, {'api_url': 'http://127.0.0.1:8011/patroni',
