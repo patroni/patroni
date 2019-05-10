@@ -9,7 +9,6 @@ import stat
 import subprocess
 import time
 
-from collections import defaultdict
 from contextlib import contextmanager
 from copy import deepcopy
 from patroni.callback_executor import CallbackExecutor
@@ -18,6 +17,7 @@ from patroni.postgresql.cancellable import CancellableSubprocess
 from patroni.postgresql.connection import Connection, get_connection_cursor
 from patroni.postgresql.misc import parse_history, postgres_major_version_to_int
 from patroni.postgresql.postmaster import PostmasterProcess
+from patroni.postgresql.slots import SlotsHandler
 from patroni.exceptions import PostgresConnectionException
 from patroni.utils import compare_values, parse_bool, parse_int, Retry, RetryFailedError, polling_loop, split_host_port
 from patroni.dcs import slot_name_from_member_name, RemoteMember
@@ -125,8 +125,7 @@ class Postgresql(object):
         self._superuser = config['authentication'].get('superuser', {})
         self.resolve_connection_addresses()
 
-        self._use_slots = config.get('use_slots', True)
-        self._schedule_load_slots = self.use_slots
+        self.slots_handler = SlotsHandler(self)
 
         self._pgpass = config.get('pgpass') or os.path.join(os.path.expanduser('~'), 'pgpass')
         self._callback_executor = CallbackExecutor()
@@ -143,7 +142,6 @@ class Postgresql(object):
         self.cancellable = CancellableSubprocess()
 
         self._sysid = None
-        self._replication_slots = {}  # already existing replication slots
         self.retry = Retry(max_tries=-1, deadline=config['retry_timeout']/2.0, max_delay=1,
                            retry_exceptions=PostgresConnectionException)
 
@@ -191,8 +189,8 @@ class Postgresql(object):
         return configuration
 
     @property
-    def use_slots(self):
-        return self._use_slots and self._major_version >= 90400
+    def major_version(self):
+        return self._major_version
 
     @property
     def replication(self):
@@ -492,9 +490,11 @@ class Postgresql(object):
                 raise RetryFailedError('cluster is being restarted')
             raise PostgresConnectionException('connection problems')
 
-    def query(self, sql, *params):
+    def query(self, sql, *args, **kwargs):
+        if not kwargs.get('retry', True):
+            return self._query(sql, *args)
         try:
-            return self.retry(self._query, sql, *params)
+            return self.retry(self._query, sql, *args)
         except RetryFailedError as e:
             raise PostgresConnectionException(str(e))
 
@@ -554,7 +554,7 @@ class Postgresql(object):
             self._postmaster_proc = None
 
         # we noticed that postgres was restarted, force syncing of replication
-        self._schedule_load_slots = self.use_slots
+        self.slots_handler.schedule()
 
         self._postmaster_proc = PostmasterProcess.from_pidfile(self._data_dir)
         return self._postmaster_proc
@@ -835,7 +835,7 @@ class Postgresql(object):
             return False
         elif ready == STATE_NO_RESPONSE:
             self.set_state('start failed')
-            self._schedule_load_slots = False  # TODO: can remove this?
+            self.slots_handler.schedule(False)  # TODO: can remove this?
             self.save_configuration_files(True)  # TODO: maybe remove this?
             return True
         else:
@@ -845,7 +845,7 @@ class Postgresql(object):
                 logger.warning("%s status returned from pg_isready",
                                "Unknown" if ready == STATE_UNKNOWN else "Invalid")
             self.set_state('running')
-            self._schedule_load_slots = self.use_slots
+            self.slots_handler.schedule()
             self.save_configuration_files(True)
             # TODO: __cb_pending can be None here after PostgreSQL restarts on its own. Do we want to call the callback?
             # Previously we didn't even notice.
@@ -1072,7 +1072,7 @@ class Postgresql(object):
         recovery_params.update({'standby_mode': 'on', 'recovery_target_timeline': 'latest'})
         if primary_conninfo:
             recovery_params['primary_conninfo'] = primary_conninfo
-        if self.use_slots and not no_replication_slot:
+        if self.slots_handler.use_slots and not no_replication_slot:
             required_name = is_remote_master and member.data.get('primary_slot_name')
             name = required_name or slot_name_from_member_name(self.name)
             recovery_params['primary_slot_name'] = name
@@ -1163,18 +1163,6 @@ class Postgresql(object):
             cursor.execute(cluster_info_query.format(self.wal_name, self.lsn_name))
             return cursor.fetchone()[:2]
 
-    def load_replication_slots(self):
-        if self.use_slots and self._schedule_load_slots:
-            replication_slots = {}
-            cursor = self._query('SELECT slot_name, slot_type, plugin, database FROM pg_catalog.pg_replication_slots')
-            for r in cursor:
-                value = {'type': r[1]}
-                if r[1] == 'logical':
-                    value.update({'plugin': r[2], 'database': r[3]})
-                replication_slots[r[0]] = value
-            self._replication_slots = replication_slots
-            self._schedule_load_slots = False
-
     def postmaster_start_time(self):
         try:
             cursor = self.query("SELECT pg_catalog.to_char(pg_catalog.pg_postmaster_start_time(),"
@@ -1182,75 +1170,6 @@ class Postgresql(object):
             return cursor.fetchone()[0]
         except psycopg2.Error:
             return None
-
-    def drop_replication_slot(self, name):
-        cursor = self._query(('SELECT pg_catalog.pg_drop_replication_slot(%s) WHERE EXISTS (SELECT 1 ' +
-                              'FROM pg_catalog.pg_replication_slots WHERE slot_name = %s AND NOT active)'), name, name)
-        # In normal situation rowcount should be 1, otherwise either slot doesn't exists or it is still active
-        return cursor.rowcount == 1
-
-    @staticmethod
-    def compare_slots(s1, s2):
-        return s1['type'] == s2['type'] and\
-                (s1['type'] == 'physical' or s1['database'] == s2['database'] and s1['plugin'] == s2['plugin'])
-
-    def sync_replication_slots(self, cluster):
-        if self.use_slots:
-            try:
-                self.load_replication_slots()
-
-                slots = cluster.get_replication_slots(self.name, self.role)
-
-                # drop old replication slots which are not presented in desired slots
-                for name in set(self._replication_slots) - set(slots):
-                    if not self.drop_replication_slot(name):
-                        logger.error("Failed to drop replication slot '%s'", name)
-                        self._schedule_load_slots = True
-
-                immediately_reserve = ', true' if self._major_version >= 90600 else ''
-
-                logical_slots = defaultdict(dict)
-                for name, value in slots.items():
-                    if name in self._replication_slots and not self.compare_slots(value, self._replication_slots[name]):
-                        logger.info("Trying to drop replication slot '%s' because value is changing from %s to %s",
-                                    name, self._replication_slots[name], value)
-                        if not self.drop_replication_slot(name):
-                            logger.error("Failed to drop replication slot '%s'", name)
-                            self._schedule_load_slots = True
-                            continue
-                        self._replication_slots.pop(name)
-                    if name not in self._replication_slots:
-                        if value['type'] == 'physical':
-                            try:
-                                self._query(("SELECT pg_catalog.pg_create_physical_replication_slot(%s{0})" +
-                                             " WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_replication_slots" +
-                                             " WHERE slot_type = 'physical' AND slot_name = %s)").format(
-                                                 immediately_reserve), name, name)
-                            except Exception:
-                                logger.exception("Failed to create physical replication slot '%s'", name)
-                                self._schedule_load_slots = True
-                        elif value['type'] == 'logical' and name not in self._replication_slots:
-                            logical_slots[value['database']][name] = value
-
-                # create new logical slots
-                for database, values in logical_slots.items():
-                    conn_kwargs = self.local_connect_kwargs
-                    conn_kwargs['database'] = database
-                    with get_connection_cursor(**conn_kwargs) as cur:
-                        for name, value in values.items():
-                            try:
-                                cur.execute("SELECT pg_catalog.pg_create_logical_replication_slot(%s, %s)" +
-                                            " WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_replication_slots" +
-                                            " WHERE slot_type = 'logical' AND slot_name = %s)",
-                                            (name, value['plugin'], name))
-                            except Exception:
-                                logger.exception("Failed to create logical replication slot '%s' plugin='%s'",
-                                                 name, value['plugin'])
-                                self._schedule_load_slots = True
-                self._replication_slots = slots
-            except Exception:
-                logger.exception('Exception when changing replication slots')
-                self._schedule_load_slots = True
 
     def last_operation(self):
         return str(self._cluster_info_state_get('wal_position'))
@@ -1395,5 +1314,5 @@ class Postgresql(object):
             1. sync replication slots, because it might happen that slots were removed
             2. get new 'Database system identifier' to make sure that it wasn't changed
         """
-        self._schedule_load_slots = self.use_slots
+        self.slots_handler.schedule()
         self._sysid = None

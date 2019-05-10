@@ -14,6 +14,7 @@ from patroni.postgresql import Postgresql
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.cancellable import CancellableSubprocess
 from patroni.postgresql.rewind import Rewind
+from patroni.postgresql.slots import SlotsHandler
 from patroni.watchdog import Watchdog
 from patroni.utils import tzutc
 from test_etcd import socket_getaddrinfo, etcd_read, etcd_write, requests_get
@@ -148,7 +149,7 @@ def run_async(self, func, args=()):
 @patch.object(Postgresql, 'call_nowait', Mock(return_value=True))
 @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=False))
 @patch.object(Postgresql, 'controldata', Mock(return_value={'Database system identifier': SYSID}))
-@patch.object(Postgresql, 'sync_replication_slots', Mock())
+@patch.object(SlotsHandler, 'sync_replication_slots', Mock())
 @patch.object(Postgresql, 'append_pg_hba', Mock())
 @patch.object(Postgresql, 'write_pgpass', Mock(return_value={}))
 @patch.object(Postgresql, 'write_recovery_conf', Mock())

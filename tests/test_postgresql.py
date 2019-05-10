@@ -12,6 +12,7 @@ from patroni.dcs import Cluster, ClusterConfig, Leader, Member, RemoteMember, Sy
 from patroni.exceptions import PostgresConnectionException
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
 from patroni.postgresql.postmaster import PostmasterProcess
+from patroni.postgresql.slots import SlotsHandler
 from patroni.utils import RetryFailedError
 from six.moves import builtins
 from threading import Thread, current_thread
@@ -334,17 +335,16 @@ class TestPostgresql(unittest.TestCase):
                                              'A': 0, 'test_3': 0, 'b': {'type': 'logical', 'plugin': '1'}}}, 1)
         cluster = Cluster(True, config, self.leader, 0, [self.me, self.other, self.leadermem], None, None, None)
         with mock.patch('patroni.postgresql.Postgresql._query', Mock(side_effect=psycopg2.OperationalError)):
-            self.p.sync_replication_slots(cluster)
-        self.p.sync_replication_slots(cluster)
+            self.p.slots_handler.sync_replication_slots(cluster)
+        self.p.slots_handler.sync_replication_slots(cluster)
         with mock.patch('patroni.postgresql.Postgresql.role', new_callable=PropertyMock(return_value='replica')):
-            self.p.sync_replication_slots(cluster)
-        with patch.object(Postgresql, 'drop_replication_slot', Mock(return_value=True)),\
+            self.p.slots_handler.sync_replication_slots(cluster)
+        with patch.object(SlotsHandler, 'drop_replication_slot', Mock(return_value=True)),\
                 patch('patroni.dcs.logger.error', new_callable=Mock()) as errorlog_mock:
-            self.p.query = Mock()
             alias1 = Member(0, 'test-3', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres'})
             alias2 = Member(0, 'test.3', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres'})
             cluster.members.extend([alias1, alias2])
-            self.p.sync_replication_slots(cluster)
+            self.p.slots_handler.sync_replication_slots(cluster)
             self.assertEqual(errorlog_mock.call_count, 5)
             ca = errorlog_mock.call_args_list[0][0][1]
             self.assertTrue("test-3" in ca, "non matching {0}".format(ca))

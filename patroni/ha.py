@@ -908,7 +908,7 @@ class Ha(object):
                 return 'removed leader lock because postgres is not running as master'
 
             if self.state_handler.is_leader() and self._leader_access_is_restricted:
-                self.state_handler.sync_replication_slots(self.cluster)
+                self.state_handler.slots_handler.sync_replication_slots(self.cluster)
                 self.state_handler.call_nowait(ACTION_ON_ROLE_CHANGE)
                 self.set_leader_access_is_restricted(False)
 
@@ -1157,7 +1157,7 @@ class Ha(object):
         if not self.watchdog.activate():
             logger.error('Cancelling bootstrap because watchdog activation failed')
             self.cancel_initialization()
-        self.state_handler.sync_replication_slots(self.cluster)
+        self.state_handler.slots_handler.sync_replication_slots(self.cluster)
         self.dcs.take_leader()
         self.set_is_leader(True)
         self.state_handler.call_nowait(ACTION_ON_START)
@@ -1315,7 +1315,7 @@ class Ha(object):
                 # stops PostgreSQL, therefore, we only reload replication slots if no
                 # asynchronous processes are running (should be always the case for the master)
                 if not self._async_executor.busy and not self.state_handler.is_starting():
-                    self.state_handler.sync_replication_slots(self.cluster)
+                    self.state_handler.slots_handler.sync_replication_slots(self.cluster)
                     if not self.state_handler.cb_called:
                         if not self.state_handler.is_leader():
                             self._rewind.trigger_check_diverged_lsn()
