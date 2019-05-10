@@ -610,7 +610,7 @@ class PatroniPoolController(object):
         self._processes.clear()
 
     def create_and_set_output_directory(self, feature_name):
-        feature_dir = os.path.join(self.patroni_path, 'features/output', feature_name.replace(' ', '_'))
+        feature_dir = os.path.join(self.patroni_path, 'features', 'output', feature_name.replace(' ', '_'))
         if os.path.exists(feature_dir):
             shutil.rmtree(feature_dir)
         os.makedirs(feature_dir)

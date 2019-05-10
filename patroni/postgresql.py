@@ -1147,6 +1147,11 @@ class Postgresql(object):
         return ret
 
     def _write_postgresql_conf(self, configuration=None):
+        def _as_posix(path):
+            if os.name == 'nt' and isinstance(path, str):
+                return path.replace(os.sep, '/')
+            return path
+
         # rename the original configuration if it is necessary
         if 'custom_conf' not in self.config and not os.path.exists(self._postgresql_base_conf):
             os.rename(self._postgresql_conf, self._postgresql_base_conf)
@@ -1156,15 +1161,15 @@ class Postgresql(object):
             f.write("include '{0}'\n\n".format(self.config.get('custom_conf') or self._postgresql_base_conf_name))
             for name, value in sorted((configuration or self._server_parameters).items()):
                 if not self._running_custom_bootstrap or name != 'hba_file':
-                    f.write("{0} = '{1}'\n".format(name, value))
+                    f.write("{0} = '{1}'\n".format(name, _as_posix(value)))
             # when we are doing custom bootstrap we assume that we don't know superuser password
             # and in order to be able to change it, we are opening trust access from a certain address
             # therefore we need to make sure that hba_file is not overriden
             # after changing superuser password we will "revert" all these "changes"
             if self._running_custom_bootstrap or 'hba_file' not in self._server_parameters:
-                f.write("hba_file = '{0}'\n".format(self._pg_hba_conf.replace('\\', '\\\\')))
+                f.write("hba_file = '{0}'\n".format(_as_posix(self._pg_hba_conf)))
             if 'ident_file' not in self._server_parameters:
-                f.write("ident_file = '{0}'\n".format(self._pg_ident_conf.replace('\\', '\\\\')))
+                f.write("ident_file = '{0}'\n".format(_as_posix(self._pg_ident_conf)))
 
     def is_healthy(self):
         if not self.is_running():
