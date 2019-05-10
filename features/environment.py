@@ -5,6 +5,7 @@ import etcd
 import kazoo.client
 import kazoo.exceptions
 import os
+import tempfile
 import psutil
 import psycopg2
 import json
@@ -177,6 +178,7 @@ class PatroniController(AbstractController):
         config['name'] = name
         config['postgresql']['data_dir'] = self._data_dir
         config['postgresql']['use_unix_socket'] = True
+        config['postgresql']['pgpass'] = os.path.join(tempfile.gettempdir(), 'pgpass0')
         config['postgresql']['parameters'].update({
             'logging_collector': 'on', 'log_destination': 'csvlog', 'log_directory': self._output_dir,
             'log_filename': name + '.log', 'log_statement': 'all', 'log_min_messages': 'debug1',
