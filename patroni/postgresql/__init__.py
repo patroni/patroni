@@ -8,7 +8,7 @@ import time
 
 from contextlib import contextmanager
 from copy import deepcopy
-from patroni.callback_executor import CallbackExecutor
+from patroni.postgresql.callback_executor import CallbackExecutor
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.cancellable import CancellableSubprocess
 from patroni.postgresql.config import ConfigHandler
