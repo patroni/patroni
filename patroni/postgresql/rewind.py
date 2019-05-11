@@ -91,7 +91,7 @@ class Rewind(object):
             if leader.member.data.get('role') != 'master':
                 return
         # standby cluster
-        elif not self.check_leader_is_not_in_recovery(**leader.conn_kwargs(self._postgresql.replication)):
+        elif not self.check_leader_is_not_in_recovery(**leader.conn_kwargs(self._postgresql.config.replication)):
             return
 
         history = need_rewind = None
@@ -165,7 +165,7 @@ class Rewind(object):
             return logger.warning('Can not run pg_rewind because postgres is still running')
 
         # prepare pg_rewind connection
-        r = leader.conn_kwargs(self._postgresql.rewind_credentials)
+        r = leader.conn_kwargs(self._postgresql.config.rewind_credentials)
 
         # 1. make sure that we are really trying to rewind from the master
         # 2. make sure that pg_control contains the new timeline by:
@@ -173,7 +173,7 @@ class Rewind(object):
         #   waiting until Patroni on the master will expose checkpoint_after_promote=True
         checkpoint_status = leader.checkpoint_after_promote if isinstance(leader, Leader) else None
         if checkpoint_status is None:  # master still runs the old Patroni
-            leader_status = self._postgresql.checkpoint(leader.conn_kwargs(self._postgresql.superuser))
+            leader_status = self._postgresql.checkpoint(leader.conn_kwargs(self._postgresql.config.superuser))
             if leader_status:
                 return logger.warning('Can not use %s for rewind: %s', leader.name, leader_status)
         elif not checkpoint_status:

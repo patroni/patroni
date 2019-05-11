@@ -390,7 +390,7 @@ class Ha(object):
         # In this case it is safe to continue running without changing recovery.conf
         if self.is_standby_cluster() and role == 'replica' and not (node_to_follow and node_to_follow.conn_url):
             return 'continue following the old known standby leader'
-        elif not self.state_handler.check_recovery_conf(node_to_follow):
+        elif not self.state_handler.config.check_recovery_conf(node_to_follow):
             self._async_executor.schedule('changing primary_conninfo and restarting')
             self._async_executor.run_async(self.state_handler.follow, (node_to_follow, role))
         elif role == 'standby_leader' and self.state_handler.role != role:
@@ -430,7 +430,7 @@ class Ha(object):
                     logger.warning("No standbys available!")
 
                 logger.info("Assigning synchronous standby status to %s", picked)
-                self.state_handler.set_synchronous_standby(picked)
+                self.state_handler.config.set_synchronous_standby(picked)
 
                 if picked and picked != '*' and not allow_promote:
                     # Wait for PostgreSQL to enable synchronous mode and see if we can immediately set sync_standby
@@ -451,7 +451,7 @@ class Ha(object):
         else:
             if self.cluster.sync.leader and self.dcs.delete_sync_state(index=self.cluster.sync.index):
                 logger.info("Disabled synchronous replication")
-            self.state_handler.set_synchronous_standby(None)
+            self.state_handler.config.set_synchronous_standby(None)
 
     def is_sync_standby(self, cluster):
         return cluster.leader and cluster.sync.leader == cluster.leader.name \
@@ -543,7 +543,7 @@ class Ha(object):
                     # Somebody else updated sync state, it may be due to us losing the lock. To be safe, postpone
                     # promotion until next cycle. TODO: trigger immediate retry of run_cycle
                     return 'Postponing promotion because synchronous replication state was updated by somebody else'
-                self.state_handler.set_synchronous_standby('*' if self.is_synchronous_mode_strict() else None)
+                self.state_handler.config.set_synchronous_standby('*' if self.is_synchronous_mode_strict() else None)
             if self.state_handler.role != 'master':
                 self.set_leader_access_is_restricted(self.cluster.has_permanent_logical_slots(self.state_handler.name))
 
@@ -772,7 +772,7 @@ class Ha(object):
             self._async_executor.run_async(self.state_handler.follow, (node_to_follow,))
         else:
             if self.is_synchronous_mode():
-                self.state_handler.set_synchronous_standby(None)
+                self.state_handler.config.set_synchronous_standby(None)
             if self._rewind.rewind_or_reinitialize_needed_and_possible(leader):
                 return False  # do not start postgres, but run pg_rewind on the next iteration
             self.state_handler.follow(node_to_follow)

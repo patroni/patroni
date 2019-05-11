@@ -13,6 +13,7 @@ from patroni.ha import Ha, _MemberStatus
 from patroni.postgresql import Postgresql
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.cancellable import CancellableSubprocess
+from patroni.postgresql.config import ConfigHandler
 from patroni.postgresql.rewind import Rewind
 from patroni.postgresql.slots import SlotsHandler
 from patroni.watchdog import Watchdog
@@ -150,15 +151,15 @@ def run_async(self, func, args=()):
 @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=False))
 @patch.object(Postgresql, 'controldata', Mock(return_value={'Database system identifier': SYSID}))
 @patch.object(SlotsHandler, 'sync_replication_slots', Mock())
-@patch.object(Postgresql, 'append_pg_hba', Mock())
+@patch.object(ConfigHandler, 'append_pg_hba', Mock())
 @patch.object(Postgresql, 'write_pgpass', Mock(return_value={}))
-@patch.object(Postgresql, 'write_recovery_conf', Mock())
+@patch.object(ConfigHandler, 'write_recovery_conf', Mock())
 @patch.object(Postgresql, 'query', Mock())
 @patch.object(Postgresql, 'checkpoint', Mock())
 @patch.object(CancellableSubprocess, 'call', Mock(return_value=0))
 @patch.object(Postgresql, 'get_local_timeline_lsn_from_replication_connection', Mock(return_value=[2, 10]))
 @patch.object(Postgresql, 'get_master_timeline', Mock(return_value=2))
-@patch.object(Postgresql, 'restore_configuration_files', Mock())
+@patch.object(ConfigHandler, 'restore_configuration_files', Mock())
 @patch.object(etcd.Client, 'write', etcd_write)
 @patch.object(etcd.Client, 'read', etcd_read)
 @patch.object(etcd.Client, 'delete', Mock(side_effect=etcd.EtcdException))
@@ -679,7 +680,7 @@ class TestHa(unittest.TestCase):
         self.p.is_leader = false
         self.p.name = 'leader'
         self.ha.cluster = get_standby_cluster_initialized_with_only_leader()
-        self.p.check_recovery_conf = true
+        self.p.config.check_recovery_conf = true
         self.assertEqual(self.ha.run_cycle(), 'promoted self to a standby leader because i had the session lock')
         self.assertEqual(self.ha.run_cycle(), 'no action.  i am the standby leader with the lock')
 
@@ -813,7 +814,7 @@ class TestHa(unittest.TestCase):
 
     def test_process_sync_replication(self):
         self.ha.has_lock = true
-        mock_set_sync = self.p.set_synchronous_standby = Mock()
+        mock_set_sync = self.p.config.set_synchronous_standby = Mock()
         self.p.name = 'leader'
 
         # Test sync key removed when sync mode disabled
@@ -890,7 +891,7 @@ class TestHa(unittest.TestCase):
     def test_sync_replication_become_master(self):
         self.ha.is_synchronous_mode = true
 
-        mock_set_sync = self.p.set_synchronous_standby = Mock()
+        mock_set_sync = self.p.config.set_synchronous_standby = Mock()
         self.p.is_leader = false
         self.p.set_role('replica')
         self.ha.has_lock = true

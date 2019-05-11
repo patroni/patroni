@@ -10,6 +10,7 @@ from patroni.api import RestApiServer
 from patroni.async_executor import AsyncExecutor
 from patroni.dcs.etcd import Client
 from patroni.exceptions import DCSError
+from patroni.postgresql.config import ConfigHandler
 from patroni import Patroni, main as _main, patroni_main, check_psycopg2
 from six.moves import BaseHTTPServer, builtins
 from test_etcd import SleepException, etcd_read, etcd_write
@@ -24,9 +25,9 @@ class MockFrozenImporter(object):
 @patch('time.sleep', Mock())
 @patch('subprocess.call', Mock(return_value=0))
 @patch('psycopg2.connect', psycopg2_connect)
-@patch.object(Postgresql, 'append_pg_hba', Mock())
-@patch.object(Postgresql, 'write_postgresql_conf', Mock())
-@patch.object(Postgresql, 'write_recovery_conf', Mock())
+@patch.object(ConfigHandler, 'append_pg_hba', Mock())
+@patch.object(ConfigHandler, 'write_postgresql_conf', Mock())
+@patch.object(ConfigHandler, 'write_recovery_conf', Mock())
 @patch.object(Postgresql, 'is_running', Mock(return_value=MockPostmaster()))
 @patch.object(Postgresql, 'call_nowait', Mock())
 @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())

@@ -10,6 +10,7 @@ from patroni.dcs import Leader, Member
 from patroni.postgresql import Postgresql
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.cancellable import CancellableSubprocess
+from patroni.postgresql.config import ConfigHandler
 
 from test_postgresql import psycopg2_connect
 
@@ -45,40 +46,40 @@ class TestBootstrap(unittest.TestCase):
     @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=False))
     @patch.object(Bootstrap, '_post_restore', Mock(side_effect=OSError))
     def test_create_replica(self, mock_cancellable_subprocess_call):
-        self.p.config['create_replica_methods'] = ['pgBackRest']
-        self.p.config['pgBackRest'] = {'command': 'pgBackRest', 'keep_data': True, 'no_params': True}
+        self.p.config._config['create_replica_methods'] = ['pgBackRest']
+        self.p.config._config['pgBackRest'] = {'command': 'pgBackRest', 'keep_data': True, 'no_params': True}
         mock_cancellable_subprocess_call.return_value = 0
         self.assertEqual(self.b.create_replica(self.leader), 0)
 
-        self.p.config['create_replica_methods'] = ['wale', 'basebackup']
-        self.p.config['wale'] = {'command': 'foo'}
+        self.p.config._config['create_replica_methods'] = ['wale', 'basebackup']
+        self.p.config._config['wale'] = {'command': 'foo'}
         self.assertEqual(self.b.create_replica(self.leader), 0)
-        del self.p.config['wale']
-        self.assertEqual(self.b.create_replica(self.leader), 0)
-
-        self.p.config['create_replica_methods'] = ['basebackup']
-        self.p.config['basebackup'] = [{'max_rate': '100M'}, 'no-sync']
+        del self.p.config._config['wale']
         self.assertEqual(self.b.create_replica(self.leader), 0)
 
-        self.p.config['basebackup'] = [{'max_rate': '100M', 'compress': '9'}]
+        self.p.config._config['create_replica_methods'] = ['basebackup']
+        self.p.config._config['basebackup'] = [{'max_rate': '100M'}, 'no-sync']
+        self.assertEqual(self.b.create_replica(self.leader), 0)
+
+        self.p.config._config['basebackup'] = [{'max_rate': '100M', 'compress': '9'}]
         with patch('patroni.postgresql.bootstrap.logger.error', new_callable=Mock()) as mock_logger:
             self.b.create_replica(self.leader)
             mock_logger.assert_called_once()
             self.assertTrue("only one key-value is allowed and value should be a string" in mock_logger.call_args[0][0],
                             "not matching {0}".format(mock_logger.call_args[0][0]))
 
-        self.p.config['basebackup'] = [42]
+        self.p.config._config['basebackup'] = [42]
         with patch('patroni.postgresql.bootstrap.logger.error', new_callable=Mock()) as mock_logger:
             self.b.create_replica(self.leader)
             mock_logger.assert_called_once()
             self.assertTrue("value should be string value or a single key-value pair" in mock_logger.call_args[0][0],
                             "not matching {0}".format(mock_logger.call_args[0][0]))
 
-        self.p.config['basebackup'] = {"foo": "bar"}
+        self.p.config._config['basebackup'] = {"foo": "bar"}
         self.assertEqual(self.b.create_replica(self.leader), 0)
 
-        self.p.config['create_replica_methods'] = ['wale', 'basebackup']
-        del self.p.config['basebackup']
+        self.p.config._config['create_replica_methods'] = ['wale', 'basebackup']
+        del self.p.config._config['basebackup']
         mock_cancellable_subprocess_call.return_value = 1
         self.assertEqual(self.b.create_replica(self.leader), 1)
 
@@ -102,19 +103,19 @@ class TestBootstrap(unittest.TestCase):
         """ The same test as before but with old 'create_replica_method'
             to test backward compatibility
         """
-        self.p.config['create_replica_method'] = ['wale', 'basebackup']
-        self.p.config['wale'] = {'command': 'foo'}
+        self.p.config._config['create_replica_method'] = ['wale', 'basebackup']
+        self.p.config._config['wale'] = {'command': 'foo'}
         mock_cancellable_subprocess_call.return_value = 0
         self.assertEqual(self.b.create_replica(self.leader), 0)
-        del self.p.config['wale']
+        del self.p.config._config['wale']
         self.assertEqual(self.b.create_replica(self.leader), 0)
 
-        self.p.config['create_replica_method'] = ['basebackup']
-        self.p.config['basebackup'] = [{'max_rate': '100M'}, 'no-sync']
+        self.p.config._config['create_replica_method'] = ['basebackup']
+        self.p.config._config['basebackup'] = [{'max_rate': '100M'}, 'no-sync']
         self.assertEqual(self.b.create_replica(self.leader), 0)
 
-        self.p.config['create_replica_method'] = ['wale', 'basebackup']
-        del self.p.config['basebackup']
+        self.p.config._config['create_replica_method'] = ['wale', 'basebackup']
+        del self.p.config._config['basebackup']
         mock_cancellable_subprocess_call.return_value = 1
         self.assertEqual(self.b.create_replica(self.leader), 1)
 
@@ -137,13 +138,14 @@ class TestBootstrap(unittest.TestCase):
 
         config = {'users': {'replicator': {'password': 'rep-pass', 'options': ['replication']}}}
 
-        with patch.object(Postgresql, 'is_running', Mock(return_value=False)):
-            self.b.bootstrap(config)
+        with patch.object(Postgresql, 'is_running', Mock(return_value=False)),\
+                patch('multiprocessing.Process', Mock(side_effect=Exception)):
+            self.assertRaises(Exception, self.b.bootstrap, config)
         with open(os.path.join(self.p.data_dir, 'pg_hba.conf')) as f:
             lines = f.readlines()
             self.assertTrue('host all all 0.0.0.0/0 md5\n' in lines)
 
-        self.p.config.pop('pg_hba')
+        self.p.config._config.pop('pg_hba')
         config.update({'post_init': '/bin/false',
                        'pg_hba': ['host replication replicator 127.0.0.1/32 md5',
                                   'hostssl all all 0.0.0.0/0 md5',
@@ -156,7 +158,7 @@ class TestBootstrap(unittest.TestCase):
     @patch.object(CancellableSubprocess, 'call')
     @patch.object(Postgresql, 'get_major_version', Mock(return_value=90600))
     def test_custom_bootstrap(self, mock_cancellable_subprocess_call):
-        self.p.config.pop('pg_hba')
+        self.p.config._config.pop('pg_hba')
         config = {'method': 'foo', 'foo': {'command': 'bar'}}
 
         mock_cancellable_subprocess_call.return_value = 1
@@ -166,9 +168,9 @@ class TestBootstrap(unittest.TestCase):
         with patch('multiprocessing.Process', Mock(side_effect=Exception("42"))),\
                 patch('os.path.isfile', Mock(return_value=True)),\
                 patch('os.unlink', Mock()),\
-                patch.object(Postgresql, 'save_configuration_files', Mock()),\
-                patch.object(Postgresql, 'restore_configuration_files', Mock()),\
-                patch.object(Postgresql, 'write_recovery_conf', Mock()):
+                patch.object(ConfigHandler, 'save_configuration_files', Mock()),\
+                patch.object(ConfigHandler, 'restore_configuration_files', Mock()),\
+                patch.object(ConfigHandler, 'write_recovery_conf', Mock()):
             with self.assertRaises(Exception) as e:
                 self.b.bootstrap(config)
             self.assertEqual(str(e.exception), '42')
@@ -199,7 +201,7 @@ class TestBootstrap(unittest.TestCase):
             self.b.post_bootstrap({}, task)
             self.assertFalse(task.result)
 
-        self.p.config.pop('pg_hba')
+        self.p.config._config.pop('pg_hba')
         self.b.post_bootstrap({}, task)
         self.assertTrue(task.result)
 
@@ -225,7 +227,7 @@ class TestBootstrap(unittest.TestCase):
         self.assertFalse(self.b.call_post_bootstrap({'post_init': '/bin/false'}))
 
         mock_cancellable_subprocess_call.return_value = 0
-        self.p._superuser.pop('username')
+        self.p.config.superuser.pop('username')
         self.assertTrue(self.b.call_post_bootstrap({'post_init': '/bin/false'}))
         mock_cancellable_subprocess_call.assert_called()
         args, kwargs = mock_cancellable_subprocess_call.call_args
@@ -233,7 +235,7 @@ class TestBootstrap(unittest.TestCase):
         self.assertEqual(args[0], ['/bin/false', 'postgres://127.0.0.2:5432/postgres'])
 
         mock_cancellable_subprocess_call.reset_mock()
-        self.p._local_address.pop('host')
+        self.p.config._local_address.pop('host')
         self.assertTrue(self.b.call_post_bootstrap({'post_init': '/bin/false'}))
         mock_cancellable_subprocess_call.assert_called()
         self.assertEqual(mock_cancellable_subprocess_call.call_args[0][0], ['/bin/false', 'postgres://:5432/postgres'])

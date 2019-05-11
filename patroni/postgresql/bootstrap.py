@@ -63,12 +63,12 @@ class Bootstrap(object):
         options = self.process_user_options('initdb', config.get('initdb') or [], not_allowed_options, error_handler)
         pwfile = None
 
-        if self._postgresql.superuser:
-            if 'username' in self._postgresql.superuser:
-                options.append('--username={0}'.format(self._postgresql.superuser['username']))
-            if 'password' in self._postgresql.superuser:
+        if self._postgresql.config.superuser:
+            if 'username' in self._postgresql.config.superuser:
+                options.append('--username={0}'.format(self._postgresql.config.superuser['username']))
+            if 'password' in self._postgresql.config.superuser:
                 (fd, pwfile) = tempfile.mkstemp()
-                os.write(fd, self._postgresql.superuser['password'].encode('utf-8'))
+                os.write(fd, self._postgresql.config.superuser['password'].encode('utf-8'))
                 os.close(fd)
                 options.append('--pwfile={0}'.format(pwfile))
         options = ['-o', ' '.join(options)] if options else []
@@ -86,7 +86,7 @@ class Bootstrap(object):
         trigger_file = os.path.abspath(os.path.join(self._postgresql.data_dir, trigger_file))
         if os.path.exists(trigger_file):
             os.unlink(trigger_file)
-        self._postgresql.restore_configuration_files()
+        self._postgresql.config.restore_configuration_files()
 
     def _custom_bootstrap(self, config):
         self._postgresql.set_state('running custom bootstrap script')
@@ -102,9 +102,9 @@ class Bootstrap(object):
         self._post_restore()
 
         if 'recovery_conf' in config:
-            self._postgresql.write_recovery_conf(config['recovery_conf'])
+            self._postgresql.config.write_recovery_conf(config['recovery_conf'])
         elif not config.get('keep_existing_recovery_conf'):
-            self._postgresql.remove_recovery_conf()
+            self._postgresql.config.remove_recovery_conf()
         return True
 
     def call_post_bootstrap(self, config):
@@ -113,7 +113,7 @@ class Bootstrap(object):
         """
         cmd = config.get('post_bootstrap') or config.get('post_init')
         if cmd:
-            r = self._postgresql.local_connect_kwargs
+            r = self._postgresql.config.local_connect_kwargs
 
             if 'host' in r:
                 # '/tmp' => '%2Ftmp' for unix socket path
@@ -166,7 +166,7 @@ class Bootstrap(object):
         replica_methods = create_replica_methods or self._postgresql.create_replica_methods or ['basebackup']
 
         if clone_member and clone_member.conn_url:
-            r = clone_member.conn_kwargs(self._postgresql.replication)
+            r = clone_member.conn_kwargs(self._postgresql.config.replication)
             connstring = 'postgres://{user}@{host}:{port}/{database}'.format(**r)
             # add the credentials to connect to the replica origin to pgpass.
             env = self._postgresql.write_pgpass(r)
@@ -293,9 +293,9 @@ class Bootstrap(object):
             config = config[method]
         else:
             do_initialize = self._initdb
-        postgresql = self._postgresql
-        return do_initialize(config) and postgresql.append_pg_hba(pg_hba) and postgresql.save_configuration_files() \
-            and postgresql.configure_server_parameters() and postgresql.start()
+        return do_initialize(config) and self._postgresql.config.append_pg_hba(pg_hba) \
+            and self._postgresql.config.save_configuration_files() \
+            and self._postgresql.configure_server_parameters() and self._postgresql.start()
 
     def create_or_update_role(self, name, password, options):
         options = list(map(str.upper, options))
@@ -322,17 +322,17 @@ END;$$""".format(name, ' '.join(options))
     def post_bootstrap(self, config, task):
         try:
             postgresql = self._postgresql
-            if 'username' in postgresql.superuser and 'password' in postgresql.superuser:
-                self.create_or_update_role(postgresql.superuser['username'],
-                                           postgresql.superuser['password'], ['SUPERUSER'])
+            superuser = postgresql.config.superuser
+            if 'username' in superuser and 'password' in superuser:
+                self.create_or_update_role(superuser['username'], superuser['password'], ['SUPERUSER'])
 
             task.complete(self.call_post_bootstrap(config))
             if task.result:
-                self.create_or_update_role(postgresql.replication['username'],
-                                           postgresql.replication.get('password'), ['REPLICATION'])
+                replication = postgresql.config.replication
+                self.create_or_update_role(replication['username'], replication.get('password'), ['REPLICATION'])
 
-                rewind = postgresql.rewind_credentials
-                if not deep_compare(rewind, postgresql.superuser):
+                rewind = postgresql.config.rewind_credentials
+                if not deep_compare(rewind, superuser):
                     self.create_or_update_role(rewind['username'], rewind.get('password'), [])
                     for f in ('pg_ls_dir(text, boolean, boolean)', 'pg_stat_file(text, boolean)',
                               'pg_read_binary_file(text)', 'pg_read_binary_file(text, bigint, bigint, boolean)'):
@@ -340,7 +340,7 @@ END;$$""".format(name, ' '.join(options))
                                          .format(f, rewind['username']))
 
                 for name, value in (config.get('users') or {}).items():
-                    if name not in (postgresql.superuser.get('username'), postgresql.replication.get('username')):
+                    if name not in (superuser.get('username'), replication.get('username')):
                         self.create_or_update_role(name, value.get('password'), value.get('options', []))
 
                 # We were doing a custom bootstrap instead of running initdb, therefore we opened trust
@@ -349,18 +349,18 @@ END;$$""".format(name, ' '.join(options))
                     self._running_custom_bootstrap = False
                     # If we don't have custom configuration for pg_hba.conf we need to restore original file
                     if not postgresql.config.get('pg_hba'):
-                        os.unlink(postgresql.pg_hba_conf)
-                        postgresql.restore_configuration_files()
-                    postgresql.write_postgresql_conf()
-                    postgresql.replace_pg_ident()
+                        os.unlink(postgresql.config.pg_hba_conf)
+                        postgresql.config.restore_configuration_files()
+                    postgresql.config.write_postgresql_conf()
+                    postgresql.config.replace_pg_ident()
 
                     # at this point there should be no recovery.conf
-                    postgresql.remove_recovery_conf()
+                    postgresql.config.remove_recovery_conf()
 
-                    if postgresql.hba_file and postgresql.hba_file != postgresql.pg_hba_conf:
+                    if postgresql.config.hba_file and postgresql.config.hba_file != postgresql.config.pg_hba_conf:
                         postgresql.restart()
                     else:
-                        postgresql.replace_pg_hba()
+                        postgresql.config.replace_pg_hba()
                         if postgresql.pending_restart:
                             postgresql.restart()
                         else:

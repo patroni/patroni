@@ -316,10 +316,10 @@ class TestPostgresql(unittest.TestCase):
         self.assertEqual(self.p.checkpoint(), 'not accessible or not healty')
 
     def test_check_recovery_conf(self):
-        self.p.write_recovery_conf({'primary_conninfo': 'foo'})
-        self.assertFalse(self.p.check_recovery_conf(None))
-        self.p.write_recovery_conf({})
-        self.assertTrue(self.p.check_recovery_conf(None))
+        self.p.config.write_recovery_conf({'primary_conninfo': 'foo'})
+        self.assertFalse(self.p.config.check_recovery_conf(None))
+        self.p.config.write_recovery_conf({})
+        self.assertTrue(self.p.config.check_recovery_conf(None))
 
     @patch.object(Postgresql, 'is_running', Mock(return_value=False))
     @patch.object(Postgresql, 'start', Mock())
@@ -469,26 +469,26 @@ class TestPostgresql(unittest.TestCase):
     @patch('os.path.isfile', Mock(return_value=True))
     @patch('shutil.copy', Mock(side_effect=IOError))
     def test_save_configuration_files(self):
-        self.p.save_configuration_files()
+        self.p.config.save_configuration_files()
 
     @patch('os.path.isfile', Mock(side_effect=[False, True]))
     @patch('shutil.copy', Mock(side_effect=IOError))
     def test_restore_configuration_files(self):
-        self.p.restore_configuration_files()
+        self.p.config.restore_configuration_files()
 
     def test_can_create_replica_without_replication_connection(self):
-        self.p.config['create_replica_method'] = []
+        self.p.config._config['create_replica_method'] = []
         self.assertFalse(self.p.can_create_replica_without_replication_connection())
-        self.p.config['create_replica_method'] = ['wale', 'basebackup']
-        self.p.config['wale'] = {'command': 'foo', 'no_master': 1}
+        self.p.config._config['create_replica_method'] = ['wale', 'basebackup']
+        self.p.config._config['wale'] = {'command': 'foo', 'no_master': 1}
         self.assertTrue(self.p.can_create_replica_without_replication_connection())
 
     def test_replica_method_can_work_without_replication_connection(self):
         self.assertFalse(self.p.replica_method_can_work_without_replication_connection('basebackup'))
         self.assertFalse(self.p.replica_method_can_work_without_replication_connection('foobar'))
-        self.p.config['foo'] = {'command': 'bar', 'no_master': 1}
+        self.p.config._config['foo'] = {'command': 'bar', 'no_master': 1}
         self.assertTrue(self.p.replica_method_can_work_without_replication_connection('foo'))
-        self.p.config['foo'] = {'command': 'bar'}
+        self.p.config._config['foo'] = {'command': 'bar'}
         self.assertFalse(self.p.replica_method_can_work_without_replication_connection('foo'))
 
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
@@ -508,7 +508,7 @@ class TestPostgresql(unittest.TestCase):
         self.p.reload_config(config)
         parameters['unix_socket_directories'] = '.'
         self.p.reload_config(config)
-        self.p.resolve_connection_addresses()
+        self.p.config.resolve_connection_addresses()
 
     @patch.object(Postgresql, '_version_file_exists', Mock(return_value=True))
     def test_get_major_version(self):
@@ -641,31 +641,31 @@ class TestPostgresql(unittest.TestCase):
                         return line.strip()
 
         mock_reload = self.p.reload = Mock()
-        self.p.set_synchronous_standby('n1')
+        self.p.config.set_synchronous_standby('n1')
         self.assertEqual(value_in_conf(), "synchronous_standby_names = 'n1'")
         mock_reload.assert_called()
 
         mock_reload.reset_mock()
-        self.p.set_synchronous_standby('n1')
+        self.p.config.set_synchronous_standby('n1')
         mock_reload.assert_not_called()
         self.assertEqual(value_in_conf(), "synchronous_standby_names = 'n1'")
 
-        self.p.set_synchronous_standby('n2')
+        self.p.config.set_synchronous_standby('n2')
         mock_reload.assert_called()
         self.assertEqual(value_in_conf(), "synchronous_standby_names = 'n2'")
 
         mock_reload.reset_mock()
-        self.p.set_synchronous_standby(None)
+        self.p.config.set_synchronous_standby(None)
         mock_reload.assert_called()
         self.assertEqual(value_in_conf(), None)
 
     def test_get_server_parameters(self):
         config = {'synchronous_mode': True, 'parameters': {'wal_level': 'hot_standby'}, 'listen': '0'}
-        self.p.get_server_parameters(config)
+        self.p.config.get_server_parameters(config)
         config['synchronous_mode_strict'] = True
-        self.p.get_server_parameters(config)
-        self.p.set_synchronous_standby('foo')
-        self.p.get_server_parameters(config)
+        self.p.config.get_server_parameters(config)
+        self.p.config.set_synchronous_standby('foo')
+        self.p.config.get_server_parameters(config)
 
     @patch('time.sleep', Mock())
     def test__wait_for_connection_close(self):

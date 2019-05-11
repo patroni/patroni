@@ -84,7 +84,7 @@ class SlotsHandler(object):
 
                 # create new logical slots
                 for database, values in logical_slots.items():
-                    conn_kwargs = self._postgresql.local_connect_kwargs
+                    conn_kwargs = self._postgresql.config.local_connect_kwargs
                     conn_kwargs['database'] = database
                     with get_connection_cursor(**conn_kwargs) as cur:
                         for name, value in values.items():

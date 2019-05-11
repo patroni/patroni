@@ -32,7 +32,7 @@ class TestRewind(unittest.TestCase):
     def test_can_rewind(self):
         self.assertFalse(self.r.can_rewind)
 
-        self.p.config['use_pg_rewind'] = True
+        self.p.config._config['use_pg_rewind'] = True
         with patch.object(Postgresql, 'controldata', Mock(return_value={'wal_log_hints setting': 'on'})):
             self.assertTrue(self.r.can_rewind)
         with patch('subprocess.call', Mock(return_value=1)):
@@ -73,7 +73,7 @@ class TestRewind(unittest.TestCase):
             self.r.execute(self.leader)
             with patch.object(Rewind, 'check_leader_is_not_in_recovery', Mock(return_value=False)):
                 self.r.execute(self.leader)
-            self.p.config['remove_data_directory_on_rewind_failure'] = False
+            self.p.config._config['remove_data_directory_on_rewind_failure'] = False
             self.r.trigger_check_diverged_lsn()
             self.r.execute(self.leader)
 
