@@ -20,7 +20,8 @@ test_script:
   - "%PYTHON%\\python.exe setup.py test"
  
 after_test:
-  - "build.cmd %PYTHON%\\python.exe setup.py bdist_wheel"
+  - "coveralls"
+  - "python-codacy-coverage -r coverage.xml"
  
 artifacts:
   - path: dist\*
