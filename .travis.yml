@@ -1,3 +1,7 @@
+os:
+  - windows
+  - linux
+  
 sudo: true
 dist: trusty
 language: python
@@ -13,16 +17,16 @@ env:
   - BOTO_CONFIG=/doesnotexist
 matrix:
   include:
-  - python: "3.5"
+  - python: "3.6"
     env: TEST_SUITE="python setup.py"
-  - python: "3.6"
-    env: DCS="etcd" TEST_SUITE="behave"
-  - python: "3.6"
-    env: DCS="exhibitor" TEST_SUITE="behave"
-  - python: "3.6"
-    env: DCS="consul" TEST_SUITE="behave"
-  - python: "3.6"
-    env: DCS="kubernetes" TEST_SUITE="behave"
+#   - python: "3.6"
+#     env: DCS="etcd" TEST_SUITE="behave"
+#   - python: "3.6"
+#     env: DCS="exhibitor" TEST_SUITE="behave"
+#   - python: "3.6"
+#     env: DCS="consul" TEST_SUITE="behave"
+#   - python: "3.6"
+#     env: DCS="kubernetes" TEST_SUITE="behave"
 branches:
   only:
   - master
