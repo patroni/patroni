@@ -13,6 +13,8 @@ init:
  
 install:
   - "%PYTHON%\\python.exe -m pip install wheel behave coverage flake8 mock pytest-cov pytest psycopg2-binary"
+  - "pip install --upgrade pip"
+  - "pip install --upgrade setuptool"
  
 build: off
  
