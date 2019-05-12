@@ -20,7 +20,7 @@ test_script:
   - "%PYTHON%\\python.exe setup.py test"
  
 after_test:
-  - "python-codacy-coverage -r coverage.xml"
+#  - "python-codacy-coverage -r coverage.xml"
  
 artifacts:
   - path: dist\*
