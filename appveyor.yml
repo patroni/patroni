@@ -12,9 +12,10 @@ init:
   - "ECHO %PYTHON% %PYTHON_VERSION% %PYTHON_ARCH%"
  
 install:
-  - "%PYTHON%\\python.exe -m pip install wheel behave coverage flake8 mock pytest-cov pytest psycopg2-binary"
-  - "pip install --upgrade pip"
-  - "pip install --upgrade setuptool"
+  - "SET PATH=%PYTHON%;%PYTHON%\\Scripts;%PATH%"
+  - "pip install -r requirements.txt --upgrade"
+  - "pip install psycopg2-binary behave codacy-coverage coverage coveralls flake8 mock pytest-cov pytest setuptools --upgrade"
+  - "python -m pip install --upgrade pip"
  
 build: off
  
