@@ -12,7 +12,7 @@ init:
   - "ECHO %PYTHON% %PYTHON_VERSION% %PYTHON_ARCH%"
  
 install:
-  - "%PYTHON%\\python.exe -m pip install wheel behave coverage flake8 mock pytest-cov pytest"
+  - "%PYTHON%\\python.exe -m pip install wheel behave coverage flake8 mock pytest-cov pytest psycopg2-binary"
  
 build: off
  
