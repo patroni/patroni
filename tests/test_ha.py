@@ -582,6 +582,7 @@ class TestHa(unittest.TestCase):
 
     @patch('requests.get', requests_get)
     def test__is_healthiest_node(self):
+        self.ha.cluster = get_cluster_initialized_without_leader(sync=('postgresql1', self.p.name))
         self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         self.p.is_leader = false
         self.ha.fetch_node_status = get_node_status()  # accessible, in_recovery
@@ -590,6 +591,9 @@ class TestHa(unittest.TestCase):
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         self.ha.fetch_node_status = get_node_status(wal_position=11)  # accessible, in_recovery, wal position ahead
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
+        # in synchronous_mode consider itself healthy if the former leader is accessible in read-only and ahead of us
+        with patch.object(Ha, 'is_synchronous_mode', Mock(return_value=True)):
+            self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         with patch('patroni.postgresql.Postgresql.timeline_wal_position', return_value=(1, 1)):
             self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         with patch('patroni.postgresql.Postgresql.replica_cached_timeline', return_value=1):
