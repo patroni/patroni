@@ -666,11 +666,12 @@ class Postgresql(object):
     def replica_method_can_work_without_replication_connection(self, method):
         return method != 'basebackup' and self.config and self.config.get(method, {}).get('no_master')
 
-    def can_create_replica_without_replication_connection(self):
+    def can_create_replica_without_replication_connection(self, replica_methods=None):
         """ go through the replication methods to see if there are ones
             that does not require a working replication connection.
         """
-        replica_methods = self._create_replica_methods
+        if replica_methods is None:
+            replica_methods = self._create_replica_methods
         return any(self.replica_method_can_work_without_replication_connection(method) for method in replica_methods)
 
     def create_replica(self, clone_member):
@@ -684,16 +685,12 @@ class Postgresql(object):
         self._sysid = None
 
         is_remote_master = isinstance(clone_member, RemoteMember)
-        create_replica_methods = is_remote_master and clone_member.create_replica_methods
 
         # get list of replica methods either from clone member or from
         # the config. If there is no configuration key, or no value is
         # specified, use basebackup
-        replica_methods = (
-            create_replica_methods
-            or self._create_replica_methods
-            or ['basebackup']
-        )
+        replica_methods = (clone_member.create_replica_methods if is_remote_master
+                           else self._create_replica_methods) or ['basebackup']
 
         if clone_member and clone_member.conn_url:
             r = clone_member.conn_kwargs(self._replication)
@@ -1310,6 +1307,8 @@ class Postgresql(object):
             yield cur
 
     def check_leader_is_not_in_recovery(self, **kwargs):
+        if not kwargs.get('database'):
+            kwargs['database'] = self._database
         try:
             with self._get_connection_cursor(connect_timeout=3, options='-c statement_timeout=2000', **kwargs) as cur:
                 cur.execute('SELECT pg_catalog.pg_is_in_recovery()')
