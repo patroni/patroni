@@ -604,7 +604,11 @@ class Ha(object):
                         return False
                     if my_wal_position < st.wal_position:
                         logger.info('Wal position of %s is ahead of my wal position', st.member.name)
-                        return False
+                        # In synchronous mode the former leader might be still accessible and even be ahead of us.
+                        # We should not disqualify himself from the leader race in such a situation.
+                        if not self.is_synchronous_mode() or st.member.name != self.cluster.sync.leader:
+                            return False
+                        logger.info('Ignoring the former leader being ahead of us')
         return True
 
     def is_failover_possible(self, members):
