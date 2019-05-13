@@ -136,7 +136,7 @@ class Member(namedtuple('Member', 'index,name,session,data')):
         if conn_kwargs:
             conn_url = 'postgresql://{host}:{port}'.format(
                 host=conn_kwargs.get('host'),
-                port=conn_kwargs.get('port'),
+                port=conn_kwargs.get('port', 5432),
             )
             self.data['conn_url'] = conn_url
             return conn_url

@@ -49,6 +49,8 @@ class Rewind(object):
             self._state = REWIND_STATUS.CHECK
 
     def check_leader_is_not_in_recovery(self, **kwargs):
+        if not kwargs.get('database'):
+            kwargs['database'] = self._postgresql.database
         try:
             with get_connection_cursor(connect_timeout=3, options='-c statement_timeout=2000', **kwargs) as cur:
                 cur.execute('SELECT pg_catalog.pg_is_in_recovery()')

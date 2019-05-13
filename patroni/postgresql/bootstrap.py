@@ -158,12 +158,12 @@ class Bootstrap(object):
         self._postgresql.schedule_sanity_checks_after_pause()
 
         is_remote_master = isinstance(clone_member, RemoteMember)
-        create_replica_methods = is_remote_master and clone_member.create_replica_methods
 
         # get list of replica methods either from clone member or from
         # the config. If there is no configuration key, or no value is
         # specified, use basebackup
-        replica_methods = create_replica_methods or self._postgresql.create_replica_methods or ['basebackup']
+        replica_methods = (clone_member.create_replica_methods if is_remote_master
+                           else self._postgresql.create_replica_methods) or ['basebackup']
 
         if clone_member and clone_member.conn_url:
             r = clone_member.conn_kwargs(self._postgresql.config.replication)

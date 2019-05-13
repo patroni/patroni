@@ -160,5 +160,5 @@ class TestPatroni(unittest.TestCase):
     def test_check_psycopg2(self):
         with patch.object(builtins, '__import__', Mock(side_effect=ImportError)):
             self.assertRaises(SystemExit, check_psycopg2)
-        with patch.object(psycopg2, '__version__', return_value='2.5.3 a b c'):
+        with patch('psycopg2.__version__', '2.5.3.dev1 a b c'):
             self.assertRaises(SystemExit, check_psycopg2)

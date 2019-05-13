@@ -255,12 +255,14 @@ class Ha(object):
             else:
                 return 'failed to acquire initialize lock'
         else:
-            if self.state_handler.can_create_replica_without_replication_connection():
+            create_replica_methods = self.get_standby_cluster_config().get('create_replica_methods', []) \
+                                     if self.is_standby_cluster() else None
+            if self.state_handler.can_create_replica_without_replication_connection(create_replica_methods):
                 msg = 'bootstrap (without leader)'
                 self._async_executor.schedule(msg)
                 self._async_executor.run_async(self.clone)
                 return 'trying to ' + msg
-            return 'waiting for leader to bootstrap'
+            return 'waiting for {0}leader to bootstrap'.format('standby_' if self.is_standby_cluster() else '')
 
     def bootstrap_standby_leader(self):
         """ If we found 'standby' key in the configuration, we need to bootstrap
@@ -612,7 +614,11 @@ class Ha(object):
                         return False
                     if my_wal_position < st.wal_position:
                         logger.info('Wal position of %s is ahead of my wal position', st.member.name)
-                        return False
+                        # In synchronous mode the former leader might be still accessible and even be ahead of us.
+                        # We should not disqualify himself from the leader race in such a situation.
+                        if not self.is_synchronous_mode() or st.member.name != self.cluster.sync.leader:
+                            return False
+                        logger.info('Ignoring the former leader being ahead of us')
         return True
 
     def is_failover_possible(self, members):

@@ -115,9 +115,6 @@ class Postgresql(object):
     def create_replica_methods(self):
         return self.config.get('create_replica_methods', []) or self.config.get('create_replica_method', [])
 
-    def replica_method_options(self, method):
-        return deepcopy(self.config.get(method, {}))
-
     @property
     def major_version(self):
         return self._major_version
@@ -272,14 +269,19 @@ class Postgresql(object):
         env['PGPASSFILE'] = self._pgpass
         return env
 
+    def replica_method_options(self, method):
+        return deepcopy(self.config.get(method, {}))
+
     def replica_method_can_work_without_replication_connection(self, method):
         return method != 'basebackup' and self.replica_method_options(method).get('no_master')
 
-    def can_create_replica_without_replication_connection(self):
+    def can_create_replica_without_replication_connection(self, replica_methods=None):
         """ go through the replication methods to see if there are ones
             that does not require a working replication connection.
         """
-        return any(self.replica_method_can_work_without_replication_connection(m) for m in self.create_replica_methods)
+        if replica_methods is None:
+            replica_methods = self.create_replica_methods
+        return any(self.replica_method_can_work_without_replication_connection(m) for m in replica_methods)
 
     def reset_cluster_info_state(self):
         self._cluster_info_state = {}
