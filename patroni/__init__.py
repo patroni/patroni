@@ -173,10 +173,17 @@ def check_psycopg2():
     min_psycopg2 = (2, 5, 4)
     min_psycopg2_str = '.'.join(map(str, min_psycopg2))
 
+    def parse_version(version):
+        for e in version.split('.'):
+            try:
+                yield int(e)
+            except ValueError:
+                break
+
     try:
         import psycopg2
         version_str = psycopg2.__version__.split(' ')[0]
-        version = tuple(map(int, version_str.split('.')))
+        version = tuple(parse_version(version_str))
         if version < min_psycopg2:
             fatal('Patroni requires psycopg2>={0}, but only {1} is available', min_psycopg2_str, version_str)
     except ImportError:
