@@ -1,44 +1,29 @@
-import unittest
-
 from mock import Mock, PropertyMock, patch
 
-from patroni.dcs import Leader, Member
 from patroni.postgresql import Postgresql
 from patroni.postgresql.cancellable import CancellableSubprocess
 from patroni.postgresql.rewind import Rewind
 
-from test_postgresql import MockCursor, psycopg2_connect
+from . import BaseTestPostgresql, MockCursor, psycopg2_connect
 
 
 @patch('subprocess.call', Mock(return_value=0))
 @patch('psycopg2.connect', psycopg2_connect)
-class TestRewind(unittest.TestCase):
+class TestRewind(BaseTestPostgresql):
 
-    @patch('subprocess.call', Mock(return_value=0))
-    @patch('psycopg2.connect', psycopg2_connect)
-    @patch('os.rename', Mock())
     def setUp(self):
-        self.leadermem = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres'})
-        self.leader = Leader(-1, 28, self.leadermem)
-        self.p = Postgresql({'name': 'postgresql0', 'scope': 'dummy', 'listen': '127.0.0.1:5432',
-                             'data_dir': 'data/postgresql0', 'retry_timeout': 10,
-                             'authentication': {'superuser': {'username': 'foo', 'password': 'bar'},
-                                                'replication': {'username': '', 'password': ''}},
-                             'remove_data_directory_on_rewind_failure': True,
-                             'parameters': {}})
-
+        super(TestRewind, self).setUp()
         self.r = Rewind(self.p)
 
     def test_can_rewind(self):
-        self.assertFalse(self.r.can_rewind)
-
-        self.p.config._config['use_pg_rewind'] = True
         with patch.object(Postgresql, 'controldata', Mock(return_value={'wal_log_hints setting': 'on'})):
             self.assertTrue(self.r.can_rewind)
         with patch('subprocess.call', Mock(return_value=1)):
             self.assertFalse(self.r.can_rewind)
         with patch('subprocess.call', side_effect=OSError):
             self.assertFalse(self.r.can_rewind)
+        self.p.config._config['use_pg_rewind'] = False
+        self.assertFalse(self.r.can_rewind)
 
     @patch.object(CancellableSubprocess, 'call')
     def test_pg_rewind(self, mock_cancellable_subprocess_call):

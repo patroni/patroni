@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 import unittest
@@ -9,6 +10,12 @@ from patroni.log import PatroniLogger
 
 
 class TestPatroniLogger(unittest.TestCase):
+
+    def setUp(self):
+        self._handlers = logging.getLogger().handlers[:]
+
+    def tearDown(self):
+        logging.getLogger().handlers[:] = self._handlers
 
     @patch('logging.FileHandler._open', Mock())
     def test_patroni_logger(self):

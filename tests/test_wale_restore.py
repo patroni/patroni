@@ -6,9 +6,9 @@ from mock import Mock, PropertyMock, patch, mock_open
 from patroni.scripts import wale_restore
 from patroni.scripts.wale_restore import WALERestore, main as _main, get_major_version
 from six.moves import builtins
-from test_postgresql import MockConnect, psycopg2_connect
 from threading import current_thread
 
+from . import MockConnect, psycopg2_connect
 
 wale_output_header = (
     b'name\tlast_modified\t'

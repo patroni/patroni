@@ -1,7 +1,6 @@
 import datetime
 import etcd
 import os
-import unittest
 import sys
 
 from mock import Mock, MagicMock, PropertyMock, patch
@@ -16,10 +15,11 @@ from patroni.postgresql.cancellable import CancellableSubprocess
 from patroni.postgresql.config import ConfigHandler
 from patroni.postgresql.rewind import Rewind
 from patroni.postgresql.slots import SlotsHandler
-from patroni.watchdog import Watchdog
 from patroni.utils import tzutc
-from test_etcd import socket_getaddrinfo, etcd_read, etcd_write, requests_get
-from test_postgresql import psycopg2_connect, MockPostmaster
+from patroni.watchdog import Watchdog
+
+from . import PostgresInit, MockPostmaster, psycopg2_connect, requests_get
+from .test_etcd import socket_getaddrinfo, etcd_read, etcd_write
 
 SYSID = '12345678901'
 
@@ -168,21 +168,15 @@ def run_async(self, func, args=()):
 @patch('patroni.async_executor.AsyncExecutor.run_async', run_async)
 @patch('subprocess.call', Mock(return_value=0))
 @patch('time.sleep', Mock())
-class TestHa(unittest.TestCase):
+class TestHa(PostgresInit):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
-    @patch('psycopg2.connect', psycopg2_connect)
     @patch('patroni.dcs.dcs_modules', Mock(return_value=['patroni.dcs.foo', 'patroni.dcs.etcd']))
     @patch.object(etcd.Client, 'read', etcd_read)
     def setUp(self):
+        super(TestHa, self).setUp()
         with patch.object(Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
-            self.p = Postgresql({'name': 'postgresql0', 'scope': 'dummy', 'listen': '127.0.0.1:5432',
-                                 'data_dir': 'data/postgresql0', 'retry_timeout': 10,
-                                 'authentication': {'superuser': {'username': 'foo', 'password': 'bar'},
-                                                    'replication': {'username': '', 'password': ''}},
-                                 'parameters': {'wal_level': 'hot_standby', 'max_replication_slots': 5, 'foo': 'bar',
-                                                'hot_standby': 'on', 'max_wal_senders': 5, 'wal_keep_segments': 8}})
             self.p.set_state('running')
             self.p.set_role('replica')
             self.p.postmaster_start_time = MagicMock(return_value=str(postmaster_start_time))

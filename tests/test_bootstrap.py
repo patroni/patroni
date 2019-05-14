@@ -1,44 +1,24 @@
 import os
-import shutil
-import unittest
 
 from mock import Mock, PropertyMock, patch
-from tempfile import gettempdir
 
 from patroni.async_executor import CriticalTask
-from patroni.dcs import Leader, Member
 from patroni.postgresql import Postgresql
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.cancellable import CancellableSubprocess
 from patroni.postgresql.config import ConfigHandler
 
-from test_postgresql import psycopg2_connect
+from . import psycopg2_connect, BaseTestPostgresql
 
 
 @patch('subprocess.call', Mock(return_value=0))
 @patch('psycopg2.connect', psycopg2_connect)
 @patch('os.rename', Mock())
-class TestBootstrap(unittest.TestCase):
+class TestBootstrap(BaseTestPostgresql):
 
-    @patch('subprocess.call', Mock(return_value=0))
-    @patch('os.rename', Mock())
     def setUp(self):
-        self.leadermem = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres'})
-        self.leader = Leader(-1, 28, self.leadermem)
-        self.p = Postgresql({'name': 'postgresql0', 'scope': 'dummy', 'listen': '127.0.0.2, 127.0.0.3:5432',
-                             'data_dir': 'data/test0', 'retry_timeout': 10,
-                             'pgpass': os.path.join(gettempdir(), 'pgpass0'),
-                             'authentication': {'superuser': {'username': 'foo', 'password': 'bar'},
-                                                'replication': {'username': '', 'password': ''}},
-                             'remove_data_directory_on_rewind_failure': True,
-                             'pg_hba': ['host all all 0.0.0.0/0 md5'],
-                             'parameters': {'wal_level': 'hot_standby'}})
-        if not os.path.exists(self.p.data_dir):
-            os.makedirs(self.p.data_dir)
+        super(TestBootstrap, self).setUp()
         self.b = self.p.bootstrap
-
-    def tearDown(self):
-        shutil.rmtree('data')
 
     @patch('time.sleep', Mock())
     @patch.object(CancellableSubprocess, 'call')
@@ -49,12 +29,6 @@ class TestBootstrap(unittest.TestCase):
         self.p.config._config['create_replica_methods'] = ['pgBackRest']
         self.p.config._config['pgBackRest'] = {'command': 'pgBackRest', 'keep_data': True, 'no_params': True}
         mock_cancellable_subprocess_call.return_value = 0
-        self.assertEqual(self.b.create_replica(self.leader), 0)
-
-        self.p.config._config['create_replica_methods'] = ['wale', 'basebackup']
-        self.p.config._config['wale'] = {'command': 'foo'}
-        self.assertEqual(self.b.create_replica(self.leader), 0)
-        del self.p.config._config['wale']
         self.assertEqual(self.b.create_replica(self.leader), 0)
 
         self.p.config._config['create_replica_methods'] = ['basebackup']
@@ -110,12 +84,7 @@ class TestBootstrap(unittest.TestCase):
         del self.p.config._config['wale']
         self.assertEqual(self.b.create_replica(self.leader), 0)
 
-        self.p.config._config['create_replica_method'] = ['basebackup']
-        self.p.config._config['basebackup'] = [{'max_rate': '100M'}, 'no-sync']
-        self.assertEqual(self.b.create_replica(self.leader), 0)
-
-        self.p.config._config['create_replica_method'] = ['wale', 'basebackup']
-        del self.p.config._config['basebackup']
+        self.p.config._config['create_replica_method'] = ['wale']
         mock_cancellable_subprocess_call.return_value = 1
         self.assertEqual(self.b.create_replica(self.leader), 1)
 

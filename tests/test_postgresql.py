@@ -1,14 +1,11 @@
-import datetime
 import mock  # for the mock.call method, importing it without a namespace breaks python3
 import os
 import psycopg2
-import shutil
 import subprocess
-import unittest
 
 from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.async_executor import CriticalTask
-from patroni.dcs import Cluster, ClusterConfig, Leader, Member, RemoteMember, SyncState
+from patroni.dcs import Cluster, ClusterConfig, Member, RemoteMember, SyncState
 from patroni.exceptions import PostgresConnectionException
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
 from patroni.postgresql.postmaster import PostmasterProcess
@@ -16,100 +13,8 @@ from patroni.postgresql.slots import SlotsHandler
 from patroni.utils import RetryFailedError
 from six.moves import builtins
 from threading import Thread, current_thread
-from tempfile import gettempdir
 
-
-class MockCursor(object):
-
-    def __init__(self, connection):
-        self.connection = connection
-        self.closed = False
-        self.rowcount = 0
-        self.results = []
-
-    def execute(self, sql, *params):
-        if sql.startswith('blabla'):
-            raise psycopg2.ProgrammingError()
-        elif sql == 'CHECKPOINT' or sql.startswith('SELECT pg_catalog.pg_create_'):
-            raise psycopg2.OperationalError()
-        elif sql.startswith('RetryFailedError'):
-            raise RetryFailedError('retry')
-        elif sql.startswith('SELECT slot_name'):
-            self.results = [('blabla', 'physical'), ('foobar', 'physical'), ('ls', 'logical', 'a', 'b')]
-        elif sql.startswith('SELECT CASE WHEN pg_catalog.pg_is_in_recovery()'):
-            self.results = [(1, 2)]
-        elif sql.startswith('SELECT pg_catalog.pg_is_in_recovery()'):
-            self.results = [(False, 2)]
-        elif sql.startswith('WITH replication_info AS ('):
-            replication_info = '[{"application_name":"walreceiver","client_addr":"1.2.3.4",' +\
-                               '"state":"streaming","sync_state":"async","sync_priority":0}]'
-            self.results = [('', 0, '', '', '', '', False, replication_info)]
-        elif sql.startswith('SELECT name, setting'):
-            self.results = [('wal_segment_size', '2048', '8kB', 'integer', 'internal'),
-                            ('search_path', 'public', None, 'string', 'user'),
-                            ('port', '5433', None, 'integer', 'postmaster'),
-                            ('listen_addresses', '*', None, 'string', 'postmaster'),
-                            ('autovacuum', 'on', None, 'bool', 'sighup'),
-                            ('unix_socket_directories', '/tmp', None, 'string', 'postmaster')]
-        elif sql.startswith('IDENTIFY_SYSTEM'):
-            self.results = [('1', 2, '0/402EEC0', '')]
-        elif sql.startswith('SELECT isdir, modification'):
-            self.results = [(False, datetime.datetime.now())]
-        elif sql.startswith('SELECT pg_catalog.pg_read_file'):
-            self.results = [('1\t0/40159C0\tno recovery target specified\n\n' +
-                             '2\t1/40159C0\tno recovery target specified\n',)]
-        elif sql.startswith('TIMELINE_HISTORY '):
-            self.results = [('', b'x\t0/40159C0\tno recovery target specified\n\n' +
-                                 b'1\t0/40159C0\tno recovery target specified\n\n' +
-                                 b'2\t0/402DD98\tno recovery target specified\n\n' +
-                                 b'3\t0/403DD98\tno recovery target specified\n')]
-        else:
-            self.results = [(None, None, None, None, None, None, None, None, None, None)]
-
-    def fetchone(self):
-        return self.results[0]
-
-    def fetchall(self):
-        return self.results
-
-    def __iter__(self):
-        for i in self.results:
-            yield i
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        pass
-
-
-class MockConnect(object):
-
-    server_version = 99999
-    autocommit = False
-    closed = 0
-
-    def cursor(self):
-        return MockCursor(self)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        pass
-
-    @staticmethod
-    def close():
-        pass
-
-
-class MockPostmaster(object):
-    def __init__(self, is_running=True, is_single_master=False):
-        self.is_running = Mock(return_value=is_running)
-        self.is_single_master = Mock(return_value=is_single_master)
-        self.wait_for_user_backends_to_close = Mock()
-        self.signal_stop = Mock(return_value=None)
-        self.wait = Mock()
+from . import BaseTestPostgresql, MockCursor, MockPostmaster, psycopg2_connect
 
 
 def pg_controldata_string(*args, **kwargs):
@@ -167,52 +72,18 @@ Data page checksum version:           0
 """
 
 
-def psycopg2_connect(*args, **kwargs):
-    return MockConnect()
-
-
 @patch('subprocess.call', Mock(return_value=0))
 @patch('psycopg2.connect', psycopg2_connect)
-class TestPostgresql(unittest.TestCase):
-    _PARAMETERS = {'wal_level': 'hot_standby', 'max_replication_slots': 5, 'f.oo': 'bar',
-                   'search_path': 'public', 'hot_standby': 'on', 'max_wal_senders': 5,
-                   'wal_keep_segments': 8, 'wal_log_hints': 'on', 'max_locks_per_transaction': 64,
-                   'max_worker_processes': 8, 'max_connections': 100, 'max_prepared_transactions': 0,
-                   'track_commit_timestamp': 'off', 'unix_socket_directories': '/tmp'}
+class TestPostgresql(BaseTestPostgresql):
 
     @patch('subprocess.call', Mock(return_value=0))
-    @patch('psycopg2.connect', psycopg2_connect)
     @patch('os.rename', Mock())
     @patch.object(Postgresql, 'get_major_version', Mock(return_value=90600))
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def setUp(self):
-        self.data_dir = 'data/test0'
-        self.config_dir = self.data_dir
-        if not os.path.exists(self.data_dir):
-            os.makedirs(self.data_dir)
-        self.p = Postgresql({'name': 'test0', 'scope': 'batman', 'data_dir': self.data_dir,
-                             'config_dir': self.config_dir, 'retry_timeout': 10,
-                             'krbsrvname': 'postgres', 'pgpass': os.path.join(gettempdir(), 'pgpass0'),
-                             'listen': '127.0.0.2, 127.0.0.3:5432', 'connect_address': '127.0.0.2:5432',
-                             'authentication': {'superuser': {'username': 'test', 'password': 'test'},
-                                                'replication': {'username': 'replicator', 'password': 'rep-pass'}},
-                             'remove_data_directory_on_rewind_failure': True,
-                             'use_pg_rewind': True, 'pg_ctl_timeout': 'bla',
-                             'parameters': self._PARAMETERS,
-                             'recovery_conf': {'foo': 'bar'},
-                             'pg_hba': ['host all all 0.0.0.0/0 md5'],
-                             'pg_ident': ['krb realm postgres'],
-                             'callbacks': {'on_start': 'true', 'on_stop': 'true', 'on_reload': 'true',
-                                           'on_restart': 'true', 'on_role_change': 'true'}})
+        super(TestPostgresql, self).setUp()
+        self.p.config.write_postgresql_conf()
         self.p._callback_executor = Mock()
-        self.leadermem = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres'})
-        self.leader = Leader(-1, 28, self.leadermem)
-        self.other = Member(0, 'test-1', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
-                            'tags': {'replicatefrom': 'leader'}})
-        self.me = Member(0, 'test0', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres'})
-
-    def tearDown(self):
-        shutil.rmtree('data')
 
     @patch('subprocess.Popen')
     @patch.object(Postgresql, 'wait_for_startup')
@@ -228,7 +99,7 @@ class TestPostgresql(unittest.TestCase):
 
         mock_postmaster = MockPostmaster()
         with patch.object(PostmasterProcess, 'start', return_value=mock_postmaster):
-            pg_conf = os.path.join(self.data_dir, 'postgresql.conf')
+            pg_conf = os.path.join(self.p.data_dir, 'postgresql.conf')
             open(pg_conf, 'w').close()
             self.assertFalse(self.p.start(task=CriticalTask()))
 
@@ -439,12 +310,12 @@ class TestPostgresql(unittest.TestCase):
             except OSError:
                 if os.name == 'nt':  # os.symlink under Windows needs admin rights skip it
                     pass
-        os.makedirs(os.path.join(self.data_dir, 'foo'))
-        _symlink('foo', os.path.join(self.data_dir, 'pg_wal'))
+        os.makedirs(os.path.join(self.p.data_dir, 'foo'))
+        _symlink('foo', os.path.join(self.p.data_dir, 'pg_wal'))
         self.p.remove_data_directory()
-        open(self.data_dir, 'w').close()
+        open(self.p.data_dir, 'w').close()
         self.p.remove_data_directory()
-        _symlink('unexisting', self.data_dir)
+        _symlink('unexisting', self.p.data_dir)
         with patch('os.unlink', Mock(side_effect=OSError)):
             self.p.remove_data_directory()
         self.p.remove_data_directory()
@@ -635,7 +506,7 @@ class TestPostgresql(unittest.TestCase):
 
     def test_set_sync_standby(self):
         def value_in_conf():
-            with open(os.path.join(self.data_dir, 'postgresql.conf')) as f:
+            with open(os.path.join(self.p.data_dir, 'postgresql.conf')) as f:
                 for line in f:
                     if line.startswith('synchronous_standby_names'):
                         return line.strip()
