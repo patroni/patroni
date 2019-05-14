@@ -106,7 +106,9 @@ class Postgresql(object):
             self.set_state('running')
             self.set_role('master' if self.is_leader() else 'replica')
             self.config.write_postgresql_conf()  # we are "joining" already running postgres
-            if self.config.replace_pg_hba() or self.config.replace_pg_ident():
+            hba_saved = self.config.replace_pg_hba()
+            ident_saved = self.config.replace_pg_ident()
+            if hba_saved or ident_saved:
                 self.reload()
         elif self.role == 'master':
             self.set_role('demoted')

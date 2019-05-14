@@ -65,7 +65,7 @@ class ConfigHandler(object):
         self._pg_ident_conf = os.path.join(self._config_dir, 'pg_ident.conf')
         self._recovery_conf = os.path.join(postgresql.data_dir, 'recovery.conf')
         self._synchronous_standby_names = None
-
+        self._config = {}
         self.reload_config(config)
 
     def setup_server_parameters(self):

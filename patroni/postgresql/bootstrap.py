@@ -340,7 +340,7 @@ END;$$""".format(name, ' '.join(options))
                                          .format(f, rewind['username']))
 
                 for name, value in (config.get('users') or {}).items():
-                    if name not in (superuser.get('username'), replication.get('username')):
+                    if all(name != a.get('username') for a in (superuser, replication, rewind)):
                         self.create_or_update_role(name, value.get('password'), value.get('options', []))
 
                 # We were doing a custom bootstrap instead of running initdb, therefore we opened trust
