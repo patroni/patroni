@@ -232,8 +232,8 @@ def compare_values(vartype, unit, old_value, new_value):
 
     converters = {
         'bool': lambda v1, v2: parse_bool(v1),
-        'integer': lambda v1, v2: parse_int(v1, v2),
-        'real': lambda v1, v2: parse_real(v1, v2),
+        'integer': parse_int,
+        'real': parse_real,
         'enum': lambda v1, v2: str(v1).lower(),
         'string': lambda v1, v2: str(v1)
     }
