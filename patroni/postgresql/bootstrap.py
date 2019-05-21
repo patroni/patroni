@@ -22,6 +22,10 @@ class Bootstrap(object):
     def running_custom_bootstrap(self):
         return self._running_custom_bootstrap
 
+    @property
+    def keep_existing_recovery_conf(self):
+        return self._running_custom_bootstrap and self._keep_existing_recovery_conf
+
     @staticmethod
     def process_user_options(tool, options, not_allowed_options, error_handler):
         user_options = []
@@ -60,7 +64,7 @@ class Bootstrap(object):
         def error_handler(e):
             raise Exception(e)
 
-        options = self.process_user_options('initdb', config.get('initdb') or [], not_allowed_options, error_handler)
+        options = self.process_user_options('initdb', config or [], not_allowed_options, error_handler)
         pwfile = None
 
         if self._postgresql.config.superuser:
@@ -76,17 +80,22 @@ class Bootstrap(object):
         ret = self._postgresql.pg_ctl('initdb', *options)
         if pwfile:
             os.remove(pwfile)
-        if not ret:
+        if ret:
+            self._postgresql.configure_server_parameters()
+        else:
             self._postgresql.set_state('initdb failed')
         return ret
 
     def _post_restore(self):
+        self._postgresql.config.restore_configuration_files()
+        self._postgresql.configure_server_parameters()
+
         # make sure there is no trigger file or postgres will be automatically promoted
-        trigger_file = self._postgresql.config.get('recovery_conf', {}).get('trigger_file') or 'promote'
+        trigger_file = 'promote_trigger_file' if self._postgresql.major_version >= 120000 else 'trigger_file'
+        trigger_file = self._postgresql.config.get('recovery_conf', {}).get(trigger_file) or 'promote'
         trigger_file = os.path.abspath(os.path.join(self._postgresql.data_dir, trigger_file))
         if os.path.exists(trigger_file):
             os.unlink(trigger_file)
-        self._postgresql.config.restore_configuration_files()
 
     def _custom_bootstrap(self, config):
         self._postgresql.set_state('running custom bootstrap script')
@@ -103,7 +112,7 @@ class Bootstrap(object):
 
         if 'recovery_conf' in config:
             self._postgresql.config.write_recovery_conf(config['recovery_conf'])
-        elif not config.get('keep_existing_recovery_conf'):
+        elif not self._keep_existing_recovery_conf:
             self._postgresql.config.remove_recovery_conf()
         return True
 
@@ -280,22 +289,21 @@ class Bootstrap(object):
         ret = self.create_replica(clone_member) == 0
         if ret:
             self._post_restore()
-            self._postgresql.configure_server_parameters()
         return ret
 
     def bootstrap(self, config):
         """ Initialize a new node from scratch and start it. """
         pg_hba = config.get('pg_hba', [])
         method = config.get('method') or 'initdb'
-        self._running_custom_bootstrap = method != 'initdb' and method in config and 'command' in config[method]
-        if self._running_custom_bootstrap:
+        if method != 'initdb' and method in config and 'command' in config[method]:
+            self._keep_existing_recovery_conf = config[method].get('keep_existing_recovery_conf')
+            self._running_custom_bootstrap = True
             do_initialize = self._custom_bootstrap
-            config = config[method]
         else:
+            method = 'initdb'
             do_initialize = self._initdb
-        return do_initialize(config) and self._postgresql.config.append_pg_hba(pg_hba) \
-            and self._postgresql.config.save_configuration_files() \
-            and self._postgresql.configure_server_parameters() and self._postgresql.start()
+        return do_initialize(config.get(method)) and self._postgresql.config.append_pg_hba(pg_hba) \
+            and self._postgresql.config.save_configuration_files() and self._postgresql.start()
 
     def create_or_update_role(self, name, password, options):
         options = list(map(str.upper, options))
