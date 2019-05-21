@@ -29,6 +29,7 @@ from patroni.config import Config
 from patroni.dcs import get_dcs as _get_dcs
 from patroni.exceptions import PatroniException
 from patroni.postgresql import Postgresql
+from patroni.postgresql.misc import postgres_version_to_int
 from patroni.utils import patch_config, polling_loop
 from patroni.version import __version__
 from prettytable import PrettyTable
@@ -525,7 +526,7 @@ def restart(obj, cluster_name, member_names, force, role, p_any, scheduled, vers
 
     if version:
         try:
-            Postgresql.postgres_version_to_int(version)
+            postgres_version_to_int(version)
         except PatroniException as e:
             raise PatroniCtlException(e.value)
 

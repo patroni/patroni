@@ -5,7 +5,7 @@ from consul import ConsulException, NotFound
 from mock import Mock, patch
 from patroni.dcs.consul import AbstractDCS, Cluster, Consul, ConsulInternalError, \
                                 ConsulError, HTTPClient, InvalidSessionTTL, InvalidSession
-from test_etcd import SleepException
+from . import SleepException
 
 
 def kv_get(self, key, **kwargs):

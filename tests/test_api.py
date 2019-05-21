@@ -10,7 +10,7 @@ from patroni.ha import _MemberStatus
 from patroni.utils import tzutc
 from six import BytesIO as IO
 from six.moves import BaseHTTPServer
-from test_postgresql import psycopg2_connect, MockCursor
+from . import psycopg2_connect, MockCursor
 
 
 future_restart_time = datetime.datetime.now(tzutc) + datetime.timedelta(days=5)
@@ -60,7 +60,7 @@ class MockHa(object):
         return 'reinitialize'
 
     @staticmethod
-    def restart():
+    def restart(*args, **kwargs):
         return (True, '')
 
     @staticmethod

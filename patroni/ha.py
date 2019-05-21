@@ -13,6 +13,8 @@ from multiprocessing.pool import ThreadPool
 from patroni.async_executor import AsyncExecutor, CriticalTask
 from patroni.exceptions import DCSError, PostgresConnectionException, PatroniException
 from patroni.postgresql import ACTION_ON_START, ACTION_ON_ROLE_CHANGE
+from patroni.postgresql.misc import postgres_version_to_int
+from patroni.postgresql.rewind import Rewind
 from patroni.utils import polling_loop, tzutc
 from patroni.dcs import RemoteMember
 from threading import RLock
@@ -59,6 +61,7 @@ class Ha(object):
     def __init__(self, patroni):
         self.patroni = patroni
         self.state_handler = patroni.postgresql
+        self._rewind = Rewind(self.state_handler)
         self.dcs = patroni.dcs
         self.cluster = None
         self.old_cluster = None
@@ -71,7 +74,7 @@ class Ha(object):
         self._post_bootstrap_task = None
         self._crash_recovery_executed = False
         self._start_timeout = None
-        self._async_executor = AsyncExecutor(self.state_handler, self.wakeup)
+        self._async_executor = AsyncExecutor(self.state_handler.cancellable, self.wakeup)
         self.watchdog = patroni.watchdog
 
         # Each member publishes various pieces of information to the DCS using touch_member. This lock protects
@@ -182,7 +185,7 @@ class Ha(object):
             if data['role'] == 'master' and not self.is_leader():
                 data['role'] = 'promoted'
             if self.is_leader():
-                data['checkpoint_after_promote'] = self.state_handler.checkpoint_after_promote()
+                data['checkpoint_after_promote'] = self._rewind.checkpoint_after_promote()
             tags = self.get_effective_tags()
             if tags:
                 data['tags'] = tags
@@ -213,7 +216,8 @@ class Ha(object):
         if self.is_standby_cluster() and not isinstance(clone_member, RemoteMember):
             clone_member = self.get_remote_member(clone_member)
 
-        if self.state_handler.clone(clone_member):
+        self._rewind.reset_state()
+        if self.state_handler.bootstrap.clone(clone_member):
             logger.info('bootstrapped %s', msg)
             cluster = self.dcs.get_cluster()
             node_to_follow = self._get_node_to_follow(cluster)
@@ -244,7 +248,7 @@ class Ha(object):
                 else:
                     self._async_executor.schedule('bootstrap')
                     self._async_executor.run_async(
-                        self.state_handler.bootstrap,
+                        self.state_handler.bootstrap.bootstrap,
                         args=(self.patroni.config['bootstrap'],)
                     )
                     return 'trying to bootstrap a new cluster'
@@ -276,12 +280,12 @@ class Ha(object):
 
     def _handle_rewind_or_reinitialize(self):
         leader = self.get_remote_master() if self.is_standby_cluster() else self.cluster.leader
-        if not self.state_handler.rewind_or_reinitialize_needed_and_possible(leader):
+        if not self._rewind.rewind_or_reinitialize_needed_and_possible(leader):
             return None
 
-        if self.state_handler.can_rewind:
+        if self._rewind.can_rewind:
             self._async_executor.schedule('running pg_rewind from ' + leader.name)
-            self._async_executor.run_async(self.state_handler.rewind, (leader,))
+            self._async_executor.run_async(self._rewind.execute, (leader,))
             return True
 
         # remove_data_directory_on_diverged_timelines is set
@@ -311,8 +315,9 @@ class Ha(object):
 
         data = self.state_handler.controldata()
         logger.info('pg_controldata:\n%s\n', '\n'.join('  {0}: {1}'.format(k, v) for k, v in data.items()))
-        if data.get('Database cluster state') in ('in production', 'shutting down', 'in crash recovery') and \
-                not self._crash_recovery_executed and (self.cluster.is_unlocked() or self.state_handler.can_rewind):
+        if data.get('Database cluster state') in ('in production', 'shutting down', 'in crash recovery') \
+                and not self._crash_recovery_executed and \
+                (self.cluster.is_unlocked() or self._rewind.can_rewind):
             self._crash_recovery_executed = True
             self._async_executor.schedule('doing crash recovery in a single user mode')
             self._async_executor.run_async(self.state_handler.fix_cluster_state)
@@ -322,8 +327,8 @@ class Ha(object):
 
         role = 'replica'
         if self.is_standby_cluster() or not self.has_lock():
-            if not self.state_handler.rewind_executed:
-                self.state_handler.trigger_check_diverged_lsn()
+            if not self._rewind.executed:
+                self._rewind.trigger_check_diverged_lsn()
             if self._handle_rewind_or_reinitialize():
                 return self._async_executor.scheduled_action
 
@@ -368,7 +373,7 @@ class Ha(object):
         node_to_follow = self._get_node_to_follow(self.cluster)
 
         if self.is_paused():
-            if not (self.state_handler.need_rewind and self.state_handler.can_rewind_or_reinitialize_allowed)\
+            if not (self._rewind.is_needed and self._rewind.can_rewind_or_reinitialize_allowed)\
                     or self.cluster.is_unlocked():
                 self.state_handler.set_role('master' if is_leader else 'replica')
                 if is_leader:
@@ -387,7 +392,7 @@ class Ha(object):
         # In this case it is safe to continue running without changing recovery.conf
         if self.is_standby_cluster() and role == 'replica' and not (node_to_follow and node_to_follow.conn_url):
             return 'continue following the old known standby leader'
-        elif not self.state_handler.check_recovery_conf(node_to_follow):
+        elif not self.state_handler.config.check_recovery_conf(node_to_follow):
             self._async_executor.schedule('changing primary_conninfo and restarting')
             self._async_executor.run_async(self.state_handler.follow, (node_to_follow, role))
         elif role == 'standby_leader' and self.state_handler.role != role:
@@ -427,7 +432,7 @@ class Ha(object):
                     logger.warning("No standbys available!")
 
                 logger.info("Assigning synchronous standby status to %s", picked)
-                self.state_handler.set_synchronous_standby(picked)
+                self.state_handler.config.set_synchronous_standby(picked)
 
                 if picked and picked != '*' and not allow_promote:
                     # Wait for PostgreSQL to enable synchronous mode and see if we can immediately set sync_standby
@@ -448,7 +453,7 @@ class Ha(object):
         else:
             if self.cluster.sync.leader and self.dcs.delete_sync_state(index=self.cluster.sync.index):
                 logger.info("Disabled synchronous replication")
-            self.state_handler.set_synchronous_standby(None)
+            self.state_handler.config.set_synchronous_standby(None)
 
     def is_sync_standby(self, cluster):
         return cluster.leader and cluster.sync.leader == cluster.leader.name \
@@ -540,12 +545,17 @@ class Ha(object):
                     # Somebody else updated sync state, it may be due to us losing the lock. To be safe, postpone
                     # promotion until next cycle. TODO: trigger immediate retry of run_cycle
                     return 'Postponing promotion because synchronous replication state was updated by somebody else'
-                self.state_handler.set_synchronous_standby('*' if self.is_synchronous_mode_strict() else None)
+                self.state_handler.config.set_synchronous_standby('*' if self.is_synchronous_mode_strict() else None)
             if self.state_handler.role != 'master':
                 self.set_leader_access_is_restricted(self.cluster.has_permanent_logical_slots(self.state_handler.name))
+
+                def on_success():
+                    self._rewind.reset_state()
+                    logger.info("cleared rewind state after becoming the leader")
+
                 self._async_executor.schedule('promote')
                 self._async_executor.run_async(self.state_handler.promote,
-                                               args=(self.dcs.loop_wait, self._leader_access_is_restricted))
+                                               args=(self.dcs.loop_wait, on_success, self._leader_access_is_restricted))
             return promote_message
 
     @staticmethod
@@ -744,7 +754,7 @@ class Ha(object):
             'immediate-nolock': dict(stop='immediate', checkpoint=False, release=False, offline=False, async_req=True),
         }[mode]
 
-        self.state_handler.trigger_check_diverged_lsn()
+        self._rewind.trigger_check_diverged_lsn()
         self.state_handler.stop(mode_control['stop'], checkpoint=mode_control['checkpoint'],
                                 on_safepoint=self.watchdog.disable if self.watchdog.is_running else None)
         self.state_handler.set_role('demoted')
@@ -768,8 +778,8 @@ class Ha(object):
             self._async_executor.run_async(self.state_handler.follow, (node_to_follow,))
         else:
             if self.is_synchronous_mode():
-                self.state_handler.set_synchronous_standby(None)
-            if self.state_handler.rewind_or_reinitialize_needed_and_possible(leader):
+                self.state_handler.config.set_synchronous_standby(None)
+            if self._rewind.rewind_or_reinitialize_needed_and_possible(leader):
                 return False  # do not start postgres, but run pg_rewind on the next iteration
             self.state_handler.follow(node_to_follow)
 
@@ -885,7 +895,7 @@ class Ha(object):
             # when we are doing manual failover there is no guaranty that new leader is ahead of any other node
             # node tagged as nofailover can be ahead of the new leader either, but it is always excluded from elections
             if bool(self.cluster.failover) or self.patroni.nofailover:
-                self.state_handler.trigger_check_diverged_lsn()
+                self._rewind.trigger_check_diverged_lsn()
                 time.sleep(2)  # Give a time to somebody to take the leader lock
 
             if self.patroni.nofailover:
@@ -904,7 +914,7 @@ class Ha(object):
                 return 'removed leader lock because postgres is not running as master'
 
             if self.state_handler.is_leader() and self._leader_access_is_restricted:
-                self.state_handler.sync_replication_slots(self.cluster)
+                self.state_handler.slots_handler.sync_replication_slots(self.cluster)
                 self.state_handler.call_nowait(ACTION_ON_ROLE_CHANGE)
                 self.set_leader_access_is_restricted(False)
 
@@ -914,7 +924,7 @@ class Ha(object):
                     return msg
 
                 # check if the node is ready to be used by pg_rewind
-                self.state_handler.check_for_checkpoint_after_promote()
+                self._rewind.check_for_checkpoint_after_promote()
 
                 if self.is_standby_cluster():
                     # in case of standby cluster we don't really need to
@@ -980,8 +990,7 @@ class Ha(object):
         if role and role != self.state_handler.role:
             reason_to_cancel = "host role mismatch"
 
-        if (postgres_version and
-           self.state_handler.postgres_version_to_int(postgres_version) <= int(self.state_handler.server_version)):
+        if postgres_version and postgres_version_to_int(postgres_version) <= int(self.state_handler.server_version):
             reason_to_cancel = "postgres version mismatch"
 
         if pending_restart and not self.state_handler.pending_restart:
@@ -1145,7 +1154,7 @@ class Ha(object):
 
             self.state_handler.set_role('master')
             self._async_executor.schedule('post_bootstrap')
-            self._async_executor.run_async(self.state_handler.post_bootstrap,
+            self._async_executor.run_async(self.state_handler.bootstrap.post_bootstrap,
                                            args=(self.patroni.config['bootstrap'], self._post_bootstrap_task))
             return 'running post_bootstrap'
 
@@ -1154,7 +1163,7 @@ class Ha(object):
         if not self.watchdog.activate():
             logger.error('Cancelling bootstrap because watchdog activation failed')
             self.cancel_initialization()
-        self.state_handler.sync_replication_slots(self.cluster)
+        self.state_handler.slots_handler.sync_replication_slots(self.cluster)
         self.dcs.take_leader()
         self.set_is_leader(True)
         self.state_handler.call_nowait(ACTION_ON_START)
@@ -1243,7 +1252,7 @@ class Ha(object):
             if self.state_handler.bootstrapping:
                 return self.post_bootstrap()
 
-            if self.recovering and not self.state_handler.need_rewind:
+            if self.recovering and not self._rewind.is_needed:
                 self.recovering = False
                 # Check if we tried to recover and failed
                 msg = self.post_recover()
@@ -1294,8 +1303,8 @@ class Ha(object):
                     # the demote code follows through to starting Postgres right away, however, in the rewind case
                     # it returns from demote and reaches this point to start PostgreSQL again after rewind. In that
                     # case it makes no sense to continue to recover() unless rewind has finished successfully.
-                    elif self.state_handler.rewind_failed or not self.state_handler.rewind_executed and not \
-                            (self.state_handler.need_rewind and self.state_handler.can_rewind_or_reinitialize_allowed):
+                    elif self._rewind.failed or not self._rewind.executed and not \
+                            (self._rewind.is_needed and self._rewind.can_rewind_or_reinitialize_allowed):
                         return 'postgres is not running'
 
                 # try to start dead postgres
@@ -1312,10 +1321,10 @@ class Ha(object):
                 # stops PostgreSQL, therefore, we only reload replication slots if no
                 # asynchronous processes are running (should be always the case for the master)
                 if not self._async_executor.busy and not self.state_handler.is_starting():
-                    self.state_handler.sync_replication_slots(self.cluster)
+                    self.state_handler.slots_handler.sync_replication_slots(self.cluster)
                     if not self.state_handler.cb_called:
                         if not self.state_handler.is_leader():
-                            self.state_handler.trigger_check_diverged_lsn()
+                            self._rewind.trigger_check_diverged_lsn()
                         self.state_handler.call_nowait(ACTION_ON_START)
         except DCSError:
             dcs_failed = True

@@ -52,8 +52,8 @@ class CriticalTask(object):
 
 class AsyncExecutor(object):
 
-    def __init__(self, state_handler, ha_wakeup):
-        self.state_handler = state_handler
+    def __init__(self, cancellable, ha_wakeup):
+        self._cancellable = cancellable
         self._ha_wakeup = ha_wakeup
         self._thread_lock = RLock()
         self._scheduled_action = None
@@ -92,7 +92,7 @@ class AsyncExecutor(object):
                     return
                 self._finish_event.clear()
 
-            self.state_handler.reset_is_cancelled()
+            self._cancellable.reset_is_cancelled()
             # if the func returned something (not None) - wake up main HA loop
             wakeup = func(*args) if args else func()
             return wakeup
@@ -118,7 +118,7 @@ class AsyncExecutor(object):
                 logger.warning('Cancelling long running task %s', self._scheduled_action)
             self._is_cancelled = True
 
-        self.state_handler.cancel()
+        self._cancellable.cancel()
         self._finish_event.wait()
 
         with self:
