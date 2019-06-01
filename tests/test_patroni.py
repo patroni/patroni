@@ -1,4 +1,5 @@
 import etcd
+import logging
 import signal
 import sys
 import time
@@ -9,10 +10,14 @@ from patroni.api import RestApiServer
 from patroni.async_executor import AsyncExecutor
 from patroni.dcs.etcd import Client
 from patroni.exceptions import DCSError
-from patroni import Patroni, main as _main, patroni_main
-from six.moves import BaseHTTPServer
-from test_etcd import SleepException, etcd_read, etcd_write
-from test_postgresql import Postgresql, psycopg2_connect, MockPostmaster
+from patroni.postgresql import Postgresql
+from patroni.postgresql.config import ConfigHandler
+from patroni import Patroni, main as _main, patroni_main, check_psycopg2
+from six.moves import BaseHTTPServer, builtins
+
+from . import psycopg2_connect, SleepException
+from .test_etcd import etcd_read, etcd_write
+from .test_postgresql import MockPostmaster
 
 
 class MockFrozenImporter(object):
@@ -23,9 +28,9 @@ class MockFrozenImporter(object):
 @patch('time.sleep', Mock())
 @patch('subprocess.call', Mock(return_value=0))
 @patch('psycopg2.connect', psycopg2_connect)
-@patch.object(Postgresql, 'write_pg_hba', Mock())
-@patch.object(Postgresql, '_write_postgresql_conf', Mock())
-@patch.object(Postgresql, 'write_recovery_conf', Mock())
+@patch.object(ConfigHandler, 'append_pg_hba', Mock())
+@patch.object(ConfigHandler, 'write_postgresql_conf', Mock())
+@patch.object(ConfigHandler, 'write_recovery_conf', Mock())
 @patch.object(Postgresql, 'is_running', Mock(return_value=MockPostmaster()))
 @patch.object(Postgresql, 'call_nowait', Mock())
 @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
@@ -36,8 +41,10 @@ class TestPatroni(unittest.TestCase):
 
     @patch('pkgutil.get_importer', Mock(return_value=MockFrozenImporter()))
     @patch('sys.frozen', Mock(return_value=True), create=True)
+    @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
     @patch.object(etcd.Client, 'read', etcd_read)
     def setUp(self):
+        self._handlers = logging.getLogger().handlers[:]
         RestApiServer._BaseServer__is_shut_down = Mock()
         RestApiServer._BaseServer__shutdown_request = True
         RestApiServer.socket = 0
@@ -45,6 +52,9 @@ class TestPatroni(unittest.TestCase):
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
             sys.argv = ['patroni.py', 'postgres0.yml']
             self.p = Patroni()
+
+    def tearDown(self):
+        logging.getLogger().handlers[:] = self._handlers
 
     @patch('patroni.dcs.AbstractDCS.get_cluster', Mock(side_effect=[None, DCSError('foo'), None]))
     def test_load_dynamic_configuration(self):
@@ -67,15 +77,11 @@ class TestPatroni(unittest.TestCase):
                     patroni_main()
 
     @patch('os.getpid')
-    @patch('subprocess.Popen', )
+    @patch('multiprocessing.Process')
     @patch('patroni.patroni_main', Mock())
-    def test_patroni_main(self, mock_popen, mock_getpid):
+    def test_patroni_main(self, mock_process, mock_getpid):
         mock_getpid.return_value = 2
         _main()
-
-        with patch('sys.frozen', Mock(return_value=True), create=True), patch('os.setsid', Mock()):
-            sys.argv = ['/patroni', 'pg_ctl_start', 'postgres', '-D', '/data', '--max_connections=100']
-            _main()
 
         mock_getpid.return_value = 1
 
@@ -91,13 +97,13 @@ class TestPatroni(unittest.TestCase):
         ref = {'passtochild': lambda signo, stack_frame: 0}
 
         def mock_sighup(signo, handler):
-            if signo == signal.SIGHUP:
+            if hasattr(signal, 'SIGHUP') and signo == signal.SIGHUP:
                 ref['passtochild'] = handler
 
-        def mock_wait():
+        def mock_join():
             ref['passtochild'](0, None)
 
-        mock_popen.return_value.wait = mock_wait
+        mock_process.return_value.join = mock_join
         with patch('signal.signal', mock_sighup), patch('os.kill', Mock()):
             self.assertIsNone(_main())
 
@@ -122,6 +128,7 @@ class TestPatroni(unittest.TestCase):
         self.assertRaises(SystemExit, self.p.sigterm_handler)
 
     def test_schedule_next_run(self):
+        self.p.ha.cluster = Mock()
         self.p.ha.dcs.watch = Mock(return_value=True)
         self.p.schedule_next_run()
         self.p.next_run = time.time() - self.p.dcs.loop_wait - 1
@@ -156,3 +163,9 @@ class TestPatroni(unittest.TestCase):
     def test_shutdown(self):
         self.p.api.shutdown = Mock(side_effect=Exception)
         self.p.shutdown()
+
+    def test_check_psycopg2(self):
+        with patch.object(builtins, '__import__', Mock(side_effect=ImportError)):
+            self.assertRaises(SystemExit, check_psycopg2)
+        with patch('psycopg2.__version__', '2.5.3.dev1 a b c'):
+            self.assertRaises(SystemExit, check_psycopg2)

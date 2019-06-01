@@ -3,8 +3,9 @@ import unittest
 from mock import Mock, patch
 from patroni.dcs.exhibitor import ExhibitorEnsembleProvider, Exhibitor
 from patroni.dcs.zookeeper import ZooKeeperError
-from test_etcd import SleepException, requests_get
-from test_zookeeper import MockKazooClient
+
+from . import SleepException, requests_get
+from .test_zookeeper import MockKazooClient
 
 
 @patch('requests.get', requests_get)

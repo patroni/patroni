@@ -13,10 +13,11 @@ from patroni.ctl import ctl, store_config, load_config, output_members, request_
 from patroni.dcs.etcd import Client, Failover
 from patroni.utils import tzutc
 from psycopg2 import OperationalError
-from test_etcd import etcd_read, requests_get, socket_getaddrinfo, MockResponse
-from test_ha import get_cluster_initialized_without_leader, get_cluster_initialized_with_leader, \
+
+from . import MockConnect, MockCursor, MockResponse, psycopg2_connect, requests_get
+from .test_etcd import etcd_read, socket_getaddrinfo
+from .test_ha import get_cluster_initialized_without_leader, get_cluster_initialized_with_leader, \
     get_cluster_initialized_with_only_leader, get_cluster_not_initialized_without_leader, get_cluster, Member
-from test_postgresql import MockConnect, psycopg2_connect
 
 CONFIG_FILE_PATH = './test-ctl.yaml'
 
@@ -198,7 +199,7 @@ class TestCtl(unittest.TestCase):
             rows = query_member(None, None, None, 'replica', 'SELECT pg_catalog.pg_is_in_recovery()', {})
             self.assertEqual(rows, (None, None))
 
-            with patch('test_postgresql.MockCursor.execute', Mock(side_effect=OperationalError('bla'))):
+            with patch.object(MockCursor, 'execute', Mock(side_effect=OperationalError('bla'))):
                 rows = query_member(None, None, None, 'replica', 'SELECT pg_catalog.pg_is_in_recovery()', {})
 
         with patch('patroni.ctl.get_cursor', Mock(return_value=None)):
@@ -289,14 +290,14 @@ class TestCtl(unittest.TestCase):
         with patch('requests.post', Mock(return_value=MockResponse())):
             # normal restart, the schedule is actually parsed, but not validated in patronictl
             result = self.runner.invoke(ctl, ['restart', 'alpha', '--pg-version', '42.0.0',
-                                        '--scheduled', '2300-10-01T14:30'], input='y')
+                                              '--scheduled', '2300-10-01T14:30'], input='y')
             assert result.exit_code == 0
 
         with patch('requests.post', Mock(return_value=MockResponse(204))):
             # get restart with the non-200 return code
             # normal restart, the schedule is actually parsed, but not validated in patronictl
             result = self.runner.invoke(ctl, ['restart', 'alpha', '--pg-version', '42.0',
-                                        '--scheduled', '2300-10-01T14:30'], input='y')
+                                              '--scheduled', '2300-10-01T14:30'], input='y')
             assert result.exit_code == 0
 
         # force restart with restart already present
@@ -533,7 +534,8 @@ class TestCtl(unittest.TestCase):
         show_diff(b"foo:\n  bar: \xc3\xb6\xc3\xb6\n".decode('utf-8'),
                   b"foo:\n  bar: \xc3\xbc\xc3\xbc\n".decode('utf-8'))
 
-    def test_invoke_editor(self):
+    @patch('subprocess.call', return_value=1)
+    def test_invoke_editor(self, mock_subprocess_call):
         for e in ('', 'false'):
             os.environ['EDITOR'] = e
             self.assertRaises(PatroniCtlException, invoke_editor, 'foo: bar\n', 'test')
@@ -548,13 +550,14 @@ class TestCtl(unittest.TestCase):
     def test_edit_config(self, mock_get_dcs):
         mock_get_dcs.return_value = self.e
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
+        mock_get_dcs.return_value.set_config_value = Mock(return_value=False)
         os.environ['EDITOR'] = 'true'
         self.runner.invoke(ctl, ['edit-config', 'dummy'])
         self.runner.invoke(ctl, ['edit-config', 'dummy', '-s', 'foo=bar'])
         self.runner.invoke(ctl, ['edit-config', 'dummy', '--replace', 'postgres0.yml'])
         self.runner.invoke(ctl, ['edit-config', 'dummy', '--apply', '-'], input='foo: bar')
         self.runner.invoke(ctl, ['edit-config', 'dummy', '--force', '--apply', '-'], input='foo: bar')
-        mock_get_dcs.return_value.set_config_value = Mock(return_value=True)
+        mock_get_dcs.return_value.set_config_value.return_value = True
         self.runner.invoke(ctl, ['edit-config', 'dummy', '--force', '--apply', '-'], input='foo: bar')
 
     @patch('patroni.ctl.get_dcs')

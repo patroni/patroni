@@ -14,7 +14,6 @@ import io
 import json
 import logging
 import os
-import psycopg2
 import random
 import requests
 import subprocess
@@ -30,6 +29,7 @@ from patroni.config import Config
 from patroni.dcs import get_dcs as _get_dcs
 from patroni.exceptions import PatroniException
 from patroni.postgresql import Postgresql
+from patroni.postgresql.misc import postgres_version_to_int
 from patroni.utils import patch_config, polling_loop
 from patroni.version import __version__
 from prettytable import PrettyTable
@@ -63,8 +63,8 @@ def parse_dcs(dcs):
     elif scheme not in DCS_DEFAULTS:
         raise PatroniCtlException('Unknown dcs scheme: {}'.format(scheme))
 
-    dcs_info = DCS_DEFAULTS[scheme]
-    return yaml.load(dcs_info['template'].format(host=parsed.hostname or 'localhost', port=port or dcs_info['port']))
+    default = DCS_DEFAULTS[scheme]
+    return yaml.safe_load(default['template'].format(host=parsed.hostname or 'localhost', port=port or default['port']))
 
 
 def load_config(path, dcs):
@@ -246,6 +246,7 @@ def get_cursor(cluster, connect_parameters, role='master', member=None):
     else:
         params.pop('database')
 
+    import psycopg2
     conn = psycopg2.connect(**params)
     conn.autocommit = True
     cursor = conn.cursor()
@@ -380,6 +381,7 @@ def query(
 
 
 def query_member(cluster, cursor, member, role, command, connect_parameters):
+    import psycopg2
     try:
         if cursor is None:
             cursor = get_cursor(cluster, connect_parameters, role=role, member=member)
@@ -524,7 +526,7 @@ def restart(obj, cluster_name, member_names, force, role, p_any, scheduled, vers
 
     if version:
         try:
-            Postgresql.postgres_version_to_int(version)
+            postgres_version_to_int(version)
         except PatroniException as e:
             raise PatroniCtlException(e.value)
 
@@ -625,6 +627,7 @@ def _do_failover_or_switchover(obj, action, cluster_name, master, candidate, for
         raise PatroniCtlException('Member {0} does not exist in cluster {1}'.format(candidate, cluster_name))
 
     scheduled_at_str = None
+    scheduled_at = None
 
     if action == 'switchover':
         if scheduled is None and not force:

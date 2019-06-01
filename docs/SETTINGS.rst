@@ -50,8 +50,8 @@ Bootstrap configuration
     -  **slots**: define permanent replication slots. These slots will be preserved during switchover/failover. Patroni will try to create slots before opening connections to the cluster.
         -  **my_slot_name**: the name of replication slot. It is the responsibility of the operator to make sure that there are no clashes in names between replication slots automatically created by Patroni for members and permanent replication slots.
             -  **type**: slot type. Could be ``physical`` or ``logical``. If the slot is logical, you have to additionally define ``database`` and ``plugin``.
-               **database**: the database name where logical slots should be created.
-               **plugin**: the plugin name for the logical slot.
+            -  **database**: the database name where logical slots should be created.
+            -  **plugin**: the plugin name for the logical slot.
 -  **method**: custom script to use for bootstrapping this cluster.
    See :ref:`custom bootstrap methods documentation <custom_bootstrap>` for details.
    When ``initdb`` is specified revert to the default ``initdb`` command. ``initdb`` is also triggered when no ``method``
@@ -97,6 +97,7 @@ Most of the parameters are optional, but you have to specify one of the **host**
 
 -  **host**: the host:port for the etcd endpoint.
 -  **hosts**: list of etcd endpoint in format host1:port1,host2:port2,etc... Could be a comma separated string or an actual yaml list.
+-  **use\_proxies**: If this parameter is set to true, Patroni will consider **hosts** as a list of proxies and will not perform a topology discovery of etcd cluster.
 -  **url**: url for the etcd
 -  **proxy**: proxy url for the etcd. If you are connecting to the etcd using proxy, use this parameter instead of **url**
 -  **srv**: Domain to search the SRV record(s) for cluster autodiscovery.
@@ -136,12 +137,15 @@ PostgreSQL
     -  **replication**:
         -  **username**: replication username; the user will be created during initialization. Replicas will use this user to access master via streaming replication
         -  **password**: replication password; the user will be created during initialization.
+    -  **rewind**:
+        -  **username**: name for the user for ``pg_rewind``; the user will be created during initialization of postgres 11+ and all necessary `permissions <https://paquier.xyz/postgresql-2/postgres-11-superuser-rewind/>`__ will be granted.
+        -  **password**: password for the user for ``pg_rewind``; the user will be created during initialization.
 -  **callbacks**: callback scripts to run on certain actions. Patroni will pass the action, role and cluster name. (See scripts/aws.py as an example of how to write them.)
         -  **on\_reload**: run this script when configuration reload is triggered.
-        -  **on\_restart**: run this script when the cluster restarts.
-        -  **on\_role\_change**: run this script when the cluster is being promoted or demoted.
-        -  **on\_start**: run this script when the cluster starts.
-        -  **on\_stop**: run this script when the cluster stops.
+        -  **on\_restart**: run this script when the postgres restarts (without changing role).
+        -  **on\_role\_change**: run this script when the postgres is being promoted or demoted.
+        -  **on\_start**: run this script when the postgres starts.
+        -  **on\_stop**: run this script when the postgres stops.
 -  **connect\_address**: IP address + port through which Postgres is accessible from other nodes and applications.
 -  **create\_replica\_methods**: an ordered list of the create methods for turning a Patroni node into a new replica.
    "basebackup" is the default method; other methods are assumed to refer to scripts, each of which is configured as its
@@ -158,6 +162,9 @@ PostgreSQL
 -  **pg\_hba**: list of lines that Patroni will use to generate ``pg_hba.conf``. This parameter has higher priority than ``bootstrap.pg_hba``. Together with :ref:`dynamic configuration <dynamic_configuration>` it simplifies management of ``pg_hba.conf``.
         -  **- host all all 0.0.0.0/0 md5**.
         -  **- host replication replicator 127.0.0.1/32 md5**: A line like this is required for replication.
+-  **pg\_ident**: list of lines that Patroni will use to generate ``pg_ident.conf``. Together with :ref:`dynamic configuration <dynamic_configuration>` it simplifies management of ``pg_ident.conf``.
+        -  **- mapname1 systemname1 pguser1**.
+        -  **- mapname1 systemname2 pguser2**.
 -  **pg\_ctl\_timeout**: How long should pg_ctl wait when doing ``start``, ``stop`` or ``restart``. Default value is 60 seconds.
 -  **use\_pg\_rewind**: try to use pg\_rewind on the former leader when it joins cluster as a replica.
 -  **remove\_data\_directory\_on\_rewind\_failure**: If this option is enabled, Patroni will remove postgres data directory and recreate replica. Otherwise it will try to follow the new leader. Default value is **false**.

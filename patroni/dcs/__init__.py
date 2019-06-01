@@ -9,6 +9,7 @@ import pkgutil
 import re
 import six
 import sys
+import time
 
 from collections import defaultdict, namedtuple
 from copy import deepcopy
@@ -135,7 +136,7 @@ class Member(namedtuple('Member', 'index,name,session,data')):
         if conn_kwargs:
             conn_url = 'postgresql://{host}:{port}'.format(
                 host=conn_kwargs.get('host'),
-                port=conn_kwargs.get('port'),
+                port=conn_kwargs.get('port', 5432),
             )
             self.data['conn_url'] = conn_url
             return conn_url
@@ -237,6 +238,19 @@ class Leader(namedtuple('Leader', 'index,session,member')):
     @property
     def timeline(self):
         return self.member.data.get('timeline')
+
+    @property
+    def checkpoint_after_promote(self):
+        """
+        >>> Leader(1, '', Member.from_node(1, '', '', '{"version":"z"}')).checkpoint_after_promote
+        """
+        version = self.member.data.get('version')
+        if version:
+            try:
+                if tuple(map(int, version.split('.'))) >= (1, 5, 6):
+                    return bool(self.member.data.get('checkpoint_after_promote'))
+            except Exception:
+                logger.debug('Failed to parse Patroni version %s', version)
 
 
 class Failover(namedtuple('Failover', 'index,leader,candidate,scheduled_at')):
@@ -529,6 +543,7 @@ class AbstractDCS(object):
 
         self._ctl = bool(config.get('patronictl', False))
         self._cluster = None
+        self._cluster_valid_till = 0
         self._cluster_thread_lock = Lock()
         self._last_leader_operation = ''
         self.event = Event()
@@ -577,6 +592,10 @@ class AbstractDCS(object):
         """Set the new ttl value for leader key"""
 
     @abc.abstractmethod
+    def ttl(self):
+        """Get new ttl value"""
+
+    @abc.abstractmethod
     def set_retry_timeout(self, retry_timeout):
         """Set the new value for retry_timeout"""
 
@@ -603,22 +622,26 @@ class AbstractDCS(object):
            instance would be demoted."""
 
     def get_cluster(self):
+        try:
+            cluster = self._load_cluster()
+        except Exception:
+            self.reset_cluster()
+            raise
+
         with self._cluster_thread_lock:
-            try:
-                self._load_cluster()
-            except Exception:
-                self._cluster = None
-                raise
-            return self._cluster
+            self._cluster = cluster
+            self._cluster_valid_till = time.time() + self.ttl
+            return cluster
 
     @property
     def cluster(self):
         with self._cluster_thread_lock:
-            return self._cluster
+            return self._cluster if self._cluster_valid_till > time.time() else None
 
     def reset_cluster(self):
         with self._cluster_thread_lock:
             self._cluster = None
+            self._cluster_valid_till = 0
 
     @abc.abstractmethod
     def _write_leader_optime(self, last_operation):
@@ -684,7 +707,7 @@ class AbstractDCS(object):
         """Create or update `/config` key"""
 
     @abc.abstractmethod
-    def touch_member(self, data, ttl=None, permanent=False):
+    def touch_member(self, data, permanent=False):
         """Update member key in DCS.
         This method should create or update key with the name = '/members/' + `~self._name`
         and value = data in a given DCS.

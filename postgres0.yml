@@ -62,6 +62,9 @@ bootstrap:
   - data-checksums
 
   pg_hba:  # Add following lines to pg_hba.conf after running 'initdb'
+  # For kerberos gss based connectivity (discard @.*$)
+  #- host replication replicator 127.0.0.1/32 gss include_realm=0
+  #- host all all 0.0.0.0/0 gss include_realm=0
   - host replication replicator 127.0.0.1/32 md5
   - host all all 0.0.0.0/0 md5
 #  - hostssl all all 0.0.0.0/0 md5
@@ -91,7 +94,15 @@ postgresql:
     superuser:
       username: postgres
       password: zalando
+    rewind:  # Has no effect on postgres 10 and lower
+      username: rewind_user
+      password: rewind_password
+  # Server side kerberos spn
+#  krbsrvname: postgres
   parameters:
+    # Fully qualified kerberos ticket file for the running user
+    # same as KRB5CCNAME used by the GSS
+#   krb_server_keyfile: /var/spool/keytabs/postgres
     unix_socket_directories: '.'
 
 #watchdog:

@@ -1,7 +1,7 @@
 import unittest
 
 from mock import Mock, patch
-from patroni.callback_executor import CallbackExecutor
+from patroni.postgresql.callback_executor import CallbackExecutor
 
 
 class TestCallbackExecutor(unittest.TestCase):
@@ -15,6 +15,9 @@ class TestCallbackExecutor(unittest.TestCase):
         self.assertIsNone(ce.call([]))
         ce.join()
 
+        self.assertIsNone(ce.call([]))
+
+        mock_popen.return_value.kill.side_effect = OSError
         self.assertIsNone(ce.call([]))
 
         mock_popen.side_effect = Exception

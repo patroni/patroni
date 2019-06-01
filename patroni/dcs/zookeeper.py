@@ -126,6 +126,10 @@ class ZooKeeper(AbstractDCS):
             self._client.restart()
             return True
 
+    @property
+    def ttl(self):
+        return self._client._session_timeout
+
     def set_retry_timeout(self, retry_timeout):
         retry = self._client.retry if isinstance(self._client.retry, KazooRetry) else self._client._retry
         retry.deadline = retry_timeout
@@ -206,16 +210,18 @@ class ZooKeeper(AbstractDCS):
         failover = self.get_node(self.failover_path, watch=self.cluster_watcher) if self._FAILOVER in nodes else None
         failover = failover and Failover.from_node(failover[1].version, failover[0])
 
-        self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
+        return Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
 
     def _load_cluster(self):
-        if self._fetch_cluster or self._cluster is None:
+        cluster = self.cluster
+        if self._fetch_cluster or cluster is None:
             try:
-                self._client.retry(self._inner_load_cluster)
+                cluster = self._client.retry(self._inner_load_cluster)
             except Exception:
                 logger.exception('get_cluster')
                 self.cluster_watcher(None)
                 raise ZooKeeperError('ZooKeeper in not responding properly')
+        return cluster
 
     def _create(self, path, value, retry=False, ephemeral=False):
         try:
@@ -264,11 +270,14 @@ class ZooKeeper(AbstractDCS):
         return self._create(self.initialize_path, sysid, retry=True) if create_new \
             else self._client.retry(self._client.set, self.initialize_path, sysid)
 
-    def touch_member(self, data, ttl=None, permanent=False):
+    def touch_member(self, data, permanent=False):
         cluster = self.cluster
         member = cluster and cluster.get_member(self._name, fallback_to_leader=False)
         encoded_data = json.dumps(data, separators=(',', ':')).encode('utf-8')
-        if member and self._client.client_id is not None and member.session != self._client.client_id[0]:
+        if member and (self._client.client_id is not None and member.session != self._client.client_id[0] or
+                       not (deep_compare(member.data.get('tags', {}), data.get('tags', {})) and
+                            member.data.get('version') == data.get('version') and
+                            member.data.get('checkpoint_after_promote') == data.get('checkpoint_after_promote'))):
             try:
                 self._client.delete_async(self.member_path).get(timeout=1)
             except NoNodeError:
