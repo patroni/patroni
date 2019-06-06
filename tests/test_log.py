@@ -21,6 +21,7 @@ class TestPatroniLogger(unittest.TestCase):
     def test_patroni_logger(self):
         config = {
             'log': {
+                'max_queue_size': 4,
                 'dir': 'foo',
                 'file_size': 4096,
                 'file_num': 5,
@@ -36,8 +37,18 @@ class TestPatroniLogger(unittest.TestCase):
         patroni_config = Config()
         logger.reload_config(patroni_config['log'])
 
-        self.assertEqual(logger.handler.maxBytes, config['log']['file_size'])
-        self.assertEqual(logger.handler.backupCount, config['log']['file_num'])
+        with patch.object(logging.Handler, 'format', Mock(side_effect=Exception)):
+            logging.error('test')
+
+        self.assertEqual(logger._log_handler.maxBytes, config['log']['file_size'])
+        self.assertEqual(logger._log_handler.backupCount, config['log']['file_num'])
 
         config['log'].pop('dir')
         logger.reload_config(config['log'])
+        with patch.object(logging.Logger, 'makeRecord',
+                          Mock(side_effect=[logging.LogRecord('', logging.INFO, '', 0, '', (), None), Exception])):
+            logging.error('test')
+        logging.error('test')
+        logger.shutdown()
+        self.assertEqual(logger.queue_size, 0)
+        self.assertEqual(logger.records_lost, 0)

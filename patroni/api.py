@@ -75,6 +75,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
             response['watchdog_failed'] = True
         if patroni.ha.is_paused():
             response['pause'] = True
+        qsize = patroni.logger.queue_size
+        if qsize > 2:
+            response['logger_queue_size'] = qsize
+            lost = patroni.logger.records_lost
+            if lost:
+                response['logger_records_lost'] = lost
         self._write_json_response(status_code, response)
 
     def do_GET(self, write_status_code_only=False):

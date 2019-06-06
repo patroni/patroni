@@ -100,12 +100,19 @@ class MockHa(object):
         return False
 
 
+class MockLogger(object):
+
+    queue_size = 3
+    records_lost = 1
+
+
 class MockPatroni(object):
 
     ha = MockHa()
     config = Mock()
     postgresql = ha.state_handler
     dcs = Mock()
+    logger = MockLogger()
     tags = {}
     version = '0.00'
     noloadbalance = PropertyMock(return_value=False)
