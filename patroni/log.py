@@ -117,7 +117,10 @@ class PatroniLogger(Thread):
                 if not self._old_handlers:
                     break
                 handler = self._old_handlers.pop()
-            handler.close()
+            try:
+                handler.close()
+            except Exception as e:
+                _LOGGER.exception('Failed to close the old log handler %s', handler)
 
     def run(self):
         while True:
@@ -133,6 +136,7 @@ class PatroniLogger(Thread):
     def shutdown(self):
         self._queue_handler.queue.put_nowait(None)
         self.join()
+        logging.shutdown()
 
     @property
     def queue_size(self):

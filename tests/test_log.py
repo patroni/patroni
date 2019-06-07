@@ -18,10 +18,11 @@ class TestPatroniLogger(unittest.TestCase):
         logging.getLogger().handlers[:] = self._handlers
 
     @patch('logging.FileHandler._open', Mock())
+    @patch('logging.Handler.close', Mock(side_effect=Exception))
     def test_patroni_logger(self):
         config = {
             'log': {
-                'max_queue_size': 4,
+                'max_queue_size': 5,
                 'dir': 'foo',
                 'file_size': 4096,
                 'file_num': 5,
@@ -49,6 +50,6 @@ class TestPatroniLogger(unittest.TestCase):
                           Mock(side_effect=[logging.LogRecord('', logging.INFO, '', 0, '', (), None), Exception])):
             logging.error('test')
         logging.error('test')
-        logger.shutdown()
-        self.assertEqual(logger.queue_size, 0)
+        self.assertRaises(Exception, logger.shutdown)
+        self.assertLessEqual(logger.queue_size, 2)  # "Failed to close the old log handler" could be still in the queue
         self.assertEqual(logger.records_lost, 0)
