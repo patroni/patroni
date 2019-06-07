@@ -225,6 +225,10 @@ class Raft(AbstractDCS):
     def set_ttl(self, ttl):
         self._ttl = ttl
 
+    @property
+    def ttl(self):
+        return self._ttl
+
     def set_retry_timeout(self, retry_timeout):
         self._sync_obj.set_retry_timeout(retry_timeout)
 
@@ -236,8 +240,7 @@ class Raft(AbstractDCS):
         prefix = self.client_path('')
         response = self._sync_obj.get(prefix, recursive=True)
         if not response:
-            self._cluster = Cluster(None, None, None, None, [], None, None, None)
-            return
+            return Cluster(None, None, None, None, [], None, None, None)
         nodes = {os.path.relpath(key, prefix).replace('\\', '/'): value for key, value in response.items()}
 
         # get initialize flag
@@ -275,7 +278,7 @@ class Raft(AbstractDCS):
         sync = nodes.get(self._SYNC)
         sync = SyncState.from_node(sync and sync['index'], sync and sync['value'])
 
-        self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
+        return Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
 
     def _write_leader_optime(self, last_operation):
         return self._sync_obj.set(self.leader_optime_path, last_operation, timeout=1)
@@ -293,9 +296,9 @@ class Raft(AbstractDCS):
     def set_config_value(self, value, index=None):
         return self._sync_obj.set(self.config_path, value, prevIndex=index)
 
-    def touch_member(self, data, ttl=None, permanent=False):
+    def touch_member(self, data, permanent=False):
         data = json.dumps(data, separators=(',', ':'))
-        return self._sync_obj.set(self.member_path, data, None if permanent else ttl or self._ttl, timeout=2)
+        return self._sync_obj.set(self.member_path, data, None if permanent else self._ttl, timeout=2)
 
     def take_leader(self):
         return self._sync_obj.set(self.leader_path, self._name, ttl=self._ttl)
