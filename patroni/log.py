@@ -119,7 +119,7 @@ class PatroniLogger(Thread):
                 handler = self._old_handlers.pop()
             try:
                 handler.close()
-            except Exception as e:
+            except Exception:
                 _LOGGER.exception('Failed to close the old log handler %s', handler)
 
     def run(self):
