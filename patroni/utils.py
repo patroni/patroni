@@ -312,17 +312,18 @@ class Retry(object):
                     self._cur_stoptime = time.time() + self.deadline
                 return func(*args, **kwargs)
             except self.retry_exceptions as e:
-                logger.warning('Retry got exception: %s', str(e))
                 # Note: max_tries == -1 means infinite tries.
                 if self._attempts == self.max_tries:
+                    logger.warning('Retry got exception: %s', e)
                     raise RetryFailedError("Too many retry attempts")
                 self._attempts += 1
                 sleeptime = self._cur_delay + (random.randint(0, self.max_jitter) / 100.0)
 
                 if self._cur_stoptime is not None and time.time() + sleeptime >= self._cur_stoptime:
+                    logger.warning('Retry got exception: %s', e)
                     raise RetryFailedError("Exceeded retry deadline")
-                else:
-                    self.sleep_func(sleeptime)
+                logger.debug('Retry got exception: %s', e)
+                self.sleep_func(sleeptime)
                 self._cur_delay = min(self._cur_delay * self.backoff, self.max_delay)
 
 
