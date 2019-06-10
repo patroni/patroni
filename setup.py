@@ -16,8 +16,8 @@ from setuptools import find_packages, setup
 if sys.version_info < (2, 7, 0):
     fatal('patroni needs to be run with Python 2.7+')
 check_psycopg2()
-del sys.modules['patroni']
-del sys.modules['patroni.version']
+for n in ('', '.daemon', '.version'):
+    del sys.modules['patroni' + n]
 
 __location__ = os.path.join(os.getcwd(), os.path.dirname(inspect.getfile(inspect.currentframe())))
 
@@ -60,6 +60,7 @@ CLASSIFIERS = [
 
 CONSOLE_SCRIPTS = ['patroni = patroni:main',
                    'patronictl = patroni.ctl:ctl',
+                   'patroni_raft_controller = patroni.raft_controller:main',
                    "patroni_wale_restore = patroni.scripts.wale_restore:main",
                    "patroni_aws = patroni.scripts.aws:main"]
 

@@ -3,7 +3,7 @@ import unittest
 import time
 
 from mock import Mock, patch
-from patroni.dcs.raft import DynMemberSyncObj, KVStoreTTL, Raft
+from patroni.dcs.raft import DynMemberSyncObj, KVStoreTTL, Raft, SyncObjUtility
 from pysyncobj import SyncObjConf, FAIL_REASON
 
 
@@ -16,22 +16,12 @@ class TestDynMemberSyncObj(unittest.TestCase):
         self.conf = SyncObjConf(appendEntriesUseBatch=False, dynamicMembershipChange=True, autoTick=False)
         self.so = DynMemberSyncObj('127.0.0.1:1234', ['127.0.0.1:1235'], self.conf)
 
-    @patch.object(DynMemberSyncObj, '_DynMemberSyncObj__utility_message')
-    def test_add_member(self, mock_utility_message):
-        mock_utility_message.return_value = [{'addr': '127.0.0.1:1235'}, {'addr': '127.0.0.1:1236'}]
-        mock_utility_message.replicated = False
+    @patch.object(SyncObjUtility, 'sendMessage')
+    def test_add_member(self, mock_send_message):
+        mock_send_message.return_value = [{'addr': '127.0.0.1:1235'}, {'addr': '127.0.0.1:1236'}]
         DynMemberSyncObj('127.0.0.1:1234', ['127.0.0.1:1235'], self.conf)
         self.conf.dynamicMembershipChange = False
         DynMemberSyncObj('127.0.0.1:1234', ['127.0.0.1:1235'], self.conf)
-
-    @patch('pysyncobj.node.Node.isConnected', Mock(side_effect=[True, False]))
-    def test___utility_message(self):
-        DynMemberSyncObj('127.0.0.1:1234', ['127.0.0.1:1235'], self.conf)
-
-    def test__onMessageReceived(self):
-        self.so._onMessageReceived(Mock(), {})
-        self.so._SyncObj__initialised = True
-        self.so._onMessageReceived(Mock(), {'type': None})
 
     def test___onUtilityMessage(self):
         self.so._SyncObj__onMessageReceived(Mock(), ['members'])
@@ -40,11 +30,19 @@ class TestDynMemberSyncObj(unittest.TestCase):
     def test__SyncObj__doChangeCluster(self):
         self.so._SyncObj__doChangeCluster(['add', '127.0.0.1:1236'])
 
+    def test_utility(self):
+        utility = SyncObjUtility(self.so)
+        utility.setPartnerAddress('127.0.0.1:1235')
+        utility.sendMessage(['members'])
+        self.assertEqual(utility._getSelfNodeAddr(), ['members'])
+        utility._onMessageReceived(0, '')
+
 
 class TestKVStoreTTL(unittest.TestCase):
 
     def setUp(self):
-        self.conf = SyncObjConf(appendEntriesUseBatch=False)
+        self.conf = SyncObjConf(appendEntriesUseBatch=False, appendEntriesPeriod=0.0001,
+                                raftMinTimeout=0.0004, raftMaxTimeout=0.0005, autoTickPeriod=0.0001)
         callback = Mock()
         callback.replicated = False
         self.so = KVStoreTTL('127.0.0.1:1234', [], self.conf, on_set=callback, on_delete=callback)
@@ -64,7 +62,7 @@ class TestKVStoreTTL(unittest.TestCase):
         self.so.set('foo', 'bar')
         self.so.set('fooo', 'bar')
         self.assertFalse(self.so.delete('foo', prevValue='buz'))
-        self.assertFalse(self.so.delete('foo', prevValue='bar', timeout=0.001))
+        self.assertFalse(self.so.delete('foo', prevValue='bar', timeout=0.00001))
         self.assertFalse(self.so.delete('foo', prevValue='bar'))
         self.assertTrue(self.so.delete('foo', recursive=True))
         self.assertFalse(self.so.retry(self.so._delete, 'foo', prevValue=''))
@@ -73,7 +71,7 @@ class TestKVStoreTTL(unittest.TestCase):
         self.so.set('foo', 'bar', ttl=0.001)
         time.sleep(1)
         self.assertIsNone(self.so.get('foo'))
-        self.assertEquals(self.so.get('foo', recursive=True), {})
+        self.assertEqual(self.so.get('foo', recursive=True), {})
 
     @patch('time.sleep', Mock())
     def test_retry(self):
@@ -122,4 +120,4 @@ class TestRaft(unittest.TestCase):
     @patch('threading.Event')
     def test_init(self, mock_event):
         mock_event.return_value.isSet.side_effect = [False, True]
-        self.assertIsNotNone(Raft({'ttl': 30, 'scope': 'test', 'name': 'pg', 'self_addr': '127.0.0.1:1234'}))
+        self.assertIsNotNone(Raft({'ttl': 30, 'scope': 'test', 'name': 'pg', 'patronictl': True}))

@@ -566,12 +566,21 @@ class ExhibitorController(ZooKeeperController):
 
 class RaftController(AbstractDcsController):
 
+    CONTROLLER_ADDR = 'localhost:1234'
+
     def __init__(self, context):
         super(RaftController, self).__init__(context)
+        os.environ.update(PATRONI_RAFT_PARTNER_ADDRS="'" + self.CONTROLLER_ADDR + "'", RAFT_PORT='1234')
         self._raft = None
 
     def _start(self):
-        pass
+        env = os.environ.copy()
+        del env['PATRONI_RAFT_PARTNER_ADDRS']
+        env['PATRONI_RAFT_SELF_ADDR'] = self.CONTROLLER_ADDR
+        env['PATRONI_RAFT_DATA_DIR'] = self._work_directory
+        return subprocess.Popen([sys.executable, '-m', 'coverage', 'run',
+                                '--source=patroni', '-p', 'patroni_raft_controller.py'],
+                                stdout=self._log, stderr=subprocess.STDOUT, env=env)
 
     def query(self, key, scope='batman'):
         ret = self._raft.get(self.path(key, scope))
@@ -583,16 +592,18 @@ class RaftController(AbstractDcsController):
     def cleanup_service_tree(self):
         from patroni.dcs.raft import KVStoreTTL
         from pysyncobj import SyncObjConf
+
         if self._raft:
             self._raft.destroy()
             self._raft._SyncObj__thread.join()
+            self.stop()
+            os.makedirs(self._work_directory)
+            self.start()
 
-        self._raft = KVStoreTTL('localhost:1234', ['localhost:1235'],
-                                SyncObjConf(appendEntriesUseBatch=False, dynamicMembershipChange=True))
-        os.environ.update(PATRONI_RAFT_PARTNER_ADDRS="'localhost:1234'", RAFT_PORT='1234')
-
-    def _is_running(self):
-        return True
+        ready_event = threading.Event()
+        conf = SyncObjConf(appendEntriesUseBatch=False, dynamicMembershipChange=True, onReady=ready_event.set)
+        self._raft = KVStoreTTL(None, [self.CONTROLLER_ADDR], conf)
+        ready_event.wait()
 
 
 class PatroniPoolController(object):

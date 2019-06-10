@@ -4,27 +4,24 @@ import signal
 import sys
 import time
 
+from patroni.daemon import AbstractPatroniDaemon, abstract_main
+
 logger = logging.getLogger(__name__)
 
 
-class Patroni(object):
+class Patroni(AbstractPatroniDaemon):
 
     def __init__(self):
         from patroni.api import RestApiServer
-        from patroni.config import Config
         from patroni.dcs import get_dcs
         from patroni.ha import Ha
-        from patroni.log import PatroniLogger
         from patroni.postgresql import Postgresql
         from patroni.version import __version__
         from patroni.watchdog import Watchdog
 
-        self.setup_signal_handlers()
+        super(Patroni, self).__init__()
 
         self.version = __version__
-        self.logger = PatroniLogger()
-        self.config = Config()
-        self.logger.reload_config(self.config.get('log', {}))
         self.dcs = get_dcs(self.config)
         self.watchdog = Watchdog(self.config)
         self.load_dynamic_configuration()
@@ -68,8 +65,8 @@ class Patroni(object):
 
     def reload_config(self):
         try:
+            super(Patroni, self).reload_config()
             self.tags = self.get_tags()
-            self.logger.reload_config(self.config.get('log', {}))
             self.dcs.reload_config(self.config)
             self.watchdog.reload_config(self.config)
             self.api.reload_config(self.config['restapi'])
@@ -80,15 +77,6 @@ class Patroni(object):
     @property
     def replicatefrom(self):
         return self.tags.get('replicatefrom')
-
-    def sighup_handler(self, *args):
-        self._received_sighup = True
-
-    def sigterm_handler(self, *args):
-        with self._sigterm_lock:
-            if not self._received_sigterm:
-                self._received_sigterm = True
-                sys.exit()
 
     @property
     def noloadbalance(self):
@@ -107,41 +95,22 @@ class Patroni(object):
         elif self.ha.watch(nap_time):
             self.next_run = time.time()
 
-    @property
-    def received_sigterm(self):
-        with self._sigterm_lock:
-            return self._received_sigterm
-
     def run(self):
         self.api.start()
         self.next_run = time.time()
+        super(Patroni, self).run()
 
-        while not self.received_sigterm:
-            if self._received_sighup:
-                self._received_sighup = False
-                if self.config.reload_local_configuration():
-                    self.reload_config()
+    def _run_cycle(self):
+        logger.info(self.ha.run_cycle())
 
-            logger.info(self.ha.run_cycle())
+        if self.dcs.cluster and self.dcs.cluster.config and self.dcs.cluster.config.data \
+                and self.config.set_dynamic_configuration(self.dcs.cluster.config):
+            self.reload_config()
 
-            if self.dcs.cluster and self.dcs.cluster.config and self.dcs.cluster.config.data \
-                    and self.config.set_dynamic_configuration(self.dcs.cluster.config):
-                self.reload_config()
+        if self.postgresql.role != 'uninitialized':
+            self.config.save_cache()
 
-            if self.postgresql.role != 'uninitialized':
-                self.config.save_cache()
-
-            self.schedule_next_run()
-
-    def setup_signal_handlers(self):
-        from threading import Lock
-
-        self._received_sighup = False
-        self._sigterm_lock = Lock()
-        self._received_sigterm = False
-        if os.name != 'nt':
-            signal.signal(signal.SIGHUP, self.sighup_handler)
-        signal.signal(signal.SIGTERM, self.sigterm_handler)
+        self.schedule_next_run()
 
     def shutdown(self):
         with self._sigterm_lock:
@@ -151,17 +120,11 @@ class Patroni(object):
         except Exception:
             logger.exception('Exception during RestApi.shutdown')
         self.ha.shutdown()
+        logging.shutdown()
 
 
 def patroni_main():
-    patroni = Patroni()
-    try:
-        patroni.run()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        patroni.shutdown()
-        logging.shutdown()
+    abstract_main(Patroni)
 
 
 def fatal(string, *args):

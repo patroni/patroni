@@ -6,8 +6,41 @@ import time
 
 from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
 from pysyncobj import SyncObj, SyncObjConf, replicated, FAIL_REASON
+from pysyncobj.poller import createPoller
+from pysyncobj.node import Node, NODE_STATUS
+
 
 logger = logging.getLogger(__name__)
+
+
+class SyncObjUtility(object):
+
+    def __init__(self, syncObj):
+        self.syncObj = syncObj
+        self._poller = createPoller('auto')
+        self.__result = None
+
+    def setPartnerAddress(self, partner):
+        self.__node = Node(self, partner, True)
+
+    def sendMessage(self, message):
+        self.__message = message
+        self.__node.connectIfRequired()
+        while self.__node.getStatus() != NODE_STATUS.DISCONNECTED:
+            self._poller.poll(0.5)
+        return self.__result
+
+    # selfAddress is send as a first message, we will abuse that fact
+    def _getSelfNodeAddr(self):
+        return self.__message
+
+    def _onMessageReceived(self, _, message):
+        self.__result = message
+        self.__node._Node__conn.disconnect()
+        self.__node._Node__lastConnectAttemptTime = 0
+
+    def __getattr__(self, name):
+        return getattr(self.syncObj, name)
 
 
 class DynMemberSyncObj(SyncObj):
@@ -16,44 +49,35 @@ class DynMemberSyncObj(SyncObj):
         autoTick = conf.autoTick
         conf.autoTick = False
         super(DynMemberSyncObj, self).__init__(None, partnerAddrs, conf)
-        for self.__node in self._SyncObj__nodes:
-            response = self.__utility_message(['members'])
+
+        utility = SyncObjUtility(self)
+
+        add_self = False
+        nodes = partnerAddrs[:]
+        nodes.extend([n.getAddress() for n in self._SyncObj__nodes if n.getAddress() not in partnerAddrs])
+        for node in nodes:
+            utility.setPartnerAddress(node)
+            response = utility.sendMessage(['members'])
             if response:
                 partnerAddrs = [member['addr'] for member in response if member['addr'] != selfAddress]
                 if len(partnerAddrs) == len(response):
                     if not conf.dynamicMembershipChange:
                         selfAddress = None
                     elif selfAddress:
-                        response = self.__utility_message(['add', selfAddress])  # TODO check response
-                break
+                        add_self = True
+
         conf.autoTick = autoTick
         super(DynMemberSyncObj, self).__init__(selfAddress, partnerAddrs, conf)
-
-    def __utility_message(self, message):
-        # __selfNodeAddr is send as a first message, we will abuse that fact
-        self._SyncObj__selfNodeAddr = message
-        self.__result = None
-        self.__node.connectIfRequired()
-        self._poller.poll(0.5)
-        while self.__node.isConnected():
-            self._poller.poll(0.5)
-        return self.__result
-
-    def _onMessageReceived(self, nodeAddr, message):
-        if self._SyncObj__initialised:  # __initialised is set only when _autoTick thread is running
-            super(DynMemberSyncObj, self)._onMessageReceived(nodeAddr, message)
-        else:  # otherwise we are doing our nasty job, i.e. receiving response on utility_message
-            self.__result = message
-            self.__node._Node__conn.disconnect()
-            self.__node._Node__lastConnectAttemptTime = 0
+        if add_self:
+            utility.sendMessage(['add', selfAddress])
 
     def __get_members(self):
         ret = [{'addr': n.getAddress(), 'status': n.getStatus(),
                 'leader': n.getAddress() == self._getLeader()} for n in self._SyncObj__nodes]
-        ret.append({'addr': self._getSelfNodeAddr(), 'status': 2, 'leader': self._isLeader()})
+        ret.append({'addr': self._getSelfNodeAddr(), 'status': NODE_STATUS.CONNECTED, 'leader': self._isLeader()})
         return ret
 
-    # original __onUtilityMessage return data in strange format...
+    # original __onUtilityMessage returns data in a strange format...
     def _SyncObj__onUtilityMessage(self, conn, message):
         if message[0] == 'members':
             conn.send(self.__get_members())
@@ -72,10 +96,10 @@ class KVStoreTTL(DynMemberSyncObj):
     def __init__(self, selfAddress, partnerAddrs, conf, on_set=None, on_delete=None):
         self.__on_set = on_set
         self.__on_delete = on_delete
-        super(KVStoreTTL, self).__init__(selfAddress, partnerAddrs, conf)
-        self.__retry_timeout = None
-        self.__data = {}
         self.__limb = {}
+        self.__retry_timeout = None
+        super(KVStoreTTL, self).__init__(selfAddress, partnerAddrs, conf)
+        self.__data = {}
 
     @staticmethod
     def __check_requirements(old_value, **kwargs):
@@ -205,12 +229,14 @@ class Raft(AbstractDCS):
         ready_event = threading.Event()
         conf = SyncObjConf(appendEntriesUseBatch=False, dynamicMembershipChange=True, onReady=ready_event.set, **files)
         self._sync_obj = KVStoreTTL(self_addr, config.get('partner_addrs', []), conf, self._on_set, self._on_delete)
-        while True:
-            ready_event.wait(5)
-            if ready_event.isSet():
-                break
-            else:
-                logger.info('waiting on raft')
+        if not self_addr:
+            while True:
+                ready_event.wait(5)
+                if ready_event.isSet():
+                    break
+                else:
+                    logger.info('waiting on raft')
+        self._sync_obj.forceLogCompaction()
         self.set_retry_timeout(int(config.get('retry_timeout') or 10))
 
     def _on_set(self, key, value):
