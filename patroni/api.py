@@ -102,6 +102,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
             status_code = replica_status_code
         elif 'read-only' in path:
             status_code = 200 if primary_status_code == 200 else replica_status_code
+        elif 'health' in path:
+            status_code = 200 if response.get('state') == 'running' else 503
         elif cluster:  # dcs is available
             is_synchronous = cluster.is_synchronous_mode() and cluster.sync \
                     and cluster.sync.sync_standby == patroni.postgresql.name
