@@ -1,3 +1,4 @@
+import logging
 import random
 import re
 import time
@@ -6,6 +7,8 @@ from dateutil import tz
 from patroni.exceptions import PatroniException
 
 tzutc = tz.tzutc()
+
+logger = logging.getLogger(__name__)
 
 OCT_RE = re.compile(r'^[-+]?0[0-7]*')
 DEC_RE = re.compile(r'^[-+]?(0|[1-9][0-9]*)')
@@ -308,17 +311,19 @@ class Retry(object):
                 if self.deadline is not None and self._cur_stoptime is None:
                     self._cur_stoptime = time.time() + self.deadline
                 return func(*args, **kwargs)
-            except self.retry_exceptions:
+            except self.retry_exceptions as e:
                 # Note: max_tries == -1 means infinite tries.
                 if self._attempts == self.max_tries:
+                    logger.warning('Retry got exception: %s', e)
                     raise RetryFailedError("Too many retry attempts")
                 self._attempts += 1
                 sleeptime = self._cur_delay + (random.randint(0, self.max_jitter) / 100.0)
 
                 if self._cur_stoptime is not None and time.time() + sleeptime >= self._cur_stoptime:
+                    logger.warning('Retry got exception: %s', e)
                     raise RetryFailedError("Exceeded retry deadline")
-                else:
-                    self.sleep_func(sleeptime)
+                logger.debug('Retry got exception: %s', e)
+                self.sleep_func(sleeptime)
                 self._cur_delay = min(self._cur_delay * self.backoff, self.max_delay)
 
 
