@@ -161,6 +161,8 @@ class TestRestApiHandler(unittest.TestCase):
             MockRestApiServer(RestApiHandler, 'GET /replica')
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'master'})):
             MockRestApiServer(RestApiHandler, 'GET /replica')
+        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'state': 'running'})):
+            MockRestApiServer(RestApiHandler, 'GET /health')
         MockRestApiServer(RestApiHandler, 'GET /master')
         MockPatroni.dcs.cluster.sync.sync_standby = MockPostgresql.name
         MockPatroni.dcs.cluster.is_synchronous_mode = Mock(return_value=True)
