@@ -262,7 +262,7 @@ class Config(object):
             ret['restapi']['authentication'] = restapi_auth
 
         authentication = {}
-        for user_type in ('replication', 'superuser'):
+        for user_type in ('replication', 'superuser', 'rewind'):
             entry = _get_auth(user_type)
             if entry:
                 authentication[user_type] = entry

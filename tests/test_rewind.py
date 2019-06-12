@@ -62,10 +62,10 @@ class TestRewind(BaseTestPostgresql):
             self.r.trigger_check_diverged_lsn()
             self.r.execute(self.leader)
 
-        self.leader.member.data.update(version='1.5.7', checkpoint_after_promote=False)
+        self.leader.member.data.update(version='1.5.7', checkpoint_after_promote=False, role='master')
         self.assertIsNone(self.r.execute(self.leader))
 
-        self.leader.member.data['checkpoint_after_promote'] = True
+        del self.leader.member.data['checkpoint_after_promote']
         with patch.object(Rewind, 'check_leader_is_not_in_recovery', Mock(return_value=False)):
             self.assertIsNone(self.r.execute(self.leader))
 
