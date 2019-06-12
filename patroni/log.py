@@ -1,10 +1,11 @@
 import logging
 import os
+import sys
 
 from copy import deepcopy
 from logging.handlers import RotatingFileHandler
 from patroni.utils import deep_compare
-from six.moves.queue import Queue
+from six.moves.queue import Queue, Full
 from threading import Lock, Thread
 
 _LOGGER = logging.getLogger(__name__)
@@ -52,6 +53,10 @@ class PatroniLogger(Thread):
     DEFAULT_LEVEL = 'INFO'
     DEFAULT_FORMAT = '%(asctime)s %(levelname)s: %(message)s'
 
+    NORMAL_LOG_QUEUE_SIZE = 2  # When everything goes normal Patroni writes only 2 messages per HA loop
+    DEFAULT_MAX_QUEUE_SIZE = 1000
+    LOGGING_BROKEN_EXIT_CODE = 5
+
     def __init__(self):
         super(PatroniLogger, self).__init__()
         self.daemon = True
@@ -78,7 +83,9 @@ class PatroniLogger(Thread):
 
     def reload_config(self, config):
         if self._config is None or not deep_compare(self._config, config):
-            self._queue_handler.queue.maxsize = config.get('max_queue_size', 1000)
+            with self._queue_handler.queue.mutex:
+                self._queue_handler.queue.maxsize = config.get('max_queue_size', self.DEFAULT_MAX_QUEUE_SIZE)
+
             self._root_logger.setLevel(config.get('level', PatroniLogger.DEFAULT_LEVEL))
 
             new_handler = None
@@ -134,7 +141,11 @@ class PatroniLogger(Thread):
             self._queue_handler.queue.task_done()
 
     def shutdown(self):
-        self._queue_handler.queue.put_nowait(None)
+        try:
+            self._queue_handler.queue.put_nowait(None)
+        except Full:  # Queue is full.
+            # It seems that logging is not working, exiting with non-standard exit-code is the best we can do.
+            sys.exit(self.LOGGING_BROKEN_EXIT_CODE)
         self.join()
         logging.shutdown()
 

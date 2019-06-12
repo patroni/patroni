@@ -102,6 +102,7 @@ class MockHa(object):
 
 class MockLogger(object):
 
+    NORMAL_LOG_QUEUE_SIZE = 2
     queue_size = 3
     records_lost = 1
 

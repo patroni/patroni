@@ -7,6 +7,7 @@ import yaml
 from mock import Mock, patch
 from patroni.config import Config
 from patroni.log import PatroniLogger
+from six.moves.queue import Queue, Full
 
 
 class TestPatroniLogger(unittest.TestCase):
@@ -50,6 +51,8 @@ class TestPatroniLogger(unittest.TestCase):
                           Mock(side_effect=[logging.LogRecord('', logging.INFO, '', 0, '', (), None), Exception])):
             logging.error('test')
         logging.error('test')
+        with patch.object(Queue, 'put_nowait', Mock(side_effect=Full)):
+            self.assertRaises(SystemExit, logger.shutdown)
         self.assertRaises(Exception, logger.shutdown)
         self.assertLessEqual(logger.queue_size, 2)  # "Failed to close the old log handler" could be still in the queue
         self.assertEqual(logger.records_lost, 0)

@@ -76,7 +76,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         if patroni.ha.is_paused():
             response['pause'] = True
         qsize = patroni.logger.queue_size
-        if qsize > 2:
+        if qsize > patroni.logger.NORMAL_LOG_QUEUE_SIZE:
             response['logger_queue_size'] = qsize
             lost = patroni.logger.records_lost
             if lost:
