@@ -302,24 +302,15 @@ class ConfigHandler(object):
             changes = CaseInsensitiveDict({p: v for p, v in server_parameters.items() if '.' not in p})
             changes.update({p: None for p in self._server_parameters.keys() if not ('.' in p or p in changes)})
             if changes:
-                if 'wal_segment_size' not in changes:
-                    changes['wal_segment_size'] = '16384kB'
                 # XXX: query can raise an exception
                 for r in self._postgresql.query(('SELECT name, setting, unit, vartype, context '
                                                  + 'FROM pg_catalog.pg_settings ' +
                                                  ' WHERE pg_catalog.lower(name) IN ('
                                                  + ', '.join(['%s'] * len(changes)) +
-                                                 ') ORDER BY 1 DESC'), *(k.lower() for k in changes.keys())):
-                    if r[4] == 'internal':
-                        if r[0] == 'wal_segment_size':
-                            server_parameters.pop(r[0], None)
-                            wal_segment_size = parse_int(r[2], 'kB')
-                            if wal_segment_size is not None:
-                                changes['wal_segment_size'] = '{0}kB'.format(int(r[1]) * wal_segment_size)
-                    elif r[0] in changes:
-                        unit = changes['wal_segment_size'] if r[0] in ('min_wal_size', 'max_wal_size') else r[2]
+                                                 ')'), *(k.lower() for k in changes.keys())):
+                    if r[4] != 'internal' and r[0] in changes:
                         new_value = changes.pop(r[0])
-                        if new_value is None or not compare_values(r[3], unit, r[1], new_value):
+                        if new_value is None or not compare_values(r[3], r[2], r[1], new_value):
                             if r[4] == 'postmaster':
                                 pending_restart = True
                                 logger.info('Changed %s from %s to %s (restart required)', r[0], r[1], new_value)
