@@ -1,5 +1,6 @@
 import etcd
 import logging
+import os
 import signal
 import sys
 import time
@@ -14,6 +15,7 @@ from patroni.postgresql import Postgresql
 from patroni.postgresql.config import ConfigHandler
 from patroni import Patroni, main as _main, patroni_main, check_psycopg2
 from six.moves import BaseHTTPServer, builtins
+from threading import Thread
 
 from . import psycopg2_connect, SleepException
 from .test_etcd import etcd_read, etcd_write
@@ -37,6 +39,7 @@ class MockFrozenImporter(object):
 @patch.object(AsyncExecutor, 'run', Mock())
 @patch.object(etcd.Client, 'write', etcd_write)
 @patch.object(etcd.Client, 'read', etcd_read)
+@patch.object(Thread, 'start', Mock())
 class TestPatroni(unittest.TestCase):
 
     @patch('pkgutil.get_importer', Mock(return_value=MockFrozenImporter()))
@@ -51,6 +54,7 @@ class TestPatroni(unittest.TestCase):
         with patch.object(Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
             sys.argv = ['patroni.py', 'postgres0.yml']
+            os.environ['PATRONI_POSTGRESQL_DATA_DIR'] = 'data/test0'
             self.p = Patroni()
 
     def tearDown(self):
@@ -65,6 +69,7 @@ class TestPatroni(unittest.TestCase):
     @patch('time.sleep', Mock(side_effect=SleepException))
     @patch.object(etcd.Client, 'delete', Mock())
     @patch.object(Client, 'machines')
+    @patch.object(Thread, 'join', Mock())
     def test_patroni_patroni_main(self, mock_machines):
         with patch('subprocess.call', Mock(return_value=1)):
             sys.argv = ['patroni.py', 'postgres0.yml']
