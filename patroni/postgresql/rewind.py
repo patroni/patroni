@@ -8,8 +8,8 @@ from patroni.postgresql.misc import parse_history, parse_lsn
 
 logger = logging.getLogger(__name__)
 
-REWIND_STATUS = type('Enum', (), {'INITIAL': 0, 'CHECKPOINT': 1, 'CHECK': 1, 'NEED': 2,
-                                  'NOT_NEED': 3, 'SUCCESS': 4, 'FAILED': 5})
+REWIND_STATUS = type('Enum', (), {'INITIAL': 0, 'CHECKPOINT': 1, 'CHECK': 2, 'NEED': 3,
+                                  'NOT_NEED': 4, 'SUCCESS': 5, 'FAILED': 6})
 
 
 class Rewind(object):
