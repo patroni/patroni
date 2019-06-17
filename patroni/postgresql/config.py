@@ -322,10 +322,10 @@ class ConfigHandler(object):
         # and in order to be able to change it, we are opening trust access from a certain address
         if self._postgresql.bootstrap.running_custom_bootstrap:
             addresses = {'': 'local'}
-            if 'host' in self._local_address and not self._local_address['host'].startswith('/'):
-                for _, _, _, _, sa in socket.getaddrinfo(self._local_address['host'], self._local_address['port'],
-                                                         0, socket.SOCK_STREAM, socket.IPPROTO_TCP):
-                    addresses[sa[0] + '/32'] = 'host'
+            if 'host' in self.local_replication_address and not self.local_replication_address['host'].startswith('/'):
+                addresses.update({sa[0] + '/32': 'host' for _, _, _, _, sa in socket.getaddrinfo(
+                                  self.local_replication_address['host'], self.local_replication_address['port'],
+                                  0, socket.SOCK_STREAM, socket.IPPROTO_TCP)})
 
             with open(self._pg_hba_conf, 'w') as f:
                 f.write(self._CONFIG_WARNING_HEADER)

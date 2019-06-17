@@ -232,7 +232,8 @@ class Config(object):
 
         _set_section_values('restapi', ['listen', 'connect_address', 'certfile', 'keyfile'])
         _set_section_values('postgresql', ['listen', 'connect_address', 'config_dir', 'data_dir', 'pgpass', 'bin_dir'])
-        _set_section_values('log', ['level', 'format', 'dateformat', 'dir', 'file_size', 'file_num', 'loggers'])
+        _set_section_values('log', ['level', 'format', 'dateformat', 'max_queue_size',
+                                    'dir', 'file_size', 'file_num', 'loggers'])
 
         def _parse_dict(value):
             if not value.strip().startswith('{'):
@@ -262,7 +263,7 @@ class Config(object):
             ret['restapi']['authentication'] = restapi_auth
 
         authentication = {}
-        for user_type in ('replication', 'superuser'):
+        for user_type in ('replication', 'superuser', 'rewind'):
             entry = _get_auth(user_type)
             if entry:
                 authentication[user_type] = entry

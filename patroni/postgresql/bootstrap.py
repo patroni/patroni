@@ -112,7 +112,7 @@ class Bootstrap(object):
 
         if 'recovery_conf' in config:
             self._postgresql.config.write_recovery_conf(config['recovery_conf'])
-        elif not self._keep_existing_recovery_conf:
+        elif not self.keep_existing_recovery_conf:
             self._postgresql.config.remove_recovery_conf()
         return True
 

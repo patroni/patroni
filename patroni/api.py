@@ -75,6 +75,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
             response['watchdog_failed'] = True
         if patroni.ha.is_paused():
             response['pause'] = True
+        qsize = patroni.logger.queue_size
+        if qsize > patroni.logger.NORMAL_LOG_QUEUE_SIZE:
+            response['logger_queue_size'] = qsize
+            lost = patroni.logger.records_lost
+            if lost:
+                response['logger_records_lost'] = lost
         self._write_json_response(status_code, response)
 
     def do_GET(self, write_status_code_only=False):
@@ -102,6 +108,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
             status_code = replica_status_code
         elif 'read-only' in path:
             status_code = 200 if primary_status_code == 200 else replica_status_code
+        elif 'health' in path:
+            status_code = 200 if response.get('state') == 'running' else 503
         elif cluster:  # dcs is available
             is_synchronous = cluster.is_synchronous_mode() and cluster.sync \
                     and cluster.sync.sync_standby == patroni.postgresql.name

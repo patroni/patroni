@@ -100,12 +100,20 @@ class MockHa(object):
         return False
 
 
+class MockLogger(object):
+
+    NORMAL_LOG_QUEUE_SIZE = 2
+    queue_size = 3
+    records_lost = 1
+
+
 class MockPatroni(object):
 
     ha = MockHa()
     config = Mock()
     postgresql = ha.state_handler
     dcs = Mock()
+    logger = MockLogger()
     tags = {}
     version = '0.00'
     noloadbalance = PropertyMock(return_value=False)
@@ -154,6 +162,8 @@ class TestRestApiHandler(unittest.TestCase):
             MockRestApiServer(RestApiHandler, 'GET /replica')
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'master'})):
             MockRestApiServer(RestApiHandler, 'GET /replica')
+        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'state': 'running'})):
+            MockRestApiServer(RestApiHandler, 'GET /health')
         MockRestApiServer(RestApiHandler, 'GET /master')
         MockPatroni.dcs.cluster.sync.sync_standby = MockPostgresql.name
         MockPatroni.dcs.cluster.is_synchronous_mode = Mock(return_value=True)

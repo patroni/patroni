@@ -151,6 +151,7 @@ class Patroni(object):
         except Exception:
             logger.exception('Exception during RestApi.shutdown')
         self.ha.shutdown()
+        self.logger.shutdown()
 
 
 def patroni_main():
@@ -161,7 +162,6 @@ def patroni_main():
         pass
     finally:
         patroni.shutdown()
-        logging.shutdown()
 
 
 def fatal(string, *args):
