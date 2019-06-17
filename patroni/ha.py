@@ -184,8 +184,8 @@ class Ha(object):
             # following two lines are mainly necessary for consul, to avoid creation of master service
             if data['role'] == 'master' and not self.is_leader():
                 data['role'] = 'promoted'
-            if self.is_leader():
-                data['checkpoint_after_promote'] = self._rewind.checkpoint_after_promote()
+            if self.is_leader() and not self._rewind.checkpoint_after_promote():
+                data['checkpoint_after_promote'] = False
             tags = self.get_effective_tags()
             if tags:
                 data['tags'] = tags
