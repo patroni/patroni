@@ -69,7 +69,10 @@ def parse_dcs(dcs):
 
 
 def load_config(path, dcs):
-    logging.debug('Loading configuration from file %s', path)
+    if not (os.path.exists(path) and os.access(path, os.R_OK)):
+        logging.debug('Ignoring configuration file "%s". It does not exists or is not readable.', path)
+    else:
+        logging.debug('Loading configuration from file %s', path)
     config = {}
     old_argv = list(sys.argv)
     try:
