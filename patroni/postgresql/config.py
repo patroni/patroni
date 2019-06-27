@@ -143,10 +143,9 @@ def parse_dsn(value):
 
 def mtime(filename):
     try:
-        st = os.stat(filename)
-        return st.st_mtime
+        return os.stat(filename).st_mtime
     except OSError:
-        return 0
+        return None
 
 
 class ConfigHandler(object):
