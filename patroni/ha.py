@@ -1402,3 +1402,10 @@ class Ha(object):
 
     def get_remote_master(self):
         return self.get_remote_member()
+
+    def run_post_leader_lock(self):
+        """
+        Runs a fencing script after the leader lock is acquired but before the replica is promoted.
+        If the script exits with a non-zero code, promotion does not happen and the leader key is removed from DCS.
+        """
+        return True
