@@ -86,6 +86,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_GET(self, write_status_code_only=False):
         """Default method for processing all GET requests which can not be routed to other methods"""
 
+        time_start = time.time()
+        request_type = 'OPTIONS' if write_status_code_only else 'GET'
+
         path = '/master' if self.path == '/' else self.path
         response = self.get_postgresql_status()
 
@@ -123,6 +126,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
             self.wfile.write('{0} {1} {2}\r\n'.format(self.protocol_version, status_code, message).encode('utf-8'))
         else:
             self._write_status_response(status_code, response)
+
+        time_end = time.time()
+        self.log_message('%s %s %s latency: %s ms', request_type, path,
+                         status_code, (time_end - time_start) * 1000)
 
     def do_OPTIONS(self):
         self.do_GET(write_status_code_only=True)
