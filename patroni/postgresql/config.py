@@ -109,6 +109,10 @@ def parse_dsn(value):
     """
     Very simple equivalent of `psycopg2.extensions.parse_dsn` introduced in 2.7.0.
     We are not using psycopg2 function in order to remain compatible with 2.5.4+.
+    There is one minor difference though, this function removes `dbname` from the result
+    and sets the sslmode` to `prefer` if it is not present in the connection string.
+    This is necessary to simplify comparison of the old and the new values.
+
     >>> r = parse_dsn('postgresql://u%2Fse:pass@:%2f123,[%2Fhost2]/db%2Fsdf?application_name=mya%2Fpp&ssl=true')
     >>> r == {'application_name': 'mya/pp', 'host': ',/host2', 'sslmode': 'require',\
               'password': 'pass', 'port': '/123', 'user': 'u/se'}
@@ -136,6 +140,7 @@ def parse_dsn(value):
             ret['sslmode'] = 'require'
         elif requiressl is not None:
             ret['sslmode'] = 'prefer'
+        ret.setdefault('sslmode', 'prefer')
         if 'dbname' in ret:
             del ret['dbname']
     return ret
@@ -143,10 +148,9 @@ def parse_dsn(value):
 
 def mtime(filename):
     try:
-        st = os.stat(filename)
-        return st.st_mtime
+        return os.stat(filename).st_mtime
     except OSError:
-        return 0
+        return None
 
 
 class ConfigHandler(object):
@@ -418,15 +422,14 @@ class ConfigHandler(object):
             self._recovery_conf_mtime = recovery_conf_mtime
         return primary_conninfo, True
 
-    def check_recovery_conf(self, member):
-        # Name is confusing. In fact it checks the value of primary_conninfo
+    def check_recovery_conf(self, member):  # Name is confusing. In fact it checks the value of primary_conninfo
+        # TODO: recovery.conf could be stale, would be nice to detect that.
         if self._postgresql.major_version >= 120000:
             if not os.path.exists(self._standby_signal):
                 return False
 
             _read_primary_conninfo = self._read_primary_conninfo
         else:
-            # TODO: recovery.conf could be stale, would be nice to detect that.
             if not self.recovery_conf_exists():
                 return False
 
@@ -447,15 +450,13 @@ class ConfigHandler(object):
                 # If we failed to parse non-empty connection string this indicates that config if broken.
                 if not self._primary_conninfo:
                     return False
-                if self._primary_conninfo:
-                    self._primary_conninfo.setdefault('sslmode', 'prefer')
             elif primary_conninfo is not None:
                 self._primary_conninfo = {}
             else:  # primary_conninfo is None, config is probably broken
                 return False
 
         wanted_primary_conninfo = self.primary_conninfo_params(member)
-        # first we will cover corner-cases, when we are replicating from somewhere while shoudn't
+        # first we will cover corner cases, when we are replicating from somewhere while shouldn't
         # or there is no primary_conninfo but we should replicate from some specific node.
         if not wanted_primary_conninfo:
             return not self._primary_conninfo

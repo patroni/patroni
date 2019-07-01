@@ -201,7 +201,7 @@ class Consul(AbstractDCS):
         if config.get('key') and config.get('cert'):
             config['cert'] = (config['cert'], config['key'])
 
-        config_keys = ('host', 'port', 'token', 'scheme', 'cert', 'ca_cert', 'dc')
+        config_keys = ('host', 'port', 'token', 'scheme', 'cert', 'ca_cert', 'dc', 'consistency')
         kwargs = {p: config.get(p) for p in config_keys if config.get(p)}
 
         verify = config.get('verify')
