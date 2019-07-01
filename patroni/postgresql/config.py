@@ -6,17 +6,151 @@ import socket
 import stat
 
 from requests.structures import CaseInsensitiveDict
+from six.moves.urllib_parse import urlparse, parse_qsl, unquote
 
 from ..utils import compare_values, parse_bool, parse_int, split_host_port
 
 logger = logging.getLogger(__name__)
 
 SYNC_STANDBY_NAME_RE = re.compile(r'^[A-Za-z_][A-Za-z_0-9\$]*$')
+PARAMETER_RE = re.compile(r'([a-z_]+)\s*=\s*')
 
 
 def quote_ident(value):
     """Very simplified version of quote_ident"""
     return value if SYNC_STANDBY_NAME_RE.match(value) else '"' + value + '"'
+
+
+def conninfo_uri_parse(dsn):
+    ret = {}
+    r = urlparse(dsn)
+    if r.username:
+        ret['user'] = r.username
+    if r.password:
+        ret['password'] = r.password
+    if r.path[1:]:
+        ret['dbname'] = r.path[1:]
+    hosts = []
+    ports = []
+    for netloc in r.netloc.split('@')[-1].split(','):
+        host = port = None
+        if '[' in netloc and ']' in netloc:
+            host = netloc.split(']')[0][1:]
+        tmp = netloc.split(':', 1)
+        if host is None:
+            host = tmp[0]
+        if len(tmp) == 2:
+            host, port = tmp
+        if host is not None:
+            hosts.append(host)
+        if port is not None:
+            ports.append(port)
+    if hosts:
+        ret['host'] = ','.join(hosts)
+    if ports:
+        ret['port'] = ','.join(ports)
+    ret = {name: unquote(value) for name, value in ret.items()}
+    ret.update({name: value for name, value in parse_qsl(r.query)})
+    if ret.get('ssl') == 'true':
+        del ret['ssl']
+        ret['sslmode'] = 'require'
+    return ret
+
+
+def read_param_value(value, is_quoted=False):
+    length = len(value)
+    ret = ''
+    i = 0
+    while i < length:
+        if is_quoted:
+            if value[i] == "'":
+                return ret, i
+        elif value[i].isspace():
+            break
+        if value[i] == '\\':
+            i += 1
+            if i >= length:
+                break
+        ret += value[i]
+        i += 1
+    return (None, None) if is_quoted else (ret, i)
+
+
+def conninfo_parse(dsn):
+    ret = {}
+    length = len(dsn)
+    i = 0
+    while i < length:
+        if dsn[i].isspace():
+            i += 1
+            continue
+
+        param_match = PARAMETER_RE.match(dsn[i:])
+        if not param_match:
+            return
+
+        param = param_match.group(1)
+        i += param_match.end()
+
+        if i >= length:
+            return
+
+        is_quoted = dsn[i] == "'"
+        i += int(is_quoted)
+        value, end = read_param_value(dsn[i:], is_quoted)
+        if value is None:
+            return
+        i += end + int(is_quoted)
+        ret[param] = value
+    return ret
+
+
+def parse_dsn(value):
+    """
+    Very simple equivalent of `psycopg2.extensions.parse_dsn` introduced in 2.7.0.
+    We are not using psycopg2 function in order to remain compatible with 2.5.4+.
+    There is one minor difference though, this function removes `dbname` from the result
+    and sets the sslmode` to `prefer` if it is not present in the connection string.
+    This is necessary to simplify comparison of the old and the new values.
+
+    >>> r = parse_dsn('postgresql://u%2Fse:pass@:%2f123,[%2Fhost2]/db%2Fsdf?application_name=mya%2Fpp&ssl=true')
+    >>> r == {'application_name': 'mya/pp', 'host': ',/host2', 'sslmode': 'require',\
+              'password': 'pass', 'port': '/123', 'user': 'u/se'}
+    True
+    >>> r = parse_dsn(" host = 'host' dbname = db\\ name requiressl=1 ")
+    >>> r == {'host': 'host', 'sslmode': 'require'}
+    True
+    >>> parse_dsn('requiressl = 0\\\\') == {'sslmode': 'prefer'}
+    True
+    >>> parse_dsn("host=a foo = '") is None
+    True
+    >>> parse_dsn("host=a foo = ") is None
+    True
+    >>> parse_dsn("1") is None
+    True
+    """
+    if value.startswith('postgres://') or value.startswith('postgresql://'):
+        ret = conninfo_uri_parse(value)
+    else:
+        ret = conninfo_parse(value)
+
+    if ret:
+        requiressl = ret.pop('requiressl', None)
+        if requiressl == '1':
+            ret['sslmode'] = 'require'
+        elif requiressl is not None:
+            ret['sslmode'] = 'prefer'
+        ret.setdefault('sslmode', 'prefer')
+        if 'dbname' in ret:
+            del ret['dbname']
+    return ret
+
+
+def mtime(filename):
+    try:
+        return os.stat(filename).st_mtime
+    except OSError:
+        return None
 
 
 class ConfigHandler(object):
@@ -64,7 +198,9 @@ class ConfigHandler(object):
         self._pg_hba_conf = os.path.join(self._config_dir, 'pg_hba.conf')
         self._pg_ident_conf = os.path.join(self._config_dir, 'pg_ident.conf')
         self._recovery_conf = os.path.join(postgresql.data_dir, 'recovery.conf')
+        self._recovery_conf_mtime = None
         self._synchronous_standby_names = None
+        self._primary_conninfo = None
         self._config = {}
         self.reload_config(config)
 
@@ -186,30 +322,80 @@ class ConfigHandler(object):
                     f.write('{0}\n'.format(line))
             return True
 
-    def primary_conninfo(self, member):
+    def primary_conninfo_params(self, member):
         name = self._postgresql.name
         if not (member and member.conn_url) or member.name == name:
             return None
-        r = member.conn_kwargs(self.replication)
-        r.update(application_name=name, sslmode='prefer', sslcompression='1', krbsrvname=self._krbsrvname)
-        keywords = 'user password host port sslmode sslcompression application_name krbsrvname'.split()
+        ret = member.conn_kwargs(self.replication)
+        ret.update(application_name=name, sslmode='prefer')
+        if self._krbsrvname:
+            ret['krbsrvname'] = self._krbsrvname
+        if 'database' in ret:
+            del ret['database']
+        return ret
+
+    def primary_conninfo(self, member):
+        r = self.primary_conninfo_params(member)
+        if not r:
+            return None
+        keywords = 'user password host port sslmode application_name krbsrvname'.split()
         return ' '.join('{0}={{{0}}}'.format(kw) for kw in keywords if r.get(kw)).format(**r)
 
     def recovery_conf_exists(self):
         return os.path.exists(self._recovery_conf)
 
-    def check_recovery_conf(self, member):
+    def _read_primary_conninfo(self):
         # TODO: recovery.conf could be stale, would be nice to detect that.
-        primary_conninfo = self.primary_conninfo(member)
+        recovery_conf_mtime = mtime(self._recovery_conf)
+        if recovery_conf_mtime == self._recovery_conf_mtime:
+            return None, False
 
+        primary_conninfo = ''
+        with open(self._recovery_conf, 'r') as f:
+            for line in f:
+                match = PARAMETER_RE.match(line)
+                if match and match.group(1) == 'primary_conninfo':
+                    i = match.end()
+                    if i < len(line):
+                        is_quoted = line[i] == "'"
+                        i += int(is_quoted)
+                        primary_conninfo, _ = read_param_value(line[i:], is_quoted)
+            self._recovery_conf_mtime = recovery_conf_mtime
+        return primary_conninfo, True
+
+    def check_recovery_conf(self, member):
+        # Name is confusing. In fact it checks the value of primary_conninfo
         if not self.recovery_conf_exists():
             return False
 
-        with open(self._recovery_conf, 'r') as f:
-            for line in f:
-                if line.startswith('primary_conninfo'):
-                    return primary_conninfo and (primary_conninfo in line)
-        return not primary_conninfo
+        primary_conninfo, updated = self._read_primary_conninfo()
+        # updated indicates that mtime of recovery.conf was changed and the primary_conninfo value was read from file
+        if updated:
+            # primary_conninfo is one of:
+            # - None (exception or unparsable config)
+            # - '' (not in config)
+            # - or the actual dsn value
+            self._primary_conninfo = primary_conninfo
+            if primary_conninfo:
+                # We will cache parsed value until the next config change.
+                self._primary_conninfo = parse_dsn(primary_conninfo)
+                # If we failed to parse non-empty connection string this indicates that config if broken.
+                if not self._primary_conninfo:
+                    return False
+            elif primary_conninfo is not None:
+                self._primary_conninfo = {}
+            else:  # primary_conninfo is None, config is probably broken
+                return False
+
+        wanted_primary_conninfo = self.primary_conninfo_params(member)
+        # first we will cover corner cases, when we are replicating from somewhere while shouldn't
+        # or there is no primary_conninfo but we should replicate from some specific node.
+        if not wanted_primary_conninfo:
+            return not self._primary_conninfo
+        elif not self._primary_conninfo:
+            return False
+
+        return all(self._primary_conninfo.get(p) == str(v) for p, v in wanted_primary_conninfo.items())
 
     def write_recovery_conf(self, recovery_params):
         with open(self._recovery_conf, 'w') as f:
