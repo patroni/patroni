@@ -25,6 +25,7 @@ import yaml
 
 from click import ClickException
 from contextlib import contextmanager
+from distutils.spawn import find_executable
 from patroni.config import Config
 from patroni.dcs import get_dcs as _get_dcs
 from patroni.exceptions import PatroniException
@@ -68,7 +69,10 @@ def parse_dcs(dcs):
 
 
 def load_config(path, dcs):
-    logging.debug('Loading configuration from file %s', path)
+    if not (os.path.exists(path) and os.access(path, os.R_OK)):
+        logging.debug('Ignoring configuration file "%s". It does not exists or is not readable.', path)
+    else:
+        logging.debug('Loading configuration from file %s', path)
     config = {}
     old_argv = list(sys.argv)
     try:
@@ -1088,9 +1092,16 @@ def invoke_editor(before_editing, cluster_name):
     :param before_editing: human representation before editing
     :returns tuple of human readable and parsed datastructure after changes
     """
-    editor_cmd = os.environ.get('EDITOR')
+    if 'EDITOR' in os.environ:
+        editor_cmd = os.environ.get('EDITOR')
+    else:
+        for editor in ('editor', 'vi'):
+            editor_cmd = find_executable(editor)
+            if editor_cmd:
+                logging.debug('Setting fallback editor_cmd=%s', editor)
+                break
     if not editor_cmd:
-        raise PatroniCtlException('EDITOR environment variable is not set')
+        raise PatroniCtlException('EDITOR environment variable is not set. editor or vi are not available')
 
     with temporary_file(contents=before_editing.encode('utf-8'),
                         suffix='.yaml',
