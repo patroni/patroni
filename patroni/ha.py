@@ -874,7 +874,7 @@ class Ha(object):
             if self.acquire_lock():
 
                 self._pre_promote_subprocess = CancellableSubprocess()
-                if not self.call_pre_promote():
+                if not self.call_pre_promote(self.patroni.config):
                     return self.follow('demoted self after obtaining lock but failing pre_promote script',
                                    'following new leader after failing pre_promote script')
 
@@ -1414,12 +1414,12 @@ class Ha(object):
     def get_remote_master(self):
         return self.get_remote_member()
 
-    def call_pre_promote(self):
+    def call_pre_promote(self, config):
         """
         Runs a fencing script after the leader lock is acquired but before the replica is promoted.
         If the script exits with a non-zero code, promotion does not happen and the leader key is removed from DCS.
         """
-        cmd = self.patroni.config.get('pre_promote')
+        cmd = config.get('pre_promote')
         if cmd:
 
             try:
