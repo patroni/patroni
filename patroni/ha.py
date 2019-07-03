@@ -7,6 +7,8 @@ import requests
 import sys
 import time
 import uuid
+import subprocess
+import shlex
 
 from collections import namedtuple
 from multiprocessing.pool import ThreadPool
@@ -866,7 +868,7 @@ class Ha(object):
         """Cluster has no leader key"""
 
         if self.is_healthiest_node():
-            if self.acquire_lock():
+            if self.acquire_lock() and self.run_pre_promote():
                 failover = self.cluster.failover
                 if failover:
                     if self.is_paused() and failover.leader and failover.candidate:
@@ -878,9 +880,9 @@ class Ha(object):
                 self.load_cluster_from_dcs()
 
                 if self.is_standby_cluster():
-                    # standby leader disappeared, and this is a healthiest
+                    # standby leader disappeared, and this is the healthiest
                     # replica, so it should become a new standby leader.
-                    # This imply that we need to start following a remote master
+                    # This implies we need to start following a remote master
                     msg = 'promoted self to a standby leader by acquiring session lock'
                     return self.enforce_follow_remote_master(msg)
                 else:
@@ -1408,4 +1410,17 @@ class Ha(object):
         Runs a fencing script after the leader lock is acquired but before the replica is promoted.
         If the script exits with a non-zero code, promotion does not happen and the leader key is removed from DCS.
         """
+        if 'pre_promote' in self.patroni.config:
+            cmd = self.patroni.config['pre_promote']
+
+            try:
+               ret = subprocess.call(shlex.split(cmd))
+            except OSError:
+                logger.error('pre_promote script %s failed: ', cmd)
+                return False
+
+            if ret != 0:
+                logger.error('pre_promote script %s returned non-zero code %d', cmd, ret)
+                return False
+
         return True
