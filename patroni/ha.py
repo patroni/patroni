@@ -20,6 +20,8 @@ from patroni.postgresql.rewind import Rewind
 from patroni.utils import polling_loop, tzutc
 from patroni.dcs import RemoteMember
 from threading import RLock
+from patroni.postgresql.cancellable import CancellableSubprocess
+
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +80,7 @@ class Ha(object):
         self._start_timeout = None
         self._async_executor = AsyncExecutor(self.state_handler.cancellable, self.wakeup)
         self.watchdog = patroni.watchdog
+        self._pre_promote_subprocess = None
 
         # Each member publishes various pieces of information to the DCS using touch_member. This lock protects
         # the state and publishing procedure to have consistent ordering and avoid publishing stale values.
@@ -868,7 +871,13 @@ class Ha(object):
         """Cluster has no leader key"""
 
         if self.is_healthiest_node():
-            if self.acquire_lock() and self.run_pre_promote():
+            if self.acquire_lock():
+
+                self._pre_promote_subprocess = CancellableSubprocess()
+                if not self.call_pre_promote():
+                    return self.follow('demoted self after obtaining lock but failing pre_promote script',
+                                   'following new leader after failing pre_promote script')
+
                 failover = self.cluster.failover
                 if failover:
                     if self.is_paused() and failover.leader and failover.candidate:
@@ -1405,16 +1414,16 @@ class Ha(object):
     def get_remote_master(self):
         return self.get_remote_member()
 
-    def run_pre_promote(self):
+    def call_pre_promote(self):
         """
         Runs a fencing script after the leader lock is acquired but before the replica is promoted.
         If the script exits with a non-zero code, promotion does not happen and the leader key is removed from DCS.
         """
-        if 'pre_promote' in self.patroni.config:
-            cmd = self.patroni.config['pre_promote']
+        cmd = self.patroni.config.get('pre_promote')
+        if cmd:
 
             try:
-               ret = subprocess.call(shlex.split(cmd))
+               ret = self._pre_promote_subprocess.call(shlex.split(cmd))
             except OSError:
                 logger.error('pre_promote script %s failed: ', cmd)
                 return False
