@@ -873,7 +873,6 @@ class Ha(object):
         if self.is_healthiest_node():
             if self.acquire_lock():
 
-                self._pre_promote_subprocess = CancellableSubprocess()
                 if not self.call_pre_promote(self.patroni.config):
                     return self.follow('demoted self after obtaining lock but failing pre_promote script',
                                    'following new leader after failing pre_promote script')
@@ -1174,6 +1173,9 @@ class Ha(object):
         if not self.watchdog.activate():
             logger.error('Cancelling bootstrap because watchdog activation failed')
             self.cancel_initialization()
+        if not self.call_pre_promote(self.patroni.config):
+            logger.error('Cancelling bootstrap because pre_promote script failed')
+            self.cancel_initialization()
         self.state_handler.slots_handler.sync_replication_slots(self.cluster)
         self.dcs.take_leader()
         self.set_is_leader(True)
@@ -1421,7 +1423,7 @@ class Ha(object):
         """
         cmd = config.get('pre_promote')
         if cmd:
-
+            self._pre_promote_subprocess = CancellableSubprocess()
             try:
                ret = self._pre_promote_subprocess.call(shlex.split(cmd))
             except OSError:
