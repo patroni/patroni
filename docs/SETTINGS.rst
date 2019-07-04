@@ -9,6 +9,7 @@ Global/Universal
 -  **name**: the name of the host. Must be unique for the cluster.
 -  **namespace**: path within the configuration store where Patroni will keep information about the cluster. Default value: "/service"
 -  **scope**: cluster name
+-  **pre_promote**: a fencing script that executes during bootstrap or failover after acquiring the leader lock but before promoting the replica. If the script exits with a non-zero code, Patroni does not promote the replica and removes the leader key from DCS.
 
 Log
 ---
@@ -71,7 +72,6 @@ Bootstrap configuration
             -  **- createrole**
             -  **- createdb**
 -  **post\_bootstrap** or **post\_init**: An additional script that will be executed after initializing the cluster. The script receives a connection string URL (with the cluster superuser as a user name). The PGPASSFILE variable is set to the location of pgpass file.
--  **pre_promote**: an additional fencing script that will be executed after acquiring the leader lock but before promoting the replica. If the script exits with a non-zero code, Patroni does not promote the replica and removes the leader key from DCS.
 
 .. _consul_settings:
 
