@@ -136,7 +136,7 @@ class Member(namedtuple('Member', 'index,name,session,data')):
         if conn_kwargs:
             conn_url = 'postgresql://{host}:{port}'.format(
                 host=conn_kwargs.get('host'),
-                port=conn_kwargs.get('port'),
+                port=conn_kwargs.get('port', 5432),
             )
             self.data['conn_url'] = conn_url
             return conn_url
@@ -238,6 +238,19 @@ class Leader(namedtuple('Leader', 'index,session,member')):
     @property
     def timeline(self):
         return self.member.data.get('timeline')
+
+    @property
+    def checkpoint_after_promote(self):
+        """
+        >>> Leader(1, '', Member.from_node(1, '', '', '{"version":"z"}')).checkpoint_after_promote
+        """
+        version = self.member.data.get('version')
+        if version:
+            try:
+                if tuple(map(int, version.split('.'))) >= (1, 5, 6):
+                    return self.member.data['role'] == 'master' and 'checkpoint_after_promote' not in self.member.data
+            except Exception:
+                logger.debug('Failed to parse Patroni version %s', version)
 
 
 class Failover(namedtuple('Failover', 'index,leader,candidate,scheduled_at')):

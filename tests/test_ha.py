@@ -1,7 +1,6 @@
 import datetime
 import etcd
 import os
-import unittest
 import sys
 
 from mock import Mock, MagicMock, PropertyMock, patch
@@ -11,10 +10,16 @@ from patroni.dcs.etcd import Client
 from patroni.exceptions import DCSError, PostgresConnectionException, PatroniException
 from patroni.ha import Ha, _MemberStatus
 from patroni.postgresql import Postgresql
-from patroni.watchdog import Watchdog
+from patroni.postgresql.bootstrap import Bootstrap
+from patroni.postgresql.cancellable import CancellableSubprocess
+from patroni.postgresql.config import ConfigHandler
+from patroni.postgresql.rewind import Rewind
+from patroni.postgresql.slots import SlotsHandler
 from patroni.utils import tzutc
-from test_etcd import socket_getaddrinfo, etcd_read, etcd_write, requests_get
-from test_postgresql import psycopg2_connect, MockPostmaster
+from patroni.watchdog import Watchdog
+
+from . import PostgresInit, MockPostmaster, psycopg2_connect, requests_get
+from .test_etcd import socket_getaddrinfo, etcd_read, etcd_write
 
 SYSID = '12345678901'
 
@@ -119,6 +124,7 @@ zookeeper:
 
         self.config = Config()
         self.config.set_dynamic_configuration({'maximum_lag_on_failover': 5})
+        self.version = '1.5.7'
         self.postgresql = p
         self.dcs = d
         self.api = Mock()
@@ -144,16 +150,16 @@ def run_async(self, func, args=()):
 @patch.object(Postgresql, 'call_nowait', Mock(return_value=True))
 @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=False))
 @patch.object(Postgresql, 'controldata', Mock(return_value={'Database system identifier': SYSID}))
-@patch.object(Postgresql, 'sync_replication_slots', Mock())
-@patch.object(Postgresql, 'write_pg_hba', Mock())
+@patch.object(SlotsHandler, 'sync_replication_slots', Mock())
+@patch.object(ConfigHandler, 'append_pg_hba', Mock())
 @patch.object(Postgresql, 'write_pgpass', Mock(return_value={}))
-@patch.object(Postgresql, 'write_recovery_conf', Mock())
+@patch.object(ConfigHandler, 'write_recovery_conf', Mock())
 @patch.object(Postgresql, 'query', Mock())
 @patch.object(Postgresql, 'checkpoint', Mock())
-@patch.object(Postgresql, 'cancellable_subprocess_call', Mock(return_value=0))
-@patch.object(Postgresql, '_get_local_timeline_lsn_from_replication_connection', Mock(return_value=[2, 10]))
+@patch.object(CancellableSubprocess, 'call', Mock(return_value=0))
+@patch.object(Postgresql, 'get_local_timeline_lsn_from_replication_connection', Mock(return_value=[2, 10]))
 @patch.object(Postgresql, 'get_master_timeline', Mock(return_value=2))
-@patch.object(Postgresql, 'restore_configuration_files', Mock())
+@patch.object(ConfigHandler, 'restore_configuration_files', Mock())
 @patch.object(etcd.Client, 'write', etcd_write)
 @patch.object(etcd.Client, 'read', etcd_read)
 @patch.object(etcd.Client, 'delete', Mock(side_effect=etcd.EtcdException))
@@ -162,21 +168,15 @@ def run_async(self, func, args=()):
 @patch('patroni.async_executor.AsyncExecutor.run_async', run_async)
 @patch('subprocess.call', Mock(return_value=0))
 @patch('time.sleep', Mock())
-class TestHa(unittest.TestCase):
+class TestHa(PostgresInit):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
-    @patch('psycopg2.connect', psycopg2_connect)
     @patch('patroni.dcs.dcs_modules', Mock(return_value=['patroni.dcs.foo', 'patroni.dcs.etcd']))
     @patch.object(etcd.Client, 'read', etcd_read)
     def setUp(self):
+        super(TestHa, self).setUp()
         with patch.object(Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
-            self.p = Postgresql({'name': 'postgresql0', 'scope': 'dummy', 'listen': '127.0.0.1:5432',
-                                 'data_dir': 'data/postgresql0', 'retry_timeout': 10,
-                                 'authentication': {'superuser': {'username': 'foo', 'password': 'bar'},
-                                                    'replication': {'username': '', 'password': ''}},
-                                 'parameters': {'wal_level': 'hot_standby', 'max_replication_slots': 5, 'foo': 'bar',
-                                                'hot_standby': 'on', 'max_wal_senders': 5, 'wal_keep_segments': 8}})
             self.p.set_state('running')
             self.p.set_role('replica')
             self.p.postmaster_start_time = MagicMock(return_value=str(postmaster_start_time))
@@ -205,17 +205,23 @@ class TestHa(unittest.TestCase):
         self.assertEqual(self.ha.run_cycle(), 'starting as a secondary')
 
     @patch('patroni.dcs.etcd.Etcd.initialize', return_value=True)
-    def test_start_as_standby_leader(self, initialize):
+    def test_bootstrap_as_standby_leader(self, initialize):
         self.p.data_directory_empty = true
         self.ha.cluster = get_cluster_not_initialized_without_leader(cluster_config=ClusterConfig(0, {}, 0))
         self.ha.cluster.is_unlocked = true
         self.ha.patroni.config._dynamic_configuration = {"standby_cluster": {"port": 5432}}
         self.assertEqual(self.ha.run_cycle(), 'trying to bootstrap a new standby leader')
 
+    def test_bootstrap_waiting_for_standby_leader(self):
+        self.p.data_directory_empty = true
+        self.ha.cluster = get_cluster_initialized_without_leader()
+        self.ha.cluster.config.data.update({'standby_cluster': {'port': 5432}})
+        self.assertEqual(self.ha.run_cycle(), 'waiting for standby_leader to bootstrap')
+
     @patch.object(Cluster, 'get_clone_member',
                   Mock(return_value=Member(0, 'test', 1, {'api_url': 'http://127.0.0.1:8011/patroni',
                                                           'conn_url': 'postgres://127.0.0.1:5432/postgres'})))
-    @patch.object(Postgresql, 'create_replica', Mock(return_value=0))
+    @patch.object(Bootstrap, 'create_replica', Mock(return_value=0))
     def test_start_as_cascade_replica_in_standby_cluster(self):
         self.p.data_directory_empty = true
         self.ha.cluster = get_standby_cluster_initialized_with_only_leader()
@@ -244,15 +250,15 @@ class TestHa(unittest.TestCase):
         self.p.controldata = lambda: {'Database cluster state': 'in production', 'Database system identifier': SYSID}
         self.assertEqual(self.ha.run_cycle(), 'doing crash recovery in a single user mode')
 
-    @patch.object(Postgresql, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
-    @patch.object(Postgresql, 'can_rewind', PropertyMock(return_value=True))
+    @patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
+    @patch.object(Rewind, 'can_rewind', PropertyMock(return_value=True))
     def test_recover_with_rewind(self):
         self.p.is_running = false
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.assertEqual(self.ha.run_cycle(), 'running pg_rewind from leader')
 
-    @patch.object(Postgresql, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
-    @patch.object(Postgresql, 'create_replica', Mock(return_value=1))
+    @patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
+    @patch.object(Bootstrap, 'create_replica', Mock(return_value=1))
     def test_recover_with_reinitialize(self):
         self.p.is_running = false
         self.ha.cluster = get_cluster_initialized_with_leader()
@@ -356,11 +362,11 @@ class TestHa(unittest.TestCase):
         self.p.is_leader = false
         self.assertEqual(self.ha.run_cycle(), 'PAUSE: no action')
 
-    @patch.object(Postgresql, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
-    @patch.object(Postgresql, 'can_rewind', PropertyMock(return_value=True))
+    @patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
+    @patch.object(Rewind, 'can_rewind', PropertyMock(return_value=True))
     def test_follow_triggers_rewind(self):
         self.p.is_leader = false
-        self.p.trigger_check_diverged_lsn()
+        self.ha._rewind.trigger_check_diverged_lsn()
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.assertEqual(self.ha.run_cycle(), 'running pg_rewind from leader')
 
@@ -471,7 +477,7 @@ class TestHa(unittest.TestCase):
         f = Failover(0, self.p.name, '', None)
         self.ha.cluster = get_cluster_initialized_with_leader(f)
         self.assertEqual(self.ha.run_cycle(), 'manual failover: demoting myself')
-        self.p.rewind_or_reinitialize_needed_and_possible = true
+        self.ha._rewind.rewind_or_reinitialize_needed_and_possible = true
         self.assertEqual(self.ha.run_cycle(), 'manual failover: demoting myself')
         self.ha.fetch_node_status = get_node_status(nofailover=True)
         self.assertEqual(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
@@ -581,6 +587,7 @@ class TestHa(unittest.TestCase):
 
     @patch('requests.get', requests_get)
     def test__is_healthiest_node(self):
+        self.ha.cluster = get_cluster_initialized_without_leader(sync=('postgresql1', self.p.name))
         self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         self.p.is_leader = false
         self.ha.fetch_node_status = get_node_status()  # accessible, in_recovery
@@ -589,6 +596,9 @@ class TestHa(unittest.TestCase):
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         self.ha.fetch_node_status = get_node_status(wal_position=11)  # accessible, in_recovery, wal position ahead
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
+        # in synchronous_mode consider itself healthy if the former leader is accessible in read-only and ahead of us
+        with patch.object(Ha, 'is_synchronous_mode', Mock(return_value=True)):
+            self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         with patch('patroni.postgresql.Postgresql.timeline_wal_position', return_value=(1, 1)):
             self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         with patch('patroni.postgresql.Postgresql.replica_cached_timeline', return_value=1):
@@ -653,7 +663,7 @@ class TestHa(unittest.TestCase):
 
     def test_restart_matches(self):
         self.p._role = 'replica'
-        self.p.server_version = 90500
+        self.p._connection.server_version = 90500
         self.p._pending_restart = True
         self.assertFalse(self.ha.restart_matches("master", "9.5.0", True))
         self.assertFalse(self.ha.restart_matches("replica", "9.4.3", True))
@@ -674,7 +684,7 @@ class TestHa(unittest.TestCase):
         self.p.is_leader = false
         self.p.name = 'leader'
         self.ha.cluster = get_standby_cluster_initialized_with_only_leader()
-        self.p.check_recovery_conf = true
+        self.p.config.check_recovery_conf = true
         self.assertEqual(self.ha.run_cycle(), 'promoted self to a standby leader because i had the session lock')
         self.assertEqual(self.ha.run_cycle(), 'no action.  i am the standby leader with the lock')
 
@@ -696,8 +706,8 @@ class TestHa(unittest.TestCase):
         self.p._sysid = True
         self.assertEqual(self.ha.run_cycle(), 'promoted self to a standby leader by acquiring session lock')
 
-    @patch.object(Postgresql, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
-    @patch.object(Postgresql, 'can_rewind', PropertyMock(return_value=True))
+    @patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
+    @patch.object(Rewind, 'can_rewind', PropertyMock(return_value=True))
     def test_process_unhealthy_standby_cluster_as_cascade_replica(self):
         self.p.is_leader = false
         self.p.name = 'replica'
@@ -808,7 +818,7 @@ class TestHa(unittest.TestCase):
 
     def test_process_sync_replication(self):
         self.ha.has_lock = true
-        mock_set_sync = self.p.set_synchronous_standby = Mock()
+        mock_set_sync = self.p.config.set_synchronous_standby = Mock()
         self.p.name = 'leader'
 
         # Test sync key removed when sync mode disabled
@@ -885,7 +895,7 @@ class TestHa(unittest.TestCase):
     def test_sync_replication_become_master(self):
         self.ha.is_synchronous_mode = true
 
-        mock_set_sync = self.p.set_synchronous_standby = Mock()
+        mock_set_sync = self.p.config.set_synchronous_standby = Mock()
         self.p.is_leader = false
         self.p.set_role('replica')
         self.ha.has_lock = true

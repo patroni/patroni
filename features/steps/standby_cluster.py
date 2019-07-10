@@ -28,7 +28,10 @@ def start_patroni(context, name, cluster_name):
     return context.pctl.start(name, custom_config={
         "scope": cluster_name,
         "postgresql": {
-            "callbacks": {c: callback + name for c in ('on_start', 'on_stop', 'on_restart', 'on_role_change')}
+            "callbacks": {c: callback + name for c in ('on_start', 'on_stop', 'on_restart', 'on_role_change')},
+            "backup_restore": {
+                "command": "features/backup_restore.sh --sourcedir=" + os.path.join(context.pctl.patroni_path,
+                                                                                    "data/basebackup")}
         }
     })
 
@@ -49,6 +52,7 @@ def start_patroni_standby_cluster(context, name, cluster_name, name2):
                     "host": "localhost",
                     "port": port,
                     "primary_slot_name": "pm_1",
+                    "create_replica_methods": ["backup_restore", "basebackup"]
                 }
             }
         },

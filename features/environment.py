@@ -298,9 +298,9 @@ class PatroniController(AbstractController):
     def backup_source(self):
         return 'postgres://{username}:{password}@{host}:{port}/{database}'.format(**self._replication)
 
-    def backup(self, dest='basebackup'):
+    def backup(self, dest='data/basebackup'):
         subprocess.call([PatroniPoolController.BACKUP_SCRIPT, '--walmethod=none',
-                         '--datadir=' + os.path.join(self._output_dir, dest),
+                         '--datadir=' + os.path.join(self._work_directory, dest),
                          '--dbname=' + self.backup_source])
 
 
@@ -637,7 +637,7 @@ class PatroniPoolController(object):
                 'parameters': {
                     'archive_mode': 'on',
                     'archive_command': 'mkdir -p {0} && test ! -f {0}/%f && cp %p {0}/%f'.format(
-                            os.path.join(self._output_dir, 'wal_archive'))
+                            os.path.join(self.patroni_path, 'data/wal_archive'))
                 },
                 'authentication': {
                     'superuser': {'password': 'zalando1'},
@@ -653,11 +653,12 @@ class PatroniPoolController(object):
             'bootstrap': {
                 'method': 'backup_restore',
                 'backup_restore': {
-                    'command': 'features/backup_restore.sh --sourcedir=' + os.path.join(self._output_dir, 'basebackup'),
+                    'command': 'features/backup_restore.sh --sourcedir=' + os.path.join(self.patroni_path,
+                                                                                        'data/basebackup'),
                     'recovery_conf': {
                         'recovery_target_action': 'promote',
                         'recovery_target_timeline': 'latest',
-                        'restore_command': 'cp {0}/wal_archive/%f %p'.format(self._output_dir)
+                        'restore_command': 'cp {0}/data/wal_archive/%f %p'.format(self.patroni_path)
                     }
                 }
             },

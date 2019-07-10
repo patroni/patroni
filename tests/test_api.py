@@ -10,7 +10,7 @@ from patroni.ha import _MemberStatus
 from patroni.utils import tzutc
 from six import BytesIO as IO
 from six.moves import BaseHTTPServer
-from test_postgresql import psycopg2_connect, MockCursor
+from . import psycopg2_connect, MockCursor
 
 
 future_restart_time = datetime.datetime.now(tzutc) + datetime.timedelta(days=5)
@@ -60,7 +60,7 @@ class MockHa(object):
         return 'reinitialize'
 
     @staticmethod
-    def restart():
+    def restart(*args, **kwargs):
         return (True, '')
 
     @staticmethod
@@ -100,12 +100,20 @@ class MockHa(object):
         return False
 
 
+class MockLogger(object):
+
+    NORMAL_LOG_QUEUE_SIZE = 2
+    queue_size = 3
+    records_lost = 1
+
+
 class MockPatroni(object):
 
     ha = MockHa()
     config = Mock()
     postgresql = ha.state_handler
     dcs = Mock()
+    logger = MockLogger()
     tags = {}
     version = '0.00'
     noloadbalance = PropertyMock(return_value=False)
@@ -134,7 +142,6 @@ class MockRestApiServer(RestApiServer):
     def __init__(self, Handler, request, config=None):
         self.socket = 0
         self.serve_forever = Mock()
-        BaseHTTPServer.HTTPServer.__init__ = Mock()
         MockRestApiServer._BaseServer__is_shut_down = Mock()
         MockRestApiServer._BaseServer__shutdown_request = True
         config = config or {'listen': '127.0.0.1:8008', 'auth': 'test:test', 'certfile': 'dumb'}
@@ -142,7 +149,9 @@ class MockRestApiServer(RestApiServer):
         Handler(MockRequest(request), ('0.0.0.0', 8080), self)
 
 
-@patch('ssl.wrap_socket', Mock(return_value=0))
+@patch('ssl.SSLContext.load_cert_chain', Mock())
+@patch('ssl.SSLContext.wrap_socket', Mock(return_value=0))
+@patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
 class TestRestApiHandler(unittest.TestCase):
 
     _authorization = '\nAuthorization: Basic dGVzdDp0ZXN0'
@@ -153,6 +162,8 @@ class TestRestApiHandler(unittest.TestCase):
             MockRestApiServer(RestApiHandler, 'GET /replica')
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'master'})):
             MockRestApiServer(RestApiHandler, 'GET /replica')
+        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'state': 'running'})):
+            MockRestApiServer(RestApiHandler, 'GET /health')
         MockRestApiServer(RestApiHandler, 'GET /master')
         MockPatroni.dcs.cluster.sync.sync_standby = MockPostgresql.name
         MockPatroni.dcs.cluster.is_synchronous_mode = Mock(return_value=True)
@@ -391,7 +402,9 @@ class TestRestApiHandler(unittest.TestCase):
         MockRestApiServer(RestApiHandler, post + '37\n\n{"candidate":"2","scheduled_at": "1"}')
 
 
-@patch('ssl.wrap_socket', Mock(return_value=0))
+@patch('ssl.SSLContext.load_cert_chain', Mock())
+@patch('ssl.SSLContext.wrap_socket', Mock(return_value=0))
+@patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
 class TestRestApiServer(unittest.TestCase):
 
     def test_reload_config(self):
