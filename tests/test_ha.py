@@ -187,7 +187,6 @@ class TestHa(PostgresInit):
             self.ha.old_cluster = self.e.get_cluster()
             self.ha.cluster = get_cluster_initialized_without_leader()
             self.ha.load_cluster_from_dcs = Mock()
-            self.ha._pre_promote_subprocess = Mock()
 
     def test_update_lock(self):
         self.p.last_operation = Mock(side_effect=PostgresConnectionException(''))
