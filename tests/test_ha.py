@@ -1051,12 +1051,3 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_initialized_without_leader(leader=True, cluster_config=config)
         self.ha.has_lock = true
         self.assertEqual(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
-
-    @patch.object(CancellableSubprocess, 'call')
-    def test_call_pre_promote(self, mock_cancellable_subprocess_call):
-
-        mock_cancellable_subprocess_call.return_value = 1
-        self.assertFalse(self.ha.call_pre_promote({'pre_promote': '/bin/false'}))
-
-        mock_cancellable_subprocess_call.side_effect = OSError
-        self.assertFalse(self.ha.call_pre_promote({'pre_promote': '/bin/true'}))

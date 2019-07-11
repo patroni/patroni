@@ -20,7 +20,6 @@ from patroni.postgresql.rewind import Rewind
 from patroni.utils import polling_loop, tzutc
 from patroni.dcs import RemoteMember
 from threading import RLock
-from patroni.postgresql.cancellable import CancellableSubprocess
 
 
 logger = logging.getLogger(__name__)
@@ -80,7 +79,7 @@ class Ha(object):
         self._start_timeout = None
         self._async_executor = AsyncExecutor(self.state_handler.cancellable, self.wakeup)
         self.watchdog = patroni.watchdog
-        self._pre_promote_subprocess = None
+        self._pre_promote_task = None
 
         # Each member publishes various pieces of information to the DCS using touch_member. This lock protects
         # the state and publishing procedure to have consistent ordering and avoid publishing stale values.
@@ -873,9 +872,7 @@ class Ha(object):
         if self.is_healthiest_node():
             if self.acquire_lock():
 
-                if not self.call_pre_promote(self.patroni.config):
-                    return self.follow('demoted self after obtaining lock but failing pre_promote script',
-                                   'following new leader after failing pre_promote script')
+                self.pre_promote()
 
                 failover = self.cluster.failover
                 if failover:
@@ -1173,9 +1170,6 @@ class Ha(object):
         if not self.watchdog.activate():
             logger.error('Cancelling bootstrap because watchdog activation failed')
             self.cancel_initialization()
-        if not self.call_pre_promote(self.patroni.config):
-            logger.error('Cancelling bootstrap because pre_promote script failed')
-            self.cancel_initialization()
         self.state_handler.slots_handler.sync_replication_slots(self.cluster)
         self.dcs.take_leader()
         self.set_is_leader(True)
@@ -1416,22 +1410,10 @@ class Ha(object):
     def get_remote_master(self):
         return self.get_remote_member()
 
-    def call_pre_promote(self, config):
-        """
-        Runs a fencing script after the leader lock is acquired but before the replica is promoted.
-        If the script exits with a non-zero code, promotion does not happen and the leader key is removed from DCS.
-        """
-        cmd = config.get('pre_promote')
-        if cmd:
-            self._pre_promote_subprocess = CancellableSubprocess()
-            try:
-               ret = self._pre_promote_subprocess.call(shlex.split(cmd))
-            except OSError:
-                logger.error('pre_promote script %s failed: ', cmd)
-                return False
+    def pre_promote(self):
 
-            if ret != 0:
-                logger.error('pre_promote script %s returned non-zero code %d', cmd, ret)
-                return False
+        self._async_executor.schedule('pre_promote')
+        self._async_executor.run_async(self.state_handler.pre_promote,
+                                           args=(self.patroni.config, self._pre_promote_task))
+        return 'running pre_promote'
 
-        return True
