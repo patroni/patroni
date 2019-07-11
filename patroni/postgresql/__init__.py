@@ -911,7 +911,6 @@ class Postgresql(object):
             task.complete(False)
         return task.result
 
-
     def call_pre_promote(self, config):
         """
         Runs a fencing script after the leader lock is acquired but before the replica is promoted.

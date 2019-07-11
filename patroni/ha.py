@@ -7,8 +7,6 @@ import requests
 import sys
 import time
 import uuid
-import subprocess
-import shlex
 
 from collections import namedtuple
 from multiprocessing.pool import ThreadPool
@@ -1424,8 +1422,7 @@ class Ha(object):
         if self._pre_promote_task.result is None:
             self._async_executor.schedule('pre_promote')
             self._async_executor.run_async(self.state_handler.pre_promote,
-                                            args=(self.patroni.config, self._pre_promote_task))
+                                           args=(self.patroni.config, self._pre_promote_task))
             return 'running pre_promote'
 
         return 'pre_promote script finished'
-
