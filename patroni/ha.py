@@ -872,7 +872,9 @@ class Ha(object):
         if self.is_healthiest_node():
             if self.acquire_lock():
 
-                self.pre_promote()
+                if self.cluster and self.cluster.config and self.cluster.config['pre_promote']:
+                    self._pre_promote_task = CriticalTask()
+                    self.pre_promote()
 
                 failover = self.cluster.failover
                 if failover:
@@ -1259,6 +1261,9 @@ class Ha(object):
             if self.state_handler.bootstrapping:
                 return self.post_bootstrap()
 
+            if self.is_running_pre_promote:
+                return self.pre_promote()
+
             if self.recovering and not self._rewind.is_needed:
                 self.recovering = False
                 # Check if we tried to recover and failed
@@ -1412,8 +1417,15 @@ class Ha(object):
 
     def pre_promote(self):
 
-        self._async_executor.schedule('pre_promote')
-        self._async_executor.run_async(self.state_handler.pre_promote,
-                                           args=(self.patroni.config, self._pre_promote_task))
-        return 'running pre_promote'
+        if self._pre_promote_task.result is False:
+            self.release_leader_key_voluntarily()
+            return 'released leader key voluntarily as pre_promote script failed'
+
+        if self._pre_promote_task.result is None:
+            self._async_executor.schedule('pre_promote')
+            self._async_executor.run_async(self.state_handler.pre_promote,
+                                            args=(self.patroni.config, self._pre_promote_task))
+            return 'running pre_promote'
+
+        return 'pre_promote script finished'
 

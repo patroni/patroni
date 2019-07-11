@@ -102,6 +102,8 @@ class Postgresql(object):
         # Last known running process
         self._postmaster_proc = None
 
+        self.is_running_pre_promote = False
+
         if self.is_running():
             self.set_state('running')
             self.set_role('master' if self.is_leader() else 'replica')
