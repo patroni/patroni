@@ -744,8 +744,11 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
             lag = round((xlog_location_cluster - xlog_location)/1024/1024)
 
         host = m.conn_kwargs()['host']
-        if append_port:
-            host += ':{0}'.format(m.conn_kwargs()['port'])
+        try:
+            if append_port:
+                host += ':{0}'.format(m.conn_kwargs()['port'])
+        except TypeError:
+            host = ''
 
         row = [name, m.name, host, role, m.data.get('state', ''), m.data.get('timeline', ''), lag]
 
