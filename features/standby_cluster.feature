@@ -9,6 +9,7 @@ Feature: standby cluster
     And I sleep for 3 seconds
     When I issue a PATCH request to http://127.0.0.1:8009/config with {"slots": {"test_logical": {"type": "logical", "database": "postgres", "plugin": "test_decoding"}}}
     Then I receive a response code 200
+    And I do a backup of postgres1
     When I start postgres0 with callback configured
     Then "members/postgres0" key in DCS has state=running after 10 seconds
     And replication works from postgres1 to postgres0 after 15 seconds

@@ -151,6 +151,7 @@ class Patroni(object):
         except Exception:
             logger.exception('Exception during RestApi.shutdown')
         self.ha.shutdown()
+        self.logger.shutdown()
 
 
 def patroni_main():
@@ -161,7 +162,6 @@ def patroni_main():
         pass
     finally:
         patroni.shutdown()
-        logging.shutdown()
 
 
 def fatal(string, *args):
@@ -173,10 +173,17 @@ def check_psycopg2():
     min_psycopg2 = (2, 5, 4)
     min_psycopg2_str = '.'.join(map(str, min_psycopg2))
 
+    def parse_version(version):
+        for e in version.split('.'):
+            try:
+                yield int(e)
+            except ValueError:
+                break
+
     try:
         import psycopg2
         version_str = psycopg2.__version__.split(' ')[0]
-        version = tuple(map(int, version_str.split('.')))
+        version = tuple(parse_version(version_str))
         if version < min_psycopg2:
             fatal('Patroni requires psycopg2>={0}, but only {1} is available', min_psycopg2_str, version_str)
     except ImportError:

@@ -15,6 +15,7 @@ Log
 -  **level**: sets the general logging level. Default value is **INFO** (see `the docs for Python logging <https://docs.python.org/3.6/library/logging.html#levels>`_)
 -  **format**: sets the log formatting string. Default value is **%(asctime)s %(levelname)s: %(message)s** (see `the LogRecord attributes <https://docs.python.org/3.6/library/logging.html#logrecord-attributes>`_)
 -  **dateformat**: sets the datetime formatting string. (see the `formatTime() documentation <https://docs.python.org/3.6/library/logging.html#logging.Formatter.formatTime>`_)
+-  **max\_queue\_size**: Patroni is using two-step logging. Log records are written into the in-memory queue and there is a separate thread which pulls them from the queue and writes to stderr or file. The maximum size of the internal queue is limited by default by **1000** records, which is enough to keep logs for the past 1h20m.
 -  **dir**: Directory to write application logs to. The directory must exist and be writable by the user executing Patroni. If you set this value, the application will retain 4 25MB logs by default. You can tune those retention values with `file_num` and `file_size` (see below).
 -  **file\_num**: The number of application logs to retain.
 -  **file\_size**: Size of patroni.log file (in bytes) that triggers a log rolling.
@@ -87,6 +88,7 @@ Most of the parameters are optional, but you have to specify one of the **host**
 -  **cert**: (optional) file with the client certificate
 -  **key**: (optional) file with the client key. Can be empty if the key is part of **cert**.
 -  **dc**: (optional) Datacenter to communicate with. By default the datacenter of the host is used.
+-  **consistency**: (optional) Select consul consistency mode. Possible values are ``default``, ``consistent``, or ``stale`` (more details in `consul API reference <https://www.consul.io/api/features/consistency.html/>`__)
 -  **checks**: (optional) list of Consul health checks used for the session. If not specified Consul will use "serfHealth" in additional to the TTL based check created by Patroni. Additional checks, in particular the "serfHealth", may cause the leader lock to expire faster than in `ttl` seconds when the leader instance becomes unavailable
 -  **register\_service**: (optional) whether or not to register a service with the name defined by the scope parameter and the tag master, replica or standby-leader depending on the node's role. Defaults to **false**
 -  **service\_check\_interval**: (optional) how often to perform health check against registered url

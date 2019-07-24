@@ -1,10 +1,19 @@
+import logging
 import random
+import re
 import time
 
 from dateutil import tz
 from patroni.exceptions import PatroniException
 
 tzutc = tz.tzutc()
+
+logger = logging.getLogger(__name__)
+
+OCT_RE = re.compile(r'^[-+]?0[0-7]*')
+DEC_RE = re.compile(r'^[-+]?(0|[1-9][0-9]*)')
+HEX_RE = re.compile(r'^[-+]?0x[0-9a-fA-F]+')
+DBL_RE = re.compile(r'^[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?')
 
 
 def deep_compare(obj1, obj2):
@@ -88,42 +97,77 @@ def strtol(value, strict=True):
     True
     >>> strtol(' d ') == (None, 'd')
     True
+    >>> strtol(' 1 d ') == (1, ' d')
+    True
     >>> strtol('9s', False) == (9, 's')
     True
     >>> strtol(' s ', False) == (1, 's')
     True
     """
     value = str(value).strip()
-    ln = len(value)
-    i = 0
-    # skip sign:
-    if i < ln and value[i] in ('-', '+'):
-        i += 1
+    for regex, base in ((HEX_RE, 16), (OCT_RE, 8), (DEC_RE, 10)):
+        match = regex.match(value)
+        if match:
+            end = match.end()
+            return int(value[:end], base), value[end:]
+    return (None if strict else 1), value
 
-    # we always expect to get digit in the beginning
-    if i < ln and value[i].isdigit():
-        if value[i] == '0':
-            i += 1
-            if i < ln and value[i] in ('x', 'X'):  # '0' followed by 'x': HEX
-                base = 16
-                i += 1
-            else:  # just starts with '0': OCT
-                base = 8
-        else:  # any other digit: DEC
-            base = 10
 
-        ret = None
-        while i <= ln:
-            try:  # try to find maximally long number
-                i += 1  # by giving to `int` longer and longer strings
-                ret = int(value[:i], base)
-            except ValueError:  # until we will not get an exception or end of the string
-                i -= 1
-                break
-        if ret is not None:  # yay! there is a number in the beginning of the string
-            return ret, value[i:].strip()  # return the number and the "rest"
+def strtod(value):
+    """As most as possible close equivalent of strtod(3) function used by postgres to parse parameter values.
+    >>> strtod(' A ') == (None, 'A')
+    True
+    """
+    value = str(value).strip()
+    match = DBL_RE.match(value)
+    if match:
+        end = match.end()
+        return float(value[:end]), value[end:]
+    return None, value
 
-    return (None if strict else 1), value.strip()
+
+def rint(value):
+    """
+    >>> rint(0.5) == 0
+    True
+    >>> rint(0.501) == 1
+    True
+    >>> rint(1.5) == 2
+    True
+    """
+
+    ret = round(value)
+    return 2.0 * round(value / 2.0) if abs(ret - value) == 0.5 else ret
+
+
+def convert_to_base_unit(value, unit, base_unit):
+    convert = {
+        'B': {'B': 1, 'kB': 1024, 'MB': 1024 * 1024, 'GB': 1024 * 1024 * 1024, 'TB': 1024 * 1024 * 1024 * 1024},
+        'kB': {'B': 1.0 / 1024, 'kB': 1, 'MB': 1024, 'GB': 1024 * 1024, 'TB': 1024 * 1024 * 1024},
+        'MB': {'B': 1.0 / (1024 * 1024), 'kB': 1.0 / 1024, 'MB': 1, 'GB': 1024, 'TB': 1024 * 1024},
+        'ms': {'us': 1.0 / 1000, 'ms': 1, 's': 1000, 'min': 1000 * 60, 'h': 1000 * 60 * 60, 'd': 1000 * 60 * 60 * 24},
+        's': {'us': 1.0 / (1000 * 1000), 'ms': 1.0 / 1000, 's': 1, 'min': 60, 'h': 60 * 60, 'd': 60 * 60 * 24},
+        'min': {'us': 1.0 / (1000 * 1000 * 60), 'ms': 1.0 / (1000 * 60), 's': 1.0 / 60, 'min': 1, 'h': 60, 'd': 60 * 24}
+    }
+
+    round_order = {
+        'TB': 'GB', 'GB': 'MB', 'MB': 'kB', 'kB': 'B',
+        'd': 'h', 'h': 'min', 'min': 's', 's': 'ms', 'ms': 'us'
+    }
+
+    if base_unit and base_unit not in convert:
+        base_value, base_unit = strtol(base_unit, False)
+    else:
+        base_value = 1
+
+    if base_unit in convert and unit in convert[base_unit]:
+        value *= convert[base_unit][unit] / float(base_value)
+
+        if unit in round_order:
+            multiplier = convert[base_unit][round_order[unit]]
+            value = rint(value / float(multiplier)) * multiplier
+
+        return value
 
 
 def parse_int(value, base_unit=None):
@@ -136,56 +180,71 @@ def parse_int(value, base_unit=None):
     True
     >>> parse_int('1000 ms', 's') == 1
     True
-    >>> parse_int('1GB', 'MB') is None
+    >>> parse_int('1TB', 'GB') is None
     True
     >>> parse_int(0) == 0
     True
+    >>> parse_int('6GB', '16MB') == 384
+    True
+    >>> parse_int('4097.4kB', 'kB') == 4097
+    True
+    >>> parse_int('4097.5kB', 'kB') == 4098
+    True
     """
 
-    convert = {
-        'kB': {'kB': 1, 'MB': 1024, 'GB': 1024 * 1024, 'TB': 1024 * 1024 * 1024},
-        'ms': {'ms': 1, 's': 1000, 'min': 1000 * 60, 'h': 1000 * 60 * 60, 'd': 1000 * 60 * 60 * 24},
-        's': {'ms': -1000, 's': 1, 'min': 60, 'h': 60 * 60, 'd': 60 * 60 * 24},
-        'min': {'ms': -1000 * 60, 's': -60, 'min': 1, 'h': 60, 'd': 60 * 24}
-    }
+    val, unit = strtol(value)
+    if val is None and unit.startswith('.') or unit and unit[0] in ('.', 'e', 'E'):
+        val, unit = strtod(value)
 
-    value, unit = strtol(value)
-    if value is not None:
+    if val is not None:
+        unit = unit.strip()
         if not unit:
-            return value
+            return int(rint(val))
 
-        if base_unit and base_unit not in convert:
-            base_value, base_unit = strtol(base_unit, False)
-        else:
-            base_value = 1
-        if base_unit in convert and unit in convert[base_unit]:
-            multiplier = convert[base_unit][unit]
-            if multiplier < 0:
-                value /= -multiplier
-            else:
-                value *= multiplier
-            return int(value/base_value)
+        val = convert_to_base_unit(val, unit, base_unit)
+        if val is not None:
+            return int(rint(val))
+
+
+def parse_real(value, base_unit=None):
+    """
+    >>> parse_real(' +0.0005 ') == 0.0005
+    True
+    >>> parse_real('0.0005ms', 'ms') == 0.0
+    True
+    >>> parse_real('0.00051ms', 'ms') == 0.001
+    True
+    """
+    val, unit = strtod(value)
+
+    if val is not None:
+        unit = unit.strip()
+        if not unit:
+            return val
+
+        return convert_to_base_unit(val, unit, base_unit)
 
 
 def compare_values(vartype, unit, old_value, new_value):
     """
     >>> compare_values('enum', None, 'remote_write', 'REMOTE_WRITE')
     True
-    >>> compare_values('real', None, '1.23', 1.23)
+    >>> compare_values('real', None, '1e-06', 0.000001)
     True
     """
 
-    # if the integer or bool new_value is not correct this function will return False
-    if vartype == 'bool':
-        old_value = parse_bool(old_value)
-        new_value = parse_bool(new_value)
-    elif vartype == 'integer':
-        old_value = parse_int(old_value)
-        new_value = parse_int(new_value, unit)
-    elif vartype == 'enum':
-        return str(old_value).lower() == str(new_value).lower()
-    else:  # ('string', 'real')
-        return str(old_value) == str(new_value)
+    converters = {
+        'bool': lambda v1, v2: parse_bool(v1),
+        'integer': parse_int,
+        'real': parse_real,
+        'enum': lambda v1, v2: str(v1).lower(),
+        'string': lambda v1, v2: str(v1)
+    }
+
+    convert = converters.get(vartype) or converters['string']
+    old_value = convert(old_value, None)
+    new_value = convert(new_value, unit)
+
     return old_value is not None and new_value is not None and old_value == new_value
 
 
@@ -252,17 +311,19 @@ class Retry(object):
                 if self.deadline is not None and self._cur_stoptime is None:
                     self._cur_stoptime = time.time() + self.deadline
                 return func(*args, **kwargs)
-            except self.retry_exceptions:
+            except self.retry_exceptions as e:
                 # Note: max_tries == -1 means infinite tries.
                 if self._attempts == self.max_tries:
+                    logger.warning('Retry got exception: %s', e)
                     raise RetryFailedError("Too many retry attempts")
                 self._attempts += 1
                 sleeptime = self._cur_delay + (random.randint(0, self.max_jitter) / 100.0)
 
                 if self._cur_stoptime is not None and time.time() + sleeptime >= self._cur_stoptime:
+                    logger.warning('Retry got exception: %s', e)
                     raise RetryFailedError("Exceeded retry deadline")
-                else:
-                    self.sleep_func(sleeptime)
+                logger.debug('Retry got exception: %s', e)
+                self.sleep_func(sleeptime)
                 self._cur_delay = min(self._cur_delay * self.backoff, self.max_delay)
 
 

@@ -8,7 +8,8 @@ import dateutil.parser
 import datetime
 import os
 
-from patroni.postgresql import PostgresConnectionException, PostgresException, Postgresql
+from patroni.postgresql import PostgresConnectionException
+from patroni.postgresql.misc import postgres_version_to_int, PostgresException
 from patroni.utils import deep_compare, parse_bool, patch_config, Retry, \
     RetryFailedError, parse_int, split_host_port, tzutc
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
@@ -74,10 +75,19 @@ class RestApiHandler(BaseHTTPRequestHandler):
             response['watchdog_failed'] = True
         if patroni.ha.is_paused():
             response['pause'] = True
+        qsize = patroni.logger.queue_size
+        if qsize > patroni.logger.NORMAL_LOG_QUEUE_SIZE:
+            response['logger_queue_size'] = qsize
+            lost = patroni.logger.records_lost
+            if lost:
+                response['logger_records_lost'] = lost
         self._write_json_response(status_code, response)
 
     def do_GET(self, write_status_code_only=False):
         """Default method for processing all GET requests which can not be routed to other methods"""
+
+        time_start = time.time()
+        request_type = 'OPTIONS' if write_status_code_only else 'GET'
 
         path = '/master' if self.path == '/' else self.path
         response = self.get_postgresql_status()
@@ -101,6 +111,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
             status_code = replica_status_code
         elif 'read-only' in path:
             status_code = 200 if primary_status_code == 200 else replica_status_code
+        elif 'health' in path:
+            status_code = 200 if response.get('state') == 'running' else 503
         elif cluster:  # dcs is available
             is_synchronous = cluster.is_synchronous_mode() and cluster.sync \
                     and cluster.sync.sync_standby == patroni.postgresql.name
@@ -114,6 +126,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
             self.wfile.write('{0} {1} {2}\r\n'.format(self.protocol_version, status_code, message).encode('utf-8'))
         else:
             self._write_status_response(status_code, response)
+
+        time_end = time.time()
+        self.log_message('%s %s %s latency: %s ms', request_type, path,
+                         status_code, (time_end - time_start) * 1000)
 
     def do_OPTIONS(self):
         self.do_GET(write_status_code_only=True)
@@ -232,7 +248,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     break
             elif k == 'postgres_version':
                 try:
-                    Postgresql.postgres_version_to_int(request[k])
+                    postgres_version_to_int(request[k])
                 except PostgresException as e:
                     status_code = 400
                     data = e.value

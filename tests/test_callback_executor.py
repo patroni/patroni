@@ -1,7 +1,7 @@
 import unittest
 
 from mock import Mock, patch
-from patroni.callback_executor import CallbackExecutor
+from patroni.postgresql.callback_executor import CallbackExecutor
 
 
 class TestCallbackExecutor(unittest.TestCase):
