@@ -9,9 +9,9 @@ import subprocess
 logger = logging.getLogger(__name__)
 
 STOP_SIGNALS = {
-    'smart': signal.SIGTERM,
-    'fast': signal.SIGINT,
-    'immediate': signal.SIGQUIT if os.name != 'nt' else signal.SIGABRT,
+    'smart': signal.SIGTERM if os.name != 'nt' else signal.CTRL_C_EVENT,
+    'fast': signal.SIGINT if os.name != 'nt' else signal.CTRL_BREAK_EVENT,
+    'immediate': signal.SIGQUIT if os.name != 'nt' else signal.SIGTERM,
 }
 
 
@@ -103,6 +103,7 @@ class PostmasterProcess(psutil.Process):
             logger.warning("Cannot stop server; single-user server is running (PID: {0})".format(self.pid))
             return False
         try:
+            logger.warning("Sending signal {0} for server with PID {1}".format(STOP_SIGNALS[mode], self.pid))
             self.send_signal(STOP_SIGNALS[mode])
         except psutil.NoSuchProcess:
             return True
