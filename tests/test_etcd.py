@@ -1,7 +1,5 @@
 import etcd
-import json
 import urllib3.util.connection
-import requests
 import socket
 import unittest
 
@@ -11,56 +9,7 @@ from patroni.dcs.etcd import AbstractDCS, Client, Cluster, Etcd, EtcdError, DnsC
 from patroni.exceptions import DCSError
 from urllib3.exceptions import ReadTimeoutError
 
-
-class MockResponse(object):
-
-    def __init__(self, status_code=200):
-        self.status_code = status_code
-        self.content = '{}'
-        self.ok = True
-
-    def json(self):
-        return json.loads(self.content)
-
-    @property
-    def data(self):
-        return self.content.encode('utf-8')
-
-    @property
-    def text(self):
-        return self.content
-
-    @property
-    def status(self):
-        return self.status_code
-
-    @staticmethod
-    def getheader(*args):
-        return ''
-
-
-def requests_get(url, **kwargs):
-    members = '[{"id":14855829450254237642,"peerURLs":["http://localhost:2380","http://localhost:7001"],' +\
-              '"name":"default","clientURLs":["http://localhost:2379","http://localhost:4001"]}]'
-    response = MockResponse()
-    if url.startswith('http://local'):
-        raise requests.exceptions.RequestException()
-    elif ':8011/patroni' in url:
-        response.content = '{"role": "replica", "xlog": {"received_location": 0}, "tags": {}}'
-    elif url.endswith('/members'):
-        response.content = '[{}]' if url.startswith('http://error') else members
-    elif url.startswith('http://exhibitor'):
-        response.content = '{"servers":["127.0.0.1","127.0.0.2","127.0.0.3"],"port":2181}'
-    elif url.endswith(':8011/reinitialize'):
-        data = kwargs.get('data', '')
-        if ' false}' in data:
-            response.status_code = 503
-            response.ok = False
-            response.content = 'restarting after failure already in progress'
-    else:
-        response.status_code = 404
-        response.ok = False
-    return response
+from . import SleepException, MockResponse, requests_get
 
 
 def etcd_watch(self, key, index=None, timeout=None, recursive=None):
@@ -120,10 +69,6 @@ def etcd_read(self, key, **kwargs):
     result = etcd.EtcdResult(**response)
     result.etcd_index = 0
     return result
-
-
-class SleepException(Exception):
-    pass
 
 
 def dns_query(name, _):

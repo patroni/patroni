@@ -1,5 +1,6 @@
 import etcd
-import psycopg2
+import logging
+import os
 import signal
 import sys
 import time
@@ -10,10 +11,15 @@ from patroni.api import RestApiServer
 from patroni.async_executor import AsyncExecutor
 from patroni.dcs.etcd import Client
 from patroni.exceptions import DCSError
+from patroni.postgresql import Postgresql
+from patroni.postgresql.config import ConfigHandler
 from patroni import Patroni, main as _main, patroni_main, check_psycopg2
 from six.moves import BaseHTTPServer, builtins
-from test_etcd import SleepException, etcd_read, etcd_write
-from test_postgresql import Postgresql, psycopg2_connect, MockPostmaster
+from threading import Thread
+
+from . import psycopg2_connect, SleepException
+from .test_etcd import etcd_read, etcd_write
+from .test_postgresql import MockPostmaster
 
 
 class MockFrozenImporter(object):
@@ -24,15 +30,16 @@ class MockFrozenImporter(object):
 @patch('time.sleep', Mock())
 @patch('subprocess.call', Mock(return_value=0))
 @patch('psycopg2.connect', psycopg2_connect)
-@patch.object(Postgresql, 'append_pg_hba', Mock())
-@patch.object(Postgresql, '_write_postgresql_conf', Mock())
-@patch.object(Postgresql, 'write_recovery_conf', Mock())
+@patch.object(ConfigHandler, 'append_pg_hba', Mock())
+@patch.object(ConfigHandler, 'write_postgresql_conf', Mock())
+@patch.object(ConfigHandler, 'write_recovery_conf', Mock())
 @patch.object(Postgresql, 'is_running', Mock(return_value=MockPostmaster()))
 @patch.object(Postgresql, 'call_nowait', Mock())
 @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
 @patch.object(AsyncExecutor, 'run', Mock())
 @patch.object(etcd.Client, 'write', etcd_write)
 @patch.object(etcd.Client, 'read', etcd_read)
+@patch.object(Thread, 'start', Mock())
 class TestPatroni(unittest.TestCase):
 
     @patch('pkgutil.get_importer', Mock(return_value=MockFrozenImporter()))
@@ -40,13 +47,18 @@ class TestPatroni(unittest.TestCase):
     @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
     @patch.object(etcd.Client, 'read', etcd_read)
     def setUp(self):
+        self._handlers = logging.getLogger().handlers[:]
         RestApiServer._BaseServer__is_shut_down = Mock()
         RestApiServer._BaseServer__shutdown_request = True
         RestApiServer.socket = 0
         with patch.object(Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
             sys.argv = ['patroni.py', 'postgres0.yml']
+            os.environ['PATRONI_POSTGRESQL_DATA_DIR'] = 'data/test0'
             self.p = Patroni()
+
+    def tearDown(self):
+        logging.getLogger().handlers[:] = self._handlers
 
     @patch('patroni.dcs.AbstractDCS.get_cluster', Mock(side_effect=[None, DCSError('foo'), None]))
     def test_load_dynamic_configuration(self):
@@ -57,6 +69,7 @@ class TestPatroni(unittest.TestCase):
     @patch('time.sleep', Mock(side_effect=SleepException))
     @patch.object(etcd.Client, 'delete', Mock())
     @patch.object(Client, 'machines')
+    @patch.object(Thread, 'join', Mock())
     def test_patroni_patroni_main(self, mock_machines):
         with patch('subprocess.call', Mock(return_value=1)):
             sys.argv = ['patroni.py', 'postgres0.yml']
@@ -159,5 +172,5 @@ class TestPatroni(unittest.TestCase):
     def test_check_psycopg2(self):
         with patch.object(builtins, '__import__', Mock(side_effect=ImportError)):
             self.assertRaises(SystemExit, check_psycopg2)
-        with patch.object(psycopg2, '__version__', return_value='2.5.3 a b c'):
+        with patch('psycopg2.__version__', '2.5.3.dev1 a b c'):
             self.assertRaises(SystemExit, check_psycopg2)
