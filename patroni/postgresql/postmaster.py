@@ -9,8 +9,8 @@ import subprocess
 logger = logging.getLogger(__name__)
 
 STOP_SIGNALS = {
-    'smart': signal.SIGTERM if os.name != 'nt' else signal.CTRL_C_EVENT,
-    'fast': signal.SIGINT if os.name != 'nt' else signal.CTRL_BREAK_EVENT,
+    'smart': signal.SIGTERM,
+    'fast': signal.SIGINT if os.name != 'nt' else signal.SIGTERM,
     'immediate': signal.SIGQUIT if os.name != 'nt' else signal.SIGTERM,
 }
 
