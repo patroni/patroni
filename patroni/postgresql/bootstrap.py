@@ -135,7 +135,7 @@ class Bootstrap(object):
                 r['host'] = 'localhost'  # set it to localhost to write into pgpass
 
             if 'user' in r:
-                user = r['user'] + '@'
+                user = r['user']
             else:
                 user = ''
                 if 'password' in r:
