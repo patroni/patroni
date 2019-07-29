@@ -246,7 +246,7 @@ class TestCtl(unittest.TestCase):
     @patch('patroni.ctl.get_dcs')
     def test_restart_reinit(self, mock_get_dcs):
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
-        result = self.runner.invoke(ctl, ['restart', 'alpha'], input='y\n\nnow')
+        result = self.runner.invoke(ctl, ['restart', 'alpha'], input='now\ny\n')
         assert 'Failed: restart for' in result.output
         assert result.exit_code == 0
 
@@ -269,7 +269,7 @@ class TestCtl(unittest.TestCase):
         assert result.exit_code == 1
 
         # Wrong pg version
-        result = self.runner.invoke(ctl, ['restart', 'alpha', '--any', '--pg-version', '9.1'], input='y')
+        result = self.runner.invoke(ctl, ['restart', 'alpha', '--any', '--pg-version', '9.1'], input='now\ny')
         assert 'Error: Invalid PostgreSQL version format' in result.output
         assert result.exit_code == 1
 

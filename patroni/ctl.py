@@ -36,6 +36,7 @@ from patroni.version import __version__
 from prettytable import PrettyTable
 from six.moves.urllib_parse import urlparse
 from six import text_type
+from datetime import timedelta
 
 CONFIG_DIR_PATH = click.get_app_dir('patroni')
 CONFIG_FILE_PATH = os.path.join(CONFIG_DIR_PATH, 'patronictl.yaml')
@@ -268,7 +269,7 @@ def get_cursor(cluster, connect_parameters, role='master', member=None):
     return None
 
 
-def get_members(cluster, cluster_name, member_names, role, force, action, scheduled_at):
+def get_members(cluster, cluster_name, member_names, role, force, action, scheduled_at=None):
     candidates = {m.name: m for m in cluster.members}
 
     if not force or role:
@@ -293,12 +294,14 @@ def get_members(cluster, cluster_name, member_names, role, force, action, schedu
 
     if scheduled_at:
         if not force:
-            confirm = click.confirm('Are you sure you want to schedule {0} members {1} at {2}?'.format(action, ', '.join(member_names), scheduled_at))
+            confirm = click.confirm('Are you sure you want to schedule {0} of members {1} at {2}?'
+                                    .format(action, ', '.join(member_names), scheduled_at))
             if not confirm:
-                raise PatroniCtlException('Aborted {0}'.format(action))
+                raise PatroniCtlException('Aborted scheduled {0}'.format(action))
     else:
         if not force:
-            confirm = click.confirm('Are you sure you want to {0} members {1}?'.format(action, ', '.join(member_names)))
+            confirm = click.confirm('Are you sure you want to {0} members {1}?'
+                                    .format(action, ', '.join(member_names)))
             if not confirm:
                 raise PatroniCtlException('Aborted {0}'.format(action))
 
@@ -486,7 +489,7 @@ def parse_scheduled(scheduled):
 def reload(obj, cluster_name, member_names, force, role):
     cluster = get_dcs(obj, cluster_name).get_cluster()
 
-    members = get_members(cluster, cluster_name, member_names, role, force, 'reload', None)
+    members = get_members(cluster, cluster_name, member_names, role, force, 'reload')
 
     content = {}
     for member in members:
@@ -522,7 +525,8 @@ def restart(obj, cluster_name, member_names, force, role, p_any, scheduled, vers
     cluster = get_dcs(obj, cluster_name).get_cluster()
 
     if scheduled is None and not force:
-        scheduled = click.prompt('When should the restart take place (e.g. 2015-10-01T14:30) ', type=str, default='now')
+        now = (datetime.datetime.now() + timedelta(hours=1)).replace(second=0, microsecond=0).isoformat()
+        scheduled = click.prompt('When should the restart take place (e.g. ' + now + ') ', type=str, default='now')
 
     scheduled_at = parse_scheduled(scheduled)
 
@@ -581,7 +585,7 @@ def restart(obj, cluster_name, member_names, force, role, p_any, scheduled, vers
 @click.pass_obj
 def reinit(obj, cluster_name, member_names, force):
     cluster = get_dcs(obj, cluster_name).get_cluster()
-    members = get_members(cluster, cluster_name, member_names, None, force, 'reinitialize', None)
+    members = get_members(cluster, cluster_name, member_names, None, force, 'reinitialize')
 
     for member in members:
         body = {'force': force}
@@ -662,10 +666,12 @@ def _do_failover_or_switchover(obj, action, cluster_name, master, candidate, for
     if not force:
         demote_msg = ', demoting current master ' + master if master else ''
         if scheduled_at_str:
-            if not click.confirm('Are you sure you want to schedule {0} cluster {1} at {2} {3}?'.format(action, cluster_name, scheduled_at_str, demote_msg)):
-                raise PatroniCtlException('Aborting ' + action)
+            if not click.confirm('Are you sure you want to schedule {0} of cluster {1} at {2} {3}?'
+                                 .format(action, cluster_name, scheduled_at_str, demote_msg)):
+                raise PatroniCtlException('Aborting scheduled' + action)
         else:
-            if not click.confirm('Are you sure you want to {0} cluster {1}{2}?'.format(action, cluster_name, demote_msg)):
+            if not click.confirm('Are you sure you want to {0} cluster {1}{2}?'
+                                 .format(action, cluster_name, demote_msg)):
                 raise PatroniCtlException('Aborting ' + action)
 
     r = None
@@ -905,7 +911,7 @@ def scaffold(obj, cluster_name, sysid):
 def flush(obj, cluster_name, member_names, force, role, target):
     cluster = get_dcs(obj, cluster_name).get_cluster()
 
-    members = get_members(cluster, cluster_name, member_names, role, force, 'flush', None)
+    members = get_members(cluster, cluster_name, member_names, role, force, 'flush')
     for member in members:
         if target == 'restart':
             if member.data.get('scheduled_restart'):
