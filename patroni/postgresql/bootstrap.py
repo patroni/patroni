@@ -5,9 +5,9 @@ import tempfile
 import time
 
 from patroni.dcs import RemoteMember
-from patroni.utils import deep_compare
+from patroni.utils import deep_compare, uri
 from six import string_types
-from six.moves.urllib.parse import quote_plus
+from six.moves.urllib_parse import quote_plus
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +142,7 @@ class Bootstrap(object):
                     import getpass
                     r.setdefault('user', os.environ.get('PGUSER', getpass.getuser()))
 
-            connstring = 'postgres://{0}{1}:{2}/{3}'.format(user, host, r['port'], r['database'])
+            connstring = uri('postgres', (host, r['port']), r['database'], user)
             env = self._postgresql.write_pgpass(r) if 'password' in r else None
 
             try:
@@ -175,7 +175,7 @@ class Bootstrap(object):
 
         if clone_member and clone_member.conn_url:
             r = clone_member.conn_kwargs(self._postgresql.config.replication)
-            connstring = 'postgres://{user}@{host}:{port}/{database}'.format(**r)
+            connstring = uri('postgres', (r['host'], r['port']), r['database'], r['user'])
             # add the credentials to connect to the replica origin to pgpass.
             env = self._postgresql.write_pgpass(r)
         else:

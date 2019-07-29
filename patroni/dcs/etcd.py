@@ -14,7 +14,7 @@ from dns.exception import DNSException
 from dns import resolver
 from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
 from patroni.exceptions import DCSError
-from patroni.utils import Retry, RetryFailedError, split_host_port
+from patroni.utils import Retry, RetryFailedError, split_host_port, uri
 from urllib3.exceptions import HTTPError, ReadTimeoutError
 from requests.exceptions import RequestException
 from six.moves.queue import Queue
@@ -23,10 +23,6 @@ from six.moves.urllib_parse import urlparse
 from threading import Thread
 
 logger = logging.getLogger(__name__)
-
-
-def uri(protocol, host, port, endpoint=''):
-    return '{0}://{1}:{2}{3}'.format(protocol, host, port, endpoint)
 
 
 class EtcdError(DCSError):
@@ -238,7 +234,7 @@ class Client(etcd.Client):
             protocol = 'https' if '-ssl' in r else 'http'
             endpoint = '/members' if '-server' in r else ''
             for host, port in self.get_srv_record('_etcd{0}._tcp.{1}'.format(r, srv)):
-                url = uri(protocol, host, port, endpoint)
+                url = uri(protocol, (host, port), endpoint)
                 if endpoint:
                     try:
                         response = requests.get(url, timeout=self.read_timeout, verify=False)
@@ -265,14 +261,14 @@ class Client(etcd.Client):
                 host, port = sa[:2]
                 if af == socket.AF_INET6:
                     host = '[{0}]'.format(host)
-                ret.append(uri(self.protocol, host, port))
+                ret.append(uri(self.protocol, (host, port)))
             if ret:
                 return list(set(ret))
-        return [uri(self.protocol, host, port)]
+        return [uri(self.protocol, (host, port))]
 
     def _get_machines_cache_from_config(self):
         if 'proxy' in self._config:
-            return [uri(self.protocol, self._config['host'], self._config['port'])]
+            return [uri(self.protocol, (self._config['host'], self._config['port']))]
 
         machines_cache = []
         if 'srv' in self._config:
@@ -377,7 +373,7 @@ class Etcd(AbstractDCS):
             config['hosts'] = []
             for value in hosts:
                 if isinstance(value, six.string_types):
-                    config['hosts'].append(uri(protocol, *split_host_port(value, default_port)))
+                    config['hosts'].append(uri(protocol, split_host_port(value, default_port)))
         elif 'host' in config:
             host, port = split_host_port(config['host'], 2379)
             config['host'] = host

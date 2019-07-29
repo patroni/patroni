@@ -8,7 +8,7 @@ import stat
 from requests.structures import CaseInsensitiveDict
 from six.moves.urllib_parse import urlparse, parse_qsl, unquote
 
-from ..utils import compare_values, parse_bool, parse_int, split_host_port
+from ..utils import compare_values, parse_bool, parse_int, split_host_port, uri
 
 logger = logging.getLogger(__name__)
 
@@ -474,8 +474,11 @@ class ConfigHandler(object):
         self._local_address = local_address
         self.local_replication_address = {'host': tcp_local_address, 'port': port}
 
-        self._postgresql.connection_string = 'postgres://{0}/{1}'.format(
-            self._config.get('connect_address') or tcp_local_address + ':' + port, self._postgresql.database)
+        self._postgresql.connection_string = uri(
+                'postgres',
+                self._config.get('connect_address') or tcp_local_address + ':' + port,
+                self._postgresql.database
+        )
 
         self._postgresql.set_connection_kwargs(self.local_connect_kwargs)
 
