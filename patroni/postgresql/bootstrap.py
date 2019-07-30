@@ -7,7 +7,7 @@ import time
 from patroni.dcs import RemoteMember
 from patroni.utils import deep_compare, uri
 from six import string_types
-from six.moves.urllib_parse import quote_plus
+from six.moves.urllib.parse import quote_plus
 
 logger = logging.getLogger(__name__)
 
