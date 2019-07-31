@@ -36,7 +36,6 @@ from patroni.version import __version__
 from prettytable import PrettyTable
 from six.moves.urllib_parse import urlparse
 from six import text_type
-from datetime import timedelta
 
 CONFIG_DIR_PATH = click.get_app_dir('patroni')
 CONFIG_FILE_PATH = os.path.join(CONFIG_DIR_PATH, 'patronictl.yaml')
@@ -525,12 +524,13 @@ def restart(obj, cluster_name, member_names, force, role, p_any, scheduled, vers
     cluster = get_dcs(obj, cluster_name).get_cluster()
 
     if scheduled is None and not force:
-        now = (datetime.datetime.now() + timedelta(hours=1)).replace(second=0, microsecond=0).isoformat()
-        scheduled = click.prompt('When should the restart take place (e.g. ' + now + ') ', type=str, default='now')
+        next_hour = (datetime.datetime.now() + datetime.timedelta(hours=1)).replace(second=0, microsecond=0).isoformat()
+        scheduled = click.prompt('When should the restart take place (e.g. ' + next_hour + ') ',
+                                 type=str, default='now')
 
     scheduled_at = parse_scheduled(scheduled)
 
-    members = get_members(cluster, cluster_name, member_names, role, force, 'restart', scheduled)
+    members = get_members(cluster, cluster_name, member_names, role, force, 'restart', scheduled_at)
     if p_any:
         random.shuffle(members)
         members = members[:1]

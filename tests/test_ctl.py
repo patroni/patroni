@@ -258,14 +258,14 @@ class TestCtl(unittest.TestCase):
         assert result.exit_code == 0
 
         # Aborted restart
-        result = self.runner.invoke(ctl, ['restart', 'alpha'], input='N')
+        result = self.runner.invoke(ctl, ['restart', 'alpha'], input='now\nN')
         assert result.exit_code == 1
 
         result = self.runner.invoke(ctl, ['restart', 'alpha', '--pending', '--force'])
         assert result.exit_code == 0
 
         # Not a member
-        result = self.runner.invoke(ctl, ['restart', 'alpha', 'dummy', '--any'], input='y')
+        result = self.runner.invoke(ctl, ['restart', 'alpha', 'dummy', '--any'], input='now\ny')
         assert result.exit_code == 1
 
         # Wrong pg version
