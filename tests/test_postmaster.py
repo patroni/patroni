@@ -65,6 +65,8 @@ class TestPostmasterProcess(unittest.TestCase):
     @patch('psutil.Process.__init__', Mock())
     @patch('psutil.Process.send_signal')
     @patch('psutil.Process.pid', Mock(return_value=123))
+    @patch('subprocess.call', Mock(side_effect = [0, 1, 2]))
+    @patch('psutil.Process.is_running', Mock(side_effect=[False, True]))
     def test_signal_stop(self, mock_send_signal):
         proc = PostmasterProcess(-123)
         self.assertEqual(proc.signal_stop('immediate'), False)

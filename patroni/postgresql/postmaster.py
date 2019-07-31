@@ -8,12 +8,18 @@ import subprocess
 
 logger = logging.getLogger(__name__)
 
-STOP_SIGNALS = {
-    'smart': signal.SIGTERM,
-    'fast': signal.SIGINT if os.name != 'nt' else signal.SIGTERM,
-    'immediate': signal.SIGQUIT if os.name != 'nt' else signal.SIGTERM,
-}
-
+if os.name != 'nt':
+    STOP_SIGNALS = {
+        'smart': signal.SIGTERM,
+        'fast': signal.SIGINT,
+        'immediate': signal.SIGQUIT,
+    }
+else:
+    STOP_SIGNALS = {
+        'smart': 'TERM',
+        'fast': 'INT',
+        'immediate': 'QUIT',
+    }
 
 def pg_ctl_start(conn, cmdline, env):
     if os.name != 'nt':
@@ -102,15 +108,23 @@ class PostmasterProcess(psutil.Process):
         if self.is_single_user:
             logger.warning("Cannot stop server; single-user server is running (PID: {0})".format(self.pid))
             return False
-        try:
-            self.send_signal(STOP_SIGNALS[mode])
-        except psutil.NoSuchProcess:
-            return True
-        except psutil.AccessDenied as e:
-            logger.warning("Could not send stop signal to PostgreSQL (error: {0})".format(e))
-            return False
-
-        return None
+        if os.name != "nt":
+            try:
+                self.send_signal(STOP_SIGNALS[mode])
+                return None
+            except psutil.NoSuchProcess:
+                return True
+            except psutil.AccessDenied as e:
+                logger.warning("Could not send stop signal to PostgreSQL (error: {0})".format(e))
+                return False
+        else:
+            if subprocess.call(['pg_ctl', 'kill', STOP_SIGNALS[mode], self.pid]) == 0:
+                return None
+            elif not self.is_running():
+                return True
+            else:
+                logger.warning("Could not send stop signal %s to postmaster with PID %s", STOP_SIGNALS[mode], self.pid)
+                return False
 
     def wait_for_user_backends_to_close(self):
         # These regexps are cross checked against versions PostgreSQL 9.1 .. 11
