@@ -94,6 +94,10 @@ class TestCtl(unittest.TestCase):
         result = self.runner.invoke(ctl, ['switchover', 'dummy'], input='leader\nother\n\nN')
         assert result.exit_code == 1
 
+        # Aborting scheduled switchover, as we anser NO to the confirmation
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--scheduled', '2015-01-01T12:00:00+01:00'], input='leader\nother\n\nN')
+        assert result.exit_code == 1
+
         # Target and source are equal
         result = self.runner.invoke(ctl, ['switchover', 'dummy'], input='leader\nleader\n\ny')
         assert result.exit_code == 1
@@ -263,6 +267,10 @@ class TestCtl(unittest.TestCase):
 
         result = self.runner.invoke(ctl, ['restart', 'alpha', '--pending', '--force'])
         assert result.exit_code == 0
+
+        # Aborted scheduled restart
+        result = self.runner.invoke(ctl, ['restart', 'alpha', '--scheduled', '2019-10-01T14:30'], input='N')
+        assert result.exit_code == 1
 
         # Not a member
         result = self.runner.invoke(ctl, ['restart', 'alpha', 'dummy', '--any'], input='now\ny')
