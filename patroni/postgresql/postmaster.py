@@ -21,6 +21,7 @@ else:
         'immediate': 'QUIT',
     }
 
+
 def pg_ctl_start(conn, cmdline, env):
     if os.name != 'nt':
         os.setsid()
@@ -123,7 +124,7 @@ class PostmasterProcess(psutil.Process):
             elif not self.is_running():
                 return True
             else:
-                logger.warning("Could not send stop signal %s to postmaster with PID %s", STOP_SIGNALS[mode], self.pid)
+                logger.warning("Could not send stop signal to PostgreSQL with PID {0}".format(self.pid))
                 return False
 
     def wait_for_user_backends_to_close(self):
