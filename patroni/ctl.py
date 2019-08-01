@@ -524,7 +524,7 @@ def restart(obj, cluster_name, member_names, force, role, p_any, scheduled, vers
     cluster = get_dcs(obj, cluster_name).get_cluster()
 
     if scheduled is None and not force:
-        next_hour = (datetime.datetime.now() + datetime.timedelta(hours=1)).replace(second=0, microsecond=0).isoformat()
+        next_hour = (datetime.datetime.now() + datetime.timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M')
         scheduled = click.prompt('When should the restart take place (e.g. ' + next_hour + ') ',
                                  type=str, default='now')
 
