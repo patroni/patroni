@@ -646,7 +646,8 @@ def _do_failover_or_switchover(obj, action, cluster_name, master, candidate, for
 
     if action == 'switchover':
         if scheduled is None and not force:
-            scheduled = click.prompt('When should the switchover take place (e.g. 2015-10-01T14:30) ',
+            next_hour = (datetime.datetime.now() + datetime.timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M')
+            scheduled = click.prompt('When should the switchover take place (e.g. ' + next_hour + ' ) ',
                                      type=str, default='now')
 
         scheduled_at = parse_scheduled(scheduled)
