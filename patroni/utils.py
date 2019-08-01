@@ -1,7 +1,6 @@
 import logging
 import random
 import re
-import socket
 import time
 
 from dateutil import tz
@@ -347,12 +346,8 @@ def split_host_port(value, default_port):
 
 def uri(proto, netloc, path='', user=None):
     host, port = netloc if isinstance(netloc, (list, tuple)) else split_host_port(netloc, 0)
-    if host and host[0] != '[' and host[-1] != ']':
-        try:
-            socket.inet_pton(socket.AF_INET6, host)
-            host = '[{0}]'.format(host)
-        except socket.error:
-            pass
+    if host and ':' in host and host[0] != '[' and host[-1] != ']':
+        host = '[{0}]'.format(host)
     port = ':{0}'.format(port) if port else ''
     path = '/{0}'.format(path) if path and not path.startswith('/') else path
     user = '{0}@'.format(user) if user else ''
