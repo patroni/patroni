@@ -101,7 +101,7 @@ class PostmasterProcess(psutil.Process):
         except psutil.NoSuchProcess:
             return None
 
-    def signal_stop(self, mode):
+    def signal_stop(self, pg_ctl, mode):
         """Signal postmaster process to stop
 
         :returns None if signaled, True if process is already gone, False if error
@@ -119,7 +119,7 @@ class PostmasterProcess(psutil.Process):
                 logger.warning("Could not send stop signal to PostgreSQL (error: {0})".format(e))
                 return False
         else:
-            if subprocess.call(['pg_ctl', 'kill', STOP_SIGNALS[mode], self.pid]) == 0:
+            if subprocess.call([pg_ctl, 'kill', STOP_SIGNALS[mode], self.pid]) == 0:
                 return None
             elif not self.is_running():
                 return True

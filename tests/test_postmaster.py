@@ -69,13 +69,13 @@ class TestPostmasterProcess(unittest.TestCase):
     @patch('psutil.Process.is_running', Mock(side_effect=[False, True]))
     def test_signal_stop(self, mock_send_signal):
         proc = PostmasterProcess(-123)
-        self.assertEqual(proc.signal_stop('immediate'), False)
+        self.assertEqual(proc.signal_stop('pg_ctl', 'immediate'), False)
 
         mock_send_signal.side_effect = [None, psutil.NoSuchProcess(123), psutil.AccessDenied()]
         proc = PostmasterProcess(123)
-        self.assertEqual(proc.signal_stop('immediate'), None)
-        self.assertEqual(proc.signal_stop('immediate'), True)
-        self.assertEqual(proc.signal_stop('immediate'), False)
+        self.assertEqual(proc.signal_stop('pg_ctl', 'immediate'), None)
+        self.assertEqual(proc.signal_stop('pg_ctl', 'immediate'), True)
+        self.assertEqual(proc.signal_stop('pg_ctl', 'immediate'), False)
 
     @patch('psutil.Process.__init__', Mock())
     @patch('psutil.wait_procs')

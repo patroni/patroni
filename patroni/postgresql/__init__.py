@@ -511,7 +511,7 @@ class Postgresql(object):
             self.set_state('stopping')
 
         # Send signal to postmaster to stop
-        success = postmaster.signal_stop(mode)
+        success = postmaster.signal_stop(self.pgcommand('pg_ctl'), mode)
         if success is not None:
             if success and on_safepoint:
                 on_safepoint()
