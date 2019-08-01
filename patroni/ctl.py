@@ -667,7 +667,7 @@ def _do_failover_or_switchover(obj, action, cluster_name, master, candidate, for
     if not force:
         demote_msg = ', demoting current master ' + master if master else ''
         if scheduled_at_str:
-            if not click.confirm('Are you sure you want to schedule {0} of cluster {1} at {2} {3}?'
+            if not click.confirm('Are you sure you want to schedule {0} of cluster {1} at {2}{3}?'
                                  .format(action, cluster_name, scheduled_at_str, demote_msg)):
                 raise PatroniCtlException('Aborting scheduled ' + action)
         else:
