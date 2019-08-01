@@ -554,8 +554,6 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         dual_stack = self.__has_dual_stack()
         if host == '':
             host = None
-        if host is None and dual_stack:
-            host = '::'
 
         info = socket.getaddrinfo(host, port, socket.AF_UNSPEC, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)
         # in case dual stack is not supported we want IPv4 to be preferred over IPv6

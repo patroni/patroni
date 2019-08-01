@@ -414,9 +414,8 @@ class TestRestApiServer(unittest.TestCase):
         srv = MockRestApiServer(lambda a1, a2, a3: None, '')
         self.assertRaises(ValueError, srv.reload_config, bad_config)
         self.assertRaises(ValueError, srv.reload_config, {})
-        srv.reload_config({'listen': ':8008'})
         with patch.object(socket.socket, 'setsockopt', Mock(side_effect=socket.error)):
-            srv.reload_config({'listen': '::1:8009'})
+            srv.reload_config({'listen': ':8008'})
 
     def test_handle_error(self):
         try:
