@@ -107,7 +107,7 @@ class PostmasterProcess(psutil.Process):
         :returns None if signaled, True if process is already gone, False if error
         """
         if self.is_single_user:
-            logger.warning("Cannot stop server; single-user server is running (PID: {0})".format(self.pid))
+            logger.warning("Cannot stop server; single-user server is running with PID %s)", self.pid)
             return False
         if os.name != "nt":
             try:
@@ -119,12 +119,12 @@ class PostmasterProcess(psutil.Process):
                 logger.warning("Could not send stop signal to PostgreSQL (error: {0})".format(e))
                 return False
         else:
-            if subprocess.call([pg_ctl, 'kill', STOP_SIGNALS[mode], self.pid]) == 0:
+            if subprocess.call([pg_ctl, 'kill', STOP_SIGNALS[mode], str(self.pid)]) == 0:
                 return None
             elif not self.is_running():
                 return True
             else:
-                logger.warning("Could not send stop signal to PostgreSQL with PID {0}".format(self.pid))
+                logger.warning("Could not send stop signal to PostgreSQL with PID %s", self.pid)
                 return False
 
     def wait_for_user_backends_to_close(self):
