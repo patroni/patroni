@@ -90,8 +90,12 @@ class TestCtl(unittest.TestCase):
             result = self.runner.invoke(ctl, ['switchover', 'dummy', '--force', '--scheduled', '2015-01-01T12:00:00'])
             assert result.exit_code == 1
 
-        # Aborting switchover, as we anser NO to the confirmation
+        # Aborting switchover, as we answer NO to the confirmation
         result = self.runner.invoke(ctl, ['switchover', 'dummy'], input='leader\nother\n\nN')
+        assert result.exit_code == 1
+
+        # Aborting scheduled switchover, as we answer NO to the confirmation
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--scheduled', '2015-01-01T12:00:00+01:00'], input='leader\nother\n\nN')
         assert result.exit_code == 1
 
         # Target and source are equal
@@ -246,7 +250,7 @@ class TestCtl(unittest.TestCase):
     @patch('patroni.ctl.get_dcs')
     def test_restart_reinit(self, mock_get_dcs):
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
-        result = self.runner.invoke(ctl, ['restart', 'alpha'], input='y\n\nnow')
+        result = self.runner.invoke(ctl, ['restart', 'alpha'], input='now\ny\n')
         assert 'Failed: restart for' in result.output
         assert result.exit_code == 0
 
@@ -258,18 +262,22 @@ class TestCtl(unittest.TestCase):
         assert result.exit_code == 0
 
         # Aborted restart
-        result = self.runner.invoke(ctl, ['restart', 'alpha'], input='N')
+        result = self.runner.invoke(ctl, ['restart', 'alpha'], input='now\nN')
         assert result.exit_code == 1
 
         result = self.runner.invoke(ctl, ['restart', 'alpha', '--pending', '--force'])
         assert result.exit_code == 0
 
+        # Aborted scheduled restart
+        result = self.runner.invoke(ctl, ['restart', 'alpha', '--scheduled', '2019-10-01T14:30'], input='N')
+        assert result.exit_code == 1
+
         # Not a member
-        result = self.runner.invoke(ctl, ['restart', 'alpha', 'dummy', '--any'], input='y')
+        result = self.runner.invoke(ctl, ['restart', 'alpha', 'dummy', '--any'], input='now\ny')
         assert result.exit_code == 1
 
         # Wrong pg version
-        result = self.runner.invoke(ctl, ['restart', 'alpha', '--any', '--pg-version', '9.1'], input='y')
+        result = self.runner.invoke(ctl, ['restart', 'alpha', '--any', '--pg-version', '9.1'], input='now\ny')
         assert 'Error: Invalid PostgreSQL version format' in result.output
         assert result.exit_code == 1
 
