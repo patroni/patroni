@@ -116,7 +116,10 @@ option_insecure = click.option('-k', '--insecure', is_flag=True, help='Allow con
 @option_insecure
 @click.pass_context
 def ctl(ctx, config_file, dcs, insecure):
-    logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=os.environ.get('LOGLEVEL', 'WARNING'))
+    level = 'WARNING'
+    for name in ('LOGLEVEL', 'PATRONI_LOGLEVEL', 'PATRONI_LOG_LEVEL'):
+        level = os.environ.get(name, level)
+    logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=level)
     logging.captureWarnings(True)  # Capture eventual SSL warning
     ctx.obj = load_config(config_file, dcs)
     # backward compatibility for configuration file where ctl section is not define
@@ -1109,9 +1112,9 @@ def invoke_editor(before_editing, cluster_name):
     :param before_editing: human representation before editing
     :returns tuple of human readable and parsed datastructure after changes
     """
-    if 'EDITOR' in os.environ:
-        editor_cmd = os.environ.get('EDITOR')
-    else:
+
+    editor_cmd = os.environ.get('EDITOR')
+    if not editor_cmd:
         for editor in ('editor', 'vi'):
             editor_cmd = find_executable(editor)
             if editor_cmd:

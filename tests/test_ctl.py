@@ -25,9 +25,9 @@ CONFIG_FILE_PATH = './test-ctl.yaml'
 def test_rw_config():
     runner = CliRunner()
     with runner.isolated_filesystem():
-        store_config({'etcd': {'host': 'localhost:2379'}}, CONFIG_FILE_PATH + '/dummy')
         sys.argv = ['patronictl.py', '']
         load_config(CONFIG_FILE_PATH + '/dummy', None)
+        store_config({'etcd': {'host': 'localhost:2379'}}, CONFIG_FILE_PATH + '/dummy')
         load_config(CONFIG_FILE_PATH + '/dummy', '0.0.0.0')
         os.remove(CONFIG_FILE_PATH + '/dummy')
         os.rmdir(CONFIG_FILE_PATH)
@@ -544,9 +544,10 @@ class TestCtl(unittest.TestCase):
 
     @patch('subprocess.call', return_value=1)
     def test_invoke_editor(self, mock_subprocess_call):
-        for e in ('', 'false'):
-            os.environ['EDITOR'] = e
-            self.assertRaises(PatroniCtlException, invoke_editor, 'foo: bar\n', 'test')
+        os.environ.pop('EDITOR', None)
+        for e in ('', '/bin/vi'):
+            with patch('patroni.ctl.find_executable', Mock(return_value=e)):
+                self.assertRaises(PatroniCtlException, invoke_editor, 'foo: bar\n', 'test')
 
     @patch('patroni.ctl.get_dcs')
     def test_show_config(self, mock_get_dcs):

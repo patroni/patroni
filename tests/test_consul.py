@@ -197,3 +197,6 @@ class TestConsul(unittest.TestCase):
         d['state'] = 'running'
         d['role'] = 'bla'
         self.assertIsNone(self.c.update_service({}, d))
+
+    def test_reload_config(self):
+        self.c.reload_config({'consul': {'token': 'foo'}, 'loop_wait': 10, 'ttl': 30, 'retry_timeout': 10})

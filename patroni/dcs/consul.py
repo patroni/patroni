@@ -135,9 +135,10 @@ class ConsulClient(base.Consul):
             kwargs['token'] = self.token
         return HTTPClient(**kwargs)
 
-    def set_token(self, token):
-        self.token = token
-        self.http.token = self.token
+    def reload_config(self, config):
+        self.http.token = self.token = config.get('token')
+        self.consistency = config.get('consistency', 'default')
+        self.dc = config.get('dc')
 
 
 def catch_consul_errors(func):
@@ -237,11 +238,8 @@ class Consul(AbstractDCS):
                 time.sleep(5)
 
     def reload_config(self, config):
-        consul = config.get('consul')
-        if consul:
-            self._client.set_token(consul.get('token'))
-
         super(Consul, self).reload_config(config)
+        self._client.reload_config(config.get('consul', {}))
 
     def set_ttl(self, ttl):
         if self._client.http.set_ttl(ttl/2.0):  # Consul multiplies the TTL by 2x
