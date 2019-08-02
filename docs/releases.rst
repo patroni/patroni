@@ -3,6 +3,118 @@
 Release notes
 =============
 
+Version 1.6.0
+-------------
+
+This version adds compatibility with PostgreSQL 12, makes is possible to run pg_rewind without superuser on PostgreSQL 11 and newer, and enables IPv6 support.
+
+
+**New features**
+
+- Psycopg2 was removed from requirements and must be installed independently (Alexander Kukushkin)
+
+  Starting from 2.8.0 `psycopg2` was split into two different packages, `psycopg2`, and `psycopg2-binary`, which could be installed at the same time into the same place on the filesystem. In order to decrease dependency hell problem, we let a user choose how to install it. There are a few options available, please consult the :ref:`documentation <psycopg2_install_options>`.
+
+- Compatibility with PostgreSQL 12 (Alexander Kukushkin)
+
+  Starting from PostgreSQL 12 there is no `recovery.conf` anymore and all former recovery parameters are converted into `GUC`. In order to protect from ``ALTER SYSTEM SET primary_conninfo`` or similar, Patroni will parse `postgresql.auto.conf` and remove all standby and recovery parameters from there. Patroni config remains backward compatible. For example despite `restore_command` being a GUC, one can still specify it in the ``postgresql.recovery_conf.restore_command`` section and Patroni will write it into `postgresql.conf` for PostgreSQL 12.
+
+- Make it possible to use pg_rewind without superuser on PostgreSQL 11 and newer (Alexander Kukushkin)
+
+  If you want to use this feature please define ``username`` and ``password`` in the ``postgresql.authentication.rewind`` section of Patroni configuration file. For already existing cluster you will have to create the user manually and GRANT EXECUTE permission on a few functions. You can find more details in the PostgreSQL `documentation <https://www.postgresql.org/docs/11/app-pgrewind.html#id-1.9.5.8.8>`__.
+
+- Do a smart comparison of actual and desired `primary_conninfo` values on replicas (Alexander Kukushkin)
+
+  It might help to avoid replica restart when you are converting already existing primary-standby cluster to the cluster managed by Patroni
+
+- IPv6 support (Alexander Kukushkin)
+
+  There were two major issues. Patroni REST API service was listening only on `0.0.0.0` and IPv6 ip addresses used in the `api_url` and `conn_url` were not properly quoted.
+
+- Kerberos support (Ajith Vilas, Alexander Kukushkin)
+
+  It makes possible using Kerberos authentication between postgres nodes instead of defining passwords in Patroni configuration file
+
+- Manage pg_ident.conf (Alexander Kukushkin)
+
+  This functionality works similarly to the ``pg_hba``: if the ``postgresql.pg_ident`` is defined in the config file or DCS, Patroni will write its value to ``pg_ident.conf``, however, if ``postgresql.parameters.ident_file`` is defined, Patroni will assume that `pg_ident` is managed from outside and not update the file.
+
+
+  **Improvements in REST API**
+
+- Added `/health` endpoint (Wilfried Roset)
+
+  It will return HTTP status code only if PostgreSQL is running
+
+- Added `/read-only` and `/read-write` endpoints (Julien Riou)
+
+  The ``/read-only`` endpoint enables reads balanced across replicas and the primary. The ``/read-write`` endpoint is an alias for ``/primary``, ``/leader`` and ``/master``.
+
+- Use `SSLContext` to wrap REST API socket (Julien Riou)
+
+  Usage of `ssl.wrap_socket()` is deprecated and was still allowing soon-to-be-deprecated protocols like TLS 1.1.
+
+
+**Logging improvements**
+
+- Two-step logging (Alexander Kukushkin)
+
+  All log messages are first written into the in-memory queue and later they are asynchronously flushed into the stderr or file from a separate thread. The maximum queue size is limited (configurable). If the limit is reached Patroni will start losing logs, which is still better than blocking HA loop.
+
+- Enable debug logging for GET/OPTIONS API calls together with latency (Jan Tomsa)
+
+  It will help with debugging of health-checks performed by HAProxy, Consul or other tooling that decides which node is the primary/replica.
+
+- Log exceptions caught in Retry (Daniel Kucera)
+
+  Log the final exception when either the number of attempts or the timeout were reached, it will hopefully help to debug some issues when communication to DCS fails.
+
+
+**Improvements in patronictl**
+
+- Enhance dialogues for scheduled switchover and restart (Rafia Sabih)
+
+  Previously dialogues did not take into account scheduled actions and therefore were missleading.
+
+- Check if config file exists (Wilfried Roset)
+
+  Be verbose about configuration file when the given filename does not exists instead of ignoring silently (which can lead to misunderstanding).
+
+- Add fallback value for EDITOR (Wilfried Roset)
+
+  If the ``EDITOR`` environment variable is not defined ``patronictl edit-config`` was failing with `PatroniCtlException`. The new strategy is to try ``editor`` and than ``vi``, which should be available on most of the systems.
+
+
+**Improvements in Consul support**
+
+- Allow to specify Consul consistency mode (Jan Tomsa)
+
+  You can read more about consistency mode `here <https://www.consul.io/api/features/consistency.html>`__.
+
+- Reload Consul config on SIGHUP (Cameron Daniel, Alexander Kukushkin)
+
+  It is especially useful when somebody is changing the value of ``token``.
+
+
+**Bugfixes**
+
+- Fix corner case in switchover/failover (Sharoon Thomas)
+
+  The variable scheduled_at may be undefined if REST API is not accessible and we are using DCS as a fallback.
+
+- Open trust to localhost in pg_hba.conf during custom bootstrap (Alexander Kukushkin)
+
+  Previously it was open only to unix_socket, what was causing a lot of errors: ``FATAL:  no pg_hba.conf entry for replication connection from host "127.0.0.1", user "replicator"``
+
+- Consider synchronous node as a healthy even when the former leader is ahead (Alexander Kukushkin)
+
+  If the primary lost access to the DCS it restarts postgres in read-only, but it might happen that other nodes can still access the old primary via REST API. Such situation was causing the synchronous standby not to promote because the old primary was reporting wal position ahead of the synchronous standby.
+
+- Standby cluster bugfixes (Alexander Kukushkin)
+
+  Make it possible to bootstrap a replica in a standby cluster when the standby_leader is not accessible and a few other minor fixes.
+
+
 Version 1.5.6
 -------------
 
