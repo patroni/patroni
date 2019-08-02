@@ -11,7 +11,7 @@ import urllib3
 from consul import ConsulException, NotFound, base
 from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
 from patroni.exceptions import DCSError
-from patroni.utils import deep_compare, parse_bool, Retry, RetryFailedError, split_host_port
+from patroni.utils import deep_compare, parse_bool, Retry, RetryFailedError, split_host_port, uri
 from urllib3.exceptions import HTTPError
 from six.moves.urllib.parse import urlencode, urlparse, quote
 from six.moves.http_client import HTTPException
@@ -40,7 +40,7 @@ class HTTPClient(object):
     def __init__(self, host='127.0.0.1', port=8500, token=None, scheme='http', verify=True, cert=None, ca_cert=None):
         self.token = token
         self._read_timeout = 10
-        self.base_uri = '{0}://{1}:{2}'.format(scheme, host, port)
+        self.base_uri = uri(scheme, (host, port))
         kwargs = {}
         if cert:
             if isinstance(cert, tuple):

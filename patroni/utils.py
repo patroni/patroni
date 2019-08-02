@@ -342,3 +342,13 @@ def split_host_port(value, default_port):
     t = value.rsplit(':', 1)
     t.append(default_port)
     return t[0], int(t[1])
+
+
+def uri(proto, netloc, path='', user=None):
+    host, port = netloc if isinstance(netloc, (list, tuple)) else split_host_port(netloc, 0)
+    if host and ':' in host and host[0] != '[' and host[-1] != ']':
+        host = '[{0}]'.format(host)
+    port = ':{0}'.format(port) if port else ''
+    path = '/{0}'.format(path) if path and not path.startswith('/') else path
+    user = '{0}@'.format(user) if user else ''
+    return '{0}://{1}{2}{3}{4}'.format(proto, user, host, port, path)

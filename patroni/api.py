@@ -7,11 +7,12 @@ import traceback
 import dateutil.parser
 import datetime
 import os
+import socket
 
 from patroni.postgresql import PostgresConnectionException
 from patroni.postgresql.misc import postgres_version_to_int, PostgresException
 from patroni.utils import deep_compare, parse_bool, patch_config, Retry, \
-    RetryFailedError, parse_int, split_host_port, tzutc
+    RetryFailedError, parse_int, split_host_port, tzutc, uri
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from six.moves.socketserver import ThreadingMixIn
 from threading import Thread
@@ -532,8 +533,34 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
     def __set_config_parameters(self, config):
         self.__auth_key = base64.b64encode(config['auth'].encode('utf-8')).decode('utf-8') if 'auth' in config else None
-        self.connection_string = '{0}://{1}/patroni'.format(self.__protocol,
-                                                            config.get('connect_address') or self.__listen)
+        self.connection_string = uri(self.__protocol, config.get('connect_address') or self.__listen, 'patroni')
+
+    @staticmethod
+    def __has_dual_stack():
+        if hasattr(socket, 'AF_INET6') and hasattr(socket, 'IPPROTO_IPV6') and hasattr(socket, 'IPV6_V6ONLY'):
+            sock = None
+            try:
+                sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+                sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, False)
+                return True
+            except socket.error as e:
+                logger.debug('Error when working with ipv6 socket: %s', e)
+            finally:
+                if sock:
+                    sock.close()
+        return False
+
+    def __httpserver_init(self, host, port):
+        dual_stack = self.__has_dual_stack()
+        if host == '':
+            host = None
+
+        info = socket.getaddrinfo(host, port, socket.AF_UNSPEC, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)
+        # in case dual stack is not supported we want IPv4 to be preferred over IPv6
+        info.sort(key=lambda x: x[0] == socket.AF_INET, reverse=not dual_stack)
+
+        self.address_family = info[0][0]
+        HTTPServer.__init__(self, info[0][-1][:2], RestApiHandler)
 
     def __initialize(self, config):
         try:
@@ -548,7 +575,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self.__listen = config['listen']
         self.__ssl_options = self.__get_ssl_options(config)
 
-        HTTPServer.__init__(self, (host, port), RestApiHandler)
+        self.__httpserver_init(host, port)
         Thread.__init__(self, target=self.serve_forever)
         self._set_fd_cloexec(self.socket)
 

@@ -14,7 +14,7 @@ import time
 from collections import defaultdict, namedtuple
 from copy import deepcopy
 from patroni.exceptions import PatroniException
-from patroni.utils import parse_bool
+from patroni.utils import parse_bool, uri
 from random import randint
 from six.moves.urllib_parse import urlparse, urlunparse, parse_qsl
 from threading import Event, Lock
@@ -134,10 +134,7 @@ class Member(namedtuple('Member', 'index,name,session,data')):
             return conn_url
 
         if conn_kwargs:
-            conn_url = 'postgresql://{host}:{port}'.format(
-                host=conn_kwargs.get('host'),
-                port=conn_kwargs.get('port', 5432),
-            )
+            conn_url = uri('postgresql', (conn_kwargs.get('host'), conn_kwargs.get('port', 5432)))
             self.data['conn_url'] = conn_url
             return conn_url
 
