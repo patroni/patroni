@@ -244,7 +244,8 @@ class Leader(namedtuple('Leader', 'index,session,member')):
         version = self.member.data.get('version')
         if version:
             try:
-                if tuple(map(int, version.split('.'))) >= (1, 5, 6):
+                # 1.5.6 is the last version which doesn't expose checkpoint_after_promote: false
+                if tuple(map(int, version.split('.'))) > (1, 5, 6):
                     return self.member.data['role'] == 'master' and 'checkpoint_after_promote' not in self.member.data
             except Exception:
                 logger.debug('Failed to parse Patroni version %s', version)
