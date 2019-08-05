@@ -95,7 +95,8 @@ class TestCtl(unittest.TestCase):
         assert result.exit_code == 1
 
         # Aborting scheduled switchover, as we answer NO to the confirmation
-        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--scheduled', '2015-01-01T12:00:00+01:00'], input='leader\nother\n\nN')
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--scheduled', '2015-01-01T12:00:00+01:00'],
+                                    input='leader\nother\n\nN')
         assert result.exit_code == 1
 
         # Target and source are equal
