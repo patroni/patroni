@@ -140,7 +140,7 @@ PostgreSQL
         -  **username**: replication username; the user will be created during initialization. Replicas will use this user to access master via streaming replication
         -  **password**: replication password; the user will be created during initialization.
     -  **rewind**:
-        -  **username**: name for the user for ``pg_rewind``; the user will be created during initialization of postgres 11+ and all necessary `permissions <https://paquier.xyz/postgresql-2/postgres-11-superuser-rewind/>`__ will be granted.
+        -  **username**: name for the user for ``pg_rewind``; the user will be created during initialization of postgres 11+ and all necessary `permissions <https://www.postgresql.org/docs/11/app-pgrewind.html#id-1.9.5.8.8>`__ will be granted.
         -  **password**: password for the user for ``pg_rewind``; the user will be created during initialization.
 -  **callbacks**: callback scripts to run on certain actions. Patroni will pass the action, role and cluster name. (See scripts/aws.py as an example of how to write them.)
         -  **on\_reload**: run this script when configuration reload is triggered.
