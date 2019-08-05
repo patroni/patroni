@@ -5,6 +5,7 @@ import etcd
 import kazoo.client
 import kazoo.exceptions
 import os
+import tempfile
 import psutil
 import psycopg2
 import json
@@ -149,7 +150,14 @@ class PatroniController(AbstractController):
 
     def stop(self, kill=False, timeout=15, postgres=False):
         if postgres:
-            return subprocess.call(['pg_ctl', '-D', self._data_dir, 'stop', '-mi', '-w'])
+            subprocess.check_call(['pg_ctl', '-D', self._data_dir, 'stop', '-mi', '-w'])
+            pid = self._get_pid()
+            if pid:
+                try:
+                    os.waitpid(pid, 0)
+                except OSError:
+                    pass
+
         super(PatroniController, self).stop(kill, timeout)
         if isinstance(self._context.dcs_ctl, KubernetesController):
             self._context.dcs_ctl.delete_pod(self._name[8:])
@@ -175,11 +183,13 @@ class PatroniController(AbstractController):
         config['postgresql']['listen'] = config['postgresql']['connect_address'] = '{0}:{1}'.format(host, self.__PORT)
 
         config['name'] = name
+        config['log'] = {'level': 'DEBUG'}
         config['postgresql']['data_dir'] = self._data_dir
         config['postgresql']['use_unix_socket'] = True
+        config['postgresql']['pgpass'] = os.path.join(tempfile.gettempdir(), 'pgpass0')
         config['postgresql']['parameters'].update({
             'logging_collector': 'on', 'log_destination': 'csvlog', 'log_directory': self._output_dir,
-            'log_filename': name + '.log', 'log_statement': 'all', 'log_min_messages': 'debug1',
+            'log_filename': name + '.log', 'log_statement': 'all', 'log_min_messages': 'debug2',
             'unix_socket_directories': self._data_dir})
 
         if 'bootstrap' in config:
@@ -606,11 +616,11 @@ class PatroniPoolController(object):
     def stop_all(self):
         for ctl in self._processes.values():
             ctl.cancel_background()
-            ctl.stop()
+            ctl.stop(postgres=True)
         self._processes.clear()
 
     def create_and_set_output_directory(self, feature_name):
-        feature_dir = os.path.join(self.patroni_path, 'features/output', feature_name.replace(' ', '_'))
+        feature_dir = os.path.join(self.patroni_path, 'features', 'output', feature_name.replace(' ', '_'))
         if os.path.exists(feature_dir):
             shutil.rmtree(feature_dir)
         os.makedirs(feature_dir)
@@ -799,7 +809,7 @@ class WatchdogMonitor(object):
 def before_all(context):
     os.environ.update({'PATRONI_RESTAPI_USERNAME': 'username', 'PATRONI_RESTAPI_PASSWORD': 'password'})
     context.ci = 'TRAVIS_BUILD_NUMBER' in os.environ or 'BUILD_NUMBER' in os.environ
-    context.timeout_multiplier = 2 if context.ci else 1
+    context.timeout_multiplier = 3 if context.ci or os.name == 'nt' else 1
     context.pctl = PatroniPoolController(context)
     context.dcs_ctl = context.pctl.known_dcs[context.pctl.dcs](context)
     context.dcs_ctl.start()
@@ -818,13 +828,25 @@ def after_all(context):
 
 def before_feature(context, feature):
     """ create per-feature output directory to collect Patroni and PostgreSQL logs """
+    if os.path.exists(os.path.join(context.pctl.patroni_path, 'data')):
+        shutil.rmtree(os.path.join(context.pctl.patroni_path, 'data'))
     context.pctl.create_and_set_output_directory(feature.name)
 
 
 def after_feature(context, feature):
     """ stop all Patronis, remove their data directory and cleanup the keys in etcd """
+
+    def rm_readonly(func, path, _):
+        """On Windows clear the readonly bit just in case and try again hoping pg instance is terminated already"""
+        if os.name != 'nt':
+            return
+        import stat
+        time.sleep(context.timeout_multiplier)
+        os.chmod(path, stat.S_IWRITE)
+        shutil.rmtree(path, ignore_errors=True)
+
     context.pctl.stop_all()
-    shutil.rmtree(os.path.join(context.pctl.patroni_path, 'data'))
+    shutil.rmtree(os.path.join(context.pctl.patroni_path, 'data'), onerror=rm_readonly)
     context.dcs_ctl.cleanup_service_tree()
     if feature.status == 'failed':
         shutil.copytree(context.pctl.output_dir, context.pctl.output_dir + '_failed')

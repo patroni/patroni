@@ -109,6 +109,7 @@ class PostmasterProcess(psutil.Process):
         if self.is_single_user:
             logger.warning("Cannot stop server; single-user server is running with PID %s)", self.pid)
             return False
+
         if os.name != "nt":
             try:
                 self.send_signal(STOP_SIGNALS[mode])
@@ -126,6 +127,7 @@ class PostmasterProcess(psutil.Process):
             else:
                 logger.warning("Could not send stop signal to PostgreSQL with PID %s", self.pid)
                 return False
+
 
     def wait_for_user_backends_to_close(self):
         # These regexps are cross checked against versions PostgreSQL 9.1 .. 11
