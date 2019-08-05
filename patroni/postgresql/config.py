@@ -135,12 +135,13 @@ def parse_dsn(value):
         ret = conninfo_parse(value)
 
     if ret:
-        requiressl = ret.pop('requiressl', None)
-        if requiressl == '1':
-            ret['sslmode'] = 'require'
-        elif requiressl is not None:
-            ret['sslmode'] = 'prefer'
-        ret.setdefault('sslmode', 'prefer')
+        if 'sslmode' not in ret:  # allow sslmode to take precedence over requiressl
+            requiressl = ret.pop('requiressl', None)
+            if requiressl == '1':
+                ret['sslmode'] = 'require'
+            elif requiressl is not None:
+                ret['sslmode'] = 'prefer'
+            ret.setdefault('sslmode', 'prefer')
         if 'dbname' in ret:
             del ret['dbname']
     return ret
