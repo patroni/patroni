@@ -67,13 +67,13 @@ Example session:
 
     $ docker exec -ti demo-patroni1 bash
     postgres@patroni1:~$ patronictl list
-    +-------------+----------+------------+--------+---------+----+-----------+
-    |   Cluster   |  Member  |    Host    |  Role  |  State  | TL | Lag in MB |
-    +-------------+----------+------------+--------+---------+----+-----------+
-    | testcluster | patroni1 | 172.21.0.3 | Leader | running |  1 |         0 |
-    | testcluster | patroni2 | 172.21.0.4 |        | running |  1 |         0 |
-    | testcluster | patroni3 | 172.21.0.5 |        | running |  1 |         0 |
-    +-------------+----------+------------+--------+---------+----+-----------+
+    +---------+----------+------------+--------+---------+----+-----------+
+    | Cluster |  Member  |    Host    |  Role  |  State  | TL | Lag in MB |
+    +---------+----------+------------+--------+---------+----+-----------+
+    |   demo  | patroni1 | 172.22.0.3 | Leader | running |  1 |         0 |
+    |   demo  | patroni2 | 172.22.0.7 |        | running |  1 |         0 |
+    |   demo  | patroni3 | 172.22.0.4 |        | running |  1 |         0 |
+    +---------+----------+------------+--------+---------+----+-----------+
 
     postgres@patroni1:~$ etcdctl ls --recursive --sort -p /service/demo
     /service/demo/config
