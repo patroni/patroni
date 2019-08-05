@@ -91,6 +91,8 @@ PostgreSQL
 -  **PATRONI\_REPLICATION\_PASSWORD**: replication password; the user will be created during initialization.
 -  **PATRONI\_SUPERUSER\_USERNAME**: name for the superuser, set during initialization (initdb) and later used by Patroni to connect to the postgres. Also this user is used by pg_rewind.
 -  **PATRONI\_SUPERUSER\_PASSWORD**: password for the superuser, set during initialization (initdb).
+-  **PATRONI\_REWIND\_USERNAME**: name for the user for ``pg_rewind``; the user will be created during initialization of postgres 11+ and all necessary `permissions <https://www.postgresql.org/docs/11/app-pgrewind.html#id-1.9.5.8.8>`__ will be granted.
+-  **PATRONI\_REWIND\_PASSWORD**: password for the user for ``pg_rewind``; the user will be created during initialization.
 
 REST API
 --------
