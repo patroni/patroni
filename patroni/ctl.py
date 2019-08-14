@@ -1106,7 +1106,7 @@ def apply_yaml_file(data, filename):
 
 
 def find_executable(executable, path=None):
-    base, ext = os.path.splitext(executable)
+    _, ext = os.path.splitext(executable)
 
     if (sys.platform == 'win32') and (ext != '.exe'):
         executable = executable + '.exe'
