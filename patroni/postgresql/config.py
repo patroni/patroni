@@ -176,14 +176,14 @@ class ConfigHandler(object):
         'cluster_name': (None, lambda _: False, 90500),
         'wal_level': ('hot_standby', lambda v: v.lower() in ('hot_standby', 'replica', 'logical'), 90100),
         'hot_standby': ('on', lambda _: False, 90100),
-        'max_connections': (100, lambda v: int(v) >= 100, 90100),
-        'max_wal_senders': (10, lambda v: int(v) >= 10, 90100),
-        'wal_keep_segments': (8, lambda v: int(v) >= 8, 90100),
+        'max_connections': (100, lambda v: int(v) >= 25, 90100),
+        'max_wal_senders': (10, lambda v: int(v) >= 3, 90100),
+        'wal_keep_segments': (8, lambda v: int(v) >= 1, 90100),
         'max_prepared_transactions': (0, lambda v: int(v) >= 0, 90100),
-        'max_locks_per_transaction': (64, lambda v: int(v) >= 64, 90100),
+        'max_locks_per_transaction': (64, lambda v: int(v) >= 32, 90100),
         'track_commit_timestamp': ('off', lambda v: parse_bool(v) is not None, 90500),
-        'max_replication_slots': (10, lambda v: int(v) >= 10, 90400),
-        'max_worker_processes': (8, lambda v: int(v) >= 8, 90400),
+        'max_replication_slots': (10, lambda v: int(v) >= 4, 90400),
+        'max_worker_processes': (8, lambda v: int(v) >= 2, 90400),
         'wal_log_hints': ('on', lambda _: False, 90400)
     })
 
