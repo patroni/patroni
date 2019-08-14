@@ -25,7 +25,6 @@ import yaml
 
 from click import ClickException
 from contextlib import contextmanager
-from distutils.spawn import find_executable
 from patroni.config import Config
 from patroni.dcs import get_dcs as _get_dcs
 from patroni.exceptions import PatroniException
@@ -1104,6 +1103,24 @@ def apply_yaml_file(data, filename):
     patch_config(changed_data, new_options)
 
     return format_config_for_editing(changed_data), changed_data
+
+
+def find_executable(executable, path=None):
+    base, ext = os.path.splitext(executable)
+
+    if (sys.platform == 'win32') and (ext != '.exe'):
+        executable = executable + '.exe'
+
+    if os.path.isfile(executable):
+        return executable
+
+    if path is None:
+        path = os.environ.get('PATH', os.defpath)
+
+    for p in path.split(os.pathsep):
+        f = os.path.join(p, executable)
+        if os.path.isfile(f):
+            return f
 
 
 def invoke_editor(before_editing, cluster_name):
