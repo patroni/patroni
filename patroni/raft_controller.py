@@ -29,7 +29,7 @@ class RaftController(AbstractPatroniDaemon):
         except Exception:
             logger.exception('doTick')
 
-    def shutdown(self):
+    def _shutdown(self):
         self._raft.destroy()
 
 

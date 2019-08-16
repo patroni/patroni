@@ -33,6 +33,8 @@ To install requirements on a Mac, run the following:
 
     brew install postgresql etcd haproxy libyaml python
 
+.. _psycopg2_install_options:
+
 **Psycopg2**
 
 Starting from `psycopg2-2.8 <http://initd.org/psycopg/articles/2019/04/04/psycopg-28-released/>`__ the binary version of psycopg2 will no longer be installed by default. Installing it from the source code requires C compiler and postgres+python dev packages.

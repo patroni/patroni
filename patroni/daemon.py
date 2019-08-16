@@ -59,8 +59,14 @@ class AbstractPatroniDaemon(object):
             self._run_cycle()
 
     @abc.abstractmethod
+    def _shutdown(self):
+        """_shutdown"""
+
     def shutdown(self):
-        """shutdown"""
+        with self._sigterm_lock:
+            self._received_sigterm = True
+        self._shutdown()
+        self.logger.shutdown()
 
 
 def abstract_main(cls):

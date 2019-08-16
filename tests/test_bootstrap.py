@@ -186,7 +186,8 @@ class TestBootstrap(BaseTestPostgresql):
                                                  'replication': {'username': 'r', 'password': 'r'},
                                                  'rewind': {'username': 'rw', 'password': 'rw'}},
                               'listen': '*', 'retry_timeout': 10, 'parameters': {'wal_level': '', 'hba_file': 'foo'}})
-        with patch.object(Postgresql, 'restart', Mock()) as mock_restart:
+        with patch.object(Postgresql, 'major_version', PropertyMock(return_value=110000)), \
+                patch.object(Postgresql, 'restart', Mock()) as mock_restart:
             self.b.post_bootstrap({}, task)
             mock_restart.assert_called_once()
 

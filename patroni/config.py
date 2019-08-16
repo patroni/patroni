@@ -232,7 +232,8 @@ class Config(object):
 
         _set_section_values('restapi', ['listen', 'connect_address', 'certfile', 'keyfile'])
         _set_section_values('postgresql', ['listen', 'connect_address', 'config_dir', 'data_dir', 'pgpass', 'bin_dir'])
-        _set_section_values('log', ['level', 'format', 'dateformat', 'dir', 'file_size', 'file_num', 'loggers'])
+        _set_section_values('log', ['level', 'format', 'dateformat', 'max_queue_size',
+                                    'dir', 'file_size', 'file_num', 'loggers'])
 
         def _parse_dict(value):
             if not value.strip().startswith('{'):
@@ -262,7 +263,7 @@ class Config(object):
             ret['restapi']['authentication'] = restapi_auth
 
         authentication = {}
-        for user_type in ('replication', 'superuser'):
+        for user_type in ('replication', 'superuser', 'rewind'):
             entry = _get_auth(user_type)
             if entry:
                 authentication[user_type] = entry
@@ -288,9 +289,9 @@ class Config(object):
                 # PATRONI_(ETCD|CONSUL|ZOOKEEPER|EXHIBITOR|...)_(HOSTS?|PORT|..)
                 name, suffix = (param[8:].split('_', 1) + [''])[:2]
                 if suffix in ('HOST', 'HOSTS', 'PORT', 'USE_PROXIES', 'PROTOCOL', 'SRV', 'URL', 'PROXY',
-                              'CACERT', 'CERT', 'KEY', 'VERIFY', 'TOKEN', 'CHECKS', 'DC', 'REGISTER_SERVICE',
-                              'SERVICE_CHECK_INTERVAL', 'NAMESPACE', 'CONTEXT', 'USE_ENDPOINTS', 'SCOPE_LABEL',
-                              'ROLE_LABEL', 'POD_IP', 'PORTS', 'LABELS') and name:
+                              'CACERT', 'CERT', 'KEY', 'VERIFY', 'TOKEN', 'CHECKS', 'DC', 'CONSISTENCY',
+                              'REGISTER_SERVICE', 'SERVICE_CHECK_INTERVAL', 'NAMESPACE', 'CONTEXT',
+                              'USE_ENDPOINTS', 'SCOPE_LABEL', 'ROLE_LABEL', 'POD_IP', 'PORTS', 'LABELS') and name:
                     value = os.environ.pop(param)
                     if suffix == 'PORT':
                         value = value and parse_int(value)

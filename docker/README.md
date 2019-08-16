@@ -67,24 +67,24 @@ Example session:
 
     $ docker exec -ti demo-patroni1 bash
     postgres@patroni1:~$ patronictl list
-    +-------------+----------+------------+--------+---------+----+-----------+
-    |   Cluster   |  Member  |    Host    |  Role  |  State  | TL | Lag in MB |
-    +-------------+----------+------------+--------+---------+----+-----------+
-    | testcluster | patroni1 | 172.21.0.3 | Leader | running |  1 |         0 |
-    | testcluster | patroni2 | 172.21.0.4 |        | running |  1 |         0 |
-    | testcluster | patroni3 | 172.21.0.5 |        | running |  1 |         0 |
-    +-------------+----------+------------+--------+---------+----+-----------+
+    +---------+----------+------------+--------+---------+----+-----------+
+    | Cluster |  Member  |    Host    |  Role  |  State  | TL | Lag in MB |
+    +---------+----------+------------+--------+---------+----+-----------+
+    |   demo  | patroni1 | 172.22.0.3 | Leader | running |  1 |         0 |
+    |   demo  | patroni2 | 172.22.0.7 |        | running |  1 |         0 |
+    |   demo  | patroni3 | 172.22.0.4 |        | running |  1 |         0 |
+    +---------+----------+------------+--------+---------+----+-----------+
 
-    postgres@patroni1:~$ etcdctl ls --recursive --sort -p /service/testcluster
-    /service/testcluster/config
-    /service/testcluster/initialize
-    /service/testcluster/leader
-    /service/testcluster/members/
-    /service/testcluster/members/patroni1
-    /service/testcluster/members/patroni2
-    /service/testcluster/members/patroni3
-    /service/testcluster/optime/
-    /service/testcluster/optime/leader
+    postgres@patroni1:~$ etcdctl ls --recursive --sort -p /service/demo
+    /service/demo/config
+    /service/demo/initialize
+    /service/demo/leader
+    /service/demo/members/
+    /service/demo/members/patroni1
+    /service/demo/members/patroni2
+    /service/demo/members/patroni3
+    /service/demo/optime/
+    /service/demo/optime/leader
 
     postgres@patroni1:~$ etcdctl member list
     1bab629f01fa9065: name=etcd3 peerURLs=http://etcd3:2380 clientURLs=http://etcd3:2379 isLeader=false

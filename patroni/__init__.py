@@ -112,15 +112,12 @@ class Patroni(AbstractPatroniDaemon):
 
         self.schedule_next_run()
 
-    def shutdown(self):
-        with self._sigterm_lock:
-            self._received_sigterm = True
+    def _shutdown(self):
         try:
             self.api.shutdown()
         except Exception:
             logger.exception('Exception during RestApi.shutdown')
         self.ha.shutdown()
-        logging.shutdown()
 
 
 def patroni_main():
