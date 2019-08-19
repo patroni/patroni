@@ -111,7 +111,8 @@ option_insecure = click.option('-k', '--insecure', is_flag=True, help='Allow con
 
 
 @click.group()
-@click.option('--config-file', '-c', help='Configuration file', envvar='PATRONICTL_CONFIG_FILE', default=CONFIG_FILE_PATH)
+@click.option('--config-file', '-c', help='Configuration file',
+              envvar='PATRONICTL_CONFIG_FILE', default=CONFIG_FILE_PATH)
 @click.option('--dcs', '-d', help='Use this DCS', envvar='DCS')
 @option_insecure
 @click.pass_context
