@@ -146,6 +146,7 @@ class Rewind(object):
     def pg_rewind(self, r):
         # prepare pg_rewind connection
         env = self._postgresql.write_pgpass(r)
+        env['PGOPTIONS'] = '-c statement_timeout=0'
         dsn_attrs = [
             ('user', r.get('user')),
             ('host', r.get('host')),
