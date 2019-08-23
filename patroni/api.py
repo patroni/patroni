@@ -101,9 +101,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
         else:
             primary_status_code = 200 if patroni.ha.is_leader() else 503
 
-        replica_status_code = 200 \
-            if not patroni.noloadbalance and response.get('role') == 'replica' and response.get('state') == 'running' \
-            else 503
+        replica_status_code = 200 if not patroni.noloadbalance and \
+            response.get('role') == 'replica' and response.get('state') == 'running' else 503
         status_code = 503
 
         if patroni.ha.is_standby_cluster() and ('standby_leader' in path or 'standby-leader' in path):
