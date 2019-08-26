@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: &cluster_name patronidemo
+  labels:
+    application: patroni
+    cluster-name: *cluster_name
+    
+spec:
+  type: ClusterIP
+  selector:
+    application: patroni
+    role: master
+    cluster-name: patronidemo
+  ports:
+  - port: 5432
+    targetPort: 5432
