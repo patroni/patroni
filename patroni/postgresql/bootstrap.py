@@ -344,8 +344,12 @@ END;$$""".format(name, ' '.join(options))
                     self.create_or_update_role(rewind['username'], rewind.get('password'), [])
                     for f in ('pg_ls_dir(text, boolean, boolean)', 'pg_stat_file(text, boolean)',
                               'pg_read_binary_file(text)', 'pg_read_binary_file(text, bigint, bigint, boolean)'):
-                        postgresql.query('GRANT EXECUTE ON function pg_catalog.{0} TO "{1}"'
-                                         .format(f, rewind['username']))
+                        sql = """DO $$
+BEGIN
+    SET local synchronous_commit = 'local';
+    GRANT EXECUTE ON function pg_catalog.{0} TO "{1}";
+END;$$""".format(f, rewind['username'])
+                        postgresql.query(sql)
 
                 for name, value in (config.get('users') or {}).items():
                     if all(name != a.get('username') for a in (superuser, replication, rewind)):
