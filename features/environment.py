@@ -1,7 +1,6 @@
 import abc
 import consul
 import datetime
-import etcd
 import kazoo.client
 import kazoo.exceptions
 import os
@@ -410,32 +409,19 @@ class ConsulController(AbstractDcsController):
         super(ConsulController, self).start(max_wait_limit)
 
 
-class EtcdController(AbstractDcsController):
+class AbstractEtcdController(AbstractDcsController):
 
     """ handles all etcd related tasks, used for the tests setup and cleanup """
 
-    def __init__(self, context):
-        super(EtcdController, self).__init__(context)
-        os.environ['PATRONI_ETCD_HOST'] = 'localhost:2379'
-        self._client = etcd.Client(port=2379)
+    def _create_client(self, client_cls):
+        from patroni.dcs.etcd import DnsCachingResolver
+
+        self._client = client_cls({'host': 'localhost', 'port': 2379, 'retry_timeout': 30,
+                                   'patronictl': 1}, DnsCachingResolver())
 
     def _start(self):
         return subprocess.Popen(["etcd", "--debug", "--data-dir", self._work_directory],
                                 stdout=self._log, stderr=subprocess.STDOUT)
-
-    def query(self, key, scope='batman'):
-        try:
-            return self._client.get(self.path(key, scope)).value
-        except etcd.EtcdKeyNotFound:
-            return None
-
-    def cleanup_service_tree(self):
-        try:
-            self._client.delete(self.path(scope=''), recursive=True)
-        except (etcd.EtcdKeyNotFound, etcd.EtcdConnectionFailed):
-            return
-        except Exception as e:
-            assert False, "exception when cleaning up etcd contents: {0}".format(e)
 
     def _is_running(self):
         # if etcd is running, but we didn't start it
@@ -443,6 +429,54 @@ class EtcdController(AbstractDcsController):
             return bool(self._client.machines)
         except Exception:
             return False
+
+
+class EtcdController(AbstractEtcdController):
+
+    def __init__(self, context, client_cls=None):
+        super(EtcdController, self).__init__(context)
+        os.environ['PATRONI_ETCD_HOST'] = 'localhost:2379'
+
+        from patroni.dcs.etcd import EtcdClient
+        self._create_client(EtcdClient)
+
+    def query(self, key, scope='batman'):
+        import etcd
+        try:
+            return self._client.get(self.path(key, scope)).value
+        except etcd.EtcdKeyNotFound:
+            return None
+
+    def cleanup_service_tree(self):
+        import etcd
+        try:
+            self._client.delete(self.path(scope=''), recursive=True)
+        except (etcd.EtcdKeyNotFound, etcd.EtcdConnectionFailed):
+            return
+        except Exception as e:
+            assert False, "exception when cleaning up etcd contents: {0}".format(e)
+
+
+class Etcd3Controller(AbstractEtcdController):
+
+    def __init__(self, context, client_cls=None):
+        super(Etcd3Controller, self).__init__(context)
+        os.environ['PATRONI_ETCD3_HOST'] = 'localhost:2379'
+
+        from patroni.dcs.etcd3 import Etcd3Client
+        self._create_client(Etcd3Client)
+
+    def query(self, key, scope='batman'):
+        import base64
+        response = self._client.range(self.path(key, scope))
+        for k in response.get('kvs', []):
+            return base64.b64decode(k['value']).decode('utf-8') if 'value' in k else None
+
+    def cleanup_service_tree(self):
+        try:
+            self._client.deleteprefix(self.path(scope=''))
+        except Exception as e:
+            assert False, "exception when cleaning up etcd contents: {0}".format(e)
 
 
 class KubernetesController(AbstractDcsController):

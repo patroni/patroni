@@ -18,6 +18,8 @@ matrix:
   - python: "3.6"
     env: DCS="etcd" TEST_SUITE="behave"
   - python: "3.6"
+    env: DCS="etcd3" TEST_SUITE="behave"
+  - python: "3.6"
     env: DCS="exhibitor" TEST_SUITE="behave"
   - python: "3.6"
     env: DCS="consul" TEST_SUITE="behave"
@@ -64,6 +66,10 @@ install:
                 mv etcd $EC
             fi
             ln -s $EC etcd
+        }
+
+        function get_etcd3() {
+            get_etcd
         }
 
         function get_kubernetes() {

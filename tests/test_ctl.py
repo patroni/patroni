@@ -10,7 +10,7 @@ from mock import patch, Mock
 from patroni.ctl import ctl, store_config, load_config, output_members, request_patroni, get_dcs, parse_dcs, \
     get_all_members, get_any_member, get_cursor, query_member, configure, PatroniCtlException, apply_config_changes, \
     format_config_for_editing, show_diff, invoke_editor, format_pg_version, find_executable
-from patroni.dcs.etcd import Client, Failover
+from patroni.dcs.etcd import AbstractEtcdClientWithFailover, Failover
 from patroni.utils import tzutc
 from psycopg2 import OperationalError
 
@@ -40,7 +40,7 @@ class TestCtl(unittest.TestCase):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
     def setUp(self):
-        with patch.object(Client, 'machines') as mock_machines:
+        with patch.object(AbstractEtcdClientWithFailover, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
             self.runner = CliRunner()
             self.e = get_dcs({'etcd': {'ttl': 30, 'host': 'ok:2379', 'retry_timeout': 10}}, 'foo')

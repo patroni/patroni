@@ -9,7 +9,7 @@ import unittest
 from mock import Mock, PropertyMock, patch
 from patroni.api import RestApiServer
 from patroni.async_executor import AsyncExecutor
-from patroni.dcs.etcd import Client
+from patroni.dcs.etcd import AbstractEtcdClientWithFailover
 from patroni.exceptions import DCSError
 from patroni.postgresql import Postgresql
 from patroni.postgresql.config import ConfigHandler
@@ -51,7 +51,7 @@ class TestPatroni(unittest.TestCase):
         RestApiServer._BaseServer__is_shut_down = Mock()
         RestApiServer._BaseServer__shutdown_request = True
         RestApiServer.socket = 0
-        with patch.object(Client, 'machines') as mock_machines:
+        with patch.object(AbstractEtcdClientWithFailover, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
             sys.argv = ['patroni.py', 'postgres0.yml']
             os.environ['PATRONI_POSTGRESQL_DATA_DIR'] = 'data/test0'
@@ -68,7 +68,7 @@ class TestPatroni(unittest.TestCase):
 
     @patch('time.sleep', Mock(side_effect=SleepException))
     @patch.object(etcd.Client, 'delete', Mock())
-    @patch.object(Client, 'machines')
+    @patch.object(AbstractEtcdClientWithFailover, 'machines')
     @patch.object(Thread, 'join', Mock())
     def test_patroni_patroni_main(self, mock_machines):
         with patch('subprocess.call', Mock(return_value=1)):
