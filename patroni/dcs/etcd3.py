@@ -330,7 +330,8 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
             kwargs['headers']['Content-Type'] = 'application/json'
         return self.http.urlopen, kwargs
 
-    def _handle_server_response(self, response):
+    @staticmethod
+    def _handle_server_response(response):
         _raise_for_status(response)
         try:
             return json.loads(response.data.decode('utf-8'))
@@ -544,7 +545,7 @@ class Etcd3(AbstractEtcd):
     def _do_attempt_to_acquire_leader(self, permanent):
         try:
             return self.retry(self._client.put, self.leader_path, self._name, None if permanent else self._lease, 0)
-        except LeaseNotFound as e:
+        except LeaseNotFound:
             self._lease = None
             logger.error('Our lease disappeared from Etcd. Will try to get a new one and retry attempt')
             self.refresh_lease()

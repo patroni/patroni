@@ -413,32 +413,31 @@ class AbstractEtcdController(AbstractDcsController):
 
     """ handles all etcd related tasks, used for the tests setup and cleanup """
 
-    def _create_client(self, client_cls):
-        from patroni.dcs.etcd import DnsCachingResolver
-
-        self._client = client_cls({'host': 'localhost', 'port': 2379, 'retry_timeout': 30,
-                                   'patronictl': 1}, DnsCachingResolver())
+    def __init__(self, context, client_cls):
+        super(AbstractEtcdController, self).__init__(context)
+        self._client_cls = client_cls
 
     def _start(self):
         return subprocess.Popen(["etcd", "--debug", "--data-dir", self._work_directory],
                                 stdout=self._log, stderr=subprocess.STDOUT)
 
     def _is_running(self):
+        from patroni.dcs.etcd import DnsCachingResolver
         # if etcd is running, but we didn't start it
         try:
-            return bool(self._client.machines)
+            self._client = self._client_cls({'host': 'localhost', 'port': 2379, 'retry_timeout': 30,
+                                             'patronictl': 1}, DnsCachingResolver())
+            return True
         except Exception:
             return False
 
 
 class EtcdController(AbstractEtcdController):
 
-    def __init__(self, context, client_cls=None):
-        super(EtcdController, self).__init__(context)
-        os.environ['PATRONI_ETCD_HOST'] = 'localhost:2379'
-
+    def __init__(self, context):
         from patroni.dcs.etcd import EtcdClient
-        self._create_client(EtcdClient)
+        super(EtcdController, self).__init__(context, EtcdClient)
+        os.environ['PATRONI_ETCD_HOST'] = 'localhost:2379'
 
     def query(self, key, scope='batman'):
         import etcd
@@ -459,12 +458,10 @@ class EtcdController(AbstractEtcdController):
 
 class Etcd3Controller(AbstractEtcdController):
 
-    def __init__(self, context, client_cls=None):
-        super(Etcd3Controller, self).__init__(context)
-        os.environ['PATRONI_ETCD3_HOST'] = 'localhost:2379'
-
+    def __init__(self, context):
         from patroni.dcs.etcd3 import Etcd3Client
-        self._create_client(Etcd3Client)
+        super(Etcd3Controller, self).__init__(context, Etcd3Client)
+        os.environ['PATRONI_ETCD3_HOST'] = 'localhost:2379'
 
     def query(self, key, scope='batman'):
         import base64
