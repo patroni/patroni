@@ -92,6 +92,10 @@ class AbstractEtcdClientWithFailover(etcd.Client):
         self._load_machines_cache()
         self._allow_reconnect = True
 
+    def reload_config(self, config):
+        self.username = config.get('username')
+        self.password = config.get('password')
+
     def _build_request_parameters(self):
         kwargs = {'headers': self._get_headers(), 'redirect': self.allow_redirect}
 
@@ -324,6 +328,10 @@ class AbstractEtcd(AbstractDCS):
         self._client = self.get_etcd_client(config, client_cls)
         self._retry_errors_cls = retry_errors_cls
         self._has_failed = False
+
+    def reload_config(self, config):
+        super(AbstractEtcd, self).reload_config(config)
+        self._client.reload_config(config.get(self.__class__.__name__.lower(), {}))
 
     def retry(self, *args, **kwargs):
         return self._retry.copy()(*args, **kwargs)

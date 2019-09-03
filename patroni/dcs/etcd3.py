@@ -9,26 +9,17 @@ import time
 
 from patroni.dcs import ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
 from patroni.dcs.etcd import AbstractEtcdClientWithFailover, AbstractEtcd, catch_etcd_errors
-from patroni.exceptions import DCSError
+from patroni.exceptions import DCSError, PatroniException
 from patroni.utils import Retry, RetryFailedError
 
 logger = logging.getLogger(__name__)
 
 
-# Old grpc-gateway sometimes sends double 'transfer-encoding: chunked' headers, it breaks the HTTPConnection
-def dedup_addheader(self, key, value):
-    prev = self.dict.get(key)
-    if prev is None:
-        self.dict[key] = value
-    elif key != 'transfer-encoding' or prev != value:
-        combined = ", ".join((prev, value))
-        self.dict[key] = combined
-
-
-six.moves.http_client.HTTPMessage.addheader = dedup_addheader
-
-
 class EtcdError(DCSError):
+    pass
+
+
+class UnsupportedEtcdVersion(PatroniException):
     pass
 
 
@@ -48,7 +39,7 @@ class Etcd3ClientError(Etcd3Exception):
 
     def __init__(self, code=None, error=None, status=None):
         if not hasattr(self, 'error'):
-            self.error = error.strip()
+            self.error = error and error.strip()
         self.codeText = GRPCcodeToText.get(code)
         self.status = status
 
@@ -83,6 +74,10 @@ class DeadlineExceeded(Etcd3ClientError):
 
 class NotFound(Etcd3ClientError):
     code = GRPCCode.NotFound
+
+
+class ResourceExhausted(Etcd3ClientError):
+    code = GRPCCode.ResourceExhausted
 
 
 class FailedPrecondition(Etcd3ClientError):
@@ -130,8 +125,7 @@ class FutureRev(OutOfRange):
     error = "etcdserver: mvcc: required revision is a future revision"
 
 
-class NoSpace(Etcd3ClientError):
-    code = GRPCCode.ResourceExhausted
+class NoSpace(ResourceExhausted):
     error = "etcdserver: mvcc: database space exceeded"
 
 
@@ -183,8 +177,7 @@ class RequestTooLarge(InvalidArgument):
     error = "etcdserver: request is too large"
 
 
-class TooManyRequests(Etcd3ClientError):
-    code = GRPCCode.ResourceExhausted
+class TooManyRequests(ResourceExhausted):
     error = "etcdserver: too many requests"
 
 
@@ -296,7 +289,7 @@ class BadLeaderTransferee(FailedPrecondition):
 
 
 errStringToClientError = {s.error: s for s in Etcd3ClientError.get_subclasses() if hasattr(s, 'error')}
-errCodeToClientError = {s.code: s for s in Etcd3ClientError.get_subclasses() if not hasattr(s, 'error')}
+errCodeToClientError = {s.code: s for s in Etcd3ClientError.__subclasses__()}
 
 
 def _raise_for_status(response):
@@ -305,20 +298,51 @@ def _raise_for_status(response):
     data = response.data.decode('utf-8')
     try:
         data = json.loads(data)
-        error = data.get('error')
+        error = data.get('error') or data.get('Error')
         if isinstance(error, dict):  # streaming response
             code = error['grpc_code']
             error = error['message']
         else:
-            code = data.get('code')
+            code = data.get('code') or data.get('Code')
     except Exception:
         error = data
         code = GRPCCode.Unknown
     err = errStringToClientError.get(error) or errCodeToClientError.get(code) or Unknown
-    raise err(error, code, response.status)
+    raise err(code, error, response.status)
 
 
 class Etcd3Client(AbstractEtcdClientWithFailover):
+
+    def __init__(self, config, dns_resolver, cache_ttl=300):
+        self._token = None
+        self._cluster_version = None
+        super(Etcd3Client, self).__init__(config, dns_resolver, cache_ttl)
+
+        if six.PY2:
+            # Old grpc-gateway sometimes sends double 'transfer-encoding: chunked' headers,
+            # what breaks the old (python2.7) httplib.HTTPConnection (it closes the socket).
+            def dedup_addheader(httpm, key, value):
+                prev = httpm.dict.get(key)
+                if prev is None:
+                    httpm.dict[key] = value
+                elif key != 'transfer-encoding' or prev != value:
+                    combined = ", ".join((prev, value))
+                    httpm.dict[key] = combined
+
+            import httplib
+            httplib.HTTPMessage.addheader = dedup_addheader
+
+        try:
+            self.authenticate()
+        except Exception as e:
+            logger.fatal('Etcd3 authentication failed: %r', e)
+            import sys
+            sys.exit(1)
+
+    def _get_headers(self):
+        if self._token and self._cluster_version >= (3, 3, 0):
+            return {'authorization': self._token}
+        return {}
 
     def _prepare_request(self, params=None):
         kwargs = self._build_request_parameters()
@@ -342,11 +366,25 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         if self.version_prefix != '/v3':
             request_executor, kwargs = self._prepare_request()
             response = request_executor(self._MGET, self._base_uri + '/version', **kwargs)
-            cluster_version = self._handle_server_response(response)['etcdcluster']
-            cluster_version = tuple(int(x) for x in cluster_version.split('.'))
-            if cluster_version < (3, 3):
+            response = self._handle_server_response(response)
+
+            server_version_str = response['etcdserver']
+            server_version = tuple(int(x) for x in server_version_str.split('.'))
+            cluster_version_str = response['etcdcluster']
+            self._cluster_version = tuple(int(x) for x in cluster_version_str.split('.'))
+
+            if self._cluster_version < (3, 0) or server_version < (3, 0, 4):
+                raise UnsupportedEtcdVersion('Detected Etcd version {0} is lower than 3.0.4'.format(server_version_str))
+
+            if self._cluster_version < (3, 3):
+                if self._cluster_version < (3, 1):
+                    logger.warning('Detected Etcd version %s is lower than 3.1.0, watches are not supported',
+                                   cluster_version_str)
+                if self.username and self.password:
+                    logger.warning('Detected Etcd version %s is lower than 3.3.0, authentication is not supported',
+                                   cluster_version_str)
                 self.version_prefix = '/v3alpha'
-            elif cluster_version < (3, 4):
+            elif self._cluster_version < (3, 4):
                 self.version_prefix = '/v3beta'
             else:
                 self.version_prefix = '/v3'
@@ -364,6 +402,47 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
     def call_rpc(self, method, fields=None):
         return self.api_execute(self.version_prefix + method, self._MPOST, fields)
 
+    def authenticate(self):
+        if self._cluster_version >= (3, 3) and self.username and self.password:
+            logger.info('Trying to authenticate on Etcd...')
+            old_token, self._token = self._token, None
+            try:
+                response = self.call_rpc('/auth/authenticate', {'name': self.username, 'password': self.password})
+            except AuthNotEnabled:
+                logger.info('Etcd authentication is not enabled')
+                self._token = None
+            except Exception:
+                self._token = old_token
+                raise
+            else:
+                self._token = response.get('token')
+
+    def _handle_auth_errors(func):
+        def wrapper(self, *args, **kwargs):
+            def retry():
+                if self.username and self.password:
+                    self.authenticate()
+                    return func(self, *args, **kwargs)
+                else:
+                    logger.fatal('Username or password not set, authentication is not possible')
+                    raise
+
+            try:
+                return func(self, *args, **kwargs)
+            except (UserEmpty, PermissionDenied) as e:  # no token provided
+                # PermissionDenied is raised on 3.0 and 3.1
+                if self._cluster_version < (3, 3) and (not isinstance(e, PermissionDenied)
+                                                       or self._cluster_version < (3, 2)):
+                    raise UnsupportedEtcdVersion('Authentication is required by Etcd cluster but not '
+                                                 'supported on version lower than 3.3.0. Cluster version: '
+                                                 '{0}'.format('.'.join(map(str, self._cluster_version))))
+                return retry()
+            except InvalidAuthToken:
+                logger.error('Invalid auth token: %s', self._token)
+                return retry()
+
+        return wrapper
+
     @staticmethod
     def to_bytes(v):
         return v if isinstance(v, bytes) else v.encode('utf-8')
@@ -378,6 +457,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
             fields['range_end'] = self.base64_encode(range_end)
         return fields
 
+    @_handle_auth_errors
     def range(self, key, range_end=None):
         return self.call_rpc('/kv/range', self.build_range_request(key, range_end))
 
@@ -395,6 +475,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
     def lease_keepalive(self, ID):
         return self.call_rpc('/lease/keepalive', {'ID': ID}).get('result', {}).get('TTL')
 
+    @_handle_auth_errors
     def put(self, key, value, lease=None, create_revision=None, mod_revision=None):
         fields = {'key': self.base64_encode(key), 'value': self.base64_encode(value)}
         if lease:
@@ -408,6 +489,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         compare['key'] = fields['key']
         return self.call_rpc('/kv/txn', {'compare': [compare], 'success': [{'request_put': fields}]}).get('succeeded')
 
+    @_handle_auth_errors
     def deleterange(self, key, range_end=None, mod_revision=None):
         fields = self.build_range_request(key, range_end)
         if mod_revision is None:
@@ -521,6 +603,8 @@ class Etcd3(AbstractEtcd):
             sync = SyncState.from_node(sync and sync['mod_revision'], sync and sync['value'])
 
             cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
+        except UnsupportedEtcdVersion:
+            raise
         except Exception as e:
             self._handle_exception(e, 'get_cluster', raise_ex=EtcdError('Etcd is not responding properly'))
         self._has_failed = False
@@ -542,6 +626,7 @@ class Etcd3(AbstractEtcd):
     def take_leader(self):
         return self.retry(self._client.put, self.leader_path, self._name, self._lease)
 
+    @catch_etcd_errors
     def _do_attempt_to_acquire_leader(self, permanent):
         try:
             return self.retry(self._client.put, self.leader_path, self._name, None if permanent else self._lease, 0)
