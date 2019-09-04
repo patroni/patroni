@@ -97,7 +97,7 @@ class AbstractEtcdClientWithFailover(etcd.Client):
         self.password = config.get('password')
 
     def _build_request_parameters(self):
-        kwargs = {'headers': self._get_headers(), 'redirect': self.allow_redirect}
+        kwargs = {'headers': self._get_headers(), 'redirect': self.allow_redirect, 'preload_content': False}
 
         # calculate the number of retries and timeout *per node*
         # actual number of retries depends on the number of nodes
@@ -316,7 +316,7 @@ class EtcdClient(AbstractEtcdClientWithFailover):
 
     def _prepare_request(self, params=None):
         kwargs = self._build_request_parameters()
-        kwargs.update({'fields': params, 'preload_content': False, 'encode_multipart': False})
+        kwargs.update({'fields': params, 'encode_multipart': False})
         return self.http.request, kwargs
 
 

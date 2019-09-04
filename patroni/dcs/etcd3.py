@@ -7,10 +7,12 @@ import os
 import six
 import time
 
+from json.decoder import WHITESPACE
 from patroni.dcs import ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
 from patroni.dcs.etcd import AbstractEtcdClientWithFailover, AbstractEtcd, catch_etcd_errors
 from patroni.exceptions import DCSError, PatroniException
 from patroni.utils import Retry, RetryFailedError
+from threading import Thread
 
 logger = logging.getLogger(__name__)
 
@@ -311,11 +313,113 @@ def _raise_for_status(response):
     raise err(code, error, response.status)
 
 
+def to_bytes(v):
+    return v if isinstance(v, bytes) else v.encode('utf-8')
+
+
+def increment_last_byte(v):
+    v = bytearray(to_bytes(v))
+    v[-1] += 1
+    return bytes(v)
+
+
+def base64_encode(v):
+    return base64.b64encode(to_bytes(v)).decode('utf-8')
+
+
+def base64_decode(v):
+    return base64.b64decode(v).decode('utf-8')
+
+
+def build_range_request(key, range_end=None):
+    fields = {'key': base64_encode(key)}
+    if range_end:
+        fields['range_end'] = base64_encode(range_end)
+    return fields
+
+
+class Watcher(Thread):
+
+    def __init__(self, client, event, config_path, leader_path):
+        """
+        :param client: reference to Etcd3Client
+        :param event: reference to Etcd3.event
+        :param config_path: the config key name
+        :param leader_path: the leader key name
+        """
+        super(Watcher, self).__init__()
+        self.daemon = True
+        self._client = client
+        self._event = event
+        self._config_path = config_path
+        self._config_path_base64 = base64_encode(config_path)
+        self._leader_path = leader_path
+        self._leader_path_base64 = base64_encode(leader_path)
+        self._decoder = json.JSONDecoder()
+        self.start()
+
+    def _process_event(self, event):
+        key = event['kv']['key']
+        value = event['kv'].get('value', '')
+        if key == self._leader_path_base64:
+            if event.get('type') == 'DELETE':
+                logger.debug('Leader key was deleted')
+                self._event.set()
+            elif self._leader_value and value != self._leader_value:
+                logger.debug('Leader changed from %s to %s', base64_decode(self._leader_value), base64_decode(value))
+                self._event.set()
+            self._leader_value = value
+        elif key == self._config_path_base64:
+            if value != self._config_value:
+                logger.debug('Config changed to %s', base64_decode(value))
+                self._event.set()
+            self._config_value = value
+
+    def _process_message(self, message):
+        for event in message.get('events', []):
+            self._process_event(event)
+
+    def _process_chunk(self, chunk):
+        length = len(chunk)
+        idx = WHITESPACE.match(chunk, 0).end()
+        while idx < length:
+            try:
+                message, idx = self._decoder.raw_decode(chunk, idx)
+            except ValueError:  # malformed or incomplete JSON, unlikely to happen
+                break
+            else:
+                self._process_message(message.get('result', message))
+                idx = WHITESPACE.match(chunk, idx).end()
+        return chunk[idx:]
+
+    def _do_watch(self):
+        response = self._client.watch(self._config_path, increment_last_byte(self._leader_path))
+
+        left = ''
+        for chunk in response.stream():
+            chunk = left + chunk.decode('utf-8')
+            left = self._process_chunk(chunk)
+
+    def kill_stream(self):
+        pass
+
+    def run(self):
+        while True:
+            try:
+                self._leader_value = None
+                self._config_value = None
+                self._do_watch()
+            except Exception:
+                logger.exception('Watcher.run')
+            time.sleep(1)
+
+
 class Etcd3Client(AbstractEtcdClientWithFailover):
 
     def __init__(self, config, dns_resolver, cache_ttl=300):
         self._token = None
         self._cluster_version = None
+        self._watcher = None
         super(Etcd3Client, self).__init__(config, dns_resolver, cache_ttl)
 
         if six.PY2:
@@ -346,13 +450,17 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
 
     def _prepare_request(self, params=None):
         kwargs = self._build_request_parameters()
-        kwargs['preload_content'] = False
         if params is None:
             kwargs['body'] = ''
         else:
             kwargs['body'] = json.dumps(params)
             kwargs['headers']['Content-Type'] = 'application/json'
         return self.http.urlopen, kwargs
+
+    def _next_server(self, cause=None):
+        ret = super(Etcd3Client, self)._next_server(cause)
+        self._restart_watcher()
+        return ret
 
     @staticmethod
     def _handle_server_response(response):
@@ -377,13 +485,14 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
                 raise UnsupportedEtcdVersion('Detected Etcd version {0} is lower than 3.0.4'.format(server_version_str))
 
             if self._cluster_version < (3, 3):
-                if self._cluster_version < (3, 1):
-                    logger.warning('Detected Etcd version %s is lower than 3.1.0, watches are not supported',
-                                   cluster_version_str)
-                if self.username and self.password:
-                    logger.warning('Detected Etcd version %s is lower than 3.3.0, authentication is not supported',
-                                   cluster_version_str)
-                self.version_prefix = '/v3alpha'
+                if self.version_prefix != '/v3alpha':
+                    if self._cluster_version < (3, 1):
+                        logger.warning('Detected Etcd version %s is lower than 3.1.0, watches are not supported',
+                                       cluster_version_str)
+                    if self.username and self.password:
+                        logger.warning('Detected Etcd version %s is lower than 3.3.0, authentication is not supported',
+                                       cluster_version_str)
+                    self.version_prefix = '/v3alpha'
             elif self._cluster_version < (3, 4):
                 self.version_prefix = '/v3beta'
             else:
@@ -411,11 +520,14 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
             except AuthNotEnabled:
                 logger.info('Etcd authentication is not enabled')
                 self._token = None
+                if old_token:
+                    self._restart_watcher()
             except Exception:
                 self._token = old_token
                 raise
             else:
                 self._token = response.get('token')
+                self._restart_watcher()
 
     def _handle_auth_errors(func):
         def wrapper(self, *args, **kwargs):
@@ -443,31 +555,12 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
 
         return wrapper
 
-    @staticmethod
-    def to_bytes(v):
-        return v if isinstance(v, bytes) else v.encode('utf-8')
-
-    @staticmethod
-    def base64_encode(v):
-        return base64.b64encode(Etcd3Client.to_bytes(v)).decode('utf-8')
-
-    def build_range_request(self, key, range_end=None):
-        fields = {'key': self.base64_encode(key)}
-        if range_end:
-            fields['range_end'] = self.base64_encode(range_end)
-        return fields
-
     @_handle_auth_errors
     def range(self, key, range_end=None):
-        return self.call_rpc('/kv/range', self.build_range_request(key, range_end))
-
-    def increment_last_byte(self, v):
-        v = bytearray(self.to_bytes(v))
-        v[-1] += 1
-        return bytes(v)
+        return self.call_rpc('/kv/range', build_range_request(key, range_end))
 
     def prefix(self, key):
-        return self.range(key, self.increment_last_byte(key))
+        return self.range(key, increment_last_byte(key))
 
     def lease_grant(self, ttl):
         return self.call_rpc('/lease/grant', {'TTL': ttl})['ID']
@@ -477,7 +570,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
 
     @_handle_auth_errors
     def put(self, key, value, lease=None, create_revision=None, mod_revision=None):
-        fields = {'key': self.base64_encode(key), 'value': self.base64_encode(value)}
+        fields = {'key': base64_encode(key), 'value': base64_encode(value)}
         if lease:
             fields['lease'] = lease
         if create_revision is not None:
@@ -491,7 +584,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
 
     @_handle_auth_errors
     def deleterange(self, key, range_end=None, mod_revision=None):
-        fields = self.build_range_request(key, range_end)
+        fields = build_range_request(key, range_end)
         if mod_revision is None:
             return self.call_rpc('/kv/deleterange', fields)
         compare = {'target': 'MOD', 'mod_revision': mod_revision, 'key': fields['key']}
@@ -499,7 +592,23 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         return ret.get('succeeded')
 
     def deleteprefix(self, key):
-        return self.deleterange(key, self.increment_last_byte(key))
+        return self.deleterange(key, increment_last_byte(key))
+
+    def watch(self, key, range_end=None, filters=None):
+        """returns: response object"""
+        params = build_range_request(key, range_end)
+        params['filters'] = filters or []
+        request_executor, kwargs = self._prepare_request({'create_request': params})
+        kwargs.update(timeout=None, retries=0)
+        return request_executor(self._MPOST, self._base_uri + self.version_prefix + '/watch', **kwargs)
+
+    def start_watcher(self, etcd3):
+        if self._cluster_version >= (3, 1):
+            self._watcher = Watcher(self, etcd3.event, etcd3.config_path, etcd3.leader_path)
+
+    def _restart_watcher(self):
+        if self._watcher:
+            self._watcher.kill_stream()
 
 
 class Etcd3(AbstractEtcd):
@@ -512,6 +621,7 @@ class Etcd3(AbstractEtcd):
         self._lease = None
         self._last_lease_refresh = 0
         if not self._ctl:
+            self._client.start_watcher(self)
             self.create_lease()
 
     def set_ttl(self, ttl):
@@ -553,9 +663,6 @@ class Etcd3(AbstractEtcd):
         return Member.from_node(node['mod_revision'], os.path.basename(node['key']), node['lease'], node['value'])
 
     def _load_cluster(self):
-        def base64_decode(v):
-            return base64.b64decode(v).decode('utf-8')
-
         cluster = None
         try:
             path = self.client_path('')
