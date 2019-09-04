@@ -11,7 +11,7 @@ from json.decoder import WHITESPACE
 from patroni.dcs import ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
 from patroni.dcs.etcd import AbstractEtcdClientWithFailover, AbstractEtcd, catch_etcd_errors
 from patroni.exceptions import DCSError, PatroniException
-from patroni.utils import Retry, RetryFailedError
+from patroni.utils import deep_compare, Retry, RetryFailedError
 from threading import Thread
 
 logger = logging.getLogger(__name__)
@@ -558,7 +558,9 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
 
     @_handle_auth_errors
     def range(self, key, range_end=None):
-        return self.call_rpc('/kv/range', build_range_request(key, range_end))
+        params = build_range_request(key, range_end)
+        params['serializable'] = True  # For better performance. We can tolerate stale reads.
+        return self.call_rpc('/kv/range', params)
 
     def prefix(self, key):
         return self.range(key, increment_last_byte(key))
@@ -696,6 +698,9 @@ class Etcd3(AbstractEtcd):
 
             # get leader
             leader = nodes.get(self._LEADER)
+            if not self._ctl and leader and leader['value'] == self._name and self._lease != leader.get('lease'):
+                logger.warning('I am the leader but not owner of the lease')
+
             if leader:
                 member = Member(-1, leader['value'], None, {})
                 member = ([m for m in members if m.name == leader['value']] or [member])[0]
@@ -722,7 +727,13 @@ class Etcd3(AbstractEtcd):
     def touch_member(self, data, permanent=False):
         if not permanent:
             self.refresh_lease()
-        # TODO: add caching
+
+        cluster = self.cluster
+        member = cluster and cluster.get_member(self._name, fallback_to_leader=False)
+
+        if member and member.session == self._lease and deep_compare(data, member.data):
+            return True
+
         data = json.dumps(data, separators=(',', ':'))
         try:
             return self._client.put(self.member_path, data, None if permanent else self._lease)
@@ -767,12 +778,16 @@ class Etcd3(AbstractEtcd):
 
     @catch_etcd_errors
     def _update_leader(self):
-        # XXX: what if leader lease doesn't match?
         if not self._lease:
             self.refresh_lease()
-            self.take_leader()
         elif self.retry(self._client.lease_keepalive, self._lease):
             self._last_lease_refresh = time.time()
+
+        if self._lease:
+            cluster = self.cluster
+            leader_lease = cluster and isinstance(cluster.leader, Leader) and cluster.leader.session
+            if leader_lease != self._lease:
+                self.take_leader()
         return bool(self._lease)
 
     @catch_etcd_errors
