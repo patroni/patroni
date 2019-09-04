@@ -420,6 +420,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         self._token = None
         self._cluster_version = None
         self._watcher = None
+        self.version_prefix = '/v3beta'
         super(Etcd3Client, self).__init__(config, dns_resolver, cache_ttl)
 
         if six.PY2:
@@ -531,13 +532,13 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
 
     def _handle_auth_errors(func):
         def wrapper(self, *args, **kwargs):
-            def retry():
+            def retry(ex):
                 if self.username and self.password:
                     self.authenticate()
                     return func(self, *args, **kwargs)
                 else:
                     logger.fatal('Username or password not set, authentication is not possible')
-                    raise
+                    raise ex
 
             try:
                 return func(self, *args, **kwargs)
@@ -548,10 +549,10 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
                     raise UnsupportedEtcdVersion('Authentication is required by Etcd cluster but not '
                                                  'supported on version lower than 3.3.0. Cluster version: '
                                                  '{0}'.format('.'.join(map(str, self._cluster_version))))
-                return retry()
-            except InvalidAuthToken:
+                return retry(e)
+            except InvalidAuthToken as e:
                 logger.error('Invalid auth token: %s', self._token)
-                return retry()
+                return retry(e)
 
         return wrapper
 
