@@ -5,14 +5,16 @@ import json
 import logging
 import os
 import six
+import socket
 import time
+import urllib3
 
 from json.decoder import WHITESPACE
 from patroni.dcs import ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
 from patroni.dcs.etcd import AbstractEtcdClientWithFailover, AbstractEtcd, catch_etcd_errors
 from patroni.exceptions import DCSError, PatroniException
 from patroni.utils import deep_compare, Retry, RetryFailedError
-from threading import Thread
+from threading import Lock, Thread
 
 logger = logging.getLogger(__name__)
 
@@ -201,9 +203,12 @@ class Watcher(Thread):
         self._event = event
         self._config_path = config_path
         self._config_path_base64 = base64_encode(config_path)
+        self._config_value = None
         self._leader_path = leader_path
         self._leader_path_base64 = base64_encode(leader_path)
         self._decoder = json.JSONDecoder()
+        self._response = None
+        self._response_lock = Lock()
         self.start()
 
     def _process_event(self, event):
@@ -240,26 +245,59 @@ class Watcher(Thread):
                 idx = WHITESPACE.match(chunk, idx).end()
         return chunk[idx:]
 
+    @staticmethod
+    def _finish_response(response):
+        try:
+            response.close()
+        finally:
+            response.release_conn()
+
     def _do_watch(self):
+        with self._response_lock:
+            self._response = None
         response = self._client.watch(self._config_path, increment_last_byte(self._leader_path))
+        with self._response_lock:
+            if self._response is None:
+                self._response = response
+
+        if not self._response:
+            return self._finish_response(response)
 
         left = ''
         for chunk in response.stream():
             chunk = left + chunk.decode('utf-8')
             left = self._process_chunk(chunk)
 
-    def kill_stream(self):
-        pass
-
     def run(self):
         while True:
             try:
                 self._leader_value = None
-                self._config_value = None
                 self._do_watch()
-            except Exception:
-                logger.exception('Watcher.run')
+            except Exception as e:
+                logger.error('Watcher.run %r', e)
+            finally:
+                with self._response_lock:
+                    response, self._response = self._response, None
+                if response:
+                    self._finish_response(response)
             time.sleep(1)
+
+    def kill_stream(self):
+        sock = None
+        with self._response_lock:
+            if self._response:
+                try:
+                    sock = self._response.connection.sock
+                except Exception:
+                    sock = None
+            else:
+                self._response = False
+        if sock:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+                sock.close()
+            except Exception as e:
+                logger.debug('Error on socket.shutdown: %r', e)
 
 
 class Etcd3Client(AbstractEtcdClientWithFailover):
@@ -328,7 +366,10 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
             server_version_str = response['etcdserver']
             server_version = tuple(int(x) for x in server_version_str.split('.'))
             cluster_version_str = response['etcdcluster']
-            self._cluster_version = tuple(int(x) for x in cluster_version_str.split('.'))
+            try:
+                self._cluster_version = tuple(int(x) for x in cluster_version_str.split('.'))
+            except ValueError:
+                raise Etcd3Exception
 
             if self._cluster_version < (3, 0) or server_version < (3, 0, 4):
                 raise UnsupportedEtcdVersion('Detected Etcd version {0} is lower than 3.0.4'.format(server_version_str))
@@ -450,7 +491,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         params = build_range_request(key, range_end)
         params['filters'] = filters or []
         request_executor, kwargs = self._prepare_request({'create_request': params})
-        kwargs.update(timeout=None, retries=0)
+        kwargs.update(timeout=urllib3.Timeout(connect=kwargs['timeout']), retries=0)
         return request_executor(self._MPOST, self._base_uri + self.version_prefix + '/watch', **kwargs)
 
     def start_watcher(self, etcd3):

@@ -192,7 +192,6 @@ class AbstractEtcdClientWithFailover(etcd.Client):
             self._load_machines_cache()
         elif not self._use_proxies and time.time() - self._machines_cache_updated > self._machines_cache_ttl:
             self._refresh_machines_cache()
-            self._machines_cache_updated = time.time()
 
         if timeout is not None:
             kwargs.update({'retries': 0, 'timeout': timeout})
@@ -296,14 +295,13 @@ class AbstractEtcdClientWithFailover(etcd.Client):
         # After filling up initial list of machines_cache we should ask etcd-cluster about actual list
         self._base_uri = self._next_server()
         self._refresh_machines_cache()
-
         self._update_machines_cache = False
-        self._machines_cache_updated = time.time()
 
     def _refresh_machines_cache(self):
         self._machines_cache = self._get_machines_cache_from_config() if self._use_proxies else self.machines
         if self._base_uri in self._machines_cache:
             self._machines_cache.remove(self._base_uri)
+        self._machines_cache_updated = time.time()
 
 
 class EtcdClient(AbstractEtcdClientWithFailover):
