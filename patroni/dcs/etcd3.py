@@ -61,234 +61,82 @@ class Etcd3ClientError(Etcd3Exception):
             yield subclass
 
 
-class Unknown(Etcd3ClientError):
-    code = GRPCCode.Unknown
+def Error(name, parent=None, error=None):
+    class ClientError(parent if isinstance(parent, six.class_types) else Etcd3ClientError):
+        pass
+
+    ClientError.__name__ = name
+    if not isinstance(parent, six.class_types):
+        ClientError.code = parent if isinstance(parent, int) else GRPCCode.__dict__[name]
+    if error is not None:
+        ClientError.error = error
+
+    return ClientError
 
 
-class InvalidArgument(Etcd3ClientError):
-    code = GRPCCode.InvalidArgument
-
-
-class DeadlineExceeded(Etcd3ClientError):
-    code = GRPCCode.DeadlineExceeded
-    error = "context deadline exceeded"
-
-
-class NotFound(Etcd3ClientError):
-    code = GRPCCode.NotFound
-
-
-class ResourceExhausted(Etcd3ClientError):
-    code = GRPCCode.ResourceExhausted
-
-
-class FailedPrecondition(Etcd3ClientError):
-    code = GRPCCode.FailedPrecondition
-
-
-class OutOfRange(Etcd3ClientError):
-    code = GRPCCode.OutOfRange
-
-
-class Unavailable(Etcd3ClientError):
-    code = GRPCCode.Unavailable
-
+Unknown = Error('Unknown')
+InvalidArgument = Error('InvalidArgument')
+DeadlineExceeded = Error('DeadlineExceeded', error='context deadline exceeded')
+NotFound = Error('NotFound')
+ResourceExhausted = Error('ResourceExhausted')
+FailedPrecondition = Error('FailedPrecondition')
+OutOfRange = Error('OutOfRange')
+Unavailable = Error('Unavailable')
 
 # https://github.com/etcd-io/etcd/blob/master/etcdserver/api/v3rpc/rpctypes/error.go
-class EmptyKey(InvalidArgument):
-    error = "etcdserver: key is not provided"
-
-
-class KeyNotFound(InvalidArgument):
-    error = "etcdserver: key not found"
-
-
-class ValueProvided(InvalidArgument):
-    error = "etcdserver: value is provided"
-
-
-class LeaseProvided(InvalidArgument):
-    error = "etcdserver: lease is provided"
-
-
-class TooManyOps(InvalidArgument):
-    error = "etcdserver: too many operations in txn request"
-
-
-class DuplicateKey(InvalidArgument):
-    error = "etcdserver: duplicate key given in txn request"
-
-
-class Compacted(OutOfRange):
-    error = "etcdserver: mvcc: required revision has been compacted"
-
-
-class FutureRev(OutOfRange):
-    error = "etcdserver: mvcc: required revision is a future revision"
-
-
-class NoSpace(ResourceExhausted):
-    error = "etcdserver: mvcc: database space exceeded"
-
-
-class LeaseNotFound(NotFound):
-    error = "etcdserver: requested lease not found"
-
-
-class LeaseExist(FailedPrecondition):
-    error = "etcdserver: lease already exists"
-
-
-class LeaseTTLTooLarge(OutOfRange):
-    error = "etcdserver: too large lease TTL"
-
-
-class MemberExist(FailedPrecondition):
-    error = "etcdserver: member ID already exist"
-
-
-class PeerURLExist(FailedPrecondition):
-    error = "etcdserver: Peer URLs already exists"
-
-
-class MemberNotEnoughStarted(FailedPrecondition):
-    error = "etcdserver: re-configuration failed due to not enough started members"
-
-
-class MemberBadURLs(InvalidArgument):
-    error = "etcdserver: given member URLs are invalid"
-
-
-class MemberNotFound(NotFound):
-    error = "etcdserver: member not found"
-
-
-class MemberNotLearner(FailedPrecondition):
-    error = "etcdserver: can only promote a learner member"
-
-
-class MemberLearnerNotReady(FailedPrecondition):
-    error = "etcdserver: can only promote a learner member which is in sync with leader"
-
-
-class TooManyLearners(FailedPrecondition):
-    error = "etcdserver: too many learner members in cluster"
-
-
-class RequestTooLarge(InvalidArgument):
-    error = "etcdserver: request is too large"
-
-
-class TooManyRequests(ResourceExhausted):
-    error = "etcdserver: too many requests"
-
-
-class RootUserNotExist(FailedPrecondition):
-    error = "etcdserver: root user does not exist"
-
-
-class RootRoleNotExist(FailedPrecondition):
-    error = "etcdserver: root user does not have root role"
-
-
-class UserAlreadyExist(FailedPrecondition):
-    error = "etcdserver: user name already exists"
-
-
-class UserEmpty(InvalidArgument):
-    error = "etcdserver: user name is empty"
-
-
-class UserNotFound(FailedPrecondition):
-    error = "etcdserver: user name not found"
-
-
-class RoleAlreadyExist(FailedPrecondition):
-    error = "etcdserver: role name already exists"
-
-
-class RoleNotFound(FailedPrecondition):
-    error = "etcdserver: role name not found"
-
-
-class RoleEmpty(InvalidArgument):
-    error = "etcdserver: role name is empty"
-
-
-class AuthFailed(InvalidArgument):
-    error = "etcdserver: authentication failed, invalid user ID or password"
-
-
-class PermissionDenied(Etcd3ClientError):
-    code = GRPCCode.PermissionDenied
-    error = "etcdserver: permission denied"
-
-
-class RoleNotGranted(FailedPrecondition):
-    error = "etcdserver: role is not granted to the user"
-
-
-class PermissionNotGranted(FailedPrecondition):
-    error = "etcdserver: permission is not granted to the role"
-
-
-class AuthNotEnabled(FailedPrecondition):
-    error = "etcdserver: authentication is not enabled"
-
-
-class InvalidAuthToken(Etcd3ClientError):
-    code = GRPCCode.Unauthenticated
-    error = "etcdserver: invalid auth token"
-
-
-class InvalidAuthMgmt(InvalidArgument):
-    error = "etcdserver: invalid auth management"
-
-
-class NoLeader(Unavailable):
-    error = "etcdserver: no leader"
-
-
-class NotLeader(FailedPrecondition):
-    error = "etcdserver: not leader"
-
-
-class LeaderChanged(Unavailable):
-    error = "etcdserver: leader changed"
-
-
-class NotCapable(Unavailable):
-    error = "etcdserver: not capable"
-
-
-class Stopped(Unavailable):
-    error = "etcdserver: server stopped"
-
-
-class Timeout(Unavailable):
-    error = "etcdserver: request timed out"
-
-
-class TimeoutDueToLeaderFail(Unavailable):
-    error = "etcdserver: request timed out, possibly due to previous leader failure"
-
-
-class TimeoutDueToConnectionLost(Unavailable):
-    error = "etcdserver: request timed out, possibly due to connection lost"
-
-
-class Unhealthy(Unavailable):
-    error = "etcdserver: unhealthy cluster"
-
-
-class Corrupt(Etcd3ClientError):
-    code = GRPCCode.DataLoss
-    error = "etcdserver: corrupt cluster"
-
-
-class BadLeaderTransferee(FailedPrecondition):
-    error = "etcdserver: bad leader transferee"
-
+EmptyKey = Error('EmptyKey', InvalidArgument, 'etcdserver: key is not provided')
+KeyNotFound = Error('KeyNotFound', InvalidArgument, 'etcdserver: key not found')
+ValueProvided = Error('ValueProvided', InvalidArgument, 'etcdserver: value is provided')
+LeaseProvided = Error('LeaseProvided', InvalidArgument, 'etcdserver: lease is provided')
+TooManyOps = Error('TooManyOps', InvalidArgument, 'etcdserver: too many operations in txn request')
+DuplicateKey = Error('DuplicateKey', InvalidArgument, 'etcdserver: duplicate key given in txn request')
+Compacted = Error('Compacted', OutOfRange, 'etcdserver: mvcc: required revision has been compacted')
+FutureRev = Error('FutureRev', OutOfRange, 'etcdserver: mvcc: required revision is a future revision')
+NoSpace = Error('NoSpace', ResourceExhausted, 'etcdserver: mvcc: database space exceeded')
+LeaseNotFound = Error('LeaseNotFound', NotFound, 'etcdserver: requested lease not found')
+LeaseExist = Error('LeaseExist', FailedPrecondition, 'etcdserver: lease already exists')
+LeaseTTLTooLarge = Error('LeaseTTLTooLarge', OutOfRange, 'etcdserver: too large lease TTL')
+MemberExist = Error('MemberExist', FailedPrecondition, 'etcdserver: member ID already exist')
+PeerURLExist = Error('PeerURLExist', FailedPrecondition, 'etcdserver: Peer URLs already exists')
+MemberNotEnoughStarted = Error('MemberNotEnoughStarted', FailedPrecondition,
+                               'etcdserver: re-configuration failed due to not enough started members')
+MemberBadURLs = Error('MemberBadURLs', InvalidArgument, 'etcdserver: given member URLs are invalid')
+MemberNotFound = Error('MemberNotFound', NotFound, 'etcdserver: member not found')
+MemberNotLearner = Error('MemberNotLearner', FailedPrecondition, 'etcdserver: can only promote a learner member')
+MemberLearnerNotReady = Error('MemberLearnerNotReady', FailedPrecondition,
+                              'etcdserver: can only promote a learner member which is in sync with leader')
+TooManyLearners = Error('TooManyLearners', FailedPrecondition, 'etcdserver: too many learner members in cluster')
+RequestTooLarge = Error('RequestTooLarge', InvalidArgument, 'etcdserver: request is too large')
+TooManyRequests = Error('TooManyRequests', ResourceExhausted, 'etcdserver: too many requests')
+RootUserNotExist = Error('RootUserNotExist', FailedPrecondition, 'etcdserver: root user does not exist')
+RootRoleNotExist = Error('RootRoleNotExist', FailedPrecondition, 'etcdserver: root user does not have root role')
+UserAlreadyExist = Error('UserAlreadyExist', FailedPrecondition, 'etcdserver: user name already exists')
+UserEmpty = Error('UserEmpty', InvalidArgument, 'etcdserver: user name is empty')
+UserNotFound = Error('UserNotFound', FailedPrecondition, 'etcdserver: user name not found')
+RoleAlreadyExist = Error('RoleAlreadyExist', FailedPrecondition, 'etcdserver: role name already exists')
+RoleNotFound = Error('RoleNotFound', FailedPrecondition, 'etcdserver: role name not found')
+RoleEmpty = Error('RoleEmpty', InvalidArgument, 'etcdserver: role name is empty')
+AuthFailed = Error('AuthFailed', InvalidArgument, 'etcdserver: authentication failed, invalid user ID or password')
+PermissionDenied = Error('PermissionDenied', GRPCCode.PermissionDenied, 'etcdserver: permission denied')
+RoleNotGranted = Error('RoleNotGranted', FailedPrecondition, 'etcdserver: role is not granted to the user')
+PermissionNotGranted = Error('PermissionNotGranted', FailedPrecondition,
+                             'etcdserver: permission is not granted to the role')
+AuthNotEnabled = Error('AuthNotEnabled', FailedPrecondition, 'etcdserver: authentication is not enabled')
+InvalidAuthToken = Error('InvalidAuthToken', GRPCCode.Unauthenticated, 'etcdserver: invalid auth token')
+InvalidAuthMgmt = Error('InvalidAuthMgmt', InvalidArgument, 'etcdserver: invalid auth management')
+NoLeader = Error('NoLeader', Unavailable, 'etcdserver: no leader')
+NotLeader = Error('NotLeader', FailedPrecondition, 'etcdserver: not leader')
+LeaderChanged = Error('LeaderChanged', Unavailable, 'etcdserver: leader changed')
+NotCapable = Error('NotCapable', Unavailable, 'etcdserver: not capable')
+Stopped = Error('Stopped', Unavailable, 'etcdserver: server stopped')
+Timeout = Error('Timeout', Unavailable, 'etcdserver: request timed out')
+TimeoutDueToLeaderFail = Error('TimeoutDueToLeaderFail', Unavailable,
+                               'etcdserver: request timed out, possibly due to previous leader failure')
+TimeoutDueToConnectionLost = Error('TimeoutDueToConnectionLost', Unavailable,
+                                   'etcdserver: request timed out, possibly due to connection lost')
+Unhealthy = Error('Unhealthy', Unavailable, 'etcdserver: unhealthy cluster')
+Corrupt = Error('Corrupt', GRPCCode.DataLoss, 'etcdserver: corrupt cluster')
+BadLeaderTransferee = Error('BadLeaderTransferee', FailedPrecondition, 'etcdserver: bad leader transferee')
 
 errStringToClientError = {s.error: s for s in Etcd3ClientError.get_subclasses() if hasattr(s, 'error')}
 errCodeToClientError = {s.code: s for s in Etcd3ClientError.__subclasses__()}
