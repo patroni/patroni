@@ -32,6 +32,7 @@ class Patroni(object):
         self.postgresql = Postgresql(self.config['postgresql'])
         self.api = RestApiServer(self, self.config['restapi'])
         self.ha = Ha(self)
+        self.is_in_debug_mode = bool(os.getenv("PATRONI_DEBUG_MODE"))
 
         self.tags = self.get_tags()
         self.next_run = time.time()
@@ -102,8 +103,9 @@ class Patroni(object):
             self.next_run = current_time
             # Release the GIL so we don't starve anyone waiting on async_executor lock
             time.sleep(0.001)
-            # Warn user that Patroni is not keeping up
-            logger.warning("Loop time exceeded, rescheduling immediately.")
+            # Warn user that Patroni is not keeping up or runs in debug
+            msg = "Patroni runs in the debug mode: keys' TTL is infinite, loop wait disabled" if self.is_in_debug_mode else "Loop time exceeded, rescheduling immediately."
+            logger.warning(msg)
         elif self.ha.watch(nap_time):
             self.next_run = time.time()
 

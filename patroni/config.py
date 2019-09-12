@@ -332,6 +332,11 @@ class Config(object):
                         config['postgresql'][name] = deepcopy(value)
             elif name not in config or name in ['watchdog']:
                 config[name] = deepcopy(value) if value else {}
+        
+        if os.getenv("PATRONI_DEBUG_MODE"):
+            config['ttl'] = 24 * 60 * 60 # practical infinity for a debugging session
+            config['loop_wait'] = -1
+
 
         # restapi server expects to get restapi.auth = 'username:password'
         if 'authentication' in config['restapi']:

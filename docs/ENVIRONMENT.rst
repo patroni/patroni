@@ -19,6 +19,8 @@ Global/Universal
 -  **PATRONI\_LOG\_FILE\_NUM**: The number of application logs to retain.
 -  **PATRONI\_LOG\_FILE\_SIZE**: Size of patroni.log file (in bytes) that triggers a log rolling.
 -  **PATRONI\_LOG\_LOGGERS**: Redefine logging level per python module. Example ``PATRONI_LOG_LOGGERS="{patroni.postmaster: WARNING, urllib3: DEBUG}"``
+-  **PATRONI\_DEBUG\_MODE**: When set to a non-empty value, makes Patroni run in the special debug mode that enables stepping with a debugger through some execution paths within Patroni `
+Example ``PATRONI_DEBUG_MODE="on"``
 
 Bootstrap configuration
 -----------------------
