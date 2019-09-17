@@ -59,7 +59,6 @@ class PatroniLogger(Thread):
 
     def __init__(self):
         super(PatroniLogger, self).__init__()
-        self.daemon = True
         self._queue_handler = QueueHandler()
         self._root_logger = logging.getLogger()
         self._root_logger.addHandler(self._queue_handler)
