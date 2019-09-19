@@ -15,6 +15,16 @@ from requests.structures import CaseInsensitiveDict
 
 logger = logging.getLogger(__name__)
 
+AUTH_ALLOWED_PARAMETERS = (
+    'username',
+    'password',
+    'sslmode',
+    'sslcert',
+    'sslkey',
+    'sslrootcert',
+    'sslcrl',
+)
+
 
 class Config(object):
     """
@@ -252,7 +262,7 @@ class Config(object):
 
         def _get_auth(name):
             ret = {}
-            for param in ('username', 'password'):
+            for param in AUTH_ALLOWED_PARAMETERS:
                 value = _popenv(name + '_' + param)
                 if value:
                     ret[param] = value
@@ -356,6 +366,11 @@ class Config(object):
         # no 'superuser' in 'postgresql'.'authentication'
         if 'superuser' not in pg_config['authentication'] and 'pg_rewind' in pg_config:
             pg_config['authentication']['superuser'] = pg_config['pg_rewind']
+
+        # handle setting additional connection parameters that may be available
+        # in the configuration file, such as SSL connection parameters
+        for name, value in pg_config['authentication'].items():
+            pg_config['authentication'][name] = {n: v for n, v in value.items() if n in AUTH_ALLOWED_PARAMETERS}
 
         # no 'name' in config
         if 'name' not in config and 'name' in pg_config:

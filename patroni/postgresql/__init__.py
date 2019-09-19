@@ -646,9 +646,11 @@ class Postgresql(object):
     @contextmanager
     def get_replication_connection_cursor(self, host='localhost', port=5432, database=None, **kwargs):
         replication = self.config.replication
+        extra_kwargs = {k: v for k, v in replication.items()
+                        if k not in ('username', 'password', 'connect_timeout', 'options')}
         with get_connection_cursor(host=host, port=int(port), database=database or self._database, replication=1,
                                    user=replication['username'], password=replication.get('password'),
-                                   connect_timeout=3, options='-c statement_timeout=2000') as cur:
+                                   connect_timeout=3, options='-c statement_timeout=2000', **extra_kwargs) as cur:
             yield cur
 
     def get_local_timeline_lsn_from_replication_connection(self):

@@ -187,6 +187,23 @@ class ConfigHandler(object):
         'wal_log_hints': ('on', lambda _: False, 90400)
     })
 
+    # A list of keywords that can be found in a conninfo string. Follows what
+    # is acceptable by libpq
+    _CONNINFO_KEYWORDS = (
+        'user',
+        'password',
+        'host',
+        'port',
+        'sslmode',
+        'sslcompression',
+        'sslcert',
+        'sslkey',
+        'sslrootcert',
+        'sslcrl',
+        'application_name',
+        'krbsrvname',
+    )
+
     _RECOVERY_PARAMETERS = {
         'archive_cleanup_command',
         'restore_command',
@@ -377,8 +394,7 @@ class ConfigHandler(object):
         r = self.primary_conninfo_params(member)
         if not r:
             return None
-        keywords = 'user password host port sslmode application_name krbsrvname'.split()
-        return ' '.join('{0}={{{0}}}'.format(kw) for kw in keywords if r.get(kw)).format(**r)
+        return ' '.join('{0}={{{0}}}'.format(kw) for kw in self._CONNINFO_KEYWORDS if r.get(kw)).format(**r)
 
     def recovery_conf_exists(self):
         if self._postgresql.major_version >= 120000:
@@ -568,14 +584,18 @@ class ConfigHandler(object):
     @property
     def local_connect_kwargs(self):
         ret = self._local_address.copy()
+        # add all of the other connection settings that are available
+        ret.update(self._superuser)
+        # if the "username" parameter is present, it actually needs to be "user"
+        # for connecting to PostgreSQL
+        if 'username' in self._superuser:
+            ret['user'] = self._superuser['username']
+            del ret['username']
+        # ensure certain Patroni configurations are available
         ret.update({'database': self._postgresql.database,
                     'fallback_application_name': 'Patroni',
                     'connect_timeout': 3,
                     'options': '-c statement_timeout=2000'})
-        if 'username' in self._superuser:
-            ret['user'] = self._superuser['username']
-        if 'password' in self._superuser:
-            ret['password'] = self._superuser['password']
         return ret
 
     def resolve_connection_addresses(self):
