@@ -617,7 +617,12 @@ class ConfigHandler(object):
         self._local_address = local_address
         self.local_replication_address = {'host': tcp_local_address, 'port': port}
 
-        netloc = self._config.get('connect_address') or tcp_local_address + ':' + port
+        if self._config.get('connect_address'):
+            netloc = self._config.get('connect_address')
+        else:
+            if tcp_local_address and ':' in tcp_local_address and tcp_local_address[0] != '[' and tcp_local_address[-1] != ']':
+                tcp_local_address = '[{0}]'.format(tcp_local_address)
+            netloc = tcp_local_address + ':' + port
         self._postgresql.connection_string = uri('postgres', netloc, self._postgresql.database)
 
         self._postgresql.set_connection_kwargs(self.local_connect_kwargs)
