@@ -122,6 +122,7 @@ class TestPatroni(unittest.TestCase):
         self.p.sighup_handler()
         self.p.ha.dcs.watch = Mock(side_effect=SleepException)
         self.p.api.start = Mock()
+        self.p.logger.start = Mock()
         self.p.config._dynamic_configuration = {}
         self.assertRaises(SleepException, self.p.run)
         with patch('patroni.config.Config.set_dynamic_configuration', Mock(return_value=True)):

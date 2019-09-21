@@ -114,6 +114,7 @@ class Patroni(object):
 
     def run(self):
         self.api.start()
+        self.logger.start()
         self.next_run = time.time()
 
         while not self.received_sigterm:
