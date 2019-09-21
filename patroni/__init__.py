@@ -97,6 +97,7 @@ class Patroni(AbstractPatroniDaemon):
 
     def run(self):
         self.api.start()
+        self.logger.start()
         self.next_run = time.time()
         super(Patroni, self).run()
 
