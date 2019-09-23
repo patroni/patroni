@@ -11,8 +11,10 @@ from kubernetes import client as k8s_client, config as k8s_config, watch as k8s_
 from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
 from patroni.exceptions import DCSError
 from patroni.utils import deep_compare, tzutc, Retry, RetryFailedError
+from urllib3 import Timeout
 from urllib3.exceptions import HTTPError
 from six.moves.http_client import HTTPException
+from threading import Thread
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +72,48 @@ def catch_kubernetes_errors(func):
     return wrapper
 
 
+class KubernetesWatcher(Thread):
+
+    def __init__(self, dcs):
+        super(KubernetesWatcher, self).__init__()
+        self.daemon = True
+        self._dcs = dcs
+        self._leader_value = None
+        self._config_value = None
+        self.start()
+
+    def _process_event(self, event):
+        ev_type = event.get('type')
+        metadata = event['raw_object'].get('metadata', {})
+        name = metadata.get('name')
+        annotations_map = {self._dcs.leader_path: self._dcs._LEADER, self._dcs.config_path: self._dcs._CONFIG}
+        value = None if ev_type == 'DELETED' else metadata.get('annotations', {}).get(annotations_map.get(name))
+
+        if name == self._dcs.leader_path:
+            if ev_type != 'ADDED' and self._leader_value and value != self._leader_value:
+                logger.debug('Leader changed from %s to %s', self._leader_value, value)
+                self._dcs.event.set()
+            self._leader_value = value
+        elif name == self._dcs.config_path:
+            if value != self._config_value and (ev_type != 'ADDED' or self._config_value):
+                logger.debug('Config changed to %s', value)
+                self._dcs.event.set()
+            self._config_value = value
+
+    def _do_watch(self):
+        stream = self._dcs.start_watch_stream()
+        for event in stream:
+            self._process_event(event)
+
+    def run(self):
+        while True:
+            try:
+                self._do_watch()
+            except Exception as e:
+                logger.debug('Watcher.run %r', e)
+            time.sleep(self._dcs._retry.deadline)
+
+
 class Kubernetes(AbstractDCS):
 
     def __init__(self, config):
@@ -109,6 +153,8 @@ class Kubernetes(AbstractDCS):
         self._leader_observed_subsets = []
         self._config_resource_version = None
         self.__do_not_watch = False
+        if not config.get('patronictl'):
+            self._watcher = KubernetesWatcher(self)
 
     def retry(self, *args, **kwargs):
         return self._retry.copy()(*args, **kwargs)
@@ -412,28 +458,15 @@ class Kubernetes(AbstractDCS):
     def delete_sync_state(self, index=None):
         return self.write_sync_state(None, None, index)
 
+    def start_watch_stream(self):
+        watch = k8s_watch.Watch()
+        return watch.stream(self._api.list_namespaced_kind, self._namespace, label_selector=self._label_selector,
+                            _request_timeout=(self._retry.deadline, Timeout.DEFAULT_TIMEOUT))
+
     def watch(self, leader_index, timeout):
         if self.__do_not_watch:
             self.__do_not_watch = False
             return True
-
-        if leader_index:
-            end_time = time.time() + timeout
-            w = k8s_watch.Watch()
-            while timeout >= 1:
-                try:
-                    for event in w.stream(self._api.list_namespaced_kind, self._namespace,
-                                          resource_version=leader_index, timeout_seconds=int(timeout + 0.5),
-                                          field_selector='metadata.name=' + self.leader_path,
-                                          _request_timeout=(1, timeout + 1)):
-                        return event['raw_object'].get('metadata', {}).get('resourceVersion') != leader_index
-                    return False
-                except KeyboardInterrupt:
-                    raise
-                except Exception:
-                    logger.exception('watch')
-
-                timeout = end_time - time.time()
 
         try:
             return super(Kubernetes, self).watch(None, timeout)
