@@ -16,6 +16,7 @@ import logging
 import os
 import random
 import requests
+import six
 import subprocess
 import sys
 import tempfile
@@ -30,11 +31,10 @@ from patroni.dcs import get_dcs as _get_dcs
 from patroni.exceptions import PatroniException
 from patroni.postgresql import Postgresql
 from patroni.postgresql.misc import postgres_version_to_int
-from patroni.utils import patch_config, polling_loop
+from patroni.utils import cluster_as_json, patch_config, polling_loop
 from patroni.version import __version__
 from prettytable import PrettyTable
 from six.moves.urllib_parse import urlparse
-from six import text_type
 
 CONFIG_DIR_PATH = click.get_app_dir('patroni')
 CONFIG_FILE_PATH = os.path.join(CONFIG_DIR_PATH, 'patronictl.yaml')
@@ -731,80 +731,51 @@ def switchover(obj, cluster_name, master, candidate, force, scheduled):
 def output_members(cluster, name, extended=False, fmt='pretty'):
     rows = []
     logging.debug(cluster)
-    leader_name = None
-    if cluster.leader:
-        leader_name = cluster.leader.name
-
-    xlog_location_cluster = cluster.last_leader_operation or 0
-
-    # Mainly for consistent pretty printing and watching we sort the output
-    cluster.members.sort(key=lambda x: x.name)
-
-    has_scheduled_restarts = any(m.data.get('scheduled_restart') for m in cluster.members)
-    has_pending_restarts = any(m.data.get('pending_restart') for m in cluster.members)
-
-    # Show Host as 'host:port' if somebody is running on non-standard port or two nodes are running on the same host
-    append_port = any(str(m.conn_kwargs()['port']) != '5432' for m in cluster.members) or\
-        len(set(m.conn_kwargs()['host'] for m in cluster.members)) < len(cluster.members)
-
-    for m in cluster.members:
-        logging.debug(m)
-
-        role = ''
-        if m.name == leader_name:
-            role = 'Leader'
-        elif m.name == cluster.sync.sync_standby:
-            role = 'Sync standby'
-
-        xlog_location = m.data.get('xlog_location')
-        lag = ''
-        if xlog_location is None:
-            lag = 'unknown'
-        elif xlog_location_cluster >= xlog_location:
-            lag = round((xlog_location_cluster - xlog_location)/1024/1024)
-
-        host = m.conn_kwargs()['host']
-        if append_port:
-            host += ':{0}'.format(m.conn_kwargs()['port'])
-
-        row = [name, m.name, host, role, m.data.get('state', ''), m.data.get('timeline', ''), lag]
-
-        if extended or has_pending_restarts:
-            row.append('*' if m.data.get('pending_restart') else '')
-
-        if extended or has_scheduled_restarts:
-            value = ''
-            scheduled_restart = m.data.get('scheduled_restart')
-            if scheduled_restart:
-                value = scheduled_restart['schedule']
-                if 'postgres_version' in scheduled_restart:
-                    value += ' if version < {0}'.format(scheduled_restart['postgres_version'])
-
-            row.append(value)
-
-        rows.append(row)
+    cluster = cluster_as_json(cluster)
 
     columns = ['Cluster', 'Member', 'Host', 'Role', 'State', 'TL', 'Lag in MB']
-    alignment = {'Lag in MB': 'r', 'TL': 'r'}
+    for c in ('Pending restart', 'Scheduled restart'):
+        if extended or any(m.get(c.lower().replace(' ', '_')) for m in cluster['members']):
+            columns.append(c)
 
-    if extended or has_pending_restarts:
-        columns.append('Pending restart')
+    # Show Host as 'host:port' if somebody is running on non-standard port or two nodes are running on the same host
+    append_port = any(m['port'] != 5432 for m in cluster['members']) or\
+        len(set(m['host'] for m in cluster['members'])) < len(cluster['members'])
 
-    if extended or has_scheduled_restarts:
-        columns.append('Scheduled restart')
+    for m in cluster['members']:
+        logging.debug(m)
 
-    print_output(columns, rows, alignment, fmt)
+        lag = m.get('lag', '')
+        m.update(cluster=name, member=m['name'], tl=m.get('timeline', ''),
+                 role='' if m['role'] == 'replica' else m['role'].replace('_', ' ').title(),
+                 lag_in_mb=round(lag/1024/1024) if isinstance(lag, six.integer_types) else lag,
+                 pending_restart='*' if m.get('pending_restart') else '')
+
+        if append_port:
+            m['host'] = ':'.join([m['host'], str(m['port'])])
+
+        if 'scheduled_restart' in m:
+            value = m['scheduled_restart']['schedule']
+            if 'postgres_version' in m['scheduled_restart']:
+                value += ' if version < {0}'.format(m['scheduled_restart']['postgres_version'])
+            m['scheduled_restart'] = value
+
+        rows.append([m.get(n.lower().replace(' ', '_'), '') for n in columns])
+
+    print_output(columns, rows, {'Lag in MB': 'r', 'TL': 'r'}, fmt)
+
+    if fmt != 'pretty':  # Omit service info when using machine-readable formats
+        return
 
     service_info = []
-    if cluster.is_paused():
+    if cluster.get('pause'):
         service_info.append('Maintenance mode: on')
 
-    if cluster.failover and cluster.failover.scheduled_at:
-        info = 'Switchover scheduled at: ' + cluster.failover.scheduled_at.isoformat()
-        if cluster.failover.leader:
-            info += '\n                    from: ' + cluster.failover.leader
-        if cluster.failover.candidate:
-            info += '\n                      to: ' + cluster.failover.candidate
+    if 'scheduled_switchover' in cluster:
+        info = 'Switchover scheduled at: ' + cluster['scheduled_switchover']['at']
+        for name in ('from', 'to'):
+            if name in cluster['scheduled_switchover']:
+                info += '\n{0:>24}: {1}'.format(name, cluster['scheduled_switchover'][name])
         service_info.append(info)
 
     if service_info:
@@ -1024,7 +995,7 @@ def show_diff(before_editing, after_editing):
         buf = io.StringIO()
         for line in unified_diff:
             # Force cast to unicode as difflib on Python 2.7 returns a mix of unicode and str.
-            buf.write(text_type(line))
+            buf.write(six.text_type(line))
         buf.seek(0)
 
         class opts:

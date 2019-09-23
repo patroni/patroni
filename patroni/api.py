@@ -12,7 +12,7 @@ import socket
 from patroni.postgresql import PostgresConnectionException
 from patroni.postgresql.misc import postgres_version_to_int, PostgresException
 from patroni.utils import deep_compare, parse_bool, patch_config, Retry, \
-    RetryFailedError, parse_int, split_host_port, tzutc, uri
+    RetryFailedError, parse_int, split_host_port, tzutc, uri, cluster_as_json
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from six.moves.socketserver import ThreadingMixIn
 from threading import Thread
@@ -139,6 +139,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_GET_patroni(self):
         response = self.get_postgresql_status(True)
         self._write_status_response(200, response)
+
+    def do_GET_cluster(self):
+        cluster = self.server.patroni.dcs.cluster or self.server.patroni.dcs.get_cluster()
+        self._write_json_response(200, cluster_as_json(cluster))
+
+    def do_GET_history(self):
+        cluster = self.server.patroni.dcs.cluster or self.server.patroni.dcs.get_cluster()
+        self._write_json_response(200, cluster.history and cluster.history.lines or [])
 
     def do_GET_config(self):
         cluster = self.server.patroni.dcs.cluster or self.server.patroni.dcs.get_cluster()
@@ -432,10 +440,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
             if self.server.patroni.postgresql.state not in ('running', 'restarting', 'starting'):
                 raise RetryFailedError('')
-            stmt = ("WITH replication_info AS ("
-                    "SELECT usename, application_name, client_addr, state, sync_state, sync_priority"
-                    " FROM pg_catalog.pg_stat_replication) SELECT"
-                    " pg_catalog.to_char(pg_catalog.pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),"
+            stmt = ("SELECT pg_catalog.to_char(pg_catalog.pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),"
                     " CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0"
                     " ELSE ('x' || pg_catalog.substr(pg_catalog.pg_{0}file_name("
                     "pg_catalog.pg_current_{0}_{1}()), 1, 8))::bit(32)::int END,"
@@ -446,8 +451,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     " pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint,"
                     " pg_catalog.to_char(pg_catalog.pg_last_xact_replay_timestamp(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),"
                     " pg_catalog.pg_is_in_recovery() AND pg_catalog.pg_is_{0}_replay_paused(), "
-                    "(SELECT pg_catalog.array_to_json(pg_catalog.array_agg("
-                    "pg_catalog.row_to_json(ri))) FROM replication_info ri)")
+                    " pg_catalog.array_to_json(pg_catalog.array_agg(pg_catalog.row_to_json(ri))) "
+                    "FROM (SELECT (SELECT rolname FROM pg_authid WHERE oid = usesysid) AS usename,"
+                    " application_name, client_addr, w.state, sync_state, sync_priority"
+                    " FROM pg_catalog.pg_stat_get_wal_senders() w, pg_catalog.pg_stat_get_activity(pid)) AS ri")
 
             row = self.query(stmt.format(self.server.patroni.postgresql.wal_name,
                                          self.server.patroni.postgresql.lsn_name), retry=retry)[0]

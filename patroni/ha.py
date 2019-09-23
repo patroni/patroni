@@ -15,7 +15,7 @@ from patroni.exceptions import DCSError, PostgresConnectionException, PatroniExc
 from patroni.postgresql import ACTION_ON_START, ACTION_ON_ROLE_CHANGE
 from patroni.postgresql.misc import postgres_version_to_int
 from patroni.postgresql.rewind import Rewind
-from patroni.utils import polling_loop, tzutc
+from patroni.utils import polling_loop, tzutc, is_standby_cluster as _is_standby_cluster
 from patroni.dcs import RemoteMember
 from threading import RLock
 
@@ -109,9 +109,7 @@ class Ha(object):
         return config.get('standby_cluster')
 
     def is_standby_cluster(self):
-        config = self.get_standby_cluster_config()
-        # Check whether or not provided configuration describes a standby cluster
-        return isinstance(config, dict) and (config.get('host') or config.get('port') or config.get('restore_command'))
+        return _is_standby_cluster(self.get_standby_cluster_config())
 
     def is_leader(self):
         with self._is_leader_lock:
@@ -591,6 +589,7 @@ class Ha(object):
     def _is_healthiest_node(self, members, check_replication_lag=True):
         """This method tries to determine whether I am healthy enough to became a new leader candidate or not."""
 
+        # We don't call `last_operation()` here because it returns a string
         _, my_wal_position = self.state_handler.timeline_wal_position()
         if check_replication_lag and self.is_lagging(my_wal_position):
             logger.info('My wal position exceeds maximum replication lag')
