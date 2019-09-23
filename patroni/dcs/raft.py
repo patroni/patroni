@@ -98,6 +98,8 @@ class KVStoreTTL(DynMemberSyncObj):
         self.__on_delete = on_delete
         self.__limb = {}
         self.__retry_timeout = None
+        self.__early_apply_local_log = selfAddress is not None
+        self.applied_local_log = False
         super(KVStoreTTL, self).__init__(selfAddress, partnerAddrs, conf)
         self.__data = {}
 
@@ -122,17 +124,20 @@ class KVStoreTTL(DynMemberSyncObj):
         timeout = kwargs.pop('timeout', None) or self.__retry_timeout
         deadline = timeout and time.time() + timeout
 
-        while ret['error'] not in (FAIL_REASON.SUCCESS, FAIL_REASON.REQUEST_DENIED):
+        while True:
             event.clear()
             func(*args, **kwargs)
-            if deadline:
+            event.wait(timeout)
+            if ret['error'] == FAIL_REASON.SUCCESS:
+                return ret['result']
+            elif ret['error'] == FAIL_REASON.REQUEST_DENIED:
+                break
+            elif deadline:
                 timeout = deadline - time.time()
                 if timeout <= 0:
-                    return False
-            event.wait(timeout)
-            if ret['error'] == FAIL_REASON.QUEUE_FULL:
-                time.sleep(1)
-        return ret['error'] == FAIL_REASON.SUCCESS and ret['result']
+                    break
+            time.sleep(1)
+        return False
 
     @replicated
     def _set(self, key, value, **kwargs):
@@ -187,7 +192,7 @@ class KVStoreTTL(DynMemberSyncObj):
         return all(old.get(n) == new.get(n) for n in ('created', 'updated', 'expire', 'value'))
 
     @replicated
-    def _expire(self, key, value):
+    def _expire(self, key, value, callback=None):
         current = self.__data.get(key)
         if current and self.__values_match(current, value):
             self.__pop(key)
@@ -209,7 +214,22 @@ class KVStoreTTL(DynMemberSyncObj):
         return {k: v for k, v in self.__data.items() if k.startswith(key)}
 
     def _onTick(self, timeToWait=0.0):
+        # The SyncObj starts applying the local log only when there is at least one node connected.
+        # We want to change this behavior and apply the local log even when there is nobody except us.
+        # It gives us at least some picture about the last known cluster state.
+        if self.__early_apply_local_log and not self.applied_local_log and self._SyncObj__needLoadDumpFile:
+            self._SyncObj__raftCommitIndex = self._SyncObj__getCurrentLogIndex()
+            self._SyncObj__raftCurrentTerm = self._SyncObj__getCurrentLogTerm()
+
         super(KVStoreTTL, self)._onTick(timeToWait)
+
+        # The SyncObj calls onReady callback only when cluster got the leader and is ready for writes.
+        # In some cases for us it is safe to "signal" the Raft object when the local log is fully applied.
+        # We are using the `applied_local_log` property for that, but not calling the callback function.
+        if self.__early_apply_local_log and not self.applied_local_log and self._SyncObj__raftCommitIndex != 1 and \
+                self._SyncObj__raftLastApplied == self._SyncObj__raftCommitIndex:
+            self.applied_local_log = True
+
         if self._isLeader():
             self.__expire_keys()
         else:
@@ -227,15 +247,15 @@ class Raft(AbstractDCS):
         files = {'journalFile': template + '.journal', 'fullDumpFile': template + '.dump'} if self_addr else {}
 
         ready_event = threading.Event()
-        conf = SyncObjConf(appendEntriesUseBatch=False, dynamicMembershipChange=True, onReady=ready_event.set, **files)
+        conf = SyncObjConf(commandsWaitLeader=False, appendEntriesUseBatch=False, onReady=ready_event.set,
+                           dynamicMembershipChange=True, **files)
         self._sync_obj = KVStoreTTL(self_addr, config.get('partner_addrs', []), conf, self._on_set, self._on_delete)
-        if not self_addr:
-            while True:
-                ready_event.wait(5)
-                if ready_event.isSet():
-                    break
-                else:
-                    logger.info('waiting on raft')
+        while True:
+            ready_event.wait(5)
+            if ready_event.isSet() or self._sync_obj.applied_local_log:
+                break
+            else:
+                logger.info('waiting on raft')
         self._sync_obj.forceLogCompaction()
         self.set_retry_timeout(int(config.get('retry_timeout') or 10))
 
@@ -310,7 +330,10 @@ class Raft(AbstractDCS):
         return self._sync_obj.set(self.leader_optime_path, last_operation, timeout=1)
 
     def _update_leader(self):
-        return self._sync_obj.set(self.leader_path, self._name, ttl=self._ttl, prevValue=self._name)
+        ret = self._sync_obj.set(self.leader_path, self._name, ttl=self._ttl, prevValue=self._name)
+        if not ret and self._sync_obj.get(self.leader_path) is None:
+            ret = self.attempt_to_acquire_leader()
+        return ret
 
     def attempt_to_acquire_leader(self, permanent=False):
         return self._sync_obj.set(self.leader_path, self._name, prevExist=False,

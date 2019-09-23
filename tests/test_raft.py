@@ -41,16 +41,23 @@ class TestDynMemberSyncObj(unittest.TestCase):
 class TestKVStoreTTL(unittest.TestCase):
 
     def setUp(self):
-        self.conf = SyncObjConf(appendEntriesUseBatch=False, appendEntriesPeriod=0.0001,
+        self.conf = SyncObjConf(appendEntriesUseBatch=False, appendEntriesPeriod=0.0001, journalFile='foo.journal',
                                 raftMinTimeout=0.0004, raftMaxTimeout=0.0005, autoTickPeriod=0.0001)
         callback = Mock()
         callback.replicated = False
         self.so = KVStoreTTL('127.0.0.1:1234', [], self.conf, on_set=callback, on_delete=callback)
         self.so.set_retry_timeout(10)
 
+    @staticmethod
+    def destroy(so):
+        so.destroy()
+        so._SyncObj__thread.join()
+
     def tearDown(self):
-        self.so.destroy()
-        self.so._SyncObj__thread.join()
+        if self.so:
+            self.destroy(self.so)
+        if os.path.exists('foo.journal'):
+            os.unlink('foo.journal')
 
     def test_set(self):
         self.assertTrue(self.so.set('foo', 'bar', prevExist=False, ttl=30))
@@ -75,11 +82,22 @@ class TestKVStoreTTL(unittest.TestCase):
 
     @patch('time.sleep', Mock())
     def test_retry(self):
-        return_values = [FAIL_REASON.QUEUE_FULL, FAIL_REASON.SUCCESS]
+        return_values = [FAIL_REASON.QUEUE_FULL, FAIL_REASON.SUCCESS, FAIL_REASON.REQUEST_DENIED]
 
         def test(callback):
-            callback(None, return_values.pop(0))
-        self.so.retry(test)
+            callback(True, return_values.pop(0))
+        self.assertTrue(self.so.retry(test))
+        self.assertFalse(self.so.retry(test))
+
+    def test_on_ready_override(self):
+        self.assertTrue(self.so.set('foo', 'bar'))
+        self.destroy(self.so)
+        self.so = None
+        self.conf.onReady = Mock()
+        self.conf.autoTick = False
+        so = KVStoreTTL('127.0.0.1:1234', ['127.0.0.1:1235'], self.conf)
+        so.doTick(0)
+        so.destroy()
 
 
 class TestRaft(unittest.TestCase):
@@ -91,7 +109,6 @@ class TestRaft(unittest.TestCase):
         self.assertTrue(raft.touch_member(''))
         self.assertTrue(raft.initialize())
         self.assertTrue(raft.cancel_initialization())
-        self.assertTrue(raft.attempt_to_acquire_leader())
         self.assertTrue(raft.set_config_value('{}'))
         self.assertTrue(raft.write_sync_state('foo', 'bar'))
         self.assertTrue(raft.update_leader('1'))
@@ -116,8 +133,9 @@ class TestRaft(unittest.TestCase):
     def setUp(self):
         self.tearDown()
 
-    @patch('patroni.dcs.raft.KVStoreTTL', Mock())
+    @patch('patroni.dcs.raft.KVStoreTTL')
     @patch('threading.Event')
-    def test_init(self, mock_event):
+    def test_init(self, mock_event, mock_kvstore):
+        mock_kvstore.return_value.applied_local_log = False
         mock_event.return_value.isSet.side_effect = [False, True]
         self.assertIsNotNone(Raft({'ttl': 30, 'scope': 'test', 'name': 'pg', 'patronictl': True}))

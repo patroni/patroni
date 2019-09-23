@@ -20,9 +20,6 @@ class RaftController(AbstractPatroniDaemon):
                                            journalFile=template + '.journal', fullDumpFile=template + '.dump')
         self._raft = KVStoreTTL(self_addr, raft_config.get('partner_addrs', []), self._syncobj_config)
 
-    def reload_config(self):
-        self.logger.reload_config(self.config.get('log', {}))
-
     def _run_cycle(self):
         try:
             self._raft.doTick(self._syncobj_config.autoTickPeriod)
