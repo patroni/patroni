@@ -376,7 +376,7 @@ def cluster_as_json(cluster):
         conn_kwargs = m.conn_kwargs()
         member = {'name': m.name, 'host': conn_kwargs['host'], 'port': int(conn_kwargs['port']),
                   'role': role, 'state': m.data.get('state', ''), 'api_url': m.api_url}
-        member.update({n: m.data[n] for n in ('timeline', 'pending_restart', 'scheduled_restart') if n in m.data})
+        member.update({n: m.data[n] for n in 'timeline pending_restart scheduled_restart tags'.split() if n in m.data})
 
         if m.name != leader_name:
             xlog_location = m.data.get('xlog_location')
