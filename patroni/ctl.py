@@ -1214,6 +1214,19 @@ def version(obj, cluster_name, member_names):
                     click.echo("{0}: failed to get version: {1}".format(m.name, e))
 
 
+@ctl.command('history', help="Show the history of failovers/switchovers")
+@arg_cluster_name
+@option_format
+@click.pass_obj
+def history(obj, cluster_name, fmt):
+    cluster = get_dcs(obj, cluster_name).get_cluster()
+    history = cluster.history and cluster.history.lines or []
+    for line in history:
+        if len(line) < 4:
+            line.append('')
+    print_output(['TL', 'LSN', 'Reason', 'Timestamp'], history, {'TL': 'r', 'LSN': 'r'}, fmt)
+
+
 def format_pg_version(version):
     if version < 100000:
         return "{0}.{1}.{2}".format(version // 10000, version // 100 % 100, version % 100)
