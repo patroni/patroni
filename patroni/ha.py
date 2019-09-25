@@ -3,7 +3,6 @@ import functools
 import json
 import logging
 import psycopg2
-import requests
 import sys
 import time
 import uuid
@@ -558,16 +557,15 @@ class Ha(object):
                                                args=(self.dcs.loop_wait, on_success, self._leader_access_is_restricted))
             return promote_message
 
-    @staticmethod
-    def fetch_node_status(member):
+    def fetch_node_status(self, member):
         """This function perform http get request on member.api_url and fetches its status
         :returns: `_MemberStatus` object
         """
 
         try:
-            response = requests.get(member.api_url, timeout=2, verify=False)
-            logger.info('Got response from %s %s: %s', member.name, member.api_url, response.content)
-            return _MemberStatus.from_api_response(member, response.json())
+            response = self.patroni.request(member, timeout=2, retries=0)
+            logger.info('Got response from %s %s: %s', member.name, member.api_url, response.data.decode('utf-8'))
+            return _MemberStatus.from_api_response(member, json.loads(response.data))
         except Exception as e:
             logger.warning("Request failed to %s: GET %s (%s)", member.name, member.api_url, e)
         return _MemberStatus.unknown(member)

@@ -2,7 +2,6 @@
 Patroni Control
 '''
 
-import base64
 import click
 import codecs
 import datetime
@@ -15,7 +14,6 @@ import json
 import logging
 import os
 import random
-import requests
 import subprocess
 import sys
 import tempfile
@@ -30,6 +28,7 @@ from patroni.dcs import get_dcs as _get_dcs
 from patroni.exceptions import PatroniException
 from patroni.postgresql import Postgresql
 from patroni.postgresql.misc import postgres_version_to_int
+from patroni.request import PatroniRequest
 from patroni.utils import patch_config, polling_loop
 from patroni.version import __version__
 from prettytable import PrettyTable
@@ -135,36 +134,12 @@ def get_dcs(config, scope):
         raise PatroniCtlException(str(e))
 
 
-def auth_header(config):
-    if config.get('restapi', {}).get('auth', ''):
-        return {'Authorization': 'Basic ' + base64.b64encode(config['restapi']['auth'].encode('utf-8')).decode('utf-8')}
-
-
-def request_patroni(member, request_type, endpoint, content=None, headers=None):
+def request_patroni(member, method='GET', endpoint=None, data=None):
     ctx = click.get_current_context()  # the current click context
-    headers = headers or {}
-    url_parts = urlparse(member.api_url)
-    logging.debug(url_parts)
-    if 'Content-Type' not in headers:
-        headers['Content-Type'] = 'application/json'
-
-    url = '{0}://{1}/{2}'.format(url_parts.scheme, url_parts.netloc, endpoint)
-
-    insecure = ctx.obj.get('ctl', {}).get('insecure', False)
-    # Get certfile if any from several configuration namespace
-    cert = ctx.obj.get('ctl', {}).get('cacert') or \
-        ctx.obj.get('restapi', {}).get('cacert') or \
-        ctx.obj.get('restapi', {}).get('certfile')
-    # In the case we specificaly disable SSL cert verification we don't want to have the warning
-    if insecure:
-        verify = False
-    elif cert:
-        verify = cert
-    else:
-        verify = True
-    return getattr(requests, request_type)(url, headers=headers,
-                                           data=json.dumps(content) if content else None, timeout=60,
-                                           verify=verify)
+    request_executor = ctx.obj.get('__request_patroni')
+    if not request_executor:
+        request_executor = ctx.obj['__request_patroni'] = PatroniRequest(ctx.obj)
+    return request_executor(member, method, endpoint, data)
 
 
 def print_output(columns, rows=None, alignment=None, fmt='pretty', header=True, delimiter='\t'):
@@ -457,9 +432,9 @@ def remove(obj, cluster_name, fmt):
 
 
 def check_response(response, member_name, action_name, silent_success=False):
-    if response.status_code >= 400:
+    if response.status >= 400:
         click.echo('Failed: {0} for member {1}, status code={2}, ({3})'.format(
-            action_name, member_name, response.status_code, response.text
+            action_name, member_name, response.status, response.data.decode('utf-8')
         ))
         return False
     elif not silent_success:
@@ -493,18 +468,17 @@ def reload(obj, cluster_name, member_names, force, role):
 
     members = get_members(cluster, cluster_name, member_names, role, force, 'reload')
 
-    content = {}
     for member in members:
-        r = request_patroni(member, 'post', 'reload', content, auth_header(obj))
-        if r.status_code == 200:
+        r = request_patroni(member, 'post', 'reload')
+        if r.status == 200:
             click.echo('No changes to apply on member {0}'.format(member.name))
-        elif r.status_code == 202:
+        elif r.status == 202:
             click.echo('Reload request received for member {0} and will be processed within {1} seconds'.format(
                 member.name, cluster.config.data.get('loop_wait'))
             )
         else:
             click.echo('Failed: reload for member {0}, status code={1}, ({2})'.format(
-                member.name, r.status_code, r.text)
+                member.name, r.status, r.data.decode('utf-8'))
             )
 
 
@@ -565,19 +539,19 @@ def restart(obj, cluster_name, member_names, force, role, p_any, scheduled, vers
     for member in members:
         if 'schedule' in content:
             if force and member.data.get('scheduled_restart'):
-                r = request_patroni(member, 'delete', 'restart', headers=auth_header(obj))
+                r = request_patroni(member, 'delete', 'restart')
                 check_response(r, member.name, 'flush scheduled restart', True)
 
-        r = request_patroni(member, 'post', 'restart', content, auth_header(obj))
-        if r.status_code == 200:
+        r = request_patroni(member, 'post', 'restart', content)
+        if r.status == 200:
             click.echo('Success: restart on member {0}'.format(member.name))
-        elif r.status_code == 202:
+        elif r.status == 202:
             click.echo('Success: restart scheduled on member {0}'.format(member.name))
-        elif r.status_code == 409:
+        elif r.status == 409:
             click.echo('Failed: another restart is already scheduled on member {0}'.format(member.name))
         else:
             click.echo('Failed: restart for member {0}, status code={1}, ({2})'.format(
-                member.name, r.status_code, r.text)
+                member.name, r.status, r.data.decode('utf-8'))
             )
 
 
@@ -593,8 +567,8 @@ def reinit(obj, cluster_name, member_names, force):
     for member in members:
         body = {'force': force}
         while True:
-            r = request_patroni(member, 'post', 'reinitialize', body, auth_header(obj))
-            if not check_response(r, member.name, 'reinitialize') and r.text.endswith(' already in progress') \
+            r = request_patroni(member, 'post', 'reinitialize', body)
+            if not check_response(r, member.name, 'reinitialize') and r.data.endswith(b' already in progress') \
                     and not force and click.confirm('Do you want to cancel it and reinitialize anyway?'):
                 body['force'] = True
                 continue
@@ -682,19 +656,19 @@ def _do_failover_or_switchover(obj, action, cluster_name, master, candidate, for
     try:
         member = cluster.leader.member if cluster.leader else cluster.get_member(candidate, False)
 
-        r = request_patroni(member, 'post', action, failover_value, auth_header(obj))
+        r = request_patroni(member, 'post', action, failover_value)
 
         # probably old patroni, which doesn't support switchover yet
-        if r.status_code == 501 and action == 'switchover' and 'Server does not support this operation' in r.text:
-            r = request_patroni(member, 'post', 'failover', failover_value, auth_header(obj))
+        if r.status == 501 and action == 'switchover' and b'Server does not support this operation' in r.data:
+            r = request_patroni(member, 'post', 'failover', failover_value)
 
-        if r.status_code in (200, 202):
+        if r.status in (200, 202):
             logging.debug(r)
             cluster = dcs.get_cluster()
             logging.debug(cluster)
-            click.echo('{0} {1}'.format(timestamp(), r.text))
+            click.echo('{0} {1}'.format(timestamp(), r.data.decode('utf-8')))
         else:
-            click.echo('{0} failed, details: {1}, {2}'.format(action.title(), r.status_code, r.text))
+            click.echo('{0} failed, details: {1}, {2}'.format(action.title(), r.status, r.data.decode('utf-8')))
             return
     except Exception:
         logging.exception(r)
@@ -919,7 +893,7 @@ def flush(obj, cluster_name, member_names, force, role, target):
     for member in members:
         if target == 'restart':
             if member.data.get('scheduled_restart'):
-                r = request_patroni(member, 'delete', 'restart', None, auth_header(obj))
+                r = request_patroni(member, 'delete', 'restart')
                 check_response(r, member.name, 'flush scheduled restart')
             else:
                 click.echo('No scheduled restart for member {0}'.format(member.name))
@@ -956,20 +930,20 @@ def toggle_pause(config, cluster_name, paused, wait):
 
     for member in members:
         try:
-            r = request_patroni(member, 'patch', 'config', {'pause': paused or None}, auth_header(config))
+            r = request_patroni(member, 'patch', 'config', {'pause': paused or None})
         except Exception as err:
             logging.warning(str(err))
             logging.warning('Member %s is not accessible', member.name)
             continue
 
-        if r.status_code == 200:
+        if r.status == 200:
             if wait:
                 wait_until_pause_is_applied(dcs, paused, cluster)
             else:
                 click.echo('Success: cluster management is {0}'.format(paused and 'paused' or 'resumed'))
         else:
             click.echo('Failed: {0} cluster management status code={1}, ({2})'.format(
-                       paused and 'pause' or 'resume', r.status_code, r.text))
+                       paused and 'pause' or 'resume', r.status, r.data.decode('utf-8')))
         break
     else:
         raise PatroniCtlException('Can not find accessible cluster member')
@@ -1233,8 +1207,8 @@ def version(obj, cluster_name, member_names):
         if m.api_url:
             if not member_names or m.name in member_names:
                 try:
-                    response = request_patroni(m, 'get', 'patroni')
-                    data = response.json()
+                    response = request_patroni(m)
+                    data = json.loads(response.data)
                     version = data.get('patroni', {}).get('version')
                     pg_version = data.get('server_version')
                     pg_version_str = " PostgreSQL {0}".format(format_pg_version(pg_version)) if pg_version else ""

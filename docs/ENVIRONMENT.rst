@@ -117,6 +117,15 @@ REST API
 -  **PATRONI\_RESTAPI\_PASSWORD**: Basic-auth password to protect unsafe REST API endpoints.
 -  **PATRONI\_RESTAPI\_CERTFILE**: Specifies the file with the certificate in the PEM format. If the certfile is not specified or is left empty, the API server will work without SSL.
 -  **PATRONI\_RESTAPI\_KEYFILE**: Specifies the file with the secret key in the PEM format.
+-  **PATRONI\_RESTAPI\_CAFILE**: Specifies the file with the CA_BUNDLE with certificates of trusted CAs to use while verifying client certs.
+-  **PATRONI\_RESTAPI\_VERIFY\_CLIENT**: ``none``, ``optional`` or ``required``. When ``none`` REST API will not check client certificates. When ``required`` client certificates are required for all REST API calls. When ``optional`` client certificates are required for all unsafe REST API endpoints. If ``verify_client`` is set to ``optional`` or ``required`` basic-auth is not checked.
+
+CTL
+---
+-  **PATRONI\_CTL\_INSECURE**: Allow connections to REST API without verifying SSL certs.
+-  **PATRONI\_CTL\_CACERT**: Specifies the file with the CA_BUNDLE file or directory with certificates of trusted CAs to use while verifying REST API SSL certs. If not provided patronictl will use the value provided for REST API "cafile" parameter.
+-  **PATRONI\_CTL\_CERTFILE**: Specifies the file with the client certificate in the PEM format. If not provided patronictl will use the value provided for REST API "certfile" parameter.
+-  **PATRONI\_CTL\_KEYFILE**: Specifies the file with the client secret key in the PEM format. If not provided patronictl will use the value provided for REST API "keyfile" parameter.
 
 ZooKeeper
 ---------
