@@ -186,6 +186,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertFalse(self.p.restart())
         self.assertEqual(self.p.state, 'restart failed (restarting)')
 
+    @patch('os.chmod', Mock())
     @patch.object(builtins, 'open', MagicMock())
     def test_write_pgpass(self):
         self.p.config.write_pgpass({'host': 'localhost', 'port': '5432', 'user': 'foo'})
