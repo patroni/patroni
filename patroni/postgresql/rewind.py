@@ -145,17 +145,10 @@ class Rewind(object):
 
     def pg_rewind(self, r):
         # prepare pg_rewind connection
-        env = self._postgresql.write_pgpass(r)
+        env = self._postgresql.config.write_pgpass(r)
         env['PGOPTIONS'] = '-c statement_timeout=0'
-        dsn_attrs = [
-            ('user', r.get('user')),
-            ('host', r.get('host')),
-            ('port', r.get('port')),
-            ('dbname', r.get('database') or self._postgresql.database),
-            ('sslmode', 'prefer'),
-            ('sslcompression', '1'),
-        ]
-        dsn = " ".join("{0}={1}".format(k, v) for k, v in dsn_attrs if v is not None)
+        dsn = " ".join("{0}={1}".format(k, r[k]) for k in self._postgresql.config.CONNINFO_KEYWORDS if k in r)
+        dsn = "dbname={0} {1}".format(r.get('database') or self._postgresql.database, dsn)
         logger.info('running pg_rewind from %s', dsn)
         try:
             return self._postgresql.cancellable.call([self._postgresql.pgcommand('pg_rewind'), '-D',

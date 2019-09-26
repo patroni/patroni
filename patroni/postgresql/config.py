@@ -187,11 +187,10 @@ class ConfigHandler(object):
         'wal_log_hints': ('on', lambda _: False, 90400)
     })
 
-    # A list of keywords that can be found in a conninfo string. Follows what
-    # is acceptable by libpq
-    _CONNINFO_KEYWORDS = (
+    # A list of keywords that can be found in a conninfo string. Follows what is acceptable by libpq
+    CONNINFO_KEYWORDS = (
         'user',
-        'password',
+        'passfile',
         'host',
         'port',
         'sslmode',
@@ -201,7 +200,7 @@ class ConfigHandler(object):
         'sslrootcert',
         'sslcrl',
         'application_name',
-        'krbsrvname',
+        'krbsrvname'
     )
 
     _RECOVERY_PARAMETERS = {
@@ -241,6 +240,9 @@ class ConfigHandler(object):
         self._standby_signal = os.path.join(postgresql.data_dir, 'standby.signal')
         self._auto_conf = os.path.join(postgresql.data_dir, 'postgresql.auto.conf')
         self._auto_conf_mtime = None
+        self._pgpass = config.get('pgpass') or os.path.join(os.path.expanduser('~'), 'pgpass')
+        self._passfile = None
+        self._passfile_mtime = None
         self._synchronous_standby_names = None
         self._postmaster_ctime = None
         self._primary_conninfo = None
@@ -301,7 +303,6 @@ class ConfigHandler(object):
             os.rename(self._postgresql_conf, self._postgresql_base_conf)
 
         with open(self._postgresql_conf, 'w') as f:
-            os.chmod(self._postgresql_conf, stat.S_IWRITE | stat.S_IREAD)
             f.write(self._CONFIG_WARNING_HEADER)
             f.write("include '{0}'\n\n".format(self._config.get('custom_conf') or self._postgresql_base_conf_name))
             for name, value in sorted((configuration or self._server_parameters).items()):
@@ -321,6 +322,8 @@ class ConfigHandler(object):
                 if self._recovery_params:
                     f.write('\n# recovery.conf\n')
                     for name, value in sorted(self._recovery_params.items()):
+                        if name == 'primary_conninfo':
+                            value = self._handle_primary_conninfo(value)
                         f.write("{0} = '{1}'\n".format(name, value))
 
                 if not self._postgresql.bootstrap.keep_existing_recovery_conf:
@@ -379,22 +382,24 @@ class ConfigHandler(object):
             return True
 
     def primary_conninfo_params(self, member):
-        name = self._postgresql.name
-        if not (member and member.conn_url) or member.name == name:
+        if not (member and member.conn_url) or member.name == self._postgresql.name:
             return None
         ret = member.conn_kwargs(self.replication)
-        ret.update(application_name=name, sslmode='prefer')
+        ret['application_name'] = self._postgresql.name
+        ret.setdefault('sslmode', 'prefer')
         if self._krbsrvname:
             ret['krbsrvname'] = self._krbsrvname
         if 'database' in ret:
             del ret['database']
         return ret
 
-    def primary_conninfo(self, member):
-        r = self.primary_conninfo_params(member)
-        if not r:
-            return None
-        return ' '.join('{0}={{{0}}}'.format(kw) for kw in self._CONNINFO_KEYWORDS if r.get(kw)).format(**r)
+    def _handle_primary_conninfo(self, r):
+        if 'password' in r:
+            self.write_pgpass(r)
+            self._passfile = r['passfile'] = self._pgpass
+            self._passfile_mtime = mtime(self._pgpass)
+
+        return ' '.join('{0}={{{0}}}'.format(kw) for kw in self.CONNINFO_KEYWORDS if r.get(kw)).format(**r)
 
     def recovery_conf_exists(self):
         if self._postgresql.major_version >= 120000:
@@ -404,12 +409,13 @@ class ConfigHandler(object):
     def _read_primary_conninfo(self):
         pg_conf_mtime = mtime(self._postgresql_conf)
         auto_conf_mtime = mtime(self._auto_conf)
+        passfile_mtime = mtime(self._passfile) if self._passfile else False
         postmaster_ctime = self._postgresql.is_running()
         if postmaster_ctime:
             postmaster_ctime = postmaster_ctime.create_time()
 
         if self._postgresql_conf_mtime == pg_conf_mtime and self._auto_conf_mtime == auto_conf_mtime \
-                and self._postmaster_ctime == postmaster_ctime:
+                and self._passfile_mtime == passfile_mtime and self._postmaster_ctime == postmaster_ctime:
             return None, False
 
         try:
@@ -423,7 +429,8 @@ class ConfigHandler(object):
 
     def _read_primary_conninfo_pre_v12(self):
         recovery_conf_mtime = mtime(self._recovery_conf)
-        if recovery_conf_mtime == self._recovery_conf_mtime:
+        passfile_mtime = mtime(self._passfile) if self._passfile else False
+        if recovery_conf_mtime == self._recovery_conf_mtime and passfile_mtime == self._passfile_mtime:
             return None, False
 
         primary_conninfo = ''
@@ -438,6 +445,27 @@ class ConfigHandler(object):
                         primary_conninfo, _ = read_param_value(line[i:], is_quoted)
             self._recovery_conf_mtime = recovery_conf_mtime
         return primary_conninfo, True
+
+    def _check_passfile(self, wanted_primary_conninfo):
+        # If there is a passfile in the primary_conninfo try to figure out that
+        # the passfile contains the line allowing connection to the given node.
+        # We assume that the passfile was created by Patroni and therefore doing
+        # the full match and not covering cases when host, port or user are set to '*'
+        passfile = self._primary_conninfo['passfile']
+        passfile_mtime = mtime(passfile)
+        if passfile_mtime:
+            try:
+                with open(passfile) as f:
+                    wanted_line = self._pgpass_line(wanted_primary_conninfo).strip()
+                    for raw_line in f:
+                        if raw_line.strip() == wanted_line:
+                            self._primary_conninfo['password'] = wanted_primary_conninfo['password']
+                            self._passfile = passfile
+                            self._passfile_mtime = passfile_mtime
+                            return True
+            except Exception:
+                logger.info('Failed to read %s', passfile)
+        return False
 
     def check_recovery_conf(self, member):  # Name is confusing. In fact it checks the value of primary_conninfo
         # TODO: recovery.conf could be stale, would be nice to detect that.
@@ -480,12 +508,38 @@ class ConfigHandler(object):
         elif not self._primary_conninfo:
             return False
 
+        if 'passfile' in self._primary_conninfo and 'password' in wanted_primary_conninfo and \
+                'password' not in self._primary_conninfo and not self._check_passfile(wanted_primary_conninfo):
+            return False
+
         return all(self._primary_conninfo.get(p) == str(v) for p, v in wanted_primary_conninfo.items())
 
     @staticmethod
     def _remove_file_if_exists(name):
         if os.path.isfile(name) or os.path.islink(name):
             os.unlink(name)
+
+    @staticmethod
+    def _pgpass_line(record):
+        if 'password' in record:
+            def escape(value):
+                return re.sub(r'([:\\])', r'\\\1', str(value))
+
+            record = {n: escape(record.get(n, '*')) for n in ('host', 'port', 'user', 'password')}
+            return '{host}:{port}:*:{user}:{password}'.format(**record)
+
+    def write_pgpass(self, record):
+        line = self._pgpass_line(record)
+        if not line:
+            return os.environ.copy()
+
+        with open(self._pgpass, 'w') as f:
+            os.chmod(self._pgpass, stat.S_IWRITE | stat.S_IREAD)
+            f.write(line)
+
+        env = os.environ.copy()
+        env['PGPASSFILE'] = self._pgpass
+        return env
 
     def write_recovery_conf(self, recovery_params):
         if self._postgresql.major_version >= 120000:
@@ -499,6 +553,8 @@ class ConfigHandler(object):
             with open(self._recovery_conf, 'w') as f:
                 os.chmod(self._recovery_conf, stat.S_IWRITE | stat.S_IREAD)
                 for name, value in recovery_params.items():
+                    if name == 'primary_conninfo':
+                        value = self._handle_primary_conninfo(value)
                     f.write("{0} = '{1}'\n".format(name, value))
 
     def remove_recovery_conf(self):
@@ -678,7 +734,6 @@ class ConfigHandler(object):
         self._postgresql.set_pending_restart(pending_restart)
         self._server_parameters = server_parameters
         self._adjust_recovery_parameters()
-        self._connect_address = config.get('connect_address')
         self._krbsrvname = config.get('krbsrvname')
 
         # for not so obvious connection attempts that may happen outside of pyscopg2
