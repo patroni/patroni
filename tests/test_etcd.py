@@ -7,6 +7,7 @@ from dns.exception import DNSException
 from mock import Mock, patch
 from patroni.dcs.etcd import AbstractDCS, Client, Cluster, Etcd, EtcdError, DnsCachingResolver
 from patroni.exceptions import DCSError
+from patroni.utils import Retry
 from urllib3.exceptions import ReadTimeoutError
 
 from . import SleepException, MockResponse, requests_get
@@ -149,7 +150,11 @@ class TestClient(unittest.TestCase):
         self.assertRaises(ValueError, self.client.api_execute, '', '')
         self.client._base_uri = 'http://localhost:4001'
         self.client._machines_cache = ['http://localhost:2379']
-        self.client.api_execute('/', 'POST', timeout=0)
+        self.assertRaises(etcd.EtcdException, self.client.api_execute, '/', 'POST', timeout=0)
+        self.client._base_uri = 'http://localhost:4001'
+        self.client._machines_cache = ['http://localhost:2379']
+        rtry = Retry(deadline=10, max_delay=1, max_tries=-1, retry_exceptions=(etcd.EtcdLeaderElectionInProgress,))
+        rtry(self.client.api_execute, '/', 'POST', timeout=0, params={'retry': rtry})
         mock_machines.__get__ = Mock(return_value=['http://localhost:2379'])
         self.client._machines_cache_updated = 0
         self.client.api_execute('/', 'POST', timeout=0)
@@ -158,6 +163,12 @@ class TestClient(unittest.TestCase):
         self.assertRaises(etcd.EtcdWatchTimedOut, self.client.api_execute, '/timeout', 'POST', params={'wait': 'true'})
         self.assertRaises(etcd.EtcdException, self.client.api_execute, '/', '')
         with patch.object(Client, '_load_machines_cache', Mock(side_effect=etcd.EtcdException)):
+            self.assertRaises(etcd.EtcdException, self.client.api_execute, '/', 'GET')
+
+        with patch.object(Client, '_do_http_request', Mock(side_effect=etcd.EtcdConnectionFailed)):
+            with patch.object(Client, '_calculate_timeouts', Mock(side_effect=[(1, 1, 0), (1, 1, 0), (0, 1, 0)])):
+                self.assertRaises(etcd.EtcdException, rtry, self.client.api_execute, '/', 'GET', params={'retry': rtry})
+            self.client._read_timeout = 0
             self.assertRaises(etcd.EtcdException, self.client.api_execute, '/', 'GET')
 
     def test_get_srv_record(self):
