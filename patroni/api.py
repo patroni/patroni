@@ -492,6 +492,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
 
 class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
+    # On 3.7+ the `ThreadingMixIn` gathers all non-daemon worker threads in order to join on them at server close.
+    daemon_threads = True  # Make worker threads "fire and forget" to prevent a memory leak.
 
     def __init__(self, patroni, config):
         self.patroni = patroni
