@@ -622,7 +622,23 @@ class ConfigHandler(object):
 
         self._postgresql.set_connection_kwargs(self.local_connect_kwargs)
 
-    def reload_config(self, config):
+    @staticmethod
+    def _handle_wal_buffers(old_values, changes):
+        wal_block_size = parse_int(old_values['wal_block_size'][1])
+        wal_segment_size = old_values['wal_segment_size']
+        wal_segment_size = parse_int(wal_segment_size[1]) * parse_int(wal_segment_size[2], 'B') / wal_block_size
+        default_wal_buffers = min(max(parse_int(old_values['shared_buffers'][1]) / 32, 8), wal_segment_size)
+
+        wal_buffers = old_values['wal_buffers']
+        new_value = str(changes['wal_buffers'] or -1)
+
+        new_value = default_wal_buffers if new_value == '-1' else parse_int(new_value, wal_buffers[2])
+        old_value = default_wal_buffers if wal_buffers[1] == '-1' else parse_int(*wal_buffers[1:3])
+
+        if new_value == old_value:
+            del changes['wal_buffers']
+
+    def reload_config(self, config, sighup=False):
         self._superuser = config['authentication'].get('superuser', {})
         server_parameters = self.get_server_parameters(config)
 
@@ -631,15 +647,24 @@ class ConfigHandler(object):
             changes = CaseInsensitiveDict({p: v for p, v in server_parameters.items() if '.' not in p})
             changes.update({p: None for p in self._server_parameters.keys() if not ('.' in p or p in changes)})
             if changes:
+                if 'wal_buffers' in changes:  # we need to calculate the default value of wal_buffers
+                    undef = [p for p in ('shared_buffers', 'wal_segment_size', 'wal_block_size') if p not in changes]
+                    changes.update({p: None for p in undef})
                 # XXX: query can raise an exception
-                for r in self._postgresql.query(('SELECT name, setting, unit, vartype, context '
-                                                 + 'FROM pg_catalog.pg_settings ' +
-                                                 ' WHERE pg_catalog.lower(name) IN ('
-                                                 + ', '.join(['%s'] * len(changes)) +
-                                                 ')'), *(k.lower() for k in changes.keys())):
+                old_values = {r[0]: r for r in self._postgresql.query(('SELECT name, setting, unit, vartype, context '
+                                                                       + 'FROM pg_catalog.pg_settings ' +
+                                                                       ' WHERE pg_catalog.lower(name) = ANY(%s)'),
+                                                                      [k.lower() for k in changes.keys()])}
+                if 'wal_buffers' in changes:
+                    self._handle_wal_buffers(old_values, changes)
+                    for p in undef:
+                        del changes[p]
+
+                for r in old_values.values():
                     if r[4] != 'internal' and r[0] in changes:
                         new_value = changes.pop(r[0])
                         if new_value is None or not compare_values(r[3], r[2], r[1], new_value):
+                            conf_changed = True
                             if r[4] == 'postmaster':
                                 pending_restart = True
                                 logger.info('Changed %s from %s to %s (restart required)', r[0], r[1], new_value)
@@ -648,25 +673,20 @@ class ConfigHandler(object):
                                     local_connection_address_changed = True
                             else:
                                 logger.info('Changed %s from %s to %s', r[0], r[1], new_value)
-                                conf_changed = True
                 for param in changes:
                     if param in server_parameters:
                         logger.warning('Removing invalid parameter `%s` from postgresql.parameters', param)
                         server_parameters.pop(param)
 
             # Check that user-defined-paramters have changed (parameters with period in name)
-            if not conf_changed:
-                for p, v in server_parameters.items():
-                    if '.' in p and (p not in self._server_parameters or str(v) != str(self._server_parameters[p])):
-                        logger.info('Changed %s from %s to %s', p, self._server_parameters.get(p), v)
-                        conf_changed = True
-                        break
-                if not conf_changed:
-                    for p, v in self._server_parameters.items():
-                        if '.' in p and (p not in server_parameters or str(v) != str(server_parameters[p])):
-                            logger.info('Changed %s from %s to %s', p, v, server_parameters.get(p))
-                            conf_changed = True
-                            break
+            for p, v in server_parameters.items():
+                if '.' in p and (p not in self._server_parameters or str(v) != str(self._server_parameters[p])):
+                    logger.info('Changed %s from %s to %s', p, self._server_parameters.get(p), v)
+                    conf_changed = True
+            for p, v in self._server_parameters.items():
+                if '.' in p and (p not in server_parameters or str(v) != str(server_parameters[p])):
+                    logger.info('Changed %s from %s to %s', p, v, server_parameters.get(p))
+                    conf_changed = True
 
             if not server_parameters.get('hba_file') and config.get('pg_hba'):
                 hba_changed = self._config.get('pg_hba', []) != config['pg_hba']
@@ -697,10 +717,10 @@ class ConfigHandler(object):
         if ident_changed:
             self.replace_pg_ident()
 
-        if conf_changed or hba_changed or ident_changed:
-            logger.info('PostgreSQL configuration items changed, reloading configuration.')
+        if sighup or conf_changed or hba_changed or ident_changed:
+            logger.info('Reloading PostgreSQL configuration.')
             self._postgresql.reload()
-        elif not pending_restart:
+        else:
             logger.info('No PostgreSQL configuration items changed, nothing to reload.')
 
     def set_synchronous_standby(self, name):

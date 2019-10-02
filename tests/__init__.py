@@ -107,6 +107,9 @@ class MockCursor(object):
             self.results = [('', 0, '', '', '', '', False, replication_info)]
         elif sql.startswith('SELECT name, setting'):
             self.results = [('wal_segment_size', '2048', '8kB', 'integer', 'internal'),
+                            ('wal_block_size', '8192', None, 'integer', 'internal'),
+                            ('shared_buffers', '16384', '8kB', 'integer', 'postmaster'),
+                            ('wal_buffers', '-1', '8kB', 'integer', 'postmaster'),
                             ('search_path', 'public', None, 'string', 'user'),
                             ('port', '5433', None, 'integer', 'postmaster'),
                             ('listen_addresses', '*', None, 'string', 'postmaster'),

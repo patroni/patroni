@@ -70,8 +70,7 @@ class TestConfig(unittest.TestCase):
         config = Config()
         with patch.object(Config, '_load_config_file', Mock(return_value={'restapi': {}})):
             with patch.object(Config, '_build_effective_configuration', Mock(side_effect=Exception)):
-                self.assertRaises(Exception, config.reload_local_configuration, True)
-            self.assertTrue(config.reload_local_configuration(True))
+                config.reload_local_configuration()
             self.assertTrue(config.reload_local_configuration())
             self.assertIsNone(config.reload_local_configuration())
 
