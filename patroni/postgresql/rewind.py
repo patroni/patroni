@@ -147,8 +147,7 @@ class Rewind(object):
         # prepare pg_rewind connection
         env = self._postgresql.config.write_pgpass(r)
         env['PGOPTIONS'] = '-c statement_timeout=0'
-        dsn = " ".join("{0}={1}".format(k, r[k]) for k in self._postgresql.config.CONNINFO_KEYWORDS if k in r)
-        dsn = "dbname={0} {1}".format(r.get('database') or self._postgresql.database, dsn)
+        dsn = self._postgresql.config.format_dsn(r, True)
         logger.info('running pg_rewind from %s', dsn)
         try:
             return self._postgresql.cancellable.call([self._postgresql.pgcommand('pg_rewind'), '-D',
