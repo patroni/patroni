@@ -4,6 +4,7 @@ import re
 import shutil
 import socket
 import stat
+import time
 
 from requests.structures import CaseInsensitiveDict
 from six.moves.urllib_parse import urlparse, parse_qsl, unquote
@@ -667,7 +668,8 @@ class ConfigHandler(object):
                             conf_changed = True
                             if r[4] == 'postmaster':
                                 pending_restart = True
-                                logger.info('Changed %s from %s to %s (restart required)', r[0], r[1], new_value)
+                                logger.info('Changed %s from %s to %s (restart might be required)',
+                                            r[0], r[1], new_value)
                                 if config.get('use_unix_socket') and r[0] == 'unix_socket_directories'\
                                         or r[0] in ('listen_addresses', 'port'):
                                     local_connection_address_changed = True
@@ -720,6 +722,14 @@ class ConfigHandler(object):
         if sighup or conf_changed or hba_changed or ident_changed:
             logger.info('Reloading PostgreSQL configuration.')
             self._postgresql.reload()
+            if self._postgresql.major_version >= 90500:
+                time.sleep(1)
+                try:
+                    pending_restart = self._postgresql.query('SELECT COUNT(*) FROM pg_catalog.pg_settings'
+                                                             ' WHERE pending_restart').fetchone()[0] > 0
+                    self._postgresql.set_pending_restart(pending_restart)
+                except Exception as e:
+                    logger.warning('Exception %r when running query', e)
         else:
             logger.info('No PostgreSQL configuration items changed, nothing to reload.')
 
