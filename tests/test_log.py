@@ -38,12 +38,13 @@ class TestPatroniLogger(unittest.TestCase):
         logger = PatroniLogger()
         patroni_config = Config()
         logger.reload_config(patroni_config['log'])
+        logger.start()
 
         with patch.object(logging.Handler, 'format', Mock(side_effect=Exception)):
             logging.error('test')
 
-        self.assertEqual(logger._log_handler.maxBytes, config['log']['file_size'])
-        self.assertEqual(logger._log_handler.backupCount, config['log']['file_num'])
+        self.assertEqual(logger.log_handler.maxBytes, config['log']['file_size'])
+        self.assertEqual(logger.log_handler.backupCount, config['log']['file_num'])
 
         config['log'].pop('dir')
         logger.reload_config(config['log'])
