@@ -902,31 +902,3 @@ class Postgresql(object):
         """
         self.slots_handler.schedule()
         self._sysid = None
-
-    def pre_promote(self, config, task):
-        try:
-            task.complete(self.call_pre_promote(config))
-        except Exception:
-            logger.exception('pre_promote')
-            task.complete(False)
-        return task.result
-
-    def call_pre_promote(self, config):
-        """
-        Runs a fencing script after the leader lock is acquired but before the replica is promoted.
-        If the script exits with a non-zero code, promotion does not happen and the leader key is removed from DCS.
-        """
-        cmd = config.get('pre_promote')
-        if cmd:
-            self._pre_promote_subprocess = CancellableSubprocess()
-            try:
-                ret = self._cancellable.call(shlex.split(cmd))
-            except OSError:
-                logger.error('pre_promote script %s failed: ', cmd)
-                return False
-
-            if ret != 0:
-                logger.error('pre_promote script %s returned non-zero code %d', cmd, ret)
-                return False
-
-        return True

@@ -18,6 +18,7 @@ from patroni.postgresql.rewind import Rewind
 from patroni.utils import polling_loop, tzutc
 from patroni.dcs import RemoteMember
 from threading import RLock
+from patroni.pre_promote import Prepromote
 
 
 logger = logging.getLogger(__name__)
@@ -77,6 +78,7 @@ class Ha(object):
         self._start_timeout = None
         self._async_executor = AsyncExecutor(self.state_handler.cancellable, self.wakeup)
         self.watchdog = patroni.watchdog
+        self._pre_promote = Prepromote(self)
         self._pre_promote_task = None
 
         # Each member publishes various pieces of information to the DCS using touch_member. This lock protects
@@ -870,9 +872,13 @@ class Ha(object):
         if self.is_healthiest_node():
             if self.acquire_lock():
 
-                if self.cluster and self.cluster.config and self.cluster.config['pre_promote']:
-                    self._pre_promote_task = CriticalTask()
-                    self.pre_promote()
+                if self.cluster and self.cluster.config and self.patroni.config['pre_promote']:
+                    if not self._pre_promote_task:
+                        self._pre_promote_task = CriticalTask()
+                    self._async_executor.schedule('pre_promote')
+                    self._async_executor.run_async(self._pre_promote.pre_promote,
+                                                   args=(self.patroni.config['pre_promote'], self._pre_promote_task))
+                    return 'running pre_promote'
 
                 failover = self.cluster.failover
                 if failover:
@@ -1171,6 +1177,7 @@ class Ha(object):
             logger.error('Cancelling bootstrap because watchdog activation failed')
             self.cancel_initialization()
         self.state_handler.slots_handler.sync_replication_slots(self.cluster)
+
         self.dcs.take_leader()
         self.set_is_leader(True)
         self.state_handler.call_nowait(ACTION_ON_START)
@@ -1255,12 +1262,13 @@ class Ha(object):
             if msg is not None:
                 return msg
 
+            if self.is_leader and self._pre_promote_task and self._pre_promote_task.result is False:
+                self.release_leader_key_voluntarily()
+                return 'released leader key voluntarily as pre_promote script failed'
+
             # we've got here, so any async action has finished.
             if self.state_handler.bootstrapping:
                 return self.post_bootstrap()
-
-            if self.is_running_pre_promote:
-                return self.pre_promote()
 
             if self.recovering and not self._rewind.is_needed:
                 self.recovering = False
@@ -1412,17 +1420,3 @@ class Ha(object):
 
     def get_remote_master(self):
         return self.get_remote_member()
-
-    def pre_promote(self):
-
-        if self._pre_promote_task.result is False:
-            self.release_leader_key_voluntarily()
-            return 'released leader key voluntarily as pre_promote script failed'
-
-        if self._pre_promote_task.result is None:
-            self._async_executor.schedule('pre_promote')
-            self._async_executor.run_async(self.state_handler.pre_promote,
-                                           args=(self.patroni.config, self._pre_promote_task))
-            return 'running pre_promote'
-
-        return 'pre_promote script finished'

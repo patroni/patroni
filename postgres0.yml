@@ -65,8 +65,7 @@ bootstrap:
   # Additional script to be launched after initial cluster creation (will be passed the connection URL as parameter)
 # post_init: /usr/local/bin/setup_cluster.sh
 
-  # Additional fencing script executed after acquiring the leader lock but before promoting the replica
-  #pre_promote: /usr/local/bin/candidate_leader_fencing.sh
+
 
   # Some additional users users which needs to be created after initializing new cluster
   users:
@@ -105,6 +104,9 @@ postgresql:
 #  mode: automatic # Allowed values: off, automatic, required
 #  device: /dev/watchdog
 #  safety_margin: 5
+
+# Additional fencing script executed after acquiring the leader lock but before promoting the replica
+#pre_promote: /path/to/pre_promote.sh
 
 tags:
     nofailover: false
