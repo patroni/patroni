@@ -5,7 +5,6 @@ import shutil
 import unittest
 
 from mock import Mock, patch
-from tempfile import gettempdir
 
 import psycopg2
 import requests
@@ -183,7 +182,7 @@ class PostgresInit(unittest.TestCase):
         data_dir = 'data/test0'
         self.p = Postgresql({'name': 'postgresql0', 'scope': 'batman', 'data_dir': data_dir,
                              'config_dir': data_dir, 'retry_timeout': 10,
-                             'krbsrvname': 'postgres', 'pgpass': os.path.join(gettempdir(), 'pgpass0'),
+                             'krbsrvname': 'postgres', 'pgpass': os.path.join(data_dir, 'pgpass0'),
                              'listen': '127.0.0.2, 127.0.0.3:5432', 'connect_address': '127.0.0.2:5432',
                              'authentication': {'superuser': {'username': 'foo', 'password': 'test'},
                                                 'replication': {'username': '', 'password': 'rep-pass'}},

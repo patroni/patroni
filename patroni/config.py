@@ -15,14 +15,14 @@ from requests.structures import CaseInsensitiveDict
 
 logger = logging.getLogger(__name__)
 
-AUTH_ALLOWED_PARAMETERS = (
+_AUTH_ALLOWED_PARAMETERS = (
     'username',
     'password',
     'sslmode',
     'sslcert',
     'sslkey',
     'sslrootcert',
-    'sslcrl',
+    'sslcrl'
 )
 
 
@@ -260,9 +260,9 @@ class Config(object):
             if value:
                 ret['log']['loggers'] = value
 
-        def _get_auth(name):
+        def _get_auth(name, params=None):
             ret = {}
-            for param in AUTH_ALLOWED_PARAMETERS:
+            for param in params or _AUTH_ALLOWED_PARAMETERS[:2]:
                 value = _popenv(name + '_' + param)
                 if value:
                     ret[param] = value
@@ -274,7 +274,7 @@ class Config(object):
 
         authentication = {}
         for user_type in ('replication', 'superuser', 'rewind'):
-            entry = _get_auth(user_type)
+            entry = _get_auth(user_type, _AUTH_ALLOWED_PARAMETERS)
             if entry:
                 authentication[user_type] = entry
 
@@ -366,7 +366,7 @@ class Config(object):
         # handle setting additional connection parameters that may be available
         # in the configuration file, such as SSL connection parameters
         for name, value in pg_config['authentication'].items():
-            pg_config['authentication'][name] = {n: v for n, v in value.items() if n in AUTH_ALLOWED_PARAMETERS}
+            pg_config['authentication'][name] = {n: v for n, v in value.items() if n in _AUTH_ALLOWED_PARAMETERS}
 
         # no 'name' in config
         if 'name' not in config and 'name' in pg_config:

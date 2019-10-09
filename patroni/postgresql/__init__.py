@@ -77,7 +77,6 @@ class Postgresql(object):
 
         self.slots_handler = SlotsHandler(self)
 
-        self._pgpass = config.get('pgpass') or os.path.join(os.path.expanduser('~'), 'pgpass')
         self._callback_executor = CallbackExecutor()
         self.__cb_called = False
         self.__cb_pending = None
@@ -257,19 +256,6 @@ class Postgresql(object):
 
     def data_directory_empty(self):
         return not os.path.exists(self._data_dir) or os.listdir(self._data_dir) == []
-
-    def write_pgpass(self, record):
-        if 'user' not in record or 'password' not in record:
-            return os.environ.copy()
-
-        with open(self._pgpass, 'w') as f:
-            if os.name != 'nt':
-                os.fchmod(f.fileno(), 0o600)
-            f.write('{host}:{port}:*:{user}:{password}\n'.format(**record))
-
-        env = os.environ.copy()
-        env['PGPASSFILE'] = self._pgpass
-        return env
 
     def replica_method_options(self, method):
         return deepcopy(self.config.get(method, {}))
@@ -645,12 +631,10 @@ class Postgresql(object):
 
     @contextmanager
     def get_replication_connection_cursor(self, host='localhost', port=5432, database=None, **kwargs):
-        replication = self.config.replication
-        extra_kwargs = {k: v for k, v in replication.items()
-                        if k not in ('username', 'password', 'connect_timeout', 'options')}
-        with get_connection_cursor(host=host, port=int(port), database=database or self._database, replication=1,
-                                   user=replication['username'], password=replication.get('password'),
-                                   connect_timeout=3, options='-c statement_timeout=2000', **extra_kwargs) as cur:
+        conn_kwargs = self.config.replication.copy()
+        conn_kwargs.update(host=host, port=int(port), database=database or self._database, connect_timeout=3,
+                           user=conn_kwargs.pop('username'), replication=1, options='-c statement_timeout=2000')
+        with get_connection_cursor(**conn_kwargs) as cur:
             yield cur
 
     def get_local_timeline_lsn_from_replication_connection(self):
@@ -696,7 +680,7 @@ class Postgresql(object):
         min_apply_delay = is_remote_master and member.recovery_min_apply_delay
         archive_cleanup = is_remote_master and member.archive_cleanup_command
 
-        primary_conninfo = self.config.primary_conninfo(member)
+        primary_conninfo = self.config.primary_conninfo_params(member)
         change_role = self.cb_called and (self.role in ('master', 'demoted') or
                                           not {'standby_leader', 'replica'} - {self.role, role})
 
