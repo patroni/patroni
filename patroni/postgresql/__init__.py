@@ -633,7 +633,7 @@ class Postgresql(object):
     def get_replication_connection_cursor(self, host='localhost', port=5432, database=None, **kwargs):
         conn_kwargs = self.config.replication.copy()
         conn_kwargs.update(host=host, port=int(port), database=database or self._database, connect_timeout=3,
-                           user=conn_kwargs.pop('username', None), replication=1, options='-c statement_timeout=2000')
+                           user=conn_kwargs.pop('username'), replication=1, options='-c statement_timeout=2000')
         with get_connection_cursor(**conn_kwargs) as cur:
             yield cur
 
