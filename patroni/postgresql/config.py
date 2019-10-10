@@ -9,6 +9,7 @@ import time
 from requests.structures import CaseInsensitiveDict
 from six.moves.urllib_parse import urlparse, parse_qsl, unquote
 
+from ..dcs import slot_name_from_member_name, RemoteMember
 from ..utils import compare_values, parse_bool, parse_int, split_host_port, uri
 
 logger = logging.getLogger(__name__)
@@ -484,6 +485,30 @@ class ConfigHandler(object):
                     self._passfile_mtime = mtime(self._pgpass)
                 value = self.format_dsn(value)
             fd.write_param(name, value)
+
+    def build_recovery_params(self, member):
+        recovery_params = CaseInsensitiveDict({p: v for p, v in self.get('recovery_conf', {}).items()
+                                               if not p.lower().startswith('recovery_target') and
+                                               p.lower() not in ('primary_conninfo', 'primary_slot_name')})
+        recovery_params.update({'standby_mode': 'on', 'recovery_target_timeline': 'latest'})
+        if self._postgresql.major_version >= 120000:
+            # on pg12 we want to protect from following params being set in one of included files
+            # not doing so might result in a standby being paused, promoted or shutted down.
+            recovery_params.update({'recovery_target': '', 'recovery_target_name': '', 'recovery_target_time': '',
+                                    'recovery_target_xid': '', 'recovery_target_lsn': ''})
+
+        is_remote_master = isinstance(member, RemoteMember)
+        primary_conninfo = self.primary_conninfo_params(member)
+        if primary_conninfo:
+            recovery_params['primary_conninfo'] = primary_conninfo
+            if self._postgresql.slots_handler.use_slots and not (is_remote_master and member.no_replication_slot):
+                recovery_params['primary_slot_name'] = member.primary_slot_name if is_remote_master \
+                        else slot_name_from_member_name(self._postgresql.name)
+
+        if is_remote_master:  # standby_cluster config might have different parameters, we want to override them
+            recovery_params.update({p: member.data.get(p) for p in ('restore_command', 'recovery_min_apply_delay',
+                                                                    'archive_cleanup_command') if member.data.get(p)})
+        return recovery_params
 
     def recovery_conf_exists(self):
         if self._postgresql.major_version >= 120000:
