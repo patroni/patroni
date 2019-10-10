@@ -58,14 +58,15 @@ def conninfo_uri_parse(dsn):
     return ret
 
 
-def read_param_value(value, is_quoted=False):
+def read_param_value(value):
     length = len(value)
     ret = ''
-    i = 0
+    is_quoted = value[0] == "'"
+    i = int(is_quoted)
     while i < length:
         if is_quoted:
             if value[i] == "'":
-                return ret, i
+                return ret, i + 1
         elif value[i].isspace():
             break
         if value[i] == '\\':
@@ -96,12 +97,10 @@ def conninfo_parse(dsn):
         if i >= length:
             return
 
-        is_quoted = dsn[i] == "'"
-        i += int(is_quoted)
-        value, end = read_param_value(dsn[i:], is_quoted)
+        value, end = read_param_value(dsn[i:])
         if value is None:
             return
-        i += end + int(is_quoted)
+        i += end
         ret[param] = value
     return ret
 
@@ -146,6 +145,70 @@ def parse_dsn(value):
         if 'dbname' in ret:
             del ret['dbname']
     return ret
+
+
+def strip_comment(value):
+    i = value.find('#')
+    if i > -1:
+        value = value[:i].strip()
+    return value
+
+
+def read_recovery_param_value(value):
+    """
+    >>> read_recovery_param_value('') is None
+    True
+    >>> read_recovery_param_value("'") is None
+    True
+    >>> read_recovery_param_value("''a") is None
+    True
+    >>> read_recovery_param_value('a b') is None
+    True
+    >>> read_recovery_param_value("'''") is None
+    True
+    >>> read_recovery_param_value("'\\\\") is None
+    True
+    >>> read_recovery_param_value("'a' s#") is None
+    True
+    >>> read_recovery_param_value("'\\\\'''' #a")
+    "''"
+    >>> read_recovery_param_value('asd')
+    'asd'
+    """
+    value = value.strip()
+    length = len(value)
+    if length == 0:
+        return None
+    elif value[0] == "'":
+        if length == 1:
+            return None
+        ret = ''
+        i = 1
+        while i < length:
+            if value[i] == '\\':
+                i += 1
+                if i >= length:
+                    return None
+            elif value[i] == "'":
+                i += 1
+                if i >= length:
+                    break
+                if value[i] in ('#', ' '):
+                    if strip_comment(value[i:]):
+                        return None
+                    break
+                if value[i] != "'":
+                    return None
+            ret += value[i]
+            i += 1
+        else:
+            return None
+        return ret
+    else:
+        value = strip_comment(value)
+        if not value or ' ' in value or '\\' in value:
+            return None
+    return value
 
 
 def mtime(filename):
@@ -459,11 +522,7 @@ class ConfigHandler(object):
             for line in f:
                 match = PARAMETER_RE.match(line)
                 if match and match.group(1) == 'primary_conninfo':
-                    i = match.end()
-                    if i < len(line):
-                        is_quoted = line[i] == "'"
-                        i += int(is_quoted)
-                        primary_conninfo, _ = read_param_value(line[i:], is_quoted)
+                    primary_conninfo = read_recovery_param_value(line[match.end():])
             self._recovery_conf_mtime = recovery_conf_mtime
         return primary_conninfo, True
 
