@@ -141,7 +141,10 @@ zookeeper:
 
 def run_async(self, func, args=()):
     self.reset_scheduled_action()
-    func(*args) if args else func()
+    if args:
+        func(*args)
+    else:
+        func()
 
 
 @patch.object(Postgresql, 'is_running', Mock(return_value=MockPostmaster()))
