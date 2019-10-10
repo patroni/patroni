@@ -68,14 +68,16 @@ class Patroni(object):
     def nosync(self):
         return bool(self.tags.get('nosync', False))
 
-    def reload_config(self):
+    def reload_config(self, sighup=False):
         try:
             self.tags = self.get_tags()
             self.logger.reload_config(self.config.get('log', {}))
-            self.dcs.reload_config(self.config)
             self.watchdog.reload_config(self.config)
+            if sighup:
+                self.request.reload_config(self.config)
             self.api.reload_config(self.config['restapi'])
-            self.postgresql.reload_config(self.config['postgresql'])
+            self.postgresql.reload_config(self.config['postgresql'], sighup)
+            self.dcs.reload_config(self.config)
         except Exception:
             logger.exception('Failed to reload config_file=%s', self.config.config_file)
 
@@ -116,14 +118,16 @@ class Patroni(object):
 
     def run(self):
         self.api.start()
+        self.logger.start()
         self.next_run = time.time()
 
         while not self.received_sigterm:
             if self._received_sighup:
                 self._received_sighup = False
                 if self.config.reload_local_configuration():
-                    self.request.reload_config(self.config)
-                    self.reload_config()
+                    self.reload_config(True)
+                else:
+                    self.postgresql.config.reload_config(self.config['postgresql'], True)
 
             logger.info(self.ha.run_cycle())
 

@@ -153,7 +153,7 @@ def run_async(self, func, args=()):
 @patch.object(Postgresql, 'controldata', Mock(return_value={'Database system identifier': SYSID}))
 @patch.object(SlotsHandler, 'sync_replication_slots', Mock())
 @patch.object(ConfigHandler, 'append_pg_hba', Mock())
-@patch.object(Postgresql, 'write_pgpass', Mock(return_value={}))
+@patch.object(ConfigHandler, 'write_pgpass', Mock(return_value={}))
 @patch.object(ConfigHandler, 'write_recovery_conf', Mock())
 @patch.object(Postgresql, 'query', Mock())
 @patch.object(Postgresql, 'checkpoint', Mock())
