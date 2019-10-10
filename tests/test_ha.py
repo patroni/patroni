@@ -1027,9 +1027,16 @@ class TestHa(PostgresInit):
             self.assertEqual(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
 
     @patch('sys.exit', return_value=1)
-    @patch('requests.get', requests_get)
     def test_abort_join(self, exit_mock):
         self.ha.cluster = get_cluster_not_initialized_without_leader()
+        self.p.is_leader = false
+        self.ha.run_cycle()
+        exit_mock.assert_called_once_with(1)
+
+    @patch('sys.exit', return_value=1)
+    def test_abort_bootstrap(self, exit_mock):
+        self.ha.cluster = get_cluster_not_initialized_without_leader()
+        self.ha.sysid_valid = false
         self.p.is_leader = false
         self.ha.run_cycle()
         exit_mock.assert_called_once_with(1)

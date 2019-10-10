@@ -200,7 +200,7 @@ class Postgresql(object):
 
     @property
     def sysid(self):
-        if not self._sysid and not self.bootstrapping:
+        if not self._sysid and not self.bootstrapping or not self.is_running():
             data = self.controldata()
             self._sysid = data.get('Database system identifier', "")
         return self._sysid
@@ -627,6 +627,8 @@ class Postgresql(object):
                               if l and ':' in l}
             except subprocess.CalledProcessError:
                 logger.exception("Error when calling pg_controldata")
+        if not result:
+            self._sysid = None
         return result
 
     @contextmanager
