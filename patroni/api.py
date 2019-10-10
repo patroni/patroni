@@ -187,18 +187,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     @check_auth
     def do_POST_reload(self):
-        try:
-            if self.server.patroni.config.reload_local_configuration(True):
-                status_code = 202
-                response = 'reload scheduled'
-                self.server.patroni.sighup_handler()
-            else:
-                status_code = 200
-                response = 'nothing changed'
-        except Exception as e:
-            status_code = 500
-            response = str(e)
-        self._write_response(status_code, response)
+        self.server.patroni.sighup_handler()
+        self._write_response(202, 'reload scheduled')
 
     @staticmethod
     def parse_schedule(schedule, action):

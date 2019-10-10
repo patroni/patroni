@@ -424,13 +424,18 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.config._config['foo'] = {'command': 'bar'}
         self.assertFalse(self.p.replica_method_can_work_without_replication_connection('foo'))
 
+    @patch('time.sleep', Mock())
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
-    def test_reload_config(self):
+    @patch.object(MockCursor, 'fetchone')
+    def test_reload_config(self, mock_fetchone):
+        mock_fetchone.return_value = (1,)
         parameters = self._PARAMETERS.copy()
         parameters.pop('f.oo')
+        parameters['wal_buffers'] = '512'
         config = {'pg_hba': [''], 'pg_ident': [''], 'use_unix_socket': True, 'authentication': {},
                   'retry_timeout': 10, 'listen': '*', 'krbsrvname': 'postgres', 'parameters': parameters}
         self.p.reload_config(config)
+        mock_fetchone.side_effect = Exception
         parameters['b.ar'] = 'bar'
         self.p.reload_config(config)
         parameters['autovacuum'] = 'on'

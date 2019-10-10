@@ -168,23 +168,19 @@ class Config(object):
             except Exception:
                 logger.exception('Exception when setting dynamic_configuration')
 
-    def reload_local_configuration(self, dry_run=False):
+    def reload_local_configuration(self):
         if self.config_file:
             try:
                 configuration = self._load_config_file()
                 if not deep_compare(self._local_configuration, configuration):
                     new_configuration = self._build_effective_configuration(self._dynamic_configuration, configuration)
-                    if dry_run:
-                        return not deep_compare(new_configuration, self.__effective_configuration)
                     self._local_configuration = configuration
                     self.__effective_configuration = new_configuration
                     return True
                 else:
-                    logger.info('No configuration items changed, nothing to reload.')
+                    logger.info('No local configuration items changed.')
             except Exception:
                 logger.exception('Exception when reloading local configuration from %s', self.config_file)
-                if dry_run:
-                    raise
 
     @staticmethod
     def _process_postgresql_parameters(parameters, is_local=False):

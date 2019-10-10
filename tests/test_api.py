@@ -233,11 +233,8 @@ class TestRestApiHandler(unittest.TestCase):
         mock_dcs.get_cluster.return_value.config = ClusterConfig.from_node(1, config)
         MockRestApiServer(RestApiHandler, request)
 
-    @patch.object(MockPatroni, 'sighup_handler', Mock(side_effect=Exception))
+    @patch.object(MockPatroni, 'sighup_handler', Mock())
     def test_do_POST_reload(self):
-        with patch.object(MockPatroni, 'config') as mock_config:
-            mock_config.reload_local_configuration.return_value = False
-            MockRestApiServer(RestApiHandler, 'POST /reload HTTP/1.0' + self._authorization)
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'POST /reload HTTP/1.0' + self._authorization))
 
     @patch.object(MockPatroni, 'dcs')

@@ -187,8 +187,8 @@ class Postgresql(object):
                         3: STATE_UNKNOWN}
         return return_codes.get(ret, STATE_UNKNOWN)
 
-    def reload_config(self, config):
-        self.config.reload_config(config)
+    def reload_config(self, config, sighup=False):
+        self.config.reload_config(config, sighup)
         self._is_leader_retry.deadline = self.retry.deadline = config['retry_timeout']/2.0
 
     @property
