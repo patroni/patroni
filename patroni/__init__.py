@@ -16,6 +16,7 @@ class Patroni(AbstractPatroniDaemon):
         from patroni.dcs import get_dcs
         from patroni.ha import Ha
         from patroni.postgresql import Postgresql
+        from patroni.request import PatroniRequest
         from patroni.version import __version__
         from patroni.watchdog import Watchdog
 
@@ -28,6 +29,7 @@ class Patroni(AbstractPatroniDaemon):
 
         self.postgresql = Postgresql(self.config['postgresql'])
         self.api = RestApiServer(self, self.config['restapi'])
+        self.request = PatroniRequest(self.config, True)
         self.ha = Ha(self)
 
         self.tags = self.get_tags()
@@ -63,14 +65,16 @@ class Patroni(AbstractPatroniDaemon):
     def nosync(self):
         return bool(self.tags.get('nosync', False))
 
-    def reload_config(self):
+    def reload_config(self, sighup=False, local=False):
         try:
-            super(Patroni, self).reload_config()
-            self.tags = self.get_tags()
-            self.dcs.reload_config(self.config)
-            self.watchdog.reload_config(self.config)
-            self.api.reload_config(self.config['restapi'])
-            self.postgresql.reload_config(self.config['postgresql'])
+            super(Patroni, self).reload_config(sighup, local)
+            self.postgresql.reload_config(self.config['postgresql'], sighup)
+            if local:
+                self.tags = self.get_tags()
+                self.watchdog.reload_config(self.config)
+                self.request.reload_config(self.config)
+                self.api.reload_config(self.config['restapi'])
+                self.dcs.reload_config(self.config)
         except Exception:
             logger.exception('Failed to reload config_file=%s', self.config.config_file)
 

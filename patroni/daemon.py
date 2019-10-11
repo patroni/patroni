@@ -18,7 +18,7 @@ class AbstractPatroniDaemon(object):
 
         self.logger = PatroniLogger()
         self.config = Config()
-        AbstractPatroniDaemon.reload_config(self)
+        AbstractPatroniDaemon.reload_config(self, local=True)
 
     def sighup_handler(self, *args):
         self._received_sighup = True
@@ -42,8 +42,9 @@ class AbstractPatroniDaemon(object):
         with self._sigterm_lock:
             return self._received_sigterm
 
-    def reload_config(self):
-        self.logger.reload_config(self.config.get('log', {}))
+    def reload_config(self, sighup=False, local=False):
+        if local:
+            self.logger.reload_config(self.config.get('log', {}))
 
     @abc.abstractmethod
     def _run_cycle(self):
@@ -54,8 +55,7 @@ class AbstractPatroniDaemon(object):
         while not self.received_sigterm:
             if self._received_sighup:
                 self._received_sighup = False
-                if self.config.reload_local_configuration():
-                    self.reload_config()
+                self.reload_config(True, self.config.reload_local_configuration())
 
             self._run_cycle()
 

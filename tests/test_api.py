@@ -145,7 +145,7 @@ class MockRestApiServer(RestApiServer):
         self.serve_forever = Mock()
         MockRestApiServer._BaseServer__is_shut_down = Mock()
         MockRestApiServer._BaseServer__shutdown_request = True
-        config = config or {'listen': '127.0.0.1:8008', 'auth': 'test:test', 'certfile': 'dumb'}
+        config = config or {'listen': '127.0.0.1:8008', 'auth': 'test:test', 'certfile': 'dumb', 'verify_client': 'a'}
         super(MockRestApiServer, self).__init__(MockPatroni(), config)
         Handler(MockRequest(request), ('0.0.0.0', 8080), self)
 
@@ -233,11 +233,8 @@ class TestRestApiHandler(unittest.TestCase):
         mock_dcs.get_cluster.return_value.config = ClusterConfig.from_node(1, config)
         MockRestApiServer(RestApiHandler, request)
 
-    @patch.object(MockPatroni, 'sighup_handler', Mock(side_effect=Exception))
+    @patch.object(MockPatroni, 'sighup_handler', Mock())
     def test_do_POST_reload(self):
-        with patch.object(MockPatroni, 'config') as mock_config:
-            mock_config.reload_local_configuration.return_value = False
-            MockRestApiServer(RestApiHandler, 'POST /reload HTTP/1.0' + self._authorization)
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'POST /reload HTTP/1.0' + self._authorization))
 
     @patch.object(MockPatroni, 'dcs')
@@ -411,11 +408,17 @@ class TestRestApiServer(unittest.TestCase):
     def test_reload_config(self):
         bad_config = {'listen': 'foo'}
         self.assertRaises(ValueError, MockRestApiServer, None, '', bad_config)
-        srv = MockRestApiServer(lambda a1, a2, a3: None, '')
+        srv = MockRestApiServer(Mock(), '', {'listen': '*:8008', 'certfile': 'a', 'verify_client': 'required'})
         self.assertRaises(ValueError, srv.reload_config, bad_config)
         self.assertRaises(ValueError, srv.reload_config, {})
         with patch.object(socket.socket, 'setsockopt', Mock(side_effect=socket.error)):
             srv.reload_config({'listen': ':8008'})
+
+    def test_check_auth(self):
+        srv = MockRestApiServer(Mock(), '', {'listen': '*:8008', 'certfile': 'a', 'verify_client': 'required'})
+        mock_rh = Mock()
+        mock_rh.request.getpeercert.return_value = None
+        self.assertIsNot(srv.check_auth(mock_rh), True)
 
     def test_handle_error(self):
         try:

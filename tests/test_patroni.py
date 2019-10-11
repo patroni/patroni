@@ -125,6 +125,9 @@ class TestPatroni(unittest.TestCase):
         self.p.logger.start = Mock()
         self.p.config._dynamic_configuration = {}
         self.assertRaises(SleepException, self.p.run)
+        with patch('patroni.config.Config.reload_local_configuration', Mock(return_value=False)):
+            self.p.sighup_handler()
+            self.assertRaises(SleepException, self.p.run)
         with patch('patroni.config.Config.set_dynamic_configuration', Mock(return_value=True)):
             self.assertRaises(SleepException, self.p.run)
         with patch('patroni.postgresql.Postgresql.data_directory_empty', Mock(return_value=False)):
@@ -158,7 +161,7 @@ class TestPatroni(unittest.TestCase):
     def test_reload_config(self):
         self.p.reload_config()
         self.p.get_tags = Mock(side_effect=Exception)
-        self.p.reload_config()
+        self.p.reload_config(local=True)
 
     def test_nosync(self):
         self.p.tags['nosync'] = True

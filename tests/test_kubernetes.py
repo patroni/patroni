@@ -29,12 +29,14 @@ def mock_list_namespaced_pod(self, *args, **kwargs):
 
 @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_config_map', Mock())
 @patch.object(k8s_client.CoreV1Api, 'create_namespaced_config_map', Mock())
+@patch('kubernetes.client.api_client.ThreadPool', Mock(), create=True)
 @patch.object(Thread, 'start', Mock())
 class TestKubernetes(unittest.TestCase):
 
     @patch('kubernetes.config.load_kube_config', Mock())
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_config_map', mock_list_namespaced_config_map)
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_pod', mock_list_namespaced_pod)
+    @patch('kubernetes.client.api_client.ThreadPool', Mock(), create=True)
     @patch.object(Thread, 'start', Mock())
     def setUp(self):
         self.k = Kubernetes({'ttl': 30, 'scope': 'test', 'name': 'p-0', 'retry_timeout': 10, 'labels': {'f': 'b'}})
@@ -135,6 +137,7 @@ class TestKubernetes(unittest.TestCase):
 class TestKubernetesWatcher(unittest.TestCase):
 
     @patch('kubernetes.config.load_kube_config', Mock())
+    @patch('kubernetes.client.api_client.ThreadPool', Mock(), create=True)
     @patch.object(Thread, 'start', Mock())
     def setUp(self):
         self.k = Kubernetes({'ttl': 30, 'scope': 'test', 'name': 'p-0', 'retry_timeout': 10, 'labels': {'f': 'b'}})
