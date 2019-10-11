@@ -1033,14 +1033,6 @@ class TestHa(PostgresInit):
         self.ha.run_cycle()
         exit_mock.assert_called_once_with(1)
 
-    @patch('sys.exit', return_value=1)
-    def test_abort_bootstrap(self, exit_mock):
-        self.ha.cluster = get_cluster_not_initialized_without_leader()
-        self.ha.sysid_valid = false
-        self.p.is_leader = false
-        self.ha.run_cycle()
-        exit_mock.assert_called_once_with(1)
-
     def test_after_pause(self):
         self.ha.has_lock = true
         self.ha.cluster.is_unlocked = false

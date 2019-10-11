@@ -115,9 +115,7 @@ class TestPatroni(unittest.TestCase):
     @patch('patroni.config.Config.save_cache', Mock())
     @patch('patroni.config.Config.reload_local_configuration', Mock(return_value=True))
     @patch('patroni.ha.Ha.is_leader', Mock(return_value=True))
-    @patch('patroni.ha.Ha.sysid_valid', Mock(return_value=True))
     @patch.object(Postgresql, 'state', PropertyMock(return_value='running'))
-    @patch.object(Postgresql, 'sysid', PropertyMock(return_value='postgresql0'))
     @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=False))
     def test_run(self):
         self.p.postgresql.set_role('replica')

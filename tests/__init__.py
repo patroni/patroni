@@ -178,6 +178,7 @@ class PostgresInit(unittest.TestCase):
     @patch.object(ConfigHandler, 'write_postgresql_conf', Mock())
     @patch.object(ConfigHandler, 'replace_pg_hba', Mock())
     @patch.object(ConfigHandler, 'replace_pg_ident', Mock())
+    @patch.object(Postgresql, 'get_postgres_role_from_data_directory', Mock(return_value='master'))
     def setUp(self):
         data_dir = 'data/test0'
         self.p = Postgresql({'name': 'postgresql0', 'scope': 'batman', 'data_dir': data_dir,
