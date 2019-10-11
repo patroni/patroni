@@ -41,8 +41,8 @@ class TestDynMemberSyncObj(unittest.TestCase):
 class TestKVStoreTTL(unittest.TestCase):
 
     def setUp(self):
-        self.conf = SyncObjConf(appendEntriesUseBatch=False, appendEntriesPeriod=0.0001, journalFile='foo.journal',
-                                raftMinTimeout=0.0004, raftMaxTimeout=0.0005, autoTickPeriod=0.0001)
+        self.conf = SyncObjConf(appendEntriesUseBatch=False, appendEntriesPeriod=0.001, journalFile='foo.journal',
+                                raftMinTimeout=0.004, raftMaxTimeout=0.005, autoTickPeriod=0.001)
         callback = Mock()
         callback.replicated = False
         self.so = KVStoreTTL('127.0.0.1:1234', [], self.conf, on_set=callback, on_delete=callback)
