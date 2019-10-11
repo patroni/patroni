@@ -16,6 +16,7 @@ class Patroni(object):
         from patroni.ha import Ha
         from patroni.log import PatroniLogger
         from patroni.postgresql import Postgresql
+        from patroni.request import PatroniRequest
         from patroni.version import __version__
         from patroni.watchdog import Watchdog
 
@@ -31,6 +32,7 @@ class Patroni(object):
 
         self.postgresql = Postgresql(self.config['postgresql'])
         self.api = RestApiServer(self, self.config['restapi'])
+        self.request = PatroniRequest(self.config, True)
         self.ha = Ha(self)
 
         self.tags = self.get_tags()
@@ -71,6 +73,8 @@ class Patroni(object):
             self.tags = self.get_tags()
             self.logger.reload_config(self.config.get('log', {}))
             self.watchdog.reload_config(self.config)
+            if sighup:
+                self.request.reload_config(self.config)
             self.api.reload_config(self.config['restapi'])
             self.postgresql.reload_config(self.config['postgresql'], sighup)
             self.dcs.reload_config(self.config)
