@@ -141,7 +141,11 @@ zookeeper:
 
 
 def run_async(self, func, args=()):
-    return func(*args) if args else func()
+    self.reset_scheduled_action()
+    if args:
+        func(*args)
+    else:
+        func()
 
 
 @patch.object(Postgresql, 'is_running', Mock(return_value=MockPostmaster()))
@@ -426,7 +430,7 @@ class TestHa(PostgresInit):
 
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.assertIsNone(self.ha.reinitialize(True))
-
+        self.ha._async_executor.schedule('reinitialize')
         self.assertIsNotNone(self.ha.reinitialize())
 
         self.ha.state_handler.name = self.ha.cluster.leader.name
@@ -440,7 +444,7 @@ class TestHa(PostgresInit):
         self.p.restart = false
         self.assertEqual(self.ha.restart({}), (False, 'restart failed'))
         self.ha.cluster = get_cluster_initialized_with_leader()
-        self.ha.reinitialize()
+        self.ha._async_executor.schedule('reinitialize')
         self.assertEqual(self.ha.restart({}), (False, 'reinitialize already in progress'))
         with patch.object(self.ha, "restart_matches", return_value=False):
             self.assertEqual(self.ha.restart({'foo': 'bar'}), (False, "restart conditions are not satisfied"))
@@ -448,7 +452,7 @@ class TestHa(PostgresInit):
     @patch('os.kill', Mock())
     def test_restart_in_progress(self):
         with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)):
-            self.ha.restart({}, run_async=True)
+            self.ha._async_executor.schedule('restart')
             self.assertTrue(self.ha.restart_scheduled())
             self.assertEqual(self.ha.run_cycle(), 'restart in progress')
 
