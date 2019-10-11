@@ -161,8 +161,7 @@ class Member(namedtuple('Member', 'index,name,session,data')):
         if auth and isinstance(auth, dict):
             ret.update(auth)
             if 'username' in auth:
-                ret['user'] = auth['username']
-                del ret['username']
+                ret['user'] = ret.pop('username')
         return ret
 
     @property

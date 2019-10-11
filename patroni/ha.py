@@ -3,7 +3,6 @@ import functools
 import json
 import logging
 import psycopg2
-import requests
 import sys
 import time
 import uuid
@@ -229,9 +228,8 @@ class Ha(object):
             clone_member = self.cluster.get_clone_member(self.state_handler.name)
             member_role = 'leader' if clone_member == self.cluster.leader else 'replica'
             msg = "from {0} '{1}'".format(member_role, clone_member.name)
-            self._async_executor.schedule('bootstrap {0}'.format(msg))
-            self._async_executor.run_async(self.clone, args=(clone_member, msg))
-            return 'trying to bootstrap {0}'.format(msg)
+            ret = self._async_executor.try_run_async('bootstrap {0}'.format(msg), self.clone, args=(clone_member, msg))
+            return ret or 'trying to bootstrap {0}'.format(msg)
 
         # no initialize key and node is allowed to be master and has 'bootstrap' section in a configuration file
         elif self.cluster.initialize is None and not self.patroni.nofailover and 'bootstrap' in self.patroni.config:
@@ -240,16 +238,12 @@ class Ha(object):
                 self._post_bootstrap_task = CriticalTask()
 
                 if self.is_standby_cluster():
-                    self._async_executor.schedule('bootstrap_standby_leader')
-                    self._async_executor.run_async(self.bootstrap_standby_leader)
-                    return 'trying to bootstrap a new standby leader'
+                    ret = self._async_executor.try_run_async('bootstrap_standby_leader', self.bootstrap_standby_leader)
+                    return ret or 'trying to bootstrap a new standby leader'
                 else:
-                    self._async_executor.schedule('bootstrap')
-                    self._async_executor.run_async(
-                        self.state_handler.bootstrap.bootstrap,
-                        args=(self.patroni.config['bootstrap'],)
-                    )
-                    return 'trying to bootstrap a new cluster'
+                    ret = self._async_executor.try_run_async('bootstrap', self.state_handler.bootstrap.bootstrap,
+                                                             args=(self.patroni.config['bootstrap'],))
+                    return ret or 'trying to bootstrap a new cluster'
             else:
                 return 'failed to acquire initialize lock'
         else:
@@ -257,9 +251,7 @@ class Ha(object):
                                      if self.is_standby_cluster() else None
             if self.state_handler.can_create_replica_without_replication_connection(create_replica_methods):
                 msg = 'bootstrap (without leader)'
-                self._async_executor.schedule(msg)
-                self._async_executor.run_async(self.clone)
-                return 'trying to ' + msg
+                return self._async_executor.try_run_async(msg, self.clone) or 'trying to ' + msg
             return 'waiting for {0}leader to bootstrap'.format('standby_' if self.is_standby_cluster() else '')
 
     def bootstrap_standby_leader(self):
@@ -282,15 +274,13 @@ class Ha(object):
             return None
 
         if self._rewind.can_rewind:
-            self._async_executor.schedule('running pg_rewind from ' + leader.name)
-            self._async_executor.run_async(self._rewind.execute, (leader,))
-            return True
+            msg = 'running pg_rewind from ' + leader.name
+            return self._async_executor.try_run_async(msg, self._rewind.execute, args=(leader,)) or msg
 
         # remove_data_directory_on_diverged_timelines is set
         if not self.is_standby_cluster():
-            self._async_executor.schedule('reinitializing due to diverged timelines')
-            self._async_executor.run_async(self._do_reinitialize, args=(self.cluster, ))
-            return True
+            msg = 'reinitializing due to diverged timelines'
+            return self._async_executor.try_run_async(msg, self._do_reinitialize, args=(self.cluster,)) or msg
 
     def recover(self):
         # Postgres is not running and we will restart in standby mode. Watchdog is not needed until we promote.
@@ -317,9 +307,8 @@ class Ha(object):
                 and not self._crash_recovery_executed and \
                 (self.cluster.is_unlocked() or self._rewind.can_rewind):
             self._crash_recovery_executed = True
-            self._async_executor.schedule('doing crash recovery in a single user mode')
-            self._async_executor.run_async(self.state_handler.fix_cluster_state)
-            return self._async_executor.scheduled_action
+            msg = 'doing crash recovery in a single user mode'
+            return self._async_executor.try_run_async(msg, self.state_handler.fix_cluster_state) or msg
 
         self.load_cluster_from_dcs()
 
@@ -327,8 +316,9 @@ class Ha(object):
         if self.is_standby_cluster() or not self.has_lock():
             if not self._rewind.executed:
                 self._rewind.trigger_check_diverged_lsn()
-            if self._handle_rewind_or_reinitialize():
-                return self._async_executor.scheduled_action
+            msg = self._handle_rewind_or_reinitialize()
+            if msg:
+                return msg
 
             if self.has_lock():  # in standby cluster
                 msg = "starting as a standby leader because i had the session lock"
@@ -344,10 +334,9 @@ class Ha(object):
             msg = "starting as readonly because i had the session lock"
             node_to_follow = None
 
-        self.recovering = True
-
-        self._async_executor.schedule('restarting after failure')
-        self._async_executor.run_async(self.state_handler.follow, (node_to_follow, role, timeout))
+        if self._async_executor.try_run_async('restarting after failure', self.state_handler.follow,
+                                              args=(node_to_follow, role, timeout)) is None:
+            self.recovering = True
         return msg
 
     def _get_node_to_follow(self, cluster):
@@ -382,8 +371,9 @@ class Ha(object):
             self.demote('immediate-nolock')
             return demote_reason
 
-        if self._handle_rewind_or_reinitialize():
-            return self._async_executor.scheduled_action
+        msg = self._handle_rewind_or_reinitialize()
+        if msg:
+            return msg
 
         role = 'standby_leader' if isinstance(node_to_follow, RemoteMember) and self.has_lock(False) else 'replica'
         # It might happen that leader key in the standby cluster references non-exiting member.
@@ -391,8 +381,8 @@ class Ha(object):
         if self.is_standby_cluster() and role == 'replica' and not (node_to_follow and node_to_follow.conn_url):
             return 'continue following the old known standby leader'
         elif not self.state_handler.config.check_recovery_conf(node_to_follow):
-            self._async_executor.schedule('changing primary_conninfo and restarting')
-            self._async_executor.run_async(self.state_handler.follow, (node_to_follow, role))
+            self._async_executor.try_run_async('changing primary_conninfo and restarting',
+                                               self.state_handler.follow, args=(node_to_follow, role))
         elif role == 'standby_leader' and self.state_handler.role != role:
             self.state_handler.set_role(role)
             self.state_handler.call_nowait(ACTION_ON_ROLE_CHANGE)
@@ -551,21 +541,20 @@ class Ha(object):
                     self._rewind.reset_state()
                     logger.info("cleared rewind state after becoming the leader")
 
-                self._async_executor.schedule('promote')
-                self._async_executor.run_async(self.state_handler.promote,
-                                               args=(self.dcs.loop_wait, on_success, self._leader_access_is_restricted))
+                self._async_executor.try_run_async('promote', self.state_handler.promote,
+                                                   args=(self.dcs.loop_wait, on_success,
+                                                         self._leader_access_is_restricted))
             return promote_message
 
-    @staticmethod
-    def fetch_node_status(member):
+    def fetch_node_status(self, member):
         """This function perform http get request on member.api_url and fetches its status
         :returns: `_MemberStatus` object
         """
 
         try:
-            response = requests.get(member.api_url, timeout=2, verify=False)
-            logger.info('Got response from %s %s: %s', member.name, member.api_url, response.content)
-            return _MemberStatus.from_api_response(member, response.json())
+            response = self.patroni.request(member, timeout=2, retries=0)
+            logger.info('Got response from %s %s: %s', member.name, member.api_url, response.data.decode('utf-8'))
+            return _MemberStatus.from_api_response(member, json.loads(response.data))
         except Exception as e:
             logger.warning("Request failed to %s: GET %s (%s)", member.name, member.api_url, e)
         return _MemberStatus.unknown(member)
@@ -773,8 +762,7 @@ class Ha(object):
         # there could be an async action already running, calling follow from here will lead
         # to racy state handler state updates.
         if mode_control['async_req']:
-            self._async_executor.schedule('starting after demotion')
-            self._async_executor.run_async(self.state_handler.follow, (node_to_follow,))
+            self._async_executor.try_run_async('starting after demotion', self.state_handler.follow, (node_to_follow,))
         else:
             if self.is_synchronous_mode():
                 self.state_handler.config.set_synchronous_standby(None)
@@ -847,9 +835,8 @@ class Ha(object):
                         members = [m for m in self.cluster.members
                                    if not failover.candidate or m.name == failover.candidate]
                     if self.is_failover_possible(members):  # check that there are healthy members
-                        self._async_executor.schedule('manual failover: demote')
-                        self._async_executor.run_async(self.demote, ('graceful',))
-                        return 'manual failover: demoting myself'
+                        ret = self._async_executor.try_run_async('manual failover: demote', self.demote, ('graceful',))
+                        return ret or 'manual failover: demoting myself'
                     else:
                         logger.warning('manual failover: no healthy members found, failover is not possible')
             else:
@@ -1152,10 +1139,9 @@ class Ha(object):
                 return 'waiting for end of recovery after bootstrap'
 
             self.state_handler.set_role('master')
-            self._async_executor.schedule('post_bootstrap')
-            self._async_executor.run_async(self.state_handler.bootstrap.post_bootstrap,
-                                           args=(self.patroni.config['bootstrap'], self._post_bootstrap_task))
-            return 'running post_bootstrap'
+            ret = self._async_executor.try_run_async('post_bootstrap', self.state_handler.bootstrap.post_bootstrap,
+                                                     args=(self.patroni.config['bootstrap'], self._post_bootstrap_task))
+            return ret or 'running post_bootstrap'
 
         self.state_handler.bootstrapping = False
         self.dcs.set_config_value(json.dumps(self.patroni.config.dynamic_configuration, separators=(',', ':')))
