@@ -4,6 +4,39 @@
 YAML Configuration Settings
 ===========================
 
+.. _dynamic_configuration_settings:
+
+Dynamic configuration settings
+------------------------------
+
+Dynamic configuration is stored in the DCS (Distributed Configuration Store) and applied on all cluster nodes. Some parameters, like **loop_wait**, **ttl**, **postgresql.parameters.max_connections**, **postgresql.parameters.max_worker_processes** and so on could be set only in the dynamic configuration. Some other parameters like **postgresql.listen**, **postgresql.data_dir** could be set only locally, i.e. in the Patroni config file or via :ref:`configuration <environment>` variable. In most cases the local configuration will override the dynamic configuration. In order to change the dynamic configuration you can use either ``patronictl edit-config`` tool or Patroni :ref:`REST API <rest_api>`.
+
+-  **loop\_wait**: the number of seconds the loop will sleep. Default value: 10
+-  **ttl**: the TTL to acquire the leader lock. Think of it as the length of time before initiation of the automatic failover process. Default value: 30
+-  **retry\_timeout**: timeout for DCS and PostgreSQL operation retries. DCS or network issues shorter than this will not cause Patroni to demote the leader. Default value: 10
+-  **maximum\_lag\_on\_failover**: the maximum bytes a follower may lag to be able to participate in leader election.
+-  **master\_start\_timeout**: the amount of time a master is allowed to recover from failures before failover is triggered. Default is 300 seconds. When set to 0 failover is done immediately after a crash is detected if possible. When using asynchronous replication a failover can cause lost transactions. Best worst case failover time for master failure is: loop\_wait + master\_start\_timeout + loop\_wait, unless master\_start\_timeout is zero, in which case it's just loop\_wait. Set the value according to your durability/availability tradeoff.
+-  **synchronous\_mode**: turns on synchronous replication mode. In this mode a replica will be chosen as synchronous and only the latest leader and synchronous replica are able to participate in leader election. Synchronous mode makes sure that successfully committed transactions will not be lost at failover, at the cost of losing availability for writes when Patroni cannot ensure transaction durability. See :ref:`replication modes documentation <replication_modes>` for details.
+-  **synchronous\_mode\_strict**: prevents disabling synchronous replication if no synchronous replicas are available, blocking all client writes to the master. See :ref:`replication modes documentation <replication_modes>` for details.
+-  **postgresql**:
+    -  **use\_pg\_rewind**: whether or not to use pg_rewind
+    -  **use\_slots**: whether or not to use replication_slots.
+    -  **recovery\_conf**: additional configuration settings written to recovery.conf when configuring follower.
+    -  **parameters**: list of configuration settings for Postgres.
+-  **standby\_cluster**: if this section is defined, we want to bootstrap a standby cluster.
+    -  **host**: an address of remote master
+    -  **port**: a port of remote master
+    -  **primary\_slot\_name**: which slot on the remote master to use for replication. This parameter is optional, the default value is derived from the instance name (see function `slot_name_from_member_name`).
+    -  **create\_replica\_methods**: an ordered list of methods that can be used to bootstrap standby leader from the remote master, can be different from the list defined in :ref:`postgresql_settings`
+    -  **restore\_command**: command to restore WAL records from the remote master to standby leader, can be different from the list defined in :ref:`postgresql_settings`
+    -  **archive\_cleanup\_command**: cleanup command for standby leader
+    -  **recovery\_min\_apply\_delay**: how long to wait before actually apply WAL records on a standby leader
+-  **slots**: define permanent replication slots. These slots will be preserved during switchover/failover. Patroni will try to create slots before opening connections to the cluster.
+    -  **my_slot_name**: the name of replication slot. It is the responsibility of the operator to make sure that there are no clashes in names between replication slots automatically created by Patroni for members and permanent replication slots.
+        -  **type**: slot type. Could be ``physical`` or ``logical``. If the slot is logical, you have to additionally define ``database`` and ``plugin``.
+        -  **database**: the database name where logical slots should be created.
+        -  **plugin**: the plugin name for the logical slot.
+
 Global/Universal
 ----------------
 -  **name**: the name of the host. Must be unique for the cluster.
@@ -27,32 +60,7 @@ Log
 
 Bootstrap configuration
 -----------------------
--  **dcs**: This section will be written into `/<namespace>/<scope>/config` of a given configuration store after initializing of new cluster. This is the global configuration for the cluster. If you want to change some parameters for all cluster nodes - just do it in DCS (or via Patroni API) and all nodes will apply this configuration.
-    -  **loop\_wait**: the number of seconds the loop will sleep. Default value: 10
-    -  **ttl**: the TTL to acquire the leader lock. Think of it as the length of time before initiation of the automatic failover process. Default value: 30
-    -  **retry\_timeout**: timeout for DCS and PostgreSQL operation retries. DCS or network issues shorter than this will not cause Patroni to demote the leader. Default value: 10
-    -  **maximum\_lag\_on\_failover**: the maximum bytes a follower may lag to be able to participate in leader election.
-    -  **master\_start\_timeout**: the amount of time a master is allowed to recover from failures before failover is triggered. Default is 300 seconds. When set to 0 failover is done immediately after a crash is detected if possible. When using asynchronous replication a failover can cause lost transactions. Best worst case failover time for master failure is: loop\_wait + master\_start\_timeout + loop\_wait, unless master\_start\_timeout is zero, in which case it's just loop\_wait. Set the value according to your durability/availability tradeoff.
-    -  **synchronous\_mode**: turns on synchronous replication mode. In this mode a replica will be chosen as synchronous and only the latest leader and synchronous replica are able to participate in leader election. Synchronous mode makes sure that successfully committed transactions will not be lost at failover, at the cost of losing availability for writes when Patroni cannot ensure transaction durability. See :ref:`replication modes documentation <replication_modes>` for details.
-    -  **synchronous\_mode\_strict**: prevents disabling synchronous replication if no synchronous replicas are available, blocking all client writes to the master. See :ref:`replication modes documentation <replication_modes>` for details.
-    -  **postgresql**:
-        -  **use\_pg\_rewind**: whether or not to use pg_rewind
-        -  **use\_slots**: whether or not to use replication_slots. Must be False for PostgreSQL 9.3. You should comment out max_replication_slots before it becomes ineligible for leader status.
-        -  **recovery\_conf**: additional configuration settings written to recovery.conf when configuring follower.
-        -  **parameters**: list of configuration settings for Postgres. Many of these are required for replication to work.
-    -  **standby\_cluster**: if this section is defined, we want to bootstrap a standby cluster.
-        -  **host**: an address of remote master
-        -  **port**: a port of remote master
-        -  **primary\_slot\_name**: which slot on the remote master to use for replication. This parameter is optional, the default value is derived from the instance name (see function `slot_name_from_member_name`).
-        -  **create\_replica\_methods**: an ordered list of methods that can be used to bootstrap standby leader from the remote master, can be different from the list defined in :ref:`postgresql_settings`
-        -  **restore\_command**: command to restore WAL records from the remote master to standby leader, can be different from the list defined in :ref:`postgresql_settings`
-        -  **archive\_cleanup\_command**: cleanup command for standby leader
-        -  **recovery\_min\_apply\_delay**: how long to wait before actually apply WAL records on a standby leader
-    -  **slots**: define permanent replication slots. These slots will be preserved during switchover/failover. Patroni will try to create slots before opening connections to the cluster.
-        -  **my_slot_name**: the name of replication slot. It is the responsibility of the operator to make sure that there are no clashes in names between replication slots automatically created by Patroni for members and permanent replication slots.
-            -  **type**: slot type. Could be ``physical`` or ``logical``. If the slot is logical, you have to additionally define ``database`` and ``plugin``.
-            -  **database**: the database name where logical slots should be created.
-            -  **plugin**: the plugin name for the logical slot.
+-  **dcs**: This section will be written into `/<namespace>/<scope>/config` of a given configuration store after initializing of new cluster. The global dynamic configuration for the cluster. Under the ``bootstrap.dcs`` you can put any of the parameters described in the :ref:`Dynamic Configuration settings <dynamic_configuration_settings>` and after Patroni initialized (bootstrapped) the new cluster it will write this section into `/<namespace>/<scope>/config` of a given configuration store. All later changes of ``bootstrap.dcs`` will not take any effect! If you want to change them please use either ``patronictl edit-config`` or Patroni :ref:`REST API <rest_api>`.
 -  **method**: custom script to use for bootstrapping this cluster.
    See :ref:`custom bootstrap methods documentation <custom_bootstrap>` for details.
    When ``initdb`` is specified revert to the default ``initdb`` command. ``initdb`` is also triggered when no ``method``
@@ -109,6 +117,10 @@ Most of the parameters are optional, but you have to specify one of the **host**
 -  **cacert**: (optional) The ca certificate. If present it will enable validation.
 -  **cert**: (optional) file with the client certificate.
 -  **key**: (optional) file with the client key. Can be empty if the key is part of **cert**.
+
+ZooKeeper
+----------
+-  **hosts**: list of ZooKeeper cluster members in format: ['host1:port1', 'host2:port2', 'etc...'].
 
 Exhibitor
 ---------
@@ -190,7 +202,7 @@ PostgreSQL
 
 REST API
 --------
--  **connect\_address**: IP address (or hostname) and port, to access the Patroni's REST API. All the members of the cluster must be able to connect to this address, so unless the Patroni setup is intended for a demo inside the localhost, this address must be a non "localhost" or loopback addres (ie: "localhost" or "127.0.0.1"). It can serve as a endpoint for HTTP health checks (read below about the "listen" REST API parameter), and also for user queries (either directly or via the REST API), as well as for the health checks done by the cluster members during leader elections (for example, to determine whether the master is still running, or if there is a node which has a WAL position that is ahead of the one doing the query; etc.) The connect_address is put in the member key in DCS, making it possible to translate the member name into the address to connect to its REST API.
+-  **connect\_address**: IP address (or hostname) and port, to access the Patroni's :ref:`REST API <rest_api>`. All the members of the cluster must be able to connect to this address, so unless the Patroni setup is intended for a demo inside the localhost, this address must be a non "localhost" or loopback addres (ie: "localhost" or "127.0.0.1"). It can serve as a endpoint for HTTP health checks (read below about the "listen" REST API parameter), and also for user queries (either directly or via the REST API), as well as for the health checks done by the cluster members during leader elections (for example, to determine whether the master is still running, or if there is a node which has a WAL position that is ahead of the one doing the query; etc.) The connect_address is put in the member key in DCS, making it possible to translate the member name into the address to connect to its REST API.
 
 -  **listen**: IP address (or hostname) and port that Patroni will listen to for the REST API - to provide also the same health checks and cluster messaging between the participating nodes, as described above. to provide health-check information for HAProxy (or any other load balancer capable of doing a HTTP "OPTION" or "GET" checks).
 
@@ -214,12 +226,16 @@ CTL
     -  **certfile**: Specifies the file with the client certificate in the PEM format. If not provided patronictl will use the value provided for REST API "certfile" parameter.
     -  **keyfile**: Specifies the file with the client secret key in the PEM format. If not provided patronictl will use the value provided for REST API "keyfile" parameter.
 
-ZooKeeper
-----------
--  **hosts**: list of ZooKeeper cluster members in format: ['host1:port1', 'host2:port2', 'etc...'].
-
 Watchdog
 --------
 - **mode**: ``off``, ``automatic`` or ``required``. When ``off`` watchdog is disabled. When ``automatic`` watchdog will be used if available, but ignored if it is not. When ``required`` the node will not become a leader unless watchdog can be successfully enabled.
 - **device**: Path to watchdog device. Defaults to ``/dev/watchdog``.
 - **safety_margin**: Number of seconds of safety margin between watchdog triggering and leader key expiration.
+
+Tags
+----
+- **nofailover**: ``true`` or ``false``, controls whether this node is allowed to participate in the leader race and become a leader. Defaults to ``false``
+- **clonefrom**: ``true`` or ``false``. If set to ``true`` other nodes might prefer to use this node for bootstrap (take ``pg_basebackup`` from). If there are several nodes with ``clonefrom`` tag set to ``true`` the node to bootstrap from will be chosen randomly. The default value is ``false``.
+- **noloadbalance**: ``true`` or ``false``. If set to ``true`` the node will return HTTP Status Code 503 for the ``GET /replica`` REST API health-check and therefore will be excluded from the load-balancing. Defaults to ``false``.
+- **replicatefrom**: The IP address/hostname of another replica. Used to support cascading replication.
+- **nosync**: ``true`` or ``false``. If set to ``true`` the node will never be selected as a synchronous replica.
