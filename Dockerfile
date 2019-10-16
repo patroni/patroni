@@ -25,6 +25,7 @@ RUN set -ex \
             | grep -Ev '^python3-(sphinx|etcd|consul|kazoo|kubernetes)' \
             | xargs apt-get install -y vim curl less jq locales haproxy sudo \
                             python3-etcd python3-kazoo python3-pip busybox \
+                            net-tools iputils-ping --fix-missing \
     && pip3 install dumb-init \
 \
     # Cleanup all locales but en_US.UTF-8
@@ -149,6 +150,7 @@ RUN sed -i 's/env python/&3/' /patroni*.py \
     && sed -i 's/^    \(replication\|superuser\|rewind\|unix_socket_directories\|\(\(  \)\{0,1\}\(username\|password\)\)\):/#&/' postgres?.yml \
     && sed -i 's/^      parameters:/      pg_hba:\n      - local all all trust\n      - host replication all all md5\n      - host all all all md5\n&\n        max_connections: 100/'  postgres?.yml \
     && if [ "$COMPRESS" = "true" ]; then chmod u+s /usr/bin/sudo; fi \
+    && chmod +s /bin/ping \
     && chown -R postgres:postgres $PGHOME /run /etc/haproxy
 
 USER postgres
