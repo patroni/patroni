@@ -1,27 +1,30 @@
 import unittest
+from unittest import mock
 
-from mock import Mock, patch
 from patroni.postgresql.callback_executor import CallbackExecutor
+import time
 
 
 class TestCallbackExecutor(unittest.TestCase):
 
-    @patch('subprocess.Popen')
-    def test_callback_executor(self, mock_popen):
-        mock_popen.return_value.wait.side_effect = Exception
-        mock_popen.return_value.poll.return_value = None
+    def test_callback_executor_calls_commands_in_order(self):
+        mock_popen = mock.MagicMock('subprocess.Popen')
+        # First command sleep, second return immidately, third throws exception
+        mock_popen.return_value.wait.side_effect = [lambda: time.sleep(1), mock.Mock(), Exception]
 
-        ce = CallbackExecutor()
-        self.assertIsNone(ce.call([]))
-        ce.join()
+        ce = CallbackExecutor(mock_popen)
+        for x in range(1,4):
+          ce.call([str(x)])
 
-        self.assertIsNone(ce.call([]))
+        ce._cmds_queue.join()
 
-        mock_popen.return_value.kill.side_effect = OSError
-        self.assertIsNone(ce.call([]))
-
-        mock_popen.side_effect = Exception
-        ce = CallbackExecutor()
-        ce._callback_event.wait = Mock(side_effect=[None, Exception])
-        self.assertIsNone(ce.call([]))
-        ce.join()
+        calls = [
+          mock.call(['1'], close_fds=True),
+          mock.call().wait(),
+          mock.call(['2'], close_fds=True),
+          mock.call().wait(),
+          mock.call(['3'], close_fds=True),
+          mock.call().wait(),
+        ]
+        print(mock_popen.mock_calls)
+        mock_popen.assert_has_calls(calls)
