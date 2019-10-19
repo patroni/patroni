@@ -2,7 +2,7 @@ from threading import Event, Lock, Thread
 import subprocess
 import logging
 import time
-import queue
+from six.moves import queue
 
 logger = logging.getLogger(__name__)
 
@@ -26,19 +26,19 @@ class CallbackExecutor(Thread):
 
     def run(self):
         while True:
-            logger.info("Callback sleeping until new command is queued")
+            logger.debug("Callback sleeping until new command is queued")
             cmd = self._cmds_queue.get()
             cmd_str = ' '.join(cmd)
-            logger.info("Callback executor waking to call {}".format(cmd_str))
+            logger.debug("Callback executor waking to call %s", cmd_str)
             try:
-                logger.info("Spawning process for {}".format(cmd_str))
+                logger.debug("Spawning process for %s", cmd_str)
                 p = self._executor(cmd, close_fds=True)
-                logger.info("Waiting for {} to complete".format(cmd_str))
+                logger.debug("Waiting for %s to complete", cmd_str)
                 p.wait()
+                logger.debug("%s has completed", cmd_str)
             except Exception:
                 logger.exception('Failed to execute %s', cmd_str)
             # Mark the command as done in the queue. This is probably unnecessary
             # however if .join() is used later it will be necessary so best
             # to just do it anyways
-            logger.info("{} has completed".format(cmd_str))
             self._cmds_queue.task_done()

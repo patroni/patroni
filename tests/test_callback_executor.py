@@ -1,5 +1,5 @@
 import unittest
-from unittest import mock
+from mock import mock
 
 from patroni.postgresql.callback_executor import CallbackExecutor
 import time
