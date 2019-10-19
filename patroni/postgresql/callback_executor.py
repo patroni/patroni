@@ -1,12 +1,11 @@
-from threading import Event, Lock, Thread
+import threading
 import subprocess
 import logging
-import time
 from six.moves import queue
 
 logger = logging.getLogger(__name__)
 
-class CallbackExecutor(Thread):
+class CallbackExecutor(threading.Thread):
     '''
     Execution thread that queues commands and executes them in order.
     Guarantees that commands are executed in the order they are received via
