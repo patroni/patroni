@@ -7,12 +7,13 @@ import time
 
 class TestCallbackExecutor(unittest.TestCase):
 
-    def test_callback_executor_calls_commands_in_order(self):
-        mock_popen = mock.MagicMock('subprocess.Popen')
+    @mock.patch('subprocess.Popen')
+    def test_callback_executor_calls_commands_in_order(self, mock_popen):
+        #mock_popen = mock.MagicMock('subprocess.Popen')
         # First command sleep, second return immidately, third throws exception
         mock_popen.return_value.wait.side_effect = [lambda: time.sleep(1), mock.Mock(), Exception]
 
-        ce = CallbackExecutor(mock_popen)
+        ce = CallbackExecutor()
         for x in range(1,4):
           ce.call([str(x)])
 

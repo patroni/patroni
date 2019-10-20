@@ -12,11 +12,10 @@ class CallbackExecutor(threading.Thread):
     FIFO queue.
     '''
 
-    def __init__(self, executor=subprocess.Popen):
+    def __init__(self):
         super(CallbackExecutor, self).__init__()
         self.daemon = True
         self._cmds_queue = queue.Queue()
-        self._executor = executor
         self.start()
 
     def call(self, cmd):
@@ -31,7 +30,7 @@ class CallbackExecutor(threading.Thread):
             logger.debug("Callback executor waking to call %s", cmd_str)
             try:
                 logger.debug("Spawning process for %s", cmd_str)
-                p = self._executor(cmd, close_fds=True)
+                p = subprocess.Popen(cmd, close_fds=True)
                 logger.debug("Waiting for %s to complete", cmd_str)
                 p.wait()
                 logger.debug("%s has completed", cmd_str)
