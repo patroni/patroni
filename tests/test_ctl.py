@@ -566,6 +566,13 @@ class TestCtl(unittest.TestCase):
             result = self.runner.invoke(ctl, ['version', 'dummy'])
             assert 'failed to get version' in result.output
 
+    @patch('patroni.ctl.get_dcs')
+    def test_history(self, mock_get_dcs):
+        mock_get_dcs.return_value.get_cluster = Mock()
+        mock_get_dcs.return_value.get_cluster.return_value.history.lines = [[1, 67176, 'no recovery target specified']]
+        result = self.runner.invoke(ctl, ['history'])
+        assert 'Reason' in result.output
+
     def test_format_pg_version(self):
         self.assertEqual(format_pg_version(100001), '10.1')
         self.assertEqual(format_pg_version(90605), '9.6.5')
