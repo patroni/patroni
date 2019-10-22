@@ -18,7 +18,6 @@ from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.slots import SlotsHandler
 from patroni.exceptions import PostgresConnectionException
 from patroni.utils import Retry, RetryFailedError, polling_loop
-from patroni.dcs import slot_name_from_member_name, RemoteMember
 from threading import current_thread, Lock
 
 
@@ -676,37 +675,15 @@ class Postgresql(object):
             logger.exception('Failed to read and parse %s', (history_path,))
 
     def follow(self, member, role='replica', timeout=None):
-        is_remote_master = isinstance(member, RemoteMember)
-        no_replication_slot = is_remote_master and member.no_replication_slot
-        restore_command = is_remote_master and member.restore_command
-        min_apply_delay = is_remote_master and member.recovery_min_apply_delay
-        archive_cleanup = is_remote_master and member.archive_cleanup_command
-
-        primary_conninfo = self.config.primary_conninfo_params(member)
-        change_role = self.cb_called and (self.role in ('master', 'demoted') or
-                                          not {'standby_leader', 'replica'} - {self.role, role})
-
-        recovery_params = self.config.get('recovery_conf', {}).copy()
-        recovery_params.update({'standby_mode': 'on', 'recovery_target_timeline': 'latest'})
-        if primary_conninfo:
-            recovery_params['primary_conninfo'] = primary_conninfo
-        if self.slots_handler.use_slots and not no_replication_slot:
-            required_name = is_remote_master and member.data.get('primary_slot_name')
-            name = required_name or slot_name_from_member_name(self.name)
-            recovery_params['primary_slot_name'] = name
-        if restore_command:
-            recovery_params['restore_command'] = restore_command
-        if min_apply_delay:
-            recovery_params['recovery_min_apply_delay'] = min_apply_delay
-        if archive_cleanup:
-            recovery_params['archive_cleanup_command'] = archive_cleanup
-
+        recovery_params = self.config.build_recovery_params(member)
         self.config.write_recovery_conf(recovery_params)
 
         # When we demoting the master or standby_leader to replica or promoting replica to a standby_leader
         # and we know for sure that postgres was already running before, we will only execute on_role_change
         # callback and prevent execution of on_restart/on_start callback.
         # If the role remains the same (replica or standby_leader), we will execute on_start or on_restart
+        change_role = self.cb_called and (self.role in ('master', 'demoted') or
+                                          not {'standby_leader', 'replica'} - {self.role, role})
         if change_role:
             self.__cb_pending = ACTION_NOOP
 
