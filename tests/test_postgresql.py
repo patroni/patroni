@@ -90,6 +90,7 @@ class TestPostgresql(BaseTestPostgresql):
 
     @patch('subprocess.call', Mock(return_value=0))
     @patch('os.rename', Mock())
+    @patch('patroni.postgresql.CallbackExecutor', Mock())
     @patch.object(Postgresql, 'get_major_version', Mock(return_value=120000))
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def setUp(self):
@@ -637,7 +638,7 @@ class TestPostgresql(BaseTestPostgresql):
             data = self.p.read_postmaster_opts()
             self.assertEqual(data, dict())
 
-    @patch('subprocess.Popen')
+    @patch('psutil.Popen')
     def test_single_user_mode(self, subprocess_popen_mock):
         subprocess_popen_mock.return_value.wait.return_value = 0
         self.assertEqual(self.p.single_user_mode('CHECKPOINT', {'archive_mode': 'on'}), 0)

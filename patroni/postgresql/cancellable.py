@@ -1,8 +1,10 @@
 import logging
 import os
+import psutil
 import subprocess
 
 from patroni.exceptions import PostgresException
+from patroni.postgresql.misc import terminate_processes
 from patroni.utils import polling_loop
 from six import string_types
 from threading import Lock
@@ -38,7 +40,7 @@ class CancellableSubprocess(object):
                     raise PostgresException('cancelled')
 
                 self._is_cancelled = False
-                self._process = subprocess.Popen(*args, **kwargs)
+                self._process = psutil.Popen(*args, **kwargs)
 
             if communicate_input:
                 if input_data:
@@ -62,15 +64,23 @@ class CancellableSubprocess(object):
     def cancel(self):
         with self._lock:
             self._is_cancelled = True
-            if self._process is None or self._process.returncode is not None:
+            if self._process is None or not self._process.is_running():
                 return
             self._process.terminate()
 
         for _ in polling_loop(10):
             with self._lock:
-                if self._process is None or self._process.returncode is not None:
+                if self._process is None or not self._process.is_running():
                     return
 
+        children = []
         with self._lock:
-            if self._process is not None and self._process.returncode is None:
+            if self._process is not None:
+                try:
+                    children = self._process.children(recursive=True)
+                except psutil.Error:
+                    pass
+
                 self._process.kill()
+
+        terminate_processes(children)

@@ -1,6 +1,7 @@
 import logging
 import psutil
 
+from patroni.postgresql.misc import terminate_processes
 from threading import Event, Lock, Thread
 
 logger = logging.getLogger(__name__)
@@ -41,22 +42,6 @@ class CallbackExecutor(Thread):
                 except psutil.AccessDenied:
                     logger.exception('Failed to kill the old callback')
 
-    def _wait(self):
-        self._process.wait()
-
-        waitlist = []
-        with self._lock:
-            for child in self._process_children:
-                if child.is_running():
-                    try:
-                        child.kill()
-                    except psutil.NoSuchProcess:
-                        continue
-                    except psutil.AccessDenied:
-                        pass
-                    waitlist.append(child)
-        psutil.wait_procs(waitlist)
-
     def run(self):
         while True:
             self._callback_event.wait()
@@ -69,4 +54,7 @@ class CallbackExecutor(Thread):
                 except Exception:
                     logger.exception('Failed to execute %s',  self._cmd)
                     continue
-            self._wait()
+            self._process.wait()
+            with self._lock:
+                children = self._process_children
+            terminate_processes(children)
