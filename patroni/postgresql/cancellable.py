@@ -34,6 +34,11 @@ class CancellableExecutor(object):
         with self._lock:
             if self._process is not None and self._process.is_running() and not self._process_children:
                 try:
+                    self._process.suspend()  # Suspend the process before getting list of childrens
+                except psutil.Error as e:
+                    logger.info('Failed to suspend the process: %s', e.msg)
+
+                try:
                     self._process_children = self._process.children(recursive=True)
                 except psutil.Error:
                     pass
@@ -43,8 +48,8 @@ class CancellableExecutor(object):
                     logger.warning('Killed %s because it was still running', self._process_cmd)
                 except psutil.NoSuchProcess:
                     pass
-                except psutil.AccessDenied:
-                    logger.exception('Failed to kill %s', self._process_cmd)
+                except psutil.AccessDenied as e:
+                    logger.warning('Failed to kill the process: %s', e.msg)
 
     def _kill_children(self):
         waitlist = []
@@ -54,8 +59,8 @@ class CancellableExecutor(object):
                     child.kill()
                 except psutil.NoSuchProcess:
                     continue
-                except psutil.AccessDenied:
-                    pass
+                except psutil.AccessDenied as e:
+                    logger.info('Failed to kill child process: %s', e.msg)
                 waitlist.append(child)
         psutil.wait_procs(waitlist)
 
