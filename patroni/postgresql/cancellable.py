@@ -4,7 +4,6 @@ import psutil
 import subprocess
 
 from patroni.exceptions import PostgresException
-from patroni.postgresql.misc import terminate_processes
 from patroni.utils import polling_loop
 from six import string_types
 from threading import Lock
@@ -12,12 +11,60 @@ from threading import Lock
 logger = logging.getLogger(__name__)
 
 
-class CancellableSubprocess(object):
+class CancellableExecutor(object):
 
     def __init__(self):
-        self._is_cancelled = False
         self._process = None
+        self._process_cmd = None
+        self._process_children = []
         self._lock = Lock()
+
+    def _start_process(self, cmd, *args, **kwargs):
+        """This method must be executed only when the `_lock` is acquired"""
+
+        try:
+            self._process_children = []
+            self._process_cmd = cmd
+            self._process = psutil.Popen(cmd, *args, **kwargs)
+        except Exception:
+            return logger.exception('Failed to execute %s',  cmd)
+        return True
+
+    def _kill_process(self):
+        with self._lock:
+            if self._process is not None and self._process.is_running() and not self._process_children:
+                try:
+                    self._process_children = self._process.children(recursive=True)
+                except psutil.Error:
+                    pass
+
+                try:
+                    self._process.kill()
+                    logger.warning('Killed %s because it was still running', self._process_cmd)
+                except psutil.NoSuchProcess:
+                    pass
+                except psutil.AccessDenied:
+                    logger.exception('Failed to kill %s', self._process_cmd)
+
+    def _kill_children(self):
+        waitlist = []
+        with self._lock:
+            for child in self._process_children:
+                try:
+                    child.kill()
+                except psutil.NoSuchProcess:
+                    continue
+                except psutil.AccessDenied:
+                    pass
+                waitlist.append(child)
+        psutil.wait_procs(waitlist)
+
+
+class CancellableSubprocess(CancellableExecutor):
+
+    def __init__(self):
+        super(CancellableSubprocess, self).__init__()
+        self._is_cancelled = False
 
     def call(self, *args, **kwargs):
         for s in ('stdin', 'stdout', 'stderr'):
@@ -40,17 +87,17 @@ class CancellableSubprocess(object):
                     raise PostgresException('cancelled')
 
                 self._is_cancelled = False
-                self._process = psutil.Popen(*args, **kwargs)
+                if self._start_process(*args, **kwargs):
+                    if communicate_input:
+                        if input_data:
+                            self._process.communicate(input_data)
+                        self._process.stdin.close()
 
-            if communicate_input:
-                if input_data:
-                    self._process.communicate(input_data)
-                self._process.stdin.close()
-
-            return self._process.wait()
+                    return self._process.wait()
         finally:
             with self._lock:
                 self._process = None
+            self._kill_children()
 
     def reset_is_cancelled(self):
         with self._lock:
@@ -73,14 +120,4 @@ class CancellableSubprocess(object):
                 if self._process is None or not self._process.is_running():
                     return
 
-        children = []
-        with self._lock:
-            if self._process is not None:
-                try:
-                    children = self._process.children(recursive=True)
-                except psutil.Error:
-                    pass
-
-                self._process.kill()
-
-        terminate_processes(children)
+        self._kill_process()

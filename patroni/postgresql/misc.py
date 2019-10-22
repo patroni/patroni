@@ -1,5 +1,4 @@
 import logging
-import psutil
 
 from patroni.exceptions import PostgresException
 
@@ -69,17 +68,3 @@ def parse_history(data):
                 yield values
             except (IndexError, ValueError):
                 logger.exception('Exception when parsing timeline history line "%s"', values)
-
-
-def terminate_processes(procs):
-    waitlist = []
-    for proc in procs:
-        if proc.is_running():
-            try:
-                proc.kill()
-            except psutil.NoSuchProcess:
-                continue
-            except psutil.AccessDenied:
-                pass
-            waitlist.append(proc)
-    psutil.wait_procs(waitlist)

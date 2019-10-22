@@ -10,12 +10,12 @@ class TestCallbackExecutor(unittest.TestCase):
     @patch('psutil.Popen')
     def test_callback_executor(self, mock_popen):
         mock_popen.return_value.children.return_value = []
-        mock_popen.return_value.poll.return_value = None
+        mock_popen.return_value.is_running.return_value = True
 
-        with patch('patroni.postgresql.callback_executor.terminate_processes', Mock(side_effect=Exception)):
-            ce = CallbackExecutor()
-            self.assertIsNone(ce.call([]))
-            ce.join()
+        ce = CallbackExecutor()
+        ce._kill_children = Mock(side_effect=Exception)
+        self.assertIsNone(ce.call([]))
+        ce.join()
 
         self.assertIsNone(ce.call([]))
 
