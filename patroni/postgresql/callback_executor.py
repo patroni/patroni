@@ -1,7 +1,7 @@
 import logging
 
 from patroni.postgresql.cancellable import CancellableExecutor
-from threading import Event, Thread
+from threading import Condition, Thread
 
 logger = logging.getLogger(__name__)
 
@@ -13,20 +13,24 @@ class CallbackExecutor(CancellableExecutor, Thread):
         Thread.__init__(self)
         self.daemon = True
         self._cmd = None
-        self._callback_event = Event()
+        self._condition = Condition()
         self.start()
 
     def call(self, cmd):
         self._kill_process()
-        self._cmd = cmd
-        self._callback_event.set()
+        with self._condition:
+            self._cmd = cmd
+            self._condition.notify()
 
     def run(self):
         while True:
-            self._callback_event.wait()
-            self._callback_event.clear()
+            with self._condition:
+                if self._cmd is None:
+                    self._condition.wait()
+                cmd, self._cmd = self._cmd, None
+
             with self._lock:
-                if not self._start_process(self._cmd, close_fds=True):
+                if not self._start_process(cmd, close_fds=True):
                     continue
             self._process.wait()
             self._kill_children()

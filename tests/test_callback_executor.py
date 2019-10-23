@@ -29,6 +29,6 @@ class TestCallbackExecutor(unittest.TestCase):
 
         mock_popen.side_effect = Exception
         ce = CallbackExecutor()
-        ce._callback_event.wait = Mock(side_effect=[None, Exception])
+        ce._condition.wait = Mock(side_effect=[None, Exception])
         self.assertIsNone(ce.call([]))
         ce.join()
