@@ -728,9 +728,12 @@ class Postgresql(object):
 
     def postmaster_start_time(self):
         try:
-            cursor = self.query("SELECT pg_catalog.to_char(pg_catalog.pg_postmaster_start_time(),"
-                                " 'YYYY-MM-DD HH24:MI:SS.MS TZ')")
-            return cursor.fetchone()[0]
+            query = "SELECT pg_catalog.to_char(pg_catalog.pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ')"
+            if current_thread().ident == self.__thread_ident:
+                return self.query(query).fetchone()[0]
+            with self.connection().cursor() as cursor:
+                cursor.execute(query)
+                return cursor.fetchone()[0]
         except psycopg2.Error:
             return None
 
