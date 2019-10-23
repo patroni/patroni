@@ -92,13 +92,14 @@ class CancellableSubprocess(CancellableExecutor):
                     raise PostgresException('cancelled')
 
                 self._is_cancelled = False
-                if self._start_process(*args, **kwargs):
-                    if communicate_input:
-                        if input_data:
-                            self._process.communicate(input_data)
-                        self._process.stdin.close()
+                started = self._start_process(*args, **kwargs)
 
-                    return self._process.wait()
+            if started:
+                if communicate_input:
+                    if input_data:
+                        self._process.communicate(input_data)
+                    self._process.stdin.close()
+                return self._process.wait()
         finally:
             with self._lock:
                 self._process = None
