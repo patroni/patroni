@@ -37,15 +37,6 @@ STATE_UNKNOWN = 'unknown'
 
 STOP_POLLING_INTERVAL = 1
 
-cluster_info_query = ("SELECT CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
-                      "ELSE ('x' || pg_catalog.substr(pg_catalog.pg_{0}file_name("
-                      "pg_catalog.pg_current_{0}_{1}()), 1, 8))::bit(32)::int END, "
-                      "CASE WHEN pg_catalog.pg_is_in_recovery() THEN GREATEST("
-                      " pg_catalog.pg_{0}_{1}_diff(COALESCE("
-                      "pg_catalog.pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint,"
-                      " pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint)"
-                      "ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), '0/0')::bigint END")
-
 
 @contextmanager
 def null_context():
@@ -138,6 +129,18 @@ class Postgresql(object):
     @property
     def lsn_name(self):
         return 'lsn' if self._major_version >= 100000 else 'location'
+
+    @property
+    def cluster_info_query(self):
+        return ("SELECT CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
+                "ELSE ('x' || pg_catalog.substr(pg_catalog.pg_{0}file_name("
+                "pg_catalog.pg_current_{0}_{1}()), 1, 8))::bit(32)::int END, "
+                "CASE WHEN pg_catalog.pg_is_in_recovery() THEN GREATEST("
+                " pg_catalog.pg_{0}_{1}_diff(COALESCE("
+                "pg_catalog.pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint,"
+                " pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint)"
+                "ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), '0/0')::bigint "
+                "END").format(self.wal_name, self.lsn_name)
 
     def _version_file_exists(self):
         return not self.data_directory_empty() and os.path.isfile(self._version_file)
@@ -275,9 +278,8 @@ class Postgresql(object):
 
     def _cluster_info_state_get(self, name):
         if not self._cluster_info_state:
-            stmt = cluster_info_query.format(self.wal_name, self.lsn_name)
             try:
-                result = self._is_leader_retry(self._query, stmt).fetchone()
+                result = self._is_leader_retry(self._query, self.cluster_info_query).fetchone()
                 self._cluster_info_state = dict(zip(['timeline', 'wal_position'], result))
             except RetryFailedError as e:  # SELECT failed two times
                 self._cluster_info_state = {'error': str(e)}
@@ -721,7 +723,7 @@ class Postgresql(object):
             return self._cluster_info_state_get('timeline'), self._cluster_info_state_get('wal_position')
 
         with self.connection().cursor() as cursor:
-            cursor.execute(cluster_info_query.format(self.wal_name, self.lsn_name))
+            cursor.execute(self.cluster_info_query)
             return cursor.fetchone()[:2]
 
     def postmaster_start_time(self):
