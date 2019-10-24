@@ -458,6 +458,10 @@ class TestPostgresql(BaseTestPostgresql):
     def test_postmaster_start_time(self):
         with patch.object(MockCursor, "fetchone", Mock(return_value=('foo', True, '', '', '', '', False))):
             self.assertEqual(self.p.postmaster_start_time(), 'foo')
+            t = Thread(target=self.p.postmaster_start_time)
+            t.start()
+            t.join()
+
         with patch.object(MockCursor, "execute", side_effect=psycopg2.Error):
             self.assertIsNone(self.p.postmaster_start_time())
 
