@@ -15,6 +15,16 @@ from requests.structures import CaseInsensitiveDict
 
 logger = logging.getLogger(__name__)
 
+_AUTH_ALLOWED_PARAMETERS = (
+    'username',
+    'password',
+    'sslmode',
+    'sslcert',
+    'sslkey',
+    'sslrootcert',
+    'sslcrl'
+)
+
 
 class Config(object):
     """
@@ -158,23 +168,19 @@ class Config(object):
             except Exception:
                 logger.exception('Exception when setting dynamic_configuration')
 
-    def reload_local_configuration(self, dry_run=False):
+    def reload_local_configuration(self):
         if self.config_file:
             try:
                 configuration = self._load_config_file()
                 if not deep_compare(self._local_configuration, configuration):
                     new_configuration = self._build_effective_configuration(self._dynamic_configuration, configuration)
-                    if dry_run:
-                        return not deep_compare(new_configuration, self.__effective_configuration)
                     self._local_configuration = configuration
                     self.__effective_configuration = new_configuration
                     return True
                 else:
-                    logger.info('No configuration items changed, nothing to reload.')
+                    logger.info('No local configuration items changed.')
             except Exception:
                 logger.exception('Exception when reloading local configuration from %s', self.config_file)
-                if dry_run:
-                    raise
 
     @staticmethod
     def _process_postgresql_parameters(parameters, is_local=False):
@@ -230,7 +236,8 @@ class Config(object):
                 if value:
                     ret[section][param] = value
 
-        _set_section_values('restapi', ['listen', 'connect_address', 'certfile', 'keyfile'])
+        _set_section_values('restapi', ['listen', 'connect_address', 'certfile', 'keyfile', 'cafile', 'verify_client'])
+        _set_section_values('ctl', ['insecure', 'cacert', 'certfile', 'keyfile'])
         _set_section_values('postgresql', ['listen', 'connect_address', 'config_dir', 'data_dir', 'pgpass', 'bin_dir'])
         _set_section_values('log', ['level', 'format', 'dateformat', 'max_queue_size',
                                     'dir', 'file_size', 'file_num', 'loggers'])
@@ -250,9 +257,9 @@ class Config(object):
             if value:
                 ret['log']['loggers'] = value
 
-        def _get_auth(name):
+        def _get_auth(name, params=None):
             ret = {}
-            for param in ('username', 'password'):
+            for param in params or _AUTH_ALLOWED_PARAMETERS[:2]:
                 value = _popenv(name + '_' + param)
                 if value:
                     ret[param] = value
@@ -264,7 +271,7 @@ class Config(object):
 
         authentication = {}
         for user_type in ('replication', 'superuser', 'rewind'):
-            entry = _get_auth(user_type)
+            entry = _get_auth(user_type, _AUTH_ALLOWED_PARAMETERS)
             if entry:
                 authentication[user_type] = entry
 
@@ -352,6 +359,11 @@ class Config(object):
         # no 'superuser' in 'postgresql'.'authentication'
         if 'superuser' not in pg_config['authentication'] and 'pg_rewind' in pg_config:
             pg_config['authentication']['superuser'] = pg_config['pg_rewind']
+
+        # handle setting additional connection parameters that may be available
+        # in the configuration file, such as SSL connection parameters
+        for name, value in pg_config['authentication'].items():
+            pg_config['authentication'][name] = {n: v for n, v in value.items() if n in _AUTH_ALLOWED_PARAMETERS}
 
         # no 'name' in config
         if 'name' not in config and 'name' in pg_config:

@@ -5,7 +5,6 @@ import shutil
 import unittest
 
 from mock import Mock, patch
-from tempfile import gettempdir
 
 import psycopg2
 import requests
@@ -101,12 +100,15 @@ class MockCursor(object):
             self.results = [(1, 2)]
         elif sql.startswith('SELECT pg_catalog.pg_is_in_recovery()'):
             self.results = [(False, 2)]
-        elif sql.startswith('WITH replication_info AS ('):
+        elif sql.startswith('SELECT pg_catalog.to_char'):
             replication_info = '[{"application_name":"walreceiver","client_addr":"1.2.3.4",' +\
                                '"state":"streaming","sync_state":"async","sync_priority":0}]'
             self.results = [('', 0, '', '', '', '', False, replication_info)]
         elif sql.startswith('SELECT name, setting'):
             self.results = [('wal_segment_size', '2048', '8kB', 'integer', 'internal'),
+                            ('wal_block_size', '8192', None, 'integer', 'internal'),
+                            ('shared_buffers', '16384', '8kB', 'integer', 'postmaster'),
+                            ('wal_buffers', '-1', '8kB', 'integer', 'postmaster'),
                             ('search_path', 'public', None, 'string', 'user'),
                             ('port', '5433', None, 'integer', 'postmaster'),
                             ('listen_addresses', '*', None, 'string', 'postmaster'),
@@ -173,7 +175,7 @@ class PostgresInit(unittest.TestCase):
                    'search_path': 'public', 'hot_standby': 'on', 'max_wal_senders': 5,
                    'wal_keep_segments': 8, 'wal_log_hints': 'on', 'max_locks_per_transaction': 64,
                    'max_worker_processes': 8, 'max_connections': 100, 'max_prepared_transactions': 0,
-                   'track_commit_timestamp': 'off', 'unix_socket_directories': '/tmp'}
+                   'track_commit_timestamp': 'off', 'unix_socket_directories': '/tmp', 'trigger_file': 'bla'}
 
     @patch('psycopg2.connect', psycopg2_connect)
     @patch.object(ConfigHandler, 'write_postgresql_conf', Mock())
@@ -183,7 +185,7 @@ class PostgresInit(unittest.TestCase):
         data_dir = 'data/test0'
         self.p = Postgresql({'name': 'postgresql0', 'scope': 'batman', 'data_dir': data_dir,
                              'config_dir': data_dir, 'retry_timeout': 10,
-                             'krbsrvname': 'postgres', 'pgpass': os.path.join(gettempdir(), 'pgpass0'),
+                             'krbsrvname': 'postgres', 'pgpass': os.path.join(data_dir, 'pgpass0'),
                              'listen': '127.0.0.2, 127.0.0.3:5432', 'connect_address': '127.0.0.2:5432',
                              'authentication': {'superuser': {'username': 'foo', 'password': 'test'},
                                                 'replication': {'username': '', 'password': 'rep-pass'}},

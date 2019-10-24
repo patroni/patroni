@@ -342,3 +342,62 @@ def split_host_port(value, default_port):
     t = value.rsplit(':', 1)
     t.append(default_port)
     return t[0], int(t[1])
+
+
+def uri(proto, netloc, path='', user=None):
+    host, port = netloc if isinstance(netloc, (list, tuple)) else split_host_port(netloc, 0)
+    if host and ':' in host and host[0] != '[' and host[-1] != ']':
+        host = '[{0}]'.format(host)
+    port = ':{0}'.format(port) if port else ''
+    path = '/{0}'.format(path) if path and not path.startswith('/') else path
+    user = '{0}@'.format(user) if user else ''
+    return '{0}://{1}{2}{3}{4}'.format(proto, user, host, port, path)
+
+
+def is_standby_cluster(config):
+    # Check whether or not provided configuration describes a standby cluster
+    return isinstance(config, dict) and (config.get('host') or config.get('port') or config.get('restore_command'))
+
+
+def cluster_as_json(cluster):
+    leader_name = cluster.leader.name if cluster.leader else None
+    xlog_location_cluster = cluster.last_leader_operation or 0
+
+    ret = {'members': []}
+    for m in cluster.members:
+        if m.name == leader_name:
+            config = cluster.config.data if cluster.config and cluster.config.modify_index else {}
+            role = 'standby_leader' if is_standby_cluster(config.get('standby_cluster')) else 'leader'
+        elif m.name == cluster.sync.sync_standby:
+            role = 'sync_standby'
+        else:
+            role = 'replica'
+
+        conn_kwargs = m.conn_kwargs()
+        member = {'name': m.name, 'host': conn_kwargs['host'], 'port': int(conn_kwargs['port']),
+                  'role': role, 'state': m.data.get('state', ''), 'api_url': m.api_url}
+        optional_attributes = ('timeline', 'pending_restart', 'scheduled_restart', 'tags')
+        member.update({n: m.data[n] for n in optional_attributes if n in m.data})
+
+        if m.name != leader_name:
+            xlog_location = m.data.get('xlog_location')
+            if xlog_location is None:
+                member['lag'] = 'unknown'
+            elif xlog_location_cluster >= xlog_location:
+                member['lag'] = xlog_location_cluster - xlog_location
+            else:
+                member['lag'] = 0
+
+        ret['members'].append(member)
+
+    # sort members by name for consistency
+    ret['members'].sort(key=lambda m: m['name'])
+    if cluster.is_paused():
+        ret['pause'] = True
+    if cluster.failover and cluster.failover.scheduled_at:
+        ret['scheduled_switchover'] = {'at': cluster.failover.scheduled_at.isoformat()}
+        if cluster.failover.leader:
+            ret['scheduled_switchover']['from'] = cluster.failover.leader
+        if cluster.failover.candidate:
+            ret['scheduled_switchover']['to'] = cluster.failover.candidate
+    return ret

@@ -7,30 +7,18 @@ import traceback
 import dateutil.parser
 import datetime
 import os
+import six
+import socket
 
 from patroni.postgresql import PostgresConnectionException
 from patroni.postgresql.misc import postgres_version_to_int, PostgresException
 from patroni.utils import deep_compare, parse_bool, patch_config, Retry, \
-    RetryFailedError, parse_int, split_host_port, tzutc
+    RetryFailedError, parse_int, split_host_port, tzutc, uri, cluster_as_json
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from six.moves.socketserver import ThreadingMixIn
 from threading import Thread
 
 logger = logging.getLogger(__name__)
-
-
-def check_auth(func):
-    """Decorator function to check authorization header.
-
-    Usage example:
-    @check_auth
-    def do_PUT_foo():
-        pass
-    """
-    def wrapper(handler, *args, **kwargs):
-        if handler.check_auth_header():
-            return func(handler, *args, **kwargs)
-    return wrapper
 
 
 class RestApiHandler(BaseHTTPRequestHandler):
@@ -48,14 +36,20 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def _write_json_response(self, status_code, response):
         self._write_response(status_code, json.dumps(response), content_type='application/json')
 
-    def send_auth_request(self, body):
-        headers = {'WWW-Authenticate': 'Basic realm="' + self.server.patroni.__class__.__name__ + '"'}
-        self._write_response(401, body, headers=headers)
+    def check_auth(func):
+        """Decorator function to check authorization header or client certificates
 
-    def check_auth_header(self):
-        auth_header = self.headers.get('Authorization')
-        status = self.server.check_auth_header(auth_header)
-        return not status or self.send_auth_request(status)
+        Usage example:
+        @check_auth
+        def do_PUT_foo():
+            pass
+        """
+
+        def wrapper(self, *args, **kwargs):
+            if self.server.check_auth(self):
+                return func(self, *args, **kwargs)
+
+        return wrapper
 
     def _write_status_response(self, status_code, response):
         patroni = self.server.patroni
@@ -100,7 +94,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
         else:
             primary_status_code = 200 if patroni.ha.is_leader() else 503
 
-        replica_status_code = 200 if not patroni.noloadbalance and response.get('role') == 'replica' else 503
+        replica_status_code = 200 if not patroni.noloadbalance and \
+            response.get('role') == 'replica' and response.get('state') == 'running' else 503
         status_code = 503
 
         if patroni.ha.is_standby_cluster() and ('standby_leader' in path or 'standby-leader' in path):
@@ -137,6 +132,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_GET_patroni(self):
         response = self.get_postgresql_status(True)
         self._write_status_response(200, response)
+
+    def do_GET_cluster(self):
+        cluster = self.server.patroni.dcs.cluster or self.server.patroni.dcs.get_cluster()
+        self._write_json_response(200, cluster_as_json(cluster))
+
+    def do_GET_history(self):
+        cluster = self.server.patroni.dcs.cluster or self.server.patroni.dcs.get_cluster()
+        self._write_json_response(200, cluster.history and cluster.history.lines or [])
 
     def do_GET_config(self):
         cluster = self.server.patroni.dcs.cluster or self.server.patroni.dcs.get_cluster()
@@ -185,18 +188,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     @check_auth
     def do_POST_reload(self):
-        try:
-            if self.server.patroni.config.reload_local_configuration(True):
-                status_code = 202
-                response = 'reload scheduled'
-                self.server.patroni.sighup_handler()
-            else:
-                status_code = 200
-                response = 'nothing changed'
-        except Exception as e:
-            status_code = 500
-            response = str(e)
-        self._write_response(status_code, response)
+        self.server.patroni.sighup_handler()
+        self._write_response(202, 'reload scheduled')
 
     @staticmethod
     def parse_schedule(schedule, action):
@@ -430,10 +423,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
             if self.server.patroni.postgresql.state not in ('running', 'restarting', 'starting'):
                 raise RetryFailedError('')
-            stmt = ("WITH replication_info AS ("
-                    "SELECT usename, application_name, client_addr, state, sync_state, sync_priority"
-                    " FROM pg_catalog.pg_stat_replication) SELECT"
-                    " pg_catalog.to_char(pg_catalog.pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),"
+            stmt = ("SELECT pg_catalog.to_char(pg_catalog.pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),"
                     " CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0"
                     " ELSE ('x' || pg_catalog.substr(pg_catalog.pg_{0}file_name("
                     "pg_catalog.pg_current_{0}_{1}()), 1, 8))::bit(32)::int END,"
@@ -444,8 +434,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     " pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint,"
                     " pg_catalog.to_char(pg_catalog.pg_last_xact_replay_timestamp(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),"
                     " pg_catalog.pg_is_in_recovery() AND pg_catalog.pg_is_{0}_replay_paused(), "
-                    "(SELECT pg_catalog.array_to_json(pg_catalog.array_agg("
-                    "pg_catalog.row_to_json(ri))) FROM replication_info ri)")
+                    " pg_catalog.array_to_json(pg_catalog.array_agg(pg_catalog.row_to_json(ri))) "
+                    "FROM (SELECT (SELECT rolname FROM pg_authid WHERE oid = usesysid) AS usename,"
+                    " application_name, client_addr, w.state, sync_state, sync_priority"
+                    " FROM pg_catalog.pg_stat_get_wal_senders() w, pg_catalog.pg_stat_get_activity(pid)) AS ri")
 
             row = self.query(stmt.format(self.server.patroni.postgresql.wal_name,
                                          self.server.patroni.postgresql.lsn_name), retry=retry)[0]
@@ -490,12 +482,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
 
 class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
+    # On 3.7+ the `ThreadingMixIn` gathers all non-daemon worker threads in order to join on them at server close.
+    daemon_threads = True  # Make worker threads "fire and forget" to prevent a memory leak.
 
     def __init__(self, patroni, config):
         self.patroni = patroni
         self.__listen = None
-        self.__initialize(config)
-        self.__set_config_parameters(config)
+        self.__ssl_options = None
+        self.reload_config(config)
         self.daemon = True
 
     def query(self, sql, *params):
@@ -526,52 +520,94 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             if not auth_header.startswith('Basic ') or not self.check_basic_auth_key(auth_header[6:]):
                 return 'not authenticated'
 
+    def check_auth(self, rh):
+        if not hasattr(rh.request, 'getpeercert') or not rh.request.getpeercert():  # valid client cert isn't present
+            if self.__protocol == 'https' and self.__ssl_options.get('verify_client') in ('required', 'optional'):
+                return rh._write_response(403, 'client certificate required')
+
+            reason = self.check_auth_header(rh.headers.get('Authorization'))
+            if reason:
+                headers = {'WWW-Authenticate': 'Basic realm="' + self.patroni.__class__.__name__ + '"'}
+                return rh._write_response(401, reason, headers=headers)
+        return True
+
     @staticmethod
-    def __get_ssl_options(config):
-        return {option: config[option] for option in ['certfile', 'keyfile'] if option in config}
+    def __has_dual_stack():
+        if hasattr(socket, 'AF_INET6') and hasattr(socket, 'IPPROTO_IPV6') and hasattr(socket, 'IPV6_V6ONLY'):
+            sock = None
+            try:
+                sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+                sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, False)
+                return True
+            except socket.error as e:
+                logger.debug('Error when working with ipv6 socket: %s', e)
+            finally:
+                if sock:
+                    sock.close()
+        return False
 
-    def __set_config_parameters(self, config):
-        self.__auth_key = base64.b64encode(config['auth'].encode('utf-8')).decode('utf-8') if 'auth' in config else None
-        self.connection_string = '{0}://{1}/patroni'.format(self.__protocol,
-                                                            config.get('connect_address') or self.__listen)
+    def __httpserver_init(self, host, port):
+        dual_stack = self.__has_dual_stack()
+        if host in ('', '*'):
+            host = None
 
-    def __initialize(self, config):
+        info = socket.getaddrinfo(host, port, socket.AF_UNSPEC, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)
+        # in case dual stack is not supported we want IPv4 to be preferred over IPv6
+        info.sort(key=lambda x: x[0] == socket.AF_INET, reverse=not dual_stack)
+
+        self.address_family = info[0][0]
+        HTTPServer.__init__(self, info[0][-1][:2], RestApiHandler)
+
+    def __initialize(self, listen, ssl_options):
         try:
-            host, port = split_host_port(config['listen'], None)
+            host, port = split_host_port(listen, None)
         except Exception:
             raise ValueError('Invalid "restapi" config: expected <HOST>:<PORT> for "listen", but got "{0}"'
-                             .format(config['listen']))
+                             .format(listen))
 
-        if self.__listen is not None:  # changing config in runtime
+        reloading_config = self.__listen is not None  # changing config in runtime
+        if reloading_config:
             self.shutdown()
 
-        self.__listen = config['listen']
-        self.__ssl_options = self.__get_ssl_options(config)
+        self.__listen = listen
+        self.__ssl_options = ssl_options
 
-        HTTPServer.__init__(self, (host, port), RestApiHandler)
+        self.__httpserver_init(host, port)
         Thread.__init__(self, target=self.serve_forever)
         self._set_fd_cloexec(self.socket)
 
-        self.__protocol = 'http'
-
         # wrap socket with ssl if 'certfile' is defined in a config.yaml
         # Sometime it's also needed to pass reference to a 'keyfile'.
-        if self.__ssl_options.get('certfile'):
+        self.__protocol = 'https' if ssl_options.get('certfile') else 'http'
+        if self.__protocol == 'https':
             import ssl
-            ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-            ctx.load_cert_chain(**self.__ssl_options)
+            ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH, cafile=ssl_options.get('cafile'))
+            ctx.load_cert_chain(certfile=ssl_options['certfile'], keyfile=ssl_options.get('keyfile'))
+            verify_client = ssl_options.get('verify_client')
+            if verify_client:
+                modes = {'none': ssl.CERT_NONE, 'optional': ssl.CERT_OPTIONAL, 'required': ssl.CERT_REQUIRED}
+                if verify_client in modes:
+                    ctx.verify_mode = modes[verify_client]
+                else:
+                    logger.error('Bad value in the "restapi.verify_client": %s', verify_client)
             self.socket = ctx.wrap_socket(self.socket, server_side=True)
-            self.__protocol = 'https'
-        return True
+        if reloading_config:
+            self.start()
 
     def reload_config(self, config):
         if 'listen' not in config:  # changing config in runtime
             raise ValueError('Can not find "restapi.listen" config')
 
-        elif (self.__listen != config['listen'] or self.__ssl_options != self.__get_ssl_options(config)) \
-                and self.__initialize(config):
-            self.start()
-        self.__set_config_parameters(config)
+        ssl_options = {n: config[n] for n in ('certfile', 'keyfile', 'cafile') if n in config}
+
+        if isinstance(config.get('verify_client'), six.string_types):
+            ssl_options['verify_client'] = config['verify_client'].lower()
+
+        if self.__listen != config['listen'] or self.__ssl_options != ssl_options:
+            self.__initialize(config['listen'], ssl_options)
+
+        self.__auth_key = base64.b64encode(config['auth'].encode('utf-8')).decode('utf-8') if 'auth' in config else None
+        self.connection_string = uri(self.__protocol, config.get('connect_address') or self.__listen, 'patroni')
 
     @staticmethod
     def handle_error(request, client_address):

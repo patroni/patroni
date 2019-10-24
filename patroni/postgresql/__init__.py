@@ -18,7 +18,6 @@ from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.slots import SlotsHandler
 from patroni.exceptions import PostgresConnectionException
 from patroni.utils import Retry, RetryFailedError, polling_loop
-from patroni.dcs import slot_name_from_member_name, RemoteMember
 from threading import current_thread, Lock
 
 
@@ -37,15 +36,6 @@ STATE_NO_RESPONSE = 'not responding'
 STATE_UNKNOWN = 'unknown'
 
 STOP_POLLING_INTERVAL = 1
-
-cluster_info_query = ("SELECT CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
-                      "ELSE ('x' || pg_catalog.substr(pg_catalog.pg_{0}file_name("
-                      "pg_catalog.pg_current_{0}_{1}()), 1, 8))::bit(32)::int END, "
-                      "CASE WHEN pg_catalog.pg_is_in_recovery() THEN GREATEST("
-                      " pg_catalog.pg_{0}_{1}_diff(COALESCE("
-                      "pg_catalog.pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint,"
-                      " pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint)"
-                      "ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), '0/0')::bigint END")
 
 
 @contextmanager
@@ -77,7 +67,6 @@ class Postgresql(object):
 
         self.slots_handler = SlotsHandler(self)
 
-        self._pgpass = config.get('pgpass') or os.path.join(os.path.expanduser('~'), 'pgpass')
         self._callback_executor = CallbackExecutor()
         self.__cb_called = False
         self.__cb_pending = None
@@ -143,6 +132,18 @@ class Postgresql(object):
     def lsn_name(self):
         return 'lsn' if self._major_version >= 100000 else 'location'
 
+    @property
+    def cluster_info_query(self):
+        return ("SELECT CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
+                "ELSE ('x' || pg_catalog.substr(pg_catalog.pg_{0}file_name("
+                "pg_catalog.pg_current_{0}_{1}()), 1, 8))::bit(32)::int END, "
+                "CASE WHEN pg_catalog.pg_is_in_recovery() THEN GREATEST("
+                " pg_catalog.pg_{0}_{1}_diff(COALESCE("
+                "pg_catalog.pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint,"
+                " pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint)"
+                "ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), '0/0')::bigint "
+                "END").format(self.wal_name, self.lsn_name)
+
     def _version_file_exists(self):
         return not self.data_directory_empty() and os.path.isfile(self._version_file)
 
@@ -190,8 +191,8 @@ class Postgresql(object):
                         3: STATE_UNKNOWN}
         return return_codes.get(ret, STATE_UNKNOWN)
 
-    def reload_config(self, config):
-        self.config.reload_config(config)
+    def reload_config(self, config, sighup=False):
+        self.config.reload_config(config, sighup)
         self._is_leader_retry.deadline = self.retry.deadline = config['retry_timeout']/2.0
 
     @property
@@ -260,19 +261,6 @@ class Postgresql(object):
     def data_directory_empty(self):
         return not os.path.exists(self._data_dir) or os.listdir(self._data_dir) == []
 
-    def write_pgpass(self, record):
-        if 'user' not in record or 'password' not in record:
-            return os.environ.copy()
-
-        with open(self._pgpass, 'w') as f:
-            if os.name != 'nt':
-                os.fchmod(f.fileno(), 0o600)
-            f.write('{host}:{port}:*:{user}:{password}\n'.format(**record))
-
-        env = os.environ.copy()
-        env['PGPASSFILE'] = self._pgpass
-        return env
-
     def replica_method_options(self, method):
         return deepcopy(self.config.get(method, {}))
 
@@ -292,9 +280,8 @@ class Postgresql(object):
 
     def _cluster_info_state_get(self, name):
         if not self._cluster_info_state:
-            stmt = cluster_info_query.format(self.wal_name, self.lsn_name)
             try:
-                result = self._is_leader_retry(self._query, stmt).fetchone()
+                result = self._is_leader_retry(self._query, self.cluster_info_query).fetchone()
                 self._cluster_info_state = dict(zip(['timeline', 'wal_position'], result))
             except RetryFailedError as e:  # SELECT failed two times
                 self._cluster_info_state = {'error': str(e)}
@@ -647,10 +634,10 @@ class Postgresql(object):
 
     @contextmanager
     def get_replication_connection_cursor(self, host='localhost', port=5432, database=None, **kwargs):
-        replication = self.config.replication
-        with get_connection_cursor(host=host, port=int(port), database=database or self._database, replication=1,
-                                   user=replication['username'], password=replication.get('password'),
-                                   connect_timeout=3, options='-c statement_timeout=2000') as cur:
+        conn_kwargs = self.config.replication.copy()
+        conn_kwargs.update(host=host, port=int(port), database=database or self._database, connect_timeout=3,
+                           user=conn_kwargs.pop('username'), replication=1, options='-c statement_timeout=2000')
+        with get_connection_cursor(**conn_kwargs) as cur:
             yield cur
 
     def get_local_timeline_lsn_from_replication_connection(self):
@@ -690,37 +677,15 @@ class Postgresql(object):
             logger.exception('Failed to read and parse %s', (history_path,))
 
     def follow(self, member, role='replica', timeout=None):
-        is_remote_master = isinstance(member, RemoteMember)
-        no_replication_slot = is_remote_master and member.no_replication_slot
-        restore_command = is_remote_master and member.restore_command
-        min_apply_delay = is_remote_master and member.recovery_min_apply_delay
-        archive_cleanup = is_remote_master and member.archive_cleanup_command
-
-        primary_conninfo = self.config.primary_conninfo(member)
-        change_role = self.cb_called and (self.role in ('master', 'demoted') or
-                                          not {'standby_leader', 'replica'} - {self.role, role})
-
-        recovery_params = self.config.get('recovery_conf', {}).copy()
-        recovery_params.update({'standby_mode': 'on', 'recovery_target_timeline': 'latest'})
-        if primary_conninfo:
-            recovery_params['primary_conninfo'] = primary_conninfo
-        if self.slots_handler.use_slots and not no_replication_slot:
-            required_name = is_remote_master and member.data.get('primary_slot_name')
-            name = required_name or slot_name_from_member_name(self.name)
-            recovery_params['primary_slot_name'] = name
-        if restore_command:
-            recovery_params['restore_command'] = restore_command
-        if min_apply_delay:
-            recovery_params['recovery_min_apply_delay'] = min_apply_delay
-        if archive_cleanup:
-            recovery_params['archive_cleanup_command'] = archive_cleanup
-
+        recovery_params = self.config.build_recovery_params(member)
         self.config.write_recovery_conf(recovery_params)
 
         # When we demoting the master or standby_leader to replica or promoting replica to a standby_leader
         # and we know for sure that postgres was already running before, we will only execute on_role_change
         # callback and prevent execution of on_restart/on_start callback.
         # If the role remains the same (replica or standby_leader), we will execute on_start or on_restart
+        change_role = self.cb_called and (self.role in ('master', 'demoted') or
+                                          not {'standby_leader', 'replica'} - {self.role, role})
         if change_role:
             self.__cb_pending = ACTION_NOOP
 
@@ -760,14 +725,17 @@ class Postgresql(object):
             return self._cluster_info_state_get('timeline'), self._cluster_info_state_get('wal_position')
 
         with self.connection().cursor() as cursor:
-            cursor.execute(cluster_info_query.format(self.wal_name, self.lsn_name))
+            cursor.execute(self.cluster_info_query)
             return cursor.fetchone()[:2]
 
     def postmaster_start_time(self):
         try:
-            cursor = self.query("SELECT pg_catalog.to_char(pg_catalog.pg_postmaster_start_time(),"
-                                " 'YYYY-MM-DD HH24:MI:SS.MS TZ')")
-            return cursor.fetchone()[0]
+            query = "SELECT pg_catalog.to_char(pg_catalog.pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ')"
+            if current_thread().ident == self.__thread_ident:
+                return self.query(query).fetchone()[0]
+            with self.connection().cursor() as cursor:
+                cursor.execute(query)
+                return cursor.fetchone()[0]
         except psycopg2.Error:
             return None
 

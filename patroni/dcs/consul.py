@@ -11,7 +11,7 @@ import urllib3
 from consul import ConsulException, NotFound, base
 from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
 from patroni.exceptions import DCSError
-from patroni.utils import deep_compare, parse_bool, Retry, RetryFailedError, split_host_port
+from patroni.utils import deep_compare, parse_bool, Retry, RetryFailedError, split_host_port, uri
 from urllib3.exceptions import HTTPError
 from six.moves.urllib.parse import urlencode, urlparse, quote
 from six.moves.http_client import HTTPException
@@ -40,7 +40,7 @@ class HTTPClient(object):
     def __init__(self, host='127.0.0.1', port=8500, token=None, scheme='http', verify=True, cert=None, ca_cert=None):
         self.token = token
         self._read_timeout = 10
-        self.base_uri = '{0}://{1}:{2}'.format(scheme, host, port)
+        self.base_uri = uri(scheme, (host, port))
         kwargs = {}
         if cert:
             if isinstance(cert, tuple):
@@ -135,9 +135,10 @@ class ConsulClient(base.Consul):
             kwargs['token'] = self.token
         return HTTPClient(**kwargs)
 
-    def set_token(self, token):
-        self.token = token
-        self.http.token = self.token
+    def reload_config(self, config):
+        self.http.token = self.token = config.get('token')
+        self.consistency = config.get('consistency', 'default')
+        self.dc = config.get('dc')
 
 
 def catch_consul_errors(func):
@@ -237,11 +238,8 @@ class Consul(AbstractDCS):
                 time.sleep(5)
 
     def reload_config(self, config):
-        consul = config.get('consul')
-        if consul:
-            self._client.set_token(consul.get('token'))
-
         super(Consul, self).reload_config(config)
+        self._client.reload_config(config.get('consul', {}))
 
     def set_ttl(self, ttl):
         if self._client.http.set_ttl(ttl/2.0):  # Consul multiplies the TTL by 2x

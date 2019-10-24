@@ -39,13 +39,13 @@ class MockFrozenImporter(object):
 @patch.object(AsyncExecutor, 'run', Mock())
 @patch.object(etcd.Client, 'write', etcd_write)
 @patch.object(etcd.Client, 'read', etcd_read)
-@patch.object(Thread, 'start', Mock())
 class TestPatroni(unittest.TestCase):
 
     @patch('pkgutil.get_importer', Mock(return_value=MockFrozenImporter()))
     @patch('sys.frozen', Mock(return_value=True), create=True)
     @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
     @patch.object(etcd.Client, 'read', etcd_read)
+    @patch.object(Thread, 'start', Mock())
     def setUp(self):
         self._handlers = logging.getLogger().handlers[:]
         RestApiServer._BaseServer__is_shut_down = Mock()
@@ -122,8 +122,12 @@ class TestPatroni(unittest.TestCase):
         self.p.sighup_handler()
         self.p.ha.dcs.watch = Mock(side_effect=SleepException)
         self.p.api.start = Mock()
+        self.p.logger.start = Mock()
         self.p.config._dynamic_configuration = {}
         self.assertRaises(SleepException, self.p.run)
+        with patch('patroni.config.Config.reload_local_configuration', Mock(return_value=False)):
+            self.p.sighup_handler()
+            self.assertRaises(SleepException, self.p.run)
         with patch('patroni.config.Config.set_dynamic_configuration', Mock(return_value=True)):
             self.assertRaises(SleepException, self.p.run)
         with patch('patroni.postgresql.Postgresql.data_directory_empty', Mock(return_value=False)):
@@ -165,6 +169,7 @@ class TestPatroni(unittest.TestCase):
         self.p.tags['nosync'] = None
         self.assertFalse(self.p.nosync)
 
+    @patch.object(Thread, 'join', Mock())
     def test_shutdown(self):
         self.p.api.shutdown = Mock(side_effect=Exception)
         self.p.shutdown()

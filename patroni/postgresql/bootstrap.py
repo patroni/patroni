@@ -5,7 +5,7 @@ import tempfile
 import time
 
 from patroni.dcs import RemoteMember
-from patroni.utils import deep_compare
+from patroni.utils import deep_compare, uri
 from six import string_types
 from six.moves.urllib.parse import quote_plus
 
@@ -91,7 +91,8 @@ class Bootstrap(object):
         self._postgresql.configure_server_parameters()
 
         # make sure there is no trigger file or postgres will be automatically promoted
-        trigger_file = self._postgresql.config.get('recovery_conf', {}).get('trigger_file') or 'promote'
+        trigger_file = 'promote_trigger_file' if self._postgresql.major_version >= 120000 else 'trigger_file'
+        trigger_file = self._postgresql.config.get('recovery_conf', {}).get(trigger_file) or 'promote'
         trigger_file = os.path.abspath(os.path.join(self._postgresql.data_dir, trigger_file))
         if os.path.exists(trigger_file):
             os.unlink(trigger_file)
@@ -134,16 +135,8 @@ class Bootstrap(object):
                 # (pghost empty or the default socket directory) connections coming from the local machine.
                 r['host'] = 'localhost'  # set it to localhost to write into pgpass
 
-            if 'user' in r:
-                user = r['user'] + '@'
-            else:
-                user = ''
-                if 'password' in r:
-                    import getpass
-                    r.setdefault('user', os.environ.get('PGUSER', getpass.getuser()))
-
-            connstring = 'postgres://{0}{1}:{2}/{3}'.format(user, host, r['port'], r['database'])
-            env = self._postgresql.write_pgpass(r) if 'password' in r else None
+            connstring = uri('postgres', (host, r['port']), r['database'], r.get('user'))
+            env = self._postgresql.config.write_pgpass(r) if 'password' in r else None
 
             try:
                 ret = self._postgresql.cancellable.call(shlex.split(cmd) + [connstring], env=env)
@@ -175,9 +168,9 @@ class Bootstrap(object):
 
         if clone_member and clone_member.conn_url:
             r = clone_member.conn_kwargs(self._postgresql.config.replication)
-            connstring = 'postgres://{user}@{host}:{port}/{database}'.format(**r)
+            connstring = uri('postgres', (r['host'], r['port']), r['database'], r['user'])
             # add the credentials to connect to the replica origin to pgpass.
-            env = self._postgresql.write_pgpass(r)
+            env = self._postgresql.config.write_pgpass(r)
         else:
             connstring = ''
             env = os.environ.copy()
@@ -343,8 +336,12 @@ END;$$""".format(name, ' '.join(options))
                     self.create_or_update_role(rewind['username'], rewind.get('password'), [])
                     for f in ('pg_ls_dir(text, boolean, boolean)', 'pg_stat_file(text, boolean)',
                               'pg_read_binary_file(text)', 'pg_read_binary_file(text, bigint, bigint, boolean)'):
-                        postgresql.query('GRANT EXECUTE ON function pg_catalog.{0} TO "{1}"'
-                                         .format(f, rewind['username']))
+                        sql = """DO $$
+BEGIN
+    SET local synchronous_commit = 'local';
+    GRANT EXECUTE ON function pg_catalog.{0} TO "{1}";
+END;$$""".format(f, rewind['username'])
+                        postgresql.query(sql)
 
                 for name, value in (config.get('users') or {}).items():
                     if all(name != a.get('username') for a in (superuser, replication, rewind)):

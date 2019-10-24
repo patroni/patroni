@@ -110,6 +110,12 @@ class AsyncExecutor(object):
     def run_async(self, func, args=()):
         Thread(target=self.run, args=(func, args)).start()
 
+    def try_run_async(self, action, func, args=()):
+        prev = self.schedule(action)
+        if prev is None:
+            return self.run_async(func, args)
+        return 'Failed to run {0}, {1} is already in progress'.format(action, prev)
+
     def cancel(self):
         with self:
             with self._scheduled_action_lock:

@@ -14,7 +14,7 @@ from dns.exception import DNSException
 from dns import resolver
 from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
 from patroni.exceptions import DCSError
-from patroni.utils import Retry, RetryFailedError, split_host_port
+from patroni.utils import Retry, RetryFailedError, split_host_port, uri
 from urllib3.exceptions import HTTPError, ReadTimeoutError
 from requests.exceptions import RequestException
 from six.moves.queue import Queue
@@ -25,8 +25,8 @@ from threading import Thread
 logger = logging.getLogger(__name__)
 
 
-def uri(protocol, host, port, endpoint=''):
-    return '{0}://{1}:{2}{3}'.format(protocol, host, port, endpoint)
+class EtcdRaftInternal(etcd.EtcdException):
+    """Raft Internal Error"""
 
 
 class EtcdError(DCSError):
@@ -238,7 +238,7 @@ class Client(etcd.Client):
             protocol = 'https' if '-ssl' in r else 'http'
             endpoint = '/members' if '-server' in r else ''
             for host, port in self.get_srv_record('_etcd{0}._tcp.{1}'.format(r, srv)):
-                url = uri(protocol, host, port, endpoint)
+                url = uri(protocol, (host, port), endpoint)
                 if endpoint:
                     try:
                         response = requests.get(url, timeout=self.read_timeout, verify=False)
@@ -260,19 +260,14 @@ class Client(etcd.Client):
     def _get_machines_cache_from_dns(self, host, port):
         """One host might be resolved into multiple ip addresses. We will make list out of it"""
         if self.protocol == 'http':
-            ret = []
-            for af, _, _, _, sa in self._dns_resolver.resolve(host, port):
-                host, port = sa[:2]
-                if af == socket.AF_INET6:
-                    host = '[{0}]'.format(host)
-                ret.append(uri(self.protocol, host, port))
+            ret = map(lambda res: uri(self.protocol, res[-1][:2]), self._dns_resolver.resolve(host, port))
             if ret:
                 return list(set(ret))
-        return [uri(self.protocol, host, port)]
+        return [uri(self.protocol, (host, port))]
 
     def _get_machines_cache_from_config(self):
         if 'proxy' in self._config:
-            return [uri(self.protocol, self._config['host'], self._config['port'])]
+            return [uri(self.protocol, (self._config['host'], self._config['port']))]
 
         machines_cache = []
         if 'srv' in self._config:
@@ -321,9 +316,7 @@ class Etcd(AbstractDCS):
         super(Etcd, self).__init__(config)
         self._ttl = int(config.get('ttl') or 30)
         self._retry = Retry(deadline=config['retry_timeout'], max_delay=1, max_tries=-1,
-                            retry_exceptions=(etcd.EtcdLeaderElectionInProgress,
-                                              etcd.EtcdWatcherCleared,
-                                              etcd.EtcdEventIndexCleared))
+                            retry_exceptions=(etcd.EtcdLeaderElectionInProgress, EtcdRaftInternal))
         self._client = self.get_etcd_client(config)
         self.__do_not_watch = False
         self._has_failed = False
@@ -377,7 +370,7 @@ class Etcd(AbstractDCS):
             config['hosts'] = []
             for value in hosts:
                 if isinstance(value, six.string_types):
-                    config['hosts'].append(uri(protocol, *split_host_port(value, default_port)))
+                    config['hosts'].append(uri(protocol, split_host_port(value, default_port)))
         elif 'host' in config:
             host, port = split_host_port(config['host'], 2379)
             config['host'] = host
@@ -605,3 +598,6 @@ class Etcd(AbstractDCS):
             return super(Etcd, self).watch(None, timeout)
         finally:
             self.event.clear()
+
+
+etcd.EtcdError.error_exceptions[300] = EtcdRaftInternal

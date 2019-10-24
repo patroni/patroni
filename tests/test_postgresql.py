@@ -2,6 +2,7 @@ import mock  # for the mock.call method, importing it without a namespace breaks
 import os
 import psycopg2
 import subprocess
+import time
 
 from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.async_executor import CriticalTask
@@ -15,6 +16,17 @@ from six.moves import builtins
 from threading import Thread, current_thread
 
 from . import BaseTestPostgresql, MockCursor, MockPostmaster, psycopg2_connect
+
+
+mtime_ret = {}
+
+
+def mock_mtime(filename):
+    if filename not in mtime_ret:
+        mtime_ret[filename] = time.time()
+    else:
+        mtime_ret[filename] += 1
+    return mtime_ret[filename]
 
 
 def pg_controldata_string(*args, **kwargs):
@@ -78,7 +90,7 @@ class TestPostgresql(BaseTestPostgresql):
 
     @patch('subprocess.call', Mock(return_value=0))
     @patch('os.rename', Mock())
-    @patch.object(Postgresql, 'get_major_version', Mock(return_value=90600))
+    @patch.object(Postgresql, 'get_major_version', Mock(return_value=120000))
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def setUp(self):
         super(TestPostgresql, self).setUp()
@@ -174,10 +186,11 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertFalse(self.p.restart())
         self.assertEqual(self.p.state, 'restart failed (restarting)')
 
+    @patch('os.chmod', Mock())
     @patch.object(builtins, 'open', MagicMock())
     def test_write_pgpass(self):
-        self.p.write_pgpass({'host': 'localhost', 'port': '5432', 'user': 'foo'})
-        self.p.write_pgpass({'host': 'localhost', 'port': '5432', 'user': 'foo', 'password': 'bar'})
+        self.p.config.write_pgpass({'host': 'localhost', 'port': '5432', 'user': 'foo'})
+        self.p.config.write_pgpass({'host': 'localhost', 'port': '5432', 'user': 'foo', 'password': 'bar'})
 
     def test_checkpoint(self):
         with patch.object(MockCursor, 'fetchone', Mock(return_value=(True, ))):
@@ -186,17 +199,66 @@ class TestPostgresql(BaseTestPostgresql):
             self.assertIsNone(self.p.checkpoint())
         self.assertEqual(self.p.checkpoint(), 'not accessible or not healty')
 
-    def test_check_recovery_conf(self):
-        self.p.config.write_recovery_conf({'primary_conninfo': 'foo'})
-        self.assertFalse(self.p.config.check_recovery_conf(None))
-        self.p.config.write_recovery_conf({})
+    @patch('patroni.postgresql.config.mtime', mock_mtime)
+    @patch.object(MockCursor, 'fetchone')
+    def test_check_recovery_conf(self, mock_fetchone):
+        mock_fetchone.side_effect = [('foo=bar',), ('',), ('foo',), ('host=1 passfile=' + self.p.config._pgpass,)]
+        conninfo = {'host': '1', 'password': 'bar'}
+        for version in (120000, 100000):
+            with patch.object(Postgresql, 'major_version', PropertyMock(return_value=version)):
+                self.p.config.write_recovery_conf({'standby_mode': 'on', 'primary_conninfo': {'sslmode': 'prefer'}})
+                self.assertFalse(self.p.config.check_recovery_conf(None))
+                self.p.config.write_recovery_conf({'primary_conninfo': {'sslmode': 'prefer'}})
+                self.p.config.write_postgresql_conf()
+                self.assertFalse(self.p.config.check_recovery_conf(None))
+                self.p.config.write_recovery_conf({'standby_mode': 'on'})
+                self.assertTrue(self.p.config.check_recovery_conf(None))
+                with patch('patroni.postgresql.config.ConfigHandler.primary_conninfo_params',
+                           Mock(return_value=conninfo.copy())):
+                    self.assertFalse(self.p.config.check_recovery_conf(None))
+                    self.p.config.write_recovery_conf({'standby_mode': 'on', 'primary_conninfo': conninfo.copy()})
+                    self.p.config.check_recovery_conf(None)
+
+    @patch.object(Postgresql, 'major_version', PropertyMock(return_value=120000))
+    @patch.object(Postgresql, 'is_running', MockPostmaster)
+    @patch.object(MockPostmaster, 'create_time', Mock(return_value=1234567), create=True)
+    @patch.object(MockCursor, 'fetchone', Mock(return_value=('',)))
+    def test__read_primary_conninfo(self):
+        self.p.config.write_recovery_conf({'standby_mode': 'on', 'primary_conninfo': {'password': 'foo'}})
+        self.p.config.write_postgresql_conf()
         self.assertTrue(self.p.config.check_recovery_conf(None))
+        self.assertTrue(self.p.config.check_recovery_conf(None))
+        with patch.object(Postgresql, 'query', Mock(side_effect=Exception)),\
+                patch('patroni.postgresql.config.mtime', mock_mtime):
+            self.assertFalse(self.p.config.check_recovery_conf(None))
+
+    @patch.object(Postgresql, 'major_version', PropertyMock(return_value=100000))
+    def test__read_primary_conninfo_pre_v12(self):
+        self.p.config.write_recovery_conf({'standby_mode': 'on', 'primary_conninfo': {'password': 'foo'}})
+        self.assertFalse(self.p.config.check_recovery_conf(None))
+        self.assertFalse(self.p.config.check_recovery_conf(None))
+
+    def test_write_postgresql_and_sanitize_auto_conf(self):
+        read_data = 'primary_conninfo = foo\nfoo = bar\n'
+        with open(os.path.join(self.p.data_dir, 'postgresql.auto.conf'), 'w') as f:
+            f.write(read_data)
+
+        mock_read_auto = mock_open(read_data=read_data)
+        mock_read_auto.return_value.__iter__ = lambda o: iter(o.readline, '')
+        with patch.object(builtins, 'open', Mock(side_effect=[mock_open()(), mock_read_auto(), IOError])),\
+                patch('os.chmod', Mock()):
+            self.p.config.write_postgresql_conf()
+
+        with patch.object(builtins, 'open', Mock(side_effect=[mock_open()(), IOError])), patch('os.chmod', Mock()):
+            self.p.config.write_postgresql_conf()
+        self.p.config.write_recovery_conf({'foo': 'bar'})
+        self.p.config.write_postgresql_conf()
 
     @patch.object(Postgresql, 'is_running', Mock(return_value=False))
     @patch.object(Postgresql, 'start', Mock())
     def test_follow(self):
         self.p.call_nowait('on_start')
-        m = RemoteMember('1', {'restore_command': '2', 'recovery_min_apply_delay': 3, 'archive_cleanup_command': '4'})
+        m = RemoteMember('1', {'restore_command': '2', 'primary_slot_name': 'foo', 'conn_kwargs': {'host': 'bar'}})
         self.p.follow(m)
 
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
@@ -362,13 +424,18 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.config._config['foo'] = {'command': 'bar'}
         self.assertFalse(self.p.replica_method_can_work_without_replication_connection('foo'))
 
+    @patch('time.sleep', Mock())
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
-    def test_reload_config(self):
+    @patch.object(MockCursor, 'fetchone')
+    def test_reload_config(self, mock_fetchone):
+        mock_fetchone.return_value = (1,)
         parameters = self._PARAMETERS.copy()
         parameters.pop('f.oo')
+        parameters['wal_buffers'] = '512'
         config = {'pg_hba': [''], 'pg_ident': [''], 'use_unix_socket': True, 'authentication': {},
                   'retry_timeout': 10, 'listen': '*', 'krbsrvname': 'postgres', 'parameters': parameters}
         self.p.reload_config(config)
+        mock_fetchone.side_effect = Exception
         parameters['b.ar'] = 'bar'
         self.p.reload_config(config)
         parameters['autovacuum'] = 'on'
@@ -391,6 +458,10 @@ class TestPostgresql(BaseTestPostgresql):
     def test_postmaster_start_time(self):
         with patch.object(MockCursor, "fetchone", Mock(return_value=('foo', True, '', '', '', '', False))):
             self.assertEqual(self.p.postmaster_start_time(), 'foo')
+            t = Thread(target=self.p.postmaster_start_time)
+            t.start()
+            t.join()
+
         with patch.object(MockCursor, "execute", side_effect=psycopg2.Error):
             self.assertIsNone(self.p.postmaster_start_time())
 
@@ -604,7 +675,8 @@ class TestPostgresql(BaseTestPostgresql):
                           Mock(return_value={'max_connections setting': '200',
                                              'max_worker_processes setting': '20',
                                              'max_prepared_xacts setting': '100',
-                                             'max_locks_per_xact setting': '100'})):
+                                             'max_locks_per_xact setting': '100',
+                                             'max_wal_senders setting': 10})):
             self.p.cancellable.cancel()
             self.assertFalse(self.p.start())
             self.assertTrue(self.p.pending_restart)
