@@ -24,7 +24,6 @@ import yaml
 
 from click import ClickException
 from contextlib import contextmanager
-from patroni.config import Config
 from patroni.dcs import get_dcs as _get_dcs
 from patroni.exceptions import PatroniException
 from patroni.postgresql import Postgresql
@@ -67,6 +66,8 @@ def parse_dcs(dcs):
 
 
 def load_config(path, dcs):
+    from patroni.config import Config
+
     if not (os.path.exists(path) and os.access(path, os.R_OK)):
         logging.debug('Ignoring configuration file "%s". It does not exists or is not readable.', path)
     else:
