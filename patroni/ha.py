@@ -553,8 +553,9 @@ class Ha(object):
 
         try:
             response = self.patroni.request(member, timeout=2, retries=0)
-            logger.info('Got response from %s %s: %s', member.name, member.api_url, response.data.decode('utf-8'))
-            return _MemberStatus.from_api_response(member, json.loads(response.data))
+            data = response.data.decode('utf-8')
+            logger.info('Got response from %s %s: %s', member.name, member.api_url, data)
+            return _MemberStatus.from_api_response(member, json.loads(data))
         except Exception as e:
             logger.warning("Request failed to %s: GET %s (%s)", member.name, member.api_url, e)
         return _MemberStatus.unknown(member)

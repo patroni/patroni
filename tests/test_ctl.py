@@ -559,7 +559,7 @@ class TestCtl(unittest.TestCase):
         with patch.object(PoolManager, 'request') as mocked:
             result = self.runner.invoke(ctl, ['version'])
             assert 'patronictl version' in result.output
-            mocked.return_value.data = json.dumps({'patroni': {'version': '1.2.3'}, 'server_version': 100001})
+            mocked.return_value.data = b'{"patroni":{"version":"1.2.3"},"server_version": 100001}'
             result = self.runner.invoke(ctl, ['version', 'dummy'])
             assert '1.2.3' in result.output
         with patch.object(PoolManager, 'request', Mock(side_effect=Exception)):
