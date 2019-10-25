@@ -51,6 +51,7 @@ class Postgresql(object):
         self._data_dir = config['data_dir']
         self._database = config.get('database', 'postgres')
         self._version_file = os.path.join(self._data_dir, 'PG_VERSION')
+        self._pg_control = os.path.join(self._data_dir, 'global', 'pg_control')
         self._major_version = self.get_major_version()
 
         self._state_lock = Lock()
@@ -256,9 +257,15 @@ class Postgresql(object):
         except RetryFailedError as e:
             raise PostgresConnectionException(str(e))
 
+    def pg_control_exists(self):
+        return os.path.isfile(self._pg_control)
+
     def data_directory_empty(self):
-        return not os.path.exists(self._data_dir) or \
-                all(os.name != 'nt' and (n.startswith('.') or n == 'lost+found') for n in os.listdir(self._data_dir))
+        if self.pg_control_exists():
+            return False
+        if not os.path.exists(self._data_dir):
+            return True
+        return all(os.name != 'nt' and (n.startswith('.') or n == 'lost+found') for n in os.listdir(self._data_dir))
 
     def replica_method_options(self, method):
         return deepcopy(self.config.get(method, {}))
