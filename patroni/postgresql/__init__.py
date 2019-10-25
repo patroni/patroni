@@ -805,9 +805,9 @@ class Postgresql(object):
                 return app_name, True
             if sync_state == 'potential' and app_name == current:
                 # Prefer current even if not the best one any more to avoid indecisivness and spurious swaps.
-                return current, False
+                return cluster.sync.sync_standby, False
             if sync_state in ('async', 'potential'):
-                candidates.append(app_name)
+                candidates.append(member.name)
 
         if candidates:
             return candidates[0], False
