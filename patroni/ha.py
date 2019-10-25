@@ -525,7 +525,7 @@ class Ha(object):
             self.release_leader_key_voluntarily()
             # discard the result of the failed pre-promote script to be able to re-try promote
             self.state_handler._pre_promote_task = None
-            time.sleep(5) # stub for the backoff of the leader key acquisition
+            time.sleep(5)  # stub for the backoff of the leader key acquisition
             return 'Postponing promotion until the leader key is acquired again after pre-promote script failure'
 
         if self.state_handler.is_leader():

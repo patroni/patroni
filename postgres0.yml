@@ -65,8 +65,6 @@ bootstrap:
   # Additional script to be launched after initial cluster creation (will be passed the connection URL as parameter)
 # post_init: /usr/local/bin/setup_cluster.sh
 
-
-
   # Some additional users users which needs to be created after initializing new cluster
   users:
     admin:
@@ -100,14 +98,12 @@ postgresql:
 #   krb_server_keyfile: /var/spool/keytabs/postgres
     unix_socket_directories: '.'
   # Additional fencing script executed after acquiring the leader lock but before promoting the replica
-  pre_promote: /home/sdudoladov/zalando/patroni/echo_pre_promote.sh
+  #pre_promote: /path/to/pre_promote.sh
 
 #watchdog:
 #  mode: automatic # Allowed values: off, automatic, required
 #  device: /dev/watchdog
 #  safety_margin: 5
-
-
 
 tags:
     nofailover: false

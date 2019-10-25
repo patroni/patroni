@@ -19,7 +19,7 @@ from patroni.postgresql.slots import SlotsHandler
 from patroni.exceptions import PostgresConnectionException
 from patroni.utils import Retry, RetryFailedError, polling_loop
 from threading import current_thread, Lock
-from patroni.async_executor import AsyncExecutor, CriticalTask
+from patroni.async_executor import CriticalTask
 
 
 logger = logging.getLogger(__name__)
