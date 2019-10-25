@@ -17,7 +17,6 @@ from patroni.postgresql.rewind import Rewind
 from patroni.utils import polling_loop, tzutc, is_standby_cluster as _is_standby_cluster
 from patroni.dcs import RemoteMember
 from threading import RLock
-from patroni.pre_promote import Prepromote
 
 
 logger = logging.getLogger(__name__)
@@ -77,8 +76,6 @@ class Ha(object):
         self._start_timeout = None
         self._async_executor = AsyncExecutor(self.state_handler.cancellable, self.wakeup)
         self.watchdog = patroni.watchdog
-        self._pre_promote = Prepromote(self)
-        self._pre_promote_task = None
 
         # Each member publishes various pieces of information to the DCS using touch_member. This lock protects
         # the state and publishing procedure to have consistent ordering and avoid publishing stale values.
@@ -511,6 +508,10 @@ class Ha(object):
         return self.follow(demote_reason, message)
 
     def enforce_master_role(self, message, promote_message):
+        """
+        Ensure the node that won the race for the leader key meets criteria
+        for promoting its PG server to the 'master' role.
+        """
         if not self.is_paused() and not self.watchdog.is_running and not self.watchdog.activate():
             if self.state_handler.is_leader():
                 self.demote('immediate')
@@ -518,6 +519,14 @@ class Ha(object):
             else:
                 self.release_leader_key_voluntarily()
                 return 'Not promoting self because watchdog could not be activated'
+
+        if not self.is_paused() and self.state_handler._pre_promote_task and self.state_handler._pre_promote_task.result is False:
+            logger.warning("Releasing the leader key voluntarily because the pre-promote script failed")
+            self.release_leader_key_voluntarily()
+            # discard the result of the failed pre-promote script to be able to re-try promote
+            self.state_handler._pre_promote_task = None
+            time.sleep(5) # stub for the backoff of the leader key acquisition
+            return 'Postponing promotion until the leader key is acquired again after pre-promote script failure'
 
         if self.state_handler.is_leader():
             # Inform the state handler about its master role.
@@ -858,14 +867,6 @@ class Ha(object):
         if self.is_healthiest_node():
             if self.acquire_lock():
 
-                if self.cluster and self.cluster.config and self.patroni.config['pre_promote']:
-                    if not self._pre_promote_task:
-                        self._pre_promote_task = CriticalTask()
-                    self._async_executor.schedule('pre_promote')
-                    self._async_executor.run_async(self._pre_promote.pre_promote,
-                                                   args=(self.patroni.config['pre_promote'], self._pre_promote_task))
-                    return 'running pre_promote'
-
                 failover = self.cluster.failover
                 if failover:
                     if self.is_paused() and failover.leader and failover.candidate:
@@ -1097,6 +1098,9 @@ class Ha(object):
         self._async_executor.run_async(self._do_reinitialize, args=(self.cluster, ))
 
     def handle_long_action_in_progress(self):
+        """
+        Figure out what to do with the task AsyncExecutor is performing.
+        """
         if self.has_lock() and self.update_lock():
             return 'updated leader lock during ' + self._async_executor.scheduled_action
         elif not self.state_handler.bootstrapping:
@@ -1111,7 +1115,10 @@ class Ha(object):
                             self.state_handler.terminate_starting_postmaster(postmaster=task.result)
                 self.demote('immediate-nolock')
                 return 'lost leader lock during ' + self._async_executor.scheduled_action
-
+            if self._async_executor.scheduled_action == 'promote' and self.state_handler._pre_promote_script:
+                logger.info("cancelling the pre promote script " + self.state_handler._pre_promote_script)
+                self._async_executor.cancel()
+                return 'lost leader lock during promote'
         if self.cluster.is_unlocked():
             logger.info('not healthy enough for leader race')
 
@@ -1246,10 +1253,6 @@ class Ha(object):
             msg = self.handle_starting_instance()
             if msg is not None:
                 return msg
-
-            if self.is_leader and self._pre_promote_task and self._pre_promote_task.result is False:
-                self.release_leader_key_voluntarily()
-                return 'released leader key voluntarily as pre_promote script failed'
 
             # we've got here, so any async action has finished.
             if self.state_handler.bootstrapping:

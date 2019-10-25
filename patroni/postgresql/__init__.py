@@ -19,6 +19,7 @@ from patroni.postgresql.slots import SlotsHandler
 from patroni.exceptions import PostgresConnectionException
 from patroni.utils import Retry, RetryFailedError, polling_loop
 from threading import current_thread, Lock
+from patroni.async_executor import AsyncExecutor, CriticalTask
 
 
 logger = logging.getLogger(__name__)
@@ -91,8 +92,6 @@ class Postgresql(object):
         # Last known running process
         self._postmaster_proc = None
 
-        self.is_running_pre_promote = False
-
         if self.is_running():
             self.set_state('running')
             self.set_role('master' if self.is_leader() else 'replica')
@@ -103,6 +102,9 @@ class Postgresql(object):
                 self.reload()
         elif self.role == 'master':
             self.set_role('demoted')
+
+        self._pre_promote_script = config.get('pre_promote') or ''
+        self._pre_promote_task = None
 
     @property
     def create_replica_methods(self):
@@ -705,9 +707,42 @@ class Postgresql(object):
             if data.get('Database cluster state') == 'in production':
                 return True
 
+    def _call_pre_promote(self, cmd):
+        if cmd:
+            try:
+                ret = self.cancellable.call(shlex.split(cmd))
+            except OSError as err:
+                logger.error('pre_promote script %s failed: %s', cmd, err)
+                return False
+
+            if ret != 0:
+                logger.error('pre_promote script %s returned non-zero code %d', cmd, ret)
+                return False
+
+        return True
+
+    def _pre_promote(self):
+        """
+        Runs a fencing script after the leader lock is acquired but before the replica is promoted.
+        If the script exits with a non-zero code, promotion does not happen and the leader key is removed from DCS.
+        """
+
+        self._pre_promote_task = CriticalTask()
+        try:
+            self._pre_promote_task.complete(self._call_pre_promote(self._pre_promote_script))
+        except Exception:
+            logger.exception('pre_promote')
+            self._pre_promote_task.complete(False)
+
+        return self._pre_promote_task.result
+
     def promote(self, wait_seconds, on_success=None, access_is_restricted=False):
         if self.role == 'master':
             return True
+
+        if self._pre_promote_script and not self._pre_promote():
+            return False
+
         ret = self.pg_ctl('promote', '-W')
         if ret:
             self.set_role('master')
