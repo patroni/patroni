@@ -208,7 +208,7 @@ class Postgresql(object):
         return self._sysid
 
     def get_postgres_role_from_data_directory(self):
-        if self.data_directory_empty():
+        if self.data_directory_empty() or not self.controldata():
             return 'uninitialized'
         elif self.config.recovery_conf_exists():
             return 'replica'
@@ -257,7 +257,8 @@ class Postgresql(object):
             raise PostgresConnectionException(str(e))
 
     def data_directory_empty(self):
-        return not os.path.exists(self._data_dir) or os.listdir(self._data_dir) == []
+        return not os.path.exists(self._data_dir) or \
+                all(os.name != 'nt' and (n.startswith('.') or n == 'lost+found') for n in os.listdir(self._data_dir))
 
     def replica_method_options(self, method):
         return deepcopy(self.config.get(method, {}))

@@ -101,6 +101,9 @@ class TestBootstrap(BaseTestPostgresql):
     @patch.object(CancellableSubprocess, 'call', Mock())
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=False))
+    @patch.object(Postgresql, 'controldata', Mock(return_value={'max_connections setting': 100,
+                                                                'max_prepared_xacts setting': 0,
+                                                                'max_locks_per_xact setting': 64}))
     def test_bootstrap(self):
         with patch('subprocess.call', Mock(return_value=1)):
             self.assertFalse(self.b.bootstrap({}))
@@ -126,6 +129,7 @@ class TestBootstrap(BaseTestPostgresql):
 
     @patch.object(CancellableSubprocess, 'call')
     @patch.object(Postgresql, 'get_major_version', Mock(return_value=90600))
+    @patch.object(Postgresql, 'controldata',  Mock(return_value={'Database cluster state': 'in production'}))
     def test_custom_bootstrap(self, mock_cancellable_subprocess_call):
         self.p.config._config.pop('pg_hba')
         config = {'method': 'foo', 'foo': {'command': 'bar'}}
