@@ -37,15 +37,6 @@ STATE_UNKNOWN = 'unknown'
 
 STOP_POLLING_INTERVAL = 1
 
-cluster_info_query = ("SELECT CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
-                      "ELSE ('x' || pg_catalog.substr(pg_catalog.pg_{0}file_name("
-                      "pg_catalog.pg_current_{0}_{1}()), 1, 8))::bit(32)::int END, "
-                      "CASE WHEN pg_catalog.pg_is_in_recovery() THEN GREATEST("
-                      " pg_catalog.pg_{0}_{1}_diff(COALESCE("
-                      "pg_catalog.pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint,"
-                      " pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint)"
-                      "ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), '0/0')::bigint END")
-
 
 @contextmanager
 def null_context():
@@ -60,6 +51,7 @@ class Postgresql(object):
         self._data_dir = config['data_dir']
         self._database = config.get('database', 'postgres')
         self._version_file = os.path.join(self._data_dir, 'PG_VERSION')
+        self._pg_control = os.path.join(self._data_dir, 'global', 'pg_control')
         self._major_version = self.get_major_version()
 
         self._state_lock = Lock()
@@ -139,6 +131,18 @@ class Postgresql(object):
     def lsn_name(self):
         return 'lsn' if self._major_version >= 100000 else 'location'
 
+    @property
+    def cluster_info_query(self):
+        return ("SELECT CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
+                "ELSE ('x' || pg_catalog.substr(pg_catalog.pg_{0}file_name("
+                "pg_catalog.pg_current_{0}_{1}()), 1, 8))::bit(32)::int END, "
+                "CASE WHEN pg_catalog.pg_is_in_recovery() THEN GREATEST("
+                " pg_catalog.pg_{0}_{1}_diff(COALESCE("
+                "pg_catalog.pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint,"
+                " pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint)"
+                "ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), '0/0')::bigint "
+                "END").format(self.wal_name, self.lsn_name)
+
     def _version_file_exists(self):
         return not self.data_directory_empty() and os.path.isfile(self._version_file)
 
@@ -205,7 +209,7 @@ class Postgresql(object):
         return self._sysid
 
     def get_postgres_role_from_data_directory(self):
-        if self.data_directory_empty():
+        if self.data_directory_empty() or not self.controldata():
             return 'uninitialized'
         elif self.config.recovery_conf_exists():
             return 'replica'
@@ -253,8 +257,15 @@ class Postgresql(object):
         except RetryFailedError as e:
             raise PostgresConnectionException(str(e))
 
+    def pg_control_exists(self):
+        return os.path.isfile(self._pg_control)
+
     def data_directory_empty(self):
-        return not os.path.exists(self._data_dir) or os.listdir(self._data_dir) == []
+        if self.pg_control_exists():
+            return False
+        if not os.path.exists(self._data_dir):
+            return True
+        return all(os.name != 'nt' and (n.startswith('.') or n == 'lost+found') for n in os.listdir(self._data_dir))
 
     def replica_method_options(self, method):
         return deepcopy(self.config.get(method, {}))
@@ -275,9 +286,8 @@ class Postgresql(object):
 
     def _cluster_info_state_get(self, name):
         if not self._cluster_info_state:
-            stmt = cluster_info_query.format(self.wal_name, self.lsn_name)
             try:
-                result = self._is_leader_retry(self._query, stmt).fetchone()
+                result = self._is_leader_retry(self._query, self.cluster_info_query).fetchone()
                 self._cluster_info_state = dict(zip(['timeline', 'wal_position'], result))
             except RetryFailedError as e:  # SELECT failed two times
                 self._cluster_info_state = {'error': str(e)}
@@ -721,14 +731,17 @@ class Postgresql(object):
             return self._cluster_info_state_get('timeline'), self._cluster_info_state_get('wal_position')
 
         with self.connection().cursor() as cursor:
-            cursor.execute(cluster_info_query.format(self.wal_name, self.lsn_name))
+            cursor.execute(self.cluster_info_query)
             return cursor.fetchone()[:2]
 
     def postmaster_start_time(self):
         try:
-            cursor = self.query("SELECT pg_catalog.to_char(pg_catalog.pg_postmaster_start_time(),"
-                                " 'YYYY-MM-DD HH24:MI:SS.MS TZ')")
-            return cursor.fetchone()[0]
+            query = "SELECT pg_catalog.to_char(pg_catalog.pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ')"
+            if current_thread().ident == self.__thread_ident:
+                return self.query(query).fetchone()[0]
+            with self.connection().cursor() as cursor:
+                cursor.execute(query)
+                return cursor.fetchone()[0]
         except psycopg2.Error:
             return None
 
@@ -800,9 +813,9 @@ class Postgresql(object):
                 return app_name, True
             if sync_state == 'potential' and app_name == current:
                 # Prefer current even if not the best one any more to avoid indecisivness and spurious swaps.
-                return current, False
+                return cluster.sync.sync_standby, False
             if sync_state in ('async', 'potential'):
-                candidates.append(app_name)
+                candidates.append(member.name)
 
         if candidates:
             return candidates[0], False

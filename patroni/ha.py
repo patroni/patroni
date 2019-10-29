@@ -14,7 +14,7 @@ from patroni.exceptions import DCSError, PostgresConnectionException, PatroniExc
 from patroni.postgresql import ACTION_ON_START, ACTION_ON_ROLE_CHANGE
 from patroni.postgresql.misc import postgres_version_to_int
 from patroni.postgresql.rewind import Rewind
-from patroni.utils import polling_loop, tzutc
+from patroni.utils import polling_loop, tzutc, is_standby_cluster as _is_standby_cluster
 from patroni.dcs import RemoteMember
 from threading import RLock
 
@@ -108,9 +108,7 @@ class Ha(object):
         return config.get('standby_cluster')
 
     def is_standby_cluster(self):
-        config = self.get_standby_cluster_config()
-        # Check whether or not provided configuration describes a standby cluster
-        return isinstance(config, dict) and (config.get('host') or config.get('port') or config.get('restore_command'))
+        return _is_standby_cluster(self.get_standby_cluster_config())
 
     def is_leader(self):
         with self._is_leader_lock:
@@ -555,8 +553,9 @@ class Ha(object):
 
         try:
             response = self.patroni.request(member, timeout=2, retries=0)
-            logger.info('Got response from %s %s: %s', member.name, member.api_url, response.data.decode('utf-8'))
-            return _MemberStatus.from_api_response(member, json.loads(response.data))
+            data = response.data.decode('utf-8')
+            logger.info('Got response from %s %s: %s', member.name, member.api_url, data)
+            return _MemberStatus.from_api_response(member, json.loads(data))
         except Exception as e:
             logger.warning("Request failed to %s: GET %s (%s)", member.name, member.api_url, e)
         return _MemberStatus.unknown(member)
@@ -580,6 +579,7 @@ class Ha(object):
     def _is_healthiest_node(self, members, check_replication_lag=True):
         """This method tries to determine whether I am healthy enough to became a new leader candidate or not."""
 
+        # We don't call `last_operation()` here because it returns a string
         _, my_wal_position = self.state_handler.timeline_wal_position()
         if check_replication_lag and self.is_lagging(my_wal_position):
             logger.info('My wal position exceeds maximum replication lag')
@@ -1258,15 +1258,6 @@ class Ha(object):
                     return 'released leader key voluntarily as data dir empty and currently leader'
 
                 return self.bootstrap()  # new node
-            # "bootstrap", but data directory is not empty
-            elif not self.sysid_valid(self.cluster.initialize) and self.cluster.is_unlocked() and not self.is_paused():
-                if not self.state_handler.cb_called and self.state_handler.is_running() \
-                        and not self.state_handler.is_leader():
-                    self._join_aborted = True
-                    logger.error('No initialize key in DCS and PostgreSQL is running as replica, aborting start')
-                    logger.error('Please first start Patroni on the node running as master')
-                    sys.exit(1)
-                self.dcs.initialize(create_new=(self.cluster.initialize is None), sysid=self.state_handler.sysid)
             else:
                 # check if we are allowed to join
                 data_sysid = self.state_handler.sysid
@@ -1274,10 +1265,20 @@ class Ha(object):
                     # data directory is not empty, but no valid sysid, cluster must be broken, suggest reinit
                     return "data dir for the cluster is not empty, but system ID is invalid; consider doing reinitalize"
 
-                if self.sysid_valid(self.cluster.initialize) and self.cluster.initialize != self.state_handler.sysid:
-                    logger.fatal("system ID mismatch, node %s belongs to a different cluster: %s != %s",
-                                 self.state_handler.name, self.cluster.initialize, self.state_handler.sysid)
-                    sys.exit(1)
+                if self.sysid_valid(self.cluster.initialize):
+                    if self.cluster.initialize != data_sysid:
+                        logger.fatal("system ID mismatch, node %s belongs to a different cluster: %s != %s",
+                                     self.state_handler.name, self.cluster.initialize, data_sysid)
+                        sys.exit(1)
+                elif self.cluster.is_unlocked() and not self.is_paused():
+                    # "bootstrap", but data directory is not empty
+                    if not self.state_handler.cb_called and self.state_handler.is_running() \
+                            and not self.state_handler.is_leader():
+                        self._join_aborted = True
+                        logger.error('No initialize key in DCS and PostgreSQL is running as replica, aborting start')
+                        logger.error('Please first start Patroni on the node running as master')
+                        sys.exit(1)
+                    self.dcs.initialize(create_new=(self.cluster.initialize is None), sysid=data_sysid)
 
             if not self.state_handler.is_healthy():
                 if self.is_paused():

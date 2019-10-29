@@ -101,6 +101,7 @@ class TestPostgresql(BaseTestPostgresql):
     @patch.object(Postgresql, 'wait_for_startup')
     @patch.object(Postgresql, 'wait_for_port_open')
     @patch.object(Postgresql, 'is_running')
+    @patch.object(Postgresql, 'controldata', Mock())
     def test_start(self, mock_is_running, mock_wait_for_port_open, mock_wait_for_startup, mock_popen):
         mock_is_running.return_value = MockPostmaster()
         mock_wait_for_port_open.return_value = True
@@ -362,6 +363,7 @@ class TestPostgresql(BaseTestPostgresql):
 
     @patch('os.listdir', Mock(return_value=['recovery.conf']))
     @patch('os.path.exists', Mock(return_value=True))
+    @patch.object(Postgresql, 'controldata', Mock())
     def test_get_postgres_role_from_data_directory(self):
         self.assertEqual(self.p.get_postgres_role_from_data_directory(), 'replica')
 
@@ -458,6 +460,10 @@ class TestPostgresql(BaseTestPostgresql):
     def test_postmaster_start_time(self):
         with patch.object(MockCursor, "fetchone", Mock(return_value=('foo', True, '', '', '', '', False))):
             self.assertEqual(self.p.postmaster_start_time(), 'foo')
+            t = Thread(target=self.p.postmaster_start_time)
+            t.start()
+            t.join()
+
         with patch.object(MockCursor, "execute", side_effect=psycopg2.Error):
             self.assertIsNone(self.p.postmaster_start_time())
 
