@@ -559,7 +559,7 @@ class ConfigHandler(object):
         with open(self._recovery_conf, 'r') as f:
             for line in f:
                 line = line.strip()
-                if line.startswith('#'):
+                if not line or line.startswith('#'):
                     continue
                 value = None
                 match = PARAMETER_RE.match(line)
