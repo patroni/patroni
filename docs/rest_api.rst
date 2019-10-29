@@ -1,0 +1,335 @@
+.. _rest_api:
+
+Patroni REST API
+================
+
+Patroni has a reach REST API, which is used by Patroni itself during the leader race, by ``patronictl`` tool in order to perform failovers/switchovers/reinitialize/restarts/reloads, by HAProxy or any other kind of load-balancer to perform HTTP health-checks and of course of could also be used for monitoring. Below you will find the list of Patroni REST API endpoints.
+
+Health-check endpoints
+----------------------
+For all health-check ``GET`` requests along with HTTP status code Patroni returns a JSON document with the status of the node. If you don't want or don't need the JSON document you might consider using the ``OPTIONS`` method instead of ``GET``.
+
+- Following requests to Patroni REST API will return HTTP status code **200** only when the Patroni node is running as the leader
+
+  - ``GET /``
+  - ``GET /master``
+  - ``GET /leader``
+  - ``GET /primary``
+  - ``GET /read-write``
+
+- ``GET /replica``: replica health-check endpoint. will return HTTP status code **200** only when the Patroni node is in the state ``running``, the role is ``replica`` and ``noloadbalance`` tag is not set.
+
+- ``GET /read-only``: like the above endpoint, but also includes the primary.
+
+- ``GET /standby-leader``: returns HTTP status code **200** only when the Patroni node is running as the leader in the :ref:`standby cluster <standby_cluster>`.
+
+- ``GET /synchronous`` or ``GET /sync``: returns HTTP status code **200** only when the Patroni node is running as a synchronous standby.
+
+- ``GET /asynchronous`` or ``GET /async``: returns HTTP status code **200** only when the Patroni node is running as an asynchronous standby.
+
+- ``GET /health``: returns HTTP status code **200** only when PostgreSQL is up and running.
+
+Monitoring endpoint
+-------------------
+
+The ``GET /patroni`` is used by Patroni during the leader race. It also could be used by your monitoring system. The JSON document produced by this endpoint has the same structure and the JSON produced by health-check endpoints.
+
+.. code-block:: bash
+
+    $ curl -s http://localhost:8008/patroni | jq .
+    {
+      "state": "running",
+      "postmaster_start_time": "2019-09-24 09:22:32.555 CEST",
+      "role": "master",
+      "server_version": 110005,
+      "cluster_unlocked": false,
+      "xlog": {
+        "location": 25624640
+      },
+      "timeline": 3,
+      "database_system_identifier": "6739877027151648096",
+      "patroni": {
+        "version": "1.6.0",
+        "scope": "batman"
+      }
+    }
+
+Cluster status endpoints
+------------------------
+
+- The ``GET /cluster`` endpoint generates JSON document describing the current cluster topology and state.
+
+.. code-block:: bash
+
+    $ curl -s http://localhost:8008/cluster | jq .
+    {
+      "members": [
+        {
+          "name": "postgresql0",
+          "host": "127.0.0.1",
+          "port": 5432,
+          "role": "leader",
+          "state": "running",
+          "api_url": "http://127.0.0.1:8008/patroni",
+          "timeline": 5,
+          "tags": {
+            "clonefrom": true
+          }
+        },
+        {
+          "name": "postgresql1",
+          "host": "127.0.0.1",
+          "port": 5433,
+          "role": "replica",
+          "state": "running",
+          "api_url": "http://127.0.0.1:8009/patroni",
+          "timeline": 5,
+          "tags": {
+            "clonefrom": true
+          },
+          "lag": 0
+        }
+      ],
+      "scheduled_switchover": {
+        "at": "2019-09-24T10:36:00+02:00",
+        "from": "postgresql0"
+      }
+    }
+
+
+- The ``GET /history`` endpoint provides a view on the history of cluster switchovers/failovers. The format is very similar to the content of history files in the ``pg_wal`` directory. The only difference in the timestamp field showing when the new timeline was created.
+
+.. code-block:: bash
+
+    $ curl -s http://localhost:8008/history | jq .
+    [
+      [
+        1,
+        25623960,
+        "no recovery target specified",
+        "2019-09-23T16:57:57+02:00"
+      ],
+      [
+        2,
+        25624344,
+        "no recovery target specified",
+        "2019-09-24T09:22:33+02:00"
+      ],
+      [
+        3,
+        25624752,
+        "no recovery target specified",
+        "2019-09-24T09:26:15+02:00"
+      ],
+      [
+        4,
+        50331856,
+        "no recovery target specified",
+        "2019-09-24T09:35:52+02:00"
+      ]
+    ]
+
+
+Config endpoint
+---------------
+
+``GET /config``: Get the current version of the dynamic configuration.
+
+.. code-block:: bash
+
+	$ curl -s localhost:8008/config | jq .
+	{
+	  "ttl": 30,
+	  "loop_wait": 10,
+	  "retry_timeout": 10,
+	  "maximum_lag_on_failover": 1048576,
+	  "postgresql": {
+	    "use_slots": true,
+	    "use_pg_rewind": true,
+	    "parameters": {
+	      "hot_standby": "on",
+	      "wal_log_hints": "on",
+	      "wal_keep_segments": 8,
+	      "wal_level": "hot_standby",
+	      "max_wal_senders": 5,
+	      "max_replication_slots": 5,
+	      "max_connections": "100"
+	    }
+	  }
+	}
+
+
+``PATCH /config``: Change the existing configuration.
+
+.. code-block:: bash
+
+	$ curl -s -XPATCH -d \
+		'{"loop_wait":5,"ttl":20,"postgresql":{"parameters":{"max_connections":"101"}}}' \
+		http://localhost:8008/config | jq .
+	{
+	  "ttl": 20,
+	  "loop_wait": 5,
+	  "maximum_lag_on_failover": 1048576,
+	  "retry_timeout": 10,
+	  "postgresql": {
+	    "use_slots": true,
+	    "use_pg_rewind": true,
+	    "parameters": {
+	      "hot_standby": "on",
+	      "wal_log_hints": "on",
+	      "wal_keep_segments": 8,
+	      "wal_level": "hot_standby",
+	      "max_wal_senders": 5,
+	      "max_replication_slots": 5,
+	      "max_connections": "101"
+	    }
+	  }
+	}
+
+The above REST API call patches the existing configuration and returns the new configuration.
+
+Let's check that the node processed this configuration. First of all it should start printing log lines every 5 seconds (loop_wait=5). The change of "max_connections" requires a restart, so the "restart_pending" flag should be exposed:
+
+.. code-block:: bash
+
+	$ curl -s http://localhost:8008/patroni | jq .
+	{
+	  "pending_restart": true,
+	  "database_system_identifier": "6287881213849985952",
+	  "postmaster_start_time": "2016-06-13 13:13:05.211 CEST",
+	  "xlog": {
+	    "location": 2197818976
+	  },
+	  "patroni": {
+	    "scope": "batman",
+	    "version": "1.0"
+	  },
+	  "state": "running",
+	  "role": "master",
+	  "server_version": 90503
+	}
+
+Removing parameters:
+
+If you want to remove (reset) some setting just patch it with ``null``:
+
+.. code-block:: bash
+
+	$ curl -s -XPATCH -d \
+		'{"postgresql":{"parameters":{"max_connections":null}}}' \
+		http://localhost:8008/config | jq .
+	{
+	  "ttl": 20,
+	  "loop_wait": 5,
+	  "retry_timeout": 10,
+	  "maximum_lag_on_failover": 1048576,
+	  "postgresql": {
+	    "use_slots": true,
+	    "use_pg_rewind": true,
+	    "parameters": {
+	      "hot_standby": "on",
+	      "unix_socket_directories": ".",
+	      "wal_keep_segments": 8,
+	      "wal_level": "hot_standby",
+	      "wal_log_hints": "on",
+	      "max_wal_senders": 5,
+	      "max_replication_slots": 5
+	    }
+	  }
+	}
+
+Above call removes ``postgresql.parameters.max_connections`` from the dynamic configuration.
+
+``PUT /config``: It's also possible to perform the full rewrite of an existing dynamic configuration unconditionally:
+
+.. code-block:: bash
+
+	$ curl -s -XPUT -d \
+		'{"maximum_lag_on_failover":1048576,"retry_timeout":10,"postgresql":{"use_slots":true,"use_pg_rewind":true,"parameters":{"hot_standby":"on","wal_log_hints":"on","wal_keep_segments":8,"wal_level":"hot_standby","unix_socket_directories":".","max_wal_senders":5}},"loop_wait":3,"ttl":20}' \
+		http://localhost:8008/config | jq .
+	{
+	  "ttl": 20,
+	  "maximum_lag_on_failover": 1048576,
+	  "retry_timeout": 10,
+	  "postgresql": {
+	    "use_slots": true,
+	    "parameters": {
+	      "hot_standby": "on",
+	      "unix_socket_directories": ".",
+	      "wal_keep_segments": 8,
+	      "wal_level": "hot_standby",
+	      "wal_log_hints": "on",
+	      "max_wal_senders": 5
+	    },
+	    "use_pg_rewind": true
+	  },
+	  "loop_wait": 3
+	}
+
+
+Switchover and Failover endpoints
+---------------------------------
+
+``POST /switchover`` or ``POST /failover``. These endpoints are very similar to each other. There are a couple of minor differences though:
+
+1. The failover endpoint allows to perform a manual failover when there are no healthy nodes, but at the same time it will not allow you to ``schedule`` a switchover.
+
+2. The switchover endpoint is the opposite. It works only when the cluster is healthy (there is the leader) and allows to ``schedule`` a switchover at a given time.
+
+
+In the JSON body of ``POST`` request you must specify at least the ``leader`` or ``candidate`` fields and optionally the ``scheduled_at`` field if you want to schedule a switchover at a specific time.
+
+
+Example: perform a failover to the specific node
+
+.. code-block:: bash
+
+    $ curl -s http://localhost:8009/failover -XPOST -d '{"candidate":"postgresql1"}'
+    Successfully failed over to "postgresql1"
+
+
+Example: schedule a switchover from leader to any other healthy replica in the cluster at a specific time.
+
+.. code-block:: bash
+
+    $ curl -s http://localhost:8008/switchover -XPOST -d \
+	    '{"leader":"postgresql0","scheduled_at":"2019-09-24T12:00+00"}'
+    Switchover scheduled
+
+
+Depending on the situation the request might finish with a different HTTP status code and body. The status code **200** is returned when the switchover or failover successfully completed. If the switchover was successfully scheduled, Patroni will return HTTP status code **202**. In case if something went wrong the error status code (one of **400**, **412** or **503**) will be returned with some details in the response body. For more information please check the source code of ``patroni/api.py:do_POST_failover()`` method.
+
+The switchover and failover endpoints are used by ``patronictl switchover`` and ``patronictl failover`` respectively.
+
+
+Restart endpoint
+----------------
+
+- ``POST /restart``: You can restart the postgres on the specific node by performing the ``POST /restart`` call. In the JSON body of ``POST`` request it is possible to optionally specify some restart conditions:
+
+  - **restart_pending**: boolean, if set to ``true`` Patroni will restart PostgreSQL only when restart is pending in order to apply some changes in the PostgreSQL config.
+  - **role**: perform restart only if the current role of the node matches with the role from the POST request.
+  - **postgres_version**: perform restart only if the current version of postgres is smaller than specified in the POST request.
+  - **timeout**: how long should we wait before PostgreSQL starts accepting connections. Overrides ``master_start_timeout``.
+  - **schedule**: timestamp with time zone, schedule the restart somewhere in the future.
+
+- ``DELETE /restart``: delete the scheduled restart
+
+The restart endpoint is used by ``patronictl restart``.
+
+
+Reload endpoint
+---------------
+
+The ``POST /reload`` call will order Patroni to re-read and apply the configuration file. The equivalent of sending the ``SIGHUP`` signal to the Patroni process. In case if you changed some of postgres parameters which require a restart (like for example **shared_buffers**), you still have to explicitly do the restart of postgres by either calling ``POST /restart`` endpoint of with the help of ``patronictl restart``
+
+The reload endpoint is used by ``patronictl reload``.
+
+
+Reinitialize endpoint
+---------------------
+
+``POST /reinitialize`` - reinitialize the PostgreSQL data directory on specified node. Is allowed to be executed only on the replica. Once called it will remove the data directory and start ``pg_basebackup`` or some alternative :ref:`replica creation method <custom_replica_creation>`.
+The call might fail if Patroni is in a loop trying to recover(restart) failed postgres. In order to overcome this problem one can specify ``{"force":true}`` in the request body.
+
+The reinitialize endpoint is used by ``patronictl reinitialize``.
