@@ -118,7 +118,7 @@ def parse_dsn(value):
     >>> r == {'application_name': 'mya/pp', 'host': ',/host2', 'sslmode': 'require',\
               'password': 'pass', 'port': '/123', 'user': 'u/se'}
     True
-    >>> r = parse_dsn(" host = 'host' dbname = db\\ name requiressl=1 ")
+    >>> r = parse_dsn(" host = 'host' dbname = db\\\\ name requiressl=1 ")
     >>> r == {'host': 'host', 'sslmode': 'require'}
     True
     >>> parse_dsn('requiressl = 0\\\\') == {'sslmode': 'prefer'}
