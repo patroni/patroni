@@ -1115,8 +1115,8 @@ class Ha(object):
                             self.state_handler.terminate_starting_postmaster(postmaster=task.result)
                 self.demote('immediate-nolock')
                 return 'lost leader lock during ' + self._async_executor.scheduled_action
-            if self._async_executor.scheduled_action == 'promote' and self.state_handler._pre_promote_script:
-                logger.info("cancelling the pre promote script " + self.state_handler._pre_promote_script)
+            if self._async_executor.scheduled_action == 'promote' and self.state_handler.pre_promote_script:
+                logger.info("cancelling the pre promote script " + self.state_handler.pre_promote_script)
                 self._async_executor.cancel()
                 return 'lost leader lock during promote'
         if self.cluster.is_unlocked():

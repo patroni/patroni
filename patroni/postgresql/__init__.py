@@ -103,7 +103,6 @@ class Postgresql(object):
         elif self.role == 'master':
             self.set_role('demoted')
 
-        self._pre_promote_script = config.get('pre_promote') or ''
         self.pre_promote_task = None
 
     @property
@@ -145,6 +144,10 @@ class Postgresql(object):
                 " pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint)"
                 "ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), '0/0')::bigint "
                 "END").format(self.wal_name, self.lsn_name)
+
+    @property
+    def pre_promote_script(self):
+        return self.config.get('pre_promote') or ''
 
     def _version_file_exists(self):
         return not self.data_directory_empty() and os.path.isfile(self._version_file)
@@ -729,18 +732,18 @@ class Postgresql(object):
 
         self.pre_promote_task = CriticalTask()
         try:
-            self._pre_promote_task.complete(self._call_pre_promote(self._pre_promote_script))
+            self.pre_promote_task.complete(self._call_pre_promote(self.pre_promote_script))
         except Exception:
             logger.exception('pre_promote')
-            self._pre_promote_task.complete(False)
+            self.pre_promote_task.complete(False)
 
-        return self._pre_promote_task.result
+        return self.pre_promote_task.result
 
     def promote(self, wait_seconds, on_success=None, access_is_restricted=False):
         if self.role == 'master':
             return True
 
-        if self._pre_promote_script and not self._pre_promote():
+        if self.pre_promote_script and not self._pre_promote():
             return False
 
         ret = self.pg_ctl('promote', '-W')
