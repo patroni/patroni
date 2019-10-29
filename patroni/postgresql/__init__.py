@@ -104,7 +104,7 @@ class Postgresql(object):
             self.set_role('demoted')
 
         self._pre_promote_script = config.get('pre_promote') or ''
-        self._pre_promote_task = None
+        self.pre_promote_task = None
 
     @property
     def create_replica_methods(self):
@@ -727,7 +727,7 @@ class Postgresql(object):
         If the script exits with a non-zero code, promotion does not happen and the leader key is removed from DCS.
         """
 
-        self._pre_promote_task = CriticalTask()
+        self.pre_promote_task = CriticalTask()
         try:
             self._pre_promote_task.complete(self._call_pre_promote(self._pre_promote_script))
         except Exception:

@@ -520,11 +520,11 @@ class Ha(object):
                 self.release_leader_key_voluntarily()
                 return 'Not promoting self because watchdog could not be activated'
 
-        if not self.is_paused() and self.state_handler._pre_promote_task and self.state_handler._pre_promote_task.result is False:
+        if not self.is_paused() and self.state_handler.pre_promote_task and self.state_handler.pre_promote_task.result is False:
             logger.warning("Releasing the leader key voluntarily because the pre-promote script failed")
             self.release_leader_key_voluntarily()
             # discard the result of the failed pre-promote script to be able to re-try promote
-            self.state_handler._pre_promote_task = None
+            self.state_handler.pre_promote_task = None
             time.sleep(5)  # stub for the backoff of the leader key acquisition
             return 'Postponing promotion until the leader key is acquired again after pre-promote script failure'
 
