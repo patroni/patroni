@@ -14,7 +14,7 @@ Patroni configuration is stored in the DCS (Distributed Configuration Store). Th
 
 - Local :ref:`configuration <settings>` (patroni.yml).
 	These options are defined in the configuration file and take precedence over dynamic configuration.
-	patroni.yml could be changed and reload in runtime (without restart of Patroni) by sending SIGHUP to the Patroni process, performing ``POST /reload`` REST-API request or executing ``patronictl reload``.
+	patroni.yml could be changed and reloaded in runtime (without restart of Patroni) by sending SIGHUP to the Patroni process, performing ``POST /reload`` REST-API request or executing ``patronictl reload``.
 
 - Environment :ref:`configuration <environment>`.
 	It is possible to set/override some of the "Local" configuration parameters with environment variables.
