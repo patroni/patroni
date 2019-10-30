@@ -88,6 +88,8 @@ class Ha(object):
         # already running as replica was aborted due to cluster not beeing initialized in DCS.
         self._join_aborted = False
 
+        self._released_leader_key_timestamp = 0
+
     def check_mode(self, mode):
         # Try to protect from the case when DCS was wiped out during pause
         if self.cluster and self.cluster.config and self.cluster.config.modify_index:
@@ -137,6 +139,13 @@ class Ha(object):
         self._leader_timeline = None if cluster.is_unlocked() else cluster.leader.timeline
 
     def acquire_lock(self):
+
+        # wait if voluntarily released the leader key recently
+        # for example after failing a pre-promote script (PR 1099)
+        if time.time() - self._released_leader_key_timestamp < 10:
+            logger.info("backoff: skipping leader lock acquisition after releasing the lock voluntarily")
+            return False
+
         self.set_leader_access_is_restricted(self.cluster.has_permanent_logical_slots(self.state_handler.name))
         ret = self.dcs.attempt_to_acquire_leader()
         self.set_is_leader(ret)
@@ -509,7 +518,7 @@ class Ha(object):
 
     def enforce_master_role(self, message, promote_message):
         """
-        Ensure the node that won the race for the leader key meets criteria
+        Ensure the node that has won the race for the leader key meets criteria
         for promoting its PG server to the 'master' role.
         """
         if not self.is_paused() and not self.watchdog.is_running and not self.watchdog.activate():
@@ -525,7 +534,6 @@ class Ha(object):
             self.release_leader_key_voluntarily()
             # discard the result of the failed pre-promote script to be able to re-try promote
             self.state_handler.pre_promote_task = None
-            time.sleep(5)  # stub for the backoff of the leader key acquisition
             return 'Postponing promotion until the leader key is acquired again after pre-promote script failure'
 
         if self.state_handler.is_leader():
@@ -735,7 +743,9 @@ class Ha(object):
     def release_leader_key_voluntarily(self):
         self._delete_leader()
         self.touch_member()
+        self._released_leader_key_timestamp = time.time()
         logger.info("Leader key released")
+
 
     def demote(self, mode):
         """Demote PostgreSQL running as master.
