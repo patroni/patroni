@@ -162,8 +162,6 @@ class TestClient(unittest.TestCase):
         self.assertRaises(etcd.EtcdWatchTimedOut, self.client.api_execute, '/timeout', 'POST', params={'wait': 'true'})
         self.assertRaises(etcd.EtcdWatchTimedOut, self.client.api_execute, '/timeout', 'POST', params={'wait': 'true'})
         self.assertRaises(etcd.EtcdException, self.client.api_execute, '/', '')
-        with patch.object(Client, '_load_machines_cache', Mock(side_effect=etcd.EtcdException)):
-            self.assertRaises(etcd.EtcdException, self.client.api_execute, '/', 'GET')
 
         with patch.object(Client, '_do_http_request', Mock(side_effect=etcd.EtcdConnectionFailed)):
             with patch.object(Client, '_calculate_timeouts', Mock(side_effect=[(1, 1, 0), (1, 1, 0), (0, 1, 0)])):

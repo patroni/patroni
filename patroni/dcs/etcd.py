@@ -189,6 +189,10 @@ class Client(etcd.Client):
             if (isinstance(fields, dict) and fields.get("wait") == "true" and
                     isinstance(e, (ReadTimeoutError, ProtocolError))):
                 logger.debug("Watch timed out.")
+                # switch to the next etcd node because we don't know exactly what happened,
+                # whether the key didn't received an update or there is a network problem.
+                self._machines_cache.insert(0, self._base_uri)
+                self._base_uri = self._next_server()
                 raise etcd.EtcdWatchTimedOut("Watch timed out: {0}".format(e), cause=e)
             logger.error("Request to server %s failed: %r", self._base_uri, e)
             logger.info("Reconnection allowed, looking for another server.")
@@ -232,34 +236,27 @@ class Client(etcd.Client):
 
                     if response is False:
                         if not retry:
-                            raise etcd.EtcdException
+                            raise etcd.EtcdException('{0} {1} request failed'.format(method, path))
                         some_request_failed = True
                 if some_request_failed:
                     self._refresh_machines_cache()
-                break
+                if response:
+                    break
             except etcd.EtcdConnectionFailed as e:
-                if isinstance(e, etcd.EtcdWatchTimedOut):
-                    if self._machines_cache:
-                        self._base_uri = self._next_server()
-                    else:
-                        self._update_machines_cache = True
+                if not retry:
                     raise
-
-                if not response:  # request failed on all nodes in the cluster
-                    if not retry:
-                        raise
-                    sleeptime = retry.sleeptime
-                    remaining_time = retry.stoptime - sleeptime - time.time()
-                    nodes, timeout, retries = self._calculate_timeouts(len(machines_cache), remaining_time)
-                    if nodes == 0:
-                        self._update_machines_cache = True
-                        raise
-                    retry.sleep_func(sleeptime)
-                    retry.update_delay()
-                    # We still have some time left. Partially restore `_machines_cache` and retry request
-                    kwargs.update(timeout=timeout, retries=retries)
-                    self._base_uri = machines_cache[0]
-                    self._machines_cache = machines_cache[1:nodes]
+                sleeptime = retry.sleeptime
+                remaining_time = retry.stoptime - sleeptime - time.time()
+                nodes, timeout, retries = self._calculate_timeouts(len(machines_cache), remaining_time)
+                if nodes == 0:
+                    self._update_machines_cache = True
+                    raise
+                retry.sleep_func(sleeptime)
+                retry.update_delay()
+                # We still have some time left. Partially restore `_machines_cache` and retry request
+                kwargs.update(timeout=timeout, retries=retries)
+                self._base_uri = machines_cache[0]
+                self._machines_cache = machines_cache[1:nodes]
 
         return self._handle_server_response(response)
 
