@@ -246,7 +246,7 @@ class Client(etcd.Client):
                     self._refresh_machines_cache()
                 if response:
                     break
-            except etcd.EtcdConnectionFailed as e:
+            except etcd.EtcdConnectionFailed:
                 if not retry:
                     raise
                 sleeptime = retry.sleeptime
