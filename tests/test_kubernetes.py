@@ -3,6 +3,8 @@ import unittest
 
 from mock import Mock, patch
 from patroni.dcs.kubernetes import Kubernetes, KubernetesError, k8s_client, k8s_watch, RetryFailedError
+from threading import Thread
+from . import SleepException
 
 
 def mock_list_namespaced_config_map(self, *args, **kwargs):
@@ -27,11 +29,15 @@ def mock_list_namespaced_pod(self, *args, **kwargs):
 
 @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_config_map', Mock())
 @patch.object(k8s_client.CoreV1Api, 'create_namespaced_config_map', Mock())
+@patch('kubernetes.client.api_client.ThreadPool', Mock(), create=True)
+@patch.object(Thread, 'start', Mock())
 class TestKubernetes(unittest.TestCase):
 
     @patch('kubernetes.config.load_kube_config', Mock())
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_config_map', mock_list_namespaced_config_map)
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_pod', mock_list_namespaced_pod)
+    @patch('kubernetes.client.api_client.ThreadPool', Mock(), create=True)
+    @patch.object(Thread, 'start', Mock())
     def setUp(self):
         self.k = Kubernetes({'ttl': 30, 'scope': 'test', 'name': 'p-0', 'retry_timeout': 10, 'labels': {'f': 'b'}})
         self.k.get_cluster()
@@ -101,16 +107,14 @@ class TestKubernetes(unittest.TestCase):
                         'labels': {'f': 'b'}, 'use_endpoints': True, 'pod_ip': '10.0.0.0'})
         self.assertFalse(k.delete_sync_state())
 
+    @patch.object(k8s_watch.Watch, 'stream', Mock(return_value=[{'raw_object': {'metadata': {}}}]))
+    def test_start_watch_stream(self):
+        self.assertIsNotNone(self.k.start_watch_stream())
+
     def test_watch(self):
         self.k.set_ttl(10)
         self.k.watch(None, 0)
         self.k.watch(None, 0)
-        with patch.object(k8s_watch.Watch, 'stream',
-                          Mock(side_effect=[Exception, [], KeyboardInterrupt,
-                                            [{'raw_object': {'metadata': {'resourceVersion': '2'}}}]])):
-            self.assertFalse(self.k.watch('1', 2))
-            self.assertRaises(KeyboardInterrupt, self.k.watch, '1', 2)
-            self.assertTrue(self.k.watch('1', 2))
 
     def test_set_history_value(self):
         self.k.set_history_value('{}')
@@ -126,3 +130,36 @@ class TestKubernetes(unittest.TestCase):
         self.assertIsNotNone(k.patch_or_create_config({'foo': 'bar'}))
         self.assertIsNotNone(k.patch_or_create_config({'foo': 'bar'}))
         k.touch_member({'state': 'running', 'role': 'replica'})
+
+
+@patch('time.sleep', Mock(side_effect=SleepException))
+@patch.object(Kubernetes, 'start_watch_stream')
+class TestKubernetesWatcher(unittest.TestCase):
+
+    @patch('kubernetes.config.load_kube_config', Mock())
+    @patch('kubernetes.client.api_client.ThreadPool', Mock(), create=True)
+    @patch.object(Thread, 'start', Mock())
+    def setUp(self):
+        self.k = Kubernetes({'ttl': 30, 'scope': 'test', 'name': 'p-0', 'retry_timeout': 10, 'labels': {'f': 'b'}})
+
+    def test_leader_update(self, mock_stream):
+        mock_stream.return_value = [
+            {'raw_object': {'type': 'MODIFIED',
+                            'metadata': {'name': self.k.leader_path, 'annotations': {self.k._LEADER: 'foo'}}}},
+            {'raw_object': {'type': 'MODIFIED',
+                            'metadata': {'name': self.k.leader_path, 'annotations': {self.k._LEADER: 'bar'}}}}
+        ]
+        self.assertRaises(SleepException, self.k._watcher.run)
+
+    def test_config_update(self, mock_stream):
+        mock_stream.return_value = [
+            {'raw_object': {'type': 'MODIFIED',
+                            'metadata': {'name': self.k.config_path, 'annotations': {self.k._CONFIG: 'foo'}}}},
+            {'raw_object': {'type': 'MODIFIED',
+                            'metadata': {'name': self.k.config_path, 'annotations': {self.k._CONFIG: 'bar'}}}}
+        ]
+        self.assertRaises(SleepException, self.k._watcher.run)
+
+    def test_run(self, mock_stream):
+        mock_stream.side_effect = Exception
+        self.assertRaises(SleepException, self.k._watcher.run)

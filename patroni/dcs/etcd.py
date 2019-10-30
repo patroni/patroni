@@ -25,6 +25,10 @@ from threading import Thread
 logger = logging.getLogger(__name__)
 
 
+class EtcdRaftInternal(etcd.EtcdException):
+    """Raft Internal Error"""
+
+
 class EtcdError(DCSError):
     pass
 
@@ -356,9 +360,7 @@ class Etcd(AbstractDCS):
         super(Etcd, self).__init__(config)
         self._ttl = int(config.get('ttl') or 30)
         self._retry = Retry(deadline=config['retry_timeout'], max_delay=1, max_tries=-1,
-                            retry_exceptions=(etcd.EtcdLeaderElectionInProgress,
-                                              etcd.EtcdWatcherCleared,
-                                              etcd.EtcdEventIndexCleared))
+                            retry_exceptions=(etcd.EtcdLeaderElectionInProgress, EtcdRaftInternal))
         self._client = self.get_etcd_client(config)
         self.__do_not_watch = False
         self._has_failed = False
@@ -642,3 +644,6 @@ class Etcd(AbstractDCS):
             return super(Etcd, self).watch(None, timeout)
         finally:
             self.event.clear()
+
+
+etcd.EtcdError.error_exceptions[300] = EtcdRaftInternal
