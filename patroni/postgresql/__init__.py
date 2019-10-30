@@ -52,6 +52,7 @@ class Postgresql(object):
         self._data_dir = config['data_dir']
         self._database = config.get('database', 'postgres')
         self._version_file = os.path.join(self._data_dir, 'PG_VERSION')
+        self._pg_control = os.path.join(self._data_dir, 'global', 'pg_control')
         self._major_version = self.get_major_version()
 
         self._state_lock = Lock()
@@ -215,7 +216,7 @@ class Postgresql(object):
         return self._sysid
 
     def get_postgres_role_from_data_directory(self):
-        if self.data_directory_empty():
+        if self.data_directory_empty() or not self.controldata():
             return 'uninitialized'
         elif self.config.recovery_conf_exists():
             return 'replica'
@@ -263,8 +264,15 @@ class Postgresql(object):
         except RetryFailedError as e:
             raise PostgresConnectionException(str(e))
 
+    def pg_control_exists(self):
+        return os.path.isfile(self._pg_control)
+
     def data_directory_empty(self):
-        return not os.path.exists(self._data_dir) or os.listdir(self._data_dir) == []
+        if self.pg_control_exists():
+            return False
+        if not os.path.exists(self._data_dir):
+            return True
+        return all(os.name != 'nt' and (n.startswith('.') or n == 'lost+found') for n in os.listdir(self._data_dir))
 
     def replica_method_options(self, method):
         return deepcopy(self.config.get(method, {}))
@@ -845,9 +853,9 @@ class Postgresql(object):
                 return app_name, True
             if sync_state == 'potential' and app_name == current:
                 # Prefer current even if not the best one any more to avoid indecisivness and spurious swaps.
-                return current, False
+                return cluster.sync.sync_standby, False
             if sync_state in ('async', 'potential'):
-                candidates.append(app_name)
+                candidates.append(member.name)
 
         if candidates:
             return candidates[0], False

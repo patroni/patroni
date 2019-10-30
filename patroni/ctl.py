@@ -1180,7 +1180,7 @@ def version(obj, cluster_name, member_names):
             if not member_names or m.name in member_names:
                 try:
                     response = request_patroni(m)
-                    data = json.loads(response.data)
+                    data = json.loads(response.data.decode('utf-8'))
                     version = data.get('patroni', {}).get('version')
                     pg_version = data.get('server_version')
                     pg_version_str = " PostgreSQL {0}".format(format_pg_version(pg_version)) if pg_version else ""

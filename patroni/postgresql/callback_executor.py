@@ -1,40 +1,36 @@
 import logging
-import subprocess
-from threading import Event, Lock, Thread
+
+from patroni.postgresql.cancellable import CancellableExecutor
+from threading import Condition, Thread
 
 logger = logging.getLogger(__name__)
 
 
-class CallbackExecutor(Thread):
+class CallbackExecutor(CancellableExecutor, Thread):
 
     def __init__(self):
-        super(CallbackExecutor, self).__init__()
+        CancellableExecutor.__init__(self)
+        Thread.__init__(self)
         self.daemon = True
-        self._lock = Lock()
         self._cmd = None
-        self._process = None
-        self._callback_event = Event()
+        self._condition = Condition()
         self.start()
 
     def call(self, cmd):
-        with self._lock:
-            if self._process and self._process.poll() is None:
-                try:
-                    self._process.kill()
-                    logger.warning('Killed the old callback process because it was still running: %s', self._cmd)
-                except OSError:
-                    logger.exception('Failed to kill the old callback')
-        self._cmd = cmd
-        self._callback_event.set()
+        self._kill_process()
+        with self._condition:
+            self._cmd = cmd
+            self._condition.notify()
 
     def run(self):
         while True:
-            self._callback_event.wait()
-            self._callback_event.clear()
+            with self._condition:
+                if self._cmd is None:
+                    self._condition.wait()
+                cmd, self._cmd = self._cmd, None
+
             with self._lock:
-                try:
-                    self._process = subprocess.Popen(self._cmd, close_fds=True)
-                except Exception:
-                    logger.exception('Failed to execute %s',  self._cmd)
+                if not self._start_process(cmd, close_fds=True):
                     continue
             self._process.wait()
+            self._kill_children()
