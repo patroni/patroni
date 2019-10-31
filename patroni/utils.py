@@ -296,6 +296,17 @@ class Retry(object):
                      max_jitter=self.max_jitter / 100.0, max_delay=self.max_delay, sleep_func=self.sleep_func,
                      deadline=self.deadline, retry_exceptions=self.retry_exceptions)
 
+    @property
+    def sleeptime(self):
+        return self._cur_delay + (random.randint(0, self.max_jitter) / 100.0)
+
+    def update_delay(self):
+        self._cur_delay = min(self._cur_delay * self.backoff, self.max_delay)
+
+    @property
+    def stoptime(self):
+        return self._cur_stoptime
+
     def __call__(self, func, *args, **kwargs):
         """Call a function with arguments until it completes without throwing a `retry_exceptions`
 
@@ -317,14 +328,14 @@ class Retry(object):
                     logger.warning('Retry got exception: %s', e)
                     raise RetryFailedError("Too many retry attempts")
                 self._attempts += 1
-                sleeptime = self._cur_delay + (random.randint(0, self.max_jitter) / 100.0)
+                sleeptime = self.sleeptime
 
                 if self._cur_stoptime is not None and time.time() + sleeptime >= self._cur_stoptime:
                     logger.warning('Retry got exception: %s', e)
                     raise RetryFailedError("Exceeded retry deadline")
                 logger.debug('Retry got exception: %s', e)
                 self.sleep_func(sleeptime)
-                self._cur_delay = min(self._cur_delay * self.backoff, self.max_delay)
+                self.update_delay()
 
 
 def polling_loop(timeout, interval=1):
