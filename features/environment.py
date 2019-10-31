@@ -504,7 +504,7 @@ class KubernetesController(AbstractDcsController):
 
     def delete_pod(self, name):
         try:
-            self._api.delete_namespaced_pod(name, self._namespace, self._client.V1DeleteOptions())
+            self._api.delete_namespaced_pod(name, self._namespace, body=self._client.V1DeleteOptions())
         except:
             pass
         while True:

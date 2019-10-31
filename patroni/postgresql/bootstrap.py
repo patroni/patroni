@@ -135,16 +135,8 @@ class Bootstrap(object):
                 # (pghost empty or the default socket directory) connections coming from the local machine.
                 r['host'] = 'localhost'  # set it to localhost to write into pgpass
 
-            if 'user' in r:
-                user = r['user']
-            else:
-                user = ''
-                if 'password' in r:
-                    import getpass
-                    r.setdefault('user', os.environ.get('PGUSER', getpass.getuser()))
-
-            connstring = uri('postgres', (host, r['port']), r['database'], user)
-            env = self._postgresql.write_pgpass(r) if 'password' in r else None
+            connstring = uri('postgres', (host, r['port']), r['database'], r.get('user'))
+            env = self._postgresql.config.write_pgpass(r) if 'password' in r else None
 
             try:
                 ret = self._postgresql.cancellable.call(shlex.split(cmd) + [connstring], env=env)
@@ -178,7 +170,7 @@ class Bootstrap(object):
             r = clone_member.conn_kwargs(self._postgresql.config.replication)
             connstring = uri('postgres', (r['host'], r['port']), r['database'], r['user'])
             # add the credentials to connect to the replica origin to pgpass.
-            env = self._postgresql.write_pgpass(r)
+            env = self._postgresql.config.write_pgpass(r)
         else:
             connstring = ''
             env = os.environ.copy()

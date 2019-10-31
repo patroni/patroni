@@ -46,7 +46,7 @@ When ``synchronous_mode`` is on and a standby crashes, commits will block until 
 
 When it is absolutely necessary to guarantee that each write is stored durably
 on at least two nodes, enable ``synchronous_mode_strict`` in addition to the
-``synchronous_node``. This parameter prevents Patroni from switching off the
+``synchronous_mode``. This parameter prevents Patroni from switching off the
 synchronous replication on the primary when no synchronous standby candidates
 are available. As a downside, the primary is not be available for writes
 (unless the Postgres transaction explicitly turns of ``synchronous_mode``),

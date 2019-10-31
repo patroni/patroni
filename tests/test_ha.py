@@ -137,10 +137,15 @@ zookeeper:
         self.scheduled_restart = {'schedule': future_restart_time,
                                   'postmaster_start_time': str(postmaster_start_time)}
         self.watchdog = Watchdog(self.config)
+        self.request = lambda member, **kwargs: requests_get(member.api_url, **kwargs)
 
 
 def run_async(self, func, args=()):
-    return func(*args) if args else func()
+    self.reset_scheduled_action()
+    if args:
+        func(*args)
+    else:
+        func()
 
 
 @patch.object(Postgresql, 'is_running', Mock(return_value=MockPostmaster()))
@@ -152,7 +157,7 @@ def run_async(self, func, args=()):
 @patch.object(Postgresql, 'controldata', Mock(return_value={'Database system identifier': SYSID}))
 @patch.object(SlotsHandler, 'sync_replication_slots', Mock())
 @patch.object(ConfigHandler, 'append_pg_hba', Mock())
-@patch.object(Postgresql, 'write_pgpass', Mock(return_value={}))
+@patch.object(ConfigHandler, 'write_pgpass', Mock(return_value={}))
 @patch.object(ConfigHandler, 'write_recovery_conf', Mock())
 @patch.object(Postgresql, 'query', Mock())
 @patch.object(Postgresql, 'checkpoint', Mock())
@@ -425,7 +430,7 @@ class TestHa(PostgresInit):
 
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.assertIsNone(self.ha.reinitialize(True))
-
+        self.ha._async_executor.schedule('reinitialize')
         self.assertIsNotNone(self.ha.reinitialize())
 
         self.ha.state_handler.name = self.ha.cluster.leader.name
@@ -439,7 +444,7 @@ class TestHa(PostgresInit):
         self.p.restart = false
         self.assertEqual(self.ha.restart({}), (False, 'restart failed'))
         self.ha.cluster = get_cluster_initialized_with_leader()
-        self.ha.reinitialize()
+        self.ha._async_executor.schedule('reinitialize')
         self.assertEqual(self.ha.restart({}), (False, 'reinitialize already in progress'))
         with patch.object(self.ha, "restart_matches", return_value=False):
             self.assertEqual(self.ha.restart({'foo': 'bar'}), (False, "restart conditions are not satisfied"))
@@ -447,7 +452,7 @@ class TestHa(PostgresInit):
     @patch('os.kill', Mock())
     def test_restart_in_progress(self):
         with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)):
-            self.ha.restart({}, run_async=True)
+            self.ha._async_executor.schedule('restart')
             self.assertTrue(self.ha.restart_scheduled())
             self.assertEqual(self.ha.run_cycle(), 'restart in progress')
 
@@ -464,7 +469,6 @@ class TestHa(PostgresInit):
                     self.assertEqual(self.ha.run_cycle(), 'lost leader lock during restart')
                     mock_terminate.assert_called()
 
-    @patch('requests.get', requests_get)
     def test_manual_failover_from_leader(self):
         self.ha.fetch_node_status = get_node_status()
         self.ha.has_lock = true
@@ -512,7 +516,6 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', self.p.name, scheduled))
         self.assertEqual('no action.  i am the leader with the lock', self.ha.run_cycle())
 
-    @patch('requests.get', requests_get)
     def test_manual_failover_from_leader_in_pause(self):
         self.ha.has_lock = true
         self.ha.is_paused = true
@@ -522,7 +525,6 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, self.p.name, '', None))
         self.assertEqual('PAUSE: no action.  i am the leader with the lock', self.ha.run_cycle())
 
-    @patch('requests.get', requests_get)
     def test_manual_failover_from_leader_in_synchronous_mode(self):
         self.p.is_leader = true
         self.ha.has_lock = true
@@ -535,7 +537,6 @@ class TestHa(PostgresInit):
         self.ha.is_failover_possible = true
         self.assertEqual('manual failover: demoting myself', self.ha.run_cycle())
 
-    @patch('requests.get', requests_get)
     def test_manual_failover_process_no_leader(self):
         self.p.is_leader = false
         self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', self.p.name, None))
@@ -585,7 +586,6 @@ class TestHa(PostgresInit):
         self.ha.is_paused = true
         self.assertFalse(self.ha.is_healthiest_node())
 
-    @patch('requests.get', requests_get)
     def test__is_healthiest_node(self):
         self.ha.cluster = get_cluster_initialized_without_leader(sync=('postgresql1', self.p.name))
         self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
@@ -607,7 +607,6 @@ class TestHa(PostgresInit):
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         self.ha.patroni.nofailover = False
 
-    @patch('requests.get', requests_get)
     def test_fetch_node_status(self):
         member = Member(0, 'test', 1, {'api_url': 'http://127.0.0.1:8011/patroni'})
         self.ha.fetch_node_status(member)
@@ -696,7 +695,6 @@ class TestHa(PostgresInit):
         with patch.object(Leader, 'conn_url', PropertyMock(return_value='')):
             self.assertEqual(self.ha.run_cycle(), 'continue following the old known standby leader')
 
-    @patch('requests.get', requests_get)
     def test_process_unhealthy_standby_cluster_as_standby_leader(self):
         self.p.is_leader = false
         self.p.name = 'leader'
@@ -1027,7 +1025,6 @@ class TestHa(PostgresInit):
             self.assertEqual(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
 
     @patch('sys.exit', return_value=1)
-    @patch('requests.get', requests_get)
     def test_abort_join(self, exit_mock):
         self.ha.cluster = get_cluster_not_initialized_without_leader()
         self.p.is_leader = false

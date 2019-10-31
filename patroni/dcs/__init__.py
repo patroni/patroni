@@ -157,11 +157,11 @@ class Member(namedtuple('Member', 'index,name,session,data')):
             }
             self.data['conn_kwargs'] = ret.copy()
 
+        # apply any remaining authentication parameters
         if auth and isinstance(auth, dict):
+            ret.update(auth)
             if 'username' in auth:
-                ret['user'] = auth['username']
-            if 'password' in auth:
-                ret['password'] = auth['password']
+                ret['user'] = ret.pop('username')
         return ret
 
     @property

@@ -28,10 +28,7 @@ Scenario: check API requests on a stand-alone server
 	And I receive a response text "Failover could be performed only to a specific candidate"
 
 Scenario: check local configuration reload
-	Given I issue an empty POST request to http://127.0.0.1:8008/reload
-	Then I receive a response code 200
-	And I receive a response text nothing changed
-	When I add tag new_tag new_value to postgres0 config
+	Given I add tag new_tag new_value to postgres0 config
 	And I issue an empty POST request to http://127.0.0.1:8008/reload
 	Then I receive a response code 202
 
@@ -73,6 +70,7 @@ Scenario: check the switchover via the API in the pause mode
 	And postgres1 role is the primary after 10 seconds
 	And postgres0 role is the secondary after 10 seconds
 	And replication works from postgres1 to postgres0 after 20 seconds
+	And "members/postgres0" key in DCS has state=running after 10 seconds
 	When I issue a GET request to http://127.0.0.1:8008/master
 	Then I receive a response code 503
 	When I issue a GET request to http://127.0.0.1:8008/replica
@@ -94,6 +92,7 @@ Scenario: check the scheduled switchover
 	And postgres0 role is the primary after 10 seconds
 	And postgres1 role is the secondary after 10 seconds
 	And replication works from postgres0 to postgres1 after 25 seconds
+	And "members/postgres1" key in DCS has state=running after 10 seconds
 	When I issue a GET request to http://127.0.0.1:8008/master
 	Then I receive a response code 200
 	When I issue a GET request to http://127.0.0.1:8008/replica

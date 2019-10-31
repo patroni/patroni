@@ -335,8 +335,8 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
             return {'authorization': self._token}
         return {}
 
-    def _prepare_request(self, params=None):
-        kwargs = self._build_request_parameters()
+    def _prepare_request(self, params=None, timeout=None):
+        kwargs = self._build_request_parameters(timeout)
         if params is None:
             kwargs['body'] = ''
         else:
@@ -398,7 +398,8 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         members = self._handle_server_response(resp)['members']
         return set(url for member in members for url in member['clientURLs'])
 
-    def call_rpc(self, method, fields=None):
+    def call_rpc(self, method, fields, retry=None):
+        fields['retry'] = retry
         return self.api_execute(self.version_prefix + method, self._MPOST, fields)
 
     def authenticate(self):
@@ -446,22 +447,22 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         return wrapper
 
     @_handle_auth_errors
-    def range(self, key, range_end=None):
+    def range(self, key, range_end=None, retry=None):
         params = build_range_request(key, range_end)
         params['serializable'] = True  # For better performance. We can tolerate stale reads.
-        return self.call_rpc('/kv/range', params)
+        return self.call_rpc('/kv/range', params, retry)
 
-    def prefix(self, key):
-        return self.range(key, increment_last_byte(key))
+    def prefix(self, key, retry=None):
+        return self.range(key, increment_last_byte(key), retry)
 
-    def lease_grant(self, ttl):
-        return self.call_rpc('/lease/grant', {'TTL': ttl})['ID']
+    def lease_grant(self, ttl, retry=None):
+        return self.call_rpc('/lease/grant', {'TTL': ttl}, retry)['ID']
 
-    def lease_keepalive(self, ID):
-        return self.call_rpc('/lease/keepalive', {'ID': ID}).get('result', {}).get('TTL')
+    def lease_keepalive(self, ID, retry=None):
+        return self.call_rpc('/lease/keepalive', {'ID': ID}, retry).get('result', {}).get('TTL')
 
     @_handle_auth_errors
-    def put(self, key, value, lease=None, create_revision=None, mod_revision=None):
+    def put(self, key, value, lease=None, create_revision=None, mod_revision=None, retry=None):
         fields = {'key': base64_encode(key), 'value': base64_encode(value)}
         if lease:
             fields['lease'] = lease
@@ -470,21 +471,23 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         elif mod_revision is not None:
             compare = {'target': 'MOD', 'mod_revision': mod_revision}
         else:
-            return self.call_rpc('/kv/put', fields)
+            return self.call_rpc('/kv/put', fields, retry)
         compare['key'] = fields['key']
-        return self.call_rpc('/kv/txn', {'compare': [compare], 'success': [{'request_put': fields}]}).get('succeeded')
+        return self.call_rpc('/kv/txn', {'compare': [compare], 'success': [{'request_put': fields}]},
+                             retry).get('succeeded')
 
     @_handle_auth_errors
-    def deleterange(self, key, range_end=None, mod_revision=None):
+    def deleterange(self, key, range_end=None, mod_revision=None, retry=None):
         fields = build_range_request(key, range_end)
         if mod_revision is None:
+            fields['retry'] = retry
             return self.call_rpc('/kv/deleterange', fields)
         compare = {'target': 'MOD', 'mod_revision': mod_revision, 'key': fields['key']}
-        ret = self.call_rpc('/kv/txn', {'compare': [compare], 'success': [{'request_delete_range': fields}]})
+        ret = self.call_rpc('/kv/txn', {'compare': [compare], 'success': [{'request_delete_range': fields}]}, retry)
         return ret.get('succeeded')
 
-    def deleteprefix(self, key):
-        return self.deleterange(key, increment_last_byte(key))
+    def deleteprefix(self, key, retry=None):
+        return self.deleterange(key, increment_last_byte(key), retry=retry)
 
     def watch(self, key, range_end=None, filters=None):
         """returns: response object"""
@@ -521,16 +524,16 @@ class Etcd3(AbstractEtcd):
         if self.__do_not_watch:
             self._lease = None
 
-    def _do_refresh_lease(self):
+    def _do_refresh_lease(self, retry=None):
         if self._lease and self._last_lease_refresh + self._loop_wait > time.time():
             return False
 
-        if self._lease and not self._client.lease_keepalive(self._lease):
+        if self._lease and not self._client.lease_keepalive(self._lease, retry):
             self._lease = None
 
         ret = not self._lease
         if ret:
-            self._lease = self._client.lease_grant(self._ttl)
+            self._lease = self._client.lease_grant(self._ttl, retry)
 
         self._last_lease_refresh = time.time()
         return ret
