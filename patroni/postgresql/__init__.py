@@ -722,8 +722,15 @@ class Postgresql(object):
         if cmd:
             try:
                 ret = self.cancellable.call(shlex.split(cmd))
-            except OSError as err:
-                logger.error('pre_promote script %s failed: %s', cmd, err)
+            except Exception as e:
+                logger.error('pre_promote script %s failed: %s', cmd, e)
+                return False
+
+            # XXX either the subprocess ceased to be a child of Patroni 
+            # or it terminated shortly after start before wait() was called on it 
+            # see psutil.Process.wait() docs
+            if ret is None:
+                logger.error('process running the pre_promote script returned None instead of a return code; this may indicate abnormal behaviour of the Patroni process')
                 return False
 
             if ret != 0:
