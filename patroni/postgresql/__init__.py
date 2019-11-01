@@ -739,11 +739,7 @@ class Postgresql(object):
         """
 
         self.pre_promote_task = CriticalTask()
-        try:
-            self.pre_promote_task.complete(self._call_pre_promote(self.pre_promote_script))
-        except Exception:
-            logger.exception('pre_promote')
-            self.pre_promote_task.complete(False)
+        self.pre_promote_task.complete(self._call_pre_promote(self.pre_promote_script))
 
         return self.pre_promote_task.result
 
