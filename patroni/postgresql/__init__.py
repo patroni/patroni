@@ -105,6 +105,8 @@ class Postgresql(object):
             self.set_role('demoted')
 
         self.pre_promote_task = None
+        self._running_pre_promote_script = None
+
 
     @property
     def create_replica_methods(self):
@@ -148,7 +150,7 @@ class Postgresql(object):
 
     @property
     def pre_promote_script(self):
-        return self.config.get('pre_promote') or ''
+        return self._running_pre_promote_script or self.config.get('pre_promote') or None
 
     def _version_file_exists(self):
         return not self.data_directory_empty() and os.path.isfile(self._version_file)
@@ -726,11 +728,11 @@ class Postgresql(object):
                 logger.error('pre_promote script %s failed: %s', cmd, e)
                 return False
 
-            # XXX either the subprocess ceased to be a child of Patroni 
+            # XXX either the Cancellable subprocess ceased to be a child of Patroni 
             # or it terminated shortly after start before wait() was called on it 
-            # see psutil.Process.wait() docs
+            # see https://psutil.readthedocs.io/en/latest/#psutil.Process.wait
             if ret is None:
-                logger.error('process running the pre_promote script returned None instead of a return code; this may indicate abnormal behaviour of the Patroni process')
+                logger.error('subprocess running the pre_promote script returned None instead of a return code; this abnormal behaviour is assumed to indicate pre promote failure')
                 return False
 
             if ret != 0:
@@ -746,7 +748,13 @@ class Postgresql(object):
         """
 
         self.pre_promote_task = CriticalTask()
+
+        # preserve the current script conf in case it changes while the script is running
+        self._running_pre_promote_script = self.pre_promote_script
+
         self.pre_promote_task.complete(self._call_pre_promote(self.pre_promote_script))
+
+        self._running_pre_promote_script = None
 
         return self.pre_promote_task.result
 

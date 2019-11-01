@@ -88,6 +88,7 @@ class Ha(object):
         # already running as replica was aborted due to cluster not beeing initialized in DCS.
         self._join_aborted = False
 
+        # used only in backoff after failing a pre_promote script
         self._released_leader_key_timestamp = 0
 
     def check_mode(self, mode):
@@ -140,10 +141,8 @@ class Ha(object):
 
     def acquire_lock(self):
 
-        # wait if voluntarily released the leader key recently
-        # for example after failing a pre-promote script (PR 1099)
         if time.time() - self._released_leader_key_timestamp < 10:
-            logger.info("backoff: skipping leader lock acquisition after releasing the lock voluntarily")
+            logger.info("backoff: skip leader lock acquisition after failing a pre_promote script and releasing the lock voluntarily")
             return False
 
         self.set_leader_access_is_restricted(self.cluster.has_permanent_logical_slots(self.state_handler.name))
@@ -531,6 +530,7 @@ class Ha(object):
 
         if not self.is_paused() and self.state_handler.pre_promote_task and self.state_handler.pre_promote_task.result is False:
             logger.warning("Releasing the leader key voluntarily because the pre-promote script failed")
+            self._released_leader_key_timestamp = time.time()
             self.release_leader_key_voluntarily()
             # discard the result of the failed pre-promote script to be able to re-try promote
             self.state_handler.pre_promote_task = None
@@ -744,7 +744,6 @@ class Ha(object):
     def release_leader_key_voluntarily(self):
         self._delete_leader()
         self.touch_member()
-        self._released_leader_key_timestamp = time.time()
         logger.info("Leader key released")
 
 
