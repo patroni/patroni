@@ -84,7 +84,7 @@ class KubernetesWatcher(Thread):
 
     def _process_event(self, event):
         ev_type = event.get('type')
-        metadata = event['raw_object'].get('metadata', {})
+        metadata = event['object'].get('metadata', {})
         name = metadata.get('name')
         annotations_map = {self._dcs.leader_path: self._dcs._LEADER, self._dcs.config_path: self._dcs._CONFIG}
         value = None if ev_type == 'DELETED' else metadata.get('annotations', {}).get(annotations_map.get(name))
@@ -101,9 +101,9 @@ class KubernetesWatcher(Thread):
             self._config_value = value
 
     def _do_watch(self):
-        stream = self._dcs.start_watch_stream()
-        for event in stream:
-            self._process_event(event)
+        response = self._dcs.start_watch_stream()
+        for line in k8s_watch.watch.iter_resp_lines(response):
+            self._process_event(json.loads(line))
 
     def run(self):
         while True:
@@ -459,9 +459,9 @@ class Kubernetes(AbstractDCS):
         return self.write_sync_state(None, None, index)
 
     def start_watch_stream(self):
-        watch = k8s_watch.Watch()
-        return watch.stream(self._api.list_namespaced_kind, self._namespace, label_selector=self._label_selector,
-                            _request_timeout=(self._retry.deadline, Timeout.DEFAULT_TIMEOUT))
+        return self._api.list_namespaced_kind(self._namespace, label_selector=self._label_selector,
+                                              _request_timeout=(self._retry.deadline, Timeout.DEFAULT_TIMEOUT),
+                                              _preload_content=False, watch=True)
 
     def watch(self, leader_index, timeout):
         if self.__do_not_watch:

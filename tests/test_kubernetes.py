@@ -1,8 +1,9 @@
+import json
 import time
 import unittest
 
 from mock import Mock, patch
-from patroni.dcs.kubernetes import Kubernetes, KubernetesError, k8s_client, k8s_watch, RetryFailedError
+from patroni.dcs.kubernetes import Kubernetes, KubernetesError, k8s_client, RetryFailedError
 from threading import Thread
 from . import SleepException
 
@@ -107,7 +108,7 @@ class TestKubernetes(unittest.TestCase):
                         'labels': {'f': 'b'}, 'use_endpoints': True, 'pod_ip': '10.0.0.0'})
         self.assertFalse(k.delete_sync_state())
 
-    @patch.object(k8s_watch.Watch, 'stream', Mock(return_value=[{'raw_object': {'metadata': {}}}]))
+    @patch.object(k8s_client.CoreV1Api, 'list_namespaced_config_map', Mock())
     def test_start_watch_stream(self):
         self.assertIsNotNone(self.k.start_watch_stream())
 
@@ -142,24 +143,24 @@ class TestKubernetesWatcher(unittest.TestCase):
     def setUp(self):
         self.k = Kubernetes({'ttl': 30, 'scope': 'test', 'name': 'p-0', 'retry_timeout': 10, 'labels': {'f': 'b'}})
 
-    def test_leader_update(self, mock_stream):
-        mock_stream.return_value = [
-            {'raw_object': {'type': 'MODIFIED',
-                            'metadata': {'name': self.k.leader_path, 'annotations': {self.k._LEADER: 'foo'}}}},
-            {'raw_object': {'type': 'MODIFIED',
-                            'metadata': {'name': self.k.leader_path, 'annotations': {self.k._LEADER: 'bar'}}}}
-        ]
+    def test_leader_update(self, mock_response):
+        mock_response.return_value.read_chunked.return_value = json.dumps(
+            {'object': {'type': 'MODIFIED',
+                        'metadata': {'name': self.k.leader_path, 'annotations': {self.k._LEADER: 'foo'}}}}
+        ) + '\n' + json.dumps(
+            {'object': {'type': 'MODIFIED',
+                        'metadata': {'name': self.k.leader_path, 'annotations': {self.k._LEADER: 'bar'}}}}) + '\n'
         self.assertRaises(SleepException, self.k._watcher.run)
 
-    def test_config_update(self, mock_stream):
-        mock_stream.return_value = [
-            {'raw_object': {'type': 'MODIFIED',
-                            'metadata': {'name': self.k.config_path, 'annotations': {self.k._CONFIG: 'foo'}}}},
-            {'raw_object': {'type': 'MODIFIED',
-                            'metadata': {'name': self.k.config_path, 'annotations': {self.k._CONFIG: 'bar'}}}}
-        ]
+    def test_config_update(self, mock_response):
+        mock_response.return_value.read_chunked.return_value = json.dumps(
+            {'object': {'type': 'MODIFIED',
+                        'metadata': {'name': self.k.config_path, 'annotations': {self.k._CONFIG: 'foo'}}}}
+        ) + '\n' + json.dumps(
+            {'object': {'type': 'MODIFIED',
+                        'metadata': {'name': self.k.config_path, 'annotations': {self.k._CONFIG: 'bar'}}}}) + '\n'
         self.assertRaises(SleepException, self.k._watcher.run)
 
-    def test_run(self, mock_stream):
-        mock_stream.side_effect = Exception
+    def test_run(self, mock_response):
+        mock_iter_resp_lines.side_effect = Exception
         self.assertRaises(SleepException, self.k._watcher.run)
