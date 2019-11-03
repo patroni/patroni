@@ -162,5 +162,5 @@ class TestKubernetesWatcher(unittest.TestCase):
         self.assertRaises(SleepException, self.k._watcher.run)
 
     def test_run(self, mock_response):
-        mock_iter_resp_lines.side_effect = Exception
+        mock_response.side_effect = Exception
         self.assertRaises(SleepException, self.k._watcher.run)
