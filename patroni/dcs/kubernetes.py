@@ -102,8 +102,12 @@ class KubernetesWatcher(Thread):
 
     def _do_watch(self):
         response = self._dcs.start_watch_stream()
-        for line in k8s_watch.watch.iter_resp_lines(response):
-            self._process_event(json.loads(line))
+        try:
+            for line in k8s_watch.watch.iter_resp_lines(response):
+                self._process_event(json.loads(line))
+        finally:
+            response.close()
+            response.release_conn()
 
     def run(self):
         while True:
