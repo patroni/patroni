@@ -90,6 +90,7 @@ class TestPostgresql(BaseTestPostgresql):
 
     @patch('subprocess.call', Mock(return_value=0))
     @patch('os.rename', Mock())
+    @patch('patroni.postgresql.CallbackExecutor', Mock())
     @patch.object(Postgresql, 'get_major_version', Mock(return_value=120000))
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def setUp(self):
@@ -201,43 +202,53 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertEqual(self.p.checkpoint(), 'not accessible or not healty')
 
     @patch('patroni.postgresql.config.mtime', mock_mtime)
-    @patch.object(MockCursor, 'fetchone')
-    def test_check_recovery_conf(self, mock_fetchone):
-        mock_fetchone.side_effect = [('foo=bar',), ('',), ('foo',), ('host=1 passfile=' + self.p.config._pgpass,)]
+    @patch('patroni.postgresql.config.ConfigHandler._get_pg_settings')
+    def test_check_recovery_conf(self, mock_get_pg_settings):
+        mock_get_pg_settings.return_value = {
+            'primary_conninfo': ['primary_conninfo', 'foo=', None, 'string', 'postmaster'],
+            'recovery_min_apply_delay': ['recovery_min_apply_delay', '0', 'ms', 'integer', 'sighup']
+        }
+        self.assertFalse(self.p.config.check_recovery_conf(None))
+        self.p.config.write_recovery_conf({'standby_mode': 'on'})
+        self.assertFalse(self.p.config.check_recovery_conf(None))
+        mock_get_pg_settings.return_value['primary_conninfo'][1] = ''
+        mock_get_pg_settings.return_value['recovery_min_apply_delay'][1] = '1'
+        self.assertFalse(self.p.config.check_recovery_conf(None))
+        mock_get_pg_settings.return_value['recovery_min_apply_delay'][1] = '0'
+        self.assertTrue(self.p.config.check_recovery_conf(None))
         conninfo = {'host': '1', 'password': 'bar'}
-        for version in (120000, 100000):
-            with patch.object(Postgresql, 'major_version', PropertyMock(return_value=version)):
-                self.p.config.write_recovery_conf({'standby_mode': 'on', 'primary_conninfo': {'sslmode': 'prefer'}})
-                self.assertFalse(self.p.config.check_recovery_conf(None))
-                self.p.config.write_recovery_conf({'primary_conninfo': {'sslmode': 'prefer'}})
-                self.p.config.write_postgresql_conf()
-                self.assertFalse(self.p.config.check_recovery_conf(None))
-                self.p.config.write_recovery_conf({'standby_mode': 'on'})
-                self.assertTrue(self.p.config.check_recovery_conf(None))
-                with patch('patroni.postgresql.config.ConfigHandler.primary_conninfo_params',
-                           Mock(return_value=conninfo.copy())):
-                    self.assertFalse(self.p.config.check_recovery_conf(None))
-                    self.p.config.write_recovery_conf({'standby_mode': 'on', 'primary_conninfo': conninfo.copy()})
-                    self.p.config.check_recovery_conf(None)
+        with patch('patroni.postgresql.config.ConfigHandler.primary_conninfo_params', Mock(return_value=conninfo)):
+            mock_get_pg_settings.return_value['recovery_min_apply_delay'][1] = '1'
+            self.assertFalse(self.p.config.check_recovery_conf(None))
+            mock_get_pg_settings.return_value['primary_conninfo'][1] = 'host=1 passfile=' + self.p.config._pgpass
+            mock_get_pg_settings.return_value['recovery_min_apply_delay'][1] = '0'
+            self.assertFalse(self.p.config.check_recovery_conf(None))
+            self.p.config.write_recovery_conf({'standby_mode': 'on', 'primary_conninfo': conninfo.copy()})
+            self.p.config.write_postgresql_conf()
+            self.assertTrue(self.p.config.check_recovery_conf(None))
 
     @patch.object(Postgresql, 'major_version', PropertyMock(return_value=120000))
     @patch.object(Postgresql, 'is_running', MockPostmaster)
     @patch.object(MockPostmaster, 'create_time', Mock(return_value=1234567), create=True)
-    @patch.object(MockCursor, 'fetchone', Mock(return_value=('',)))
-    def test__read_primary_conninfo(self):
+    @patch('patroni.postgresql.config.ConfigHandler._get_pg_settings')
+    def test__read_recovery_params(self, mock_get_pg_settings):
+        mock_get_pg_settings.return_value = {'primary_conninfo': ['primary_conninfo', '', None, 'string', 'postmaster']}
         self.p.config.write_recovery_conf({'standby_mode': 'on', 'primary_conninfo': {'password': 'foo'}})
         self.p.config.write_postgresql_conf()
         self.assertTrue(self.p.config.check_recovery_conf(None))
         self.assertTrue(self.p.config.check_recovery_conf(None))
-        with patch.object(Postgresql, 'query', Mock(side_effect=Exception)),\
-                patch('patroni.postgresql.config.mtime', mock_mtime):
+        mock_get_pg_settings.side_effect = Exception
+        with patch('patroni.postgresql.config.mtime', mock_mtime):
             self.assertFalse(self.p.config.check_recovery_conf(None))
 
     @patch.object(Postgresql, 'major_version', PropertyMock(return_value=100000))
-    def test__read_primary_conninfo_pre_v12(self):
+    def test__read_recovery_params_pre_v12(self):
         self.p.config.write_recovery_conf({'standby_mode': 'on', 'primary_conninfo': {'password': 'foo'}})
         self.assertFalse(self.p.config.check_recovery_conf(None))
         self.assertFalse(self.p.config.check_recovery_conf(None))
+        self.p.config.write_recovery_conf({'standby_mode': '\n'})
+        with patch('patroni.postgresql.config.mtime', mock_mtime):
+            self.assertFalse(self.p.config.check_recovery_conf(None))
 
     def test_write_postgresql_and_sanitize_auto_conf(self):
         read_data = 'primary_conninfo = foo\nfoo = bar\n'
@@ -643,7 +654,7 @@ class TestPostgresql(BaseTestPostgresql):
             data = self.p.read_postmaster_opts()
             self.assertEqual(data, dict())
 
-    @patch('subprocess.Popen')
+    @patch('psutil.Popen')
     def test_single_user_mode(self, subprocess_popen_mock):
         subprocess_popen_mock.return_value.wait.return_value = 0
         self.assertEqual(self.p.single_user_mode('CHECKPOINT', {'archive_mode': 'on'}), 0)

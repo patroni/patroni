@@ -15,7 +15,7 @@ from dns import resolver
 from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
 from patroni.exceptions import DCSError
 from patroni.utils import Retry, RetryFailedError, split_host_port, uri
-from urllib3.exceptions import HTTPError, ReadTimeoutError
+from urllib3.exceptions import HTTPError, ReadTimeoutError, ProtocolError
 from requests.exceptions import RequestException
 from six.moves.queue import Queue
 from six.moves.http_client import HTTPException
@@ -93,22 +93,47 @@ class Client(etcd.Client):
         self._config = config
         self._load_machines_cache()
         self._allow_reconnect = True
+        # allow passing retry argument to api_execute in params
+        self._comparison_conditions.add('retry')
+        self._read_options.add('retry')
+        self._del_conditions.add('retry')
 
-    def _build_request_parameters(self):
+    def _calculate_timeouts(self, etcd_nodes=None, timeout=None):
+        """Calculate a request timeout and number of retries per single etcd node.
+        In case if the timeout per node is too small (less than one second) we will reduce the number of nodes.
+        For the cluster with only one node we will try to do 2 retries.
+        For clusters with 2 nodes we will try to do 1 retry for every node.
+        No retries for clusters with 3 or more nodes. We better rely on switching to a different node."""
+
+        etcd_nodes = etcd_nodes or len(self._machines_cache) + 1
+        per_node_timeout = timeout = float(timeout or self.read_timeout)
+
+        max_retries = 4 - min(etcd_nodes, 3)
+        per_node_retries = 1
+        min_timeout = 1.0
+
+        while etcd_nodes > 0:
+            per_node_timeout = float(timeout) / etcd_nodes
+            if per_node_timeout >= min_timeout:
+                # for small clusters we will try to do more than on try on every node
+                while per_node_retries < max_retries and per_node_timeout / (per_node_retries + 1) >= min_timeout:
+                    per_node_retries += 1
+                per_node_timeout /= per_node_retries
+                break
+            # if the timeout per one node is to small try to reduce number of nodes
+            etcd_nodes -= 1
+            max_retries = 1
+
+        return etcd_nodes, per_node_timeout, per_node_retries - 1
+
+    def _build_request_parameters(self, timeout=None):
         kwargs = {'headers': self._get_headers(), 'redirect': self.allow_redirect}
 
-        # calculate the number of retries and timeout *per node*
-        # actual number of retries depends on the number of nodes
-        etcd_nodes = len(self._machines_cache) + 1
-        kwargs['retries'] = 0 if etcd_nodes > 3 else (1 if etcd_nodes > 1 else 2)
-
-        # if etcd_nodes > 3:
-        #     kwargs.update({'retries': 0, 'timeout': float(self.read_timeout)/etcd_nodes})
-        # elif etcd_nodes > 1:
-        #     kwargs.update({'retries': 1, 'timeout': self.read_timeout/2.0/etcd_nodes})
-        # else:
-        #     kwargs.update({'retries': 2, 'timeout': self.read_timeout/3.0})
-        kwargs['timeout'] = self.read_timeout/float(kwargs['retries'] + 1)/etcd_nodes
+        if timeout is not None:
+            kwargs.update(retries=0, timeout=timeout)
+        else:
+            _, per_node_timeout, per_node_retries = self._calculate_timeouts()
+            kwargs.update(timeout=per_node_timeout, retries=per_node_retries)
         return kwargs
 
     def set_machines_cache_ttl(self, cache_ttl):
@@ -166,8 +191,12 @@ class Client(etcd.Client):
             self._check_cluster_id(response)
         except (HTTPError, HTTPException, socket.error, socket.timeout) as e:
             if (isinstance(fields, dict) and fields.get("wait") == "true" and
-                    isinstance(e, ReadTimeoutError)):
+                    isinstance(e, (ReadTimeoutError, ProtocolError))):
                 logger.debug("Watch timed out.")
+                # switch to the next etcd node because we don't know exactly what happened,
+                # whether the key didn't received an update or there is a network problem.
+                self._machines_cache.insert(0, self._base_uri)
+                self._base_uri = self._next_server()
                 raise etcd.EtcdWatchTimedOut("Watch timed out: {0}".format(e), cause=e)
             logger.error("Request to server %s failed: %r", self._base_uri, e)
             logger.info("Reconnection allowed, looking for another server.")
@@ -179,6 +208,7 @@ class Client(etcd.Client):
         if not path.startswith('/'):
             raise ValueError('Path does not start with /')
 
+        retry = params.pop('retry', None) if isinstance(params, dict) else None
         kwargs = {'fields': params, 'preload_content': False}
 
         if method in [self._MGET, self._MDELETE]:
@@ -194,31 +224,44 @@ class Client(etcd.Client):
             self._load_machines_cache()
         elif not self._use_proxies and time.time() - self._machines_cache_updated > self._machines_cache_ttl:
             self._refresh_machines_cache()
-            self._machines_cache_updated = time.time()
 
-        kwargs.update(self._build_request_parameters())
+        kwargs.update(self._build_request_parameters(timeout))
 
-        if timeout is not None:
-            kwargs.update({'retries': 0, 'timeout': timeout})
+        if retry:
+            machines_cache = [self._base_uri] + self._machines_cache
 
         response = False
 
-        try:
-            some_request_failed = False
-            while not response:
-                response = self._do_http_request(request_executor, method, self._base_uri + path, **kwargs)
+        while True:
+            try:
+                some_request_failed = False
+                while not response:
+                    response = self._do_http_request(request_executor, method, self._base_uri + path, **kwargs)
 
-                if response is False:
-                    some_request_failed = True
-            if some_request_failed:
-                self._refresh_machines_cache()
-        except etcd.EtcdConnectionFailed as e:
-            if isinstance(e, etcd.EtcdWatchTimedOut) and self._machines_cache:
-                self._base_uri = self._next_server()
-            else:
-                self._update_machines_cache = True
-            if not response:
-                raise
+                    if response is False:
+                        if not retry:
+                            raise etcd.EtcdException('{0} {1} request failed'.format(method, path))
+                        some_request_failed = True
+                if some_request_failed:
+                    self._refresh_machines_cache()
+                if response:
+                    break
+            except etcd.EtcdConnectionFailed:
+                if not retry:
+                    raise
+                sleeptime = retry.sleeptime
+                remaining_time = retry.stoptime - sleeptime - time.time()
+                nodes, timeout, retries = self._calculate_timeouts(len(machines_cache), remaining_time)
+                if nodes == 0:
+                    self._update_machines_cache = True
+                    raise
+                retry.sleep_func(sleeptime)
+                retry.update_delay()
+                # We still have some time left. Partially restore `_machines_cache` and retry request
+                kwargs.update(timeout=timeout, retries=retries)
+                self._base_uri = machines_cache[0]
+                self._machines_cache = machines_cache[1:nodes]
+
         return self._handle_server_response(response)
 
     @staticmethod
@@ -300,14 +343,15 @@ class Client(etcd.Client):
         # After filling up initial list of machines_cache we should ask etcd-cluster about actual list
         self._base_uri = self._next_server()
         self._refresh_machines_cache()
-
         self._update_machines_cache = False
-        self._machines_cache_updated = time.time()
 
     def _refresh_machines_cache(self):
         self._machines_cache = self._get_machines_cache_from_config() if self._use_proxies else self.machines
         if self._base_uri in self._machines_cache:
             self._machines_cache.remove(self._base_uri)
+        elif self._machines_cache:
+            self._base_uri = self._next_server()
+        self._machines_cache_updated = time.time()
 
 
 class Etcd(AbstractDCS):
@@ -322,7 +366,9 @@ class Etcd(AbstractDCS):
         self._has_failed = False
 
     def retry(self, *args, **kwargs):
-        return self._retry.copy()(*args, **kwargs)
+        retry = self._retry.copy()
+        kwargs['retry'] = retry
+        return retry(*args, **kwargs)
 
     def _handle_exception(self, e, name='', do_sleep=False, raise_ex=None):
         if not self._has_failed:
@@ -508,7 +554,7 @@ class Etcd(AbstractDCS):
 
     @catch_etcd_errors
     def take_leader(self):
-        return self.retry(self._client.set, self.leader_path, self._name, self._ttl)
+        return self.retry(self._client.write, self.leader_path, self._name, ttl=self._ttl)
 
     def attempt_to_acquire_leader(self, permanent=False):
         try:
@@ -537,7 +583,7 @@ class Etcd(AbstractDCS):
 
     @catch_etcd_errors
     def _update_leader(self):
-        return self.retry(self._client.test_and_set, self.leader_path, self._name, self._name, self._ttl)
+        return self.retry(self._client.write, self.leader_path, self._name, prevValue=self._name, ttl=self._ttl)
 
     @catch_etcd_errors
     def initialize(self, create_new=True, sysid=""):

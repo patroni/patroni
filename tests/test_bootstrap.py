@@ -16,6 +16,7 @@ from . import psycopg2_connect, BaseTestPostgresql
 @patch('os.rename', Mock())
 class TestBootstrap(BaseTestPostgresql):
 
+    @patch('patroni.postgresql.CallbackExecutor', Mock())
     def setUp(self):
         super(TestBootstrap, self).setUp()
         self.b = self.p.bootstrap
