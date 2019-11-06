@@ -3,13 +3,13 @@
 Patroni REST API
 ================
 
-Patroni has a reach REST API, which is used by Patroni itself during the leader race, by ``patronictl`` tool in order to perform failovers/switchovers/reinitialize/restarts/reloads, by HAProxy or any other kind of load-balancer to perform HTTP health-checks and of course of could also be used for monitoring. Below you will find the list of Patroni REST API endpoints.
+Patroni has a rich REST API, which is used by Patroni itself during the leader race, by the ``patronictl`` tool in order to perform failovers/switchovers/reinitialize/restarts/reloads, by HAProxy or any other kind of load balancer to perform HTTP health checks, and of course could also be used for monitoring. Below you will find the list of Patroni REST API endpoints.
 
-Health-check endpoints
+Health check endpoints
 ----------------------
-For all health-check ``GET`` requests along with HTTP status code Patroni returns a JSON document with the status of the node. If you don't want or don't need the JSON document you might consider using the ``OPTIONS`` method instead of ``GET``.
+For all health check ``GET`` requests Patroni returns a JSON document with the status of the node, along with the HTTP status code. If you don't want or don't need the JSON document, you might consider using the ``OPTIONS`` method instead of ``GET``.
 
-- Following requests to Patroni REST API will return HTTP status code **200** only when the Patroni node is running as the leader
+- The following requests to Patroni REST API will return HTTP status code **200** only when the Patroni node is running as the leader:
 
   - ``GET /``
   - ``GET /master``
@@ -17,11 +17,11 @@ For all health-check ``GET`` requests along with HTTP status code Patroni return
   - ``GET /primary``
   - ``GET /read-write``
 
-- ``GET /replica``: replica health-check endpoint. will return HTTP status code **200** only when the Patroni node is in the state ``running``, the role is ``replica`` and ``noloadbalance`` tag is not set.
+- ``GET /replica``: replica health check endpoint. It returns HTTP status code **200** only when the Patroni node is in the state ``running``, the role is ``replica`` and ``noloadbalance`` tag is not set.
 
 - ``GET /read-only``: like the above endpoint, but also includes the primary.
 
-- ``GET /standby-leader``: returns HTTP status code **200** only when the Patroni node is running as the leader in the :ref:`standby cluster <standby_cluster>`.
+- ``GET /standby-leader``: returns HTTP status code **200** only when the Patroni node is running as the leader in a :ref:`standby cluster <standby_cluster>`.
 
 - ``GET /synchronous`` or ``GET /sync``: returns HTTP status code **200** only when the Patroni node is running as a synchronous standby.
 
@@ -32,7 +32,7 @@ For all health-check ``GET`` requests along with HTTP status code Patroni return
 Monitoring endpoint
 -------------------
 
-The ``GET /patroni`` is used by Patroni during the leader race. It also could be used by your monitoring system. The JSON document produced by this endpoint has the same structure and the JSON produced by health-check endpoints.
+The ``GET /patroni`` is used by Patroni during the leader race. It also could be used by your monitoring system. The JSON document produced by this endpoint has the same structure as the JSON produced by the health check endpoints.
 
 .. code-block:: bash
 
@@ -57,7 +57,7 @@ The ``GET /patroni`` is used by Patroni during the leader race. It also could be
 Cluster status endpoints
 ------------------------
 
-- The ``GET /cluster`` endpoint generates JSON document describing the current cluster topology and state.
+- The ``GET /cluster`` endpoint generates a JSON document describing the current cluster topology and state:
 
 .. code-block:: bash
 
@@ -97,7 +97,7 @@ Cluster status endpoints
     }
 
 
-- The ``GET /history`` endpoint provides a view on the history of cluster switchovers/failovers. The format is very similar to the content of history files in the ``pg_wal`` directory. The only difference in the timestamp field showing when the new timeline was created.
+- The ``GET /history`` endpoint provides a view on the history of cluster switchovers/failovers. The format is very similar to the content of history files in the ``pg_wal`` directory. The only difference is the timestamp field showing when the new timeline was created.
 
 .. code-block:: bash
 
@@ -133,7 +133,7 @@ Cluster status endpoints
 Config endpoint
 ---------------
 
-``GET /config``: Get the current version of the dynamic configuration.
+``GET /config``: Get the current version of the dynamic configuration:
 
 .. code-block:: bash
 
@@ -188,7 +188,7 @@ Config endpoint
 
 The above REST API call patches the existing configuration and returns the new configuration.
 
-Let's check that the node processed this configuration. First of all it should start printing log lines every 5 seconds (loop_wait=5). The change of "max_connections" requires a restart, so the "restart_pending" flag should be exposed:
+Let's check that the node processed this configuration. First of all it should start printing log lines every 5 seconds (loop_wait=5). The change of "max_connections" requires a restart, so the "pending_restart" flag should be exposed:
 
 .. code-block:: bash
 
@@ -238,7 +238,7 @@ If you want to remove (reset) some setting just patch it with ``null``:
 	  }
 	}
 
-Above call removes ``postgresql.parameters.max_connections`` from the dynamic configuration.
+The above call removes ``postgresql.parameters.max_connections`` from the dynamic configuration.
 
 ``PUT /config``: It's also possible to perform the full rewrite of an existing dynamic configuration unconditionally:
 
@@ -267,20 +267,20 @@ Above call removes ``postgresql.parameters.max_connections`` from the dynamic co
 	}
 
 
-Switchover and Failover endpoints
+Switchover and failover endpoints
 ---------------------------------
 
 ``POST /switchover`` or ``POST /failover``. These endpoints are very similar to each other. There are a couple of minor differences though:
 
-1. The failover endpoint allows to perform a manual failover when there are no healthy nodes, but at the same time it will not allow you to ``schedule`` a switchover.
+1. The failover endpoint allows to perform a manual failover when there are no healthy nodes, but at the same time it will not allow you to schedule a switchover.
 
-2. The switchover endpoint is the opposite. It works only when the cluster is healthy (there is the leader) and allows to ``schedule`` a switchover at a given time.
-
-
-In the JSON body of ``POST`` request you must specify at least the ``leader`` or ``candidate`` fields and optionally the ``scheduled_at`` field if you want to schedule a switchover at a specific time.
+2. The switchover endpoint is the opposite. It works only when the cluster is healthy (there is a leader) and allows to schedule a switchover at a given time.
 
 
-Example: perform a failover to the specific node
+In the JSON body of the ``POST`` request you must specify at least the ``leader`` or ``candidate`` fields and optionally the ``scheduled_at`` field if you want to schedule a switchover at a specific time.
+
+
+Example: perform a failover to the specific node:
 
 .. code-block:: bash
 
@@ -288,7 +288,7 @@ Example: perform a failover to the specific node
     Successfully failed over to "postgresql1"
 
 
-Example: schedule a switchover from leader to any other healthy replica in the cluster at a specific time.
+Example: schedule a switchover from the leader to any other healthy replica in the cluster at a specific time:
 
 .. code-block:: bash
 
@@ -297,20 +297,20 @@ Example: schedule a switchover from leader to any other healthy replica in the c
     Switchover scheduled
 
 
-Depending on the situation the request might finish with a different HTTP status code and body. The status code **200** is returned when the switchover or failover successfully completed. If the switchover was successfully scheduled, Patroni will return HTTP status code **202**. In case if something went wrong the error status code (one of **400**, **412** or **503**) will be returned with some details in the response body. For more information please check the source code of ``patroni/api.py:do_POST_failover()`` method.
+Depending on the situation the request might finish with a different HTTP status code and body. The status code **200** is returned when the switchover or failover successfully completed. If the switchover was successfully scheduled, Patroni will return HTTP status code **202**. In case something went wrong, the error status code (one of **400**, **412** or **503**) will be returned with some details in the response body. For more information please check the source code of ``patroni/api.py:do_POST_failover()`` method.
 
-The switchover and failover endpoints are used by ``patronictl switchover`` and ``patronictl failover`` respectively.
+The switchover and failover endpoints are used by ``patronictl switchover`` and ``patronictl failover``, respectively.
 
 
 Restart endpoint
 ----------------
 
-- ``POST /restart``: You can restart the postgres on the specific node by performing the ``POST /restart`` call. In the JSON body of ``POST`` request it is possible to optionally specify some restart conditions:
+- ``POST /restart``: You can restart Postgres on the specific node by performing the ``POST /restart`` call. In the JSON body of ``POST`` request it is possible to optionally specify some restart conditions:
 
   - **restart_pending**: boolean, if set to ``true`` Patroni will restart PostgreSQL only when restart is pending in order to apply some changes in the PostgreSQL config.
   - **role**: perform restart only if the current role of the node matches with the role from the POST request.
   - **postgres_version**: perform restart only if the current version of postgres is smaller than specified in the POST request.
-  - **timeout**: how long should we wait before PostgreSQL starts accepting connections. Overrides ``master_start_timeout``.
+  - **timeout**: how long we should wait before PostgreSQL starts accepting connections. Overrides ``master_start_timeout``.
   - **schedule**: timestamp with time zone, schedule the restart somewhere in the future.
 
 - ``DELETE /restart``: delete the scheduled restart
@@ -321,7 +321,7 @@ The restart endpoint is used by ``patronictl restart``.
 Reload endpoint
 ---------------
 
-The ``POST /reload`` call will order Patroni to re-read and apply the configuration file. The equivalent of sending the ``SIGHUP`` signal to the Patroni process. In case if you changed some of postgres parameters which require a restart (like for example **shared_buffers**), you still have to explicitly do the restart of postgres by either calling ``POST /restart`` endpoint of with the help of ``patronictl restart``
+The ``POST /reload`` call will order Patroni to re-read and apply the configuration file. This is the equivalent of sending the ``SIGHUP`` signal to the Patroni process. In case you changed some of the Postgres parameters which require a restart (like **shared_buffers**), you still have to explicitly do the restart of Postgres by either calling the ``POST /restart`` endpoint or with the help of ``patronictl restart``.
 
 The reload endpoint is used by ``patronictl reload``.
 
@@ -329,7 +329,8 @@ The reload endpoint is used by ``patronictl reload``.
 Reinitialize endpoint
 ---------------------
 
-``POST /reinitialize`` - reinitialize the PostgreSQL data directory on specified node. Is allowed to be executed only on the replica. Once called it will remove the data directory and start ``pg_basebackup`` or some alternative :ref:`replica creation method <custom_replica_creation>`.
-The call might fail if Patroni is in a loop trying to recover(restart) failed postgres. In order to overcome this problem one can specify ``{"force":true}`` in the request body.
+``POST /reinitialize``: reinitialize the PostgreSQL data directory on the specified node. It is allowed to be executed only on replicas. Once called, it will remove the data directory and start ``pg_basebackup`` or some alternative :ref:`replica creation method <custom_replica_creation>`.
+
+The call might fail if Patroni is in a loop trying to recover (restart) a failed Postgres. In order to overcome this problem one can specify ``{"force":true}`` in the request body.
 
 The reinitialize endpoint is used by ``patronictl reinitialize``.

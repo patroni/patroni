@@ -19,8 +19,8 @@ Dynamic configuration is stored in the DCS (Distributed Configuration Store) and
 -  **synchronous\_mode**: turns on synchronous replication mode. In this mode a replica will be chosen as synchronous and only the latest leader and synchronous replica are able to participate in leader election. Synchronous mode makes sure that successfully committed transactions will not be lost at failover, at the cost of losing availability for writes when Patroni cannot ensure transaction durability. See :ref:`replication modes documentation <replication_modes>` for details.
 -  **synchronous\_mode\_strict**: prevents disabling synchronous replication if no synchronous replicas are available, blocking all client writes to the master. See :ref:`replication modes documentation <replication_modes>` for details.
 -  **postgresql**:
-    -  **use\_pg\_rewind**: whether or not to use pg_rewind
-    -  **use\_slots**: whether or not to use replication_slots.
+    -  **use\_pg\_rewind**: whether or not to use pg_rewind. Defaults to `false`.
+    -  **use\_slots**: whether or not to use replication_slots. Defaults to `true` on PostgreSQL 9.4+.
     -  **recovery\_conf**: additional configuration settings written to recovery.conf when configuring follower. There is no recovery.conf anymore in PostgreSQL 12, but you may continue using this section, because Patroni handles it transparently.
     -  **parameters**: list of configuration settings for Postgres.
 -  **standby\_cluster**: if this section is defined, we want to bootstrap a standby cluster.
