@@ -468,6 +468,7 @@ class ConfigHandler(object):
         keywords = ('user', 'passfile', 'host', 'port', 'sslmode', 'sslcompression', 'sslcert',
                     'sslkey', 'sslrootcert', 'sslcrl', 'application_name', 'krbsrvname')
         if include_dbname:
+            params = params.copy()
             params['dbname'] = params.get('database') or self._postgresql.database
             keywords = ('dbname',) + keywords
 
