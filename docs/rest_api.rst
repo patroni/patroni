@@ -315,7 +315,7 @@ Restart endpoint
 
 - ``DELETE /restart``: delete the scheduled restart
 
-The restart endpoint is used by ``patronictl restart``.
+``POST /restart`` and ``DELETE /restart`` endpoints are used by ``patronictl restart`` and ``patronictl flush`` respectively.
 
 
 Reload endpoint
