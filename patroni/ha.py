@@ -380,12 +380,17 @@ class Ha(object):
         # In this case it is safe to continue running without changing recovery.conf
         if self.is_standby_cluster() and role == 'replica' and not (node_to_follow and node_to_follow.conn_url):
             return 'continue following the old known standby leader'
-        elif not self.state_handler.config.check_recovery_conf(node_to_follow):
-            self._async_executor.try_run_async('changing primary_conninfo and restarting',
-                                               self.state_handler.follow, args=(node_to_follow, role))
-        elif role == 'standby_leader' and self.state_handler.role != role:
-            self.state_handler.set_role(role)
-            self.state_handler.call_nowait(ACTION_ON_ROLE_CHANGE)
+        else:
+            change_required, restart_required = self.state_handler.config.check_recovery_conf(node_to_follow)
+            if change_required:
+                if restart_required:
+                    self._async_executor.try_run_async('changing primary_conninfo and restarting',
+                                                       self.state_handler.follow, args=(node_to_follow, role))
+                else:
+                    self.state_handler.follow(node_to_follow, role, do_reload=True)
+            elif role == 'standby_leader' and self.state_handler.role != role:
+                self.state_handler.set_role(role)
+                self.state_handler.call_nowait(ACTION_ON_ROLE_CHANGE)
 
         return follow_reason
 
