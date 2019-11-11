@@ -561,10 +561,12 @@ class Postgresql(object):
         if ready == STATE_REJECT:
             return False
         elif ready == STATE_NO_RESPONSE:
-            self.set_state('start failed')
-            self.slots_handler.schedule(False)  # TODO: can remove this?
-            self.config.save_configuration_files(True)  # TODO: maybe remove this?
-            return True
+            ret = not self.is_running()
+            if ret:
+                self.set_state('start failed')
+                self.slots_handler.schedule(False)  # TODO: can remove this?
+                self.config.save_configuration_files(True)  # TODO: maybe remove this?
+            return ret
         else:
             if ready != STATE_RUNNING:
                 # Bad configuration or unexpected OS error. No idea of PostgreSQL status.
