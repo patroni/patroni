@@ -502,7 +502,8 @@ class ConfigHandler(object):
         primary_conninfo = self.primary_conninfo_params(member)
         if primary_conninfo:
             recovery_params['primary_conninfo'] = primary_conninfo
-            if self._postgresql.slots_handler.use_slots and not (is_remote_master and member.no_replication_slot):
+            if self.get('use_slots', True) and self._postgresql.major_version >= 90400 \
+                    and not (is_remote_master and member.no_replication_slot):
                 recovery_params['primary_slot_name'] = member.primary_slot_name if is_remote_master \
                         else slot_name_from_member_name(self._postgresql.name)
 
