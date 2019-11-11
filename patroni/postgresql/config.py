@@ -468,6 +468,7 @@ class ConfigHandler(object):
         keywords = ('user', 'passfile', 'host', 'port', 'sslmode', 'sslcompression', 'sslcert',
                     'sslkey', 'sslrootcert', 'sslcrl', 'application_name', 'krbsrvname')
         if include_dbname:
+            params = params.copy()
             params['dbname'] = params.get('database') or self._postgresql.database
             keywords = ('dbname',) + keywords
 
@@ -501,7 +502,8 @@ class ConfigHandler(object):
         primary_conninfo = self.primary_conninfo_params(member)
         if primary_conninfo:
             recovery_params['primary_conninfo'] = primary_conninfo
-            if self._postgresql.slots_handler.use_slots and not (is_remote_master and member.no_replication_slot):
+            if self.get('use_slots', True) and self._postgresql.major_version >= 90400 \
+                    and not (is_remote_master and member.no_replication_slot):
                 recovery_params['primary_slot_name'] = member.primary_slot_name if is_remote_master \
                         else slot_name_from_member_name(self._postgresql.name)
 
@@ -541,7 +543,8 @@ class ConfigHandler(object):
             return None, False
 
         try:
-            values = {p[0]: p[1] for p in self._get_pg_settings(self._recovery_parameters_to_compare).values()}
+            values = self._get_pg_settings(self._recovery_parameters_to_compare).values()
+            values = {p[0]: [p[1], p[4] == 'postmaster'] for p in values}
             self._postgresql_conf_mtime = pg_conf_mtime
             self._auto_conf_mtime = auto_conf_mtime
             self._postmaster_ctime = postmaster_ctime
@@ -567,10 +570,10 @@ class ConfigHandler(object):
                     value = read_recovery_param_value(line[match.end():])
                 if value is None:
                     return None, True
-                values[match.group(1)] = value
+                values[match.group(1)] = [value, True]
             self._recovery_conf_mtime = recovery_conf_mtime
-        values.setdefault('recovery_min_apply_delay', '0')
-        values.update({param: '' for param in self._recovery_parameters_to_compare if param not in values})
+        values.setdefault('recovery_min_apply_delay', ['0', True])
+        values.update({param: ['', True] for param in self._recovery_parameters_to_compare if param not in values})
         return values, True
 
     def _check_passfile(self, passfile, wanted_primary_conninfo):
@@ -616,12 +619,12 @@ class ConfigHandler(object):
         # TODO: recovery.conf could be stale, would be nice to detect that.
         if self._postgresql.major_version >= 120000:
             if not os.path.exists(self._standby_signal):
-                return False
+                return True, True
 
             _read_recovery_params = self._read_recovery_params
         else:
             if not self.recovery_conf_exists():
-                return False
+                return True, True
 
             _read_recovery_params = self._read_recovery_params_pre_v12
 
@@ -630,31 +633,36 @@ class ConfigHandler(object):
         # was changed and params were read either from the config or from the database connection.
         if updated:
             if params is None:  # exception or unparsable config
-                return False
+                return True, True
 
             # We will cache parsed value until the next config change.
             self._current_recovery_params = params
-            if params['primary_conninfo']:
-                params['primary_conninfo'] = parse_dsn(params['primary_conninfo'])
+            primary_conninfo = params['primary_conninfo']
+            if primary_conninfo[0]:
+                primary_conninfo[0] = parse_dsn(params['primary_conninfo'][0])
                 # If we failed to parse non-empty connection string this indicates that config if broken.
-                if not params['primary_conninfo']:
-                    return False
+                if not primary_conninfo[0]:
+                    return True, True
             else:  # empty string, primary_conninfo is not in the config
-                params['primary_conninfo'] = {}
+                primary_conninfo[0] = {}
 
-        ret = True
+        required = {'restart': 0, 'reload': 0}
+
+        def record_missmatch(mtype):
+            required['restart' if mtype else 'reload'] += 1
+
         wanted_recovery_params = self.build_recovery_params(member)
         for param, value in self._current_recovery_params.items():
             if param == 'recovery_min_apply_delay':
-                if not compare_values('integer', 'ms', value, wanted_recovery_params.get(param, 0)):
-                    ret = False
+                if not compare_values('integer', 'ms', value[0], wanted_recovery_params.get(param, 0)):
+                    record_missmatch(value[1])
             elif param == 'primary_conninfo':
-                if not self._check_primary_conninfo(value, wanted_recovery_params.get('primary_conninfo', {})):
-                    ret = False
+                if not self._check_primary_conninfo(value[0], wanted_recovery_params.get('primary_conninfo', {})):
+                    record_missmatch(value[1])
             elif (param != 'primary_slot_name' or wanted_recovery_params.get('primary_conninfo')) \
-                    and str(value) != str(wanted_recovery_params.get(param, '')):
-                ret = False
-        return ret
+                    and str(value[0]) != str(wanted_recovery_params.get(param, '')):
+                record_missmatch(value[1])
+        return required['restart'] + required['reload'] > 0, required['restart'] > 0
 
     @staticmethod
     def _remove_file_if_exists(name):
