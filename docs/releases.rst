@@ -3,6 +3,131 @@
 Release notes
 =============
 
+Version 1.6.1
+
+**New features**
+
+- Added ``PATRONICTL_CONFIG_FILE`` environment variable (msvechla)
+
+  It allows configuring the ``--config-file`` argument for ``patronictl`` from the environment.
+
+- Implement ``patronictl history`` (Alexander Kukushkin)
+
+  It show the history of failovers/switchovers.
+
+- Pass ``-c statement_timeout=0`` in ``PGOPTIONS`` when doing pg_rewind (Alexander Kukushkin)
+
+  It protects from the case when ``statement_timeout`` on the server is set to some small value and one of the statements executed by pg_rewind is canceled.
+
+- Allow lower values for postgresql configuration (Soulou)
+
+  Patroni didn't allow to set some of the postgresql configuration parameters be smaller than some hardcoded values. Now the minimal allowed values are smaller, default values have not been changed.
+
+- Allow for certificate-based authentication (Jonathan S. Katz)
+
+  This feature enables certificate-based authentication for superuser, replication, rewind accounts and allows the user to specify the ``sslmode`` they wish to connect as.
+
+- Use the ``passfile`` in the ``primary_conninfo`` instead of password (Alexander Kukushkin)
+
+  It allows to avoid setting ``600`` permissions on postgresql.conf
+
+- Perform pg_ctl reload regardless of config changes (Alexander Kukushkin)
+
+  It is possible that some config files are not controlled by Patroni and when somebody is doing reload via REST API or by sending SIGHUP to Patroni process the usual expectation is that postgres will also be reloaded, but previously it didn't happen when there were no changes in the postgresql section of Patroni config.
+
+- Compare all recovery parameters, not only ``primary_conninfo`` (Alexander Kukushkin)
+
+  Previously the ``check_recovery_conf()`` method was only checking whether ``primary_conninfo`` has changed and never taking into account all other recovery parameters.
+
+- Make it possible to apply some recovery parameters without restart (Alexander Kukushkin)
+
+  Starting from PostgreSQL 12 the following recovery parameters could be changed without restart: ``archive_cleanup_command``, ``promote_trigger_file``, ``recovery_end_command``, and ``recovery_min_apply_delay``. In future postgres releases this list will be extended and Patroni will support it automatically.
+
+- Make it possible to change ``use_slots`` online (Alexander Kukushkin)
+
+  Previously it required restarting Patroni and removing slots manually.
+
+- Remove only ``PATRONI_`` prefixed environment variables when starting the postgres up (Cody Coons)
+
+  It will solve a lot of problems with running different Foreign Data Wrappers.
+
+
+**Stability improvements**
+
+- Use LIST + WATCH when working with K8s API (Alexander Kukushkin)
+
+  It allows to efficiently receive object changes (pods, endpoints/configmaps) and makes less stress on K8s master nodes.
+
+- Improve the workflow when PGDATA is not empty during bootstrap (Alexander Kukushkin)
+
+  According to the ``initdb`` source code it might consider a PGDATA empty when there are only ``lost+found`` and ``.dotfiles`` in it. Now Patroni does the same. In case if the ``PGDATA`` happened to be non empty, and at the same time not valid from the ``pg_controldata`` point of view, Patroni will complain and exit.
+
+- Avoid calling expensive ``os.listdir()`` on every HA loop (Alexander Kukushkin)
+
+  When the system is under IO stress, ``os.listdir()`` could take a few seconds (or even minutes) to execute what was badly affecting the HA loop of Patroni and could even cause the leader key to disappear from DCS due to the lack of updates. There is a better and less expensive way to check that the PGDATA is not empty. Now we check the presence of the ``global/pg_control`` file in the PGDATA.
+
+- Some improvements in logging infrastructure (Alexander Kukushkin)
+
+  Previously threre was possibility to loose last a few log lines on shutdown because the logging thread was a ``deamon`` thread.
+
+
+**Improvements in REST API**
+
+- Make it possible to check client certificates in the REST API (Alexander Kukushkin)
+
+  If the ``verify_client`` is set to ``required``, Patroni will check client certificates for all REST API calls. When it is set to ``optional``, client certificates are checked for all unsafe REST API endpoints.
+
+- Return the response code 503 for the ``GET /replica`` health check request if postgres is not running (Alexander Anikin)
+
+  Postgres might spend significant time in recovery before it starts accepting client connections.
+
+- Implement /history and /cluster endpoints (Alexander Kukushkin)
+
+  The ``/history`` endpoint shows the content of the ``history`` key in DCS. The ``/cluster`` endpoint shows all cluster members and some service info like pending and scheduled restarts or switchovers.
+
+
+**Improvements in Etcd support**
+
+- Retry on Etcd RAFT internal error (Alexander Kukushkin)
+
+  When the Etcd node is being shutdown it sends a response code=300, data='etcdserver: server stopped', what was causing Patroni to demote the primary.
+
+- Don't give up on Etcd request retry too early (Alexander Kukushkin)
+
+  If there are some network problems Patroni was quickly exausting the list of Etcd nodes and giving up without using the whole ``retry_timeout``, what potentially was resulting in demoting the primary.
+
+
+**Bugfixes**
+
+- Disable ``synchronous_commit`` when granting execute permissions to the ``pg_rewind`` user (kremius)
+
+  If the bootstrap is done with ``synchronous_mode_strict: true`` the `GRANT EXECUTE` statement was waiting indefinitely due to the no synchronous nodes being available.
+
+- Fix memory leak on python 3.7 (Alexander Kukushkin)
+
+  Patroni is using ``ThreadingMixIn`` to process REST API requests and python 3.7 made threads spawn for every request non-daemon by default.
+
+- Fix race conditions in asynchronous actions (Alexander Kukushkin)
+
+  There was a chance that ``patronictl reinit --force`` would be overwritten by the attempt to recover stopped postgres and we end up in a situation when Patroni was trying to start the postgres while basebackup is running.
+
+- Fix race condition in ``postmaster_start_time()`` method (Alexander Kukushkin)
+
+  If the method is executed from the REST API thread it requires a separate cursor object to be created.
+
+- Fix the problem of not promoting the sync standby with name contaning upper case letters (Alexander Kukushkin)
+
+  We converted the name to the lower case because postgres was doing the same while comparing the ``application_name`` with the value in ``synchronous_standby_names``.
+
+- Kill all children along with callback process before starting the new one (Alexander Kukushkin)
+
+  Not doing so makes it hard to implement callbacks in bash and eventually can lead to the situation when two callbacks are running at the same time. 
+
+- Fix 'start failed' issue (Alexander Kukushkin)
+
+  Under certain conditions the postgres state might be set to 'start failed' despite postgres being up and running.
+
+
 Version 1.6.0
 -------------
 
@@ -40,7 +165,7 @@ This version adds compatibility with PostgreSQL 12, makes is possible to run pg_
   This functionality works similarly to ``pg_hba.conf``: if the ``postgresql.pg_ident`` is defined in the config file or DCS, Patroni will write its value to ``pg_ident.conf``, however, if ``postgresql.parameters.ident_file`` is defined, Patroni will assume that ``pg_ident`` is managed from outside and not update the file.
 
 
-  **Improvements in REST API**
+**Improvements in REST API**
 
 - Added ``/health`` endpoint (Wilfried Roset)
 
