@@ -200,7 +200,7 @@ def check_psycopg2():
 def main():
     import multiprocessing
     if sys.version_info >= (3, 4):
-        #The default, fork()-ing, method is not a good idea in a multithreaded process: https://bugs.python.org/issue6721
+        # The default, forking, method is not a good idea in a multithreaded process: https://bugs.python.org/issue6721
         multiprocessing.set_start_method('spawn')
     check_psycopg2()
     if os.getpid() != 1:
