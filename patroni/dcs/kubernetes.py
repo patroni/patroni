@@ -14,7 +14,7 @@ from patroni.utils import deep_compare, tzutc, Retry, RetryFailedError
 from urllib3 import Timeout
 from urllib3.exceptions import HTTPError
 from six.moves.http_client import HTTPException
-from threading import Thread
+from threading import Condition, Lock, Thread
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,7 @@ class CoreV1ApiProxy(object):
 
     def __init__(self, use_endpoints=False):
         self._api = k8s_client.CoreV1Api()
+        self._api.api_client.rest_client.pool_manager.connection_pool_kw['maxsize'] = 10
         self._request_timeout = None
         self._use_endpoints = use_endpoints
 
@@ -72,46 +73,108 @@ def catch_kubernetes_errors(func):
     return wrapper
 
 
-class KubernetesWatcher(Thread):
+class ObjectCache(Thread):
 
-    def __init__(self, dcs):
-        super(KubernetesWatcher, self).__init__()
+    def __init__(self, dcs, func, retry, condition):
+        Thread.__init__(self)
         self.daemon = True
+        self._api_client = k8s_client.ApiClient()
         self._dcs = dcs
-        self._leader_value = None
-        self._config_value = None
+        self._func = func
+        self._retry = retry
+        self._condition = condition
+        self._is_ready = False
+        self._object_cache = {}
+        self._object_cache_lock = Lock()
+        self._annotations_map = {self._dcs.leader_path: self._dcs._LEADER, self._dcs.config_path: self._dcs._CONFIG}
         self.start()
 
-    def _process_event(self, event):
-        ev_type = event.get('type')
-        metadata = event['raw_object'].get('metadata', {})
-        name = metadata.get('name')
-        annotations_map = {self._dcs.leader_path: self._dcs._LEADER, self._dcs.config_path: self._dcs._CONFIG}
-        value = None if ev_type == 'DELETED' else metadata.get('annotations', {}).get(annotations_map.get(name))
+    def _list(self):
+        return self._func(_request_timeout=(self._retry.deadline, Timeout.DEFAULT_TIMEOUT))
 
-        if name == self._dcs.leader_path:
-            if ev_type != 'ADDED' and self._leader_value and value != self._leader_value:
-                logger.debug('Leader changed from %s to %s', self._leader_value, value)
-                self._dcs.event.set()
-            self._leader_value = value
-        elif name == self._dcs.config_path:
-            if value != self._config_value and (ev_type != 'ADDED' or self._config_value):
-                logger.debug('Config changed to %s', value)
-                self._dcs.event.set()
-            self._config_value = value
+    def _watch(self, resource_version):
+        return self._func(_request_timeout=(self._retry.deadline, Timeout.DEFAULT_TIMEOUT),
+                          _preload_content=False, watch=True, resource_version=resource_version)
 
-    def _do_watch(self):
-        stream = self._dcs.start_watch_stream()
-        for event in stream:
-            self._process_event(event)
+    def set(self, name, value):
+        with self._object_cache_lock:
+            old_value = self._object_cache.get(name)
+            ret = not old_value or int(old_value.metadata.resource_version) < int(value.metadata.resource_version)
+            if ret:
+                self._object_cache[name] = value
+        return ret, old_value
+
+    def delete(self, name, resource_version):
+        with self._object_cache_lock:
+            old_value = self._object_cache.get(name)
+            ret = old_value and int(old_value.metadata.resource_version) < int(resource_version)
+            if ret:
+                del self._object_cache[name]
+        return not old_value or ret, old_value
+
+    def copy(self):
+        with self._object_cache_lock:
+            return self._object_cache.copy()
+
+    def _build_cache(self):
+        objects = self._list()
+        return_type = 'V1' + objects.kind[:-4]
+        with self._object_cache_lock:
+            self._object_cache = {item.metadata.name: item for item in objects.items}
+        with self._condition:
+            self._is_ready = True
+            self._condition.notify()
+
+        response = self._watch(objects.metadata.resource_version)
+        try:
+            for line in k8s_watch.watch.iter_resp_lines(response):
+                event = json.loads(line)
+                obj = event['object']
+                if obj.get('code') == 410:
+                    break
+
+                ev_type = event['type']
+                name = obj['metadata']['name']
+
+                if ev_type in ('ADDED', 'MODIFIED'):
+                    obj = k8s_watch.watch.SimpleNamespace(data=json.dumps(obj))
+                    obj = self._api_client.deserialize(obj, return_type)
+                    success, old_value = self.set(name, obj)
+                    if success:
+                        new_value = (obj.metadata.annotations or {}).get(self._annotations_map.get(name))
+                elif ev_type == 'DELETED':
+                    success, old_value = self.delete(name, obj['metadata']['resourceVersion'])
+                    new_value = None
+                else:
+                    logger.warning('Unexpected event type: %s', ev_type)
+                    continue
+
+                if success and return_type != 'V1Pod':
+                    if old_value:
+                        old_value = (old_value.metadata.annotations or {}).get(self._annotations_map.get(name))
+
+                    if old_value != new_value and \
+                            (name != self._dcs.config_path or old_value is not None and new_value is not None):
+                        logger.debug('%s changed from %s to %s', name, old_value, new_value)
+                        self._dcs.event.set()
+        finally:
+            with self._condition:
+                self._is_ready = False
+            response.close()
+            response.release_conn()
 
     def run(self):
         while True:
             try:
-                self._do_watch()
+                self._build_cache()
             except Exception as e:
-                logger.debug('Watcher.run %r', e)
-            time.sleep(self._dcs._retry.deadline)
+                with self._condition:
+                    self._is_ready = False
+                logger.error('ObjectCache.run %r', e)
+
+    def is_ready(self):
+        """Must be called only when holding the lock on `_condition`"""
+        return self._is_ready
 
 
 class Kubernetes(AbstractDCS):
@@ -153,8 +216,16 @@ class Kubernetes(AbstractDCS):
         self._leader_observed_subsets = []
         self._config_resource_version = None
         self.__do_not_watch = False
-        if not config.get('patronictl'):
-            self._watcher = KubernetesWatcher(self)
+
+        self._condition = Condition()
+
+        pods_func = functools.partial(self._api.list_namespaced_pod, self._namespace,
+                                      label_selector=self._label_selector)
+        self._pods = ObjectCache(self, pods_func, self._retry, self._condition)
+
+        kinds_func = functools.partial(self._api.list_namespaced_kind, self._namespace,
+                                       label_selector=self._label_selector)
+        self._kinds = ObjectCache(self, kinds_func, self._retry, self._condition)
 
     def retry(self, *args, **kwargs):
         return self._retry.copy()(*args, **kwargs)
@@ -186,14 +257,21 @@ class Kubernetes(AbstractDCS):
         member.data['pod_labels'] = pod.metadata.labels
         return member
 
+    def _wait_caches(self):
+        stop_time = time.time() + self._retry.deadline
+        while not (self._pods.is_ready() and self._kinds.is_ready()):
+            timeout = stop_time - time.time()
+            if timeout <= 0:
+                raise RetryFailedError('Exceeded retry deadline')
+            self._condition.wait(timeout)
+
     def _load_cluster(self):
         try:
-            # get list of members
-            response = self.retry(self._api.list_namespaced_pod, self._namespace, label_selector=self._label_selector)
-            members = [self.member(pod) for pod in response.items]
+            with self._condition:
+                self._wait_caches()
 
-            response = self.retry(self._api.list_namespaced_kind, self._namespace, label_selector=self._label_selector)
-            nodes = {item.metadata.name: item for item in response.items}
+                members = [self.member(pod) for pod in self._pods.copy().values()]
+                nodes = self._kinds.copy()
 
             config = nodes.get(self.config_path)
             metadata = config and config.metadata
@@ -241,12 +319,13 @@ class Kubernetes(AbstractDCS):
             if metadata:
                 member = Member(-1, leader, None, {})
                 member = ([m for m in members if m.name == leader] or [member])[0]
-                leader = Leader(response.metadata.resource_version, None, member)
+                leader = Leader(metadata.resource_version, None, member)
 
             # failover key
             failover = nodes.get(self.failover_path)
             metadata = failover and failover.metadata
-            failover = Failover.from_node(metadata and metadata.resource_version, metadata and metadata.annotations)
+            failover = Failover.from_node(metadata and metadata.resource_version,
+                                          metadata and (metadata.annotations or {}).copy())
 
             # get synchronization state
             sync = nodes.get(self.sync_path)
@@ -325,7 +404,10 @@ class Kubernetes(AbstractDCS):
             body = k8s_client.V1Endpoints(**endpoints)
         else:
             body = k8s_client.V1ConfigMap(metadata=metadata)
-        return self.retry(func, self._namespace, body) if retry else func(self._namespace, body)
+        ret = self.retry(func, self._namespace, body) if retry else func(self._namespace, body)
+        if ret:
+            self._kinds.set(name, ret)
+        return ret
 
     def patch_or_create_config(self, annotations, resource_version=None, patch=False, retry=True):
         # SCOPE-config endpoint requires corresponding service otherwise it might be "cleaned" by k8s master
@@ -457,11 +539,6 @@ class Kubernetes(AbstractDCS):
 
     def delete_sync_state(self, index=None):
         return self.write_sync_state(None, None, index)
-
-    def start_watch_stream(self):
-        watch = k8s_watch.Watch()
-        return watch.stream(self._api.list_namespaced_kind, self._namespace, label_selector=self._label_selector,
-                            _request_timeout=(self._retry.deadline, Timeout.DEFAULT_TIMEOUT))
 
     def watch(self, leader_index, timeout):
         if self.__do_not_watch:
