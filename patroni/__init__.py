@@ -176,6 +176,13 @@ def fatal(string, *args):
     sys.exit(1)
 
 
+def use_spawn_start_method():
+    if sys.version_info >= (3, 4):
+        # The default, forking, method is not a good idea in a multithreaded process: https://bugs.python.org/issue6721
+        import multiprocessing
+        multiprocessing.set_start_method('spawn')
+
+
 def check_psycopg2():
     min_psycopg2 = (2, 5, 4)
     min_psycopg2_str = '.'.join(map(str, min_psycopg2))
@@ -198,10 +205,7 @@ def check_psycopg2():
 
 
 def main():
-    import multiprocessing
-    if sys.version_info >= (3, 4):
-        # The default, forking, method is not a good idea in a multithreaded process: https://bugs.python.org/issue6721
-        multiprocessing.set_start_method('spawn')
+    use_spawn_start_method()
     check_psycopg2()
     if os.getpid() != 1:
         return patroni_main()
@@ -235,6 +239,7 @@ def main():
     signal.signal(signal.SIGABRT, passtochild)
     signal.signal(signal.SIGTERM, passtochild)
 
+    import multiprocessing
     patroni = multiprocessing.Process(target=patroni_main)
     patroni.start()
     pid = patroni.pid
