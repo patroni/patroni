@@ -70,6 +70,9 @@ Version 1.6.1
 
   Previously threre was a possibility to loose the last few log lines on shutdown because the logging thread was a ``daemon`` thread.
 
+- Use ``spawn`` multiprocessing start method on python 3.4+ (Maciej Kowalczyk)
+
+  It is a known `issue <https://bugs.python.org/issue6721>`__ in Python that threading and multiprocessing do not mix well. Switching from the default method ``fork`` to the ``spawn`` is a recommended workaround. Not doing so might result in Postmaster starting process hangs and Patroni indefinitely reporting ``INFO: restarting after failure in progress``, while the Postgres is actually up and running.
 
 **Improvements in REST API**
 
