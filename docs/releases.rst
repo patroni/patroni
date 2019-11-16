@@ -4,6 +4,7 @@ Release notes
 =============
 
 Version 1.6.1
+-------------
 
 **New features**
 
