@@ -159,6 +159,7 @@ def run_async(self, func, args=()):
 @patch.object(ConfigHandler, 'append_pg_hba', Mock())
 @patch.object(ConfigHandler, 'write_pgpass', Mock(return_value={}))
 @patch.object(ConfigHandler, 'write_recovery_conf', Mock())
+@patch.object(ConfigHandler, 'write_postgresql_conf', Mock())
 @patch.object(Postgresql, 'query', Mock())
 @patch.object(Postgresql, 'checkpoint', Mock())
 @patch.object(CancellableSubprocess, 'call', Mock(return_value=0))
@@ -358,6 +359,7 @@ class TestHa(PostgresInit):
         self.p.is_leader = false
         self.assertEqual(self.ha.run_cycle(), 'no action.  i am a secondary and i am following a leader')
         self.ha.patroni.replicatefrom = "foo"
+        self.p.config.check_recovery_conf = Mock(return_value=(True, False))
         self.assertEqual(self.ha.run_cycle(), 'no action.  i am a secondary and i am following a leader')
 
     def test_follow_in_pause(self):
@@ -683,7 +685,7 @@ class TestHa(PostgresInit):
         self.p.is_leader = false
         self.p.name = 'leader'
         self.ha.cluster = get_standby_cluster_initialized_with_only_leader()
-        self.p.config.check_recovery_conf = true
+        self.p.config.check_recovery_conf = Mock(return_value=(False, False))
         self.assertEqual(self.ha.run_cycle(), 'promoted self to a standby leader because i had the session lock')
         self.assertEqual(self.ha.run_cycle(), 'no action.  i am the standby leader with the lock')
 

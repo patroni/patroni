@@ -19,6 +19,7 @@ We call Patroni a "template" because it is far from being a one-size-fits-all or
 
    README
    dynamic_configuration
+   rest_api
    ENVIRONMENT
    SETTINGS
    replica_bootstrap

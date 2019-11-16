@@ -561,10 +561,12 @@ class Postgresql(object):
         if ready == STATE_REJECT:
             return False
         elif ready == STATE_NO_RESPONSE:
-            self.set_state('start failed')
-            self.slots_handler.schedule(False)  # TODO: can remove this?
-            self.config.save_configuration_files(True)  # TODO: maybe remove this?
-            return True
+            ret = not self.is_running()
+            if ret:
+                self.set_state('start failed')
+                self.slots_handler.schedule(False)  # TODO: can remove this?
+                self.config.save_configuration_files(True)  # TODO: maybe remove this?
+            return ret
         else:
             if ready != STATE_RUNNING:
                 # Bad configuration or unexpected OS error. No idea of PostgreSQL status.
@@ -682,7 +684,7 @@ class Postgresql(object):
         except Exception:
             logger.exception('Failed to read and parse %s', (history_path,))
 
-    def follow(self, member, role='replica', timeout=None):
+    def follow(self, member, role='replica', timeout=None, do_reload=False):
         recovery_params = self.config.build_recovery_params(member)
         self.config.write_recovery_conf(recovery_params)
 
@@ -696,7 +698,11 @@ class Postgresql(object):
             self.__cb_pending = ACTION_NOOP
 
         if self.is_running():
-            self.restart(block_callbacks=change_role, role=role)
+            if do_reload:
+                self.config.write_postgresql_conf()
+                self.reload()
+            else:
+                self.restart(block_callbacks=change_role, role=role)
         else:
             self.start(timeout=timeout, block_callbacks=change_role, role=role)
 

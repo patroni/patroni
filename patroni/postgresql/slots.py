@@ -15,19 +15,14 @@ class SlotsHandler(object):
 
     def __init__(self, postgresql):
         self._postgresql = postgresql
-        self._use_slots = postgresql.config.get('use_slots', True)
         self._replication_slots = {}  # already existing replication slots
         self.schedule()
-
-    @property
-    def use_slots(self):
-        return self._use_slots and self._postgresql.major_version >= 90400
 
     def _query(self, sql, *params):
         return self._postgresql.query(sql, *params, retry=False)
 
     def load_replication_slots(self):
-        if self.use_slots and self._schedule_load_slots:
+        if self._postgresql.major_version >= 90400 and self._schedule_load_slots:
             replication_slots = {}
             cursor = self._query('SELECT slot_name, slot_type, plugin, database FROM pg_catalog.pg_replication_slots')
             for r in cursor:
@@ -45,7 +40,7 @@ class SlotsHandler(object):
         return cursor.rowcount == 1
 
     def sync_replication_slots(self, cluster):
-        if self.use_slots:
+        if self._postgresql.major_version >= 90400:
             try:
                 self.load_replication_slots()
 
@@ -104,5 +99,5 @@ class SlotsHandler(object):
 
     def schedule(self, value=None):
         if value is None:
-            value = self.use_slots
+            value = self._postgresql.major_version >= 90400
         self._schedule_load_slots = value
