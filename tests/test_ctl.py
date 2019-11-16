@@ -1,5 +1,4 @@
 import etcd
-import json
 import os
 import sys
 import unittest
@@ -562,12 +561,19 @@ class TestCtl(unittest.TestCase):
         with patch.object(PoolManager, 'request') as mocked:
             result = self.runner.invoke(ctl, ['version'])
             assert 'patronictl version' in result.output
-            mocked.return_value.data = json.dumps({'patroni': {'version': '1.2.3'}, 'server_version': 100001})
+            mocked.return_value.data = b'{"patroni":{"version":"1.2.3"},"server_version": 100001}'
             result = self.runner.invoke(ctl, ['version', 'dummy'])
             assert '1.2.3' in result.output
         with patch.object(PoolManager, 'request', Mock(side_effect=Exception)):
             result = self.runner.invoke(ctl, ['version', 'dummy'])
             assert 'failed to get version' in result.output
+
+    @patch('patroni.ctl.get_dcs')
+    def test_history(self, mock_get_dcs):
+        mock_get_dcs.return_value.get_cluster = Mock()
+        mock_get_dcs.return_value.get_cluster.return_value.history.lines = [[1, 67176, 'no recovery target specified']]
+        result = self.runner.invoke(ctl, ['history'])
+        assert 'Reason' in result.output
 
     def test_format_pg_version(self):
         self.assertEqual(format_pg_version(100001), '10.1')

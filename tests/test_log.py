@@ -19,7 +19,6 @@ class TestPatroniLogger(unittest.TestCase):
         logging.getLogger().handlers[:] = self._handlers
 
     @patch('logging.FileHandler._open', Mock())
-    @patch('logging.Handler.close', Mock(side_effect=Exception))
     def test_patroni_logger(self):
         config = {
             'log': {
@@ -47,13 +46,14 @@ class TestPatroniLogger(unittest.TestCase):
         self.assertEqual(logger.log_handler.backupCount, config['log']['file_num'])
 
         config['log'].pop('dir')
-        logger.reload_config(config['log'])
-        with patch.object(logging.Logger, 'makeRecord',
-                          Mock(side_effect=[logging.LogRecord('', logging.INFO, '', 0, '', (), None), Exception])):
+        with patch('logging.Handler.close', Mock(side_effect=Exception)):
+            logger.reload_config(config['log'])
+            with patch.object(logging.Logger, 'makeRecord',
+                              Mock(side_effect=[logging.LogRecord('', logging.INFO, '', 0, '', (), None), Exception])):
+                logging.error('test')
             logging.error('test')
-        logging.error('test')
-        with patch.object(Queue, 'put_nowait', Mock(side_effect=Full)):
-            self.assertRaises(SystemExit, logger.shutdown)
-        self.assertRaises(Exception, logger.shutdown)
+            with patch.object(Queue, 'put_nowait', Mock(side_effect=Full)):
+                self.assertRaises(SystemExit, logger.shutdown)
+            self.assertRaises(Exception, logger.shutdown)
         self.assertLessEqual(logger.queue_size, 2)  # "Failed to close the old log handler" could be still in the queue
         self.assertEqual(logger.records_lost, 0)

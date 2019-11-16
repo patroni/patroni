@@ -296,6 +296,17 @@ class Retry(object):
                      max_jitter=self.max_jitter / 100.0, max_delay=self.max_delay, sleep_func=self.sleep_func,
                      deadline=self.deadline, retry_exceptions=self.retry_exceptions)
 
+    @property
+    def sleeptime(self):
+        return self._cur_delay + (random.randint(0, self.max_jitter) / 100.0)
+
+    def update_delay(self):
+        self._cur_delay = min(self._cur_delay * self.backoff, self.max_delay)
+
+    @property
+    def stoptime(self):
+        return self._cur_stoptime
+
     def __call__(self, func, *args, **kwargs):
         """Call a function with arguments until it completes without throwing a `retry_exceptions`
 
@@ -317,14 +328,14 @@ class Retry(object):
                     logger.warning('Retry got exception: %s', e)
                     raise RetryFailedError("Too many retry attempts")
                 self._attempts += 1
-                sleeptime = self._cur_delay + (random.randint(0, self.max_jitter) / 100.0)
+                sleeptime = self.sleeptime
 
                 if self._cur_stoptime is not None and time.time() + sleeptime >= self._cur_stoptime:
                     logger.warning('Retry got exception: %s', e)
                     raise RetryFailedError("Exceeded retry deadline")
                 logger.debug('Retry got exception: %s', e)
                 self.sleep_func(sleeptime)
-                self._cur_delay = min(self._cur_delay * self.backoff, self.max_delay)
+                self.update_delay()
 
 
 def polling_loop(timeout, interval=1):
@@ -352,3 +363,52 @@ def uri(proto, netloc, path='', user=None):
     path = '/{0}'.format(path) if path and not path.startswith('/') else path
     user = '{0}@'.format(user) if user else ''
     return '{0}://{1}{2}{3}{4}'.format(proto, user, host, port, path)
+
+
+def is_standby_cluster(config):
+    # Check whether or not provided configuration describes a standby cluster
+    return isinstance(config, dict) and (config.get('host') or config.get('port') or config.get('restore_command'))
+
+
+def cluster_as_json(cluster):
+    leader_name = cluster.leader.name if cluster.leader else None
+    xlog_location_cluster = cluster.last_leader_operation or 0
+
+    ret = {'members': []}
+    for m in cluster.members:
+        if m.name == leader_name:
+            config = cluster.config.data if cluster.config and cluster.config.modify_index else {}
+            role = 'standby_leader' if is_standby_cluster(config.get('standby_cluster')) else 'leader'
+        elif m.name == cluster.sync.sync_standby:
+            role = 'sync_standby'
+        else:
+            role = 'replica'
+
+        conn_kwargs = m.conn_kwargs()
+        member = {'name': m.name, 'host': conn_kwargs['host'], 'port': int(conn_kwargs['port']),
+                  'role': role, 'state': m.data.get('state', ''), 'api_url': m.api_url}
+        optional_attributes = ('timeline', 'pending_restart', 'scheduled_restart', 'tags')
+        member.update({n: m.data[n] for n in optional_attributes if n in m.data})
+
+        if m.name != leader_name:
+            xlog_location = m.data.get('xlog_location')
+            if xlog_location is None:
+                member['lag'] = 'unknown'
+            elif xlog_location_cluster >= xlog_location:
+                member['lag'] = xlog_location_cluster - xlog_location
+            else:
+                member['lag'] = 0
+
+        ret['members'].append(member)
+
+    # sort members by name for consistency
+    ret['members'].sort(key=lambda m: m['name'])
+    if cluster.is_paused():
+        ret['pause'] = True
+    if cluster.failover and cluster.failover.scheduled_at:
+        ret['scheduled_switchover'] = {'at': cluster.failover.scheduled_at.isoformat()}
+        if cluster.failover.leader:
+            ret['scheduled_switchover']['from'] = cluster.failover.leader
+        if cluster.failover.candidate:
+            ret['scheduled_switchover']['to'] = cluster.failover.candidate
+    return ret

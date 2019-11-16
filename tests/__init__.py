@@ -100,7 +100,7 @@ class MockCursor(object):
             self.results = [(1, 2)]
         elif sql.startswith('SELECT pg_catalog.pg_is_in_recovery()'):
             self.results = [(False, 2)]
-        elif sql.startswith('WITH replication_info AS ('):
+        elif sql.startswith('SELECT pg_catalog.to_char'):
             replication_info = '[{"application_name":"walreceiver","client_addr":"1.2.3.4",' +\
                                '"state":"streaming","sync_state":"async","sync_priority":0}]'
             self.results = [('', 0, '', '', '', '', False, replication_info)]
@@ -181,6 +181,7 @@ class PostgresInit(unittest.TestCase):
     @patch.object(ConfigHandler, 'write_postgresql_conf', Mock())
     @patch.object(ConfigHandler, 'replace_pg_hba', Mock())
     @patch.object(ConfigHandler, 'replace_pg_ident', Mock())
+    @patch.object(Postgresql, 'get_postgres_role_from_data_directory', Mock(return_value='master'))
     def setUp(self):
         data_dir = 'data/test0'
         self.p = Postgresql({'name': 'postgresql0', 'scope': 'batman', 'data_dir': data_dir,
