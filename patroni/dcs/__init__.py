@@ -89,17 +89,17 @@ def get_dcs(config):
                         return item(config[name])
             except ImportError:
                 logger.debug('Failed to import %s', module_name)
-    else:
-        available_implementations = []
-        for module_name in modules:
-            name = module_name.split('.')[-1]
-            try:
-                module = importlib.import_module(module_name)
-                available_implementations.extend(name for key, item in module.__dict__.items() if key.lower() == name
-                                                 and inspect.isclass(item) and issubclass(item, AbstractDCS))
-            except ImportError:
-                logger.info('Failed to import %s', module_name)
-        raise PatroniException("""Can not find suitable configuration of distributed configuration store
+
+    available_implementations = []
+    for module_name in modules:
+        name = module_name.split('.')[-1]
+        try:
+            module = importlib.import_module(module_name)
+            available_implementations.extend(name for key, item in module.__dict__.items() if key.lower() == name
+                                             and inspect.isclass(item) and issubclass(item, AbstractDCS))
+        except ImportError:
+            logger.info('Failed to import %s', module_name)
+    raise PatroniException("""Can not find suitable configuration of distributed configuration store
 Available implementations: """ + ', '.join(sorted(set(available_implementations))))
 
 
