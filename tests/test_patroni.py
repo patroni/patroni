@@ -2,7 +2,6 @@ import etcd
 import logging
 import os
 import signal
-import sys
 import time
 import unittest
 
@@ -41,21 +40,20 @@ class MockFrozenImporter(object):
 @patch.object(etcd.Client, 'read', etcd_read)
 class TestPatroni(unittest.TestCase):
 
+    @patch('sys.argv', ['patroni.py', 'postgres0.yml'])
     @patch('pkgutil.get_importer', Mock(return_value=MockFrozenImporter()))
     @patch('sys.frozen', Mock(return_value=True), create=True)
     @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
     @patch.object(etcd.Client, 'read', etcd_read)
     @patch.object(Thread, 'start', Mock())
+    @patch.object(Client, 'machines', PropertyMock(return_value=['http://remotehost:2379']))
     def setUp(self):
         self._handlers = logging.getLogger().handlers[:]
         RestApiServer._BaseServer__is_shut_down = Mock()
         RestApiServer._BaseServer__shutdown_request = True
         RestApiServer.socket = 0
-        with patch.object(Client, 'machines') as mock_machines:
-            mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
-            sys.argv = ['patroni.py', 'postgres0.yml']
-            os.environ['PATRONI_POSTGRESQL_DATA_DIR'] = 'data/test0'
-            self.p = Patroni()
+        os.environ['PATRONI_POSTGRESQL_DATA_DIR'] = 'data/test0'
+        self.p = Patroni()
 
     def tearDown(self):
         logging.getLogger().handlers[:] = self._handlers
@@ -66,16 +64,14 @@ class TestPatroni(unittest.TestCase):
         self.p.load_dynamic_configuration()
         self.p.load_dynamic_configuration()
 
+    @patch('sys.argv', ['patroni.py', 'postgres0.yml'])
     @patch('time.sleep', Mock(side_effect=SleepException))
     @patch('multiprocessing.set_start_method', Mock(), create=True)
     @patch.object(etcd.Client, 'delete', Mock())
-    @patch.object(Client, 'machines')
+    @patch.object(Client, 'machines', PropertyMock(return_value=['http://remotehost:2379']))
     @patch.object(Thread, 'join', Mock())
-    def test_patroni_patroni_main(self, mock_machines):
+    def test_patroni_patroni_main(self):
         with patch('subprocess.call', Mock(return_value=1)):
-            sys.argv = ['patroni.py', 'postgres0.yml']
-
-            mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
             with patch.object(Patroni, 'run', Mock(side_effect=SleepException)):
                 os.environ['PATRONI_POSTGRESQL_DATA_DIR'] = 'data/test0'
                 self.assertRaises(SleepException, patroni_main)
@@ -83,8 +79,7 @@ class TestPatroni(unittest.TestCase):
                 with patch('patroni.ha.Ha.is_paused', Mock(return_value=True)):
                     os.environ['PATRONI_POSTGRESQL_DATA_DIR'] = 'data/test0'
                     patroni_main()
-        with patch('patroni.Patroni', Mock(side_effect=Exception)),\
-                patch('sys.version_info', (3, 6)):
+        with patch('patroni.Patroni', Mock(side_effect=Exception)), patch('sys.version_info', (3, 6)):
             self.assertRaises(Exception, patroni_main)
 
     @patch('os.getpid')
