@@ -67,6 +67,7 @@ class TestPatroni(unittest.TestCase):
         self.p.load_dynamic_configuration()
 
     @patch('time.sleep', Mock(side_effect=SleepException))
+    @patch('multiprocessing.set_start_method', Mock(), create=True)
     @patch.object(etcd.Client, 'delete', Mock())
     @patch.object(Client, 'machines')
     @patch.object(Thread, 'join', Mock())
@@ -76,14 +77,18 @@ class TestPatroni(unittest.TestCase):
 
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
             with patch.object(Patroni, 'run', Mock(side_effect=SleepException)):
+                os.environ['PATRONI_POSTGRESQL_DATA_DIR'] = 'data/test0'
                 self.assertRaises(SleepException, patroni_main)
             with patch.object(Patroni, 'run', Mock(side_effect=KeyboardInterrupt())):
                 with patch('patroni.ha.Ha.is_paused', Mock(return_value=True)):
+                    os.environ['PATRONI_POSTGRESQL_DATA_DIR'] = 'data/test0'
                     patroni_main()
+        with patch('patroni.Patroni', Mock(side_effect=Exception)),\
+                patch('sys.version_info', (3, 6)):
+            self.assertRaises(Exception, patroni_main)
 
     @patch('os.getpid')
     @patch('multiprocessing.Process')
-    @patch('patroni.use_spawn_start_method', Mock())
     @patch('patroni.patroni_main', Mock())
     def test_patroni_main(self, mock_process, mock_getpid):
         mock_getpid.return_value = 2
