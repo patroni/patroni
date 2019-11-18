@@ -177,7 +177,7 @@ def run_async(self, func, args=()):
 class TestHa(PostgresInit):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
-    @patch('patroni.dcs.dcs_modules', Mock(return_value=['patroni.dcs.foo', 'patroni.dcs.etcd']))
+    @patch('patroni.dcs.dcs_modules', Mock(return_value=['patroni.dcs.etcd']))
     @patch.object(etcd.Client, 'read', etcd_read)
     def setUp(self):
         super(TestHa, self).setUp()

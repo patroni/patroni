@@ -159,6 +159,7 @@ class TestCtl(unittest.TestCase):
         result = self.runner.invoke(ctl, ['failover', 'dummy'], input='\n')
         assert 'Failover could be performed only to a specific candidate' in result.output
 
+    @patch('patroni.dcs.dcs_modules', Mock(return_value=['patroni.dcs.dummy', 'patroni.dcs.etcd']))
     def test_get_dcs(self):
         self.assertRaises(PatroniCtlException, get_dcs, {'dummy': {}}, 'dummy')
 
