@@ -18,6 +18,13 @@ restapi:
 
 etcd:
   host: 127.0.0.1:2379
+  #Or use "hosts" to provide multiple endpoints
+  #Could be a comma separated string:
+  #hosts: host1:port1,host2:port2
+  #or an actual yaml list:
+  #hosts:
+  #- host1:port1
+  #- host2:port2
 
 bootstrap:
   # this section will be written into Etcd:/<namespace>/<scope>/config after initializing new cluster
