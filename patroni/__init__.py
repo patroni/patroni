@@ -27,6 +27,9 @@ class Patroni(object):
         self.setup_signal_handlers()
 
         self.version = __version__
+        if len(sys.argv) >= 2 and sys.argv[1] and sys.argv[1] == "--version":
+            print(__version__)
+            sys.exit(0)
         self.logger = PatroniLogger()
         self.config = config.Config()
         self.logger.reload_config(self.config.get('log', {}))
