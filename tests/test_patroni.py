@@ -66,7 +66,6 @@ class TestPatroni(unittest.TestCase):
 
     @patch('sys.argv', ['patroni.py', 'postgres0.yml'])
     @patch('time.sleep', Mock(side_effect=SleepException))
-    @patch('multiprocessing.set_start_method', Mock(), create=True)
     @patch.object(etcd.Client, 'delete', Mock())
     @patch.object(Client, 'machines', PropertyMock(return_value=['http://remotehost:2379']))
     @patch.object(Thread, 'join', Mock())
@@ -79,12 +78,11 @@ class TestPatroni(unittest.TestCase):
                 with patch('patroni.ha.Ha.is_paused', Mock(return_value=True)):
                     os.environ['PATRONI_POSTGRESQL_DATA_DIR'] = 'data/test0'
                     patroni_main()
-        with patch('patroni.Patroni', Mock(side_effect=Exception)), patch('sys.version_info', (3, 6)):
-            self.assertRaises(Exception, patroni_main)
 
     @patch('os.getpid')
     @patch('multiprocessing.Process')
     @patch('patroni.patroni_main', Mock())
+    @patch('multiprocessing.set_start_method', Mock(), create=True)
     def test_patroni_main(self, mock_process, mock_getpid):
         mock_getpid.return_value = 2
         _main()
