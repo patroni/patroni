@@ -70,6 +70,10 @@ def load_config(path, dcs):
 
     if not (os.path.exists(path) and os.access(path, os.R_OK)):
         logging.debug('Ignoring configuration file "%s". It does not exists or is not readable.', path)
+        if path == CONFIG_FILE_PATH:
+            ctx = click.get_current_context()
+            logging.warning('Default configuration file "%s" does not exist or is not readable, '\
+                    'try running "%s configure"', path, ctx.command_path)
     else:
         logging.debug('Loading configuration from file %s', path)
     config = {}
