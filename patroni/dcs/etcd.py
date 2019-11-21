@@ -416,7 +416,7 @@ class Etcd(AbstractDCS):
             config['hosts'] = []
             for value in hosts:
                 if isinstance(value, six.string_types):
-                    config['hosts'].append(uri(protocol, split_host_port(value, default_port)))
+                    config['hosts'].append(uri(protocol, split_host_port(value.strip(), default_port)))
         elif 'host' in config:
             host, port = split_host_port(config['host'], 2379)
             config['host'] = host
