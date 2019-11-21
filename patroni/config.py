@@ -9,9 +9,8 @@ import yaml
 from collections import defaultdict
 from copy import deepcopy
 from patroni.dcs import ClusterConfig
-from patroni.postgresql.config import ConfigHandler
+from patroni.postgresql.config import CaseInsensitiveDict, ConfigHandler
 from patroni.utils import deep_compare, parse_bool, parse_int, patch_config
-from requests.structures import CaseInsensitiveDict
 
 logger = logging.getLogger(__name__)
 

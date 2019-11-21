@@ -1,11 +1,11 @@
 import boto.ec2
 import sys
 import unittest
+import urllib3
 
 from mock import Mock, patch
 from collections import namedtuple
 from patroni.scripts.aws import AWSConnection, main as _main
-from requests.exceptions import RequestException
 
 
 class MockEc2Connection(object):
@@ -22,28 +22,11 @@ class MockEc2Connection(object):
         return True
 
 
-class MockResponse(object):
-    ok = True
-
-    def __init__(self, content):
-        self.content = content
-
-    def json(self):
-        return self.content
-
-
-def requests_get(url, **kwargs):
-    if url.split('/')[-1] == 'document':
-        result = {"instanceId": "012345", "region": "eu-west-1"}
-    else:
-        result = 'foo'
-    return MockResponse(result)
-
-
 @patch('boto.ec2.connect_to_region', Mock(return_value=MockEc2Connection()))
 class TestAWSConnection(unittest.TestCase):
 
-    @patch('requests.get', requests_get)
+    @patch('patroni.scripts.aws.requests_get', Mock(return_value=urllib3.HTTPResponse(
+        status=200, body=b'{"instanceId": "012345", "region": "eu-west-1"}')))
     def setUp(self):
         self.conn = AWSConnection('test')
 
@@ -53,17 +36,18 @@ class TestAWSConnection(unittest.TestCase):
             self.conn._retry.max_tries = 1
             self.assertFalse(self.conn.on_role_change('master'))
 
-    @patch('requests.get', Mock(side_effect=RequestException('foo')))
+    @patch('patroni.scripts.aws.requests_get', Mock(side_effect=Exception('foo')))
     def test_non_aws(self):
         conn = AWSConnection('test')
         self.assertFalse(conn.on_role_change("master"))
 
-    @patch('requests.get', Mock(return_value=MockResponse('foo')))
+    @patch('patroni.scripts.aws.requests_get', Mock(return_value=urllib3.HTTPResponse(status=200, body=b'foo')))
     def test_aws_bizare_response(self):
         conn = AWSConnection('test')
         self.assertFalse(conn.aws_available())
 
-    @patch('requests.get', requests_get)
+    @patch('patroni.scripts.aws.requests_get', Mock(return_value=urllib3.HTTPResponse(
+        status=200, body=b'{"instanceId": "012345", "region": "eu-west-1"}')))
     @patch('sys.exit', Mock())
     def test_main(self):
         self.assertIsNone(_main())

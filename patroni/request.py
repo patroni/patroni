@@ -1,5 +1,6 @@
 import json
 import urllib3
+import six
 
 from six.moves.urllib_parse import urlparse, urlunparse
 
@@ -37,11 +38,19 @@ class PatroniRequest(object):
         cacert = config.get('ctl', {}).get('cacert') or config.get('restapi', {}).get('cafile')
         self._apply_pool_param('ca_certs', cacert)
 
+    def request(self, method, url, body=None, **kwargs):
+        if body is not None and not isinstance(body, six.string_types):
+            body = json.dumps(body)
+        return self._pool.request(method.upper(), url, body=body, **kwargs)
+
     def __call__(self, member, method='GET', endpoint=None, data=None, **kwargs):
         url = member.api_url
         if endpoint:
             scheme, netloc, _, _, _, _ = urlparse(url)
             url = urlunparse((scheme, netloc, endpoint, '', '', ''))
-        if data is not None:
-            kwargs['body'] = json.dumps(data)
-        return self._pool.request(method.upper(), url, **kwargs)
+        return self.request(method, url, data, **kwargs)
+
+
+def get(url, verify=True, **kwargs):
+    http = PatroniRequest({}, not verify)
+    return http.request('GET', url, **kwargs)
