@@ -8,6 +8,7 @@ import yaml
 
 from collections import defaultdict
 from copy import deepcopy
+from patroni.exceptions import PatroniException
 from patroni.dcs import ClusterConfig
 from patroni.postgresql.config import ConfigHandler
 from patroni.utils import deep_compare, parse_bool, parse_int, patch_config
@@ -96,7 +97,10 @@ class Config(object):
                 sys.exit(1)
 
         self.__effective_configuration = self._build_effective_configuration({}, self._local_configuration)
-        self._data_dir = self.__effective_configuration['postgresql']['data_dir']
+        if 'postgresql' in self._local_configuration and "data_dir" in self._local_configuration["postgresql"]:
+            self._data_dir = self.__effective_configuration['postgresql']['data_dir']
+        else:
+            raise PatroniException("The configuration file does not include 'postgresql.data_dir'")
         self._cache_file = os.path.join(self._data_dir, self.__CACHE_FILENAME)
         self._load_cache()
         self._cache_needs_saving = False
