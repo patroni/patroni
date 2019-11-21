@@ -162,6 +162,11 @@ class Patroni(object):
 
 
 def patroni_main():
+    if sys.version_info >= (3, 4):
+        # The default, forking, method is not a good idea in a multithreaded process: https://bugs.python.org/issue6721
+        import multiprocessing
+        multiprocessing.set_start_method('spawn')
+
     patroni = Patroni()
     try:
         patroni.run()
@@ -174,13 +179,6 @@ def patroni_main():
 def fatal(string, *args):
     sys.stderr.write('FATAL: ' + string.format(*args) + '\n')
     sys.exit(1)
-
-
-def use_spawn_start_method():
-    if sys.version_info >= (3, 4):
-        # The default, forking, method is not a good idea in a multithreaded process: https://bugs.python.org/issue6721
-        import multiprocessing
-        multiprocessing.set_start_method('spawn')
 
 
 def check_psycopg2():
@@ -205,7 +203,6 @@ def check_psycopg2():
 
 
 def main():
-    use_spawn_start_method()
     check_psycopg2()
     if os.getpid() != 1:
         return patroni_main()
