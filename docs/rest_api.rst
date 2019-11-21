@@ -333,4 +333,4 @@ Reinitialize endpoint
 
 The call might fail if Patroni is in a loop trying to recover (restart) a failed Postgres. In order to overcome this problem one can specify ``{"force":true}`` in the request body.
 
-The reinitialize endpoint is used by ``patronictl reinitialize``.
+The reinitialize endpoint is used by ``patronictl reinit``.
