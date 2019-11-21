@@ -407,6 +407,12 @@ class Postgresql(object):
         self._pending_restart = False
 
         configuration = self.config.effective_configuration
+        if "unix_socket_directories" in configuration:
+            for d in configuration["unix_socket_directories"].split(","):
+                if not d.startswith('/'):
+                    d = os.path.join(self._data_dir, d)
+                if not os.path.isdir(d):
+                    os.makedirs(d)
         self.config.write_postgresql_conf(configuration)
         self.config.resolve_connection_addresses()
         self.config.replace_pg_hba()
