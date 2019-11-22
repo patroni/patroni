@@ -414,7 +414,18 @@ class Postgresql(object):
                     try:
                         os.makedirs(d)
                     except FileExistsError:
-                        raise PatroniException(f"'{d}' is defined in unix_socket_directories, but it is not a directory")
+                        raise PatroniException(
+                                "'%s' is defined in unix_socket_directories, but it is not a directory".format(d)
+                                )
+        if "stats_temp_directory" in configuration:
+            d = os.path.join(self._data_dir, configuration["stats_temp_directory"])
+            if not os.path.isdir(d):
+                try:
+                    os.makedirs(d)
+                except FileExistsError:
+                    raise PatroniException(
+                            "'%s' is defined in stats_temp_directory, but it is not a directory".format(d)
+                            )
         self.config.write_postgresql_conf(configuration)
         self.config.resolve_connection_addresses()
         self.config.replace_pg_hba()
