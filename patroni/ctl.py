@@ -96,12 +96,12 @@ def load_config(path, dcs):
     return config
 
 
-def store_config(config, path):
-    dir_path = os.path.dirname(path)
-    if dir_path and not os.path.isdir(dir_path):
-        os.makedirs(dir_path)
-    with open(path, 'w') as fd:
-        yaml.dump(config, fd)
+def store_config(path):
+    if CONFIG_DIR_PATH and not os.path.isdir(CONFIG_DIR_PATH):
+        os.makedirs(CONFIG_DIR_PATH)
+    if os.path.exists(CONFIG_FILE_PATH) or os.path.islink(CONFIG_FILE_PATH):
+        os.remove(CONFIG_FILE_PATH)
+    os.symlink(os.path.realpath(path), CONFIG_FILE_PATH)
 
 
 option_format = click.option('--format', '-f', 'fmt', help='Output format (pretty, json, yaml)', default='pretty')
@@ -792,11 +792,9 @@ def timestamp(precision=6):
 
 
 @ctl.command('configure', help='Create configuration file')
-@click.option('--config-file', '-c', help='Configuration file', prompt='Configuration file', default=CONFIG_FILE_PATH)
-@click.option('--dcs', '-d', help='The DCS connect url', prompt='DCS connect url', default='etcd://localhost:2379')
-@click.option('--namespace', '-n', help='The namespace', prompt='Namespace', default='/service/')
-def configure(config_file, dcs, namespace):
-    store_config({'dcs_api': str(dcs), 'namespace': str(namespace)}, config_file)
+@click.option('--config-file', '-c', help='Patroni configuration file', prompt='Patroni configuration file')
+def configure(config_file):
+    store_config(config_file)
 
 
 def touch_member(config, dcs):
