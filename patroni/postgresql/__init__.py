@@ -16,7 +16,7 @@ from patroni.postgresql.connection import Connection, get_connection_cursor
 from patroni.postgresql.misc import parse_history, postgres_major_version_to_int
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.slots import SlotsHandler
-from patroni.exceptions import PostgresConnectionException
+from patroni.exceptions import PostgresConnectionException, PatroniException
 from patroni.utils import Retry, RetryFailedError, polling_loop
 from threading import current_thread, Lock
 
@@ -409,10 +409,12 @@ class Postgresql(object):
         configuration = self.config.effective_configuration
         if "unix_socket_directories" in configuration:
             for d in configuration["unix_socket_directories"].split(","):
-                if not d.startswith('/'):
-                    d = os.path.join(self._data_dir, d)
+                d = os.path.join(self._data_dir, d.strip())
                 if not os.path.isdir(d):
-                    os.makedirs(d)
+                    try:
+                        os.makedirs(d)
+                    except FileExistsError:
+                        raise PatroniException(f"'{d}' is defined in unix_socket_directories, but it is not a directory")
         self.config.write_postgresql_conf(configuration)
         self.config.resolve_connection_addresses()
         self.config.replace_pg_hba()
