@@ -5,7 +5,6 @@ import logging
 import os
 import urllib3.util.connection
 import random
-import requests
 import six
 import socket
 import time
@@ -15,8 +14,8 @@ from dns import resolver
 from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
 from patroni.exceptions import DCSError
 from patroni.utils import Retry, RetryFailedError, split_host_port, uri
+from patroni.request import get as requests_get
 from urllib3.exceptions import HTTPError, ReadTimeoutError, ProtocolError
-from requests.exceptions import RequestException
 from six.moves.queue import Queue
 from six.moves.http_client import HTTPException
 from six.moves.urllib_parse import urlparse
@@ -284,12 +283,12 @@ class Client(etcd.Client):
                 url = uri(protocol, (host, port), endpoint)
                 if endpoint:
                     try:
-                        response = requests.get(url, timeout=self.read_timeout, verify=False)
-                        if response.ok:
-                            for member in response.json():
+                        response = requests_get(url, timeout=self.read_timeout, verify=False)
+                        if response.status < 400:
+                            for member in json.loads(response.data.decode('utf-8')):
                                 ret.extend(member['clientURLs'])
                             break
-                    except RequestException:
+                    except Exception:
                         logger.exception('GET %s', url)
                 else:
                     ret.append(url)

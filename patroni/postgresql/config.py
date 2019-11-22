@@ -6,7 +6,7 @@ import socket
 import stat
 import time
 
-from requests.structures import CaseInsensitiveDict
+from collections import MutableMapping, OrderedDict
 from six.moves.urllib_parse import urlparse, parse_qsl, unquote
 
 from ..dcs import slot_name_from_member_name, RemoteMember
@@ -248,6 +248,31 @@ class ConfigWriter(object):
 
     def write_param(self, param, value):
         self.writeline("{0} = '{1}'".format(param, self.escape(value)))
+
+
+class CaseInsensitiveDict(MutableMapping):
+
+    def __init__(self, data):
+        self._store = OrderedDict()
+        self.update(data)
+
+    def __setitem__(self, key, value):
+        self._store[key.lower()] = (key, value)
+
+    def __getitem__(self, key):
+        return self._store[key.lower()][1]
+
+    def __delitem__(self, key):
+        del self._store[key.lower()]
+
+    def __iter__(self):
+        return (casedkey for casedkey, mappedvalue in self._store.values())
+
+    def __len__(self):
+        return len(self._store)
+
+    def copy(self):
+        return CaseInsensitiveDict(self._store.values())
 
 
 class ConfigHandler(object):
