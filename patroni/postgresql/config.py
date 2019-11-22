@@ -831,7 +831,8 @@ class ConfigHandler(object):
     def _handle_wal_buffers(old_values, changes):
         wal_block_size = parse_int(old_values['wal_block_size'][1])
         wal_segment_size = old_values['wal_segment_size']
-        wal_segment_size = parse_int(wal_segment_size[1]) * parse_int(wal_segment_size[2], 'B') / wal_block_size
+        wal_segment_unit = parse_int(wal_segment_size[2], 'B') if wal_segment_size[2][0].isdigit() else 1
+        wal_segment_size = parse_int(wal_segment_size[1]) * wal_segment_unit / wal_block_size
         default_wal_buffers = min(max(parse_int(old_values['shared_buffers'][1]) / 32, 8), wal_segment_size)
 
         wal_buffers = old_values['wal_buffers']
