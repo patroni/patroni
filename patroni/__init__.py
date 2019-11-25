@@ -4,6 +4,17 @@ import signal
 import sys
 import time
 
+import patroni.postgresql as postgresql
+import patroni.dcs as dcs
+import patroni.async_executor as async_executor
+import patroni.ha as ha
+import patroni.config as config
+import patroni.watchdog as watchdog
+from patroni.api import RestApiServer
+from patroni.log import PatroniLogger
+from patroni.request import PatroniRequest
+from patroni.version import __version__
+
 logger = logging.getLogger(__name__)
 
 PATRONI_ENV_PREFIX = 'PATRONI_'
@@ -12,30 +23,21 @@ PATRONI_ENV_PREFIX = 'PATRONI_'
 class Patroni(object):
 
     def __init__(self):
-        from patroni.api import RestApiServer
-        from patroni.config import Config
-        from patroni.dcs import get_dcs
-        from patroni.ha import Ha
-        from patroni.log import PatroniLogger
-        from patroni.postgresql import Postgresql
-        from patroni.request import PatroniRequest
-        from patroni.version import __version__
-        from patroni.watchdog import Watchdog
 
         self.setup_signal_handlers()
 
         self.version = __version__
         self.logger = PatroniLogger()
-        self.config = Config()
+        self.config = config.Config()
         self.logger.reload_config(self.config.get('log', {}))
-        self.dcs = get_dcs(self.config)
-        self.watchdog = Watchdog(self.config)
+        self.dcs = dcs.get_dcs(self.config)
+        self.watchdog = watchdog.Watchdog(self.config)
         self.load_dynamic_configuration()
 
-        self.postgresql = Postgresql(self.config['postgresql'])
+        self.postgresql = postgresql.Postgresql(self.config['postgresql'])
         self.api = RestApiServer(self, self.config['restapi'])
         self.request = PatroniRequest(self.config, True)
-        self.ha = Ha(self)
+        self.ha = ha.Ha(self)
 
         self.tags = self.get_tags()
         self.next_run = time.time()
