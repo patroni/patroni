@@ -5,16 +5,16 @@ import sys
 import time
 import argparse
 
-import patroni.postgresql as postgresql
-import patroni.dcs as dcs
-import patroni.async_executor as async_executor
-import patroni.ha as ha
-import patroni.config as config
-import patroni.watchdog as watchdog
 from patroni.api import RestApiServer
 from patroni.log import PatroniLogger
 from patroni.request import PatroniRequest
 from patroni.version import __version__
+postgresql = __import__('patroni.postgresql', fromlist=[""])
+dcs = __import__('patroni.dcs', fromlist=[""])
+async_executor = __import__('patroni.async_executor', fromlist=[""])
+ha = __import__('patroni.ha', fromlist=[""])
+config = __import__('patroni.config', fromlist=[""])
+watchdog = __import__('patroni.watchdog', fromlist=[""])
 
 logger = logging.getLogger(__name__)
 
@@ -168,10 +168,17 @@ class Patroni(object):
 
 def patroni_main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--version', action='version',
-                                version='%(prog)s {version}'.format(version=__version__))
-    parser.add_argument("configfile", nargs="?", default="", help="Patroni may also read the configuration from the {0} environment variable"
-            .format(config.Config.PATRONI_CONFIG_VARIABLE))
+    parser.add_argument(
+            '--version', action='version',
+            version='%(prog)s {version}'.format(version=__version__)
+            )
+    parser.add_argument(
+            "configfile",
+            nargs="?",
+            default="",
+            help="Patroni may also read the configuration from the {0} environment variable"
+            .format(config.Config.PATRONI_CONFIG_VARIABLE)
+            )
     args = parser.parse_args()
     conf = config.Config(args.configfile)
     patroni = Patroni(conf)
