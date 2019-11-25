@@ -73,16 +73,11 @@ def load_config(path, dcs):
     else:
         logging.debug('Loading configuration from file %s', path)
     config = {}
-    old_argv = list(sys.argv)
-    try:
-        sys.argv[1] = path
-        if Config.PATRONI_CONFIG_VARIABLE not in os.environ:
-            for p in ('PATRONI_RESTAPI_LISTEN', 'PATRONI_POSTGRESQL_DATA_DIR'):
-                if p not in os.environ:
-                    os.environ[p] = '.'
-        config = Config().copy()
-    finally:
-        sys.argv = old_argv
+    if Config.PATRONI_CONFIG_VARIABLE not in os.environ:
+        for p in ('PATRONI_RESTAPI_LISTEN', 'PATRONI_POSTGRESQL_DATA_DIR'):
+            if p not in os.environ:
+                os.environ[p] = '.'
+    config = Config(path).copy()
 
     dcs = parse_dcs(dcs) or parse_dcs(config.get('dcs_api')) or {}
     if dcs:

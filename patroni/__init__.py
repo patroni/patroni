@@ -3,6 +3,7 @@ import os
 import signal
 import sys
 import time
+import argparse
 
 import patroni.postgresql as postgresql
 import patroni.dcs as dcs
@@ -22,16 +23,13 @@ PATRONI_ENV_PREFIX = 'PATRONI_'
 
 class Patroni(object):
 
-    def __init__(self):
+    def __init__(self, conf):
 
         self.setup_signal_handlers()
 
         self.version = __version__
-        if len(sys.argv) >= 2 and sys.argv[1] and sys.argv[1] == "--version":
-            print(__version__)
-            sys.exit(0)
         self.logger = PatroniLogger()
-        self.config = config.Config()
+        self.config = conf
         self.logger.reload_config(self.config.get('log', {}))
         self.dcs = dcs.get_dcs(self.config)
         self.watchdog = watchdog.Watchdog(self.config)
@@ -169,7 +167,14 @@ class Patroni(object):
 
 
 def patroni_main():
-    patroni = Patroni()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--version', action='version',
+                                version='%(prog)s {version}'.format(version=__version__))
+    parser.add_argument("configfile", nargs="?", default="", help="Patroni may also read the configuration from the {0} environment variable"
+            .format(config.Config.PATRONI_CONFIG_VARIABLE))
+    args = parser.parse_args()
+    conf = config.Config(args.configfile)
+    patroni = Patroni(conf)
     try:
         patroni.run()
     except KeyboardInterrupt:
