@@ -5,8 +5,13 @@ import psutil
 import re
 import signal
 import subprocess
+import sys
 
 from patroni.config import Config
+
+if sys.version_info >= (3, 4):  # pragma: no cover
+    import multiprocessing.semaphore_tracker
+    multiprocessing.semaphore_tracker.getfd = lambda: 0  # avoid spawning the semaphore_tracker process
 
 logger = logging.getLogger(__name__)
 
@@ -172,8 +177,9 @@ class PostmasterProcess(psutil.Process):
             pass
         cmdline = [pgcommand, '-D', data_dir, '--config-file={}'.format(conf)] + options
         logger.debug("Starting postgres: %s", " ".join(cmdline))
-        parent_conn, child_conn = multiprocessing.Pipe(False)
-        proc = multiprocessing.Process(target=pg_ctl_start, args=(child_conn, cmdline, env))
+        ctx = multiprocessing.get_context('spawn') if sys.version_info >= (3, 4) else multiprocessing
+        parent_conn, child_conn = ctx.Pipe(False)
+        proc = ctx.Process(target=pg_ctl_start, args=(child_conn, cmdline, env))
         proc.start()
         pid = parent_conn.recv()
         proc.join()

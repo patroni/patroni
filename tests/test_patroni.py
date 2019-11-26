@@ -82,7 +82,6 @@ class TestPatroni(unittest.TestCase):
     @patch('os.getpid')
     @patch('multiprocessing.Process')
     @patch('patroni.patroni_main', Mock())
-    @patch('multiprocessing.set_start_method', Mock(), create=True)
     def test_patroni_main(self, mock_process, mock_getpid):
         mock_getpid.return_value = 2
         _main()
