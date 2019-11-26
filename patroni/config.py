@@ -8,6 +8,7 @@ import yaml
 
 from collections import defaultdict
 from copy import deepcopy
+from patroni import PATRONI_ENV_PREFIX
 from patroni.dcs import ClusterConfig
 from patroni.postgresql.config import CaseInsensitiveDict, ConfigHandler
 from patroni.utils import deep_compare, parse_bool, parse_int, patch_config
@@ -45,7 +46,6 @@ class Config(object):
          to work with it as with the old `config` object.
     """
 
-    PATRONI_ENV_PREFIX = 'PATRONI_'
     PATRONI_CONFIG_VARIABLE = PATRONI_ENV_PREFIX + 'CONFIGURATION'
 
     __CACHE_FILENAME = 'patroni.dynamic.json'
@@ -213,7 +213,7 @@ class Config(object):
         ret = defaultdict(dict)
 
         def _popenv(name):
-            return os.environ.pop(Config.PATRONI_ENV_PREFIX + name.upper(), None)
+            return os.environ.pop(PATRONI_ENV_PREFIX + name.upper(), None)
 
         for param in ('name', 'namespace', 'scope'):
             value = _popenv(param)
@@ -222,7 +222,7 @@ class Config(object):
 
         def _fix_log_env(name, oldname):
             value = _popenv(oldname)
-            name = Config.PATRONI_ENV_PREFIX + 'LOG_' + name.upper()
+            name = PATRONI_ENV_PREFIX + 'LOG_' + name.upper()
             if value and name not in os.environ:
                 os.environ[name] = value
 
@@ -287,7 +287,7 @@ class Config(object):
                 return None
 
         for param in list(os.environ.keys()):
-            if param.startswith(Config.PATRONI_ENV_PREFIX):
+            if param.startswith(PATRONI_ENV_PREFIX):
                 # PATRONI_(ETCD|CONSUL|ZOOKEEPER|EXHIBITOR|...)_(HOSTS?|PORT|..)
                 name, suffix = (param[8:].split('_', 1) + [''])[:2]
                 if suffix in ('HOST', 'HOSTS', 'PORT', 'USE_PROXIES', 'PROTOCOL', 'SRV', 'URL', 'PROXY',
@@ -310,7 +310,7 @@ class Config(object):
 
         users = {}
         for param in list(os.environ.keys()):
-            if param.startswith(Config.PATRONI_ENV_PREFIX):
+            if param.startswith(PATRONI_ENV_PREFIX):
                 name, suffix = (param[8:].rsplit('_', 1) + [''])[:2]
                 # PATRONI_<username>_PASSWORD=<password>, PATRONI_<username>_OPTIONS=<option1,option2,...>
                 # CREATE USER "<username>" WITH <OPTIONS> PASSWORD '<password>'
