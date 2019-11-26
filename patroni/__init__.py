@@ -5,16 +5,10 @@ import sys
 import time
 import argparse
 
-from patroni.api import RestApiServer
-from patroni.log import PatroniLogger
-from patroni.request import PatroniRequest
 from patroni.version import __version__
 postgresql = __import__('patroni.postgresql', fromlist=[""])
 dcs = __import__('patroni.dcs', fromlist=[""])
-async_executor = __import__('patroni.async_executor', fromlist=[""])
-ha = __import__('patroni.ha', fromlist=[""])
 config = __import__('patroni.config', fromlist=[""])
-watchdog = __import__('patroni.watchdog', fromlist=[""])
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +18,12 @@ PATRONI_ENV_PREFIX = 'PATRONI_'
 class Patroni(object):
 
     def __init__(self, conf):
+        from patroni.api import RestApiServer
+        from patroni.ha import Ha
+        from patroni.log import PatroniLogger
+        from patroni.request import PatroniRequest
+        from patroni.version import __version__
+        from patroni.watchdog import Watchdog
 
         self.setup_signal_handlers()
 
@@ -32,13 +32,13 @@ class Patroni(object):
         self.config = conf
         self.logger.reload_config(self.config.get('log', {}))
         self.dcs = dcs.get_dcs(self.config)
-        self.watchdog = watchdog.Watchdog(self.config)
+        self.watchdog = Watchdog(self.config)
         self.load_dynamic_configuration()
 
         self.postgresql = postgresql.Postgresql(self.config['postgresql'])
         self.api = RestApiServer(self, self.config['restapi'])
         self.request = PatroniRequest(self.config, True)
-        self.ha = ha.Ha(self)
+        self.ha = Ha(self)
 
         self.tags = self.get_tags()
         self.next_run = time.time()
