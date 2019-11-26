@@ -6,6 +6,7 @@ import socket
 import stat
 import time
 
+from patroni.exceptions import PatroniException
 from collections import MutableMapping, OrderedDict
 from six.moves.urllib_parse import urlparse, parse_qsl, unquote
 
@@ -708,9 +709,13 @@ class ConfigHandler(object):
         if not line:
             return os.environ.copy()
 
-        with open(self._pgpass, 'w') as f:
-            os.chmod(self._pgpass, stat.S_IWRITE | stat.S_IREAD)
-            f.write(line)
+        if not os.path.exists(self._pgpass) or os.path.isfile(self._pgpass):
+            with open(self._pgpass, 'w') as f:
+                os.chmod(self._pgpass, stat.S_IWRITE | stat.S_IREAD)
+                f.write(line)
+        else:
+            raise PatroniException("'{}' exists and it's not a file, check your `postgresql.pgpass` configuration"
+                    .format(self._pgpass))
 
         env = os.environ.copy()
         env['PGPASSFILE'] = self._pgpass
