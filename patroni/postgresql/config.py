@@ -490,8 +490,8 @@ class ConfigHandler(object):
 
     def format_dsn(self, params, include_dbname=False):
         # A list of keywords that can be found in a conninfo string. Follows what is acceptable by libpq
-        keywords = ('user', 'passfile', 'host', 'port', 'sslmode', 'sslcompression', 'sslcert',
-                    'sslkey', 'sslrootcert', 'sslcrl', 'application_name', 'krbsrvname')
+        keywords = ('user', 'passfile' if params.get('passfile') else 'password', 'host', 'port', 'sslmode',
+                    'sslcompression', 'sslcert', 'sslkey', 'sslrootcert', 'sslcrl', 'application_name', 'krbsrvname')
         if include_dbname:
             params = params.copy()
             params['dbname'] = params.get('database') or self._postgresql.database
@@ -505,7 +505,7 @@ class ConfigHandler(object):
     def _write_recovery_params(self, fd, recovery_params):
         for name, value in sorted(recovery_params.items()):
             if name == 'primary_conninfo':
-                if 'password' in value:
+                if 'password' in value and self._postgresql.major_version >= 100000:
                     self.write_pgpass(value)
                     value['passfile'] = self._passfile = self._pgpass
                     self._passfile_mtime = mtime(self._pgpass)
