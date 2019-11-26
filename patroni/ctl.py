@@ -263,6 +263,8 @@ def get_members(cluster, cluster_name, member_names, role, force, action, schedu
             member_names = role_names
 
     if not member_names and not force:
+        if not candidates:
+            raise PatroniCtlException('{0} cluster doesn\'t have any members'.format(cluster_name))
         member_names = [click.prompt('Which member do you want to {0} [{1}]?'.format(action,
                         ', '.join(candidates.keys())), type=str, default='')]
 
