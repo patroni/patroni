@@ -6,6 +6,8 @@ import time
 
 logger = logging.getLogger(__name__)
 
+PATRONI_ENV_PREFIX = 'PATRONI_'
+
 
 class Patroni(object):
 
