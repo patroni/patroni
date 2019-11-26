@@ -714,7 +714,8 @@ class ConfigHandler(object):
                 os.chmod(self._pgpass, stat.S_IWRITE | stat.S_IREAD)
                 f.write(line)
         else:
-            raise PatroniException("'{}' exists and it's not a file, check your `postgresql.pgpass` configuration"
+            raise PatroniException(
+                    "'{}' exists and it's not a file, check your `postgresql.pgpass` configuration"
                     .format(self._pgpass))
 
         env = os.environ.copy()
