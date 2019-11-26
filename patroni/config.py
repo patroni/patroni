@@ -9,6 +9,7 @@ import yaml
 from collections import defaultdict
 from copy import deepcopy
 from patroni import PATRONI_ENV_PREFIX
+from patroni.exceptions import ConfigParseError
 from patroni.dcs import ClusterConfig
 from patroni.postgresql.config import CaseInsensitiveDict, ConfigHandler
 from patroni.utils import deep_compare, parse_bool, parse_int, patch_config
@@ -89,12 +90,13 @@ class Config(object):
             config_env = os.environ.pop(self.PATRONI_CONFIG_VARIABLE, None)
             self._local_configuration = config_env and yaml.safe_load(config_env) or self.__environment_configuration
             if not self._local_configuration:
-                print('Usage: {0} config.yml'.format(sys.argv[0]))
-                print('\tPatroni may also read the configuration from the {0} environment variable'.
-                      format(self.PATRONI_CONFIG_VARIABLE))
-                sys.exit(1)
+                raise ConfigParseError(None)
 
         self.__effective_configuration = self._build_effective_configuration({}, self._local_configuration)
+        if 'postgresql' in self._local_configuration and "data_dir" in self._local_configuration["postgresql"]:
+            self._data_dir = self.__effective_configuration['postgresql']['data_dir']
+        else:
+            raise ConfigParseError("The configuration file does not include 'postgresql.data_dir'")
         self._data_dir = self.__effective_configuration['postgresql']['data_dir']
         self._cache_file = os.path.join(self._data_dir, self.__CACHE_FILENAME)
         self._load_cache()

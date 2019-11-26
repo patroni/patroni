@@ -3,6 +3,7 @@ import sys
 import unittest
 
 from mock import MagicMock, Mock, patch
+from patroni import patroni_main
 from patroni.config import Config
 from six.moves import builtins
 
@@ -18,7 +19,7 @@ class TestConfig(unittest.TestCase):
         self.config = Config()
 
     def test_no_config(self):
-        self.assertRaises(SystemExit, Config)
+        self.assertRaises(SystemExit, patroni_main)
 
     def test_set_dynamic_configuration(self):
         with patch.object(Config, '_build_effective_configuration', Mock(side_effect=Exception)):

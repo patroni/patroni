@@ -27,3 +27,7 @@ class PostgresConnectionException(PostgresException):
 
 class WatchdogError(PatroniException):
     pass
+
+
+class ConfigParseError(PatroniException):
+    pass

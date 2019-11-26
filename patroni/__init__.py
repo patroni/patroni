@@ -6,9 +6,7 @@ import time
 import argparse
 
 from patroni.version import __version__
-postgresql = __import__('patroni.postgresql', fromlist=[""])
-dcs = __import__('patroni.dcs', fromlist=[""])
-config = __import__('patroni.config', fromlist=[""])
+from patroni.exceptions import ConfigParseError
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +17,10 @@ class Patroni(object):
 
     def __init__(self, conf):
         from patroni.api import RestApiServer
+        from patroni.dcs import get_dcs
         from patroni.ha import Ha
         from patroni.log import PatroniLogger
+        from patroni.postgresql import Postgresql
         from patroni.request import PatroniRequest
         from patroni.version import __version__
         from patroni.watchdog import Watchdog
@@ -31,11 +31,11 @@ class Patroni(object):
         self.logger = PatroniLogger()
         self.config = conf
         self.logger.reload_config(self.config.get('log', {}))
-        self.dcs = dcs.get_dcs(self.config)
+        self.dcs = get_dcs(self.config)
         self.watchdog = Watchdog(self.config)
         self.load_dynamic_configuration()
 
-        self.postgresql = postgresql.Postgresql(self.config['postgresql'])
+        self.postgresql = Postgresql(self.config['postgresql'])
         self.api = RestApiServer(self, self.config['restapi'])
         self.request = PatroniRequest(self.config, True)
         self.ha = Ha(self)
@@ -167,6 +167,7 @@ class Patroni(object):
 
 
 def patroni_main():
+    config = __import__('patroni.config', fromlist=[""])
     parser = argparse.ArgumentParser()
     parser.add_argument(
             '--version', action='version',
@@ -180,7 +181,13 @@ def patroni_main():
             .format(config.Config.PATRONI_CONFIG_VARIABLE)
             )
     args = parser.parse_args()
-    conf = config.Config(args.configfile)
+    try:
+        conf = config.Config(args.configfile)
+    except ConfigParseError as e:
+        if e.value:
+            print(e.value)
+        parser.print_help()
+        exit(1)
     patroni = Patroni(conf)
     try:
         patroni.run()
