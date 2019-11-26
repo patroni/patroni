@@ -16,8 +16,8 @@ from patroni.postgresql.connection import Connection, get_connection_cursor
 from patroni.postgresql.misc import parse_history, postgres_major_version_to_int
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.slots import SlotsHandler
-from patroni.exceptions import PostgresConnectionException, PatroniException
-from patroni.utils import Retry, RetryFailedError, polling_loop
+from patroni.exceptions import PostgresConnectionException
+from patroni.utils import Retry, RetryFailedError, polling_loop, directory_exists_or_create
 from threading import current_thread, Lock
 
 
@@ -410,22 +410,10 @@ class Postgresql(object):
         if "unix_socket_directories" in configuration:
             for d in configuration["unix_socket_directories"].split(","):
                 d = os.path.join(self._data_dir, d.strip())
-                if not os.path.isdir(d):
-                    try:
-                        os.makedirs(d)
-                    except FileExistsError:
-                        raise PatroniException(
-                                "'%s' is defined in unix_socket_directories, but it is not a directory".format(d)
-                                )
+                directory_exists_or_create(d, "'{}' is defined in unix_socket_directories, but it is not a directory")
         if "stats_temp_directory" in configuration:
             d = os.path.join(self._data_dir, configuration["stats_temp_directory"])
-            if not os.path.isdir(d):
-                try:
-                    os.makedirs(d)
-                except FileExistsError:
-                    raise PatroniException(
-                            "'%s' is defined in stats_temp_directory, but it is not a directory".format(d)
-                            )
+            directory_exists_or_create(d, "'{}' is defined in stats_temp_directory, but it is not a directory")
         self.config.write_postgresql_conf(configuration)
         self.config.resolve_connection_addresses()
         self.config.replace_pg_hba()

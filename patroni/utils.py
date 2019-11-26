@@ -3,6 +3,7 @@ import platform
 import random
 import re
 import time
+import os
 
 from dateutil import tz
 
@@ -416,3 +417,11 @@ def cluster_as_json(cluster):
         if cluster.failover.candidate:
             ret['scheduled_switchover']['to'] = cluster.failover.candidate
     return ret
+
+
+def directory_exists_or_create(d, msg="{} is not a directory"):
+    if not os.path.isdir(d):
+        try:
+            os.makedirs(d)
+        except OSError:
+            raise PatroniException(msg.format(d))
