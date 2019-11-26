@@ -172,7 +172,7 @@ class PostgresInit(unittest.TestCase):
     @patch.object(ConfigHandler, 'replace_pg_ident', Mock())
     @patch.object(Postgresql, 'get_postgres_role_from_data_directory', Mock(return_value='master'))
     def setUp(self):
-        data_dir = 'data/test0'
+        data_dir = os.path.join('data', 'test0')
         self.p = Postgresql({'name': 'postgresql0', 'scope': 'batman', 'data_dir': data_dir,
                              'config_dir': data_dir, 'retry_timeout': 10,
                              'krbsrvname': 'postgres', 'pgpass': os.path.join(data_dir, 'pgpass0'),
