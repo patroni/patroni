@@ -9,9 +9,13 @@ import sys
 
 from patroni import PATRONI_ENV_PREFIX
 
-if sys.version_info >= (3, 4):  # pragma: no cover
+# avoid spawning the resource tracker process
+if sys.version_info >= (3, 8):  # pragma: no cover
+    import multiprocessing.resource_tracker
+    multiprocessing.resource_tracker.getfd = lambda: 0
+elif sys.version_info >= (3, 4):  # pragma: no cover
     import multiprocessing.semaphore_tracker
-    multiprocessing.semaphore_tracker.getfd = lambda: 0  # avoid spawning the semaphore_tracker process
+    multiprocessing.semaphore_tracker.getfd = lambda: 0
 
 logger = logging.getLogger(__name__)
 
