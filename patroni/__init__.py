@@ -167,7 +167,7 @@ class Patroni(object):
 
 
 def patroni_main():
-    config = __import__('patroni.config', fromlist=[""])
+    from patroni.config import Config
     parser = argparse.ArgumentParser()
     parser.add_argument(
             '--version', action='version',
@@ -178,11 +178,11 @@ def patroni_main():
             nargs="?",
             default="",
             help="Patroni may also read the configuration from the {0} environment variable"
-            .format(config.Config.PATRONI_CONFIG_VARIABLE)
+            .format(Config.PATRONI_CONFIG_VARIABLE)
             )
     args = parser.parse_args()
     try:
-        conf = config.Config(args.configfile)
+        conf = Config(args.configfile)
     except ConfigParseError as e:
         if e.value:
             print(e.value)

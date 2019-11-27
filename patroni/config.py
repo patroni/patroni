@@ -92,11 +92,7 @@ class Config(object):
                 raise ConfigParseError(None)
 
         self.__effective_configuration = self._build_effective_configuration({}, self._local_configuration)
-        if 'postgresql' in self._local_configuration and "data_dir" in self._local_configuration["postgresql"]:
-            self._data_dir = self.__effective_configuration['postgresql']['data_dir']
-        else:
-            raise ConfigParseError("The configuration file does not include 'postgresql.data_dir'")
-        self._data_dir = self.__effective_configuration['postgresql']['data_dir']
+        self._data_dir = self.__effective_configuration.get('postgresql', {}).get('data_dir', "")
         self._cache_file = os.path.join(self._data_dir, self.__CACHE_FILENAME)
         self._load_cache()
         self._cache_needs_saving = False
@@ -341,7 +337,7 @@ class Config(object):
                 config[name] = deepcopy(value) if value else {}
 
         # restapi server expects to get restapi.auth = 'username:password'
-        if 'authentication' in config['restapi']:
+        if 'restapi' in config and 'authentication' in config['restapi']:
             config['restapi']['auth'] = '{username}:{password}'.format(**config['restapi']['authentication'])
 
         # special treatment for old config
