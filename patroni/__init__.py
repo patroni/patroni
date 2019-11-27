@@ -3,10 +3,8 @@ import os
 import signal
 import sys
 import time
-import argparse
 
 from patroni.version import __version__
-from patroni.exceptions import ConfigParseError
 
 logger = logging.getLogger(__name__)
 
@@ -167,19 +165,14 @@ class Patroni(object):
 
 
 def patroni_main():
-    from patroni.config import Config
+    import argparse
+    from patroni.config import Config, ConfigParseError
+
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-            '--version', action='version',
-            version='%(prog)s {version}'.format(version=__version__)
-            )
-    parser.add_argument(
-            "configfile",
-            nargs="?",
-            default="",
-            help="Patroni may also read the configuration from the {0} environment variable"
-            .format(Config.PATRONI_CONFIG_VARIABLE)
-            )
+    parser.add_argument('--version', action='version', version='%(prog)s {0}'.format(__version__))
+    parser.add_argument('configfile', nargs='?', default='',
+                        help='Patroni may also read the configuration from the {0} environment variable'
+                        .format(Config.PATRONI_CONFIG_VARIABLE))
     args = parser.parse_args()
     try:
         conf = Config(args.configfile)
