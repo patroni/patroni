@@ -7,7 +7,7 @@ import signal
 import subprocess
 import sys
 
-from patroni.config import Config
+from patroni import PATRONI_ENV_PREFIX
 
 if sys.version_info >= (3, 4):  # pragma: no cover
     import multiprocessing.semaphore_tracker
@@ -160,7 +160,7 @@ class PostmasterProcess(psutil.Process):
         # In order to make everything portable we can't use fork&exec approach here, so  we will call
         # ourselves and pass list of arguments which must be used to start postgres.
         # On Windows, in order to run a side-by-side assembly the specified env must include a valid SYSTEMROOT.
-        env = {p: os.environ[p] for p in os.environ if not p.startswith(Config.PATRONI_ENV_PREFIX)}
+        env = {p: os.environ[p] for p in os.environ if not p.startswith(PATRONI_ENV_PREFIX)}
         try:
             proc = PostmasterProcess._from_pidfile(data_dir)
             if proc and not proc._is_postmaster_process():
