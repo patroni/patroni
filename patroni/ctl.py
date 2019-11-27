@@ -72,10 +72,7 @@ def load_config(path, dcs):
         logging.debug('Ignoring configuration file "%s". It does not exists or is not readable.', path)
     else:
         logging.debug('Loading configuration from file %s', path)
-    # FIXME
-    if Config.PATRONI_CONFIG_VARIABLE not in os.environ:
-        os.environ[Config.PATRONI_CONFIG_VARIABLE] = '{"restapi":{}}'
-    config = Config(path).copy()
+    config = Config(path, validate_empty=False).copy()
 
     dcs = parse_dcs(dcs) or parse_dcs(config.get('dcs_api')) or {}
     if dcs:

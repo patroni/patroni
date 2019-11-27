@@ -75,7 +75,7 @@ class Config(object):
         }
     }
 
-    def __init__(self, configfile):
+    def __init__(self, configfile, validate_empty=True):
         self._modify_index = -1
         self._dynamic_configuration = {}
 
@@ -88,7 +88,7 @@ class Config(object):
         else:
             config_env = os.environ.pop(self.PATRONI_CONFIG_VARIABLE, None)
             self._local_configuration = config_env and yaml.safe_load(config_env) or self.__environment_configuration
-            if not self._local_configuration:
+            if validate_empty and not self._local_configuration:
                 raise ConfigParseError(None)
 
         self.__effective_configuration = self._build_effective_configuration({}, self._local_configuration)
