@@ -41,6 +41,9 @@ class MockFrozenImporter(object):
 @patch.object(etcd.Client, 'read', etcd_read)
 class TestPatroni(unittest.TestCase):
 
+    def test_no_config(self):
+        self.assertRaises(SystemExit, patroni_main)
+
     @patch('pkgutil.get_importer', Mock(return_value=MockFrozenImporter()))
     @patch('sys.frozen', Mock(return_value=True), create=True)
     @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())

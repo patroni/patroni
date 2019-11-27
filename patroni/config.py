@@ -75,14 +75,14 @@ class Config(object):
         }
     }
 
-    def __init__(self, configfile=""):
+    def __init__(self, configfile):
         self._modify_index = -1
         self._dynamic_configuration = {}
 
         self.__environment_configuration = self._build_environment_configuration()
 
         # Patroni reads the configuration from the command-line argument if it exists, otherwise from the environment
-        self._config_file = os.path.isfile(configfile) and configfile
+        self._config_file = configfile and os.path.isfile(configfile) and configfile
         if self._config_file:
             self._local_configuration = self._load_config_file()
         else:
