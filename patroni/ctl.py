@@ -72,7 +72,7 @@ def load_config(path, dcs):
         logging.debug('Ignoring configuration file "%s". It does not exists or is not readable.', path)
     else:
         logging.debug('Loading configuration from file %s', path)
-    config = Config(path, validate_empty=False).copy()
+    config = Config(path, validator=None).copy()
 
     dcs = parse_dcs(dcs) or parse_dcs(config.get('dcs_api')) or {}
     if dcs:

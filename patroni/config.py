@@ -75,7 +75,7 @@ class Config(object):
         }
     }
 
-    def __init__(self, configfile, validate_empty=True):
+    def __init__(self, configfile, validator=lambda c: "Config is empty." if not c else None):
         self._modify_index = -1
         self._dynamic_configuration = {}
 
@@ -88,8 +88,10 @@ class Config(object):
         else:
             config_env = os.environ.pop(self.PATRONI_CONFIG_VARIABLE, None)
             self._local_configuration = config_env and yaml.safe_load(config_env) or self.__environment_configuration
-            if validate_empty and not self._local_configuration:
-                raise ConfigParseError(None)
+        if validator:
+            error = validator(self._local_configuration)
+            if error:
+                raise ConfigParseError(error)
 
         self.__effective_configuration = self._build_effective_configuration({}, self._local_configuration)
         self._data_dir = self.__effective_configuration.get('postgresql', {}).get('data_dir', "")
