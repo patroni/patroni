@@ -10,7 +10,7 @@ import os
 import six
 import socket
 
-from patroni.exceptions import PostgresConnectionException, PostgresException, PatroniException
+from patroni.exceptions import PostgresConnectionException, PostgresException
 from patroni.postgresql.misc import postgres_version_to_int
 from patroni.utils import deep_compare, parse_bool, patch_config, Retry, \
     RetryFailedError, parse_int, split_host_port, tzutc, uri, cluster_as_json
