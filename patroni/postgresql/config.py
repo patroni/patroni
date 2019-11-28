@@ -345,6 +345,10 @@ class ConfigHandler(object):
         self._auto_conf = os.path.join(postgresql.data_dir, 'postgresql.auto.conf')
         self._auto_conf_mtime = None
         self._pgpass = config.get('pgpass') or os.path.join(os.path.expanduser('~'), 'pgpass')
+        if os.path.exists(self._pgpass) and not os.path.isfile(self._pgpass):
+            raise PatroniException(
+                    "'{}' exists and it's not a file, check your `postgresql.pgpass` configuration"
+                    .format(self._pgpass))
         self._passfile = None
         self._passfile_mtime = None
         self._synchronous_standby_names = None
@@ -709,14 +713,9 @@ class ConfigHandler(object):
         if not line:
             return os.environ.copy()
 
-        if not os.path.exists(self._pgpass) or os.path.isfile(self._pgpass):
-            with open(self._pgpass, 'w') as f:
-                os.chmod(self._pgpass, stat.S_IWRITE | stat.S_IREAD)
-                f.write(line)
-        else:
-            raise PatroniException(
-                    "'{}' exists and it's not a file, check your `postgresql.pgpass` configuration"
-                    .format(self._pgpass))
+        with open(self._pgpass, 'w') as f:
+            os.chmod(self._pgpass, stat.S_IWRITE | stat.S_IREAD)
+            f.write(line)
 
         env = os.environ.copy()
         env['PGPASSFILE'] = self._pgpass
