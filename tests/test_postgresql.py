@@ -197,8 +197,9 @@ class TestPostgresql(BaseTestPostgresql):
 
     @patch('os.path.exists', Mock(return_value=True))
     @patch('os.path.isfile', Mock(return_value=False))
-    def test_write_pgpass_error(self):
-        self.assertRaises(PatroniException, self.p.config.write_pgpass, {'host': 'localhost', 'port': '5432', 'user': 'foo', 'password': 'bar'})
+    def test_pgpass_is_not_writable(self):
+        data_dir = os.path.join('data', 'test0')
+        self.assertRaises(PatroniException, Postgresql, {'name': 'postgresql0', 'scope': 'batman', 'data_dir': data_dir})
 
     def test_checkpoint(self):
         with patch.object(MockCursor, 'fetchone', Mock(return_value=(True, ))):
