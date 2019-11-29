@@ -247,7 +247,7 @@ def get_cursor(cluster, connect_parameters, role='master', member=None):
     return None
 
 
-def get_members(cluster, cluster_name, member_names, role, force, action):
+def get_members(cluster, cluster_name, member_names, role, force, action, ask_confirmation=True):
     candidates = {m.name: m for m in cluster.members}
 
     if not force or role:
@@ -272,10 +272,13 @@ def get_members(cluster, cluster_name, member_names, role, force, action):
         if member_name not in candidates:
             raise PatroniCtlException('{0} is not a member of cluster'.format(member_name))
 
-    return [candidates[n] for n in member_names]
+    members = [candidates[n] for n in member_names]
+    if ask_confirmation:
+        confirm_members_action(members, force, action)
+    return members
 
 
-def confirm_scheduled(members, force, action, scheduled_at=None):
+def confirm_members_action(members, force, action, scheduled_at=None):
     if scheduled_at:
         if not force:
             confirm = click.confirm('Are you sure you want to schedule {0} of members {1} at {2}?'
@@ -472,7 +475,6 @@ def reload(obj, cluster_name, member_names, force, role):
     cluster = get_dcs(obj, cluster_name).get_cluster()
 
     members = get_members(cluster, cluster_name, member_names, role, force, 'reload')
-    confirm_scheduled(members, force, 'reload')
 
     for member in members:
         r = request_patroni(member, 'post', 'reload')
@@ -506,14 +508,14 @@ def reload(obj, cluster_name, member_names, force, role):
 def restart(obj, cluster_name, member_names, force, role, p_any, scheduled, version, pending, timeout):
     cluster = get_dcs(obj, cluster_name).get_cluster()
 
-    members = get_members(cluster, cluster_name, member_names, role, force, 'restart')
+    members = get_members(cluster, cluster_name, member_names, role, force, 'restart', False)
     if scheduled is None and not force:
         next_hour = (datetime.datetime.now() + datetime.timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M')
         scheduled = click.prompt('When should the restart take place (e.g. ' + next_hour + ') ',
                                  type=str, default='now')
 
     scheduled_at = parse_scheduled(scheduled)
-    confirm_scheduled(members, force, 'restart', scheduled_at)
+    confirm_members_action(members, force, 'restart', scheduled_at)
 
     if p_any:
         random.shuffle(members)
@@ -570,7 +572,6 @@ def restart(obj, cluster_name, member_names, force, role, p_any, scheduled, vers
 def reinit(obj, cluster_name, member_names, force):
     cluster = get_dcs(obj, cluster_name).get_cluster()
     members = get_members(cluster, cluster_name, member_names, None, force, 'reinitialize')
-    confirm_scheduled(members, force, 'reinit')
 
     for member in members:
         body = {'force': force}
@@ -869,7 +870,6 @@ def flush(obj, cluster_name, member_names, force, role, target):
     cluster = get_dcs(obj, cluster_name).get_cluster()
 
     members = get_members(cluster, cluster_name, member_names, role, force, 'flush')
-    confirm_scheduled(members, force, 'flush')
     for member in members:
         if target == 'restart':
             if member.data.get('scheduled_restart'):
