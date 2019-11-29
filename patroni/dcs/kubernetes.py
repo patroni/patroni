@@ -8,13 +8,14 @@ import sys
 import time
 
 from kubernetes import client as k8s_client, config as k8s_config, watch as k8s_watch
-from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
-from patroni.exceptions import DCSError
-from patroni.utils import deep_compare, tzutc, Retry, RetryFailedError
 from urllib3 import Timeout
 from urllib3.exceptions import HTTPError
 from six.moves.http_client import HTTPException
 from threading import Condition, Lock, Thread
+
+from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, SyncState, TimelineHistory
+from ..exceptions import DCSError
+from ..utils import deep_compare, Retry, RetryFailedError, tzutc, USER_AGENT
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,7 @@ class CoreV1ApiProxy(object):
 
     def __init__(self, use_endpoints=False):
         self._api = k8s_client.CoreV1Api()
+        self._api.api_client.user_agent = USER_AGENT
         self._api.api_client.rest_client.pool_manager.connection_pool_kw['maxsize'] = 10
         self._request_timeout = None
         self._use_endpoints = use_endpoints
