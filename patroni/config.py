@@ -26,6 +26,11 @@ _AUTH_ALLOWED_PARAMETERS = (
 )
 
 
+def default_validator(conf):
+    if not conf:
+        return "Config is empty."
+
+
 class Config(object):
     """
     This class is responsible for:
@@ -75,7 +80,7 @@ class Config(object):
         }
     }
 
-    def __init__(self, configfile, validator=lambda c: "Config is empty." if not c else None):
+    def __init__(self, configfile, validator=default_validator):
         self._modify_index = -1
         self._dynamic_configuration = {}
 

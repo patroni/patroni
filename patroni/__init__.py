@@ -180,7 +180,7 @@ def patroni_main():
         if e.value:
             print(e.value)
         parser.print_help()
-        exit(1)
+        sys.exit(1)
     patroni = Patroni(conf)
     try:
         patroni.run()

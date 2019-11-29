@@ -8,7 +8,7 @@ import time
 from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.async_executor import CriticalTask
 from patroni.dcs import Cluster, ClusterConfig, Member, RemoteMember, SyncState
-from patroni.exceptions import PostgresConnectionException, PatroniException
+from patroni.exceptions import PostgresConnectionException
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.slots import SlotsHandler
@@ -194,12 +194,6 @@ class TestPostgresql(BaseTestPostgresql):
     def test_write_pgpass(self):
         self.p.config.write_pgpass({'host': 'localhost', 'port': '5432', 'user': 'foo'})
         self.p.config.write_pgpass({'host': 'localhost', 'port': '5432', 'user': 'foo', 'password': 'bar'})
-
-    @patch('os.path.exists', Mock(return_value=True))
-    @patch('os.path.isfile', Mock(return_value=False))
-    def test_pgpass_is_not_writable(self):
-        data_dir = os.path.join('data', 'test0')
-        self.assertRaises(PatroniException, Postgresql, {'name': 'postgresql0', 'scope': 'batman', 'data_dir': data_dir})
 
     def test_checkpoint(self):
         with patch.object(MockCursor, 'fetchone', Mock(return_value=(True, ))):

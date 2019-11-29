@@ -6,7 +6,6 @@ import socket
 import stat
 import time
 
-from patroni.exceptions import PatroniException
 from collections import MutableMapping, OrderedDict
 from six.moves.urllib_parse import urlparse, parse_qsl, unquote
 
@@ -345,10 +344,6 @@ class ConfigHandler(object):
         self._auto_conf = os.path.join(postgresql.data_dir, 'postgresql.auto.conf')
         self._auto_conf_mtime = None
         self._pgpass = config.get('pgpass') or os.path.join(os.path.expanduser('~'), 'pgpass')
-        if os.path.exists(self._pgpass) and not os.path.isfile(self._pgpass):
-            raise PatroniException(
-                    "'{}' exists and it's not a file, check your `postgresql.pgpass` configuration"
-                    .format(self._pgpass))
         self._passfile = None
         self._passfile_mtime = None
         self._synchronous_standby_names = None
