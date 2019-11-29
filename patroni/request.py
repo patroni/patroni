@@ -3,7 +3,9 @@ import urllib3
 import six
 
 from six.moves.urllib_parse import urlparse, urlunparse
+
 from .utils import USER_AGENT
+
 
 class PatroniRequest(object):
 
