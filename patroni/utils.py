@@ -1,3 +1,4 @@
+import json.decoder as json_decoder
 import logging
 import random
 import re
@@ -363,6 +364,27 @@ def uri(proto, netloc, path='', user=None):
     path = '/{0}'.format(path) if path and not path.startswith('/') else path
     user = '{0}@'.format(user) if user else ''
     return '{0}://{1}{2}{3}{4}'.format(proto, user, host, port, path)
+
+
+def iter_response_objects(response):
+    prev = ''
+    decoder = json_decoder.JSONDecoder()
+    for chunk in response.read_chunked(decode_content=False):
+        if isinstance(chunk, bytes):
+            chunk = chunk.decode('utf-8')
+        chunk = prev + chunk
+
+        length = len(chunk)
+        idx = json_decoder.WHITESPACE.match(chunk, 0).end()
+        while idx < length:
+            try:
+                message, idx = decoder.raw_decode(chunk, idx)
+            except ValueError:  # malformed or incomplete JSON, unlikely to happen
+                break
+            else:
+                yield message
+                idx = json_decoder.WHITESPACE.match(chunk, idx).end()
+        prev = chunk[idx:]
 
 
 def is_standby_cluster(config):

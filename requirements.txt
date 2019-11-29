@@ -11,4 +11,3 @@ tzlocal
 python-dateutil
 psutil>=2.0.0
 cdiff
-kubernetes>=2.0.0,<=10.0.1,!=4.0.*,!=5.0.*

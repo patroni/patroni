@@ -116,7 +116,7 @@ def setup_package():
 
     install_requires = []
     extras_require = {'aws': ['boto'], 'etcd': ['python-etcd'], 'consul': ['python-consul'],
-                      'exhibitor': ['kazoo'], 'zookeeper': ['kazoo'], 'kubernetes': ['kubernetes']}
+                      'exhibitor': ['kazoo'], 'zookeeper': ['kazoo'], 'kubernetes': []}
 
     for r in read('requirements.txt').split('\n'):
         r = r.strip()
@@ -124,7 +124,7 @@ def setup_package():
             continue
         extra = False
         for e, v in extras_require.items():
-            if r.startswith(v[0]):
+            if v and r.startswith(v[0]):
                 extras_require[e] = [r]
                 extra = True
         if not extra:
