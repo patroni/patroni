@@ -560,8 +560,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             HTTPServer.__init__(self, info[0][-1][:2], RestApiHandler)
         except OSError:
             logger.error(
-                    "Couldn't start a service on '{}:{}', please check your `restapi.listen` configuration"
-                    .format(host, port))
+                    "Couldn't start a service on '%s:%s', please check your `restapi.listen` configuration", host, port)
             raise
 
     def __initialize(self, listen, ssl_options):
