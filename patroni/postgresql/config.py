@@ -10,7 +10,8 @@ from six.moves.urllib_parse import urlparse, parse_qsl, unquote
 from urllib3.response import HTTPHeaderDict
 
 from ..dcs import slot_name_from_member_name, RemoteMember
-from ..utils import compare_values, parse_bool, parse_int, split_host_port, uri
+from ..utils import compare_values, parse_bool, parse_int, split_host_port, uri, \
+        validate_directory, merge_paths
 
 logger = logging.getLogger(__name__)
 
@@ -346,6 +347,17 @@ class ConfigHandler(object):
     def setup_server_parameters(self):
         self._server_parameters = self.get_server_parameters(self._config)
         self._adjust_recovery_parameters()
+
+    def check_directories(self):
+        if "unix_socket_directories" in self._server_parameters:
+            for d in self._server_parameters["unix_socket_directories"].split(","):
+                d, is_subdir = merge_paths(self._postgresql._data_dir, d.strip())
+                if not is_subdir or not self._postgresql.data_directory_empty():
+                    validate_directory(d, "'{}' is defined in unix_socket_directories, {}")
+        if "stats_temp_directory" in self._server_parameters:
+            d, is_subdir = merge_paths(self._postgresql._data_dir, self._server_parameters["stats_temp_directory"])
+            if not is_subdir or not self._postgresql.data_directory_empty():
+                validate_directory(d, "'{}' is defined in stats_temp_directory, {}")
 
     @property
     def _configuration_to_save(self):

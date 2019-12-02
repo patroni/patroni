@@ -17,7 +17,7 @@ from patroni.postgresql.misc import parse_history, postgres_major_version_to_int
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.slots import SlotsHandler
 from patroni.exceptions import PostgresConnectionException
-from patroni.utils import Retry, RetryFailedError, polling_loop, directory_exists_or_create
+from patroni.utils import Retry, RetryFailedError, polling_loop
 from threading import current_thread, Lock
 
 
@@ -60,16 +60,7 @@ class Postgresql(object):
         self._pending_restart = False
         self._connection = Connection()
         self.config = ConfigHandler(self, config)
-        if "unix_socket_directories" in self.config._server_parameters:
-            for d in self.config._server_parameters["unix_socket_directories"].split(","):
-                d = os.path.join(self._data_dir, d.strip())
-                if not d.startswith(self._data_dir) or not self.data_directory_empty():
-                    directory_exists_or_create(d,
-                            "'{}' is defined in unix_socket_directories, but it is not a directory")
-        if "stats_temp_directory" in self.config._server_parameters:
-            d = os.path.join(self._data_dir, self.config._server_parameters["stats_temp_directory"])
-            if not d.startswith(self._data_dir) or not self.data_directory_empty():
-                directory_exists_or_create(d, "'{}' is defined in stats_temp_directory, but it is not a directory")
+        self.config.check_directories()
 
         self._bin_dir = config.get('bin_dir') or ''
         self.bootstrap = Bootstrap(self)
@@ -417,13 +408,7 @@ class Postgresql(object):
         self._pending_restart = False
 
         configuration = self.config.effective_configuration
-        if "unix_socket_directories" in configuration:
-            for d in configuration["unix_socket_directories"].split(","):
-                d = os.path.join(self._data_dir, d.strip())
-                directory_exists_or_create(d, "'{}' is defined in unix_socket_directories, but it is not a directory")
-        if "stats_temp_directory" in configuration:
-            d = os.path.join(self._data_dir, configuration["stats_temp_directory"])
-            directory_exists_or_create(d, "'{}' is defined in stats_temp_directory, but it is not a directory")
+        self.config.check_directories()
         self.config.write_postgresql_conf(configuration)
         self.config.resolve_connection_addresses()
         self.config.replace_pg_hba()
