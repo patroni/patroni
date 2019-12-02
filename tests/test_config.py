@@ -15,10 +15,7 @@ class TestConfig(unittest.TestCase):
     def setUp(self):
         sys.argv = ['patroni.py']
         os.environ[Config.PATRONI_CONFIG_VARIABLE] = 'restapi: {}\npostgresql: {data_dir: foo}'
-        self.config = Config()
-
-    def test_no_config(self):
-        self.assertRaises(SystemExit, Config)
+        self.config = Config(None)
 
     def test_set_dynamic_configuration(self):
         with patch.object(Config, '_build_effective_configuration', Mock(side_effect=Exception)):
@@ -66,8 +63,7 @@ class TestConfig(unittest.TestCase):
             'PATRONI_admin_PASSWORD': 'admin',
             'PATRONI_admin_OPTIONS': 'createrole,createdb'
         })
-        sys.argv = ['patroni.py', 'postgres0.yml']
-        config = Config()
+        config = Config('postgres0.yml')
         with patch.object(Config, '_load_config_file', Mock(return_value={'restapi': {}})):
             with patch.object(Config, '_build_effective_configuration', Mock(side_effect=Exception)):
                 config.reload_local_configuration()

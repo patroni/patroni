@@ -25,7 +25,6 @@ CONFIG_FILE_PATH = './test-ctl.yaml'
 def test_rw_config():
     runner = CliRunner()
     with runner.isolated_filesystem():
-        sys.argv = ['patronictl.py', '']
         load_config(CONFIG_FILE_PATH + '/dummy', None)
         store_config({'etcd': {'host': 'localhost:2379'}}, CONFIG_FILE_PATH + '/dummy')
         load_config(CONFIG_FILE_PATH + '/dummy', '0.0.0.0')

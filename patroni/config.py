@@ -2,13 +2,13 @@ import json
 import logging
 import os
 import shutil
-import sys
 import tempfile
 import yaml
 
 from collections import defaultdict
 from copy import deepcopy
 from patroni import PATRONI_ENV_PREFIX
+from patroni.exceptions import ConfigParseError
 from patroni.dcs import ClusterConfig
 from patroni.postgresql.config import CaseInsensitiveDict, ConfigHandler
 from patroni.utils import deep_compare, parse_bool, parse_int, patch_config
@@ -24,6 +24,11 @@ _AUTH_ALLOWED_PARAMETERS = (
     'sslrootcert',
     'sslcrl'
 )
+
+
+def default_validator(conf):
+    if not conf:
+        return "Config is empty."
 
 
 class Config(object):
@@ -75,27 +80,26 @@ class Config(object):
         }
     }
 
-    def __init__(self):
+    def __init__(self, configfile, validator=default_validator):
         self._modify_index = -1
         self._dynamic_configuration = {}
 
         self.__environment_configuration = self._build_environment_configuration()
 
         # Patroni reads the configuration from the command-line argument if it exists, otherwise from the environment
-        self._config_file = len(sys.argv) >= 2 and os.path.isfile(sys.argv[1]) and sys.argv[1]
+        self._config_file = configfile and os.path.isfile(configfile) and configfile
         if self._config_file:
             self._local_configuration = self._load_config_file()
         else:
             config_env = os.environ.pop(self.PATRONI_CONFIG_VARIABLE, None)
             self._local_configuration = config_env and yaml.safe_load(config_env) or self.__environment_configuration
-            if not self._local_configuration:
-                print('Usage: {0} config.yml'.format(sys.argv[0]))
-                print('\tPatroni may also read the configuration from the {0} environment variable'.
-                      format(self.PATRONI_CONFIG_VARIABLE))
-                sys.exit(1)
+        if validator:
+            error = validator(self._local_configuration)
+            if error:
+                raise ConfigParseError(error)
 
         self.__effective_configuration = self._build_effective_configuration({}, self._local_configuration)
-        self._data_dir = self.__effective_configuration['postgresql']['data_dir']
+        self._data_dir = self.__effective_configuration.get('postgresql', {}).get('data_dir', "")
         self._cache_file = os.path.join(self._data_dir, self.__CACHE_FILENAME)
         self._load_cache()
         self._cache_needs_saving = False
@@ -340,7 +344,7 @@ class Config(object):
                 config[name] = deepcopy(value) if value else {}
 
         # restapi server expects to get restapi.auth = 'username:password'
-        if 'authentication' in config['restapi']:
+        if 'restapi' in config and 'authentication' in config['restapi']:
             config['restapi']['auth'] = '{username}:{password}'.format(**config['restapi']['authentication'])
 
         # special treatment for old config

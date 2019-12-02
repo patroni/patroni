@@ -35,7 +35,7 @@ class TestPatroniLogger(unittest.TestCase):
         sys.argv = ['patroni.py']
         os.environ[Config.PATRONI_CONFIG_VARIABLE] = yaml.dump(config, default_flow_style=False)
         logger = PatroniLogger()
-        patroni_config = Config()
+        patroni_config = Config(None)
         logger.reload_config(patroni_config['log'])
         logger.start()
 
