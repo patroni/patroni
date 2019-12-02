@@ -8,15 +8,7 @@ import inspect
 import os
 import sys
 
-from patroni import check_psycopg2, fatal
-from patroni.version import __version__ as VERSION
 from setuptools import Command, find_packages, setup
-
-if sys.version_info < (2, 7, 0):
-    fatal('patroni needs to be run with Python 2.7+')
-check_psycopg2()
-del sys.modules['patroni']
-del sys.modules['patroni.version']
 
 __location__ = os.path.join(os.getcwd(), os.path.dirname(inspect.getfile(inspect.currentframe())))
 
@@ -30,6 +22,8 @@ AUTHOR_EMAIL = 'alexander.kukushkin@zalando.de, dmitrii.dolgov@zalando.de, alexk
 KEYWORDS = 'etcd governor patroni postgresql postgres ha haproxy confd' +\
     ' zookeeper exhibitor consul streaming replication kubernetes k8s'
 
+EXTRAS_REQUIRE = {'aws': ['boto'], 'etcd': ['python-etcd'], 'consul': ['python-consul'],
+                  'exhibitor': ['kazoo'], 'zookeeper': ['kazoo'], 'kubernetes': ['kubernetes']}
 COVERAGE_XML = True
 COVERAGE_HTML = False
 
@@ -99,7 +93,7 @@ class PyTest(Command):
 
     def run(self):
         from pkg_resources import evaluate_marker
-        requirements = self.distribution.install_requires + ['flake8', 'mock>=2.0.0', 'pytest-cov', 'pytest'] +\
+        requirements = self.distribution.install_requires + ['mock>=2.0.0', 'pytest-cov', 'pytest'] +\
             [v for k, v in self.distribution.extras_require.items() if not k.startswith(':') or evaluate_marker(k[1:])]
         self.distribution.fetch_build_eggs(requirements)
         self.run_tests()
@@ -110,22 +104,20 @@ def read(fname):
         return fd.read()
 
 
-def setup_package():
+def setup_package(version):
     # Assemble additional setup commands
     cmdclass = {'test': PyTest}
 
     install_requires = []
-    extras_require = {'aws': ['boto'], 'etcd': ['python-etcd'], 'consul': ['python-consul'],
-                      'exhibitor': ['kazoo'], 'zookeeper': ['kazoo'], 'kubernetes': ['kubernetes']}
 
     for r in read('requirements.txt').split('\n'):
         r = r.strip()
         if r == '':
             continue
         extra = False
-        for e, v in extras_require.items():
+        for e, v in EXTRAS_REQUIRE.items():
             if r.startswith(v[0]):
-                extras_require[e] = [r]
+                EXTRAS_REQUIRE[e] = [r]
                 extra = True
         if not extra:
             install_requires.append(r)
@@ -138,7 +130,7 @@ def setup_package():
 
     setup(
         name=NAME,
-        version=VERSION,
+        version=version,
         url=URL,
         author=AUTHOR,
         author_email=AUTHOR_EMAIL,
@@ -151,7 +143,8 @@ def setup_package():
         package_data={MAIN_PACKAGE: ["*.json"]},
         python_requires='>=2.7',
         install_requires=install_requires,
-        extras_require=extras_require,
+        extras_require=EXTRAS_REQUIRE,
+        setup_requires='flake8',
         cmdclass=cmdclass,
         command_options=command_options,
         entry_points={'console_scripts': CONSOLE_SCRIPTS},
@@ -159,4 +152,15 @@ def setup_package():
 
 
 if __name__ == '__main__':
-    setup_package()
+    old_modules = sys.modules.copy()
+    try:
+        from patroni import check_psycopg2, fatal, __version__
+    finally:
+        sys.modules.clear()
+        sys.modules.update(old_modules)
+
+    if sys.version_info < (2, 7, 0):
+        fatal('Patroni needs to be run with Python 2.7+')
+    check_psycopg2()
+
+    setup_package(__version__)
