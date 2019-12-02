@@ -4,12 +4,14 @@ import six
 
 from six.moves.urllib_parse import urlparse, urlunparse
 
+from .utils import USER_AGENT
+
 
 class PatroniRequest(object):
 
     def __init__(self, config, insecure=False):
         cert_reqs = 'CERT_NONE' if insecure or config.get('ctl', {}).get('insecure', False) else 'CERT_REQUIRED'
-        self._pool = urllib3.PoolManager(cert_reqs=cert_reqs)
+        self._pool = urllib3.PoolManager(num_pools=10, maxsize=10, cert_reqs=cert_reqs)
         self.reload_config(config)
 
     @staticmethod
@@ -28,7 +30,7 @@ class PatroniRequest(object):
         return value
 
     def reload_config(self, config):
-        self._pool.headers = urllib3.make_headers(basic_auth=self._get_cfg_value(config, 'auth'))
+        self._pool.headers = urllib3.make_headers(basic_auth=self._get_cfg_value(config, 'auth'), user_agent=USER_AGENT)
 
         if self._apply_ssl_file_param(config, 'cert'):
             self._apply_ssl_file_param(config, 'key')

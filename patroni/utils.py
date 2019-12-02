@@ -1,15 +1,19 @@
 import logging
+import platform
 import random
 import re
 import time
 
 from dateutil import tz
-from patroni.exceptions import PatroniException
+
+from .exceptions import PatroniException
+from .version import __version__
 
 tzutc = tz.tzutc()
 
 logger = logging.getLogger(__name__)
 
+USER_AGENT = 'Patroni/{0} Python/{1} {2}'.format(__version__, platform.python_version(), platform.system())
 OCT_RE = re.compile(r'^[-+]?0[0-7]*')
 DEC_RE = re.compile(r'^[-+]?(0|[1-9][0-9]*)')
 HEX_RE = re.compile(r'^[-+]?0x[0-9a-fA-F]+')
