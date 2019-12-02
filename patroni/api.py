@@ -201,6 +201,13 @@ class RestApiHandler(BaseHTTPRequestHandler):
         cluster = self.server.patroni.dcs.get_cluster(True)
         self._write_json_response(200, cluster_as_json(cluster))
 
+    def do_GET_cluster_health(self):
+        cluster = self.server.patroni.dcs.cluster or self.server.patroni.dcs.get_cluster()
+        if self.get_cluster_status(cluster):
+            self._write_json_response(200, cluster_as_json(cluster))
+        else:
+            self._write_json_response(503, cluster_as_json(cluster))
+
     def do_GET_history(self):
         cluster = self.server.patroni.dcs.cluster or self.server.patroni.dcs.get_cluster()
         self._write_json_response(200, cluster.history and cluster.history.lines or [])
@@ -638,6 +645,28 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def handle_one_request(self):
         self.__start_time = time.time()
         BaseHTTPRequestHandler.handle_one_request(self)
+
+    def get_cluster_status(self, cluster):
+        if cluster.leader:
+            leader_name = cluster.leader.member.name
+        else:
+            return False
+        for m in cluster.members:
+            if m.name == leader_name:
+                leader_tl = m.data.get('timeline', '')
+                # sanity check
+                if m.data.get('role', '') != 'master' or m.data.get('state', '') != 'running':
+                    return False
+        if cluster.config:
+            maximum_lag_on_failover = cluster.config.data.get('maximum_lag_on_failover', 0)
+        for m in cluster.members:
+            if m.name == leader_name:
+                continue
+            if m.data.get('timeline', '') != leader_tl or int(m.data.get('lag', 0)) > maximum_lag_on_failover:
+                return False
+            if m.data.get('state', '') != 'running' or m.data.get('role', '') != 'replica':
+                return False
+        return True
 
     def log_message(self, fmt, *args):
         latency = 1000.0 * (time.time() - self.__start_time)

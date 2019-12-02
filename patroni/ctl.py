@@ -1308,6 +1308,20 @@ def history(obj, cluster_name, fmt):
     print_output(table_header_row, history, {'TL': 'r', 'LSN': 'r'}, fmt)
 
 
+@ctl.command('cluster-health', help="Show the overall health of the cluster")
+@arg_cluster_name
+@click.pass_obj
+def cluster_health(obj, cluster_name):
+    cluster = get_dcs(obj, cluster_name).get_cluster()
+    if cluster.leader:
+        member = cluster.leader.member
+        r = request_patroni(member, 'get', 'cluster_health')
+        if r.status == 200:
+            click.echo('cluster is healthy')
+            return
+    click.echo('cluster is not healthy')
+    sys.exit(1)
+
 def format_pg_version(version):
     if version < 100000:
         return "{0}.{1}.{2}".format(version // 10000, version // 100 % 100, version % 100)
