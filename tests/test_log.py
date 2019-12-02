@@ -9,6 +9,8 @@ from patroni.config import Config
 from patroni.log import PatroniLogger
 from six.moves.queue import Queue, Full
 
+_LOG = logging.getLogger(__name__)
+
 
 class TestPatroniLogger(unittest.TestCase):
 
@@ -37,6 +39,7 @@ class TestPatroniLogger(unittest.TestCase):
         logger = PatroniLogger()
         patroni_config = Config(None)
         logger.reload_config(patroni_config['log'])
+        _LOG.exception('test')
         logger.start()
 
         with patch.object(logging.Handler, 'format', Mock(side_effect=Exception)):
@@ -45,6 +48,7 @@ class TestPatroniLogger(unittest.TestCase):
         self.assertEqual(logger.log_handler.maxBytes, config['log']['file_size'])
         self.assertEqual(logger.log_handler.backupCount, config['log']['file_num'])
 
+        config['log']['level'] = 'DEBUG'
         config['log'].pop('dir')
         with patch('logging.Handler.close', Mock(side_effect=Exception)):
             logger.reload_config(config['log'])
