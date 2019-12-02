@@ -217,11 +217,6 @@ def check_psycopg2():
 
 
 def main():
-    import multiprocessing
-    if sys.version_info >= (3, 4):  # pragma: no cover
-        # The default, forking, method is not a good idea in a multithreaded process: https://bugs.python.org/issue6721
-        multiprocessing.set_start_method('spawn')
-
     check_psycopg2()
     if os.getpid() != 1:
         return patroni_main()
@@ -255,6 +250,7 @@ def main():
     signal.signal(signal.SIGABRT, passtochild)
     signal.signal(signal.SIGTERM, passtochild)
 
+    import multiprocessing
     patroni = multiprocessing.Process(target=patroni_main)
     patroni.start()
     pid = patroni.pid
