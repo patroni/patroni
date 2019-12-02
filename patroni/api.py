@@ -558,7 +558,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self.address_family = info[0][0]
         try:
             HTTPServer.__init__(self, info[0][-1][:2], RestApiHandler)
-        except OSError:
+        except socket.error:
             logger.error(
                     "Couldn't start a service on '%s:%s', please check your `restapi.listen` configuration", host, port)
             raise
