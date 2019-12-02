@@ -22,6 +22,7 @@ class TestPatroniLogger(unittest.TestCase):
     def test_patroni_logger(self):
         config = {
             'log': {
+                'traceback_level': 'DEBUG',
                 'max_queue_size': 5,
                 'dir': 'foo',
                 'file_size': 4096,
@@ -50,7 +51,7 @@ class TestPatroniLogger(unittest.TestCase):
             logger.reload_config(config['log'])
             with patch.object(logging.Logger, 'makeRecord',
                               Mock(side_effect=[logging.LogRecord('', logging.INFO, '', 0, '', (), None), Exception])):
-                logging.error('test')
+                logging.exception('test')
             logging.error('test')
             with patch.object(Queue, 'put_nowait', Mock(side_effect=Full)):
                 self.assertRaises(SystemExit, logger.shutdown)

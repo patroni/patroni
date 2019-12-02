@@ -113,7 +113,7 @@ class PatroniLogger(Thread):
             self._root_logger.setLevel(config.get('level', PatroniLogger.DEFAULT_LEVEL))
             if config.get('traceback_level', PatroniLogger.DEFAULT_TRACEBACK_LEVEL).lower() == 'debug':
                 logging.Logger.exception = debug_exception
-            elif config.get('traceback_level', PatroniLogger.DEFAULT_TRACEBACK_LEVEL).lower() == 'error':
+            else:
                 logging.Logger.exception = error_exception
 
             new_handler = None
