@@ -454,8 +454,9 @@ class KubernetesController(AbstractDcsController):
             return (pod.metadata.annotations or {}).get('status', '')
         else:
             try:
-                e = self._api.read_namespaced_endpoints(scope + ('' if key == 'leader' else '-' + key), self._namespace)
-                if key == 'leader':
+                ep = scope + {'leader': '', 'history': '-config', 'initialize': '-config'}.get(key, '-' + key)
+                e = self._api.read_namespaced_endpoints(ep, self._namespace)
+                if key != 'sync':
                     return e.metadata.annotations[key]
                 else:
                     return json.dumps(e.metadata.annotations)
