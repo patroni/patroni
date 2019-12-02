@@ -1,5 +1,5 @@
 import errno
-import json.decoder as json_decoder
+import json
 import logging
 import os
 import platform
@@ -534,16 +534,27 @@ def find_executable(executable, path=None):
             return f
 
 
-def is_cluster_healthy(cluster):
+def is_cluster_healthy(patroni, cluster):
     if cluster.leader:
         leader_name = cluster.leader.member.name
     else:
+        logger.warning('cluster is not healthy: no leader')
         return False
     for m in cluster.members:
         if m.name == leader_name:
             leader_tl = m.data.get('timeline', '')
             # sanity check
             if m.data.get('role', '') != 'master' or m.data.get('state', '') != 'running':
+                logger.warning('cluster is not healthy: leader does not have role master or is not in state running')
+                return False
+            # check replication data from leader and make sure there are as many rows as replicas
+            try:
+                response = patroni.request(m, timeout=2, retries=0)
+                data = json.loads(response.data.decode('utf-8'))
+            except Exception as e:
+                logger.warning("Request failed to %s: GET %s (%s)", m.name, m.api_url, e)
+            if len(data['replication']) + 1 != len(cluster.members):
+                logger.warning('cluster is not healthy: not all members take part in replication')
                 return False
     if cluster.config:
         maximum_lag_on_failover = cluster.config.data.get('maximum_lag_on_failover', 0)
@@ -551,7 +562,10 @@ def is_cluster_healthy(cluster):
         if m.name == leader_name:
             continue
         if m.data.get('timeline', '') != leader_tl or int(m.data.get('lag', 0)) > maximum_lag_on_failover:
+            logger.warning('cluster is not healthy: timeline mismatch in member %s', m.name)
             return False
-        if m.data.get('state', '') != 'running' or m.data.get('role', '') != 'replica':
+        if m.data.get('role', '') != 'replica' or m.data.get('state', '') != 'running':
+            logger.warning('cluster is not healthy: member %s does not have role replica or is not in state running', m.name)
             return False
+    logger.debug('cluster is healthy')
     return True
