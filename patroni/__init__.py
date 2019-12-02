@@ -217,8 +217,8 @@ def check_psycopg2():
 
 
 def main():
-    check_psycopg2()
     if os.getpid() != 1:
+        check_psycopg2()
         return patroni_main()
 
     # Patroni started with PID=1, it looks like we are in the container
