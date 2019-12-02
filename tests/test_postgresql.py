@@ -622,7 +622,7 @@ class TestPostgresql(BaseTestPostgresql):
         config['synchronous_mode_strict'] = True
         self.p.config.get_server_parameters(config)
         self.p.config.set_synchronous_standby('foo')
-        self.p.config.get_server_parameters(config)
+        self.assertTrue(str(self.p.config.get_server_parameters(config)).startswith('{'))
 
     @patch('time.sleep', Mock())
     def test__wait_for_connection_close(self):

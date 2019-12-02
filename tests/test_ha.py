@@ -122,7 +122,7 @@ zookeeper:
         # all the extra values that are coming from py.test
         sys.argv = sys.argv[:1]
 
-        self.config = Config()
+        self.config = Config(None)
         self.config.set_dynamic_configuration({'maximum_lag_on_failover': 5})
         self.version = '1.5.7'
         self.postgresql = p

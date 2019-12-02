@@ -5,6 +5,7 @@ import signal
 import time
 import unittest
 
+import patroni.config as config
 from mock import Mock, PropertyMock, patch
 from patroni.api import RestApiServer
 from patroni.async_executor import AsyncExecutor
@@ -40,7 +41,9 @@ class MockFrozenImporter(object):
 @patch.object(etcd.Client, 'read', etcd_read)
 class TestPatroni(unittest.TestCase):
 
-    @patch('sys.argv', ['patroni.py', 'postgres0.yml'])
+    def test_no_config(self):
+        self.assertRaises(SystemExit, patroni_main)
+
     @patch('pkgutil.get_importer', Mock(return_value=MockFrozenImporter()))
     @patch('sys.frozen', Mock(return_value=True), create=True)
     @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
@@ -53,7 +56,8 @@ class TestPatroni(unittest.TestCase):
         RestApiServer._BaseServer__shutdown_request = True
         RestApiServer.socket = 0
         os.environ['PATRONI_POSTGRESQL_DATA_DIR'] = 'data/test0'
-        self.p = Patroni()
+        conf = config.Config('postgres0.yml')
+        self.p = Patroni(conf)
 
     def tearDown(self):
         logging.getLogger().handlers[:] = self._handlers
@@ -82,7 +86,6 @@ class TestPatroni(unittest.TestCase):
     @patch('os.getpid')
     @patch('multiprocessing.Process')
     @patch('patroni.patroni_main', Mock())
-    @patch('multiprocessing.set_start_method', Mock(), create=True)
     def test_patroni_main(self, mock_process, mock_getpid):
         mock_getpid.return_value = 2
         _main()

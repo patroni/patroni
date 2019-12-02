@@ -10,13 +10,14 @@ import time
 import urllib3
 import yaml
 
-from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
-from patroni.exceptions import DCSError
-from patroni.utils import deep_compare, tzutc, Retry, RetryFailedError, uri, iter_response_objects
 from urllib3 import Timeout
 from urllib3.exceptions import HTTPError
 from six.moves.http_client import HTTPException
 from threading import Condition, Lock, Thread
+
+from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, SyncState, TimelineHistory
+from ..exceptions import DCSError
+from ..utils import deep_compare, iter_response_objects, Retry, RetryFailedError, tzutc, uri, USER_AGENT
 
 logger = logging.getLogger(__name__)
 
@@ -45,10 +46,12 @@ class K8SConfig(object):
 
     def __init__(self):
         self.pool_config = {'maxsize': 10, 'num_pools': 10}  # configuration for urllib3.PoolManager
-        self._headers = {}
+        self._make_headers()
 
-    def _set_token(self, token):
-        self._headers['authorization'] = 'Bearer ' + token
+    def _make_headers(self, token=None, **kwargs):
+        self._headers = urllib3.make_headers(user_agent=USER_AGENT, **kwargs)
+        if token:
+            self._headers['authorization'] = 'Bearer ' + token
 
     def load_incluster_config(self):
         if SERVICE_HOST_ENV_NAME not in os.environ or SERVICE_PORT_ENV_NAME not in os.environ:
@@ -66,7 +69,7 @@ class K8SConfig(object):
             token = f.read()
             if not token:
                 raise self.ConfigException('Token file exists but empty.')
-            self._set_token(token)
+            self._make_headers(token=token)
         self.pool_config['ca_certs'] = SERVICE_CERT_FILENAME
         self._server = uri('https', (os.environ[SERVICE_HOST_ENV_NAME], os.environ[SERVICE_PORT_ENV_NAME]))
 
@@ -92,9 +95,9 @@ class K8SConfig(object):
                 self.pool_config['ca_certs'] = cluster['certificate-authority']
             self.pool_config['cert_reqs'] = 'CERT_NONE' if cluster.get('insecure-skip-tls-verify') else 'CERT_REQUIRED'
         if user.get('token'):
-            self._set_token(user['token'])
+            self._make_headers(token=user['token'])
         elif 'username' in user and 'password' in user:
-            self._headers = urllib3.make_headers(basic_auth=':'.join((user['username'],  user['password'])))
+            self._headers = self._make_headers(basic_auth=':'.join((user['username'],  user['password'])))
 
     @property
     def server(self):

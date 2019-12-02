@@ -11,15 +11,16 @@ import time
 
 from dns.exception import DNSException
 from dns import resolver
-from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
-from patroni.exceptions import DCSError
-from patroni.utils import Retry, RetryFailedError, split_host_port, uri
-from patroni.request import get as requests_get
 from urllib3.exceptions import HTTPError, ReadTimeoutError, ProtocolError
 from six.moves.queue import Queue
 from six.moves.http_client import HTTPException
 from six.moves.urllib_parse import urlparse
 from threading import Thread
+
+from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, SyncState, TimelineHistory
+from ..exceptions import DCSError
+from ..request import get as requests_get
+from ..utils import Retry, RetryFailedError, split_host_port, uri, USER_AGENT
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +125,10 @@ class Client(etcd.Client):
             max_retries = 1
 
         return etcd_nodes, per_node_timeout, per_node_retries - 1
+
+    def _get_headers(self):
+        basic_auth = ':'.join((self.username, self.password)) if self.username and self.password else None
+        return urllib3.make_headers(basic_auth=basic_auth, user_agent=USER_AGENT)
 
     def _build_request_parameters(self, timeout=None):
         kwargs = {'headers': self._get_headers(), 'redirect': self.allow_redirect}
