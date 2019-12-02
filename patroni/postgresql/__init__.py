@@ -60,6 +60,16 @@ class Postgresql(object):
         self._pending_restart = False
         self._connection = Connection()
         self.config = ConfigHandler(self, config)
+        if "unix_socket_directories" in self.config._server_parameters:
+            for d in self.config._server_parameters["unix_socket_directories"].split(","):
+                d = os.path.join(self._data_dir, d.strip())
+                if not d.startswith(self._data_dir) or not self.data_directory_empty():
+                    directory_exists_or_create(d,
+                            "'{}' is defined in unix_socket_directories, but it is not a directory")
+        if "stats_temp_directory" in self.config._server_parameters:
+            d = os.path.join(self._data_dir, self.config._server_parameters["stats_temp_directory"])
+            if not d.startswith(self._data_dir) or not self.data_directory_empty():
+                directory_exists_or_create(d, "'{}' is defined in stats_temp_directory, but it is not a directory")
 
         self._bin_dir = config.get('bin_dir') or ''
         self.bootstrap = Bootstrap(self)

@@ -419,29 +419,10 @@ def cluster_as_json(cluster):
     return ret
 
 
-def _make_dir(d):
-    if os.path.isdir(d):
-        return (True, "")
-    parent = os.path.dirname(d)
-    if not os.path.exists(parent):
-        (status, msg) = _make_dir(parent)
-        if status:
-            os.makedirs(d)
-            return (True, "")
-        else:
-            return (status, msg)
-    else:
-        if os.path.isdir(parent):
-            os.makedirs(d)
-            return (True, "")
-        else:
-            return (False, "{} exists and it's not a directory".format(parent))
-
-
 def directory_exists_or_create(d, msg="{} is not a directory"):
-    (status, message) = _make_dir(d)
-    if status:
-        return True
-    else:
-        logger.error(message)
+    try:
+        if not os.path.exists(d):
+            os.makedirs(d)
+    except OSError as e:
+        logger.error(e)
         raise PatroniException(msg.format(d))
