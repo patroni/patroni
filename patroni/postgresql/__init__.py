@@ -183,7 +183,11 @@ class Postgresql(object):
         if 'user' in r:
             cmd.extend(['-U', r['user']])
 
+        logger.info("av: cmd:")
+        logger.info(cmd)
+
         ret = subprocess.call(cmd)
+        logger.info("av: return code of isready: %s", ret)
         return_codes = {0: STATE_RUNNING,
                         1: STATE_REJECT,
                         2: STATE_NO_RESPONSE,
@@ -362,8 +366,11 @@ class Postgresql(object):
 
     def wait_for_port_open(self, postmaster, timeout):
         """Waits until PostgreSQL opens ports."""
+        logger.info("av: entered wait_for_port_open")
         for _ in polling_loop(timeout):
+            logger.info("av: entered polling_loop")
             if self.cancellable.is_cancelled:
+                logger.info("av: is_cancelled")
                 return False
 
             if not postmaster.is_running():
@@ -372,6 +379,7 @@ class Postgresql(object):
                 return False
 
             isready = self.pg_isready()
+            logger.info("av: isready %s", isready)
             if isready != STATE_NO_RESPONSE:
                 if isready not in [STATE_REJECT, STATE_RUNNING]:
                     logger.warning("Can't determine PostgreSQL startup status, assuming running")
@@ -423,6 +431,10 @@ class Postgresql(object):
                 logger.info("PostgreSQL start cancelled.")
                 return False
 
+            logger.info("av: PostmasterProcess.start with args")
+            logger.info(self._data_dir)
+            logger.info(self.config.postgresql_conf)
+            logger.info(options)
             self._postmaster_proc = PostmasterProcess.start(self.pgcommand('postgres'),
                                                             self._data_dir,
                                                             self.config.postgresql_conf,

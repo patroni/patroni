@@ -178,6 +178,7 @@ class PostmasterProcess(psutil.Process):
         pid = parent_conn.recv()
         proc.join()
         if pid is None:
+            logger.error("av: pid was none.")
             return
         logger.info('postmaster pid=%s', pid)
 

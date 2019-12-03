@@ -311,6 +311,7 @@ class ConfigHandler(object):
         self._postgresql_base_conf_name = config_base_name + '.base.conf'
         self._postgresql_base_conf = os.path.join(self._config_dir, self._postgresql_base_conf_name)
         self._pg_hba_conf = os.path.join(self._config_dir, 'pg_hba.conf')
+        logger.info("av: _pga_hba_conf in init: %s", self._pg_hba_conf)
         self._pg_ident_conf = os.path.join(self._config_dir, 'pg_ident.conf')
         self._recovery_conf = os.path.join(postgresql.data_dir, 'recovery.conf')
         self._recovery_conf_mtime = None
@@ -1001,10 +1002,12 @@ class ConfigHandler(object):
 
     @property
     def hba_file(self):
+        logger.info("av: hba_file: %s", self._server_parameters.get('hba_file'))
         return self._server_parameters.get('hba_file')
 
     @property
     def pg_hba_conf(self):
+        logger.info("av: pg_hba_conf: %s", self._pg_hba_conf)
         return self._pg_hba_conf
 
     @property
