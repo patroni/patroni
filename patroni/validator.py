@@ -103,22 +103,25 @@ def config_validator(config):
         if not find_executable(program, bin_dir):
             logger.warning("Program '%s' not found.", program)
     if "bootstrap" in config and "initdb" in config["bootstrap"]:
-        xlogdir = config["bootstrap"]["initdb"].get(
-            "xlogdir", os.path.join(data_dir, "pg_xlog")
-        )
-        waldir = config["bootstrap"]["initdb"].get(
-            "waldir", os.path.join(data_dir, "pg_wal")
-        )
-        log_directory = config["bootstrap"]["initdb"].get(
-            "log_directory", os.path.join(data_dir, "pg_log")
-        )
-        if waldir == log_directory:
+        initdb = {
+            'xlogdir': os.path.join(data_dir, "pg_xlog"),
+            'waldir': os.path.join(data_dir, "pg_wal"),
+            'log_directory': os.path.join(data_dir, "pg_log")}
+        for item in config["bootstrap"]["initdb"]:
+            if isinstance(item, dict):
+                initdb.update(item)
+
+        if initdb["waldir"] == initdb["log_directory"]:
             logger.warning(
-                "waldir(%s) and log_directory (%s) are pointing to the same path", waldir, log_directory
+                "waldir(%s) and log_directory (%s) are pointing to the same path",
+                initdb["waldir"],
+                initdb["log_directory"]
             )
-        if xlogdir == log_directory:
+        if initdb["xlogdir"] == initdb["log_directory"]:
             logger.warning(
-                "xlogdir(%s) and log_directory (%s) are pointing to the same path", xlogdir, log_directory
+                "xlogdir(%s) and log_directory (%s) are pointing to the same path",
+                initdb["xlogdir"],
+                initdb["log_directory"]
             )
 
     if fatal:
