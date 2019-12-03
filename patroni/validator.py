@@ -73,17 +73,21 @@ def config_validator(config):
         if "listen" not in config["postgresql"]:
             logger.warning("postgresql.listen is not defined")
         else:
-            hosts, port = split_host_port(config["postgresql"]["listen"], 5432)
-            for host in hosts.split(","):
-                host = host.strip()
-                if host == '*':
-                    host = '0.0.0.0'
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    try:
-                        if s.connect_ex((host, port)) == 0:
-                            logger.warning("Port %s is already in use.", port)
-                    except socket.gaierror as e:
-                        logger.error(e)
+            try:
+                hosts, port = split_host_port(config["postgresql"]["listen"], 5432)
+            except ValueError:
+                logger.error("postgresql.listen contains a wrong value: '%s'", config["postgresql"]["listen"])
+            else:
+                for host in hosts.split(","):
+                    host = host.strip()
+                    if host == '*':
+                        host = '0.0.0.0'
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                        try:
+                            if s.connect_ex((host, port)) == 0:
+                                logger.warning("Port %s is already in use.", port)
+                        except socket.gaierror as e:
+                            logger.error("postgresql.listen might have a wrong value: '%s' -> %s", config["postgresql"]["listen"], e)
             connect_address = config["postgresql"].get("connect_address", config["postgresql"]["listen"].split(",")[0])
             connect_host, _ =  split_host_port(connect_address, 5432)
             if connect_host in ["localhost", "127.0.0.1", "0.0.0.0", "::1", "*"]:
@@ -94,13 +98,17 @@ def config_validator(config):
     elif "listen" not in config["restapi"]:
         logger.warning("restapi.listen is not defined")
     else:
-        host, port = split_host_port(config["restapi"]["listen"], None)
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            try:
-                if s.connect_ex((host, port)) == 0:
-                    logger.warning("Port %s is already in use.", port)
-            except socket.gaierror as e:
-                logger.error(e)
+        try:
+            host, port = split_host_port(config["restapi"]["listen"], None)
+        except ValueError:
+            logger.error("restapi.listen contains a wrong value: '%s'", config["restapi"]["listen"])
+        else:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                try:
+                    if s.connect_ex((host, port)) == 0:
+                        logger.warning("Port %s is already in use.", port)
+                except socket.gaierror as e:
+                    logger.error("restapi.listen might have a wrong value: '%s' -> %s", config["restapi"]["listen"], e)
     for program in ["pg_ctl", "initdb", "pg_controldata", "pg_basebackup", "postgres"]:
         if not find_executable(program, bin_dir):
             logger.warning("Program '%s' not found.", program)
