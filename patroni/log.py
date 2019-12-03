@@ -11,6 +11,20 @@ from threading import Lock, Thread
 _LOGGER = logging.getLogger(__name__)
 
 
+def debug_exception(logger_obj, msg, *args, **kwargs):
+    kwargs.pop("exc_info", False)
+    if logger_obj.isEnabledFor(logging.DEBUG):
+        logger_obj.debug(msg, *args, exc_info=True, **kwargs)
+    else:
+        msg = "{0}, DETAIL: '{1}'".format(msg, sys.exc_info()[1])
+        logger_obj.error(msg, *args, exc_info=False, **kwargs)
+
+
+def error_exception(logger_obj, msg, *args, **kwargs):
+    exc_info = kwargs.pop("exc_info", True)
+    logger_obj.error(msg, *args, exc_info=exc_info, **kwargs)
+
+
 class QueueHandler(logging.Handler):
 
     def __init__(self):
@@ -61,6 +75,7 @@ class ProxyHandler(logging.Handler):
 class PatroniLogger(Thread):
 
     DEFAULT_LEVEL = 'INFO'
+    DEFAULT_TRACEBACK_LEVEL = 'ERROR'
     DEFAULT_FORMAT = '%(asctime)s %(levelname)s: %(message)s'
 
     NORMAL_LOG_QUEUE_SIZE = 2  # When everything goes normal Patroni writes only 2 messages per HA loop
@@ -99,6 +114,10 @@ class PatroniLogger(Thread):
                 self._queue_handler.queue.maxsize = config.get('max_queue_size', self.DEFAULT_MAX_QUEUE_SIZE)
 
             self._root_logger.setLevel(config.get('level', PatroniLogger.DEFAULT_LEVEL))
+            if config.get('traceback_level', PatroniLogger.DEFAULT_TRACEBACK_LEVEL).lower() == 'debug':
+                logging.Logger.exception = debug_exception
+            else:
+                logging.Logger.exception = error_exception
 
             new_handler = None
             if 'dir' in config:
