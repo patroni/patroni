@@ -432,6 +432,8 @@ class Postgresql(object):
                 return False
 
             logger.info("av: PostmasterProcess.start with args")
+            logger.info(self.pgcommand('postgres'))
+            logger.info(self._bin_dir)
             logger.info(self._data_dir)
             logger.info(self.config.postgresql_conf)
             logger.info(options)
