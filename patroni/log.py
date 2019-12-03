@@ -13,8 +13,11 @@ _LOGGER = logging.getLogger(__name__)
 
 def debug_exception(logger_obj, msg, *args, **kwargs):
     kwargs.pop("exc_info", False)
-    logger_obj.error(msg, *args, exc_info=False, **kwargs)
-    logger_obj.debug(msg, *args, exc_info=True, **kwargs)
+    if logger_obj.isEnabledFor(logging.DEBUG):
+        logger_obj.debug(msg, *args, exc_info=True, **kwargs)
+    else:
+        msg = "{0}, DETAIL: '{1}'".format(msg, sys.exc_info()[1])
+        logger_obj.error(msg, *args, exc_info=False, **kwargs)
 
 
 def error_exception(logger_obj, msg, *args, **kwargs):
