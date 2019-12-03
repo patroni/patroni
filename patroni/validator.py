@@ -76,13 +76,15 @@ def config_validator(config):
             hosts, port = split_host_port(config["postgresql"]["listen"], 5432)
             for host in hosts.split(","):
                 host = host.strip()
+                if host == '*':
+                    host = '0.0.0.0'
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                     try:
                         if s.connect_ex((host, port)) == 0:
                             logger.warning("Port %s is already in use.", port)
                     except socket.gaierror as e:
                         logger.error(e)
-            connect_address = config["postgresql"].get("connect_address", config["postgresql"]["listen"])
+            connect_address = config["postgresql"].get("connect_address", config["postgresql"]["listen"].split(",")[0])
             connect_host, _ =  split_host_port(connect_address, 5432)
             if connect_host in ["localhost", "127.0.0.1", "0.0.0.0", "::1", "*"]:
                 logger.warning("postgresql.connect_address has wrong host part(%s)", connect_host)
