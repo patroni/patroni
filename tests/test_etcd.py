@@ -116,12 +116,12 @@ class TestDnsCachingResolver(unittest.TestCase):
 
 @patch('dns.resolver.query', dns_query)
 @patch('socket.getaddrinfo', socket_getaddrinfo)
-@patch('requests.get', requests_get)
+@patch('patroni.dcs.etcd.requests_get', requests_get)
 class TestClient(unittest.TestCase):
 
     @patch('dns.resolver.query', dns_query)
     @patch('socket.getaddrinfo', socket_getaddrinfo)
-    @patch('requests.get', requests_get)
+    @patch('patroni.dcs.etcd.requests_get', requests_get)
     def setUp(self):
         with patch.object(Client, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://localhost:2379', 'http://localhost:4001'])
@@ -199,7 +199,7 @@ class TestClient(unittest.TestCase):
                           socket_options=[(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)])
 
 
-@patch('requests.get', requests_get)
+@patch('patroni.dcs.etcd.requests_get', requests_get)
 @patch('socket.getaddrinfo', socket_getaddrinfo)
 @patch.object(etcd.Client, 'write', etcd_write)
 @patch.object(etcd.Client, 'read', etcd_read)

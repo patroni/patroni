@@ -13,5 +13,5 @@ Scenario: make a backup and do a restore into a new cluster
     Given I add the table bar to postgres1
     And I do a backup of postgres1
     When I start postgres2 in a cluster batman2 from backup
-    Then postgres2 is a leader of batman2 after 10 seconds
+    Then postgres2 is a leader of batman2 after 30 seconds
     And table bar is present on postgres2 after 10 seconds

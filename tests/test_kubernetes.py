@@ -157,17 +157,18 @@ class TestCacheBuilder(unittest.TestCase):
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_config_map', mock_list_namespaced_config_map)
     @patch('patroni.dcs.kubernetes.ObjectCache._watch')
     def test__build_cache(self, mock_response):
-        mock_response.return_value.read_chunked.return_value = json.dumps(
+        mock_response.return_value.read_chunked.return_value = [json.dumps(
             {'type': 'MODIFIED', 'object': {'metadata': {
                 'name': self.k.config_path, 'resourceVersion': '2', 'annotations': {self.k._CONFIG: 'foo'}}}}
-        ) + '\n' + json.dumps(
+        ).encode('utf-8'), ('\n' + json.dumps(
             {'type': 'DELETED', 'object': {'metadata': {
                 'name': self.k.config_path, 'resourceVersion': '3'}}}
         ) + '\n' + json.dumps(
             {'type': 'MDIFIED', 'object': {'metadata': {'name': self.k.config_path}}}
-        ) + '\n' + json.dumps({'object': {'code': 410}}) + '\n'
+        ) + '\n' + json.dumps({'object': {'code': 410}}) + '\n').encode('utf-8')]
         self.k._kinds._build_cache()
 
     @patch('patroni.dcs.kubernetes.logger.error', Mock(side_effect=SleepException))
+    @patch('patroni.dcs.kubernetes.ObjectCache._build_cache', Mock(side_effect=Exception))
     def test_run(self):
         self.assertRaises(SleepException, self.k._pods.run)

@@ -10,14 +10,13 @@ from threading import Lock
 @six.add_metaclass(abc.ABCMeta)
 class AbstractPatroniDaemon(object):
 
-    def __init__(self):
-        from patroni.config import Config
+    def __init__(self, config):
         from patroni.log import PatroniLogger
 
         self.setup_signal_handlers()
 
         self.logger = PatroniLogger()
-        self.config = Config()
+        self.config = config
         AbstractPatroniDaemon.reload_config(self, local=True)
 
     def sighup_handler(self, *args):
@@ -71,7 +70,26 @@ class AbstractPatroniDaemon(object):
 
 
 def abstract_main(cls):
-    controller = cls()
+    import argparse
+
+    from .config import Config, ConfigParseError
+    from .version import __version__
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--version', action='version', version='%(prog)s {0}'.format(__version__))
+    parser.add_argument('configfile', nargs='?', default='',
+                        help='Patroni may also read the configuration from the {0} environment variable'
+                        .format(Config.PATRONI_CONFIG_VARIABLE))
+    args = parser.parse_args()
+    try:
+        config = Config(args.configfile)
+    except ConfigParseError as e:
+        if e.value:
+            print(e.value)
+        parser.print_help()
+        sys.exit(1)
+
+    controller = cls(config)
     try:
         controller.run()
     except KeyboardInterrupt:

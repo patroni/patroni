@@ -4,23 +4,25 @@ import signal
 import sys
 import time
 
-from patroni.daemon import AbstractPatroniDaemon, abstract_main
+from .daemon import AbstractPatroniDaemon, abstract_main
+from .version import __version__
 
 logger = logging.getLogger(__name__)
+
+PATRONI_ENV_PREFIX = 'PATRONI_'
 
 
 class Patroni(AbstractPatroniDaemon):
 
-    def __init__(self):
+    def __init__(self, config):
         from patroni.api import RestApiServer
         from patroni.dcs import get_dcs
         from patroni.ha import Ha
         from patroni.postgresql import Postgresql
         from patroni.request import PatroniRequest
-        from patroni.version import __version__
         from patroni.watchdog import Watchdog
 
-        super(Patroni, self).__init__()
+        super(Patroni, self).__init__(config)
 
         self.version = __version__
         self.dcs = get_dcs(self.config)
@@ -133,13 +135,6 @@ def fatal(string, *args):
     sys.exit(1)
 
 
-def use_spawn_start_method():
-    if sys.version_info >= (3, 4):
-        # The default, forking, method is not a good idea in a multithreaded process: https://bugs.python.org/issue6721
-        import multiprocessing
-        multiprocessing.set_start_method('spawn')
-
-
 def check_psycopg2():
     min_psycopg2 = (2, 5, 4)
     min_psycopg2_str = '.'.join(map(str, min_psycopg2))
@@ -162,9 +157,8 @@ def check_psycopg2():
 
 
 def main():
-    use_spawn_start_method()
-    check_psycopg2()
     if os.getpid() != 1:
+        check_psycopg2()
         return patroni_main()
 
     # Patroni started with PID=1, it looks like we are in the container

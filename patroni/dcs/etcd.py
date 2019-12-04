@@ -5,22 +5,22 @@ import logging
 import os
 import urllib3.util.connection
 import random
-import requests
 import six
 import socket
 import time
 
 from dns.exception import DNSException
 from dns import resolver
-from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
-from patroni.exceptions import DCSError
-from patroni.utils import Retry, RetryFailedError, split_host_port, uri
 from urllib3.exceptions import HTTPError, ReadTimeoutError, ProtocolError
-from requests.exceptions import RequestException
 from six.moves.queue import Queue
 from six.moves.http_client import HTTPException
 from six.moves.urllib_parse import urlparse
 from threading import Thread
+
+from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, SyncState, TimelineHistory
+from ..exceptions import DCSError
+from ..request import get as requests_get
+from ..utils import Retry, RetryFailedError, split_host_port, uri, USER_AGENT
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +125,10 @@ class Client(etcd.Client):
             max_retries = 1
 
         return etcd_nodes, per_node_timeout, per_node_retries - 1
+
+    def _get_headers(self):
+        basic_auth = ':'.join((self.username, self.password)) if self.username and self.password else None
+        return urllib3.make_headers(basic_auth=basic_auth, user_agent=USER_AGENT)
 
     def _build_request_parameters(self, timeout=None):
         kwargs = {'headers': self._get_headers(), 'redirect': self.allow_redirect}
@@ -284,12 +288,12 @@ class Client(etcd.Client):
                 url = uri(protocol, (host, port), endpoint)
                 if endpoint:
                     try:
-                        response = requests.get(url, timeout=self.read_timeout, verify=False)
-                        if response.ok:
-                            for member in response.json():
+                        response = requests_get(url, timeout=self.read_timeout, verify=False)
+                        if response.status < 400:
+                            for member in json.loads(response.data.decode('utf-8')):
                                 ret.extend(member['clientURLs'])
                             break
-                    except RequestException:
+                    except Exception:
                         logger.exception('GET %s', url)
                 else:
                     ret.append(url)
@@ -416,7 +420,7 @@ class Etcd(AbstractDCS):
             config['hosts'] = []
             for value in hosts:
                 if isinstance(value, six.string_types):
-                    config['hosts'].append(uri(protocol, split_host_port(value, default_port)))
+                    config['hosts'].append(uri(protocol, split_host_port(value.strip(), default_port)))
         elif 'host' in config:
             host, port = split_host_port(config['host'], 2379)
             config['host'] = host

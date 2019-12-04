@@ -6,8 +6,8 @@ import socket
 import stat
 import time
 
-from requests.structures import CaseInsensitiveDict
 from six.moves.urllib_parse import urlparse, parse_qsl, unquote
+from urllib3.response import HTTPHeaderDict
 
 from ..dcs import slot_name_from_member_name, RemoteMember
 from ..utils import compare_values, parse_bool, parse_int, split_host_port, uri
@@ -250,6 +250,21 @@ class ConfigWriter(object):
         self.writeline("{0} = '{1}'".format(param, self.escape(value)))
 
 
+class CaseInsensitiveDict(HTTPHeaderDict):
+
+    def add(self, key, val):
+        self[key] = val
+
+    def __getitem__(self, key):
+        return self._container[key.lower()][1]
+
+    def __repr__(self):
+        return str(dict(self.items()))
+
+    def copy(self):
+        return CaseInsensitiveDict(self._container.values())
+
+
 class ConfigHandler(object):
 
     # List of parameters which must be always passed to postmaster as command line options
@@ -465,8 +480,8 @@ class ConfigHandler(object):
 
     def format_dsn(self, params, include_dbname=False):
         # A list of keywords that can be found in a conninfo string. Follows what is acceptable by libpq
-        keywords = ('user', 'passfile', 'host', 'port', 'sslmode', 'sslcompression', 'sslcert',
-                    'sslkey', 'sslrootcert', 'sslcrl', 'application_name', 'krbsrvname')
+        keywords = ('user', 'passfile' if params.get('passfile') else 'password', 'host', 'port', 'sslmode',
+                    'sslcompression', 'sslcert', 'sslkey', 'sslrootcert', 'sslcrl', 'application_name', 'krbsrvname')
         if include_dbname:
             params = params.copy()
             params['dbname'] = params.get('database') or self._postgresql.database
@@ -480,7 +495,7 @@ class ConfigHandler(object):
     def _write_recovery_params(self, fd, recovery_params):
         for name, value in sorted(recovery_params.items()):
             if name == 'primary_conninfo':
-                if 'password' in value:
+                if 'password' in value and self._postgresql.major_version >= 100000:
                     self.write_pgpass(value)
                     value['passfile'] = self._passfile = self._pgpass
                     self._passfile_mtime = mtime(self._pgpass)
@@ -831,7 +846,8 @@ class ConfigHandler(object):
     def _handle_wal_buffers(old_values, changes):
         wal_block_size = parse_int(old_values['wal_block_size'][1])
         wal_segment_size = old_values['wal_segment_size']
-        wal_segment_size = parse_int(wal_segment_size[1]) * parse_int(wal_segment_size[2], 'B') / wal_block_size
+        wal_segment_unit = parse_int(wal_segment_size[2], 'B') if wal_segment_size[2][0].isdigit() else 1
+        wal_segment_size = parse_int(wal_segment_size[1]) * wal_segment_unit / wal_block_size
         default_wal_buffers = min(max(parse_int(old_values['shared_buffers'][1]) / 32, 8), wal_segment_size)
 
         wal_buffers = old_values['wal_buffers']

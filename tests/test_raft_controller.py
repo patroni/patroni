@@ -1,10 +1,10 @@
 import logging
 import os
 import unittest
-import sys
 
 from mock import Mock, patch
 from pysyncobj import SyncObj
+from patroni.config import Config
 from patroni.raft_controller import RaftController, main as _main
 
 from . import SleepException
@@ -24,9 +24,9 @@ class TestPatroniRaftController(unittest.TestCase):
     def setUp(self):
         self._handlers = logging.getLogger().handlers[:]
         self.remove_files()
-        sys.argv = ['patroni.py', 'postgres0.yml']
         os.environ['PATRONI_RAFT_SELF_ADDR'] = self.SELF_ADDR
-        self.rc = RaftController()
+        config = Config('postgres0.yml', validator=None)
+        self.rc = RaftController(config)
 
     def tearDown(self):
         logging.getLogger().handlers[:] = self._handlers
@@ -41,5 +41,6 @@ class TestPatroniRaftController(unittest.TestCase):
         self.assertRaises(SleepException, self.rc.run)
         self.rc.shutdown()
 
+    @patch('sys.argv', ['patroni'])
     def test_patroni_raft_controller_main(self):
-        self.assertRaises(TypeError, _main)
+        self.assertRaises(SystemExit, _main)

@@ -10,8 +10,8 @@ logger = logging.getLogger(__name__)
 
 class RaftController(AbstractPatroniDaemon):
 
-    def __init__(self):
-        super(RaftController, self).__init__()
+    def __init__(self, config):
+        super(RaftController, self).__init__(config)
 
         raft_config = self.config.get('raft')
         self_addr = raft_config['self_addr']
