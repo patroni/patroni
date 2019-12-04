@@ -5,6 +5,7 @@ import socket
 
 from patroni.utils import split_host_port
 from patroni.ctl import find_executable
+from patroni.dcs import dcs_modules
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,7 @@ def data_directory_empty(data_dir):
 
 
 def config_validator(config):
+    logging.basicConfig(level=logging.DEBUG, format='%(levelname)-8s %(message)s')
     bin_dir = None
     data_dir = ""
     fatal = None
@@ -48,32 +50,20 @@ def config_validator(config):
             elif not isinstance(config["postgresql"]["authentication"], dict):
                 logger.warning("postgresql.authentication is not a dictionary")
             else:
-                if "replication" not in config["postgresql"]["authentication"]:
-                    logger.warning("postgresql.authentication.replication is not defined")
-                elif not isinstance(config["postgresql"]["authentication"]["replication"], dict):
-                    logger.warning("postgresql.authentication.replication is not a dictionary")
-                else:
-                    if "username" not in config["postgresql"]["authentication"]["replication"]:
-                        logger.warning("postgresql.authentication.replication.username is not defined")
-                    elif not isinstance(config["postgresql"]["authentication"]["replication"]["username"], str):
-                        logger.warning("postgresql.authentication.replication.username is not a string")
-                    if "password" not in config["postgresql"]["authentication"]["replication"]:
-                        logger.warning("postgresql.authentication.replication.password is not defined")
-                    elif not isinstance(config["postgresql"]["authentication"]["replication"]["password"], str):
-                        logger.warning("postgresql.authentication.replication.password is not a string")
-                if "superuser" not in config["postgresql"]["authentication"]:
-                    logger.warning("postgresql.authentication.superuser is not defined")
-                elif not isinstance(config["postgresql"]["authentication"]["superuser"], dict):
-                    logger.warning("postgresql.authentication.superuser is not a dictionary")
-                else:
-                    if "username" not in config["postgresql"]["authentication"]["superuser"]:
-                        logger.warning("postgresql.authentication.superuser.username is not defined")
-                    elif not isinstance(config["postgresql"]["authentication"]["superuser"]["username"], str):
-                        logger.warning("postgresql.authentication.superuser.username is not a string")
-                    if "password" not in config["postgresql"]["authentication"]["superuser"]:
-                        logger.warning("postgresql.authentication.superuser.password is not defined")
-                    elif not isinstance(config["postgresql"]["authentication"]["superuser"]["password"], str):
-                        logger.warning("postgresql.authentication.superuser.password is not a string")
+                for user in ["replication", "superuser", "rewind"]:
+                    if user not in config["postgresql"]["authentication"]:
+                        logger.warning("postgresql.authentication.%s is not defined", user)
+                    elif not isinstance(config["postgresql"]["authentication"][user], dict):
+                        logger.warning("postgresql.authentication.%s is not a dictionary", user)
+                    else:
+                        if "username" not in config["postgresql"]["authentication"][user]:
+                            logger.warning("postgresql.authentication.%s.username is not defined", user)
+                        elif not isinstance(config["postgresql"]["authentication"][user]["username"], str):
+                            logger.warning("postgresql.authentication.%s.username is not a string", user)
+                        if "password" not in config["postgresql"]["authentication"][user]:
+                            logger.info("postgresql.authentication.%s.password is not defined", user)
+                        elif not isinstance(config["postgresql"]["authentication"][user]["password"], str):
+                            logger.warning("postgresql.authentication.%s.password is not a string", user)
 
             if "bin_dir" in config["postgresql"]:
                 if not isinstance(config["postgresql"]["bin_dir"], str):
@@ -95,24 +85,25 @@ def config_validator(config):
                 logger.warning("postgresql.data_dir is an empty string")
             else:
                 data_dir = config["postgresql"]["data_dir"]
-                if not data_directory_empty(data_dir):
-                    if not os.path.exists(
-                        os.path.join(data_dir, "PG_VERSION")
-                    ):
-                        logger.warning(
-                            "%s doesn't look like a valid data directory"
-                            " make sure you provide a valid path in configuration. Configured in postgresql.data_dir",
-                            data_dir
-                        )
-                    elif not os.path.isdir(
-                        os.path.join(data_dir, "pg_wal")
-                    ) and not os.path.isdir(
-                        os.path.join(data_dir, "pg_xlog")
-                    ):
-                        logger.warning(
-                            "data dir for the cluster is not empty,"
-                            "but doesn't contain \"pg_wal\" nor \"pg_xlog\" directory"
-                        )
+                if os.path.exists(data_dir) and not os.path.isdir(data_dir):
+                    logger.error("postgresql.data_dir (%s) is not a directory", data_dir)
+                else:
+                    if not data_directory_empty(data_dir):
+                        if not os.path.exists(
+                            os.path.join(data_dir, "PG_VERSION")
+                        ):
+                            logger.warning("%s doesn't look like a valid data directory make sure you provide "
+                                           "a valid path in configuration. Configured in postgresql.data_dir",
+                                           data_dir)
+                        elif not os.path.isdir(
+                            os.path.join(data_dir, "pg_wal")
+                        ) and not os.path.isdir(
+                            os.path.join(data_dir, "pg_xlog")
+                        ):
+                            logger.warning(
+                                "data dir for the cluster is not empty,"
+                                "but doesn't contain \"pg_wal\" nor \"pg_xlog\" directory"
+                            )
             if "listen" not in config["postgresql"]:
                 logger.warning("postgresql.listen is not defined")
             elif not isinstance(config["postgresql"]["listen"], str):
@@ -157,7 +148,7 @@ def config_validator(config):
                     logger.warning("postgresql.parameters.unix_socket_directories is not a string")
 
     if "restapi" not in config:
-        logger.warning("restapi section is missing")
+        logger.error("restapi section is missing")
     elif not isinstance(config["restapi"], dict):
         logger.warning("restapi is not a dictionary")
     elif "listen" not in config["restapi"]:
@@ -185,41 +176,20 @@ def config_validator(config):
         logger.warning("bootstrap is not a dictionary")
     else:
         if "dcs" not in config["bootstrap"]:
-            logger.warning("bootstrap.dcs is not defined")
+            logger.info("bootstrap.dcs is not defined")
         elif not isinstance(config["bootstrap"]["dcs"], dict):
             logger.warning("bootstrap.dcs is not a dictionary")
-        if "initdb" in config["bootstrap"]:
-            if not isinstance(config["bootstrap"]["initdb"], list):
-                logger.warning("bootstrap.initdb is not a list")
-            initdb = {
-                'xlogdir': os.path.join(data_dir, "pg_xlog"),
-                'waldir': os.path.join(data_dir, "pg_wal"),
-                'log_directory': os.path.join(data_dir, "pg_log")}
-            for item in config["bootstrap"]["initdb"]:
-                if isinstance(item, dict):
-                    initdb.update(item)
 
-            if initdb["waldir"] == initdb["log_directory"]:
-                logger.warning(
-                    "waldir(%s) and log_directory (%s) are pointing to the same path",
-                    initdb["waldir"],
-                    initdb["log_directory"]
-                )
-            if initdb["xlogdir"] == initdb["log_directory"]:
-                logger.warning(
-                    "xlogdir(%s) and log_directory (%s) are pointing to the same path",
-                    initdb["xlogdir"],
-                    initdb["log_directory"]
-                )
-    if not any([dcs in config for dcs in ["consul", "etcd", "exhibitor", "kubernetes", "zookeeper"]]):
+    available_dcs = [m.split(".")[-1] for m in dcs_modules()]
+    if not any([dcs in config for dcs in available_dcs]):
         logger.error("Neither of distributed configuration store is configured, "
-                     "please configure one of these: consul, etcd, exhibitor, kubernetes, zookeeper")
+                     "please configure one of these: %s", ", ".join(available_dcs))
         fatal = 1
     elif "etcd" in config:
         if not isinstance(config["etcd"], dict):
             logger.warning("etcd is not a dictionary")
-        elif not any([i in config["etcd"] for i in ["srv", "hosts", "host", "url"]]):
-            logger.warning("Neither srv, hosts, host nor url are defined in etcd section of config")
+        elif not any([i in config["etcd"] for i in ["srv", "hosts", "host", "url", "proxy"]]):
+            logger.warning("Neither srv, hosts, host, url nor proxy are defined in etcd section of config")
         elif "host" in config["etcd"]:
             if not isinstance(config["etcd"]["host"], str):
                 logger.warning("etcd.host is not a string")
