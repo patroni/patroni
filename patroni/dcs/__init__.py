@@ -73,26 +73,34 @@ def dcs_modules():
 
 
 def get_dcs(config):
-    available_implementations = set()
-    for module_name in dcs_modules():
-        try:
-            module = importlib.import_module(module_name)
-            for name in filter(lambda name: not name.startswith('__'), dir(module)):  # iterate through module content
-                item = getattr(module, name)
-                name = name.lower()
-                # try to find implementation of AbstractDCS interface, class name must match with module_name
-                if inspect.isclass(item) and issubclass(item, AbstractDCS) and __package__ + '.' + name == module_name:
-                    available_implementations.add(name)
-                    if name in config:  # which has configuration section in the config file
+    modules = dcs_modules()
+
+    for module_name in modules:
+        name = module_name.split('.')[-1]
+        if name in config:  # we will try to import only modules which have configuration section in the config file
+            try:
+                module = importlib.import_module(module_name)
+                for key, item in module.__dict__.items():  # iterate through the module content
+                    # try to find implementation of AbstractDCS interface, class name must match with module_name
+                    if key.lower() == name and inspect.isclass(item) and issubclass(item, AbstractDCS):
                         # propagate some parameters
                         config[name].update({p: config[p] for p in ('namespace', 'name', 'scope', 'loop_wait',
                                              'patronictl', 'ttl', 'retry_timeout') if p in config})
                         return item(config[name])
+            except ImportError:
+                logger.debug('Failed to import %s', module_name)
+
+    available_implementations = []
+    for module_name in modules:
+        name = module_name.split('.')[-1]
+        try:
+            module = importlib.import_module(module_name)
+            available_implementations.extend(name for key, item in module.__dict__.items() if key.lower() == name
+                                             and inspect.isclass(item) and issubclass(item, AbstractDCS))
         except ImportError:
-            if not config.get('patronictl'):
-                logger.info('Failed to import %s', module_name)
+            logger.info('Failed to import %s', module_name)
     raise PatroniException("""Can not find suitable configuration of distributed configuration store
-Available implementations: """ + ', '.join(available_implementations))
+Available implementations: """ + ', '.join(sorted(set(available_implementations))))
 
 
 class Member(namedtuple('Member', 'index,name,session,data')):

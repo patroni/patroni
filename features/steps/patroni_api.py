@@ -1,8 +1,6 @@
-import base64
 import json
 import os
 import parse
-import requests
 import shlex
 import subprocess
 import sys
@@ -12,8 +10,10 @@ import yaml
 from behave import register_type, step, then
 from dateutil import tz
 from datetime import datetime, timedelta
+from patroni.request import PatroniRequest
 
 tzutc = tz.tzutc()
+request_executor = PatroniRequest({'ctl': {'auth': 'username:password'}})
 
 
 @parse.with_pattern(r'https?://(?:\w|\.|:|/)+')
@@ -45,9 +45,9 @@ def sleep_for_n_seconds(context, value):
 
 
 def _set_response(context, response):
-    context.status_code = response.status_code
-    data = response.content.decode('utf-8')
-    ct = response.headers.get('content-type', '')
+    context.status_code = response.status
+    data = response.data.decode('utf-8')
+    ct = response.getheader('content-type', '')
     if ct.startswith('application/json') or\
             ct.startswith('text/yaml') or\
             ct.startswith('text/x-yaml') or\
@@ -63,13 +63,7 @@ def _set_response(context, response):
 
 @step('I issue a GET request to {url:url}')
 def do_get(context, url):
-    try:
-        r = requests.get(url)
-    except requests.exceptions.RequestException:
-        context.status_code = None
-        context.response = None
-    else:
-        _set_response(context, r)
+    do_request(context, 'GET', url, None)
 
 
 @step('I issue an empty POST request to {url:url}')
@@ -79,17 +73,11 @@ def do_post_empty(context, url):
 
 @step('I issue a {request_method:w} request to {url:url} with {data}')
 def do_request(context, request_method, url, data):
-    data = data and json.loads(data) or {}
-    headers = {'Authorization': 'Basic ' + base64.b64encode('username:password'.encode('utf-8')).decode('utf-8'),
-               'Content-Type': 'application/json'}
+    data = data and json.loads(data)
     try:
-        if request_method == 'PATCH':
-            r = requests.patch(url, headers=headers, json=data)
-        else:
-            r = requests.post(url, headers=headers, json=data)
-    except requests.exceptions.RequestException:
-        context.status_code = None
-        context.response = None
+        r = request_executor.request(request_method, url, data)
+    except Exception:
+        context.status_code = context.response = None
     else:
         _set_response(context, r)
 
@@ -149,8 +137,8 @@ def add_tag_to_config(context, tag, value, pg_name):
 def check_http_response(context, url, value, timeout, negate=False):
     timeout *= context.timeout_multiplier
     for _ in range(int(timeout)):
-        r = requests.get(url)
-        if (value in r.content.decode('utf-8')) != negate:
+        r = request_executor.request('GET', url)
+        if (value in r.data.decode('utf-8')) != negate:
             break
         time.sleep(1)
     else:

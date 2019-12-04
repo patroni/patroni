@@ -10,8 +10,8 @@ import os
 import six
 import socket
 
-from patroni.postgresql import PostgresConnectionException
-from patroni.postgresql.misc import postgres_version_to_int, PostgresException
+from patroni.exceptions import PostgresConnectionException, PostgresException
+from patroni.postgresql.misc import postgres_version_to_int
 from patroni.utils import deep_compare, parse_bool, patch_config, Retry, \
     RetryFailedError, parse_int, split_host_port, tzutc, uri, cluster_as_json
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
@@ -556,7 +556,12 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         info.sort(key=lambda x: x[0] == socket.AF_INET, reverse=not dual_stack)
 
         self.address_family = info[0][0]
-        HTTPServer.__init__(self, info[0][-1][:2], RestApiHandler)
+        try:
+            HTTPServer.__init__(self, info[0][-1][:2], RestApiHandler)
+        except socket.error:
+            logger.error(
+                    "Couldn't start a service on '%s:%s', please check your `restapi.listen` configuration", host, port)
+            raise
 
     def __initialize(self, listen, ssl_options):
         try:

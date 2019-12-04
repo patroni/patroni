@@ -2,10 +2,10 @@ import etcd
 import logging
 import os
 import signal
-import sys
 import time
 import unittest
 
+import patroni.config as config
 from mock import Mock, PropertyMock, patch
 from patroni.api import RestApiServer
 from patroni.async_executor import AsyncExecutor
@@ -41,21 +41,23 @@ class MockFrozenImporter(object):
 @patch.object(etcd.Client, 'read', etcd_read)
 class TestPatroni(unittest.TestCase):
 
+    def test_no_config(self):
+        self.assertRaises(SystemExit, patroni_main)
+
     @patch('pkgutil.get_importer', Mock(return_value=MockFrozenImporter()))
     @patch('sys.frozen', Mock(return_value=True), create=True)
     @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
     @patch.object(etcd.Client, 'read', etcd_read)
     @patch.object(Thread, 'start', Mock())
+    @patch.object(AbstractEtcdClientWithFailover, 'machines', PropertyMock(return_value=['http://remotehost:2379']))
     def setUp(self):
         self._handlers = logging.getLogger().handlers[:]
         RestApiServer._BaseServer__is_shut_down = Mock()
         RestApiServer._BaseServer__shutdown_request = True
         RestApiServer.socket = 0
-        with patch.object(AbstractEtcdClientWithFailover, 'machines') as mock_machines:
-            mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
-            sys.argv = ['patroni.py', 'postgres0.yml']
-            os.environ['PATRONI_POSTGRESQL_DATA_DIR'] = 'data/test0'
-            self.p = Patroni()
+        os.environ['PATRONI_POSTGRESQL_DATA_DIR'] = 'data/test0'
+        conf = config.Config('postgres0.yml')
+        self.p = Patroni(conf)
 
     def tearDown(self):
         logging.getLogger().handlers[:] = self._handlers
@@ -66,24 +68,23 @@ class TestPatroni(unittest.TestCase):
         self.p.load_dynamic_configuration()
         self.p.load_dynamic_configuration()
 
+    @patch('sys.argv', ['patroni.py', 'postgres0.yml'])
     @patch('time.sleep', Mock(side_effect=SleepException))
     @patch.object(etcd.Client, 'delete', Mock())
-    @patch.object(AbstractEtcdClientWithFailover, 'machines')
+    @patch.object(AbstractEtcdClientWithFailover, 'machines', PropertyMock(return_value=['http://remotehost:2379']))
     @patch.object(Thread, 'join', Mock())
-    def test_patroni_patroni_main(self, mock_machines):
+    def test_patroni_patroni_main(self):
         with patch('subprocess.call', Mock(return_value=1)):
-            sys.argv = ['patroni.py', 'postgres0.yml']
-
-            mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
             with patch.object(Patroni, 'run', Mock(side_effect=SleepException)):
+                os.environ['PATRONI_POSTGRESQL_DATA_DIR'] = 'data/test0'
                 self.assertRaises(SleepException, patroni_main)
             with patch.object(Patroni, 'run', Mock(side_effect=KeyboardInterrupt())):
                 with patch('patroni.ha.Ha.is_paused', Mock(return_value=True)):
+                    os.environ['PATRONI_POSTGRESQL_DATA_DIR'] = 'data/test0'
                     patroni_main()
 
     @patch('os.getpid')
     @patch('multiprocessing.Process')
-    @patch('patroni.use_spawn_start_method', Mock())
     @patch('patroni.patroni_main', Mock())
     def test_patroni_main(self, mock_process, mock_getpid):
         mock_getpid.return_value = 2

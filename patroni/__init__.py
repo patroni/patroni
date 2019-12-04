@@ -4,14 +4,17 @@ import signal
 import sys
 import time
 
+from patroni.version import __version__
+
 logger = logging.getLogger(__name__)
+
+PATRONI_ENV_PREFIX = 'PATRONI_'
 
 
 class Patroni(object):
 
-    def __init__(self):
+    def __init__(self, conf):
         from patroni.api import RestApiServer
-        from patroni.config import Config
         from patroni.dcs import get_dcs
         from patroni.ha import Ha
         from patroni.log import PatroniLogger
@@ -24,7 +27,7 @@ class Patroni(object):
 
         self.version = __version__
         self.logger = PatroniLogger()
-        self.config = Config()
+        self.config = conf
         self.logger.reload_config(self.config.get('log', {}))
         self.dcs = get_dcs(self.config)
         self.watchdog = Watchdog(self.config)
@@ -162,7 +165,23 @@ class Patroni(object):
 
 
 def patroni_main():
-    patroni = Patroni()
+    import argparse
+    from patroni.config import Config, ConfigParseError
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--version', action='version', version='%(prog)s {0}'.format(__version__))
+    parser.add_argument('configfile', nargs='?', default='',
+                        help='Patroni may also read the configuration from the {0} environment variable'
+                        .format(Config.PATRONI_CONFIG_VARIABLE))
+    args = parser.parse_args()
+    try:
+        conf = Config(args.configfile)
+    except ConfigParseError as e:
+        if e.value:
+            print(e.value)
+        parser.print_help()
+        sys.exit(1)
+    patroni = Patroni(conf)
     try:
         patroni.run()
     except KeyboardInterrupt:
@@ -174,13 +193,6 @@ def patroni_main():
 def fatal(string, *args):
     sys.stderr.write('FATAL: ' + string.format(*args) + '\n')
     sys.exit(1)
-
-
-def use_spawn_start_method():
-    if sys.version_info >= (3, 4):
-        # The default, forking, method is not a good idea in a multithreaded process: https://bugs.python.org/issue6721
-        import multiprocessing
-        multiprocessing.set_start_method('spawn')
 
 
 def check_psycopg2():
@@ -205,9 +217,8 @@ def check_psycopg2():
 
 
 def main():
-    use_spawn_start_method()
-    check_psycopg2()
     if os.getpid() != 1:
+        check_psycopg2()
         return patroni_main()
 
     # Patroni started with PID=1, it looks like we are in the container

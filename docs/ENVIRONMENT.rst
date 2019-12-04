@@ -15,6 +15,7 @@ Global/Universal
 Log
 ---
 -  **PATRONI\_LOG\_LEVEL**: sets the general logging level. Default value is **INFO** (see `the docs for Python logging <https://docs.python.org/3.6/library/logging.html#levels>`_)
+-  **PATRONI\_LOG\_TRACEBACK\_LEVEL**: sets the level where tracebacks will be visible. Default value is **ERROR**. Set it to **DEBUG** if you want to see tracebacks only if you enable **PATRONI\_LOG\_LEVEL=DEBUG**.
 -  **PATRONI\_LOG\_FORMAT**: sets the log formatting string. Default value is **%(asctime)s %(levelname)s: %(message)s** (see `the LogRecord attributes <https://docs.python.org/3.6/library/logging.html#logrecord-attributes>`_)
 -  **PATRONI\_LOG\_DATEFORMAT**: sets the datetime formatting string. (see the `formatTime() documentation <https://docs.python.org/3.6/library/logging.html#logging.Formatter.formatTime>`_)
 -  **PATRONI\_LOG\_MAX\_QUEUE\_SIZE**: Patroni is using two-step logging. Log records are written into the in-memory queue and there is a separate thread which pulls them from the queue and writes to stderr or file. The maximum size of the internal queue is limited by default by **1000** records, which is enough to keep logs for the past 1h20m.

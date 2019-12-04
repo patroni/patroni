@@ -10,11 +10,12 @@ import time
 import urllib3
 
 from json.decoder import WHITESPACE
-from patroni.dcs import ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
-from patroni.dcs.etcd import AbstractEtcdClientWithFailover, AbstractEtcd, catch_etcd_errors
-from patroni.exceptions import DCSError, PatroniException
-from patroni.utils import deep_compare, Retry, RetryFailedError
 from threading import Lock, Thread
+
+from . import ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
+from .etcd import AbstractEtcdClientWithFailover, AbstractEtcd, catch_etcd_errors
+from ..exceptions import DCSError, PatroniException
+from ..utils import deep_compare, Retry, RetryFailedError, USER_AGENT
 
 logger = logging.getLogger(__name__)
 
@@ -331,9 +332,10 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
             sys.exit(1)
 
     def _get_headers(self):
+        headers = urllib3.make_headers(user_agent=USER_AGENT)
         if self._token and self._cluster_version >= (3, 3, 0):
-            return {'authorization': self._token}
-        return {}
+            headers['authorization'] = self._token
+        return headers
 
     def _prepare_request(self, params=None, timeout=None):
         kwargs = self._build_request_parameters(timeout)

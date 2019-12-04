@@ -57,7 +57,7 @@ class WatchdogConfig(object):
         return not self == other
 
     def get_impl(self):
-        if self.driver == 'testing':
+        if self.driver == 'testing':  # pragma: no cover
             from patroni.watchdog.linux import TestingWatchdogDevice
             return TestingWatchdogDevice.from_config(self.driver_config)
         elif platform.system() == 'Linux' and self.driver == 'default':

@@ -122,7 +122,7 @@ zookeeper:
         # all the extra values that are coming from py.test
         sys.argv = sys.argv[:1]
 
-        self.config = Config()
+        self.config = Config(None)
         self.config.set_dynamic_configuration({'maximum_lag_on_failover': 5})
         self.version = '1.5.7'
         self.postgresql = p
@@ -177,7 +177,7 @@ def run_async(self, func, args=()):
 class TestHa(PostgresInit):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
-    @patch('patroni.dcs.dcs_modules', Mock(return_value=['patroni.dcs.foo', 'patroni.dcs.etcd']))
+    @patch('patroni.dcs.dcs_modules', Mock(return_value=['patroni.dcs.etcd']))
     @patch.object(etcd.Client, 'read', etcd_read)
     def setUp(self):
         super(TestHa, self).setUp()
