@@ -420,25 +420,25 @@ def cluster_as_json(cluster):
     return ret
 
 
-def merge_paths(d1, d2):
+def is_subpath(d1, d2):
     real_d1 = os.path.realpath(d1)
     real_d2 = os.path.realpath(os.path.join(real_d1, d2))
-    return (real_d2, (os.path.commonprefix([real_d1+os.path.sep, real_d2+os.path.sep]) == real_d1+os.path.sep))
+    return (os.path.commonprefix([real_d1+os.path.sep, real_d2+os.path.sep]) == real_d1+os.path.sep)
 
 
 def validate_directory(d, msg="{} {}"):
-    try:
-        if not os.path.exists(d):
+    if not os.path.exists(d):
+        try:
             os.makedirs(d)
-        elif os.path.isdir(d):
-            try:
-                fd, tmpfile = tempfile.mkstemp(dir=d)
-                os.close(fd)
-                os.remove(tmpfile)
-            except OSError:
-                raise OSError("{} is not writable.".format(d))
-        else:
-            raise OSError("{} is not a directory".format(d))
-    except OSError as e:
-        logger.error(e)
-        raise PatroniException(msg.format(d, e))
+        except OSError as e:
+            logger.error(e)
+            raise PatroniException(msg.format(d, "couldn't create the directory"))
+    elif os.path.isdir(d):
+        try:
+            fd, tmpfile = tempfile.mkstemp(dir=d)
+            os.close(fd)
+            os.remove(tmpfile)
+        except OSError:
+            raise PatroniException(msg.format(d, "the directory is not writable"))
+    else:
+        raise PatroniException(msg.format(d, "is not a directory"))
