@@ -209,13 +209,13 @@ class TestBootstrap(BaseTestPostgresql):
         mock_cancellable_subprocess_call.assert_called()
         args, kwargs = mock_cancellable_subprocess_call.call_args
         self.assertTrue('PGPASSFILE' in kwargs['env'])
-        self.assertEqual(args[0], ['/bin/false', 'postgres://127.0.0.2:5432/postgres'])
+        self.assertEqual(args[0], ['/bin/false', 'dbname=postgres host=127.0.0.2 port=5432'])
 
         mock_cancellable_subprocess_call.reset_mock()
         self.p.config._local_address.pop('host')
         self.assertTrue(self.b.call_post_bootstrap({'post_init': '/bin/false'}))
         mock_cancellable_subprocess_call.assert_called()
-        self.assertEqual(mock_cancellable_subprocess_call.call_args[0][0], ['/bin/false', 'postgres://:5432/postgres'])
+        self.assertEqual(mock_cancellable_subprocess_call.call_args[0][0], ['/bin/false', 'dbname=postgres port=5432'])
 
         mock_cancellable_subprocess_call.side_effect = OSError
         self.assertFalse(self.b.call_post_bootstrap({'post_init': '/bin/false'}))

@@ -3,6 +3,20 @@
 Release notes
 =============
 
+Version 1.6.3
+-------------
+
+**Bugfixes**
+
+- Don't expose password when running ``pg_rewind`` (Alexander Kukushkin)
+
+  Bug was introduced in the `#1301 <https://github.com/zalando/patroni/pull/1301>`__
+
+- Apply connection parameters specified in the ``postgresql.authentication`` to ``pg_basebackup`` and custom replica creation methods (Alexander)
+
+  They were relying on url-like connection string and therefore parameters never applied.
+
+
 Version 1.6.2
 -------------
 
