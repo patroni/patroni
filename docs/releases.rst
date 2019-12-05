@@ -14,7 +14,7 @@ Version 1.6.2
 
 - Set the ``user-agent`` http header for all http requests (Alexander Kukushkin)
 
-  Patroni is communicating via http protocol with Consul, Etcd, and Kubernetes API. Having a specifically crafted ``user-agent`` (example: ``Patroni/1.6.2 Python/3.6.8 Linux``) might be useful for debugging and monitoring.
+  Patroni is communicating with Consul, Etcd, and Kubernetes API via the http protocol. Having a specifically crafted ``user-agent`` (example: ``Patroni/1.6.2 Python/3.6.8 Linux``) might be useful for debugging and monitoring.
 
 - Make it possible to configure log level for exception tracebacks (Igor)
 
@@ -23,9 +23,9 @@ Version 1.6.2
 
 **Stability improvements**
 
-- Avoid importing all DCS modules when searching for the module required by config file (Alexander)
+- Avoid importing all DCS modules when searching for the module required by the config file (Alexander)
 
-  There is no need to import modules for etcd, consul, and kubernetes if we need only zookeeper. It helps to reduce memory usage and solves the problem of having INFO messages ``Failed to import smth``.
+  There is no need to import modules for Etcd, Consul, and Kubernetes if we need only e.g. Zookeeper. It helps to reduce memory usage and solves the problem of having INFO messages ``Failed to import smth``.
 
 - Removed python ``requests`` module from explicit requirements (Alexander)
 
@@ -38,20 +38,20 @@ Version 1.6.2
 
 **Usability improvements**
 
-- Don't make a user to choose members from an empty list in ``patronictl`` (Igor)
+- Don't force users to choose members from an empty list in ``patronictl`` (Igor)
 
   If the user provides a wrong cluster name, we will raise an exception rather than ask to choose a member from an empty list.
 
-- Make the error message more helpful is the REST API cannot bind (Igor)
+- Make the error message more helpful if the REST API cannot bind (Igor)
 
-  For an inexperienced user it might be hard to figure out what is wrong from the python stacktrace.
+  For an inexperienced user it might be hard to figure out what is wrong from the Python stacktrace.
 
 
 **Bugfixes**
 
-- Fix calculation of ``wal_buffes`` (Alexander)
+- Fix calculation of ``wal_buffers`` (Alexander)
 
-  The base unit has been changed from 8kb blocks to bytes in PostgreSQL 11.
+  The base unit has been changed from 8 kB blocks to bytes in PostgreSQL 11.
 
 - Use ``passfile`` in ``primary_conninfo`` only on PostgreSQL 10+ (Alexander)
 
