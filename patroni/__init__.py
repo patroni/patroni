@@ -20,7 +20,6 @@ class Patroni(object):
         from patroni.log import PatroniLogger
         from patroni.postgresql import Postgresql
         from patroni.request import PatroniRequest
-        from patroni.version import __version__
         from patroni.watchdog import Watchdog
 
         self.setup_signal_handlers()
@@ -217,8 +216,8 @@ def check_psycopg2():
 
 
 def main():
-    check_psycopg2()
     if os.getpid() != 1:
+        check_psycopg2()
         return patroni_main()
 
     # Patroni started with PID=1, it looks like we are in the container

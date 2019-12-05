@@ -73,7 +73,7 @@ class TestK8SConfig(unittest.TestCase):
         config["users"][0]["user"]["token"] = "token"
         with patch.object(builtins, 'open', mock_open(read_data=json.dumps(config))):
             k8s_config.load_kube_config()
-            self.assertEqual(k8s_config.headers, {'authorization': 'Bearer token'})
+            self.assertEqual(k8s_config.headers.get('authorization'), 'Bearer token')
 
 
 class TestCoreV1Api(unittest.TestCase):

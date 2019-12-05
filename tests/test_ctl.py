@@ -1,6 +1,5 @@
 import etcd
 import os
-import sys
 import unittest
 
 from click.testing import CliRunner
@@ -584,3 +583,10 @@ class TestCtl(unittest.TestCase):
             self.assertIsNone(find_executable('vim'))
         with patch('os.path.isfile', Mock(side_effect=[False, True])):
             self.assertEqual(find_executable('vim', '/'), '/vim.exe')
+
+    @patch('patroni.ctl.get_dcs')
+    def test_get_members(self, mock_get_dcs):
+        mock_get_dcs.return_value = self.e
+        mock_get_dcs.return_value.get_cluster = get_cluster_not_initialized_without_leader
+        result = self.runner.invoke(ctl, ['reinit', 'dummy'])
+        assert "cluster doesn\'t have any members" in result.output
