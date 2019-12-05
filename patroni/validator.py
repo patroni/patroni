@@ -6,6 +6,7 @@ import socket
 from patroni.utils import split_host_port
 from patroni.ctl import find_executable
 from patroni.dcs import dcs_modules
+from patroni.exceptions import ConfigParseError
 
 logger = logging.getLogger(__name__)
 
@@ -21,178 +22,209 @@ def data_directory_empty(data_dir):
     )
 
 
-def config_validator(config):
-    logging.basicConfig(level=logging.DEBUG, format='%(levelname)-8s %(message)s')
-    bin_dir = None
-    data_dir = ""
-    fatal = None
-    if "name" not in config:
-        logger.error("name is not defined")
-        fatal = True
-    elif not isinstance(config["name"], str):
-        logger.error("name is not a string")
-        fatal = True
-    if "scope" not in config:
-        logger.error("scope is not defined")
-        fatal = True
-    elif not isinstance(config["scope"], str):
-        logger.error("scope is not a string")
-        fatal = True
-    if "postgresql" not in config:
-        logger.error("postgresql section is missing")
-        fatal = True
+def validate_host_port(listen):
+    try:
+        host, port = split_host_port(listen, None)
+    except (ValueError, TypeError):
+        raise ConfigParseError("contains a wrong value")
     else:
-        if not isinstance(config["postgresql"], dict):
-            logger.warning("postgresql is not a dictionary")
-        else:
-            if "authentication" not in config["postgresql"]:
-                logger.warning("postgresql.authentication is not defined")
-            elif not isinstance(config["postgresql"]["authentication"], dict):
-                logger.warning("postgresql.authentication is not a dictionary")
-            else:
-                for user in ["replication", "superuser", "rewind"]:
-                    if user not in config["postgresql"]["authentication"]:
-                        logger.warning("postgresql.authentication.%s is not defined", user)
-                    elif not isinstance(config["postgresql"]["authentication"][user], dict):
-                        logger.warning("postgresql.authentication.%s is not a dictionary", user)
-                    else:
-                        if "username" not in config["postgresql"]["authentication"][user]:
-                            logger.warning("postgresql.authentication.%s.username is not defined", user)
-                        elif not isinstance(config["postgresql"]["authentication"][user]["username"], str):
-                            logger.warning("postgresql.authentication.%s.username is not a string", user)
-                        if "password" not in config["postgresql"]["authentication"][user]:
-                            logger.info("postgresql.authentication.%s.password is not defined", user)
-                        elif not isinstance(config["postgresql"]["authentication"][user]["password"], str):
-                            logger.warning("postgresql.authentication.%s.password is not a string", user)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                if s.connect_ex((host, port)) == 0:
+                    logger.warning("Port %s is already in use.", port)
+            except socket.gaierror as e:
+                raise ConfigParseError(e)
 
-            if "bin_dir" in config["postgresql"]:
-                if not isinstance(config["postgresql"]["bin_dir"], str):
-                    logger.warning("postgresql.bin_dir is not a string")
-                else:
-                    bin_dir = config["postgresql"]["bin_dir"]
-                    if not os.path.exists(bin_dir):
-                        logger.warning("Directory '%s' does not exist. Configured in postgresql.bin_dir", bin_dir)
-                    elif not os.path.isdir(bin_dir):
-                        logger.warning("'%s' is not a directory. Configured in postgresql.bin_dir", bin_dir)
-            else:
-                logger.info("postgresql.bin_dir is not defined")
 
-            if "data_dir" not in config["postgresql"]:
-                logger.warning("postgresql.data_dir is not defined")
-            elif not isinstance(config["postgresql"]["data_dir"], str):
-                logger.warning("postgresql.data_dir is not a string")
-            elif not config["postgresql"]["data_dir"]:
-                logger.warning("postgresql.data_dir is an empty string")
-            else:
-                data_dir = config["postgresql"]["data_dir"]
-                if os.path.exists(data_dir) and not os.path.isdir(data_dir):
-                    logger.error("postgresql.data_dir (%s) is not a directory", data_dir)
-                else:
-                    if not data_directory_empty(data_dir):
-                        if not os.path.exists(
-                            os.path.join(data_dir, "PG_VERSION")
-                        ):
-                            logger.warning("%s doesn't look like a valid data directory make sure you provide "
-                                           "a valid path in configuration. Configured in postgresql.data_dir",
-                                           data_dir)
-                        elif not os.path.isdir(
-                            os.path.join(data_dir, "pg_wal")
-                        ) and not os.path.isdir(
-                            os.path.join(data_dir, "pg_xlog")
-                        ):
-                            logger.warning(
-                                "data dir for the cluster is not empty,"
-                                "but doesn't contain \"pg_wal\" nor \"pg_xlog\" directory"
-                            )
-            if "listen" not in config["postgresql"]:
-                logger.warning("postgresql.listen is not defined")
-            elif not isinstance(config["postgresql"]["listen"], str):
-                logger.warning("postgresql.listen is not a string")
-            else:
-                try:
-                    hosts, port = split_host_port(config["postgresql"]["listen"], 5432)
-                except ValueError:
-                    logger.error("postgresql.listen contains a wrong value: '%s'", config["postgresql"]["listen"])
-                else:
-                    for host in hosts.split(","):
-                        host = host.strip()
-                        if host == '*':
-                            host = '0.0.0.0'
-                        elif not host:
-                            logger.error("postgresql.listen contains a wrong value: '%s'",
-                                         config["postgresql"]["listen"])
-                        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                            try:
-                                if s.connect_ex((host, port)) == 0:
-                                    logger.warning("Port %s is already in use.", port)
-                            except socket.gaierror as e:
-                                logger.error("postgresql.listen might have a wrong value: '%s' -> %s",
-                                             config["postgresql"]["listen"], e)
-                connect_address = config["postgresql"].get("connect_address",
-                                                           config["postgresql"]["listen"].split(",")[0])
-                if not isinstance(connect_address, str):
-                    logger.warning("postgresql.connect_address is not a string")
-                else:
-                    connect_host, _ = split_host_port(connect_address, 5432)
-                    if connect_host in ["localhost", "127.0.0.1", "0.0.0.0", "::1", "*"]:
-                        logger.warning("postgresql.connect_address has wrong host part(%s)", connect_host)
+def validate_data_dir(data_dir):
+    if not data_dir:
+        raise ConfigParseError("is an empty string")
+    elif os.path.exists(data_dir) and not os.path.isdir(data_dir):
+        raise ConfigParseError("is not a directory")
+    elif not data_directory_empty(data_dir):
+        if not os.path.exists(os.path.join(data_dir, "PG_VERSION")):
+            raise ConfigParseError("doesn't look like a valid data directory")
+        elif not os.path.isdir(os.path.join(data_dir, "pg_wal")) and not os.path.isdir(
+                 os.path.join(data_dir, "pg_xlog")):
+            raise ConfigParseError("data dir for the cluster is not empty, but doesn't contain"
+                                   "\"pg_wal\" nor \"pg_xlog\" directory")
 
-            if "parameters" not in config["postgresql"]:
-                logger.warning("postgresql.parameters is not defined")
-            elif not isinstance(config["postgresql"]["parameters"], dict):
-                logger.warning("postgresql.parameters is not a dictionary")
-            else:
-                if "unix_socket_directories" not in config["postgresql"]["parameters"]:
-                    logger.warning("postgresql.parameters.unix_socket.directories is not defined")
-                elif not isinstance(config["postgresql"]["parameters"]["unix_socket_directories"], str):
-                    logger.warning("postgresql.parameters.unix_socket_directories is not a string")
 
-    if "restapi" not in config:
-        logger.error("restapi section is missing")
-    elif not isinstance(config["restapi"], dict):
-        logger.warning("restapi is not a dictionary")
-    elif "listen" not in config["restapi"]:
-        logger.warning("restapi.listen is not defined")
-    elif not isinstance(config["restapi"]["listen"], str):
-        logger.warning("restapi.listen is not a string")
-    else:
-        try:
-            host, port = split_host_port(config["restapi"]["listen"], None)
-        except (ValueError, TypeError):
-            logger.error("restapi.listen contains a wrong value: '%s'", config["restapi"]["listen"])
-        else:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                try:
-                    if s.connect_ex((host, port)) == 0:
-                        logger.warning("Port %s is already in use.", port)
-                except socket.gaierror as e:
-                    logger.error("restapi.listen might have a wrong value: '%s' -> %s", config["restapi"]["listen"], e)
+def validate_bin_dir(bin_dir):
+    if not bin_dir:
+        raise ConfigParseError("is an empty string")
+    elif not os.path.exists(bin_dir):
+        raise ConfigParseError("Directory '{}' does not exist.".format(bin_dir))
+    elif not os.path.isdir(bin_dir):
+        raise ConfigParseError("'{}' is not a directory.".format(bin_dir))
     for program in ["pg_ctl", "initdb", "pg_controldata", "pg_basebackup", "postgres"]:
         if not find_executable(program, bin_dir):
             logger.warning("Program '%s' not found.", program)
-    if "bootstrap" not in config:
-        logger.warning("bootstrap section is missing")
-    elif not isinstance(config["bootstrap"], dict):
-        logger.warning("bootstrap is not a dictionary")
-    else:
-        if "dcs" not in config["bootstrap"]:
-            logger.info("bootstrap.dcs is not defined")
-        elif not isinstance(config["bootstrap"]["dcs"], dict):
-            logger.warning("bootstrap.dcs is not a dictionary")
 
-    available_dcs = [m.split(".")[-1] for m in dcs_modules()]
-    if not any([dcs in config for dcs in available_dcs]):
-        logger.error("Neither of distributed configuration store is configured, "
-                     "please configure one of these: %s", ", ".join(available_dcs))
-        fatal = 1
-    elif "etcd" in config:
-        if not isinstance(config["etcd"], dict):
-            logger.warning("etcd is not a dictionary")
-        elif not any([i in config["etcd"] for i in ["srv", "hosts", "host", "url", "proxy"]]):
-            logger.warning("Neither srv, hosts, host, url nor proxy are defined in etcd section of config")
-        elif "host" in config["etcd"]:
-            if not isinstance(config["etcd"]["host"], str):
-                logger.warning("etcd.host is not a string")
 
-    if fatal:
-        return "Configuration is not valid."
+class Case(object):
+    def __init__(self, schema):
+        self._schema = schema
+
+    def __repr__(self):
+        return "Case(" + ", ".join([str(s) for s in self._schema]) + ")"
+
+
+class Or(object):
+    def __init__(self, *args):
+        self.args = args
+
+    def __repr__(self):
+        return "Or(" + ", ".join([str(s) for s in self.args]) + ")"
+
+
+class Optional(object):
+    def __init__(self, name):
+        self.name = name
+
+    def __repr__(self):
+        return self.name + "(optional)"
+
+
+class Schema(object):
+    def __init__(self, schema, path=""):
+        self._schema = schema
+        self._path = str(path)
+
+    def __call__(self, data):
+        logging.basicConfig(level=logging.DEBUG, format='%(levelname)-8s %(message)s')
+        for key in self._schema:
+            optional = False
+            if isinstance(self._schema, dict):
+                subschema = self._schema[key]
+            elif isinstance(self._schema, list):
+                subschema = self._schema[0]
+                for key, value in enumerate(data):
+                    self.validator(key, value, subschema)
+                continue
+            if not isinstance(key, str):
+                if isinstance(key, Optional):
+                    key = key.name
+                    optional = True
+                if isinstance(key, Or):
+                    self.validate_orcase(key, subschema, data)
+                    continue
+            if key not in data and not optional:
+                logger.warning("%s is not defined", self.get_fullpath(key))
+            else:
+                self.validator(key, data[key], subschema)
+
+    def validator(self, key, data, schema, quiet=False):
+        if not isinstance(data, type(schema)):
+            if issubclass(type(schema), type):
+                if isinstance(data, schema):
+                    return True
+                else:
+                    if not quiet:
+                        logger.warning("%s ('%s') didn't pass validation", self.get_fullpath(key), data)
+            elif callable(schema):
+                try:
+                    schema(data)
+                    return True
+                except Exception as e:
+                    if not quiet:
+                        logger.warning("%s ('%s') didn't pass validation: %s", self.get_fullpath(key), data, e)
+            elif isinstance(schema, Or):
+                counter = 0
+                for v in schema.args:
+                    counter += (1 if self.validator(key, data, v, quiet=True) else 0)
+                if counter < 1:
+                    logger.warning("%s ('%s') didn't pass validation", self.get_fullpath(key), data)
+                else:
+                    return True
+
+            else:
+                if not quiet:
+                    logger.warning("%s type is not %s", self.get_fullpath(key), _get_type_name(type(schema)))
+        elif isinstance(data, dict):
+            Schema(schema, path=self.get_fullpath(key))(data)
+        elif isinstance(data, list):
+            Schema(schema, path=self.get_fullpath(key))(data)
+
+    def validate_orcase(self, key, schema, data):
+        counter = 0
+        for a in key.args:
+            if a in data:
+                counter += 1
+                subschema = schema._schema[a]
+                self.validator(a, data[a], subschema)
+        if counter < 1:
+            logger.warning("neither of %s is defined", ", ".join([self.get_fullpath(a) for a in key.args]))
+
+    def get_fullpath(self, path):
+        return self._path + ("." if self._path else "") + str(path)
+
+
+def _get_type_name(python_type):
+    if python_type == str:
+        return "string"
+    elif python_type == int:
+        return "integer"
+    elif python_type == float:
+        return "number"
+    elif python_type == bool:
+        return "boolean"
+    elif python_type == list:
+        return "array"
+    elif python_type == dict:
+        return "dictionary"
+    return "string"
+
+
+userattributes = {"username": "", Optional("password"): ""}
+available_dcs = [m.split(".")[-1] for m in dcs_modules()]
+
+schema = Schema({
+  "name": str,
+  "scope": str,
+  "restapi": {
+    "listen": validate_host_port
+  },
+  Optional("bootstrap"): {
+    "dcs": {
+        Optional("ttl"): int,
+        Optional("loop_wait"): int,
+        Optional("retry_timeout"): int,
+        Optional("maximum_lag_on_failover"): int
+        },
+    "pg_hba": [str],
+    "initdb": [Or(str, dict)]
+  },
+  Or(*available_dcs): Case({
+      "etcd": {
+          Or("host", "hosts", "srv", "url", "proxy"): Case({
+              "host": str,
+              "hosts": Or(str, list),
+              "srv": str,
+              "url": str,
+              "proxy": str})
+         },
+      "exhibitor": {
+          "hosts": str,
+          },
+      "zookeeper": {
+          "hosts": [validate_host_port],
+          },
+      "kubernetes": {
+          Optional("namespace"): str,
+          },
+      }),
+  "postgresql": {
+    "listen": validate_host_port,
+    "authentication": {
+      "replication": userattributes,
+      "superuser": userattributes,
+      "rewind":  userattributes
+    },
+    "data_dir": validate_data_dir,
+    "bin_dir": validate_bin_dir,
+    "parameters": {
+      "unix_socket_directories": lambda s: all([str(s), len(s)])
+    }
+  }
+})

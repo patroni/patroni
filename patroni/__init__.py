@@ -169,7 +169,7 @@ class Patroni(object):
 def patroni_main():
     import argparse
     from patroni.config import Config, ConfigParseError
-    from patroni.validator import config_validator
+    from patroni.validator import schema
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--version', action='version', version='%(prog)s {0}'.format(__version__))
@@ -180,7 +180,7 @@ def patroni_main():
     args = parser.parse_args()
     try:
         if args.validate_config:
-            conf = Config(args.configfile, validator=config_validator)
+            conf = Config(args.configfile, validator=schema)
             sys.exit()
         else:
             conf = Config(args.configfile)
