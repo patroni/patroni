@@ -12,10 +12,10 @@ class TestUtils(unittest.TestCase):
 
     @patch('os.path.exists', Mock(return_value=True))
     @patch('os.path.isdir', Mock(return_value=True))
+    @patch('tempfile.mkstemp', Mock(return_value=("", "")))
+    @patch('os.remove', Mock(side_effect=Exception))
     def test_validate_directory_writable(self):
-        with patch('os.remove', Mock()) as remove_file:
-            validate_directory("/tmp")
-            remove_file.assert_called_once()
+        self.assertRaises(Exception, validate_directory, "/tmp")
 
     @patch('os.path.exists', Mock(return_value=True))
     @patch('os.path.isdir', Mock(return_value=True))
