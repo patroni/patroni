@@ -17,7 +17,7 @@ def start_patroni_with_callbacks(context, name):
     return context.pctl.start(name, custom_config={
         "postgresql": {
             "callbacks": {
-                "on_role_change": "features/callback.sh"
+                "on_role_change": "features/callback.py"
             }
         }
     })
