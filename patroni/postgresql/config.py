@@ -349,17 +349,17 @@ class ConfigHandler(object):
         self._adjust_recovery_parameters()
 
     def try_to_create_dir(self, d, msg):
+        d = os.path.join(self._postgresql._data_dir, d)
         if (not is_subpath(self._postgresql._data_dir, d) or not self._postgresql.data_directory_empty()):
             validate_directory(d, msg)
 
     def check_directories(self):
         if "unix_socket_directories" in self._server_parameters:
             for d in self._server_parameters["unix_socket_directories"].split(","):
-                d = os.path.join(self._postgresql._data_dir, d.strip())
-                self.try_to_create_dir(d, "'{}' is defined in unix_socket_directories, {}")
+                self.try_to_create_dir(d.strip(), "'{}' is defined in unix_socket_directories, {}")
         if "stats_temp_directory" in self._server_parameters:
-            d = os.path.join(self._postgresql._data_dir, self._server_parameters["stats_temp_directory"])
-            self.try_to_create_dir(d, "'{}' is defined in stats_temp_directory, {}")
+            self.try_to_create_dir(self._server_parameters["stats_temp_directory"],
+                                   "'{}' is defined in stats_temp_directory, {}")
 
     @property
     def _configuration_to_save(self):
