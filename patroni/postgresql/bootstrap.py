@@ -253,6 +253,12 @@ class Bootstrap(object):
             if not self._postgresql.data_directory_empty():
                 self._postgresql.remove_data_directory()
             try:
+                logger.info("av: About to call pg_basebackup with these args...")
+                logger.info(self._postgresql.pgcommand('pg_basebackup'))
+                logger.info(self._postgresql.data_dir)
+                logger.info(conn_url)
+                logger.info(user_options)
+                logger.info(env)
                 ret = self._postgresql.cancellable.call([self._postgresql.pgcommand('pg_basebackup'),
                                                          '--pgdata=' + self._postgresql.data_dir, '-X', 'stream',
                                                          '--dbname=' + conn_url] + user_options, env=env)
