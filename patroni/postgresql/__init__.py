@@ -240,6 +240,8 @@ class Postgresql(object):
             cursor.execute(sql, params)
             return cursor
         except psycopg2.Error as e:
+            logger.error('av: _query psycopg2.Error as e:')
+            logger.error(e)
             if cursor and cursor.connection.closed == 0:
                 # When connected via unix socket, psycopg2 can't recoginze 'connection lost'
                 # and leaves `_cursor_holder.connection.closed == 0`, but psycopg2.OperationalError

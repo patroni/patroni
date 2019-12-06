@@ -15,6 +15,10 @@ class Connection(object):
         self._cursor_holder = None
 
     def set_conn_kwargs(self, conn_kwargs):
+        logger.info("av: conn_kwargs:")
+        logger.info(conn_kwargs)
+        logger.info(','.join('{0}={1!r}'.format(k, v) for k, v in conn_kwargs))
+        logger.info("av: done with printing conn_kwargs")
         self._conn_kwargs = conn_kwargs
 
     def get(self):
