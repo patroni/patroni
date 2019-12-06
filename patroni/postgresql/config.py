@@ -480,17 +480,22 @@ class ConfigHandler(object):
 
     def format_dsn(self, params, include_dbname=False):
         # A list of keywords that can be found in a conninfo string. Follows what is acceptable by libpq
-        keywords = ('user', 'passfile' if params.get('passfile') else 'password', 'host', 'port', 'sslmode',
+        keywords = ('dbname', 'user', 'passfile' if params.get('passfile') else 'password', 'host', 'port', 'sslmode',
                     'sslcompression', 'sslcert', 'sslkey', 'sslrootcert', 'sslcrl', 'application_name', 'krbsrvname')
         if include_dbname:
             params = params.copy()
             params['dbname'] = params.get('database') or self._postgresql.database
-            keywords = ('dbname',) + keywords
+            # we are abusing information about the necessity of dbname
+            # dsn should contain passfile or password only if there is no dbname in it (it is used in recovery.conf)
+            skip = {'passfile', 'password'}
+        else:
+            skip = {'dbname'}
 
         def escape(value):
             return re.sub(r'([\'\\ ])', r'\\\1', str(value))
 
-        return ' '.join('{0}={1}'.format(kw, escape(params[kw])) for kw in keywords if params.get(kw) is not None)
+        return ' '.join('{0}={1}'.format(kw, escape(params[kw])) for kw in keywords
+                        if kw not in skip and params.get(kw) is not None)
 
     def _write_recovery_params(self, fd, recovery_params):
         for name, value in sorted(recovery_params.items()):

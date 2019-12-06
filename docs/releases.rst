@@ -3,6 +3,75 @@
 Release notes
 =============
 
+Version 1.6.3
+-------------
+
+**Bugfixes**
+
+- Don't expose password when running ``pg_rewind`` (Alexander Kukushkin)
+
+  Bug was introduced in the `#1301 <https://github.com/zalando/patroni/pull/1301>`__
+
+- Apply connection parameters specified in the ``postgresql.authentication`` to ``pg_basebackup`` and custom replica creation methods (Alexander)
+
+  They were relying on url-like connection string and therefore parameters never applied.
+
+
+Version 1.6.2
+-------------
+
+**New features**
+
+- Implemented ``patroni --version`` (Igor Yanchenko)
+
+  It prints the current version of Patroni and exits.
+
+- Set the ``user-agent`` http header for all http requests (Alexander Kukushkin)
+
+  Patroni is communicating with Consul, Etcd, and Kubernetes API via the http protocol. Having a specifically crafted ``user-agent`` (example: ``Patroni/1.6.2 Python/3.6.8 Linux``) might be useful for debugging and monitoring.
+
+- Make it possible to configure log level for exception tracebacks (Igor)
+
+  If you set ``log.traceback_level=DEBUG`` the tracebacks will be visible only when ``log.level=DEBUG``. The default behavior remains the same.
+
+
+**Stability improvements**
+
+- Avoid importing all DCS modules when searching for the module required by the config file (Alexander)
+
+  There is no need to import modules for Etcd, Consul, and Kubernetes if we need only e.g. Zookeeper. It helps to reduce memory usage and solves the problem of having INFO messages ``Failed to import smth``.
+
+- Removed python ``requests`` module from explicit requirements (Alexander)
+
+  It wasn't used for anything critical, but causing a lot of problems when the new version of ``urllib3`` is released.
+
+- Improve handling of ``etcd.hosts`` written as a comma-separated string instead of YAML array (Igor)
+
+  Previously it was failing when written in format ``host1:port1, host2:port2`` (the space character after the comma).
+
+
+**Usability improvements**
+
+- Don't force users to choose members from an empty list in ``patronictl`` (Igor)
+
+  If the user provides a wrong cluster name, we will raise an exception rather than ask to choose a member from an empty list.
+
+- Make the error message more helpful if the REST API cannot bind (Igor)
+
+  For an inexperienced user it might be hard to figure out what is wrong from the Python stacktrace.
+
+
+**Bugfixes**
+
+- Fix calculation of ``wal_buffers`` (Alexander)
+
+  The base unit has been changed from 8 kB blocks to bytes in PostgreSQL 11.
+
+- Use ``passfile`` in ``primary_conninfo`` only on PostgreSQL 10+ (Alexander)
+
+  On older versions there is no guarantee that ``passfile`` will work, unless the latest version of ``libpq`` is installed.
+
+
 Version 1.6.1
 -------------
 

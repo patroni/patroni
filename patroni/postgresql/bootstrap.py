@@ -5,9 +5,8 @@ import tempfile
 import time
 
 from patroni.dcs import RemoteMember
-from patroni.utils import deep_compare, uri
+from patroni.utils import deep_compare
 from six import string_types
-from six.moves.urllib.parse import quote_plus
 
 logger = logging.getLogger(__name__)
 
@@ -123,19 +122,13 @@ class Bootstrap(object):
         cmd = config.get('post_bootstrap') or config.get('post_init')
         if cmd:
             r = self._postgresql.config.local_connect_kwargs
-
-            if 'host' in r:
-                # '/tmp' => '%2Ftmp' for unix socket path
-                host = quote_plus(r['host']) if r['host'].startswith('/') else r['host']
-            else:
-                host = ''
-
+            connstring = self._postgresql.config.format_dsn(r, True)
+            if 'host' not in r:
                 # https://www.postgresql.org/docs/current/static/libpq-pgpass.html
                 # A host name of localhost matches both TCP (host name localhost) and Unix domain socket
                 # (pghost empty or the default socket directory) connections coming from the local machine.
                 r['host'] = 'localhost'  # set it to localhost to write into pgpass
 
-            connstring = uri('postgres', (host, r['port']), r['database'], r.get('user'))
             env = self._postgresql.config.write_pgpass(r) if 'password' in r else None
 
             try:
@@ -168,9 +161,9 @@ class Bootstrap(object):
 
         if clone_member and clone_member.conn_url:
             r = clone_member.conn_kwargs(self._postgresql.config.replication)
-            connstring = uri('postgres', (r['host'], r['port']), r['database'], r['user'])
             # add the credentials to connect to the replica origin to pgpass.
             env = self._postgresql.config.write_pgpass(r)
+            connstring = self._postgresql.config.format_dsn(r, True)
         else:
             connstring = ''
             env = os.environ.copy()
