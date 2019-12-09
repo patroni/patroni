@@ -532,7 +532,7 @@ class ExhibitorController(ZooKeeperController):
 
 class PatroniPoolController(object):
 
-    BACKUP_SCRIPT = 'features/backup_create.sh'
+    BACKUP_SCRIPT = 'features/backup_create.py'
 
     def __init__(self, context):
         self._context = context
