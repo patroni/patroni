@@ -10,7 +10,7 @@ SELECT * FROM pg_catalog.pg_stat_replication
 WHERE application_name = '{0}'
 """
 
-callback = "bash -c 'echo \"${*: -3:1} ${*: -2:1} ${*: -1:1}\" >> data/$1/$1_cb.log' -- "
+callback = sys.executable + " features/callback2.py "
 
 
 @step('I start {name:w} with callback configured')
