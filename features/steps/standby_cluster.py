@@ -30,7 +30,7 @@ def start_patroni(context, name, cluster_name):
         "postgresql": {
             "callbacks": {c: callback + name for c in ('on_start', 'on_stop', 'on_restart', 'on_role_change')},
             "backup_restore": {
-                "command": "features/backup_restore.sh --sourcedir=" + os.path.join(context.pctl.patroni_path,
+                "command": "features/backup_restore.py --sourcedir=" + os.path.join(context.pctl.patroni_path,
                                                                                     'data', 'basebackup')}
         }
     })
