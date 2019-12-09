@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 
 from behave import step
@@ -17,7 +18,7 @@ def start_patroni_with_callbacks(context, name):
     return context.pctl.start(name, custom_config={
         "postgresql": {
             "callbacks": {
-                "on_role_change": "features/callback.py"
+                "on_role_change": sys.executable + " features/callback.py"
             }
         }
     })
@@ -30,7 +31,7 @@ def start_patroni(context, name, cluster_name):
         "postgresql": {
             "callbacks": {c: callback + name for c in ('on_start', 'on_stop', 'on_restart', 'on_role_change')},
             "backup_restore": {
-                "command": "features/backup_restore.py --sourcedir=" + os.path.join(context.pctl.patroni_path,
+                "command": sys.executable + " features/backup_restore.py --sourcedir=" + os.path.join(context.pctl.patroni_path,
                                                                                     'data', 'basebackup')}
         }
     })

@@ -259,7 +259,7 @@ class PatroniController(AbstractController):
         return 'postgres://{username}:{password}@{host}:{port}/{database}'.format(**self._replication)
 
     def backup(self, dest='data/basebackup'):
-        subprocess.call([PatroniPoolController.BACKUP_SCRIPT, '--walmethod=none',
+        subprocess.call(PatroniPoolController.BACKUP_SCRIPT + ['--walmethod=none',
                          '--datadir=' + os.path.join(self._work_directory, dest),
                          '--dbname=' + self.backup_source])
 
@@ -532,7 +532,7 @@ class ExhibitorController(ZooKeeperController):
 
 class PatroniPoolController(object):
 
-    BACKUP_SCRIPT = 'features/backup_create.py'
+    BACKUP_SCRIPT = [sys.executable, 'features/backup_create.py']
 
     def __init__(self, context):
         self._context = context
@@ -593,7 +593,7 @@ class PatroniPoolController(object):
             'bootstrap': {
                 'method': 'pg_basebackup',
                 'pg_basebackup': {
-                    'command': self.BACKUP_SCRIPT + ' --walmethod=stream --dbname=' + f.backup_source
+                    'command': " ".join(self.BACKUP_SCRIPT) + ' --walmethod=stream --dbname=' + f.backup_source
                 },
                 'dcs': {
                     'postgresql': {
@@ -623,7 +623,7 @@ class PatroniPoolController(object):
             'bootstrap': {
                 'method': 'backup_restore',
                 'backup_restore': {
-                    'command': 'features/backup_restore.py --sourcedir=' + os.path.join(self.patroni_path,
+                    'command': sys.executable + ' features/backup_restore.py --sourcedir=' + os.path.join(self.patroni_path,
                                                                                         'data', 'basebackup'),
                     'recovery_conf': {
                         'recovery_target_action': 'promote',

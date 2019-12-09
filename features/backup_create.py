@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import argparse
 import subprocess
+import sys
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -12,4 +13,4 @@ if __name__ == "__main__":
     command = ["pg_basebackup", "-D", args.datadir] + \
               (["-X", args.walmethod] if args.walmethod != "none" else []) + \
               ["-c", "fast", "-d", args.dbname]
-    subprocess.call(command)
+    sys.exit(subprocess.call(command))
