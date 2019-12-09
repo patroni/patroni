@@ -606,8 +606,9 @@ class PatroniPoolController(object):
             'postgresql': {
                 'parameters': {
                     'archive_mode': 'on',
-                    'archive_command': 'mkdir -p {0} && test ! -f {0}/%f && cp %p {0}/%f'.format(
-                            os.path.join(self.patroni_path, 'data', 'wal_archive'))
+                    'archive_command': sys.executable + ' features/archive-restore.py --mode archive ' +\
+                                       '--dirname {} --filename %f --pathname %p'.format(
+                                       os.path.join(self.patroni_path, 'data', 'wal_archive'))
                 },
                 'authentication': {
                     'superuser': {'password': 'zalando1'},
@@ -628,7 +629,9 @@ class PatroniPoolController(object):
                     'recovery_conf': {
                         'recovery_target_action': 'promote',
                         'recovery_target_timeline': 'latest',
-                        'restore_command': 'cp {0}/data/wal_archive/%f %p'.format(self.patroni_path)
+                        'restore_command': sys.executable + ' features/archive-restore.py --mode restore ' + \
+                                           '--dirname {} --filename %f --pathname %p'.format(
+                                           os.path.join(self.patroni_path, 'data', 'wal_archive'))
                     }
                 }
             },
