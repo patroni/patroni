@@ -1,4 +1,5 @@
 import errno
+import json.decoder as json_decoder
 import json
 import logging
 import os
@@ -415,7 +416,7 @@ def cluster_as_json(cluster):
         elif m.name in cluster.sync.members:
             role = 'sync_standby'
         else:
-            role = 'replica'
+            role = m.data.get('role', '')
 
         member = {'name': m.name, 'role': role, 'state': m.data.get('state', ''), 'api_url': m.api_url}
         conn_kwargs = m.conn_kwargs()
