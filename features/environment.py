@@ -260,8 +260,8 @@ class PatroniController(AbstractController):
 
     def backup(self, dest='data/basebackup'):
         subprocess.call(PatroniPoolController.BACKUP_SCRIPT + ['--walmethod=none',
-                         '--datadir=' + os.path.join(self._work_directory, dest),
-                         '--dbname=' + self.backup_source])
+                        '--datadir=' + os.path.join(self._work_directory, dest),
+                        '--dbname=' + self.backup_source])
 
 
 class ProcessHang(object):
@@ -533,6 +533,7 @@ class ExhibitorController(ZooKeeperController):
 class PatroniPoolController(object):
 
     BACKUP_SCRIPT = [sys.executable, 'features/backup_create.py']
+    ARCHIVE_RESTORE_SCRIPT = ' '.join((sys.executable, os.path.abspath('features/archive-restore.py')))
 
     def __init__(self, context):
         self._context = context
@@ -606,9 +607,9 @@ class PatroniPoolController(object):
             'postgresql': {
                 'parameters': {
                     'archive_mode': 'on',
-                    'archive_command': sys.executable + ' features/archive-restore.py --mode archive ' +\
-                                       '--dirname {} --filename %f --pathname %p'.format(
-                                       os.path.join(self.patroni_path, 'data', 'wal_archive'))
+                    'archive_command': (self.ARCHIVE_RESTORE_SCRIPT + ' --mode archive ' +
+                                        '--dirname {} --filename %f --pathname %p').format(
+                                        os.path.join(self.patroni_path, 'data', 'wal_archive'))
                 },
                 'authentication': {
                     'superuser': {'password': 'zalando1'},
@@ -624,14 +625,14 @@ class PatroniPoolController(object):
             'bootstrap': {
                 'method': 'backup_restore',
                 'backup_restore': {
-                    'command': sys.executable + ' features/backup_restore.py --sourcedir=' + os.path.join(self.patroni_path,
-                                                                                        'data', 'basebackup'),
+                    'command': (sys.executable + ' features/backup_restore.py --sourcedir=' +
+                                os.path.join(self.patroni_path, 'data', 'basebackup')),
                     'recovery_conf': {
                         'recovery_target_action': 'promote',
                         'recovery_target_timeline': 'latest',
-                        'restore_command': sys.executable + ' features/archive-restore.py --mode restore ' + \
-                                           '--dirname {} --filename %f --pathname %p'.format(
-                                           os.path.join(self.patroni_path, 'data', 'wal_archive'))
+                        'restore_command': (self.ARCHIVE_RESTORE_SCRIPT + ' --mode restore ' +
+                                            '--dirname {} --filename %f --pathname %p').format(
+                                            os.path.join(self.patroni_path, 'data', 'wal_archive'))
                     }
                 }
             },
