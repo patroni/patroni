@@ -60,6 +60,7 @@ class Postgresql(object):
         self._pending_restart = False
         self._connection = Connection()
         self.config = ConfigHandler(self, config)
+        self.config.check_directories()
 
         self._bin_dir = config.get('bin_dir') or ''
         self.bootstrap = Bootstrap(self)
@@ -407,6 +408,7 @@ class Postgresql(object):
         self._pending_restart = False
 
         configuration = self.config.effective_configuration
+        self.config.check_directories()
         self.config.write_postgresql_conf(configuration)
         self.config.resolve_connection_addresses()
         self.config.replace_pg_hba()
