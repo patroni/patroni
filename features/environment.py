@@ -258,7 +258,7 @@ class PatroniController(AbstractController):
     def backup_source(self):
         return 'postgres://{username}:{password}@{host}:{port}/{database}'.format(**self._replication)
 
-    def backup(self, dest='data/basebackup'):
+    def backup(self, dest=os.path.join('data', 'basebackup')):
         subprocess.call([PatroniPoolController.BACKUP_SCRIPT, '--walmethod=none',
                          '--datadir=' + os.path.join(self._work_directory, dest),
                          '--dbname=' + self.backup_source])
