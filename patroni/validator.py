@@ -165,7 +165,9 @@ class Schema(object):
             if len(self.validator) == 0:
                 yield Result(isinstance(self.data, list), "is not a list", data=self.data)
             elif len(self.validator) == 1:
-                if isinstance(self.data, list):
+                if not isinstance(self.data, list):
+                    yield Result(False, "is not a list", data=self.data)
+                else:
                     for key, value in enumerate(self.data):
                         for v in Schema(self.validator[0]).validate(value):
                             yield Result(v.status, v.error,
@@ -237,6 +239,13 @@ def _get_type_name(python_type):
     return python_type.__name__
 
 
+def assert_(condition, message="Wrong value"):
+    if message:
+        assert condition,message
+    else:
+        assert condition
+
+
 userattributes = {"username": "", Optional("password"): ""}
 available_dcs = [m.split(".")[-1] for m in dcs_modules()]
 
@@ -273,7 +282,7 @@ schema = Schema({
          },
       "exhibitor": {
           "hosts": str,
-          "port": lambda i: int(i) <= 65535,
+          "port": lambda i: assert_(int(i) <= 65535),
           Optional("pool_interval"): int
           },
       "zookeeper": {
@@ -285,6 +294,7 @@ schema = Schema({
           Optional("scope_label"): str,
           Optional("role_label"): str,
           Optional("use_endpoints"): bool,
+          Optional("ports"): [{"name":str,"port":int}],
           },
       }),
   "postgresql": {
@@ -298,7 +308,21 @@ schema = Schema({
     "data_dir": validate_data_dir,
     "bin_dir": validate_bin_dir,
     "parameters": {
-      Optional("unix_socket_directories"): lambda s: all([isinstance(s, str), len(s)])
-    }
+      Optional("unix_socket_directories"): lambda s: asserct_(all([isinstance(s, str), len(s)]))
+    },
+    Optional("pg_hba"): [str],
+    Optional("pg_ident"): [str],
+    Optional("pg_ctl_timeout"): int,
+    Optional("use_pg_rewind"): bool
+  },
+  Optional("watchdog"): {
+    Optional("mode"): lambda m: assert_(m in ["off", "automatic", "required"]),
+    Optional("device"): str
+  },
+  Optional("tags"): {
+    Optional("nofailover"): bool,
+    Optional("clonefrom"): bool,
+    Optional("noloadbalance"): bool,
+    Optional("nosync"): bool
   }
 })
