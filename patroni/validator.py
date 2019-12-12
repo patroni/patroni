@@ -3,7 +3,7 @@ import logging
 import os
 import socket
 
-from patroni.utils import split_host_port
+from patroni.utils import split_host_port, data_directory_is_empty
 from patroni.ctl import find_executable
 from patroni.dcs import dcs_modules
 from patroni.exceptions import ConfigParseError
@@ -14,26 +14,36 @@ logger = logging.getLogger(__name__)
 def data_directory_empty(data_dir):
     if os.path.isfile(os.path.join(data_dir, "global", "pg_control")):
         return False
-    if not os.path.exists(data_dir):
-        return True
-    return all(
-        os.name != "nt" and (n.startswith(".") or n == "lost+found")
-        for n in os.listdir(data_dir)
-    )
+    return data_directory_is_empty(data_dir)
 
 
-def validate_host_port(listen):
+def validate_connect_address(address):
+    if not isinstance(address, str):
+        raise ConfigParseError("is not a string")
+    else:
+        for s in ["127.0.0.1", "0.0.0.0", "*", "::1"]:
+            if s in address:
+                raise ConfigParseError("must not contain {}".format(s))
+
+
+def validate_host_port(host_port, listen=False):
     try:
-        host, port = split_host_port(listen, None)
+        host, port = split_host_port(host_port, None)
     except (ValueError, TypeError):
         raise ConfigParseError("contains a wrong value")
     else:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             try:
-                if s.connect_ex((host, port)) == 0:
-                    logger.warning("Port %s is already in use.", port)
+                if s.connect_ex((host, port)) == 0 and listen:
+                    ConfigParseError("Port {} is already in use.".format(port))
+                else:
+                    ConfigParseError("{} is not reachable".format(host_port))
             except socket.gaierror as e:
                 raise ConfigParseError(e)
+
+
+def validate_host_port_listen(host_port):
+    validate_host_port(host_port, listen=True)
 
 
 def validate_data_dir(data_dir):
@@ -62,6 +72,24 @@ def validate_bin_dir(bin_dir):
             logger.warning("Program '%s' not found.", program)
 
 
+class Result(object):
+    def __init__(self, status, error="didn't pass validation", path="", data=""):
+        self.status = status
+        self.path = path
+        self.data = data
+        self._error = error
+        if not self.status:
+            self.error = error
+        else:
+            self.error = None
+
+    def __repr__(self):
+        return self.path + (" " + str(self.data) + " " + self._error if self.error else "")
+
+    def __bool__(self):
+        return self.status
+
+
 class Case(object):
     def __init__(self, schema):
         self._schema = schema
@@ -87,77 +115,106 @@ class Optional(object):
 
 
 class Schema(object):
-    def __init__(self, schema, path=""):
-        self._schema = schema
-        self._path = str(path)
+    def __init__(self, validator):
+        self.validator = validator
 
     def __call__(self, data):
-        logging.basicConfig(level=logging.DEBUG, format='%(levelname)-8s %(message)s')
-        for key in self._schema:
-            optional = False
-            if isinstance(self._schema, dict):
-                subschema = self._schema[key]
-            elif isinstance(self._schema, list):
-                subschema = self._schema[0]
-                for key, value in enumerate(data):
-                    self.validator(key, value, subschema)
-                continue
-            if not isinstance(key, str):
-                if isinstance(key, Optional):
-                    key = key.name
-                    optional = True
-                if isinstance(key, Or):
-                    self.validate_orcase(key, subschema, data)
-                    continue
-            if key not in data and not optional:
-                logger.warning("%s is not defined", self.get_fullpath(key))
+        for i in self.validate(data):
+            print(i) if not i else None
+
+    def validate(self, data):
+        self.data = data
+        if isinstance(self.validator, str):
+            yield Result(isinstance(self.data, str), "is not a string", data=self.data)
+        elif isinstance(self.validator, dict):
+            if not len(self.validator):
+                yield Result(isinstance(self.data, dict), "is not a dictionary", data=self.data)
             else:
-                self.validator(key, data[key], subschema)
+                for i in self.iter():
+                    yield i
+        elif isinstance(self.validator, list):
+            for i in self.iter():
+                yield i
+        elif issubclass(type(self.validator), type):
+            yield Result(isinstance(self.data, self.validator),
+                         "is not a(n) {}".format(_get_type_name(self.validator)), data=self.data)
+        elif callable(self.validator):
+            try:
+                self.validator(data)
+                yield Result(True)
+            except Exception as e:
+                yield Result(False, "didn't pass validation: {}".format(e), data=self.data)
+        elif isinstance(self.validator, Or):
+            for i in self.iter():
+                yield i
+        elif isinstance(self.validator, Case):
+            for i in self.iter():
+                yield i
+        else:
+            raise NotImplementedError()
 
-    def validator(self, key, data, schema, quiet=False):
-        if not isinstance(data, type(schema)):
-            if issubclass(type(schema), type):
-                if isinstance(data, schema):
-                    return True
+    def iter(self):
+        if isinstance(self.validator, dict):
+            for key in self.validator.keys():
+                if isinstance(self.data, dict):
+                    orcase = False
+                    if isinstance(key, Or) and isinstance(self.validator[key], Case):
+                        orcase = True
+                    for d in self._data_key(key):
+                        if d not in self.data and not isinstance(key, Optional):
+                            yield Result(False, "is not defined.", path=d)
+                        elif d not in self.data and isinstance(key, Optional):
+                            continue
+                        else:
+                            validator = self.validator[key]
+                            if orcase:
+                                validator = self.validator[key]._schema[d]
+                            for v in Schema(validator).validate(self.data[d]):
+                                yield Result(v.status, v.error,
+                                             path=(d + ("." + v.path if v.path else "")), data=v.data)
                 else:
-                    if not quiet:
-                        logger.warning("%s ('%s') didn't pass validation", self.get_fullpath(key), data)
-            elif callable(schema):
-                try:
-                    schema(data)
-                    return True
-                except Exception as e:
-                    if not quiet:
-                        logger.warning("%s ('%s') didn't pass validation: %s", self.get_fullpath(key), data, e)
-            elif isinstance(schema, Or):
-                counter = 0
-                for v in schema.args:
-                    counter += (1 if self.validator(key, data, v, quiet=True) else 0)
-                if counter < 1:
-                    logger.warning("%s ('%s') didn't pass validation", self.get_fullpath(key), data)
+                    yield Result(False, "is not a dictionary.")
+                    return
+        elif isinstance(self.validator, list):
+            if len(self.validator) == 0:
+                yield Result(isinstance(self.data, list), "is not a list", data=self.data)
+            elif len(self.validator) == 1:
+                if isinstance(self.data, list):
+                    for key, value in enumerate(self.data):
+                        for v in Schema(self.validator[0]).validate(value):
+                            yield Result(v.status, v.error,
+                                         path=(str(key) + ("." + v.path if v.path else "")), data=value)
+        elif isinstance(self.validator, Or):
+            results = []
+            for a in self.validator.args:
+                r = []
+                for v in Schema(a).validate(self.data):
+                    r.append(v)
+                if any(r) and not all(r):
+                    results += filter(lambda x: not x, r)
                 else:
-                    return True
+                    results += r
+            if not any(results):
+                for v in results:
+                    yield Result(v.status, v.error, path=v.path, data=v.data)
+        elif isinstance(self.validator, Case):
+            for key in self.validator._schema.keys():
+                for v in Schema(self.validator._schema[key]).validate(self.data):
+                    yield v
+        else:
+            raise NotImplementedError()
 
-            else:
-                if not quiet:
-                    logger.warning("%s type is not %s", self.get_fullpath(key), _get_type_name(type(schema)))
-        elif isinstance(data, dict):
-            Schema(schema, path=self.get_fullpath(key))(data)
-        elif isinstance(data, list):
-            Schema(schema, path=self.get_fullpath(key))(data)
-
-    def validate_orcase(self, key, schema, data):
-        counter = 0
-        for a in key.args:
-            if a in data:
-                counter += 1
-                subschema = schema._schema[a]
-                self.validator(a, data[a], subschema)
-        if counter < 1:
-            logger.warning("neither of %s is defined", ", ".join([self.get_fullpath(a) for a in key.args]))
-
-    def get_fullpath(self, path):
-        return self._path + ("." if self._path else "") + str(path)
+    def _data_key(self, key):
+        if isinstance(self.data, dict) and isinstance(key, str):
+            yield key
+        elif isinstance(key, Optional):
+            yield key.name
+        elif isinstance(key, Or):
+            for i in key.args:
+                if i in self.data:
+                    yield i
+        else:
+            raise NotImplementedError()
 
 
 def _get_type_name(python_type):
@@ -173,7 +230,7 @@ def _get_type_name(python_type):
         return "array"
     elif python_type == dict:
         return "dictionary"
-    return "string"
+    return python_type.__name__
 
 
 userattributes = {"username": "", Optional("password"): ""}
@@ -183,7 +240,8 @@ schema = Schema({
   "name": str,
   "scope": str,
   "restapi": {
-    "listen": validate_host_port
+    "listen": validate_host_port_listen,
+    "connect_address": validate_connect_address
   },
   Optional("bootstrap"): {
     "dcs": {
@@ -196,26 +254,35 @@ schema = Schema({
     "initdb": [Or(str, dict)]
   },
   Or(*available_dcs): Case({
+      "consul": {
+          Or("host", "url"): Case({
+              "host": str,
+              "url": str})
+          },
       "etcd": {
           Or("host", "hosts", "srv", "url", "proxy"): Case({
               "host": str,
-              "hosts": Or(str, list),
+              "hosts": Or(str, [validate_host_port]),
               "srv": str,
               "url": str,
               "proxy": str})
          },
       "exhibitor": {
           "hosts": str,
+          "port": lambda i: int(i),
+          Optional("pool_interval"): int
           },
       "zookeeper": {
           "hosts": [validate_host_port],
           },
       "kubernetes": {
           Optional("namespace"): str,
+          Optional("labels"): {},
           },
       }),
   "postgresql": {
-    "listen": validate_host_port,
+    "listen": validate_host_port_listen,
+    "connect_address": validate_connect_address,
     "authentication": {
       "replication": userattributes,
       "superuser": userattributes,
@@ -224,7 +291,7 @@ schema = Schema({
     "data_dir": validate_data_dir,
     "bin_dir": validate_bin_dir,
     "parameters": {
-      "unix_socket_directories": lambda s: all([str(s), len(s)])
+      Optional("unix_socket_directories"): lambda s: all([isinstance(s, str), len(s)])
     }
   }
 })
