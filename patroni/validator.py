@@ -123,7 +123,8 @@ class Schema(object):
 
     def __call__(self, data):
         for i in self.validate(data):
-            print(i) if not i else None
+            if not i:
+                print(i)
 
     def validate(self, data):
         self.data = data
@@ -158,26 +159,8 @@ class Schema(object):
 
     def iter(self):
         if isinstance(self.validator, dict):
-            for key in self.validator.keys():
-                if isinstance(self.data, dict):
-                    orcase = False
-                    if isinstance(key, Or) and isinstance(self.validator[key], Case):
-                        orcase = True
-                    for d in self._data_key(key):
-                        if d not in self.data and not isinstance(key, Optional):
-                            yield Result(False, "is not defined.", path=d)
-                        elif d not in self.data and isinstance(key, Optional):
-                            continue
-                        else:
-                            validator = self.validator[key]
-                            if orcase:
-                                validator = self.validator[key]._schema[d]
-                            for v in Schema(validator).validate(self.data[d]):
-                                yield Result(v.status, v.error,
-                                             path=(d + ("." + v.path if v.path else "")), data=v.data)
-                else:
-                    yield Result(False, "is not a dictionary.")
-                    return
+            for i in self.iter_dict():
+                yield i
         elif isinstance(self.validator, list):
             if len(self.validator) == 0:
                 yield Result(isinstance(self.data, list), "is not a list", data=self.data)
@@ -200,12 +183,30 @@ class Schema(object):
             if not any(results):
                 for v in results:
                     yield Result(v.status, v.error, path=v.path, data=v.data)
-        elif isinstance(self.validator, Case):
-            for key in self.validator._schema.keys():
-                for v in Schema(self.validator._schema[key]).validate(self.data):
-                    yield v
         else:
             raise NotImplementedError()
+
+    def iter_dict(self):
+        for key in self.validator.keys():
+            if isinstance(self.data, dict):
+                orcase = False
+                if isinstance(key, Or) and isinstance(self.validator[key], Case):
+                    orcase = True
+                for d in self._data_key(key):
+                    if d not in self.data and not isinstance(key, Optional):
+                        yield Result(False, "is not defined.", path=d)
+                    elif d not in self.data and isinstance(key, Optional):
+                        continue
+                    else:
+                        validator = self.validator[key]
+                        if orcase:
+                            validator = self.validator[key]._schema[d]
+                        for v in Schema(validator).validate(self.data[d]):
+                            yield Result(v.status, v.error,
+                                         path=(d + ("." + v.path if v.path else "")), data=v.data)
+            else:
+                yield Result(False, "is not a dictionary.")
+                return
 
     def _data_key(self, key):
         if isinstance(self.data, dict) and isinstance(key, str):
@@ -272,7 +273,7 @@ schema = Schema({
          },
       "exhibitor": {
           "hosts": str,
-          "port": lambda i: int(i),
+          "port": lambda i: int(i) <= 65535,
           Optional("pool_interval"): int
           },
       "zookeeper": {
