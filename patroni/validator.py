@@ -46,6 +46,15 @@ def validate_host_port_listen(host_port):
     validate_host_port(host_port, listen=True)
 
 
+def is_ipv4_address(ip):
+    try:
+        a = ip.split(".")
+        assert len(a) == 4
+        assert all([int(i) <= 255 for i in a])
+    except Exception:
+        raise ConfigParseError("{} doesn't look like a valid ipv4 address".format(ip))
+
+
 def validate_data_dir(data_dir):
     if not data_dir:
         raise ConfigParseError("is an empty string")
@@ -137,8 +146,11 @@ class Schema(object):
                 for i in self.iter():
                     yield i
         elif isinstance(self.validator, list):
-            for i in self.iter():
-                yield i
+            if not isinstance(self.data, list):
+                yield Result(isinstance(self.data, list), "is not a list", data=self.data)
+            else:
+                for i in self.iter():
+                    yield i
         elif issubclass(type(self.validator), type):
             yield Result(isinstance(self.data, self.validator),
                          "is not {}".format(_get_type_name(self.validator)), data=self.data)
@@ -165,29 +177,14 @@ class Schema(object):
                 for i in self.iter_dict():
                     yield i
         elif isinstance(self.validator, list):
-            if len(self.validator) == 0:
-                yield Result(isinstance(self.data, list), "is not a list", data=self.data)
-            elif len(self.validator) == 1:
-                if not isinstance(self.data, list):
-                    yield Result(False, "is not a list", data=self.data)
-                else:
-                    for key, value in enumerate(self.data):
-                        for v in Schema(self.validator[0]).validate(value):
-                            yield Result(v.status, v.error,
-                                         path=(str(key) + ("." + v.path if v.path else "")), data=value)
+            if len(self.validator) > 0:
+                for key, value in enumerate(self.data):
+                    for v in Schema(self.validator[0]).validate(value):
+                        yield Result(v.status, v.error,
+                                     path=(str(key) + ("." + v.path if v.path else "")), data=value)
         elif isinstance(self.validator, Or):
-            results = []
-            for a in self.validator.args:
-                r = []
-                for v in Schema(a).validate(self.data):
-                    r.append(v)
-                if any(r) and not all(r):
-                    results += filter(lambda x: not x, r)
-                else:
-                    results += r
-            if not any(results):
-                for v in results:
-                    yield Result(v.status, v.error, path=v.path, data=v.data)
+            for i in self.iter_or():
+                yield i
         else:
             raise NotImplementedError()
 
@@ -205,6 +202,21 @@ class Schema(object):
                     for v in Schema(validator).validate(self.data[d]):
                         yield Result(v.status, v.error,
                                      path=(d + ("." + v.path if v.path else "")), data=v.data)
+
+    def iter_or(self):
+        results = []
+        for a in self.validator.args:
+            r = []
+            for v in Schema(a).validate(self.data):
+                r.append(v)
+            if any(r) and not all(r):
+                results += filter(lambda x: not x, r)
+            else:
+                results += r
+        if not any(results):
+            for v in results:
+                yield Result(v.status, v.error, path=v.path, data=v.data)
+
 
     def _data_key(self, key):
         if isinstance(self.data, dict) and isinstance(key, str):
@@ -290,6 +302,7 @@ schema = Schema({
           Optional("scope_label"): str,
           Optional("role_label"): str,
           Optional("use_endpoints"): bool,
+          Optional("pod_ip"): is_ipv4_address,
           Optional("ports"): [{"name": str, "port": int}],
           },
       }),
