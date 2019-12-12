@@ -134,6 +134,8 @@ class Postgresql(object):
 
     @property
     def cluster_info_query(self):
+        pg_control_timeline = 'timeline_id FROM pg_catalog.pg_control_checkpoint()' \
+                if self._major_version >= 90600 and self.role == 'standby_leader' else '0'
         return ("SELECT CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
                 "ELSE ('x' || pg_catalog.substr(pg_catalog.pg_{0}file_name("
                 "pg_catalog.pg_current_{0}_{1}()), 1, 8))::bit(32)::int END, "
@@ -142,7 +144,7 @@ class Postgresql(object):
                 "pg_catalog.pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint,"
                 " pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint)"
                 "ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), '0/0')::bigint "
-                "END").format(self.wal_name, self.lsn_name)
+                "END, {2}").format(self.wal_name, self.lsn_name, pg_control_timeline)
 
     def _version_file_exists(self):
         return not self.data_directory_empty() and os.path.isfile(self._version_file)
@@ -289,7 +291,7 @@ class Postgresql(object):
         if not self._cluster_info_state:
             try:
                 result = self._is_leader_retry(self._query, self.cluster_info_query).fetchone()
-                self._cluster_info_state = dict(zip(['timeline', 'wal_position'], result))
+                self._cluster_info_state = dict(zip(['timeline', 'wal_position', 'pg_control_timeline'], result))
             except RetryFailedError as e:  # SELECT failed two times
                 self._cluster_info_state = {'error': str(e)}
                 if not self.is_starting() and self.pg_isready() == STATE_REJECT:
@@ -302,6 +304,12 @@ class Postgresql(object):
 
     def is_leader(self):
         return bool(self._cluster_info_state_get('timeline'))
+
+    def pg_control_timeline(self):
+        try:
+            return int(self.controldata().get("Latest checkpoint's TimeLineID"))
+        except (TypeError, ValueError):
+            logger.exception('Failed to parse timeline from pg_controldata output')
 
     def is_running(self):
         """Returns PostmasterProcess if one is running on the data directory or None. If most recently seen process
@@ -735,11 +743,13 @@ class Postgresql(object):
         # This method could be called from different threads (simultaneously with some other `_query` calls).
         # If it is called not from main thread we will create a new cursor to execute statement.
         if current_thread().ident == self.__thread_ident:
-            return self._cluster_info_state_get('timeline'), self._cluster_info_state_get('wal_position')
+            return (self._cluster_info_state_get('timeline'),
+                    self._cluster_info_state_get('wal_position'),
+                    self._cluster_info_state_get('pg_control_timeline'))
 
         with self.connection().cursor() as cursor:
             cursor.execute(self.cluster_info_query)
-            return cursor.fetchone()[:2]
+            return cursor.fetchone()[:3]
 
     def postmaster_start_time(self):
         try:
