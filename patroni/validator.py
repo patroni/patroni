@@ -139,35 +139,22 @@ class Schema(object):
         self.data = data
         if isinstance(self.validator, str):
             yield Result(isinstance(self.data, str), "is not a string", data=self.data)
-        elif isinstance(self.validator, dict):
-            if not len(self.validator):
-                yield Result(isinstance(self.data, dict), "is not a dictionary", data=self.data)
-            else:
-                for i in self.iter():
-                    yield i
-        elif isinstance(self.validator, list):
-            if not isinstance(self.data, list):
-                yield Result(isinstance(self.data, list), "is not a list", data=self.data)
-            else:
-                for i in self.iter():
-                    yield i
         elif issubclass(type(self.validator), type):
             yield Result(isinstance(self.data, self.validator),
                          "is not {}".format(_get_type_name(self.validator)), data=self.data)
         elif callable(self.validator):
             try:
                 self.validator(data)
-                yield Result(True)
             except Exception as e:
                 yield Result(False, "didn't pass validation: {}".format(e), data=self.data)
-        elif isinstance(self.validator, Or):
-            for i in self.iter():
-                yield i
-        elif isinstance(self.validator, Case):
-            for i in self.iter():
-                yield i
-        else:
-            raise NotImplementedError()
+        elif isinstance(self.validator, dict):
+            if not len(self.validator):
+                yield Result(isinstance(self.data, dict), "is not a dictionary", data=self.data)
+        elif isinstance(self.validator, list):
+            if not isinstance(self.data, list):
+                yield Result(isinstance(self.data, list), "is not a list", data=self.data)
+        for i in self.iter():
+            yield i
 
     def iter(self):
         if isinstance(self.validator, dict):
@@ -185,8 +172,6 @@ class Schema(object):
         elif isinstance(self.validator, Or):
             for i in self.iter_or():
                 yield i
-        else:
-            raise NotImplementedError()
 
     def iter_dict(self):
         for key in self.validator.keys():
@@ -217,7 +202,6 @@ class Schema(object):
             for v in results:
                 yield Result(v.status, v.error, path=v.path, data=v.data)
 
-
     def _data_key(self, key):
         if isinstance(self.data, dict) and isinstance(key, str):
             yield key
@@ -227,8 +211,6 @@ class Schema(object):
             for i in key.args:
                 if i in self.data:
                     yield i
-        else:
-            raise NotImplementedError()
 
 
 def _get_type_name(python_type):
