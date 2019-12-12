@@ -54,10 +54,13 @@ def validate_data_dir(data_dir):
     elif not data_directory_empty(data_dir):
         if not os.path.exists(os.path.join(data_dir, "PG_VERSION")):
             raise ConfigParseError("doesn't look like a valid data directory")
-        elif not os.path.isdir(os.path.join(data_dir, "pg_wal")) and not os.path.isdir(
-                 os.path.join(data_dir, "pg_xlog")):
-            raise ConfigParseError("data dir for the cluster is not empty, but doesn't contain"
-                                   "\"pg_wal\" nor \"pg_xlog\" directory")
+        else:
+            with open(os.path.join(data_dir, "PG_VERSION"), "r") as version:
+                pgversion = int(version.read())
+            waldir = ("pg_wal" if pgversion >= 10 else "pg_xlog")
+            if not os.path.isdir(os.path.join(data_dir, waldir)):
+                raise ConfigParseError("data dir for the cluster is not empty, but doesn't contain"
+                                       " \"{}\" directory".format(waldir))
 
 
 def validate_bin_dir(bin_dir):
@@ -278,6 +281,9 @@ schema = Schema({
       "kubernetes": {
           Optional("namespace"): str,
           Optional("labels"): {},
+          Optional("scope_label"): str,
+          Optional("role_label"): str,
+          Optional("use_endpoints"): bool,
           },
       }),
   "postgresql": {
