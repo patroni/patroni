@@ -1,6 +1,7 @@
 import abc
 import logging
 import platform
+import os
 import six
 import sys
 from threading import RLock
@@ -47,6 +48,7 @@ class WatchdogConfig(object):
         self.driver = config['watchdog'].get('driver', 'default')
         self.driver_config = dict((k, v) for k, v in config['watchdog'].items()
                                   if k not in ['mode', 'safety_margin', 'driver'])
+        self.test_file = os.path.join(config['postgresql']['data_dir'], 'watchdog')
 
     def __eq__(self, other):
         return isinstance(other, WatchdogConfig) and \
@@ -202,6 +204,7 @@ class Watchdog(object):
     def keepalive(self):
         try:
             if self.active:
+                self._write_test_file()
                 self.impl.keepalive()
             # In case there are any pending configuration changes apply them now.
             if self.active and self.config != self.active_config:
@@ -217,6 +220,13 @@ class Watchdog(object):
                     self.impl.set_timeout(self.config.timeout)
         except WatchdogError as e:
             logger.error("Error while sending keepalive: %s", e)
+
+    def _write_test_file(self):
+        """Write file in the datadir before feeding the dog to check database disk i/o"""
+        logger.debug('writing watchdog test file')
+        with open(self.config.test_file, 'wb') as fd:
+            fd.write(b'1')
+        os.unlink(self.config.test_file)
 
     @property
     @synchronized

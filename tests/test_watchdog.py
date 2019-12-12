@@ -74,31 +74,37 @@ class TestWatchdog(unittest.TestCase):
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
     def test_unsafe_timeout_disable_watchdog_and_exit(self):
-        watchdog = Watchdog({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'required', 'safety_margin': -1}})
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'required', 'safety_margin': -1},
+                             'postgresql': {'data_dir':'/tmp'}})
         self.assertEqual(watchdog.activate(), False)
         self.assertEqual(watchdog.is_running, False)
 
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'get_timeout', Mock(return_value=16))
     def test_timeout_does_not_ensure_safe_termination(self):
-        Watchdog({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'auto', 'safety_margin': -1}}).activate()
+        Watchdog({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'auto', 'safety_margin': -1},
+                   'postgresql': {'data_dir':'/tmp'}}).activate()
         self.assertEqual(len(mock_devices), 2)
 
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(Watchdog, 'is_running', PropertyMock(return_value=False))
     def test_watchdog_not_activated(self):
-        self.assertFalse(Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'}}).activate())
+        self.assertFalse(Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'},
+                                   'postgresql': {'data_dir':'/tmp'}}).activate())
 
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'is_running', PropertyMock(return_value=False))
     def test_watchdog_activate(self):
         with patch.object(LinuxWatchdogDevice, 'open', Mock(side_effect=WatchdogError(''))):
-            self.assertTrue(Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'auto'}}).activate())
-        self.assertFalse(Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'}}).activate())
+            self.assertTrue(Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'auto'},
+                                      'postgresql': {'data_dir':'/tmp'}}).activate())
+        self.assertFalse(Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'},
+                                   'postgresql': {'data_dir':'/tmp'}}).activate())
 
     @patch('platform.system', Mock(return_value='Linux'))
     def test_basic_operation(self):
-        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'}})
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'},
+                             'postgresql': {'data_dir':'/tmp'}})
         watchdog.activate()
 
         self.assertEqual(len(mock_devices), 2)
@@ -115,24 +121,28 @@ class TestWatchdog(unittest.TestCase):
         self.assertEqual(device.writes[-1], b'V')
 
     def test_invalid_timings(self):
-        watchdog = Watchdog({'ttl': 30, 'loop_wait': 20, 'watchdog': {'mode': 'automatic', 'safety_margin': -1}})
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 20, 'watchdog': {'mode': 'automatic', 'safety_margin': -1},
+                             'postgresql': {'data_dir': '/tmp'}})
         watchdog.activate()
         self.assertEqual(len(mock_devices), 1)
         self.assertFalse(watchdog.is_running)
 
     def test_parse_mode(self):
         with patch('patroni.watchdog.base.logger.warning', new_callable=Mock()) as warning_mock:
-            watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'bad'}})
+            watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'bad'},
+                                 'postgresql': {'data_dir': '/tmp'}})
             self.assertEqual(watchdog.config.mode, 'off')
             warning_mock.assert_called_once()
 
     @patch('platform.system', Mock(return_value='Unknown'))
     def test_unsupported_platform(self):
         self.assertRaises(SystemExit, Watchdog, {'ttl': 30, 'loop_wait': 10,
-                                                 'watchdog': {'mode': 'required', 'driver': 'bad'}})
+                                                 'watchdog': {'mode': 'required', 'driver': 'bad'},
+                                                 'postgresql': {'data_dir':'/tmp'}})
 
     def test_exceptions(self):
-        wd = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'bad'}})
+        wd = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'bad'},
+                             'postgresql': {'data_dir': '/tmp'}})
         wd.impl.close = wd.impl.keepalive = Mock(side_effect=WatchdogError(''))
         self.assertTrue(wd.activate())
         self.assertIsNone(wd.keepalive())
@@ -140,29 +150,35 @@ class TestWatchdog(unittest.TestCase):
 
     @patch('platform.system', Mock(return_value='Linux'))
     def test_config_reload(self):
-        watchdog = Watchdog({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'required'}})
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'required'},
+                             'postgresql': {'data_dir': '/tmp'}})
         self.assertTrue(watchdog.activate())
         self.assertTrue(watchdog.is_running)
 
-        watchdog.reload_config({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'off'}})
+        watchdog.reload_config({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'off'},
+                                'postgresql': {'data_dir': '/tmp'}})
         self.assertFalse(watchdog.is_running)
 
-        watchdog.reload_config({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'required'}})
+        watchdog.reload_config({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'required'},
+                                'postgresql': {'data_dir': '/tmp'}})
         self.assertFalse(watchdog.is_running)
         watchdog.keepalive()
         self.assertTrue(watchdog.is_running)
 
         watchdog.disable()
-        watchdog.reload_config({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'required', 'driver': 'unknown'}})
+        watchdog.reload_config({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'required', 'driver': 'unknown'},
+                                'postgresql': {'data_dir': '/tmp'}})
         self.assertFalse(watchdog.is_healthy)
 
         self.assertFalse(watchdog.activate())
-        watchdog.reload_config({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'required'}})
+        watchdog.reload_config({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'required'},
+                                'postgresql': {'data_dir': '/tmp'}})
         self.assertFalse(watchdog.is_running)
         watchdog.keepalive()
         self.assertTrue(watchdog.is_running)
 
-        watchdog.reload_config({'ttl': 60, 'loop_wait': 15, 'watchdog': {'mode': 'required'}})
+        watchdog.reload_config({'ttl': 60, 'loop_wait': 15, 'watchdog': {'mode': 'required'},
+                                'postgresql': {'data_dir': '/tmp'}})
         watchdog.keepalive()
 
 

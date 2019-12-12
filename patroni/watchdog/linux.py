@@ -1,8 +1,11 @@
 import collections
 import ctypes
+import logging
 import os
 import platform
 from patroni.watchdog.base import WatchdogBase, WatchdogError
+
+logger = logging.getLogger(__name__)
 
 # Pythonification of linux/ioctl.h
 IOC_NONE = 0
@@ -143,6 +146,7 @@ class LinuxWatchdogDevice(WatchdogBase):
 
     def close(self):
         if self.is_running:
+            logger.debug('stop feeding the dog')
             try:
                 os.write(self._fd, b'V')
                 os.close(self._fd)
@@ -192,6 +196,7 @@ class LinuxWatchdogDevice(WatchdogBase):
 
     def keepalive(self):
         try:
+            logger.debug('feeding the dog')
             os.write(self._fd, b'1')
         except OSError as e:
             raise WatchdogError("Could not send watchdog keepalive: {0}".format(e))
