@@ -141,7 +141,7 @@ class Schema(object):
                 yield i
         elif issubclass(type(self.validator), type):
             yield Result(isinstance(self.data, self.validator),
-                         "is not a(n) {}".format(_get_type_name(self.validator)), data=self.data)
+                         "is not {}".format(_get_type_name(self.validator)), data=self.data)
         elif callable(self.validator):
             try:
                 self.validator(data)
@@ -159,8 +159,11 @@ class Schema(object):
 
     def iter(self):
         if isinstance(self.validator, dict):
-            for i in self.iter_dict():
-                yield i
+            if not isinstance(self.data, dict):
+                yield Result(False, "is not a dictionary.")
+            else:
+                for i in self.iter_dict():
+                    yield i
         elif isinstance(self.validator, list):
             if len(self.validator) == 0:
                 yield Result(isinstance(self.data, list), "is not a list", data=self.data)
@@ -190,25 +193,18 @@ class Schema(object):
 
     def iter_dict(self):
         for key in self.validator.keys():
-            if isinstance(self.data, dict):
-                orcase = False
-                if isinstance(key, Or) and isinstance(self.validator[key], Case):
-                    orcase = True
-                for d in self._data_key(key):
-                    if d not in self.data and not isinstance(key, Optional):
-                        yield Result(False, "is not defined.", path=d)
-                    elif d not in self.data and isinstance(key, Optional):
-                        continue
-                    else:
-                        validator = self.validator[key]
-                        if orcase:
-                            validator = self.validator[key]._schema[d]
-                        for v in Schema(validator).validate(self.data[d]):
-                            yield Result(v.status, v.error,
-                                         path=(d + ("." + v.path if v.path else "")), data=v.data)
-            else:
-                yield Result(False, "is not a dictionary.")
-                return
+            for d in self._data_key(key):
+                if d not in self.data and not isinstance(key, Optional):
+                    yield Result(False, "is not defined.", path=d)
+                elif d not in self.data and isinstance(key, Optional):
+                    continue
+                else:
+                    validator = self.validator[key]
+                    if isinstance(key, Or) and isinstance(self.validator[key], Case):
+                        validator = self.validator[key]._schema[d]
+                    for v in Schema(validator).validate(self.data[d]):
+                        yield Result(v.status, v.error,
+                                     path=(d + ("." + v.path if v.path else "")), data=v.data)
 
     def _data_key(self, key):
         if isinstance(self.data, dict) and isinstance(key, str):
@@ -225,23 +221,23 @@ class Schema(object):
 
 def _get_type_name(python_type):
     if python_type == str:
-        return "string"
+        return "a string"
     elif python_type == int:
-        return "integer"
+        return "an integer"
     elif python_type == float:
-        return "number"
+        return "a number"
     elif python_type == bool:
-        return "boolean"
+        return "a boolean"
     elif python_type == list:
-        return "array"
+        return "an array"
     elif python_type == dict:
-        return "dictionary"
+        return "a dictionary"
     return python_type.__name__
 
 
 def assert_(condition, message="Wrong value"):
     if message:
-        assert condition,message
+        assert condition, message
     else:
         assert condition
 
@@ -294,7 +290,7 @@ schema = Schema({
           Optional("scope_label"): str,
           Optional("role_label"): str,
           Optional("use_endpoints"): bool,
-          Optional("ports"): [{"name":str,"port":int}],
+          Optional("ports"): [{"name": str, "port": int}],
           },
       }),
   "postgresql": {
@@ -308,7 +304,7 @@ schema = Schema({
     "data_dir": validate_data_dir,
     "bin_dir": validate_bin_dir,
     "parameters": {
-      Optional("unix_socket_directories"): lambda s: asserct_(all([isinstance(s, str), len(s)]))
+      Optional("unix_socket_directories"): lambda s: assert_(all([isinstance(s, str), len(s)]))
     },
     Optional("pg_hba"): [str],
     Optional("pg_ident"): [str],
