@@ -24,9 +24,10 @@ def validate_connect_address(address):
         for s in ["127.0.0.1", "0.0.0.0", "*", "::1"]:
             if s in address:
                 raise ConfigParseError("must not contain {}".format(s))
+    return True
 
 
-def validate_host_port(host_port, listen=False):
+def validate_host_port(host_port, listen=False, connect=False):
     try:
         host, port = split_host_port(host_port, None)
     except (ValueError, TypeError):
@@ -36,14 +37,23 @@ def validate_host_port(host_port, listen=False):
             try:
                 if s.connect_ex((host, port)) == 0 and listen:
                     ConfigParseError("Port {} is already in use.".format(port))
-                else:
+                elif connect:
                     ConfigParseError("{} is not reachable".format(host_port))
             except socket.gaierror as e:
                 raise ConfigParseError(e)
+    return True
+
+
+def comma_separated_host_port(string):
+    if not isinstance(string, str):
+        raise ConfigParseError("is not a string")
+    if not all([validate_host_port(s.strip()) for s in string.split(",")]):
+        raise ConfigParseError("didn't pass the validation")
+    return True
 
 
 def validate_host_port_listen(host_port):
-    validate_host_port(host_port, listen=True)
+    return validate_host_port(host_port, listen=True)
 
 
 def is_ipv4_address(ip):
@@ -53,6 +63,7 @@ def is_ipv4_address(ip):
         assert all([int(i) <= 255 for i in a])
     except Exception:
         raise ConfigParseError("{} doesn't look like a valid ipv4 address".format(ip))
+    return True
 
 
 def validate_data_dir(data_dir):
@@ -70,6 +81,7 @@ def validate_data_dir(data_dir):
             if not os.path.isdir(os.path.join(data_dir, waldir)):
                 raise ConfigParseError("data dir for the cluster is not empty, but doesn't contain"
                                        " \"{}\" directory".format(waldir))
+    return True
 
 
 def validate_bin_dir(bin_dir):
@@ -82,6 +94,7 @@ def validate_bin_dir(bin_dir):
     for program in ["pg_ctl", "initdb", "pg_controldata", "pg_basebackup", "postgres"]:
         if not find_executable(program, bin_dir):
             logger.warning("Program '%s' not found.", program)
+    return True
 
 
 class Result(object):
@@ -145,6 +158,7 @@ class Schema(object):
         elif callable(self.validator):
             try:
                 self.validator(data)
+                yield Result(True, data=self.data)
             except Exception as e:
                 yield Result(False, "didn't pass validation: {}".format(e), data=self.data)
         elif isinstance(self.validator, dict):
@@ -153,6 +167,7 @@ class Schema(object):
         elif isinstance(self.validator, list):
             if not isinstance(self.data, list):
                 yield Result(isinstance(self.data, list), "is not a list", data=self.data)
+                return
         for i in self.iter():
             yield i
 
@@ -276,7 +291,7 @@ schema = Schema({
           Optional("pool_interval"): int
           },
       "zookeeper": {
-          "hosts": [validate_host_port],
+          "hosts": Or(comma_separated_host_port, [validate_host_port]),
           },
       "kubernetes": {
           Optional("namespace"): str,
