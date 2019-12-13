@@ -206,14 +206,16 @@ class TestPostgresql(BaseTestPostgresql):
     @patch('patroni.postgresql.config.ConfigHandler._get_pg_settings')
     def test_check_recovery_conf(self, mock_get_pg_settings):
         mock_get_pg_settings.return_value = {
-            'primary_conninfo': ['primary_conninfo', 'foo=', None, 'string', 'postmaster'],
-            'recovery_min_apply_delay': ['recovery_min_apply_delay', '0', 'ms', 'integer', 'sighup']
+            'primary_conninfo': ['primary_conninfo', 'foo=', None, 'string', 'postmaster', self.p.config._auto_conf],
+            'recovery_min_apply_delay': ['recovery_min_apply_delay', '0', 'ms', 'integer', 'sighup', 'foo']
         }
         self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
         self.p.config.write_recovery_conf({'standby_mode': 'on'})
         self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
         mock_get_pg_settings.return_value['primary_conninfo'][1] = ''
         mock_get_pg_settings.return_value['recovery_min_apply_delay'][1] = '1'
+        self.assertEqual(self.p.config.check_recovery_conf(None), (False, False))
+        mock_get_pg_settings.return_value['recovery_min_apply_delay'][5] = self.p.config._auto_conf
         self.assertEqual(self.p.config.check_recovery_conf(None), (True, False))
         mock_get_pg_settings.return_value['recovery_min_apply_delay'][1] = '0'
         self.assertEqual(self.p.config.check_recovery_conf(None), (False, False))
@@ -234,7 +236,8 @@ class TestPostgresql(BaseTestPostgresql):
     @patch.object(MockPostmaster, 'create_time', Mock(return_value=1234567), create=True)
     @patch('patroni.postgresql.config.ConfigHandler._get_pg_settings')
     def test__read_recovery_params(self, mock_get_pg_settings):
-        mock_get_pg_settings.return_value = {'primary_conninfo': ['primary_conninfo', '', None, 'string', 'postmaster']}
+        mock_get_pg_settings.return_value = {'primary_conninfo': ['primary_conninfo', '', None, 'string',
+                                                                  'postmaster', self.p.config._postgresql_conf]}
         self.p.config.write_recovery_conf({'standby_mode': 'on', 'primary_conninfo': {'password': 'foo'}})
         self.p.config.write_postgresql_conf()
         self.assertEqual(self.p.config.check_recovery_conf(None), (False, False))
