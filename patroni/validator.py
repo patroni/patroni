@@ -136,7 +136,7 @@ class Schema(object):
 
     def __call__(self, data):
         for i in self.validate(data):
-            if not i:
+            if not i.status:
                 print(i)
 
     def validate(self, data):
