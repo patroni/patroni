@@ -119,24 +119,15 @@ class Case(object):
     def __init__(self, schema):
         self._schema = schema
 
-    def __repr__(self):
-        return "Case(" + ", ".join([str(s) for s in self._schema]) + ")"
-
 
 class Or(object):
     def __init__(self, *args):
         self.args = args
 
-    def __repr__(self):
-        return "Or(" + ", ".join([str(s) for s in self.args]) + ")"
-
 
 class Optional(object):
     def __init__(self, name):
         self.name = name
-
-    def __repr__(self):
-        return self.name + "(optional)"
 
 
 class Schema(object):
@@ -245,10 +236,7 @@ def _get_type_name(python_type):
 
 
 def assert_(condition, message="Wrong value"):
-    if message:
-        assert condition, message
-    else:
-        assert condition
+    assert condition, message
 
 
 userattributes = {"username": "", Optional("password"): ""}
@@ -280,7 +268,7 @@ schema = Schema({
       "etcd": {
           Or("host", "hosts", "srv", "url", "proxy"): Case({
               "host": str,
-              "hosts": Or(str, [validate_host_port]),
+              "hosts": Or(comma_separated_host_port, [validate_host_port]),
               "srv": str,
               "url": str,
               "proxy": str})
