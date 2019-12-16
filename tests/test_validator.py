@@ -4,11 +4,7 @@ import socket
 import copy
 from mock import Mock, patch, mock_open
 from patroni.validator import schema
-import sys
-if not sys.version_info.major == 3:
-    from StringIO import StringIO
-else:
-    from io import StringIO
+from six import StringIO
 
 config = {
     "name": "string",
@@ -84,16 +80,15 @@ directories = []
 files = []
 
 def isfile_side_effect(arg):
-    if arg in files:
-        return True
+    return arg in files
+
 
 def isdir_side_effect(arg):
-    if arg in directories:
-        return True
+    return arg in directories
+
 
 def exists_side_effect(arg):
-    if arg in directories or arg in files:
-        return True
+    return isfile_side_effect(arg) or isdir_side_effect(arg)
 
 
 def parse_output(output):
@@ -106,46 +101,31 @@ def parse_output(output):
     return result
 
 
+@patch('os.path.exists', Mock(side_effect=exists_side_effect))
+@patch('os.path.isdir', Mock(side_effect=isdir_side_effect))
+@patch('os.path.isfile', Mock(side_effect=isfile_side_effect))
+@patch('sys.stderr', new_callable=StringIO)
+@patch('sys.stdout', new_callable=StringIO)
 class TestValidator(unittest.TestCase):
 
+    def setUp(self):
+        del files[:]
+        del directories[:]
+
     @patch('socket.socket.connect_ex', Mock(return_value=0))
-    @patch('sys.stderr', new_callable=StringIO)
-    @patch('sys.stdout', new_callable=StringIO)
     def test_empty_config(self, mock_out, mock_err):
-        while len(files):
-            del files[0]
-        while len(directories):
-            del directories[0]
         schema({})
         output = mock_out.getvalue()
         self.assertEqual(['consul', 'etcd', 'exhibitor', 'kubernetes', 'name', 'postgresql', 'restapi', 'scope', 'zookeeper'], parse_output(output))
 
     @patch('socket.socket.connect_ex', Mock(return_value=0))
-    @patch('os.path.exists', Mock(side_effect=exists_side_effect))
-    @patch('os.path.isdir', Mock(side_effect=isdir_side_effect))
-    @patch('os.path.isfile', Mock(side_effect=isfile_side_effect))
-    @patch('sys.stderr', new_callable=StringIO)
-    @patch('sys.stdout', new_callable=StringIO)
     def test_complete_config(self, mock_out, mock_err):
-        while len(files):
-            del files[0]
-        while len(directories):
-            del directories[0]
         schema(config)
         output = mock_out.getvalue()
         self.assertEqual(['postgresql.bin_dir'], parse_output(output))
 
     @patch('socket.socket.connect_ex', Mock(return_value=0))
-    @patch('os.path.exists', Mock(side_effect=exists_side_effect))
-    @patch('os.path.isdir', Mock(side_effect=isdir_side_effect))
-    @patch('os.path.isfile', Mock(side_effect=isfile_side_effect))
-    @patch('sys.stderr', new_callable=StringIO)
-    @patch('sys.stdout', new_callable=StringIO)
     def test_bin_dir_is_file(self, mock_out, mock_err):
-        while len(files):
-            del files[0]
-        while len(directories):
-            del directories[0]
         files.append(config["postgresql"]["data_dir"])
         files.append(config["postgresql"]["bin_dir"])
         c = copy.deepcopy(config)
@@ -157,59 +137,47 @@ class TestValidator(unittest.TestCase):
         self.assertEqual(['etcd.hosts', 'etcd.hosts.2', 'kubernetes.pod_ip', 'postgresql.bin_dir', 'postgresql.data_dir', 'restapi.connect_address'] , parse_output(output))
 
     @patch('socket.socket.connect_ex', Mock(side_effect=socket.gaierror))
-    @patch('os.path.exists', Mock(side_effect=exists_side_effect))
-    @patch('os.path.isdir', Mock(side_effect=isdir_side_effect))
-    @patch('os.path.isfile', Mock(side_effect=isfile_side_effect))
-    @patch('sys.stderr', new_callable=StringIO)
-    @patch('sys.stdout', new_callable=StringIO)
     def test_bin_dir_is_empty(self, mock_out, mock_err):
-        while len(files):
-            del files[0]
-        while len(directories):
-            del directories[0]
         directories.append(config["postgresql"]["data_dir"])
         directories.append(config["postgresql"]["bin_dir"])
         files.append(os.path.join(config["postgresql"]["data_dir"], "global", "pg_control"))
         c = copy.deepcopy(config)
         c["restapi"]["connect_address"] = "127.0.0.1"
+        c["kubernetes"]["pod_ip"] = "::1"
         with patch('patroni.validator.open', mock_open(read_data='9')):
             schema(c)
         output = mock_out.getvalue()
         self.assertEqual(['etcd.hosts', 'postgresql.data_dir', 'postgresql.listen', 'restapi.connect_address', 'restapi.listen', 'zookeeper.hosts'], parse_output(output))
 
+    @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
     @patch('socket.socket.connect_ex', Mock(return_value=0))
-    @patch('os.path.exists', Mock(side_effect=exists_side_effect))
-    @patch('os.path.isdir', Mock(side_effect=isdir_side_effect))
-    @patch('os.path.isfile', Mock(side_effect=isfile_side_effect))
-    @patch('sys.stderr', new_callable=StringIO)
-    @patch('sys.stdout', new_callable=StringIO)
     def test_data_dir_contains_pg_version(self, mock_out, mock_err):
-        while len(files):
-            del files[0]
-        while len(directories):
-            del directories[0]
         directories.append(config["postgresql"]["data_dir"])
         directories.append(config["postgresql"]["bin_dir"])
         files.append(os.path.join(config["postgresql"]["data_dir"], "global", "pg_control"))
         files.append(os.path.join(config["postgresql"]["data_dir"], "PG_VERSION"))
         c = copy.deepcopy(config)
-        with patch('patroni.validator.open', mock_open(read_data='9')):
+        with patch('patroni.validator.open', mock_open(read_data='12')):
+            schema(c)
+        output = mock_out.getvalue()
+        self.assertEqual(['postgresql.data_dir'], parse_output(output))
+
+    @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
+    @patch('socket.socket.connect_ex', Mock(return_value=0))
+    def test_pg_version_missmatch(self, mock_out, mock_err):
+        directories.append(config["postgresql"]["data_dir"])
+        directories.append(config["postgresql"]["bin_dir"])
+        files.append(os.path.join(config["postgresql"]["data_dir"], "global", "pg_control"))
+        files.append(os.path.join(config["postgresql"]["data_dir"], "PG_VERSION"))
+        c = copy.deepcopy(config)
+        with patch('patroni.validator.open', mock_open(read_data='11')):
             schema(c)
         output = mock_out.getvalue()
         self.assertEqual(['postgresql.data_dir'], parse_output(output))
 
 
     @patch('socket.socket.connect_ex', Mock(return_value=0))
-    @patch('os.path.exists', Mock(side_effect=exists_side_effect))
-    @patch('os.path.isdir', Mock(side_effect=isdir_side_effect))
-    @patch('os.path.isfile', Mock(side_effect=isfile_side_effect))
-    @patch('sys.stderr', new_callable=StringIO)
-    @patch('sys.stdout', new_callable=StringIO)
     def test_data_dir_is_empty_string(self, mock_out, mock_err):
-        while len(files):
-            del files[0]
-        while len(directories):
-            del directories[0]
         directories.append(config["postgresql"]["data_dir"])
         directories.append(config["postgresql"]["bin_dir"])
         c = copy.deepcopy(config)

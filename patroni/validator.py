@@ -2,6 +2,8 @@
 import logging
 import os
 import socket
+import re
+import subprocess
 
 from patroni.utils import split_host_port, data_directory_is_empty
 from patroni.ctl import find_executable
@@ -58,13 +60,18 @@ def validate_host_port_listen(host_port):
 
 
 def is_ipv4_address(ip):
-    try:
-        a = ip.split(".")
-        assert len(a) == 4
-        assert all([int(i) <= 255 for i in a])
-    except Exception:
-        raise ConfigParseError("{} doesn't look like a valid ipv4 address".format(ip))
+    assert socket.inet_aton(ip)
     return True
+
+
+def is_ipv6_address(ip):
+    assert socket.inet_pton(socket.AF_INET6, ip)
+    return True
+
+def get_major_version():
+    version = subprocess.check_output(['postgres', '--version']).decode()
+    version = re.match('^[^\s]+ [^\s]+ (\d+)(\.(\d+))?', version)
+    return '.'.join([version.group(1), version.group(3)]) if int(version.group(1)) < 10 else version.group(1)
 
 
 def validate_data_dir(data_dir):
@@ -78,6 +85,8 @@ def validate_data_dir(data_dir):
         else:
             with open(os.path.join(data_dir, "PG_VERSION"), "r") as version:
                 pgversion = int(version.read())
+            if str(pgversion) != get_major_version():
+                raise ConfigParseError("data_dir directory postgresql version doesn't match with 'postgres --version' output")
             waldir = ("pg_wal" if pgversion >= 10 else "pg_xlog")
             if not os.path.isdir(os.path.join(data_dir, waldir)):
                 raise ConfigParseError("data dir for the cluster is not empty, but doesn't contain"
@@ -292,7 +301,7 @@ schema = Schema({
           Optional("scope_label"): str,
           Optional("role_label"): str,
           Optional("use_endpoints"): bool,
-          Optional("pod_ip"): is_ipv4_address,
+          Optional("pod_ip"): Or(is_ipv4_address, is_ipv6_address),
           Optional("ports"): [{"name": str, "port": int}],
           },
       }),
