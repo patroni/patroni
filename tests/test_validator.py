@@ -24,13 +24,13 @@ config = {
         "initdb": ["string", {"key":"value"}]
     },
     "consul": {
-        "host": "string"
+        "host": "127.0.0.1:10000"
     },
     "etcd": {
         "hosts": "127.0.0.1:2379,127.0.0.1:2380"
     },
     "exhibitor": {
-        "hosts": "string",
+        "hosts": ["string"],
         "port": 1000,
         "pool_interval": 1000
     },
@@ -148,7 +148,7 @@ class TestValidator(unittest.TestCase):
         with patch('patroni.validator.open', mock_open(read_data='9')):
             schema(c)
         output = mock_out.getvalue()
-        self.assertEqual(['etcd.hosts', 'postgresql.bin_dir', 'postgresql.data_dir', 'postgresql.listen', 'restapi.connect_address',
+        self.assertEqual(['consul.host','etcd.hosts', 'postgresql.bin_dir', 'postgresql.data_dir', 'postgresql.listen', 'restapi.connect_address',
                           'restapi.listen', 'zookeeper.hosts'], parse_output(output))
 
     @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
@@ -156,17 +156,39 @@ class TestValidator(unittest.TestCase):
     def test_data_dir_contains_pg_version(self, mock_out, mock_err):
         directories.append(config["postgresql"]["data_dir"])
         directories.append(config["postgresql"]["bin_dir"])
+        directories.append(os.path.join(config["postgresql"]["data_dir"], "pg_wal"))
+        files.append(os.path.join(config["postgresql"]["data_dir"], "global", "pg_control"))
+        files.append(os.path.join(config["postgresql"]["data_dir"], "PG_VERSION"))
+        files.append(os.path.join(config["postgresql"]["bin_dir"], "pg_ctl"))
+        files.append(os.path.join(config["postgresql"]["bin_dir"], "initdb"))
+        files.append(os.path.join(config["postgresql"]["bin_dir"], "pg_controldata"))
+        files.append(os.path.join(config["postgresql"]["bin_dir"], "pg_basebackup"))
+        files.append(os.path.join(config["postgresql"]["bin_dir"], "postgres"))
+        files.append(os.path.join(config["postgresql"]["bin_dir"], "pg_isready"))
+        c = copy.deepcopy(config)
+        with patch('patroni.validator.open', mock_open(read_data='12')):
+            schema(c)
+        output = mock_out.getvalue()
+        self.assertEqual([], parse_output(output))
+
+    @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
+    @patch('socket.socket.connect_ex', Mock(return_value=0))
+    def test_pg_version_missmatch(self, mock_out, mock_err):
+        directories.append(config["postgresql"]["data_dir"])
+        directories.append(config["postgresql"]["bin_dir"])
+        directories.append(os.path.join(config["postgresql"]["data_dir"], "pg_wal"))
         files.append(os.path.join(config["postgresql"]["data_dir"], "global", "pg_control"))
         files.append(os.path.join(config["postgresql"]["data_dir"], "PG_VERSION"))
         c = copy.deepcopy(config)
-        with patch('patroni.validator.open', mock_open(read_data='12')):
+        del c["postgresql"]["bin_dir"]
+        with patch('patroni.validator.open', mock_open(read_data='11')):
             schema(c)
         output = mock_out.getvalue()
         self.assertEqual(['postgresql.bin_dir', 'postgresql.data_dir'], parse_output(output))
 
     @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
     @patch('socket.socket.connect_ex', Mock(return_value=0))
-    def test_pg_version_missmatch(self, mock_out, mock_err):
+    def test_pg_wal_doesnt_exist(self, mock_out, mock_err):
         directories.append(config["postgresql"]["data_dir"])
         directories.append(config["postgresql"]["bin_dir"])
         files.append(os.path.join(config["postgresql"]["data_dir"], "global", "pg_control"))

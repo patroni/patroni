@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import logging
 import os
 import socket
 import re
@@ -10,8 +9,6 @@ from patroni.ctl import find_executable
 from patroni.dcs import dcs_modules
 from patroni.exceptions import ConfigParseError
 from six import string_types
-
-logger = logging.getLogger(__name__)
 
 
 def data_directory_empty(data_dir):
@@ -90,15 +87,16 @@ def validate_data_dir(data_dir):
             raise ConfigParseError("doesn't look like a valid data directory")
         else:
             with open(os.path.join(data_dir, "PG_VERSION"), "r") as version:
-                pgversion = int(version.read())
-            bin_dir = schema._data.get("postgresql", {}).get("bin_dir", None)
-            if str(pgversion) != get_major_version(bin_dir):
-                raise ConfigParseError("data_dir directory postgresql version doesn't match"
-                                       "with 'postgres --version' output")
-            waldir = ("pg_wal" if pgversion >= 10 else "pg_xlog")
+                pgversion = version.read()
+            waldir = ("pg_wal" if float(pgversion) >= 10 else "pg_xlog")
             if not os.path.isdir(os.path.join(data_dir, waldir)):
                 raise ConfigParseError("data dir for the cluster is not empty, but doesn't contain"
                                        " \"{}\" directory".format(waldir))
+            bin_dir = schema.data.get("postgresql", {}).get("bin_dir", None)
+            major_version = get_major_version(bin_dir)
+            if pgversion != major_version:
+                raise ConfigParseError("data_dir directory postgresql version ({}) doesn't match"
+                                       "with 'postgres --version' output ({})".format(pgversion, major_version))
     return True
 
 
@@ -115,9 +113,6 @@ class Result(object):
 
     def __repr__(self):
         return self.path + (" " + str(self.data) + " " + self._error if self.error else "")
-
-    def __bool__(self):
-        return self.status
 
 
 class Case(object):
@@ -163,7 +158,6 @@ class Schema(object):
         self.validator = validator
 
     def __call__(self, data):
-        self._data = data
         for i in self.validate(data):
             if not i.status:
                 print(i)
@@ -301,19 +295,19 @@ schema = Schema({
   Or(*available_dcs): Case({
       "consul": {
           Or("host", "url"): Case({
-              "host": str,
+              "host": validate_host_port,
               "url": str})
           },
       "etcd": {
           Or("host", "hosts", "srv", "url", "proxy"): Case({
-              "host": str,
+              "host": validate_host_port,
               "hosts": Or(comma_separated_host_port, [validate_host_port]),
               "srv": str,
               "url": str,
               "proxy": str})
          },
       "exhibitor": {
-          "hosts": str,
+          "hosts": [str],
           "port": lambda i: assert_(int(i) <= 65535),
           Optional("pool_interval"): int
           },
@@ -321,8 +315,8 @@ schema = Schema({
           "hosts": Or(comma_separated_host_port, [validate_host_port]),
           },
       "kubernetes": {
+          "labels": {},
           Optional("namespace"): str,
-          Optional("labels"): {},
           Optional("scope_label"): str,
           Optional("role_label"): str,
           Optional("use_endpoints"): bool,
@@ -340,7 +334,8 @@ schema = Schema({
     },
     "data_dir": validate_data_dir,
     "bin_dir": Directory(contains=["pg_ctl"],
-                         contains_executable=["pg_ctl", "initdb", "pg_controldata", "pg_basebackup", "postgres"]),
+                         contains_executable=["pg_ctl", "initdb", "pg_controldata", "pg_basebackup", "postgres",
+                                              "pg_isready"]),
     "parameters": {
       Optional("unix_socket_directories"): lambda s: assert_(all([isinstance(s, string_types), len(s)]))
     },
@@ -357,6 +352,7 @@ schema = Schema({
     Optional("nofailover"): bool,
     Optional("clonefrom"): bool,
     Optional("noloadbalance"): bool,
+    Optional("replicatefrom"): str,
     Optional("nosync"): bool
   }
 })
