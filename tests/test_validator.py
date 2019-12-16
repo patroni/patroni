@@ -111,6 +111,7 @@ def parse_output(output):
     return result
 
 
+@patch('socket.socket.connect_ex', Mock(side_effect=connect_side_effect))
 @patch('os.path.exists', Mock(side_effect=exists_side_effect))
 @patch('os.path.isdir', Mock(side_effect=isdir_side_effect))
 @patch('os.path.isfile', Mock(side_effect=isfile_side_effect))
@@ -122,19 +123,16 @@ class TestValidator(unittest.TestCase):
         del files[:]
         del directories[:]
 
-    @patch('socket.socket.connect_ex', Mock(side_effect=connect_side_effect))
     def test_empty_config(self, mock_out, mock_err):
         schema({})
         output = mock_out.getvalue()
         self.assertEqual(['consul', 'etcd', 'exhibitor', 'kubernetes', 'name', 'postgresql', 'restapi', 'scope', 'zookeeper'], parse_output(output))
 
-    @patch('socket.socket.connect_ex', Mock(side_effect=connect_side_effect))
     def test_complete_config(self, mock_out, mock_err):
         schema(config)
         output = mock_out.getvalue()
         self.assertEqual(['postgresql.bin_dir'], parse_output(output))
 
-    @patch('socket.socket.connect_ex', Mock(side_effect=connect_side_effect))
     def test_bin_dir_is_file(self, mock_out, mock_err):
         files.append(config["postgresql"]["data_dir"])
         files.append(config["postgresql"]["bin_dir"])
@@ -147,7 +145,6 @@ class TestValidator(unittest.TestCase):
         self.assertEqual(['etcd.hosts', 'etcd.hosts.2', 'kubernetes.pod_ip', 'postgresql.bin_dir',
                           'postgresql.data_dir', 'restapi.connect_address'] , parse_output(output))
 
-    @patch('socket.socket.connect_ex', Mock(side_effect=connect_side_effect))
     def test_bin_dir_is_empty(self, mock_out, mock_err):
         directories.append(config["postgresql"]["data_dir"])
         directories.append(config["postgresql"]["bin_dir"])
@@ -165,7 +162,6 @@ class TestValidator(unittest.TestCase):
                           'postgresql.listen', 'restapi.connect_address'], parse_output(output))
 
     @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
-    @patch('socket.socket.connect_ex', Mock(side_effect=connect_side_effect))
     def test_data_dir_contains_pg_version(self, mock_out, mock_err):
         directories.append(config["postgresql"]["data_dir"])
         directories.append(config["postgresql"]["bin_dir"])
@@ -185,7 +181,6 @@ class TestValidator(unittest.TestCase):
         self.assertEqual([], parse_output(output))
 
     @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
-    @patch('socket.socket.connect_ex', Mock(side_effect=connect_side_effect))
     def test_pg_version_missmatch(self, mock_out, mock_err):
         directories.append(config["postgresql"]["data_dir"])
         directories.append(config["postgresql"]["bin_dir"])
@@ -200,7 +195,6 @@ class TestValidator(unittest.TestCase):
         self.assertEqual(['postgresql.bin_dir', 'postgresql.data_dir'], parse_output(output))
 
     @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
-    @patch('socket.socket.connect_ex', Mock(side_effect=connect_side_effect))
     def test_pg_wal_doesnt_exist(self, mock_out, mock_err):
         directories.append(config["postgresql"]["data_dir"])
         directories.append(config["postgresql"]["bin_dir"])
@@ -214,7 +208,6 @@ class TestValidator(unittest.TestCase):
         self.assertEqual(['postgresql.bin_dir', 'postgresql.data_dir'], parse_output(output))
 
 
-    @patch('socket.socket.connect_ex', Mock(side_effect=connect_side_effect))
     def test_data_dir_is_empty_string(self, mock_out, mock_err):
         directories.append(config["postgresql"]["data_dir"])
         directories.append(config["postgresql"]["bin_dir"])
