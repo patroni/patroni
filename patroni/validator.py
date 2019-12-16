@@ -33,14 +33,16 @@ def validate_host_port(host_port, listen=False, connect=False):
     except (ValueError, TypeError):
         raise ConfigParseError("contains a wrong value")
     else:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            try:
-                if s.connect_ex((host, port)) == 0 and listen:
-                    ConfigParseError("Port {} is already in use.".format(port))
-                elif connect:
-                    ConfigParseError("{} is not reachable".format(host_port))
-            except socket.gaierror as e:
-                raise ConfigParseError(e)
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            if s.connect_ex((host, port)) == 0 and listen:
+                ConfigParseError("Port {} is already in use.".format(port))
+            elif connect:
+                ConfigParseError("{} is not reachable".format(host_port))
+        except socket.gaierror as e:
+            raise ConfigParseError(e)
+        finally:
+            s.close()
     return True
 
 
@@ -199,11 +201,11 @@ class Schema(object):
             r = []
             for v in Schema(a).validate(self.data):
                 r.append(v)
-            if any(r) and not all(r):
-                results += filter(lambda x: not x, r)
+            if any([x.status for x in r]) and not all([x.status for x in r]):
+                results += filter(lambda x: not x.status, r)
             else:
                 results += r
-        if not any(results):
+        if not any([r.status for r in results]):
             for v in results:
                 yield Result(v.status, v.error, path=v.path, data=v.data)
 

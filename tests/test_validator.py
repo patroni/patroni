@@ -96,6 +96,16 @@ def exists_side_effect(arg):
         return True
 
 
+def parse_output(output):
+    result = []
+    for s in output.split("\n"):
+        x = s.split(" ")[0]
+        if x and x not in result:
+            result.append(x)
+    result.sort()
+    return result
+
+
 class TestValidator(unittest.TestCase):
 
     @patch('socket.socket.connect_ex', Mock(return_value=0))
@@ -108,10 +118,7 @@ class TestValidator(unittest.TestCase):
             del directories[0]
         schema({})
         output = mock_out.getvalue()
-        self.assertIn("name  is not defined.", output)
-        self.assertIn("scope  is not defined.", output)
-        self.assertIn("restapi  is not defined.", output)
-        self.assertIn("postgresql  is not defined.", output)
+        self.assertEqual(['consul', 'etcd', 'exhibitor', 'kubernetes', 'name', 'postgresql', 'restapi', 'scope', 'zookeeper'], parse_output(output))
 
     @patch('socket.socket.connect_ex', Mock(return_value=0))
     @patch('os.path.exists', Mock(side_effect=exists_side_effect))
@@ -126,7 +133,7 @@ class TestValidator(unittest.TestCase):
             del directories[0]
         schema(config)
         output = mock_out.getvalue()
-        self.assertIn(("postgresql.bin_dir " + config["postgresql"]["bin_dir"] + " didn't pass validation:"), output)
+        self.assertEqual(['postgresql.bin_dir'], parse_output(output))
 
     @patch('socket.socket.connect_ex', Mock(return_value=0))
     @patch('os.path.exists', Mock(side_effect=exists_side_effect))
@@ -147,7 +154,7 @@ class TestValidator(unittest.TestCase):
         c["kubernetes"]["pod_ip"] = "127.0.0.1111"
         schema(c)
         output = mock_out.getvalue()
-        self.assertIn(("restapi.connect_address False didn't pass validation:"), output.strip())
+        self.assertEqual(['etcd.hosts', 'etcd.hosts.2', 'kubernetes.pod_ip', 'postgresql.bin_dir', 'postgresql.data_dir', 'restapi.connect_address'] , parse_output(output))
 
     @patch('socket.socket.connect_ex', Mock(side_effect=socket.gaierror))
     @patch('os.path.exists', Mock(side_effect=exists_side_effect))
@@ -168,7 +175,7 @@ class TestValidator(unittest.TestCase):
         with patch('patroni.validator.open', mock_open(read_data='9')):
             schema(c)
         output = mock_out.getvalue()
-        self.assertIn(("restapi.listen " + config["restapi"]["listen"] + " didn't pass validation:"), output.strip())
+        self.assertEqual(['etcd.hosts', 'postgresql.data_dir', 'postgresql.listen', 'restapi.connect_address', 'restapi.listen', 'zookeeper.hosts'], parse_output(output))
 
     @patch('socket.socket.connect_ex', Mock(return_value=0))
     @patch('os.path.exists', Mock(side_effect=exists_side_effect))
@@ -189,7 +196,7 @@ class TestValidator(unittest.TestCase):
         with patch('patroni.validator.open', mock_open(read_data='9')):
             schema(c)
         output = mock_out.getvalue()
-        self.assertIn(("postgresql.data_dir " + config["postgresql"]["data_dir"] + " didn't pass validation:"), output.strip())
+        self.assertEqual(['postgresql.data_dir'], parse_output(output))
 
 
     @patch('socket.socket.connect_ex', Mock(return_value=0))
@@ -212,4 +219,4 @@ class TestValidator(unittest.TestCase):
         c["postgresql"]["bin_dir"] = ""
         schema(c)
         output = mock_out.getvalue()
-        self.assertIn("kubernetes  is not a dictionary." , output.strip())
+        self.assertEqual(['kubernetes', 'postgresql.bin_dir', 'postgresql.data_dir', 'postgresql.pg_hba'], parse_output(output))
