@@ -9,6 +9,7 @@ from patroni.utils import split_host_port, data_directory_is_empty
 from patroni.ctl import find_executable
 from patroni.dcs import dcs_modules
 from patroni.exceptions import ConfigParseError
+from six import string_types
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,7 @@ def data_directory_empty(data_dir):
 
 
 def validate_connect_address(address):
-    if not isinstance(address, str):
+    if not isinstance(address, string_types):
         raise ConfigParseError("is not a string")
     else:
         for s in ["127.0.0.1", "0.0.0.0", "*", "::1"]:
@@ -49,7 +50,7 @@ def validate_host_port(host_port, listen=False, connect=False):
 
 
 def comma_separated_host_port(string):
-    if not isinstance(string, str):
+    if not isinstance(string, string_types):
         raise ConfigParseError("is not a string")
     assert all([validate_host_port(s.strip()) for s in string.split(",")]), "didn't pass the validation"
     return True
@@ -153,8 +154,8 @@ class Schema(object):
 
     def validate(self, data):
         self.data = data
-        if isinstance(self.validator, str):
-            yield Result(isinstance(self.data, str), "is not a string", data=self.data)
+        if isinstance(self.validator, string_types):
+            yield Result(isinstance(self.data, string_types), "is not a string", data=self.data)
         elif issubclass(type(self.validator), type):
             yield Result(isinstance(self.data, self.validator),
                          "is not {}".format(_get_type_name(self.validator)), data=self.data)
@@ -318,7 +319,7 @@ schema = Schema({
     "data_dir": validate_data_dir,
     "bin_dir": validate_bin_dir,
     "parameters": {
-      Optional("unix_socket_directories"): lambda s: assert_(all([isinstance(s, str), len(s)]))
+      Optional("unix_socket_directories"): lambda s: assert_(all([isinstance(s, string_types), len(s)]))
     },
     Optional("pg_hba"): [str],
     Optional("pg_ident"): [str],
