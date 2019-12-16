@@ -68,9 +68,10 @@ def is_ipv6_address(ip):
     assert socket.inet_pton(socket.AF_INET6, ip)
     return True
 
+
 def get_major_version():
     version = subprocess.check_output(['postgres', '--version']).decode()
-    version = re.match('^[^\s]+ [^\s]+ (\d+)(\.(\d+))?', version)
+    version = re.match(r'^[^\s]+ [^\s]+ (\d+)(\.(\d+))?', version)
     return '.'.join([version.group(1), version.group(3)]) if int(version.group(1)) < 10 else version.group(1)
 
 
@@ -86,7 +87,8 @@ def validate_data_dir(data_dir):
             with open(os.path.join(data_dir, "PG_VERSION"), "r") as version:
                 pgversion = int(version.read())
             if str(pgversion) != get_major_version():
-                raise ConfigParseError("data_dir directory postgresql version doesn't match with 'postgres --version' output")
+                raise ConfigParseError("data_dir directory postgresql version doesn't match"
+                                       "with 'postgres --version' output")
             waldir = ("pg_wal" if pgversion >= 10 else "pg_xlog")
             if not os.path.isdir(os.path.join(data_dir, waldir)):
                 raise ConfigParseError("data dir for the cluster is not empty, but doesn't contain"
@@ -214,7 +216,7 @@ class Schema(object):
                 results += filter(lambda x: not x.status, r)
             else:
                 results += r
-        if not any([r.status for r in results]):
+        if not any([x.status for x in results]):
             for v in results:
                 yield Result(v.status, v.error, path=v.path, data=v.data)
 

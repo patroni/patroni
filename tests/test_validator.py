@@ -134,7 +134,8 @@ class TestValidator(unittest.TestCase):
         c["kubernetes"]["pod_ip"] = "127.0.0.1111"
         schema(c)
         output = mock_out.getvalue()
-        self.assertEqual(['etcd.hosts', 'etcd.hosts.2', 'kubernetes.pod_ip', 'postgresql.bin_dir', 'postgresql.data_dir', 'restapi.connect_address'] , parse_output(output))
+        self.assertEqual(['etcd.hosts', 'etcd.hosts.2', 'kubernetes.pod_ip', 'postgresql.bin_dir',
+                          'postgresql.data_dir', 'restapi.connect_address'] , parse_output(output))
 
     @patch('socket.socket.connect_ex', Mock(side_effect=socket.gaierror))
     def test_bin_dir_is_empty(self, mock_out, mock_err):
@@ -147,7 +148,8 @@ class TestValidator(unittest.TestCase):
         with patch('patroni.validator.open', mock_open(read_data='9')):
             schema(c)
         output = mock_out.getvalue()
-        self.assertEqual(['etcd.hosts', 'postgresql.data_dir', 'postgresql.listen', 'restapi.connect_address', 'restapi.listen', 'zookeeper.hosts'], parse_output(output))
+        self.assertEqual(['etcd.hosts', 'postgresql.data_dir', 'postgresql.listen', 'restapi.connect_address',
+                          'restapi.listen', 'zookeeper.hosts'], parse_output(output))
 
     @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
     @patch('socket.socket.connect_ex', Mock(return_value=0))
