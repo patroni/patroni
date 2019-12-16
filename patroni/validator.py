@@ -70,8 +70,12 @@ def is_ipv6_address(ip):
     return True
 
 
-def get_major_version():
-    version = subprocess.check_output(['postgres', '--version']).decode()
+def get_major_version(bin_dir=None):
+    if not bin_dir:
+        binary = 'postgres'
+    else:
+        binary = os.path.join(bin_dir, 'postgres')
+    version = subprocess.check_output([binary, '--version']).decode()
     version = re.match(r'^[^\s]+ [^\s]+ (\d+)(\.(\d+))?', version)
     return '.'.join([version.group(1), version.group(3)]) if int(version.group(1)) < 10 else version.group(1)
 
@@ -87,26 +91,14 @@ def validate_data_dir(data_dir):
         else:
             with open(os.path.join(data_dir, "PG_VERSION"), "r") as version:
                 pgversion = int(version.read())
-            if str(pgversion) != get_major_version():
+            bin_dir = schema._data.get("postgresql", {}).get("bin_dir", None)
+            if str(pgversion) != get_major_version(bin_dir):
                 raise ConfigParseError("data_dir directory postgresql version doesn't match"
                                        "with 'postgres --version' output")
             waldir = ("pg_wal" if pgversion >= 10 else "pg_xlog")
             if not os.path.isdir(os.path.join(data_dir, waldir)):
                 raise ConfigParseError("data dir for the cluster is not empty, but doesn't contain"
                                        " \"{}\" directory".format(waldir))
-    return True
-
-
-def validate_bin_dir(bin_dir):
-    if not bin_dir:
-        raise ConfigParseError("is an empty string")
-    elif not os.path.exists(bin_dir):
-        raise ConfigParseError("Directory '{}' does not exist.".format(bin_dir))
-    elif not os.path.isdir(bin_dir):
-        raise ConfigParseError("'{}' is not a directory.".format(bin_dir))
-    for program in ["pg_ctl", "initdb", "pg_controldata", "pg_basebackup", "postgres"]:
-        if not find_executable(program, bin_dir):
-            logger.warning("Program '%s' not found.", program)
     return True
 
 
@@ -143,11 +135,35 @@ class Optional(object):
         self.name = name
 
 
+class Directory(object):
+    def __init__(self, contains=None, contains_executable=None):
+        self.contains = contains
+        self.contains_executable = contains_executable
+
+    def validate(self, name):
+        if not name:
+            yield Result(False, "is an empty string")
+        elif not os.path.exists(name):
+            yield Result(False, "Directory '{}' does not exist.".format(name))
+        elif not os.path.isdir(name):
+            yield Result(False, "'{}' is not a directory.".format(name))
+        else:
+            if self.contains:
+                for path in self.contains:
+                    if not os.path.exists(os.path.join(name, path)):
+                        yield Result(False, "'{}' does not contain '{}'".format(name, path))
+            if self.contains_executable:
+                for program in self.contains_executable:
+                    if not find_executable(program, name):
+                        yield Result(False, "'{}' does not contain '{}'".format(name, program))
+
+
 class Schema(object):
     def __init__(self, validator):
         self.validator = validator
 
     def __call__(self, data):
+        self._data = data
         for i in self.validate(data):
             if not i.status:
                 print(i)
@@ -188,6 +204,9 @@ class Schema(object):
                     for v in Schema(self.validator[0]).validate(value):
                         yield Result(v.status, v.error,
                                      path=(str(key) + ("." + v.path if v.path else "")), data=value)
+        elif isinstance(self.validator, Directory):
+            for v in self.validator.validate(self.data):
+                yield v
         elif isinstance(self.validator, Or):
             for i in self.iter_or():
                 yield i
@@ -317,7 +336,8 @@ schema = Schema({
       "rewind":  userattributes
     },
     "data_dir": validate_data_dir,
-    "bin_dir": validate_bin_dir,
+    "bin_dir": Directory(contains=["pg_ctl"],
+                         contains_executable=["pg_ctl", "initdb", "pg_controldata", "pg_basebackup", "postgres"]),
     "parameters": {
       Optional("unix_socket_directories"): lambda s: assert_(all([isinstance(s, string_types), len(s)]))
     },

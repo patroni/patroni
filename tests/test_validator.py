@@ -148,7 +148,7 @@ class TestValidator(unittest.TestCase):
         with patch('patroni.validator.open', mock_open(read_data='9')):
             schema(c)
         output = mock_out.getvalue()
-        self.assertEqual(['etcd.hosts', 'postgresql.data_dir', 'postgresql.listen', 'restapi.connect_address',
+        self.assertEqual(['etcd.hosts', 'postgresql.bin_dir', 'postgresql.data_dir', 'postgresql.listen', 'restapi.connect_address',
                           'restapi.listen', 'zookeeper.hosts'], parse_output(output))
 
     @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
@@ -162,7 +162,7 @@ class TestValidator(unittest.TestCase):
         with patch('patroni.validator.open', mock_open(read_data='12')):
             schema(c)
         output = mock_out.getvalue()
-        self.assertEqual(['postgresql.data_dir'], parse_output(output))
+        self.assertEqual(['postgresql.bin_dir', 'postgresql.data_dir'], parse_output(output))
 
     @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
     @patch('socket.socket.connect_ex', Mock(return_value=0))
@@ -172,10 +172,11 @@ class TestValidator(unittest.TestCase):
         files.append(os.path.join(config["postgresql"]["data_dir"], "global", "pg_control"))
         files.append(os.path.join(config["postgresql"]["data_dir"], "PG_VERSION"))
         c = copy.deepcopy(config)
+        del c["postgresql"]["bin_dir"]
         with patch('patroni.validator.open', mock_open(read_data='11')):
             schema(c)
         output = mock_out.getvalue()
-        self.assertEqual(['postgresql.data_dir'], parse_output(output))
+        self.assertEqual(['postgresql.bin_dir', 'postgresql.data_dir'], parse_output(output))
 
 
     @patch('socket.socket.connect_ex', Mock(return_value=0))
