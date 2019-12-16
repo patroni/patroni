@@ -59,7 +59,7 @@ config = {
         "parameters": {
             "unix_socket_directories": "."
         },
-        "pg_hba": ["string"],
+        "pg_hba": [u"string"],
         "pg_ident": ["string"],
         "pg_ctl_timeout": 1000,
         "use_pg_rewind": False

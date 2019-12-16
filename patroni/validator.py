@@ -173,7 +173,10 @@ class Schema(object):
         if isinstance(self.validator, string_types):
             yield Result(isinstance(self.data, string_types), "is not a string", data=self.data)
         elif issubclass(type(self.validator), type):
-            yield Result(isinstance(self.data, self.validator),
+            validator = self.validator
+            if self.validator == str:
+                validator = string_types
+            yield Result(isinstance(self.data, validator),
                          "is not {}".format(_get_type_name(self.validator)), data=self.data)
         elif callable(self.validator):
             try:
