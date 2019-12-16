@@ -27,7 +27,7 @@ def validate_connect_address(address):
     return True
 
 
-def validate_host_port(host_port, listen=False, connect=False):
+def validate_host_port(host_port, listen=False):
     try:
         host, port = split_host_port(host_port, None)
     except (ValueError, TypeError):
@@ -35,10 +35,11 @@ def validate_host_port(host_port, listen=False, connect=False):
     else:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            if s.connect_ex((host, port)) == 0 and listen:
-                ConfigParseError("Port {} is already in use.".format(port))
-            elif connect:
-                ConfigParseError("{} is not reachable".format(host_port))
+            if s.connect_ex((host, port)) == 0:
+                if listen:
+                    raise ConfigParseError("Port {} is already in use.".format(port))
+            elif not listen:
+                raise ConfigParseError("{} is not reachable".format(host_port))
         except socket.gaierror as e:
             raise ConfigParseError(e)
         finally:
@@ -87,7 +88,7 @@ def validate_data_dir(data_dir):
             raise ConfigParseError("doesn't look like a valid data directory")
         else:
             with open(os.path.join(data_dir, "PG_VERSION"), "r") as version:
-                pgversion = version.read()
+                pgversion = version.read().strip()
             waldir = ("pg_wal" if float(pgversion) >= 10 else "pg_xlog")
             if not os.path.isdir(os.path.join(data_dir, waldir)):
                 raise ConfigParseError("data dir for the cluster is not empty, but doesn't contain"

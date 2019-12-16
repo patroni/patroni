@@ -10,8 +10,8 @@ config = {
     "name": "string",
     "scope": "string",
     "restapi": {
-        "listen": "127.0.0.2:8000",
-        "connect_address": "127.0.0.2:8000"
+        "listen": "127.0.0.2:800",
+        "connect_address": "127.0.0.2:800"
     },
     "bootstrap": {
         "dcs": {
@@ -24,14 +24,14 @@ config = {
         "initdb": ["string", {"key":"value"}]
     },
     "consul": {
-        "host": "127.0.0.1:10000"
+        "host": "127.0.0.1:5000"
     },
     "etcd": {
         "hosts": "127.0.0.1:2379,127.0.0.1:2380"
     },
     "exhibitor": {
         "hosts": ["string"],
-        "port": 1000,
+        "port": 4000,
         "pool_interval": 1000
     },
     "zookeeper": {
@@ -47,8 +47,8 @@ config = {
         "ports": [{"name": "string", "port": 1000}],
     },
     "postgresql": {
-        "listen": "127.0.0.2:5432",
-        "connect_address": "127.0.0.2:5432",
+        "listen": "127.0.0.2:543",
+        "connect_address": "127.0.0.2:543",
         "authentication": {
             "replication": {"username": "user"},
             "superuser": {"username": "user"},
@@ -91,6 +91,16 @@ def exists_side_effect(arg):
     return isfile_side_effect(arg) or isdir_side_effect(arg)
 
 
+def connect_side_effect(host_port):
+    _, port = host_port
+    if port < 1000:
+        return 1
+    elif port < 10000:
+        return 0
+    else:
+        raise socket.gaierror()
+
+
 def parse_output(output):
     result = []
     for s in output.split("\n"):
@@ -112,19 +122,19 @@ class TestValidator(unittest.TestCase):
         del files[:]
         del directories[:]
 
-    @patch('socket.socket.connect_ex', Mock(return_value=0))
+    @patch('socket.socket.connect_ex', Mock(side_effect=connect_side_effect))
     def test_empty_config(self, mock_out, mock_err):
         schema({})
         output = mock_out.getvalue()
         self.assertEqual(['consul', 'etcd', 'exhibitor', 'kubernetes', 'name', 'postgresql', 'restapi', 'scope', 'zookeeper'], parse_output(output))
 
-    @patch('socket.socket.connect_ex', Mock(return_value=0))
+    @patch('socket.socket.connect_ex', Mock(side_effect=connect_side_effect))
     def test_complete_config(self, mock_out, mock_err):
         schema(config)
         output = mock_out.getvalue()
         self.assertEqual(['postgresql.bin_dir'], parse_output(output))
 
-    @patch('socket.socket.connect_ex', Mock(return_value=0))
+    @patch('socket.socket.connect_ex', Mock(side_effect=connect_side_effect))
     def test_bin_dir_is_file(self, mock_out, mock_err):
         files.append(config["postgresql"]["data_dir"])
         files.append(config["postgresql"]["bin_dir"])
@@ -137,7 +147,7 @@ class TestValidator(unittest.TestCase):
         self.assertEqual(['etcd.hosts', 'etcd.hosts.2', 'kubernetes.pod_ip', 'postgresql.bin_dir',
                           'postgresql.data_dir', 'restapi.connect_address'] , parse_output(output))
 
-    @patch('socket.socket.connect_ex', Mock(side_effect=socket.gaierror))
+    @patch('socket.socket.connect_ex', Mock(side_effect=connect_side_effect))
     def test_bin_dir_is_empty(self, mock_out, mock_err):
         directories.append(config["postgresql"]["data_dir"])
         directories.append(config["postgresql"]["bin_dir"])
@@ -145,14 +155,17 @@ class TestValidator(unittest.TestCase):
         c = copy.deepcopy(config)
         c["restapi"]["connect_address"] = "127.0.0.1"
         c["kubernetes"]["pod_ip"] = "::1"
+        c["consul"]["host"] = "127.0.0.1:50000"
+        c["etcd"]["host"] = "127.0.0.1:237"
+        c["postgresql"]["listen"] = "127.0.0.1:5432"
         with patch('patroni.validator.open', mock_open(read_data='9')):
             schema(c)
         output = mock_out.getvalue()
-        self.assertEqual(['consul.host','etcd.hosts', 'postgresql.bin_dir', 'postgresql.data_dir', 'postgresql.listen', 'restapi.connect_address',
-                          'restapi.listen', 'zookeeper.hosts'], parse_output(output))
+        self.assertEqual(['consul.host', 'etcd.host', 'postgresql.bin_dir', 'postgresql.data_dir',
+                          'postgresql.listen', 'restapi.connect_address'], parse_output(output))
 
     @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
-    @patch('socket.socket.connect_ex', Mock(return_value=0))
+    @patch('socket.socket.connect_ex', Mock(side_effect=connect_side_effect))
     def test_data_dir_contains_pg_version(self, mock_out, mock_err):
         directories.append(config["postgresql"]["data_dir"])
         directories.append(config["postgresql"]["bin_dir"])
@@ -172,7 +185,7 @@ class TestValidator(unittest.TestCase):
         self.assertEqual([], parse_output(output))
 
     @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
-    @patch('socket.socket.connect_ex', Mock(return_value=0))
+    @patch('socket.socket.connect_ex', Mock(side_effect=connect_side_effect))
     def test_pg_version_missmatch(self, mock_out, mock_err):
         directories.append(config["postgresql"]["data_dir"])
         directories.append(config["postgresql"]["bin_dir"])
@@ -187,7 +200,7 @@ class TestValidator(unittest.TestCase):
         self.assertEqual(['postgresql.bin_dir', 'postgresql.data_dir'], parse_output(output))
 
     @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
-    @patch('socket.socket.connect_ex', Mock(return_value=0))
+    @patch('socket.socket.connect_ex', Mock(side_effect=connect_side_effect))
     def test_pg_wal_doesnt_exist(self, mock_out, mock_err):
         directories.append(config["postgresql"]["data_dir"])
         directories.append(config["postgresql"]["bin_dir"])
@@ -201,7 +214,7 @@ class TestValidator(unittest.TestCase):
         self.assertEqual(['postgresql.bin_dir', 'postgresql.data_dir'], parse_output(output))
 
 
-    @patch('socket.socket.connect_ex', Mock(return_value=0))
+    @patch('socket.socket.connect_ex', Mock(side_effect=connect_side_effect))
     def test_data_dir_is_empty_string(self, mock_out, mock_err):
         directories.append(config["postgresql"]["data_dir"])
         directories.append(config["postgresql"]["bin_dir"])
