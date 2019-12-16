@@ -214,8 +214,12 @@ class Schema(object):
         elif isinstance(key, Optional):
             yield key.name
         elif isinstance(key, Or):
-            for i in key.args:
-                if i in self.data:
+            if any([i in self.data for i in key.args]):
+                for i in key.args:
+                    if i in self.data:
+                        yield i
+            else:
+                for i in key.args:
                     yield i
 
 
