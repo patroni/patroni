@@ -47,8 +47,7 @@ def validate_host_port(host_port, listen=False, connect=False):
 def comma_separated_host_port(string):
     if not isinstance(string, str):
         raise ConfigParseError("is not a string")
-    if not all([validate_host_port(s.strip()) for s in string.split(",")]):
-        raise ConfigParseError("didn't pass the validation")
+    assert all([validate_host_port(s.strip()) for s in string.split(",")]), "didn't pass the validation"
     return True
 
 
