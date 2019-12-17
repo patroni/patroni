@@ -254,19 +254,8 @@ class Schema(object):
 
 
 def _get_type_name(python_type):
-    if python_type == str:
-        return "a string"
-    elif python_type == int:
-        return "an integer"
-    elif python_type == float:
-        return "a number"
-    elif python_type == bool:
-        return "a boolean"
-    elif python_type == list:
-        return "an array"
-    elif python_type == dict:
-        return "a dictionary"
-    return python_type.__name__
+    return {str: 'a string', int: 'and integer', float: 'a number', bool: 'a boolean',                                          
+            list: 'an array', dict: 'a dictionary'}.get(python_type, python_type.__name__)
 
 
 def assert_(condition, message="Wrong value"):
