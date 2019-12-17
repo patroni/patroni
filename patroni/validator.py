@@ -334,9 +334,8 @@ schema = Schema({
       "rewind":  userattributes
     },
     "data_dir": validate_data_dir,
-    "bin_dir": Directory(contains=["pg_ctl"],
-                         contains_executable=["pg_ctl", "initdb", "pg_controldata", "pg_basebackup", "postgres",
-                                              "pg_isready"]),
+    "bin_dir": Directory(contains=["pg_ctl"], contains_executable=["pg_ctl", "initdb", "pg_controldata",
+                                                                   "pg_basebackup", "postgres", "pg_isready"]),
     "parameters": {
       Optional("unix_socket_directories"): lambda s: assert_(all([isinstance(s, string_types), len(s)]))
     },
