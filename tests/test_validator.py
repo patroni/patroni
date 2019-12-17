@@ -174,9 +174,8 @@ class TestValidator(unittest.TestCase):
         files.append(os.path.join(config["postgresql"]["bin_dir"], "pg_basebackup"))
         files.append(os.path.join(config["postgresql"]["bin_dir"], "postgres"))
         files.append(os.path.join(config["postgresql"]["bin_dir"], "pg_isready"))
-        c = copy.deepcopy(config)
         with patch('patroni.validator.open', mock_open(read_data='12')):
-            schema(c)
+            schema(config)
         output = mock_out.getvalue()
         self.assertEqual([], parse_output(output))
 
