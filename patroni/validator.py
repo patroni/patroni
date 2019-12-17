@@ -254,7 +254,7 @@ class Schema(object):
 
 
 def _get_type_name(python_type):
-    return {str: 'a string', int: 'and integer', float: 'a number', bool: 'a boolean',                                          
+    return {str: 'a string', int: 'and integer', float: 'a number', bool: 'a boolean',
             list: 'an array', dict: 'a dictionary'}.get(python_type, python_type.__name__)
 
 
