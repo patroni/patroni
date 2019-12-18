@@ -431,11 +431,8 @@ class TestHa(PostgresInit):
         self.assertIsNotNone(self.ha.reinitialize())
 
         self.ha.cluster = get_cluster_initialized_with_leader()
-        self.assertIsNone(self.ha.action)
         self.assertIsNone(self.ha.reinitialize(True))
         self.ha._async_executor.schedule('reinitialize')
-        with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)):
-            self.assertIsNotNone(self.ha.action)
         self.assertIsNotNone(self.ha.reinitialize())
 
         self.ha.state_handler.name = self.ha.cluster.leader.name

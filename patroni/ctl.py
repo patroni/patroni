@@ -588,7 +588,7 @@ def reinit(obj, cluster_name, member_names, force, wait):
         time.sleep(2)
         for member in wait_on_members:
             data = json.loads(request_patroni(member, 'get', 'patroni').data.decode('utf-8'))
-            if data.get('action') != 'reinitialize':
+            if data.get('state') != 'creating replica':
                 wait_on_members.remove(member)
 
 

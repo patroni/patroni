@@ -101,8 +101,6 @@ class MockHa(object):
     def is_standby_cluster():
         return False
 
-    action = None
-
 
 class MockLogger(object):
 

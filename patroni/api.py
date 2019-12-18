@@ -75,7 +75,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
             lost = patroni.logger.records_lost
             if lost:
                 response['logger_records_lost'] = lost
-        response['action'] = self.server.patroni.ha.action
         self._write_json_response(status_code, response)
 
     def do_GET(self, write_status_code_only=False):

@@ -1110,13 +1110,6 @@ class Ha(object):
 
         return self._async_executor.scheduled_action + ' in progress'
 
-    @property
-    def action(self):
-        with self._async_executor:
-            if self._async_executor.busy:
-                return self._async_executor.scheduled_action
-        return None
-
     @staticmethod
     def sysid_valid(sysid):
         # sysid does tv_sec << 32, where tv_sec is the number of seconds sine 1970,
