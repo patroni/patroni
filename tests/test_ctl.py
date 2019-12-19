@@ -596,7 +596,8 @@ class TestCtl(unittest.TestCase):
     def test_reinit_wait(self, mock_get_dcs):
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
         with patch.object(PoolManager, 'request') as mocked:
-            mocked.return_value.status = 200
-            mocked.return_value.data = b'reinitialize started'
+            mocked.side_effect = [Mock(data=s, status=200) for s in
+                                  [b"reinitialize", b'{"state":"creating replica"}', b'{"state":"running"}']]
             result = self.runner.invoke(ctl, ['reinit', 'alpha', 'other', '--wait'], input='y\ny')
         self.assertIn("Waiting for reinitialize to complete on: other", result.output)
+        self.assertIn("Reinitialize is completed on: other", result.output)
