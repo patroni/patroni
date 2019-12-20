@@ -114,7 +114,10 @@ class PostmasterProcess(psutil.Process):
             logger.warning("Cannot stop server; single-user server is running (PID: {0})".format(self.pid))
             return False
         try:
-            self.send_signal(STOP_SIGNALS[mode])
+            if os.name != 'posix':
+                self.pg_ctl_stop(mode)
+            else:
+                self.send_signal(STOP_SIGNALS[mode])
         except psutil.NoSuchProcess:
             return True
         except psutil.AccessDenied as e:
@@ -122,6 +125,11 @@ class PostmasterProcess(psutil.Process):
             return False
 
         return None
+
+    def pg_ctl_stop(self, mode):
+        cmdline = self.cmdline()
+        data_dir = cmdline[1+cmdline.index("-D")]
+        subprocess.Popen(["pg_ctl", "-D", data_dir, "stop", "-m", mode])
 
     def wait_for_user_backends_to_close(self):
         # These regexps are cross checked against versions PostgreSQL 9.1 .. 11
