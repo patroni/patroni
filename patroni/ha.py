@@ -342,14 +342,26 @@ class Ha(object):
     def _get_node_to_follow(self, cluster):
         # determine the node to follow. If replicatefrom tag is set,
         # try to follow the node mentioned there, otherwise, follow the leader.
-        if self.is_standby_cluster() and (self.cluster.is_unlocked() or self.has_lock(False)):
+        standby_config = self.get_standby_cluster_config()
+        is_standby_cluster = _is_standby_cluster(standby_config)
+        if is_standby_cluster and (self.cluster.is_unlocked() or self.has_lock(False)):
             node_to_follow = self.get_remote_master()
         elif self.patroni.replicatefrom and self.patroni.replicatefrom != self.state_handler.name:
             node_to_follow = cluster.get_member(self.patroni.replicatefrom)
         else:
             node_to_follow = cluster.leader
 
-        return node_to_follow if node_to_follow and node_to_follow.name != self.state_handler.name else None
+        node_to_follow = node_to_follow if node_to_follow and node_to_follow.name != self.state_handler.name else None
+
+        if node_to_follow and not isinstance(node_to_follow, RemoteMember):
+            # we are going to abuse Member.data to pass following parameters
+            params = ('restore_command', 'archive_cleanup_command')
+            for param in params:  # It is highly unlikely to happen, but we want to protect from the case
+                node_to_follow.data.pop(param, None)  # when above-mentioned params came from outside.
+            if is_standby_cluster:
+                node_to_follow.data.update({p: standby_config[p] for p in params if standby_config.get(p)})
+
+        return node_to_follow
 
     def follow(self, demote_reason, follow_reason, refresh=True):
         if refresh:
