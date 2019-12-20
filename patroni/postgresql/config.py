@@ -535,15 +535,16 @@ class ConfigHandler(object):
         is_remote_master = isinstance(member, RemoteMember)
         primary_conninfo = self.primary_conninfo_params(member)
         if primary_conninfo:
+            use_slots = self.get('use_slots', True) and self._postgresql.major_version >= 90400
+            if use_slots and not (is_remote_master and member.no_replication_slot):
+                primary_slot_name = member.primary_slot_name if is_remote_master else self._postgresql.name
+                recovery_params['primary_slot_name'] = slot_name_from_member_name(primary_slot_name)
             recovery_params['primary_conninfo'] = primary_conninfo
-            if self.get('use_slots', True) and self._postgresql.major_version >= 90400 \
-                    and not (is_remote_master and member.no_replication_slot):
-                recovery_params['primary_slot_name'] = member.primary_slot_name if is_remote_master \
-                        else slot_name_from_member_name(self._postgresql.name)
 
-        if is_remote_master:  # standby_cluster config might have different parameters, we want to override them
-            recovery_params.update({p: member.data.get(p) for p in ('restore_command', 'recovery_min_apply_delay',
-                                                                    'archive_cleanup_command') if member.data.get(p)})
+        # standby_cluster config might have different parameters, we want to override them
+        standby_cluster_params = ['restore_command', 'archive_cleanup_command']\
+            + (['recovery_min_apply_delay'] if is_remote_master else [])
+        recovery_params.update({p: member.data.get(p) for p in standby_cluster_params if member and member.data.get(p)})
         return recovery_params
 
     def recovery_conf_exists(self):
