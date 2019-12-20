@@ -558,20 +558,39 @@ def restart(obj, cluster_name, member_names, force, role, p_any, scheduled, vers
 @click.argument('cluster_name')
 @click.argument('member_names', nargs=-1)
 @option_force
+@click.option('--wait', help='Wait until reinitialization completes', is_flag=True)
 @click.pass_obj
-def reinit(obj, cluster_name, member_names, force):
+def reinit(obj, cluster_name, member_names, force, wait):
     cluster = get_dcs(obj, cluster_name).get_cluster()
     members = get_members(cluster, cluster_name, member_names, None, force, 'reinitialize')
 
+    wait_on_members = []
     for member in members:
         body = {'force': force}
         while True:
             r = request_patroni(member, 'post', 'reinitialize', body)
-            if not check_response(r, member.name, 'reinitialize') and r.data.endswith(b' already in progress') \
+            started = check_response(r, member.name, 'reinitialize')
+            if not started and r.data.endswith(b' already in progress') \
                     and not force and click.confirm('Do you want to cancel it and reinitialize anyway?'):
                 body['force'] = True
                 continue
             break
+        if started and wait:
+            wait_on_members.append(member)
+
+    last_display = []
+    while wait_on_members:
+        if wait_on_members != last_display:
+            click.echo('Waiting for reinitialize to complete on: {0}'.format(
+                ", ".join(member.name for member in wait_on_members))
+            )
+            last_display[:] = wait_on_members
+        time.sleep(2)
+        for member in wait_on_members:
+            data = json.loads(request_patroni(member, 'get', 'patroni').data.decode('utf-8'))
+            if data.get('state') != 'creating replica':
+                click.echo('Reinitialize is completed on: {0}'.format(member.name))
+                wait_on_members.remove(member)
 
 
 def _do_failover_or_switchover(obj, action, cluster_name, master, candidate, force, scheduled=None):
