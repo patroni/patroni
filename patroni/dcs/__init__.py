@@ -167,7 +167,7 @@ class Member(namedtuple('Member', 'index,name,session,data')):
 
         # apply any remaining authentication parameters
         if auth and isinstance(auth, dict):
-            ret.update(auth)
+            ret.update({k: v for k, v in auth.items() if v is not None})
             if 'username' in auth:
                 ret['user'] = ret.pop('username')
         return ret
