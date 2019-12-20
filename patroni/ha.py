@@ -191,10 +191,20 @@ class Ha(object):
             if self._async_executor.scheduled_action in (None, 'promote') \
                     and data['state'] in ['running', 'restarting', 'starting']:
                 try:
-                    timeline, wal_position = self.state_handler.timeline_wal_position()
+                    timeline, wal_position, pg_control_timeline = self.state_handler.timeline_wal_position()
                     data['xlog_location'] = wal_position
                     if not timeline:
-                        timeline = self.state_handler.replica_cached_timeline(self._leader_timeline)
+                        # So far the only way to get the current timeline on the standby is from
+                        # the replication connection. In order to avoid opening the replication
+                        # connection on every iteration of HA loop we will do it only when noticed
+                        # that the timeline on the primary has changed.
+                        # Unfortunately such optimization isn't possible on the standby_leader,
+                        # therefore we will get the timeline from pg_control, either by calling
+                        # pg_control_checkpoint() on 9.6+ or by parsing the output of pg_controldata.
+                        if self.state_handler.role == 'standby_leader':
+                            timeline = pg_control_timeline or self.state_handler.pg_control_timeline()
+                        else:
+                            timeline = self.state_handler.replica_cached_timeline(timeline)
                     if timeline:
                         data['timeline'] = timeline
                 except Exception:
@@ -597,7 +607,7 @@ class Ha(object):
         """This method tries to determine whether I am healthy enough to became a new leader candidate or not."""
 
         # We don't call `last_operation()` here because it returns a string
-        _, my_wal_position = self.state_handler.timeline_wal_position()
+        _, my_wal_position, _ = self.state_handler.timeline_wal_position()
         if check_replication_lag and self.is_lagging(my_wal_position):
             logger.info('My wal position exceeds maximum replication lag')
             return False  # Too far behind last reported wal position on master

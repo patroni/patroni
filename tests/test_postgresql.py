@@ -331,7 +331,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertTrue(self.p.promote(0))
 
     def test_timeline_wal_position(self):
-        self.assertEqual(self.p.timeline_wal_position(), (1, 2))
+        self.assertEqual(self.p.timeline_wal_position(), (1, 2, 1))
         Thread(target=self.p.timeline_wal_position).start()
 
     @patch.object(PostmasterProcess, 'from_pidfile')
