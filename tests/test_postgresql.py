@@ -638,7 +638,7 @@ class TestPostgresql(BaseTestPostgresql):
 
     def test_terminate_starting_postmaster(self):
         mock_postmaster = MockPostmaster()
-        self.p.terminate_starting_postmaster(mock_postmaster, "")
+        self.p.terminate_starting_postmaster(mock_postmaster)
         mock_postmaster.signal_stop.assert_called()
         mock_postmaster.wait.assert_called()
 

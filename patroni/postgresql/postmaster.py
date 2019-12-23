@@ -105,7 +105,7 @@ class PostmasterProcess(psutil.Process):
         except psutil.NoSuchProcess:
             return None
 
-    def signal_stop(self, mode, bin_dir=''):
+    def signal_stop(self, mode, pg_ctl='pg_ctl'):
         """Signal postmaster process to stop
 
         :returns None if signaled, True if process is already gone, False if error
@@ -113,11 +113,10 @@ class PostmasterProcess(psutil.Process):
         if self.is_single_user:
             logger.warning("Cannot stop server; single-user server is running (PID: {0})".format(self.pid))
             return False
+        if os.name != 'posix':
+            return self.pg_ctl_kill(mode, pg_ctl)
         try:
-            if os.name != 'posix':
-                return self.pg_ctl_stop(mode, bin_dir)
-            else:
-                self.send_signal(STOP_SIGNALS[mode])
+            self.send_signal(STOP_SIGNALS[mode])
         except psutil.NoSuchProcess:
             return True
         except psutil.AccessDenied as e:
@@ -126,17 +125,16 @@ class PostmasterProcess(psutil.Process):
 
         return None
 
-    def pg_ctl_stop(self, mode, bin_dir):
-        pg_ctl = os.path.join(bin_dir, "pg_ctl")
+    def pg_ctl_kill(self, mode, pg_ctl):
         SIGNALNAME = {"smart": "TERM", "fast": "INT", "immediate": "QUIT"}[mode]
-        status = subprocess.call([pg_ctl, "kill", SIGNALNAME, str(self.pid)])
+        try:
+            status = subprocess.call([pg_ctl, "kill", SIGNALNAME, str(self.pid)])
+        except OSError:
+            return False
         if status == 0:
             return None
         else:
-            if not self.is_running():
-                return True
-            else:
-                return False
+            return not self.is_running()
 
     def wait_for_user_backends_to_close(self):
         # These regexps are cross checked against versions PostgreSQL 9.1 .. 11
