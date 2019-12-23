@@ -726,14 +726,14 @@ class ConfigHandler(object):
                 os.makedirs(pgpass_dir)
             except OSError as e:
                 raise PatroniException("Couldn't create {}:{}, check your `postgresql.pgpass` configuration"
-                        .format(pgpass_dir, e))
+                                       .format(pgpass_dir, e))
         else:
             try:
                 f = open(self._pgpass, "a")
                 f.close()
             except OSError as e:
                 raise PatroniException("Couldn't write {}:{}, check your `postgresql.pgpass` configuration"
-                        .format(self._pgpass, e))
+                                       .format(self._pgpass, e))
 
     def write_pgpass(self, record):
         line = self._pgpass_line(record)
