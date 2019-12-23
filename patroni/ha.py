@@ -1113,7 +1113,8 @@ class Ha(object):
                     # background thread and has not even written a pid file yet.
                     with self._async_executor.critical_task as task:
                         if not task.cancel():
-                            self.state_handler.terminate_starting_postmaster(postmaster=task.result)
+                            self.state_handler.terminate_starting_postmaster(postmaster=task.result,
+                                                                             bin_dir=self.patroni.postgresql._bin_dir)
                 self.demote('immediate-nolock')
                 return 'lost leader lock during ' + self._async_executor.scheduled_action
 

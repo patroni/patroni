@@ -105,7 +105,7 @@ class PostmasterProcess(psutil.Process):
         except psutil.NoSuchProcess:
             return None
 
-    def signal_stop(self, mode):
+    def signal_stop(self, mode, bin_dir=''):
         """Signal postmaster process to stop
 
         :returns None if signaled, True if process is already gone, False if error
@@ -115,7 +115,7 @@ class PostmasterProcess(psutil.Process):
             return False
         try:
             if os.name != 'posix':
-                self.pg_ctl_stop(mode)
+                return self.pg_ctl_stop(mode, bin_dir)
             else:
                 self.send_signal(STOP_SIGNALS[mode])
         except psutil.NoSuchProcess:
@@ -126,10 +126,17 @@ class PostmasterProcess(psutil.Process):
 
         return None
 
-    def pg_ctl_stop(self, mode):
-        cmdline = self.cmdline()
-        data_dir = cmdline[1+cmdline.index("-D")]
-        subprocess.Popen(["pg_ctl", "-D", data_dir, "stop", "-m", mode])
+    def pg_ctl_stop(self, mode, bin_dir):
+        pg_ctl = os.path.join(bin_dir, "pg_ctl")
+        SIGNALNAME = {"smart": "TERM", "fast": "INT", "immediate": "QUIT"}[mode]
+        status = subprocess.call([pg_ctl, "kill", SIGNALNAME, str(self.pid)])
+        if status == 0:
+            return None
+        else:
+            if not self.is_running():
+                return True
+            else:
+                return False
 
     def wait_for_user_backends_to_close(self):
         # These regexps are cross checked against versions PostgreSQL 9.1 .. 11

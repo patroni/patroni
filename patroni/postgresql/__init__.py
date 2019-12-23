@@ -508,7 +508,7 @@ class Postgresql(object):
             self.set_state('stopping')
 
         # Send signal to postmaster to stop
-        success = postmaster.signal_stop(mode)
+        success = postmaster.signal_stop(mode, self._bin_dir)
         if success is not None:
             if success and on_safepoint:
                 on_safepoint()
@@ -526,10 +526,10 @@ class Postgresql(object):
         return True, True
 
     @staticmethod
-    def terminate_starting_postmaster(postmaster):
+    def terminate_starting_postmaster(postmaster, bin_dir):
         """Terminates a postmaster that has not yet opened ports or possibly even written a pid file. Blocks
         until the process goes away."""
-        postmaster.signal_stop('immediate')
+        postmaster.signal_stop('immediate', bin_dir)
         postmaster.wait()
 
     def _wait_for_connection_close(self, postmaster):
