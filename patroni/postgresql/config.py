@@ -339,6 +339,8 @@ class ConfigHandler(object):
         if os.path.exists(self._pgpass) and not os.path.isfile(self._pgpass):
             raise PatroniException("'{}' exists and it's not a file, check your `postgresql.pgpass` configuration"
                                    .format(self._pgpass))
+        else:
+            self.write_empty_pgpass()
         self._passfile = None
         self._passfile_mtime = None
         self._synchronous_standby_names = None
@@ -716,6 +718,22 @@ class ConfigHandler(object):
 
             record = {n: escape(record.get(n, '*')) for n in ('host', 'port', 'user', 'password')}
             return '{host}:{port}:*:{user}:{password}'.format(**record)
+
+    def write_empty_pgpass(self):
+        pgpass_dir = os.path.dirname(self._pgpass)
+        if not os.path.exists(pgpass_dir):
+            try:
+                os.makedirs(pgpass_dir)
+            except OSError as e:
+                raise PatroniException("Couldn't create {}:{}, check your `postgresql.pgpass` configuration"
+                        .format(pgpass_dir, e))
+        else:
+            try:
+                f = open(self._pgpass, "a")
+                f.close()
+            except OSError as e:
+                raise PatroniException("Couldn't write {}:{}, check your `postgresql.pgpass` configuration"
+                        .format(self._pgpass, e))
 
     def write_pgpass(self, record):
         line = self._pgpass_line(record)
