@@ -335,12 +335,10 @@ class ConfigHandler(object):
         self._standby_signal = os.path.join(postgresql.data_dir, 'standby.signal')
         self._auto_conf = os.path.join(postgresql.data_dir, 'postgresql.auto.conf')
         self._auto_conf_mtime = None
-        self._pgpass = config.get('pgpass') or os.path.join(os.path.expanduser('~'), 'pgpass')
+        self._pgpass = os.path.abspath(config.get('pgpass') or os.path.join(os.path.expanduser('~'), 'pgpass'))
         if os.path.exists(self._pgpass) and not os.path.isfile(self._pgpass):
             raise PatroniException("'{}' exists and it's not a file, check your `postgresql.pgpass` configuration"
                                    .format(self._pgpass))
-        else:
-            self.write_empty_pgpass()
         self._passfile = None
         self._passfile_mtime = None
         self._synchronous_standby_names = None
@@ -366,6 +364,8 @@ class ConfigHandler(object):
         if "stats_temp_directory" in self._server_parameters:
             self.try_to_create_dir(self._server_parameters["stats_temp_directory"],
                                    "'{}' is defined in stats_temp_directory, {}")
+        self.try_to_create_dir(os.path.dirname(self._pgpass),
+                               "'{}' is defined in `postgresql.pgpass`, {}")
 
     @property
     def _configuration_to_save(self):
@@ -718,22 +718,6 @@ class ConfigHandler(object):
 
             record = {n: escape(record.get(n, '*')) for n in ('host', 'port', 'user', 'password')}
             return '{host}:{port}:*:{user}:{password}'.format(**record)
-
-    def write_empty_pgpass(self):
-        pgpass_dir = os.path.dirname(self._pgpass)
-        if not os.path.exists(pgpass_dir):
-            try:
-                os.makedirs(pgpass_dir)
-            except OSError as e:
-                raise PatroniException("Couldn't create {}:{}, check your `postgresql.pgpass` configuration"
-                                       .format(pgpass_dir, e))
-        else:
-            try:
-                f = open(self._pgpass, "a")
-                f.close()
-            except OSError as e:
-                raise PatroniException("Couldn't write {}:{}, check your `postgresql.pgpass` configuration"
-                                       .format(self._pgpass, e))
 
     def write_pgpass(self, record):
         line = self._pgpass_line(record)
