@@ -2,16 +2,16 @@ import json
 import logging
 import os
 import shutil
-import sys
 import tempfile
 import yaml
 
 from collections import defaultdict
 from copy import deepcopy
+from patroni import PATRONI_ENV_PREFIX
+from patroni.exceptions import ConfigParseError
 from patroni.dcs import ClusterConfig
-from patroni.postgresql.config import ConfigHandler
+from patroni.postgresql.config import CaseInsensitiveDict, ConfigHandler
 from patroni.utils import deep_compare, parse_bool, parse_int, patch_config
-from requests.structures import CaseInsensitiveDict
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,11 @@ _AUTH_ALLOWED_PARAMETERS = (
     'sslrootcert',
     'sslcrl'
 )
+
+
+def default_validator(conf):
+    if not conf:
+        return "Config is empty."
 
 
 class Config(object):
@@ -46,7 +51,6 @@ class Config(object):
          to work with it as with the old `config` object.
     """
 
-    PATRONI_ENV_PREFIX = 'PATRONI_'
     PATRONI_CONFIG_VARIABLE = PATRONI_ENV_PREFIX + 'CONFIGURATION'
 
     __CACHE_FILENAME = 'patroni.dynamic.json'
@@ -76,27 +80,26 @@ class Config(object):
         }
     }
 
-    def __init__(self):
+    def __init__(self, configfile, validator=default_validator):
         self._modify_index = -1
         self._dynamic_configuration = {}
 
         self.__environment_configuration = self._build_environment_configuration()
 
         # Patroni reads the configuration from the command-line argument if it exists, otherwise from the environment
-        self._config_file = len(sys.argv) >= 2 and os.path.isfile(sys.argv[1]) and sys.argv[1]
+        self._config_file = configfile and os.path.isfile(configfile) and configfile
         if self._config_file:
             self._local_configuration = self._load_config_file()
         else:
             config_env = os.environ.pop(self.PATRONI_CONFIG_VARIABLE, None)
             self._local_configuration = config_env and yaml.safe_load(config_env) or self.__environment_configuration
-            if not self._local_configuration:
-                print('Usage: {0} config.yml'.format(sys.argv[0]))
-                print('\tPatroni may also read the configuration from the {0} environment variable'.
-                      format(self.PATRONI_CONFIG_VARIABLE))
-                sys.exit(1)
+        if validator:
+            error = validator(self._local_configuration)
+            if error:
+                raise ConfigParseError(error)
 
         self.__effective_configuration = self._build_effective_configuration({}, self._local_configuration)
-        self._data_dir = self.__effective_configuration['postgresql']['data_dir']
+        self._data_dir = self.__effective_configuration.get('postgresql', {}).get('data_dir', "")
         self._cache_file = os.path.join(self._data_dir, self.__CACHE_FILENAME)
         self._load_cache()
         self._cache_needs_saving = False
@@ -214,7 +217,7 @@ class Config(object):
         ret = defaultdict(dict)
 
         def _popenv(name):
-            return os.environ.pop(Config.PATRONI_ENV_PREFIX + name.upper(), None)
+            return os.environ.pop(PATRONI_ENV_PREFIX + name.upper(), None)
 
         for param in ('name', 'namespace', 'scope'):
             value = _popenv(param)
@@ -223,7 +226,7 @@ class Config(object):
 
         def _fix_log_env(name, oldname):
             value = _popenv(oldname)
-            name = Config.PATRONI_ENV_PREFIX + 'LOG_' + name.upper()
+            name = PATRONI_ENV_PREFIX + 'LOG_' + name.upper()
             if value and name not in os.environ:
                 os.environ[name] = value
 
@@ -239,7 +242,7 @@ class Config(object):
         _set_section_values('restapi', ['listen', 'connect_address', 'certfile', 'keyfile', 'cafile', 'verify_client'])
         _set_section_values('ctl', ['insecure', 'cacert', 'certfile', 'keyfile'])
         _set_section_values('postgresql', ['listen', 'connect_address', 'config_dir', 'data_dir', 'pgpass', 'bin_dir'])
-        _set_section_values('log', ['level', 'format', 'dateformat', 'max_queue_size',
+        _set_section_values('log', ['level', 'traceback_level', 'format', 'dateformat', 'max_queue_size',
                                     'dir', 'file_size', 'file_num', 'loggers'])
 
         def _parse_dict(value):
@@ -288,7 +291,7 @@ class Config(object):
                 return None
 
         for param in list(os.environ.keys()):
-            if param.startswith(Config.PATRONI_ENV_PREFIX):
+            if param.startswith(PATRONI_ENV_PREFIX):
                 # PATRONI_(ETCD|CONSUL|ZOOKEEPER|EXHIBITOR|...)_(HOSTS?|PORT|..)
                 name, suffix = (param[8:].split('_', 1) + [''])[:2]
                 if suffix in ('HOST', 'HOSTS', 'PORT', 'USE_PROXIES', 'PROTOCOL', 'SRV', 'URL', 'PROXY',
@@ -311,7 +314,7 @@ class Config(object):
 
         users = {}
         for param in list(os.environ.keys()):
-            if param.startswith(Config.PATRONI_ENV_PREFIX):
+            if param.startswith(PATRONI_ENV_PREFIX):
                 name, suffix = (param[8:].rsplit('_', 1) + [''])[:2]
                 # PATRONI_<username>_PASSWORD=<password>, PATRONI_<username>_OPTIONS=<option1,option2,...>
                 # CREATE USER "<username>" WITH <OPTIONS> PASSWORD '<password>'
@@ -341,7 +344,7 @@ class Config(object):
                 config[name] = deepcopy(value) if value else {}
 
         # restapi server expects to get restapi.auth = 'username:password'
-        if 'authentication' in config['restapi']:
+        if 'restapi' in config and 'authentication' in config['restapi']:
             config['restapi']['auth'] = '{username}:{password}'.format(**config['restapi']['authentication'])
 
         # special treatment for old config

@@ -2,7 +2,7 @@ Feature: standby cluster
   Scenario: check permanent logical slots are preserved on failover/switchover
     Given I start postgres1
     Then postgres1 is a leader after 10 seconds
-    And I sleep for 3 seconds
+    And there is a non empty initialize key in DCS after 15 seconds
     When I issue a PATCH request to http://127.0.0.1:8009/config with {"loop_wait": 2, "slots": {"pm_1": {"type": "physical"}}, "postgresql": {"parameters": {"wal_level": "logical"}}}
     Then I receive a response code 200
     And Response on GET http://127.0.0.1:8009/config contains slots after 10 seconds
@@ -30,7 +30,7 @@ Feature: standby cluster
     When I issue a GET request to http://127.0.0.1:8009/standby_leader
     Then I receive a response code 200
     And I receive a response role standby_leader
-    And there is a postgres1_cb.log with "on_start replica batman1\non_role_change standby_leader batman1" in postgres1 data directory
+    And there is a postgres1_cb.log with "on_role_change standby_leader batman1" in postgres1 data directory
     When I start postgres2 in a cluster batman1
     Then postgres2 role is the replica after 24 seconds
     And table foo is present on postgres2 after 20 seconds

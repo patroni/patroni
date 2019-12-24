@@ -9,12 +9,13 @@ import time
 import urllib3
 
 from consul import ConsulException, NotFound, base
-from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
-from patroni.exceptions import DCSError
-from patroni.utils import deep_compare, parse_bool, Retry, RetryFailedError, split_host_port, uri
 from urllib3.exceptions import HTTPError
 from six.moves.urllib.parse import urlencode, urlparse, quote
 from six.moves.http_client import HTTPException
+
+from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, SyncState, TimelineHistory
+from ..exceptions import DCSError
+from ..utils import deep_compare, parse_bool, Retry, RetryFailedError, split_host_port, uri, USER_AGENT
 
 logger = logging.getLogger(__name__)
 
@@ -111,8 +112,9 @@ class HTTPClient(object):
             else:
                 kwargs['timeout'] = self._read_timeout
             token = params.pop('token', self.token) if isinstance(params, dict) else self.token
+            kwargs['headers'] = urllib3.make_headers(user_agent=USER_AGENT)
             if token:
-                kwargs['headers'] = {'X-Consul-Token': token}
+                kwargs['headers']['X-Consul-Token'] = token
             return callback(self.response(self.http.request(method.upper(), self.uri(path, params), **kwargs)))
         return wrapper
 

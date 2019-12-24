@@ -2,13 +2,36 @@ import unittest
 
 from mock import Mock, patch
 from patroni.exceptions import PatroniException
-from patroni.utils import Retry, RetryFailedError, polling_loop
+from patroni.utils import Retry, RetryFailedError, polling_loop, validate_directory
 
 
 class TestUtils(unittest.TestCase):
 
     def test_polling_loop(self):
         self.assertEqual(list(polling_loop(0.001, interval=0.001)), [0])
+
+    @patch('os.path.exists', Mock(return_value=True))
+    @patch('os.path.isdir', Mock(return_value=True))
+    @patch('tempfile.mkstemp', Mock(return_value=("", "")))
+    @patch('os.remove', Mock(side_effect=Exception))
+    def test_validate_directory_writable(self):
+        self.assertRaises(Exception, validate_directory, "/tmp")
+
+    @patch('os.path.exists', Mock(return_value=True))
+    @patch('os.path.isdir', Mock(return_value=True))
+    @patch('tempfile.mkstemp', Mock(side_effect=OSError))
+    def test_validate_directory_not_writable(self):
+        self.assertRaises(PatroniException, validate_directory, "/tmp")
+
+    @patch('os.path.exists', Mock(return_value=False))
+    @patch('os.makedirs', Mock(side_effect=OSError))
+    def test_validate_directory_couldnt_create(self):
+        self.assertRaises(PatroniException, validate_directory, "/tmp")
+
+    @patch('os.path.exists', Mock(return_value=True))
+    @patch('os.path.isdir', Mock(return_value=False))
+    def test_validate_directory_is_not_a_directory(self):
+        self.assertRaises(PatroniException, validate_directory, "/tmp")
 
 
 @patch('time.sleep', Mock())

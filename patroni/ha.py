@@ -200,10 +200,20 @@ class Ha(object):
             if self._async_executor.scheduled_action in (None, 'promote') \
                     and data['state'] in ['running', 'restarting', 'starting']:
                 try:
-                    timeline, wal_position = self.state_handler.timeline_wal_position()
+                    timeline, wal_position, pg_control_timeline = self.state_handler.timeline_wal_position()
                     data['xlog_location'] = wal_position
                     if not timeline:
-                        timeline = self.state_handler.replica_cached_timeline(self._leader_timeline)
+                        # So far the only way to get the current timeline on the standby is from
+                        # the replication connection. In order to avoid opening the replication
+                        # connection on every iteration of HA loop we will do it only when noticed
+                        # that the timeline on the primary has changed.
+                        # Unfortunately such optimization isn't possible on the standby_leader,
+                        # therefore we will get the timeline from pg_control, either by calling
+                        # pg_control_checkpoint() on 9.6+ or by parsing the output of pg_controldata.
+                        if self.state_handler.role == 'standby_leader':
+                            timeline = pg_control_timeline or self.state_handler.pg_control_timeline()
+                        else:
+                            timeline = self.state_handler.replica_cached_timeline(timeline)
                     if timeline:
                         data['timeline'] = timeline
                 except Exception:
@@ -351,14 +361,26 @@ class Ha(object):
     def _get_node_to_follow(self, cluster):
         # determine the node to follow. If replicatefrom tag is set,
         # try to follow the node mentioned there, otherwise, follow the leader.
-        if self.is_standby_cluster() and (self.cluster.is_unlocked() or self.has_lock(False)):
+        standby_config = self.get_standby_cluster_config()
+        is_standby_cluster = _is_standby_cluster(standby_config)
+        if is_standby_cluster and (self.cluster.is_unlocked() or self.has_lock(False)):
             node_to_follow = self.get_remote_master()
         elif self.patroni.replicatefrom and self.patroni.replicatefrom != self.state_handler.name:
             node_to_follow = cluster.get_member(self.patroni.replicatefrom)
         else:
             node_to_follow = cluster.leader
 
-        return node_to_follow if node_to_follow and node_to_follow.name != self.state_handler.name else None
+        node_to_follow = node_to_follow if node_to_follow and node_to_follow.name != self.state_handler.name else None
+
+        if node_to_follow and not isinstance(node_to_follow, RemoteMember):
+            # we are going to abuse Member.data to pass following parameters
+            params = ('restore_command', 'archive_cleanup_command')
+            for param in params:  # It is highly unlikely to happen, but we want to protect from the case
+                node_to_follow.data.pop(param, None)  # when above-mentioned params came from outside.
+            if is_standby_cluster:
+                node_to_follow.data.update({p: standby_config[p] for p in params if standby_config.get(p)})
+
+        return node_to_follow
 
     def follow(self, demote_reason, follow_reason, refresh=True):
         if refresh:
@@ -389,12 +411,17 @@ class Ha(object):
         # In this case it is safe to continue running without changing recovery.conf
         if self.is_standby_cluster() and role == 'replica' and not (node_to_follow and node_to_follow.conn_url):
             return 'continue following the old known standby leader'
-        elif not self.state_handler.config.check_recovery_conf(node_to_follow):
-            self._async_executor.try_run_async('changing primary_conninfo and restarting',
-                                               self.state_handler.follow, args=(node_to_follow, role))
-        elif role == 'standby_leader' and self.state_handler.role != role:
-            self.state_handler.set_role(role)
-            self.state_handler.call_nowait(ACTION_ON_ROLE_CHANGE)
+        else:
+            change_required, restart_required = self.state_handler.config.check_recovery_conf(node_to_follow)
+            if change_required:
+                if restart_required:
+                    self._async_executor.try_run_async('changing primary_conninfo and restarting',
+                                                       self.state_handler.follow, args=(node_to_follow, role))
+                else:
+                    self.state_handler.follow(node_to_follow, role, do_reload=True)
+            elif role == 'standby_leader' and self.state_handler.role != role:
+                self.state_handler.set_role(role)
+                self.state_handler.call_nowait(ACTION_ON_ROLE_CHANGE)
 
         return follow_reason
 
@@ -601,7 +628,7 @@ class Ha(object):
         """This method tries to determine whether I am healthy enough to became a new leader candidate or not."""
 
         # We don't call `last_operation()` here because it returns a string
-        _, my_wal_position = self.state_handler.timeline_wal_position()
+        _, my_wal_position, _ = self.state_handler.timeline_wal_position()
         if check_replication_lag and self.is_lagging(my_wal_position):
             logger.info('My wal position exceeds maximum replication lag')
             return False  # Too far behind last reported wal position on master

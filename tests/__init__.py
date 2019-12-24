@@ -1,5 +1,4 @@
 import datetime
-import json
 import os
 import shutil
 import unittest
@@ -7,7 +6,7 @@ import unittest
 from mock import Mock, patch
 
 import psycopg2
-import requests
+import urllib3
 
 from patroni.dcs import Leader, Member
 from patroni.postgresql import Postgresql
@@ -24,18 +23,10 @@ class MockResponse(object):
     def __init__(self, status_code=200):
         self.status_code = status_code
         self.content = '{}'
-        self.ok = True
-
-    def json(self):
-        return json.loads(self.content)
 
     @property
     def data(self):
         return self.content.encode('utf-8')
-
-    @property
-    def text(self):
-        return self.content
 
     @property
     def status(self):
@@ -51,7 +42,7 @@ def requests_get(url, **kwargs):
               '"name":"default","clientURLs":["http://localhost:2379","http://localhost:4001"]}]'
     response = MockResponse()
     if url.startswith('http://local'):
-        raise requests.exceptions.RequestException()
+        raise urllib3.exceptions.HTTPError()
     elif ':8011/patroni' in url:
         response.content = '{"role": "replica", "xlog": {"received_location": 0}, "tags": {}}'
     elif url.endswith('/members'):
@@ -62,11 +53,9 @@ def requests_get(url, **kwargs):
         data = kwargs.get('data', '')
         if ' false}' in data:
             response.status_code = 503
-            response.ok = False
             response.content = 'restarting after failure already in progress'
     else:
         response.status_code = 404
-        response.ok = False
     return response
 
 
@@ -97,7 +86,7 @@ class MockCursor(object):
         elif sql.startswith('SELECT slot_name'):
             self.results = [('blabla', 'physical'), ('foobar', 'physical'), ('ls', 'logical', 'a', 'b')]
         elif sql.startswith('SELECT CASE WHEN pg_catalog.pg_is_in_recovery()'):
-            self.results = [(1, 2)]
+            self.results = [(1, 2, 1)]
         elif sql.startswith('SELECT pg_catalog.pg_is_in_recovery()'):
             self.results = [(False, 2)]
         elif sql.startswith('SELECT pg_catalog.to_char'):
@@ -175,7 +164,8 @@ class PostgresInit(unittest.TestCase):
                    'search_path': 'public', 'hot_standby': 'on', 'max_wal_senders': 5,
                    'wal_keep_segments': 8, 'wal_log_hints': 'on', 'max_locks_per_transaction': 64,
                    'max_worker_processes': 8, 'max_connections': 100, 'max_prepared_transactions': 0,
-                   'track_commit_timestamp': 'off', 'unix_socket_directories': '/tmp', 'trigger_file': 'bla'}
+                   'track_commit_timestamp': 'off', 'unix_socket_directories': '/tmp', 'trigger_file': 'bla',
+                   'stats_temp_directory': '/tmp'}
 
     @patch('psycopg2.connect', psycopg2_connect)
     @patch.object(ConfigHandler, 'write_postgresql_conf', Mock())
@@ -183,7 +173,7 @@ class PostgresInit(unittest.TestCase):
     @patch.object(ConfigHandler, 'replace_pg_ident', Mock())
     @patch.object(Postgresql, 'get_postgres_role_from_data_directory', Mock(return_value='master'))
     def setUp(self):
-        data_dir = 'data/test0'
+        data_dir = os.path.join('data', 'test0')
         self.p = Postgresql({'name': 'postgresql0', 'scope': 'batman', 'data_dir': data_dir,
                              'config_dir': data_dir, 'retry_timeout': 10,
                              'krbsrvname': 'postgres', 'pgpass': os.path.join(data_dir, 'pgpass0'),

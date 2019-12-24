@@ -1,7 +1,5 @@
 import etcd
-import json
 import os
-import sys
 import unittest
 
 from click.testing import CliRunner
@@ -26,7 +24,6 @@ CONFIG_FILE_PATH = './test-ctl.yaml'
 def test_rw_config():
     runner = CliRunner()
     with runner.isolated_filesystem():
-        sys.argv = ['patronictl.py', '']
         load_config(CONFIG_FILE_PATH + '/dummy', None)
         store_config({'etcd': {'host': 'localhost:2379'}}, CONFIG_FILE_PATH + '/dummy')
         load_config(CONFIG_FILE_PATH + '/dummy', '0.0.0.0')
@@ -160,6 +157,7 @@ class TestCtl(unittest.TestCase):
         result = self.runner.invoke(ctl, ['failover', 'dummy'], input='\n')
         assert 'Failover could be performed only to a specific candidate' in result.output
 
+    @patch('patroni.dcs.dcs_modules', Mock(return_value=['patroni.dcs.dummy', 'patroni.dcs.etcd']))
     def test_get_dcs(self):
         self.assertRaises(PatroniCtlException, get_dcs, {'dummy': {}}, 'dummy')
 
@@ -585,3 +583,21 @@ class TestCtl(unittest.TestCase):
             self.assertIsNone(find_executable('vim'))
         with patch('os.path.isfile', Mock(side_effect=[False, True])):
             self.assertEqual(find_executable('vim', '/'), '/vim.exe')
+
+    @patch('patroni.ctl.get_dcs')
+    def test_get_members(self, mock_get_dcs):
+        mock_get_dcs.return_value = self.e
+        mock_get_dcs.return_value.get_cluster = get_cluster_not_initialized_without_leader
+        result = self.runner.invoke(ctl, ['reinit', 'dummy'])
+        assert "cluster doesn\'t have any members" in result.output
+
+    @patch('time.sleep', Mock())
+    @patch('patroni.ctl.get_dcs')
+    def test_reinit_wait(self, mock_get_dcs):
+        mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
+        with patch.object(PoolManager, 'request') as mocked:
+            mocked.side_effect = [Mock(data=s, status=200) for s in
+                                  [b"reinitialize", b'{"state":"creating replica"}', b'{"state":"running"}']]
+            result = self.runner.invoke(ctl, ['reinit', 'alpha', 'other', '--wait'], input='y\ny')
+        self.assertIn("Waiting for reinitialize to complete on: other", result.output)
+        self.assertIn("Reinitialize is completed on: other", result.output)

@@ -61,6 +61,7 @@ class Postgresql(object):
         self._pending_restart = False
         self._connection = Connection()
         self.config = ConfigHandler(self, config)
+        self.config.check_directories()
 
         self._bin_dir = config.get('bin_dir') or ''
         self.bootstrap = Bootstrap(self)
@@ -138,6 +139,8 @@ class Postgresql(object):
 
     @property
     def cluster_info_query(self):
+        pg_control_timeline = 'timeline_id FROM pg_catalog.pg_control_checkpoint()' \
+                if self._major_version >= 90600 and self.role == 'standby_leader' else '0'
         return ("SELECT CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
                 "ELSE ('x' || pg_catalog.substr(pg_catalog.pg_{0}file_name("
                 "pg_catalog.pg_current_{0}_{1}()), 1, 8))::bit(32)::int END, "
@@ -146,7 +149,7 @@ class Postgresql(object):
                 "pg_catalog.pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint,"
                 " pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint)"
                 "ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), '0/0')::bigint "
-                "END").format(self.wal_name, self.lsn_name)
+                "END, {2}").format(self.wal_name, self.lsn_name, pg_control_timeline)
 
     @property
     def pre_promote_script(self):
@@ -297,7 +300,7 @@ class Postgresql(object):
         if not self._cluster_info_state:
             try:
                 result = self._is_leader_retry(self._query, self.cluster_info_query).fetchone()
-                self._cluster_info_state = dict(zip(['timeline', 'wal_position'], result))
+                self._cluster_info_state = dict(zip(['timeline', 'wal_position', 'pg_control_timeline'], result))
             except RetryFailedError as e:  # SELECT failed two times
                 self._cluster_info_state = {'error': str(e)}
                 if not self.is_starting() and self.pg_isready() == STATE_REJECT:
@@ -310,6 +313,12 @@ class Postgresql(object):
 
     def is_leader(self):
         return bool(self._cluster_info_state_get('timeline'))
+
+    def pg_control_timeline(self):
+        try:
+            return int(self.controldata().get("Latest checkpoint's TimeLineID"))
+        except (TypeError, ValueError):
+            logger.exception('Failed to parse timeline from pg_controldata output')
 
     def is_running(self):
         """Returns PostmasterProcess if one is running on the data directory or None. If most recently seen process
@@ -416,6 +425,7 @@ class Postgresql(object):
         self._pending_restart = False
 
         configuration = self.config.effective_configuration
+        self.config.check_directories()
         self.config.write_postgresql_conf(configuration)
         self.config.resolve_connection_addresses()
         self.config.replace_pg_hba()
@@ -570,10 +580,12 @@ class Postgresql(object):
         if ready == STATE_REJECT:
             return False
         elif ready == STATE_NO_RESPONSE:
-            self.set_state('start failed')
-            self.slots_handler.schedule(False)  # TODO: can remove this?
-            self.config.save_configuration_files(True)  # TODO: maybe remove this?
-            return True
+            ret = not self.is_running()
+            if ret:
+                self.set_state('start failed')
+                self.slots_handler.schedule(False)  # TODO: can remove this?
+                self.config.save_configuration_files(True)  # TODO: maybe remove this?
+            return ret
         else:
             if ready != STATE_RUNNING:
                 # Bad configuration or unexpected OS error. No idea of PostgreSQL status.
@@ -634,9 +646,8 @@ class Postgresql(object):
         # Don't try to call pg_controldata during backup restore
         if self._version_file_exists() and self.state != 'creating replica':
             try:
-                env = {'LANG': 'C', 'LC_ALL': 'C', 'PATH': os.getenv('PATH')}
-                if os.getenv('SYSTEMROOT') is not None:
-                    env['SYSTEMROOT'] = os.getenv('SYSTEMROOT')
+                env = os.environ.copy()
+                env.update(LANG='C', LC_ALL='C')
                 data = subprocess.check_output([self.pgcommand('pg_controldata'), self._data_dir], env=env)
                 if data:
                     data = data.decode('utf-8').splitlines()
@@ -691,7 +702,7 @@ class Postgresql(object):
         except Exception:
             logger.exception('Failed to read and parse %s', (history_path,))
 
-    def follow(self, member, role='replica', timeout=None):
+    def follow(self, member, role='replica', timeout=None, do_reload=False):
         recovery_params = self.config.build_recovery_params(member)
         self.config.write_recovery_conf(recovery_params)
 
@@ -705,7 +716,11 @@ class Postgresql(object):
             self.__cb_pending = ACTION_NOOP
 
         if self.is_running():
-            self.restart(block_callbacks=change_role, role=role)
+            if do_reload:
+                self.config.write_postgresql_conf()
+                self.reload()
+            else:
+                self.restart(block_callbacks=change_role, role=role)
         else:
             self.start(timeout=timeout, block_callbacks=change_role, role=role)
 
@@ -776,11 +791,13 @@ class Postgresql(object):
         # This method could be called from different threads (simultaneously with some other `_query` calls).
         # If it is called not from main thread we will create a new cursor to execute statement.
         if current_thread().ident == self.__thread_ident:
-            return self._cluster_info_state_get('timeline'), self._cluster_info_state_get('wal_position')
+            return (self._cluster_info_state_get('timeline'),
+                    self._cluster_info_state_get('wal_position'),
+                    self._cluster_info_state_get('pg_control_timeline'))
 
         with self.connection().cursor() as cursor:
             cursor.execute(self.cluster_info_query)
-            return cursor.fetchone()[:2]
+            return cursor.fetchone()[:3]
 
     def postmaster_start_time(self):
         try:

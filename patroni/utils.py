@@ -1,15 +1,21 @@
 import logging
+import os
+import platform
 import random
 import re
+import tempfile
 import time
 
 from dateutil import tz
-from patroni.exceptions import PatroniException
+
+from .exceptions import PatroniException
+from .version import __version__
 
 tzutc = tz.tzutc()
 
 logger = logging.getLogger(__name__)
 
+USER_AGENT = 'Patroni/{0} Python/{1} {2}'.format(__version__, platform.python_version(), platform.system())
 OCT_RE = re.compile(r'^[-+]?0[0-7]*')
 DEC_RE = re.compile(r'^[-+]?(0|[1-9][0-9]*)')
 HEX_RE = re.compile(r'^[-+]?0x[0-9a-fA-F]+')
@@ -296,6 +302,17 @@ class Retry(object):
                      max_jitter=self.max_jitter / 100.0, max_delay=self.max_delay, sleep_func=self.sleep_func,
                      deadline=self.deadline, retry_exceptions=self.retry_exceptions)
 
+    @property
+    def sleeptime(self):
+        return self._cur_delay + (random.randint(0, self.max_jitter) / 100.0)
+
+    def update_delay(self):
+        self._cur_delay = min(self._cur_delay * self.backoff, self.max_delay)
+
+    @property
+    def stoptime(self):
+        return self._cur_stoptime
+
     def __call__(self, func, *args, **kwargs):
         """Call a function with arguments until it completes without throwing a `retry_exceptions`
 
@@ -317,14 +334,14 @@ class Retry(object):
                     logger.warning('Retry got exception: %s', e)
                     raise RetryFailedError("Too many retry attempts")
                 self._attempts += 1
-                sleeptime = self._cur_delay + (random.randint(0, self.max_jitter) / 100.0)
+                sleeptime = self.sleeptime
 
                 if self._cur_stoptime is not None and time.time() + sleeptime >= self._cur_stoptime:
                     logger.warning('Retry got exception: %s', e)
                     raise RetryFailedError("Exceeded retry deadline")
                 logger.debug('Retry got exception: %s', e)
                 self.sleep_func(sleeptime)
-                self._cur_delay = min(self._cur_delay * self.backoff, self.max_delay)
+                self.update_delay()
 
 
 def polling_loop(timeout, interval=1):
@@ -401,3 +418,27 @@ def cluster_as_json(cluster):
         if cluster.failover.candidate:
             ret['scheduled_switchover']['to'] = cluster.failover.candidate
     return ret
+
+
+def is_subpath(d1, d2):
+    real_d1 = os.path.realpath(d1) + os.path.sep
+    real_d2 = os.path.realpath(os.path.join(real_d1, d2))
+    return os.path.commonprefix([real_d1, real_d2 + os.path.sep]) == real_d1
+
+
+def validate_directory(d, msg="{} {}"):
+    if not os.path.exists(d):
+        try:
+            os.makedirs(d)
+        except OSError as e:
+            logger.error(e)
+            raise PatroniException(msg.format(d, "couldn't create the directory"))
+    elif os.path.isdir(d):
+        try:
+            fd, tmpfile = tempfile.mkstemp(dir=d)
+            os.close(fd)
+            os.remove(tmpfile)
+        except OSError:
+            raise PatroniException(msg.format(d, "the directory is not writable"))
+    else:
+        raise PatroniException(msg.format(d, "is not a directory"))

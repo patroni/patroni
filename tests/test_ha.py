@@ -122,7 +122,7 @@ zookeeper:
         # all the extra values that are coming from py.test
         sys.argv = sys.argv[:1]
 
-        self.config = Config()
+        self.config = Config(None)
         self.config.set_dynamic_configuration({'maximum_lag_on_failover': 5})
         self.version = '1.5.7'
         self.postgresql = p
@@ -150,7 +150,7 @@ def run_async(self, func, args=()):
 
 @patch.object(Postgresql, 'is_running', Mock(return_value=MockPostmaster()))
 @patch.object(Postgresql, 'is_leader', Mock(return_value=True))
-@patch.object(Postgresql, 'timeline_wal_position', Mock(return_value=(1, 10)))
+@patch.object(Postgresql, 'timeline_wal_position', Mock(return_value=(1, 10, 1)))
 @patch.object(Postgresql, '_cluster_info_state_get', Mock(return_value=3))
 @patch.object(Postgresql, 'call_nowait', Mock(return_value=True))
 @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=False))
@@ -159,6 +159,7 @@ def run_async(self, func, args=()):
 @patch.object(ConfigHandler, 'append_pg_hba', Mock())
 @patch.object(ConfigHandler, 'write_pgpass', Mock(return_value={}))
 @patch.object(ConfigHandler, 'write_recovery_conf', Mock())
+@patch.object(ConfigHandler, 'write_postgresql_conf', Mock())
 @patch.object(Postgresql, 'query', Mock())
 @patch.object(Postgresql, 'checkpoint', Mock())
 @patch.object(CancellableSubprocess, 'call', Mock(return_value=0))
@@ -176,7 +177,7 @@ def run_async(self, func, args=()):
 class TestHa(PostgresInit):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
-    @patch('patroni.dcs.dcs_modules', Mock(return_value=['patroni.dcs.foo', 'patroni.dcs.etcd']))
+    @patch('patroni.dcs.dcs_modules', Mock(return_value=['patroni.dcs.etcd']))
     @patch.object(etcd.Client, 'read', etcd_read)
     def setUp(self):
         super(TestHa, self).setUp()
@@ -198,8 +199,11 @@ class TestHa(PostgresInit):
         self.assertTrue(self.ha.update_lock(True))
 
     def test_touch_member(self):
-        self.p.timeline_wal_position = Mock(return_value=(0, 1))
+        self.p.timeline_wal_position = Mock(return_value=(0, 1, 0))
         self.p.replica_cached_timeline = Mock(side_effect=Exception)
+        self.ha.touch_member()
+        self.p.timeline_wal_position = Mock(return_value=(0, 1, 1))
+        self.p.set_role('standby_leader')
         self.ha.touch_member()
 
     def test_is_leader(self):
@@ -358,6 +362,7 @@ class TestHa(PostgresInit):
         self.p.is_leader = false
         self.assertEqual(self.ha.run_cycle(), 'no action.  i am a secondary and i am following a leader')
         self.ha.patroni.replicatefrom = "foo"
+        self.p.config.check_recovery_conf = Mock(return_value=(True, False))
         self.assertEqual(self.ha.run_cycle(), 'no action.  i am a secondary and i am following a leader')
 
     def test_follow_in_pause(self):
@@ -599,7 +604,7 @@ class TestHa(PostgresInit):
         # in synchronous_mode consider itself healthy if the former leader is accessible in read-only and ahead of us
         with patch.object(Ha, 'is_synchronous_mode', Mock(return_value=True)):
             self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
-        with patch('patroni.postgresql.Postgresql.timeline_wal_position', return_value=(1, 1)):
+        with patch('patroni.postgresql.Postgresql.timeline_wal_position', return_value=(1, 1, 1)):
             self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         with patch('patroni.postgresql.Postgresql.replica_cached_timeline', return_value=1):
             self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
@@ -683,7 +688,7 @@ class TestHa(PostgresInit):
         self.p.is_leader = false
         self.p.name = 'leader'
         self.ha.cluster = get_standby_cluster_initialized_with_only_leader()
-        self.p.config.check_recovery_conf = true
+        self.p.config.check_recovery_conf = Mock(return_value=(False, False))
         self.assertEqual(self.ha.run_cycle(), 'promoted self to a standby leader because i had the session lock')
         self.assertEqual(self.ha.run_cycle(), 'no action.  i am the standby leader with the lock')
 

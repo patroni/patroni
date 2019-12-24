@@ -6,11 +6,12 @@ import socket
 import stat
 import time
 
-from requests.structures import CaseInsensitiveDict
 from six.moves.urllib_parse import urlparse, parse_qsl, unquote
+from urllib3.response import HTTPHeaderDict
 
 from ..dcs import slot_name_from_member_name, RemoteMember
-from ..utils import compare_values, parse_bool, parse_int, split_host_port, uri
+from ..utils import compare_values, parse_bool, parse_int, split_host_port, uri, \
+        validate_directory, is_subpath
 
 logger = logging.getLogger(__name__)
 
@@ -250,6 +251,21 @@ class ConfigWriter(object):
         self.writeline("{0} = '{1}'".format(param, self.escape(value)))
 
 
+class CaseInsensitiveDict(HTTPHeaderDict):
+
+    def add(self, key, val):
+        self[key] = val
+
+    def __getitem__(self, key):
+        return self._container[key.lower()][1]
+
+    def __repr__(self):
+        return str(dict(self.items()))
+
+    def copy(self):
+        return CaseInsensitiveDict(self._container.values())
+
+
 class ConfigHandler(object):
 
     # List of parameters which must be always passed to postmaster as command line options
@@ -331,6 +347,19 @@ class ConfigHandler(object):
     def setup_server_parameters(self):
         self._server_parameters = self.get_server_parameters(self._config)
         self._adjust_recovery_parameters()
+
+    def try_to_create_dir(self, d, msg):
+        d = os.path.join(self._postgresql._data_dir, d)
+        if (not is_subpath(self._postgresql._data_dir, d) or not self._postgresql.data_directory_empty()):
+            validate_directory(d, msg)
+
+    def check_directories(self):
+        if "unix_socket_directories" in self._server_parameters:
+            for d in self._server_parameters["unix_socket_directories"].split(","):
+                self.try_to_create_dir(d.strip(), "'{}' is defined in unix_socket_directories, {}")
+        if "stats_temp_directory" in self._server_parameters:
+            self.try_to_create_dir(self._server_parameters["stats_temp_directory"],
+                                   "'{}' is defined in stats_temp_directory, {}")
 
     @property
     def _configuration_to_save(self):
@@ -465,21 +494,27 @@ class ConfigHandler(object):
 
     def format_dsn(self, params, include_dbname=False):
         # A list of keywords that can be found in a conninfo string. Follows what is acceptable by libpq
-        keywords = ('user', 'passfile', 'host', 'port', 'sslmode', 'sslcompression', 'sslcert',
-                    'sslkey', 'sslrootcert', 'sslcrl', 'application_name', 'krbsrvname')
+        keywords = ('dbname', 'user', 'passfile' if params.get('passfile') else 'password', 'host', 'port', 'sslmode',
+                    'sslcompression', 'sslcert', 'sslkey', 'sslrootcert', 'sslcrl', 'application_name', 'krbsrvname')
         if include_dbname:
+            params = params.copy()
             params['dbname'] = params.get('database') or self._postgresql.database
-            keywords = ('dbname',) + keywords
+            # we are abusing information about the necessity of dbname
+            # dsn should contain passfile or password only if there is no dbname in it (it is used in recovery.conf)
+            skip = {'passfile', 'password'}
+        else:
+            skip = {'dbname'}
 
         def escape(value):
             return re.sub(r'([\'\\ ])', r'\\\1', str(value))
 
-        return ' '.join('{0}={1}'.format(kw, escape(params[kw])) for kw in keywords if params.get(kw) is not None)
+        return ' '.join('{0}={1}'.format(kw, escape(params[kw])) for kw in keywords
+                        if kw not in skip and params.get(kw) is not None)
 
     def _write_recovery_params(self, fd, recovery_params):
         for name, value in sorted(recovery_params.items()):
             if name == 'primary_conninfo':
-                if 'password' in value:
+                if 'password' in value and self._postgresql.major_version >= 100000:
                     self.write_pgpass(value)
                     value['passfile'] = self._passfile = self._pgpass
                     self._passfile_mtime = mtime(self._pgpass)
@@ -500,14 +535,16 @@ class ConfigHandler(object):
         is_remote_master = isinstance(member, RemoteMember)
         primary_conninfo = self.primary_conninfo_params(member)
         if primary_conninfo:
+            use_slots = self.get('use_slots', True) and self._postgresql.major_version >= 90400
+            if use_slots and not (is_remote_master and member.no_replication_slot):
+                primary_slot_name = member.primary_slot_name if is_remote_master else self._postgresql.name
+                recovery_params['primary_slot_name'] = slot_name_from_member_name(primary_slot_name)
             recovery_params['primary_conninfo'] = primary_conninfo
-            if self._postgresql.slots_handler.use_slots and not (is_remote_master and member.no_replication_slot):
-                recovery_params['primary_slot_name'] = member.primary_slot_name if is_remote_master \
-                        else slot_name_from_member_name(self._postgresql.name)
 
-        if is_remote_master:  # standby_cluster config might have different parameters, we want to override them
-            recovery_params.update({p: member.data.get(p) for p in ('restore_command', 'recovery_min_apply_delay',
-                                                                    'archive_cleanup_command') if member.data.get(p)})
+        # standby_cluster config might have different parameters, we want to override them
+        standby_cluster_params = ['restore_command', 'archive_cleanup_command']\
+            + (['recovery_min_apply_delay'] if is_remote_master else [])
+        recovery_params.update({p: member.data.get(p) for p in standby_cluster_params if member and member.data.get(p)})
         return recovery_params
 
     def recovery_conf_exists(self):
@@ -541,7 +578,8 @@ class ConfigHandler(object):
             return None, False
 
         try:
-            values = {p[0]: p[1] for p in self._get_pg_settings(self._recovery_parameters_to_compare).values()}
+            values = self._get_pg_settings(self._recovery_parameters_to_compare).values()
+            values = {p[0]: [p[1], p[4] == 'postmaster'] for p in values}
             self._postgresql_conf_mtime = pg_conf_mtime
             self._auto_conf_mtime = auto_conf_mtime
             self._postmaster_ctime = postmaster_ctime
@@ -567,10 +605,10 @@ class ConfigHandler(object):
                     value = read_recovery_param_value(line[match.end():])
                 if value is None:
                     return None, True
-                values[match.group(1)] = value
+                values[match.group(1)] = [value, True]
             self._recovery_conf_mtime = recovery_conf_mtime
-        values.setdefault('recovery_min_apply_delay', '0')
-        values.update({param: '' for param in self._recovery_parameters_to_compare if param not in values})
+        values.setdefault('recovery_min_apply_delay', ['0', True])
+        values.update({param: ['', True] for param in self._recovery_parameters_to_compare if param not in values})
         return values, True
 
     def _check_passfile(self, passfile, wanted_primary_conninfo):
@@ -616,12 +654,12 @@ class ConfigHandler(object):
         # TODO: recovery.conf could be stale, would be nice to detect that.
         if self._postgresql.major_version >= 120000:
             if not os.path.exists(self._standby_signal):
-                return False
+                return True, True
 
             _read_recovery_params = self._read_recovery_params
         else:
             if not self.recovery_conf_exists():
-                return False
+                return True, True
 
             _read_recovery_params = self._read_recovery_params_pre_v12
 
@@ -630,31 +668,36 @@ class ConfigHandler(object):
         # was changed and params were read either from the config or from the database connection.
         if updated:
             if params is None:  # exception or unparsable config
-                return False
+                return True, True
 
             # We will cache parsed value until the next config change.
             self._current_recovery_params = params
-            if params['primary_conninfo']:
-                params['primary_conninfo'] = parse_dsn(params['primary_conninfo'])
+            primary_conninfo = params['primary_conninfo']
+            if primary_conninfo[0]:
+                primary_conninfo[0] = parse_dsn(params['primary_conninfo'][0])
                 # If we failed to parse non-empty connection string this indicates that config if broken.
-                if not params['primary_conninfo']:
-                    return False
+                if not primary_conninfo[0]:
+                    return True, True
             else:  # empty string, primary_conninfo is not in the config
-                params['primary_conninfo'] = {}
+                primary_conninfo[0] = {}
 
-        ret = True
+        required = {'restart': 0, 'reload': 0}
+
+        def record_missmatch(mtype):
+            required['restart' if mtype else 'reload'] += 1
+
         wanted_recovery_params = self.build_recovery_params(member)
         for param, value in self._current_recovery_params.items():
             if param == 'recovery_min_apply_delay':
-                if not compare_values('integer', 'ms', value, wanted_recovery_params.get(param, 0)):
-                    ret = False
+                if not compare_values('integer', 'ms', value[0], wanted_recovery_params.get(param, 0)):
+                    record_missmatch(value[1])
             elif param == 'primary_conninfo':
-                if not self._check_primary_conninfo(value, wanted_recovery_params.get('primary_conninfo', {})):
-                    ret = False
+                if not self._check_primary_conninfo(value[0], wanted_recovery_params.get('primary_conninfo', {})):
+                    record_missmatch(value[1])
             elif (param != 'primary_slot_name' or wanted_recovery_params.get('primary_conninfo')) \
-                    and str(value) != str(wanted_recovery_params.get(param, '')):
-                ret = False
-        return ret
+                    and str(value[0]) != str(wanted_recovery_params.get(param, '')):
+                record_missmatch(value[1])
+        return required['restart'] + required['reload'] > 0, required['restart'] > 0
 
     @staticmethod
     def _remove_file_if_exists(name):
@@ -823,7 +866,8 @@ class ConfigHandler(object):
     def _handle_wal_buffers(old_values, changes):
         wal_block_size = parse_int(old_values['wal_block_size'][1])
         wal_segment_size = old_values['wal_segment_size']
-        wal_segment_size = parse_int(wal_segment_size[1]) * parse_int(wal_segment_size[2], 'B') / wal_block_size
+        wal_segment_unit = parse_int(wal_segment_size[2], 'B') if wal_segment_size[2][0].isdigit() else 1
+        wal_segment_size = parse_int(wal_segment_size[1]) * wal_segment_unit / wal_block_size
         default_wal_buffers = min(max(parse_int(old_values['shared_buffers'][1]) / 32, 8), wal_segment_size)
 
         wal_buffers = old_values['wal_buffers']

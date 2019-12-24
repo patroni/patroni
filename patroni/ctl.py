@@ -72,17 +72,7 @@ def load_config(path, dcs):
         logging.debug('Ignoring configuration file "%s". It does not exists or is not readable.', path)
     else:
         logging.debug('Loading configuration from file %s', path)
-    config = {}
-    old_argv = list(sys.argv)
-    try:
-        sys.argv[1] = path
-        if Config.PATRONI_CONFIG_VARIABLE not in os.environ:
-            for p in ('PATRONI_RESTAPI_LISTEN', 'PATRONI_POSTGRESQL_DATA_DIR'):
-                if p not in os.environ:
-                    os.environ[p] = '.'
-        config = Config().copy()
-    finally:
-        sys.argv = old_argv
+    config = Config(path, validator=None).copy()
 
     dcs = parse_dcs(dcs) or parse_dcs(config.get('dcs_api')) or {}
     if dcs:
@@ -247,10 +237,12 @@ def get_cursor(cluster, connect_parameters, role='master', member=None):
     return None
 
 
-def get_members(cluster, cluster_name, member_names, role, force, action, scheduled_at=None):
+def get_members(cluster, cluster_name, member_names, role, force, action, ask_confirmation=True):
     candidates = {m.name: m for m in cluster.members}
 
     if not force or role:
+        if not member_names and not candidates:
+            raise PatroniCtlException('{0} cluster doesn\'t have any members'.format(cluster_name))
         output_members(cluster, cluster_name)
 
     if role:
@@ -270,20 +262,25 @@ def get_members(cluster, cluster_name, member_names, role, force, action, schedu
         if member_name not in candidates:
             raise PatroniCtlException('{0} is not a member of cluster'.format(member_name))
 
+    members = [candidates[n] for n in member_names]
+    if ask_confirmation:
+        confirm_members_action(members, force, action)
+    return members
+
+
+def confirm_members_action(members, force, action, scheduled_at=None):
     if scheduled_at:
         if not force:
             confirm = click.confirm('Are you sure you want to schedule {0} of members {1} at {2}?'
-                                    .format(action, ', '.join(member_names), scheduled_at))
+                                    .format(action, ', '.join([m.name for m in members]), scheduled_at))
             if not confirm:
                 raise PatroniCtlException('Aborted scheduled {0}'.format(action))
     else:
         if not force:
             confirm = click.confirm('Are you sure you want to {0} members {1}?'
-                                    .format(action, ', '.join(member_names)))
+                                    .format(action, ', '.join([m.name for m in members])))
             if not confirm:
                 raise PatroniCtlException('Aborted {0}'.format(action))
-
-    return [candidates[n] for n in member_names]
 
 
 @ctl.command('dsn', help='Generate a dsn for the provided member, defaults to a dsn of the master')
@@ -501,14 +498,15 @@ def reload(obj, cluster_name, member_names, force, role):
 def restart(obj, cluster_name, member_names, force, role, p_any, scheduled, version, pending, timeout):
     cluster = get_dcs(obj, cluster_name).get_cluster()
 
+    members = get_members(cluster, cluster_name, member_names, role, force, 'restart', False)
     if scheduled is None and not force:
         next_hour = (datetime.datetime.now() + datetime.timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M')
         scheduled = click.prompt('When should the restart take place (e.g. ' + next_hour + ') ',
                                  type=str, default='now')
 
     scheduled_at = parse_scheduled(scheduled)
+    confirm_members_action(members, force, 'restart', scheduled_at)
 
-    members = get_members(cluster, cluster_name, member_names, role, force, 'restart', scheduled_at)
     if p_any:
         random.shuffle(members)
         members = members[:1]
@@ -560,20 +558,39 @@ def restart(obj, cluster_name, member_names, force, role, p_any, scheduled, vers
 @click.argument('cluster_name')
 @click.argument('member_names', nargs=-1)
 @option_force
+@click.option('--wait', help='Wait until reinitialization completes', is_flag=True)
 @click.pass_obj
-def reinit(obj, cluster_name, member_names, force):
+def reinit(obj, cluster_name, member_names, force, wait):
     cluster = get_dcs(obj, cluster_name).get_cluster()
     members = get_members(cluster, cluster_name, member_names, None, force, 'reinitialize')
 
+    wait_on_members = []
     for member in members:
         body = {'force': force}
         while True:
             r = request_patroni(member, 'post', 'reinitialize', body)
-            if not check_response(r, member.name, 'reinitialize') and r.data.endswith(b' already in progress') \
+            started = check_response(r, member.name, 'reinitialize')
+            if not started and r.data.endswith(b' already in progress') \
                     and not force and click.confirm('Do you want to cancel it and reinitialize anyway?'):
                 body['force'] = True
                 continue
             break
+        if started and wait:
+            wait_on_members.append(member)
+
+    last_display = []
+    while wait_on_members:
+        if wait_on_members != last_display:
+            click.echo('Waiting for reinitialize to complete on: {0}'.format(
+                ", ".join(member.name for member in wait_on_members))
+            )
+            last_display[:] = wait_on_members
+        time.sleep(2)
+        for member in wait_on_members:
+            data = json.loads(request_patroni(member, 'get', 'patroni').data.decode('utf-8'))
+            if data.get('state') != 'creating replica':
+                click.echo('Reinitialize is completed on: {0}'.format(member.name))
+                wait_on_members.remove(member)
 
 
 def _do_failover_or_switchover(obj, action, cluster_name, master, candidate, force, scheduled=None):
