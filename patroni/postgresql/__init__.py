@@ -728,9 +728,6 @@ class Postgresql(object):
                 logger.error('pre_promote script %s failed: %s', cmd, e)
                 return False
 
-            # XXX either the Cancellable subprocess ceased to be a child of Patroni 
-            # or it terminated shortly after start before wait() was called on it 
-            # see https://psutil.readthedocs.io/en/latest/#psutil.Process.wait
             if ret is None:
                 logger.error('subprocess running the pre_promote script returned None instead of a return code; this abnormal behaviour is assumed to indicate pre promote failure')
                 return False
