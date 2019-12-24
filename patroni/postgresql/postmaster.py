@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 STOP_SIGNALS = {
     'smart': signal.SIGTERM,
     'fast': signal.SIGINT,
-    'immediate': signal.SIGQUIT if os.name != 'nt' else signal.SIGABRT,
+    'immediate': signal.SIGQUIT,
 }
 
 
