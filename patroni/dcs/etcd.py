@@ -46,7 +46,6 @@ class DnsCachingResolver(Thread):
 
     def run(self):
         while True:
-            time.sleep(2)
             (host, port), attempt = self._resolve_queue.get()
             response = self._do_resolve(host, port)
             if response:
@@ -74,8 +73,8 @@ class DnsCachingResolver(Thread):
     def _do_resolve(host, port):
         try:
             return socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM, socket.IPPROTO_TCP)
-        except Exception:
-            logger.warning('failed to resolve host %s', host)
+        except Exception as e:
+            logger.warning('failed to resolve host %s: %s', host, e)
             return []
 
 
