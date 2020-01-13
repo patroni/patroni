@@ -21,29 +21,38 @@ def validate_connect_address(address):
     if not isinstance(address, string_types):
         raise ConfigParseError("is not a string")
     else:
-        for s in ["127.0.0.1", "0.0.0.0", "*", "::1"]:
-            if s in address:
-                raise ConfigParseError("must not contain {}".format(s))
+        try:
+            host, _ = split_host_port(address, None)
+        except (ValueError, TypeError):
+            raise ConfigParseError("contains a wrong value")
+        if host in ["127.0.0.1", "0.0.0.0", "*", "::1"]:
+            raise ConfigParseError('must not contain "127.0.0.1", "0.0.0.0", "*", "::1"')
     return True
 
 
-def validate_host_port(host_port, listen=False):
+def validate_host_port(host_port, listen=False, multiple_hosts=False):
     try:
-        host, port = split_host_port(host_port, None)
+        hosts, port = split_host_port(host_port, None)
     except (ValueError, TypeError):
         raise ConfigParseError("contains a wrong value")
     else:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            if s.connect_ex((host, port)) == 0:
-                if listen:
-                    raise ConfigParseError("Port {} is already in use.".format(port))
-            elif not listen:
-                raise ConfigParseError("{} is not reachable".format(host_port))
-        except socket.gaierror as e:
-            raise ConfigParseError(e)
-        finally:
-            s.close()
+        if multiple_hosts:
+            hosts = hosts.split(",")
+        else:
+            hosts = [hosts]
+        for host in hosts:
+            proto = socket.getaddrinfo(host, "", 0, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)
+            s = socket.socket(proto[0][0], socket.SOCK_STREAM)
+            try:
+                if s.connect_ex((host, port)) == 0:
+                    if listen:
+                        raise ConfigParseError("Port {} is already in use.".format(port))
+                elif not listen:
+                    raise ConfigParseError("{} is not reachable".format(host_port))
+            except socket.gaierror as e:
+                raise ConfigParseError(e)
+            finally:
+                s.close()
     return True
 
 
@@ -58,13 +67,23 @@ def validate_host_port_listen(host_port):
     return validate_host_port(host_port, listen=True)
 
 
+def validate_host_port_listen_multiple_hosts(host_port):
+    return validate_host_port(host_port, listen=True, multiple_hosts=True)
+
+
 def is_ipv4_address(ip):
-    assert socket.inet_aton(ip)
+    try:
+        socket.inet_aton(ip)
+    except Exception:
+        raise ConfigParseError("Is not valid ipv4 address")
     return True
 
 
 def is_ipv6_address(ip):
-    assert socket.inet_pton(socket.AF_INET6, ip)
+    try:
+        socket.inet_pton(socket.AF_INET6, ip)
+    except Exception:
+        raise ConfigParseError("Is not valid ipv6 address")
     return True
 
 
@@ -315,7 +334,7 @@ schema = Schema({
           },
       }),
   "postgresql": {
-    "listen": validate_host_port_listen,
+    "listen": validate_host_port_listen_multiple_hosts,
     "connect_address": validate_connect_address,
     "authentication": {
       "replication": userattributes,
@@ -323,9 +342,9 @@ schema = Schema({
       "rewind":  userattributes
     },
     "data_dir": validate_data_dir,
-    "bin_dir": Directory(contains=["pg_ctl"], contains_executable=["pg_ctl", "initdb", "pg_controldata",
-                                                                   "pg_basebackup", "postgres", "pg_isready"]),
-    "parameters": {
+    Optional("bin_dir"): Directory(contains_executable=["pg_ctl", "initdb", "pg_controldata", "pg_basebackup",
+                                                        "postgres", "pg_isready"]),
+    Optional("parameters"): {
       Optional("unix_socket_directories"): lambda s: assert_(all([isinstance(s, string_types), len(s)]))
     },
     Optional("pg_hba"): [str],

@@ -47,7 +47,7 @@ config = {
         "ports": [{"name": "string", "port": 1000}],
     },
     "postgresql": {
-        "listen": "127.0.0.2:543",
+        "listen": "127.0.0.2,::1:543",
         "connect_address": "127.0.0.2:543",
         "authentication": {
             "replication": {"username": "user"},
@@ -142,7 +142,7 @@ class TestValidator(unittest.TestCase):
         c["kubernetes"]["pod_ip"] = "127.0.0.1111"
         schema(c)
         output = mock_out.getvalue()
-        self.assertEqual(['etcd.hosts', 'etcd.hosts.2', 'kubernetes.pod_ip', 'postgresql.bin_dir',
+        self.assertEqual(['etcd.hosts', 'etcd.hosts.1', 'etcd.hosts.2', 'kubernetes.pod_ip', 'postgresql.bin_dir',
                           'postgresql.data_dir', 'restapi.connect_address'] , parse_output(output))
 
     def test_bin_dir_is_empty(self, mock_out, mock_err):
@@ -191,7 +191,7 @@ class TestValidator(unittest.TestCase):
         with patch('patroni.validator.open', mock_open(read_data='11')):
             schema(c)
         output = mock_out.getvalue()
-        self.assertEqual(['postgresql.bin_dir', 'postgresql.data_dir'], parse_output(output))
+        self.assertEqual(['postgresql.data_dir'], parse_output(output))
 
     @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
     def test_pg_wal_doesnt_exist(self, mock_out, mock_err):
@@ -204,7 +204,7 @@ class TestValidator(unittest.TestCase):
         with patch('patroni.validator.open', mock_open(read_data='11')):
             schema(c)
         output = mock_out.getvalue()
-        self.assertEqual(['postgresql.bin_dir', 'postgresql.data_dir'], parse_output(output))
+        self.assertEqual(['postgresql.data_dir'], parse_output(output))
 
 
     def test_data_dir_is_empty_string(self, mock_out, mock_err):
