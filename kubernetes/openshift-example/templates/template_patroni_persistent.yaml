@@ -108,9 +108,9 @@ objects:
       spec:
         initContainers:
         - command:
-          - chmod
-          - '0700'
-          - /home/postgres/pgdata/pgroot/data
+          - sh
+          - -c 
+          - "mkdir -p /home/postgres/pgdata/pgroot/data && chmod 0700 /home/postgres/pgdata/pgroot/data"
           image: docker-registry.default.svc:5000/${NAMESPACE}/patroni:latest
           imagePullPolicy: IfNotPresent
           name: fix-perms
