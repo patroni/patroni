@@ -827,7 +827,7 @@ class Postgresql(object):
             if state != 'streaming' or not member or member.tags.get('nosync', False):
                 continue
             if sync_state == 'sync':
-                return app_name, True
+                return member.name, True
             if sync_state == 'potential' and app_name == current:
                 # Prefer current even if not the best one any more to avoid indecisivness and spurious swaps.
                 return cluster.sync.sync_standby, False
