@@ -18,15 +18,12 @@ def data_directory_empty(data_dir):
 
 
 def validate_connect_address(address):
-    if not isinstance(address, string_types):
-        raise ConfigParseError("is not a string")
-    else:
-        try:
-            host, _ = split_host_port(address, None)
-        except (ValueError, TypeError):
-            raise ConfigParseError("contains a wrong value")
-        if host in ["127.0.0.1", "0.0.0.0", "*", "::1"]:
-            raise ConfigParseError('must not contain "127.0.0.1", "0.0.0.0", "*", "::1"')
+    try:
+        host, _ = split_host_port(address, None)
+    except (ValueError, TypeError):
+        raise ConfigParseError("contains a wrong value")
+    if host in ["127.0.0.1", "0.0.0.0", "*", "::1"]:
+        raise ConfigParseError('must not contain "127.0.0.1", "0.0.0.0", "*", "::1"')
     return True
 
 
@@ -57,8 +54,6 @@ def validate_host_port(host_port, listen=False, multiple_hosts=False):
 
 
 def comma_separated_host_port(string):
-    if not isinstance(string, string_types):
-        raise ConfigParseError("is not a string")
     assert all([validate_host_port(s.strip()) for s in string.split(",")]), "didn't pass the validation"
     return True
 
@@ -121,10 +116,11 @@ def validate_data_dir(data_dir):
 
 
 class Result(object):
-    def __init__(self, status, error="didn't pass validation", path="", data=""):
+    def __init__(self, status, error="didn't pass validation", level=0, path="", data=""):
         self.status = status
         self.path = path
         self.data = data
+        self.level = level
         self._error = error
         if not self.status:
             self.error = error
@@ -185,14 +181,19 @@ class Schema(object):
     def validate(self, data):
         self.data = data
         if isinstance(self.validator, string_types):
-            yield Result(isinstance(self.data, string_types), "is not a string", data=self.data)
+            yield Result(isinstance(self.data, string_types), "is not a string", level=1, data=self.data)
         elif issubclass(type(self.validator), type):
             validator = self.validator
             if self.validator == str:
                 validator = string_types
             yield Result(isinstance(self.data, validator),
-                         "is not {}".format(_get_type_name(self.validator)), data=self.data)
+                         "is not {}".format(_get_type_name(self.validator)), level=1, data=self.data)
         elif callable(self.validator):
+            if hasattr(self.validator, "expected_type"):
+                if not isinstance(data, self.validator.expected_type):
+                    yield Result(False, "is not {}"
+                                 .format(_get_type_name(self.validator.expected_type)), level=1, data=self.data)
+                    return
             try:
                 self.validator(data)
                 yield Result(True, data=self.data)
@@ -200,10 +201,10 @@ class Schema(object):
                 yield Result(False, "didn't pass validation: {}".format(e), data=self.data)
         elif isinstance(self.validator, dict):
             if not len(self.validator):
-                yield Result(isinstance(self.data, dict), "is not a dictionary", data=self.data)
+                yield Result(isinstance(self.data, dict), "is not a dictionary", level=1, data=self.data)
         elif isinstance(self.validator, list):
             if not isinstance(self.data, list):
-                yield Result(isinstance(self.data, list), "is not a list", data=self.data)
+                yield Result(isinstance(self.data, list), "is not a list", level=1, data=self.data)
                 return
         for i in self.iter():
             yield i
@@ -211,16 +212,18 @@ class Schema(object):
     def iter(self):
         if isinstance(self.validator, dict):
             if not isinstance(self.data, dict):
-                yield Result(False, "is not a dictionary.")
+                yield Result(False, "is not a dictionary.", level=1)
             else:
                 for i in self.iter_dict():
                     yield i
         elif isinstance(self.validator, list):
+            if len(self.data) == 0:
+                yield Result(False, "is an empty list", data=self.data)
             if len(self.validator) > 0:
                 for key, value in enumerate(self.data):
                     for v in Schema(self.validator[0]).validate(value):
                         yield Result(v.status, v.error,
-                                     path=(str(key) + ("." + v.path if v.path else "")), data=value)
+                                     path=(str(key) + ("." + v.path if v.path else "")), level=v.level, data=value)
         elif isinstance(self.validator, Directory):
             for v in self.validator.validate(self.data):
                 yield v
@@ -241,7 +244,7 @@ class Schema(object):
                         validator = self.validator[key]._schema[d]
                     for v in Schema(validator).validate(self.data[d]):
                         yield Result(v.status, v.error,
-                                     path=(d + ("." + v.path if v.path else "")), data=v.data)
+                                     path=(d + ("." + v.path if v.path else "")), level=v.level, data=v.data)
 
     def iter_or(self):
         results = []
@@ -254,8 +257,12 @@ class Schema(object):
             else:
                 results += r
         if not any([x.status for x in results]):
-            for v in results:
-                yield Result(v.status, v.error, path=v.path, data=v.data)
+            max_level = 3
+            for v in sorted(results, key=lambda x: x.level):
+                if v.level > max_level:
+                    break
+                max_level = v.level
+                yield Result(v.status, v.error, path=v.path, level=v.level, data=v.data)
 
     def _data_key(self, key):
         if isinstance(self.data, dict) and isinstance(key, str):
@@ -274,7 +281,8 @@ class Schema(object):
 
 def _get_type_name(python_type):
     return {str: 'a string', int: 'and integer', float: 'a number', bool: 'a boolean',
-            list: 'an array', dict: 'a dictionary'}.get(python_type, python_type.__name__)
+            list: 'an array', dict: 'a dictionary', string_types: "a string"}.get(
+                    python_type, getattr(python_type, __name__, "unknown type"))
 
 
 def assert_(condition, message="Wrong value"):
@@ -283,6 +291,11 @@ def assert_(condition, message="Wrong value"):
 
 userattributes = {"username": "", Optional("password"): ""}
 available_dcs = [m.split(".")[-1] for m in dcs_modules()]
+comma_separated_host_port.expected_type = string_types
+validate_connect_address.expected_type = string_types
+validate_host_port_listen.expected_type = string_types
+validate_host_port_listen_multiple_hosts.expected_type = string_types
+validate_data_dir.expected_type = string_types
 
 schema = Schema({
   "name": str,
