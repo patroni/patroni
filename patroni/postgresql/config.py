@@ -585,7 +585,7 @@ class ConfigHandler(object):
 
         try:
             values = self._get_pg_settings(self._recovery_parameters_to_compare).values()
-            values = {p[0]: [p[1], p[4] == 'postmaster'] for p in values}
+            values = {p[0]: [p[1], p[4] == 'postmaster', p[5]] for p in values}
             self._postgresql_conf_mtime = pg_conf_mtime
             self._auto_conf_mtime = auto_conf_mtime
             self._postmaster_ctime = postmaster_ctime
@@ -694,6 +694,12 @@ class ConfigHandler(object):
 
         wanted_recovery_params = self.build_recovery_params(member)
         for param, value in self._current_recovery_params.items():
+            # Skip certain parameters defined in the included postgres config files
+            # if we know that they are not specified in the patroni configuration.
+            if len(value) > 2 and value[2] not in (self._postgresql_conf, self._auto_conf) and \
+                    param in ('archive_cleanup_command', 'promote_trigger_file', 'recovery_end_command',
+                              'recovery_min_apply_delay', 'restore_command') and param not in wanted_recovery_params:
+                continue
             if param == 'recovery_min_apply_delay':
                 if not compare_values('integer', 'ms', value[0], wanted_recovery_params.get(param, 0)):
                     record_missmatch(value[1])
@@ -863,7 +869,7 @@ class ConfigHandler(object):
         self._postgresql.set_connection_kwargs(self.local_connect_kwargs)
 
     def _get_pg_settings(self, names):
-        return {r[0]: r for r in self._postgresql.query(('SELECT name, setting, unit, vartype, context '
+        return {r[0]: r for r in self._postgresql.query(('SELECT name, setting, unit, vartype, context, sourcefile'
                                                          + ' FROM pg_catalog.pg_settings ' +
                                                          ' WHERE pg_catalog.lower(name) = ANY(%s)'),
                                                         [n.lower() for n in names])}
