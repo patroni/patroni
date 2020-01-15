@@ -8,7 +8,7 @@ import time
 from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.async_executor import CriticalTask
 from patroni.dcs import Cluster, ClusterConfig, Member, RemoteMember, SyncState
-from patroni.exceptions import PostgresConnectionException
+from patroni.exceptions import PostgresConnectionException, PatroniException
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.slots import SlotsHandler
@@ -695,3 +695,8 @@ class TestPostgresql(BaseTestPostgresql):
             self.p.cancellable.cancel()
             self.assertFalse(self.p.start())
             self.assertTrue(self.p.pending_restart)
+
+    @patch('os.path.exists', Mock(return_value=True))
+    @patch('os.path.isfile', Mock(return_value=False))
+    def test_pgpass_is_dir(self):
+        self.assertRaises(PatroniException, self.setUp)
