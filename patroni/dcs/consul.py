@@ -217,7 +217,7 @@ class Consul(AbstractDCS):
         self.set_retry_timeout(config['retry_timeout'])
         self.set_ttl(config.get('ttl') or 30)
         self._last_session_refresh = 0
-        self.__session_checks = config.get('checks')
+        self.__session_checks = config.get('checks', [])
         self._register_service = config.get('register_service', False)
         if self._register_service:
             self._service_name = service_name_from_scope_name(self._scope)

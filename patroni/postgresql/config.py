@@ -6,11 +6,13 @@ import socket
 import stat
 import time
 
+from patroni.exceptions import PatroniException
 from six.moves.urllib_parse import urlparse, parse_qsl, unquote
 from urllib3.response import HTTPHeaderDict
 
 from ..dcs import slot_name_from_member_name, RemoteMember
-from ..utils import compare_values, parse_bool, parse_int, split_host_port, uri
+from ..utils import compare_values, parse_bool, parse_int, split_host_port, uri, \
+        validate_directory, is_subpath
 
 logger = logging.getLogger(__name__)
 
@@ -333,7 +335,10 @@ class ConfigHandler(object):
         self._standby_signal = os.path.join(postgresql.data_dir, 'standby.signal')
         self._auto_conf = os.path.join(postgresql.data_dir, 'postgresql.auto.conf')
         self._auto_conf_mtime = None
-        self._pgpass = config.get('pgpass') or os.path.join(os.path.expanduser('~'), 'pgpass')
+        self._pgpass = os.path.abspath(config.get('pgpass') or os.path.join(os.path.expanduser('~'), 'pgpass'))
+        if os.path.exists(self._pgpass) and not os.path.isfile(self._pgpass):
+            raise PatroniException("'{}' exists and it's not a file, check your `postgresql.pgpass` configuration"
+                                   .format(self._pgpass))
         self._passfile = None
         self._passfile_mtime = None
         self._synchronous_standby_names = None
@@ -346,6 +351,21 @@ class ConfigHandler(object):
     def setup_server_parameters(self):
         self._server_parameters = self.get_server_parameters(self._config)
         self._adjust_recovery_parameters()
+
+    def try_to_create_dir(self, d, msg):
+        d = os.path.join(self._postgresql._data_dir, d)
+        if (not is_subpath(self._postgresql._data_dir, d) or not self._postgresql.data_directory_empty()):
+            validate_directory(d, msg)
+
+    def check_directories(self):
+        if "unix_socket_directories" in self._server_parameters:
+            for d in self._server_parameters["unix_socket_directories"].split(","):
+                self.try_to_create_dir(d.strip(), "'{}' is defined in unix_socket_directories, {}")
+        if "stats_temp_directory" in self._server_parameters:
+            self.try_to_create_dir(self._server_parameters["stats_temp_directory"],
+                                   "'{}' is defined in stats_temp_directory, {}")
+        self.try_to_create_dir(os.path.dirname(self._pgpass),
+                               "'{}' is defined in `postgresql.pgpass`, {}")
 
     @property
     def _configuration_to_save(self):
@@ -521,15 +541,16 @@ class ConfigHandler(object):
         is_remote_master = isinstance(member, RemoteMember)
         primary_conninfo = self.primary_conninfo_params(member)
         if primary_conninfo:
+            use_slots = self.get('use_slots', True) and self._postgresql.major_version >= 90400
+            if use_slots and not (is_remote_master and member.no_replication_slot):
+                primary_slot_name = member.primary_slot_name if is_remote_master else self._postgresql.name
+                recovery_params['primary_slot_name'] = slot_name_from_member_name(primary_slot_name)
             recovery_params['primary_conninfo'] = primary_conninfo
-            if self.get('use_slots', True) and self._postgresql.major_version >= 90400 \
-                    and not (is_remote_master and member.no_replication_slot):
-                recovery_params['primary_slot_name'] = member.primary_slot_name if is_remote_master \
-                        else slot_name_from_member_name(self._postgresql.name)
 
-        if is_remote_master:  # standby_cluster config might have different parameters, we want to override them
-            recovery_params.update({p: member.data.get(p) for p in ('restore_command', 'recovery_min_apply_delay',
-                                                                    'archive_cleanup_command') if member.data.get(p)})
+        # standby_cluster config might have different parameters, we want to override them
+        standby_cluster_params = ['restore_command', 'archive_cleanup_command']\
+            + (['recovery_min_apply_delay'] if is_remote_master else [])
+        recovery_params.update({p: member.data.get(p) for p in standby_cluster_params if member and member.data.get(p)})
         return recovery_params
 
     def recovery_conf_exists(self):
@@ -564,7 +585,7 @@ class ConfigHandler(object):
 
         try:
             values = self._get_pg_settings(self._recovery_parameters_to_compare).values()
-            values = {p[0]: [p[1], p[4] == 'postmaster'] for p in values}
+            values = {p[0]: [p[1], p[4] == 'postmaster', p[5]] for p in values}
             self._postgresql_conf_mtime = pg_conf_mtime
             self._auto_conf_mtime = auto_conf_mtime
             self._postmaster_ctime = postmaster_ctime
@@ -673,6 +694,12 @@ class ConfigHandler(object):
 
         wanted_recovery_params = self.build_recovery_params(member)
         for param, value in self._current_recovery_params.items():
+            # Skip certain parameters defined in the included postgres config files
+            # if we know that they are not specified in the patroni configuration.
+            if len(value) > 2 and value[2] not in (self._postgresql_conf, self._auto_conf) and \
+                    param in ('archive_cleanup_command', 'promote_trigger_file', 'recovery_end_command',
+                              'recovery_min_apply_delay', 'restore_command') and param not in wanted_recovery_params:
+                continue
             if param == 'recovery_min_apply_delay':
                 if not compare_values('integer', 'ms', value[0], wanted_recovery_params.get(param, 0)):
                     record_missmatch(value[1])
@@ -842,7 +869,7 @@ class ConfigHandler(object):
         self._postgresql.set_connection_kwargs(self.local_connect_kwargs)
 
     def _get_pg_settings(self, names):
-        return {r[0]: r for r in self._postgresql.query(('SELECT name, setting, unit, vartype, context '
+        return {r[0]: r for r in self._postgresql.query(('SELECT name, setting, unit, vartype, context, sourcefile'
                                                          + ' FROM pg_catalog.pg_settings ' +
                                                          ' WHERE pg_catalog.lower(name) = ANY(%s)'),
                                                         [n.lower() for n in names])}
