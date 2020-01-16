@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 STOP_SIGNALS = {
     'smart': signal.SIGTERM,
     'fast': signal.SIGINT,
-    'immediate': signal.SIGQUIT if os.name != 'nt' else signal.SIGABRT,
+    'immediate': signal.SIGQUIT,
 }
 
 
@@ -105,7 +105,7 @@ class PostmasterProcess(psutil.Process):
         except psutil.NoSuchProcess:
             return None
 
-    def signal_stop(self, mode):
+    def signal_stop(self, mode, pg_ctl='pg_ctl'):
         """Signal postmaster process to stop
 
         :returns None if signaled, True if process is already gone, False if error
@@ -113,6 +113,8 @@ class PostmasterProcess(psutil.Process):
         if self.is_single_user:
             logger.warning("Cannot stop server; single-user server is running (PID: {0})".format(self.pid))
             return False
+        if os.name != 'posix':
+            return self.pg_ctl_kill(mode, pg_ctl)
         try:
             self.send_signal(STOP_SIGNALS[mode])
         except psutil.NoSuchProcess:
@@ -122,6 +124,17 @@ class PostmasterProcess(psutil.Process):
             return False
 
         return None
+
+    def pg_ctl_kill(self, mode, pg_ctl):
+        SIGNALNAME = {"smart": "TERM", "fast": "INT", "immediate": "QUIT"}[mode]
+        try:
+            status = subprocess.call([pg_ctl, "kill", SIGNALNAME, str(self.pid)])
+        except OSError:
+            return False
+        if status == 0:
+            return None
+        else:
+            return not self.is_running()
 
     def wait_for_user_backends_to_close(self):
         # These regexps are cross checked against versions PostgreSQL 9.1 .. 11
