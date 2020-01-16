@@ -898,9 +898,9 @@ class ConfigHandler(object):
         conf_changed = hba_changed = ident_changed = local_connection_address_changed = pending_restart = False
         if self._postgresql.state == 'running':
             changes = CaseInsensitiveDict({p: v for p, v in server_parameters.items()
-                                           if '.' not in p and p.lower() not in self._RECOVERY_PARAMETERS})
+                                           if p.lower() not in self._RECOVERY_PARAMETERS})
             changes.update({p: None for p in self._server_parameters.keys()
-                            if not ('.' in p or p in changes or p.lower() in self._RECOVERY_PARAMETERS)})
+                            if not (p in changes or p.lower() in self._RECOVERY_PARAMETERS)})
             if changes:
                 if 'wal_buffers' in changes:  # we need to calculate the default value of wal_buffers
                     undef = [p for p in ('shared_buffers', 'wal_segment_size', 'wal_block_size') if p not in changes]
@@ -926,20 +926,16 @@ class ConfigHandler(object):
                                     local_connection_address_changed = True
                             else:
                                 logger.info('Changed %s from %s to %s', r[0], r[1], new_value)
-                for param in changes:
-                    if param in server_parameters:
+                for param, value in changes.items():
+                    if '.' in param:
+                        # Check that user-defined-paramters have changed (parameters with period in name)
+                        if value is None or param not in self._server_parameters \
+                                or str(value) != str(self._server_parameters[param]):
+                            logger.info('Changed %s from %s to %s', param, self._server_parameters.get(param), value)
+                            conf_changed = True
+                    elif param in server_parameters:
                         logger.warning('Removing invalid parameter `%s` from postgresql.parameters', param)
                         server_parameters.pop(param)
-
-            # Check that user-defined-paramters have changed (parameters with period in name)
-            for p, v in server_parameters.items():
-                if '.' in p and (p not in self._server_parameters or str(v) != str(self._server_parameters[p])):
-                    logger.info('Changed %s from %s to %s', p, self._server_parameters.get(p), v)
-                    conf_changed = True
-            for p, v in self._server_parameters.items():
-                if '.' in p and (p not in server_parameters or str(v) != str(server_parameters[p])):
-                    logger.info('Changed %s from %s to %s', p, v, server_parameters.get(p))
-                    conf_changed = True
 
             if not server_parameters.get('hba_file') and config.get('pg_hba'):
                 hba_changed = self._config.get('pg_hba', []) != config['pg_hba']
