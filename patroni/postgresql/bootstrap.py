@@ -311,11 +311,13 @@ BEGIN
     END IF;
 END;$$""".format(name, ' '.join(options))
         self._postgresql.query('SET log_statement TO none')
+        self._postgresql.query('SET log_min_duration_statement TO -1')
         self._postgresql.query("SET log_min_error_statement TO 'log'")
         try:
             self._postgresql.query(sql, *params)
         finally:
             self._postgresql.query('RESET log_min_error_statement')
+            self._postgresql.query('RESET log_min_duration_statement')
             self._postgresql.query('RESET log_statement')
 
     def post_bootstrap(self, config, task):
