@@ -20,9 +20,9 @@ elif sys.version_info >= (3, 4):  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 STOP_SIGNALS = {
-    'smart': signal.SIGTERM,
-    'fast': signal.SIGINT,
-    'immediate': signal.SIGQUIT,
+    'smart': 'TERM',
+    'fast': 'INT',
+    'immediate': 'QUIT',
 }
 
 
@@ -116,7 +116,7 @@ class PostmasterProcess(psutil.Process):
         if os.name != 'posix':
             return self.pg_ctl_kill(mode, pg_ctl)
         try:
-            self.send_signal(STOP_SIGNALS[mode])
+            self.send_signal(getattr(signal, 'SIG' + STOP_SIGNALS[mode]))
         except psutil.NoSuchProcess:
             return True
         except psutil.AccessDenied as e:
@@ -126,9 +126,8 @@ class PostmasterProcess(psutil.Process):
         return None
 
     def pg_ctl_kill(self, mode, pg_ctl):
-        SIGNALNAME = {"smart": "TERM", "fast": "INT", "immediate": "QUIT"}[mode]
         try:
-            status = subprocess.call([pg_ctl, "kill", SIGNALNAME, str(self.pid)])
+            status = subprocess.call([pg_ctl, "kill", STOP_SIGNALS[mode], str(self.pid)])
         except OSError:
             return False
         if status == 0:

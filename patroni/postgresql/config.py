@@ -456,7 +456,7 @@ class ConfigHandler(object):
         # when we are doing custom bootstrap we assume that we don't know superuser password
         # and in order to be able to change it, we are opening trust access from a certain address
         if self._postgresql.bootstrap.running_custom_bootstrap:
-            addresses = {'': 'local'}
+            addresses = {} if os.name == 'nt' else {'': 'local'}  # windows doesn't yet support unix-domain sockets
             if 'host' in self.local_replication_address and not self.local_replication_address['host'].startswith('/'):
                 addresses.update({sa[0] + '/32': 'host' for _, _, _, _, sa in socket.getaddrinfo(
                                   self.local_replication_address['host'], self.local_replication_address['port'],
