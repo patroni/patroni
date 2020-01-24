@@ -49,11 +49,11 @@ class PatroniCtlException(ClickException):
 def parse_dcs(dcs):
     if dcs is None:
         return None
+    elif '//' not in dcs:
+        dcs = '//' + dcs
 
     parsed = urlparse(dcs)
     scheme = parsed.scheme
-    if scheme == '' and parsed.netloc == '':
-        parsed = urlparse('//' + dcs)
     port = int(parsed.port) if parsed.port else None
 
     if scheme == '':
