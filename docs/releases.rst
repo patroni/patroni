@@ -31,22 +31,22 @@ Version 1.6.4
 
 - Disable Consul ``serfHealth`` check by default (Kostiantyn Nemchenko)
 
-  Even in case of little network problems the failing ``serfHealth`` causing invalidation of all sessions associated with the node and therefore the leader key much earlier than ``ttl``. It was causing the unwanted restart of replicas and maybe demote of the primary.
+  Even in case of little network problems the failing ``serfHealth`` leads to invalidation of all sessions associated with the node. Therefore, the leader key is lost much earlier than ``ttl`` which causes unwanted restarts of replicas and maybe demotion of the primary.
 
 - Configure tcp keepalives for connections to K8s API (Alexander)
 
-  In case if we get nothing from the socket after the TTL seconds it considered be considered dead.
+  In case if we get nothing from the socket after TTL seconds it can be considered dead.
 
 - Avoid logging of passwords on user creation (Alexander)
 
-  If the password is rejected or logging is configured to verbose or didn't configured at all it might happen that the password is written into postgres logs. In order to avoid it Patroni will change ``log_statement``, ``log_min_duration_statement``, and ``log_min_error_statement`` to some safe values before doing the attempt to create/update user.
+  If the password is rejected or logging is configured to verbose or not configured at all it might happen that the password is written into postgres logs. In order to avoid it Patroni will change ``log_statement``, ``log_min_duration_statement``, and ``log_min_error_statement`` to some safe values before doing the attempt to create/update user.
 
 
 **Bugfixes**
 
 - Use ``restore_command`` from the ``standby_cluster`` config on cascading replicas (Alexander)
 
-  The ``standby_leader`` was already doing it from the beginning feature existed. Not doing the same on replicas might might prevent them from catching up with standby leader.
+  The ``standby_leader`` was already doing it from the beginning the feature existed. Not doing the same on replicas might prevent them from catching up with standby leader.
 
 - Update timeline reported by the standby cluster (Alexander)
 
@@ -58,11 +58,11 @@ Version 1.6.4
 
 - Improve handling of postgresql parameters with period in its name (Alexander)
 
-  Such parameters could be defined by extension and therefore the unit is not necessarily is the string and change of the value might require a restart (for example ``pg_stat_statements.max``).
+  Such parameters could be defined by extensions where the unit is not necessarily a string. Changing the value might require a restart (for example ``pg_stat_statements.max``).
 
 - Improve exception handling during shutdown (Alexander)
 
-  During the shutdown Patroni is trying to update its status in the DCS. If the DCS is inaccessible an exception might be raised. Lack of exception handling was preventing logger thread from stopping.
+  During shutdown Patroni is trying to update its status in the DCS. If the DCS is inaccessible an exception might be raised. Lack of exception handling was preventing logger thread from stopping.
 
 
 Version 1.6.3
