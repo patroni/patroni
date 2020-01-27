@@ -1290,7 +1290,8 @@ class Ha(object):
                 data_sysid = self.state_handler.sysid
                 if not self.sysid_valid(data_sysid):
                     # data directory is not empty, but no valid sysid, cluster must be broken, suggest reinit
-                    return "data dir for the cluster is not empty, but system ID is invalid; consider doing reinitalize"
+                    return ("data dir for the cluster is not empty, but system ID is invalid; consider doing"
+                            "reinitialize")
 
                 if self.sysid_valid(self.cluster.initialize):
                     if self.cluster.initialize != data_sysid:

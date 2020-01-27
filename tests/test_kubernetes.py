@@ -116,7 +116,8 @@ class TestKubernetes(unittest.TestCase):
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_pod', mock_list_namespaced_pod, create=True)
     @patch.object(Thread, 'start', Mock())
     def setUp(self):
-        self.k = Kubernetes({'ttl': 30, 'scope': 'test', 'name': 'p-0', 'retry_timeout': 10, 'labels': {'f': 'b'}})
+        self.k = Kubernetes({'ttl': 30, 'scope': 'test', 'name': 'p-0',
+                             'loop_wait': 10, 'retry_timeout': 10, 'labels': {'f': 'b'}})
         self.assertRaises(AttributeError, self.k._pods._build_cache)
         self.k._pods._is_ready = True
         self.assertRaises(TypeError, self.k._kinds._build_cache)
@@ -142,7 +143,7 @@ class TestKubernetes(unittest.TestCase):
     @patch.object(K8SConfig, 'load_incluster_config', mock_load_k8s_config)
     @patch.object(k8s_client.CoreV1Api, 'create_namespaced_endpoints', Mock(), create=True)
     def test_update_leader(self):
-        k = Kubernetes({'ttl': 30, 'scope': 'test', 'name': 'p-0', 'retry_timeout': 10,
+        k = Kubernetes({'ttl': 30, 'scope': 'test', 'name': 'p-0', 'loop_wait': 10, 'retry_timeout': 10,
                         'labels': {'f': 'b'}, 'use_endpoints': True, 'pod_ip': '10.0.0.0'})
         self.assertIsNotNone(k.update_leader('123'))
 
@@ -150,7 +151,7 @@ class TestKubernetes(unittest.TestCase):
     @patch.object(K8SConfig, 'load_kube_config', mock_load_k8s_config)
     @patch.object(k8s_client.CoreV1Api, 'create_namespaced_endpoints', Mock(), create=True)
     def test_update_leader_with_restricted_access(self):
-        k = Kubernetes({'ttl': 30, 'scope': 'test', 'name': 'p-0', 'retry_timeout': 10,
+        k = Kubernetes({'ttl': 30, 'scope': 'test', 'name': 'p-0', 'loop_wait': 10, 'retry_timeout': 10,
                         'labels': {'f': 'b'}, 'use_endpoints': True, 'pod_ip': '10.0.0.0'})
         self.assertIsNotNone(k.update_leader('123', True))
 
@@ -191,7 +192,7 @@ class TestKubernetes(unittest.TestCase):
 
     @patch.object(K8SConfig, 'load_incluster_config', mock_load_k8s_config)
     def test_delete_sync_state(self):
-        k = Kubernetes({'ttl': 30, 'scope': 'test', 'name': 'p-0', 'retry_timeout': 10,
+        k = Kubernetes({'ttl': 30, 'scope': 'test', 'name': 'p-0', 'loop_wait': 10, 'retry_timeout': 10,
                         'labels': {'f': 'b'}, 'use_endpoints': True, 'pod_ip': '10.0.0.0'})
         with patch.object(k8s_client.CoreV1Api, 'create_namespaced_endpoints',
                           Mock(side_effect=[k8s_client.rest.ApiException(502, ''),
@@ -213,7 +214,7 @@ class TestKubernetes(unittest.TestCase):
     @patch.object(k8s_client.CoreV1Api, 'create_namespaced_service',
                   Mock(side_effect=[True, False, k8s_client.rest.ApiException(500, '')]), create=True)
     def test__create_config_service(self):
-        k = Kubernetes({'ttl': 30, 'scope': 'test', 'name': 'p-0', 'retry_timeout': 10,
+        k = Kubernetes({'ttl': 30, 'scope': 'test', 'name': 'p-0', 'loop_wait': 10, 'retry_timeout': 10,
                         'labels': {'f': 'b'}, 'use_endpoints': True, 'pod_ip': '10.0.0.0'})
         self.assertIsNotNone(k.patch_or_create_config({'foo': 'bar'}))
         self.assertIsNotNone(k.patch_or_create_config({'foo': 'bar'}))
@@ -225,7 +226,8 @@ class TestCacheBuilder(unittest.TestCase):
     @patch.object(K8SConfig, 'load_incluster_config', mock_load_k8s_config)
     @patch.object(Thread, 'start', Mock())
     def setUp(self):
-        self.k = Kubernetes({'ttl': 30, 'scope': 'test', 'name': 'p-0', 'retry_timeout': 10, 'labels': {'f': 'b'}})
+        self.k = Kubernetes({'ttl': 30, 'scope': 'test', 'name': 'p-0',
+                             'loop_wait': 10, 'retry_timeout': 10, 'labels': {'f': 'b'}})
 
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_config_map', mock_list_namespaced_config_map, create=True)
     @patch('patroni.dcs.kubernetes.ObjectCache._watch')
