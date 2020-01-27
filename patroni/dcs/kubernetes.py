@@ -250,7 +250,7 @@ class CoreV1ApiProxy(object):
         cnt = 3
         idle = int(loop_wait + retry_timeout)
         intvl = max(1, int(float(ttl - idle) / cnt))
-        self._api.api_client.rest_client.pool_manager.connection_pool_kw['socket_options'] = [
+        self._api.pool_manager.connection_pool_kw['socket_options'] = [
             (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1),
             (socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, idle),
             (socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, intvl),
