@@ -167,7 +167,7 @@ class Member(namedtuple('Member', 'index,name,session,data')):
 
         # apply any remaining authentication parameters
         if auth and isinstance(auth, dict):
-            ret.update(auth)
+            ret.update({k: v for k, v in auth.items() if v is not None})
             if 'username' in auth:
                 ret['user'] = ret.pop('username')
         return ret
@@ -241,20 +241,24 @@ class Leader(namedtuple('Leader', 'index,session,member')):
         return self.member.conn_url
 
     @property
+    def data(self):
+        return self.member.data
+
+    @property
     def timeline(self):
-        return self.member.data.get('timeline')
+        return self.data.get('timeline')
 
     @property
     def checkpoint_after_promote(self):
         """
         >>> Leader(1, '', Member.from_node(1, '', '', '{"version":"z"}')).checkpoint_after_promote
         """
-        version = self.member.data.get('version')
+        version = self.data.get('version')
         if version:
             try:
                 # 1.5.6 is the last version which doesn't expose checkpoint_after_promote: false
                 if tuple(map(int, version.split('.'))) > (1, 5, 6):
-                    return self.member.data['role'] == 'master' and 'checkpoint_after_promote' not in self.member.data
+                    return self.data['role'] == 'master' and 'checkpoint_after_promote' not in self.data
             except Exception:
                 logger.debug('Failed to parse Patroni version %s', version)
 

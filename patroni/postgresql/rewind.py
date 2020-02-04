@@ -132,13 +132,9 @@ class Rewind(object):
         return leader and leader.conn_url and self._state == REWIND_STATUS.NEED
 
     def check_for_checkpoint_after_promote(self):
-        if self._state == REWIND_STATUS.INITIAL and self._postgresql.is_leader():
-            try:
-                timeline = int(self._postgresql.controldata().get("Latest checkpoint's TimeLineID"))
-                if self._postgresql.get_master_timeline() == timeline:
-                    self._state = REWIND_STATUS.CHECKPOINT
-            except (TypeError, ValueError):
-                logger.exception('Failed to parse timeline from pg_controldata output')
+        if self._state == REWIND_STATUS.INITIAL and self._postgresql.is_leader() and \
+                self._postgresql.get_master_timeline() == self._postgresql.pg_control_timeline():
+            self._state = REWIND_STATUS.CHECKPOINT
 
     def checkpoint_after_promote(self):
         return self._state == REWIND_STATUS.CHECKPOINT

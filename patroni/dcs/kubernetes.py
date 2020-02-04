@@ -41,8 +41,22 @@ class CoreV1ApiProxy(object):
         self._request_timeout = None
         self._use_endpoints = use_endpoints
 
-    def set_timeout(self, timeout):
-        self._request_timeout = (1, timeout / 3.0)
+    def configure_timeouts(self, loop_wait, retry_timeout, ttl):
+        # Normally every loop_wait seconds we should have receive something from the socket.
+        # If we didn't received anything after the loop_wait + retry_timeout it is a time
+        # to start worrying (send keepalive messages). Finally, the connection should be
+        # considered as dead if we received nothing from the socket after the ttl seconds.
+        cnt = 3
+        idle = int(loop_wait + retry_timeout)
+        intvl = max(1, int(float(ttl - idle) / cnt))
+        self._api.api_client.rest_client.pool_manager.connection_pool_kw['socket_options'] = [
+            (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1),
+            (socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, idle),
+            (socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, intvl),
+            (socket.IPPROTO_TCP, socket.TCP_KEEPCNT, cnt),
+            (socket.IPPROTO_TCP, 18, int(ttl * 1000))  # TCP_USER_TIMEOUT
+        ]
+        self._request_timeout = (1, retry_timeout / 3.0)
 
     def __getattr__(self, func):
         if func.endswith('_kind'):
@@ -210,8 +224,7 @@ class Kubernetes(AbstractDCS):
             self.__subsets = [k8s_client.V1EndpointSubset(addresses=addresses, ports=ports)]
             self._should_create_config_service = True
         self._api = CoreV1ApiProxy(use_endpoints)
-        self.set_retry_timeout(config['retry_timeout'])
-        self.set_ttl(config.get('ttl') or 30)
+        self.reload_config(config)
         self._leader_observed_record = {}
         self._leader_observed_time = None
         self._leader_resource_version = None
@@ -250,7 +263,10 @@ class Kubernetes(AbstractDCS):
 
     def set_retry_timeout(self, retry_timeout):
         self._retry.deadline = retry_timeout
-        self._api.set_timeout(retry_timeout)
+
+    def reload_config(self, config):
+        super(Kubernetes, self).reload_config(config)
+        self._api.configure_timeouts(self.loop_wait, self._retry.deadline, self.ttl)
 
     @staticmethod
     def member(pod):

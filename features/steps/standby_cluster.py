@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 
 from behave import step
@@ -9,7 +10,7 @@ SELECT * FROM pg_catalog.pg_stat_replication
 WHERE application_name = '{0}'
 """
 
-callback = "bash -c 'echo \"${*: -3:1} ${*: -2:1} ${*: -1:1}\" >> data/$1/$1_cb.log' -- "
+callback = sys.executable + " features/callback2.py "
 
 
 @step('I start {name:w} with callback configured')
@@ -17,7 +18,7 @@ def start_patroni_with_callbacks(context, name):
     return context.pctl.start(name, custom_config={
         "postgresql": {
             "callbacks": {
-                "on_role_change": "features/callback.sh"
+                "on_role_change": sys.executable + " features/callback.py"
             }
         }
     })
@@ -30,8 +31,8 @@ def start_patroni(context, name, cluster_name):
         "postgresql": {
             "callbacks": {c: callback + name for c in ('on_start', 'on_stop', 'on_restart', 'on_role_change')},
             "backup_restore": {
-                "command": "features/backup_restore.sh --sourcedir=" + os.path.join(context.pctl.patroni_path,
-                                                                                    'data', 'basebackup')}
+                "command": (sys.executable + " features/backup_restore.py --sourcedir=" +
+                            os.path.join(context.pctl.patroni_path, 'data', 'basebackup'))}
         }
     })
 
