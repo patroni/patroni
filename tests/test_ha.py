@@ -150,7 +150,7 @@ def run_async(self, func, args=()):
 
 @patch.object(Postgresql, 'is_running', Mock(return_value=MockPostmaster()))
 @patch.object(Postgresql, 'is_leader', Mock(return_value=True))
-@patch.object(Postgresql, 'timeline_wal_position', Mock(return_value=(1, 10)))
+@patch.object(Postgresql, 'timeline_wal_position', Mock(return_value=(1, 10, 1)))
 @patch.object(Postgresql, '_cluster_info_state_get', Mock(return_value=3))
 @patch.object(Postgresql, 'call_nowait', Mock(return_value=True))
 @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=False))
@@ -199,8 +199,11 @@ class TestHa(PostgresInit):
         self.assertTrue(self.ha.update_lock(True))
 
     def test_touch_member(self):
-        self.p.timeline_wal_position = Mock(return_value=(0, 1))
+        self.p.timeline_wal_position = Mock(return_value=(0, 1, 0))
         self.p.replica_cached_timeline = Mock(side_effect=Exception)
+        self.ha.touch_member()
+        self.p.timeline_wal_position = Mock(return_value=(0, 1, 1))
+        self.p.set_role('standby_leader')
         self.ha.touch_member()
 
     def test_is_leader(self):
@@ -601,7 +604,7 @@ class TestHa(PostgresInit):
         # in synchronous_mode consider itself healthy if the former leader is accessible in read-only and ahead of us
         with patch.object(Ha, 'is_synchronous_mode', Mock(return_value=True)):
             self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
-        with patch('patroni.postgresql.Postgresql.timeline_wal_position', return_value=(1, 1)):
+        with patch('patroni.postgresql.Postgresql.timeline_wal_position', return_value=(1, 1, 1)):
             self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         with patch('patroni.postgresql.Postgresql.replica_cached_timeline', return_value=1):
             self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))

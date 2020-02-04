@@ -30,7 +30,7 @@ Feature: standby cluster
     When I issue a GET request to http://127.0.0.1:8009/standby_leader
     Then I receive a response code 200
     And I receive a response role standby_leader
-    And there is a postgres1_cb.log with "on_start replica batman1\non_role_change standby_leader batman1" in postgres1 data directory
+    And there is a postgres1_cb.log with "on_role_change standby_leader batman1" in postgres1 data directory
     When I start postgres2 in a cluster batman1
     Then postgres2 role is the replica after 24 seconds
     And table foo is present on postgres2 after 20 seconds

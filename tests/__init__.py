@@ -86,7 +86,7 @@ class MockCursor(object):
         elif sql.startswith('SELECT slot_name'):
             self.results = [('blabla', 'physical'), ('foobar', 'physical'), ('ls', 'logical', 'a', 'b')]
         elif sql.startswith('SELECT CASE WHEN pg_catalog.pg_is_in_recovery()'):
-            self.results = [(1, 2)]
+            self.results = [(1, 2, 1)]
         elif sql.startswith('SELECT pg_catalog.pg_is_in_recovery()'):
             self.results = [(False, 2)]
         elif sql.startswith('SELECT pg_catalog.to_char'):
@@ -164,7 +164,8 @@ class PostgresInit(unittest.TestCase):
                    'search_path': 'public', 'hot_standby': 'on', 'max_wal_senders': 5,
                    'wal_keep_segments': 8, 'wal_log_hints': 'on', 'max_locks_per_transaction': 64,
                    'max_worker_processes': 8, 'max_connections': 100, 'max_prepared_transactions': 0,
-                   'track_commit_timestamp': 'off', 'unix_socket_directories': '/tmp', 'trigger_file': 'bla'}
+                   'track_commit_timestamp': 'off', 'unix_socket_directories': '/tmp', 'trigger_file': 'bla',
+                   'stats_temp_directory': '/tmp'}
 
     @patch('psycopg2.connect', psycopg2_connect)
     @patch.object(ConfigHandler, 'write_postgresql_conf', Mock())

@@ -8,7 +8,7 @@ import time
 from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.async_executor import CriticalTask
 from patroni.dcs import Cluster, ClusterConfig, Member, RemoteMember, SyncState
-from patroni.exceptions import PostgresConnectionException
+from patroni.exceptions import PostgresConnectionException, PatroniException
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.slots import SlotsHandler
@@ -206,14 +206,16 @@ class TestPostgresql(BaseTestPostgresql):
     @patch('patroni.postgresql.config.ConfigHandler._get_pg_settings')
     def test_check_recovery_conf(self, mock_get_pg_settings):
         mock_get_pg_settings.return_value = {
-            'primary_conninfo': ['primary_conninfo', 'foo=', None, 'string', 'postmaster'],
-            'recovery_min_apply_delay': ['recovery_min_apply_delay', '0', 'ms', 'integer', 'sighup']
+            'primary_conninfo': ['primary_conninfo', 'foo=', None, 'string', 'postmaster', self.p.config._auto_conf],
+            'recovery_min_apply_delay': ['recovery_min_apply_delay', '0', 'ms', 'integer', 'sighup', 'foo']
         }
         self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
         self.p.config.write_recovery_conf({'standby_mode': 'on'})
         self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
         mock_get_pg_settings.return_value['primary_conninfo'][1] = ''
         mock_get_pg_settings.return_value['recovery_min_apply_delay'][1] = '1'
+        self.assertEqual(self.p.config.check_recovery_conf(None), (False, False))
+        mock_get_pg_settings.return_value['recovery_min_apply_delay'][5] = self.p.config._auto_conf
         self.assertEqual(self.p.config.check_recovery_conf(None), (True, False))
         mock_get_pg_settings.return_value['recovery_min_apply_delay'][1] = '0'
         self.assertEqual(self.p.config.check_recovery_conf(None), (False, False))
@@ -234,7 +236,8 @@ class TestPostgresql(BaseTestPostgresql):
     @patch.object(MockPostmaster, 'create_time', Mock(return_value=1234567), create=True)
     @patch('patroni.postgresql.config.ConfigHandler._get_pg_settings')
     def test__read_recovery_params(self, mock_get_pg_settings):
-        mock_get_pg_settings.return_value = {'primary_conninfo': ['primary_conninfo', '', None, 'string', 'postmaster']}
+        mock_get_pg_settings.return_value = {'primary_conninfo': ['primary_conninfo', '', None, 'string',
+                                                                  'postmaster', self.p.config._postgresql_conf]}
         self.p.config.write_recovery_conf({'standby_mode': 'on', 'primary_conninfo': {'password': 'foo'}})
         self.p.config.write_postgresql_conf()
         self.assertEqual(self.p.config.check_recovery_conf(None), (False, False))
@@ -331,7 +334,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertTrue(self.p.promote(0))
 
     def test_timeline_wal_position(self):
-        self.assertEqual(self.p.timeline_wal_position(), (1, 2))
+        self.assertEqual(self.p.timeline_wal_position(), (1, 2, 1))
         Thread(target=self.p.timeline_wal_position).start()
 
     @patch.object(PostmasterProcess, 'from_pidfile')
@@ -695,3 +698,8 @@ class TestPostgresql(BaseTestPostgresql):
             self.p.cancellable.cancel()
             self.assertFalse(self.p.start())
             self.assertTrue(self.p.pending_restart)
+
+    @patch('os.path.exists', Mock(return_value=True))
+    @patch('os.path.isfile', Mock(return_value=False))
+    def test_pgpass_is_dir(self):
+        self.assertRaises(PatroniException, self.setUp)

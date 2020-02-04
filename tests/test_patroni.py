@@ -174,6 +174,7 @@ class TestPatroni(unittest.TestCase):
     @patch.object(Thread, 'join', Mock())
     def test_shutdown(self):
         self.p.api.shutdown = Mock(side_effect=Exception)
+        self.p.ha.shutdown = Mock(side_effect=Exception)
         self.p.shutdown()
 
     def test_check_psycopg2(self):

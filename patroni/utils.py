@@ -1,7 +1,9 @@
 import logging
+import os
 import platform
 import random
 import re
+import tempfile
 import time
 
 from dateutil import tz
@@ -416,3 +418,27 @@ def cluster_as_json(cluster):
         if cluster.failover.candidate:
             ret['scheduled_switchover']['to'] = cluster.failover.candidate
     return ret
+
+
+def is_subpath(d1, d2):
+    real_d1 = os.path.realpath(d1) + os.path.sep
+    real_d2 = os.path.realpath(os.path.join(real_d1, d2))
+    return os.path.commonprefix([real_d1, real_d2 + os.path.sep]) == real_d1
+
+
+def validate_directory(d, msg="{} {}"):
+    if not os.path.exists(d):
+        try:
+            os.makedirs(d)
+        except OSError as e:
+            logger.error(e)
+            raise PatroniException(msg.format(d, "couldn't create the directory"))
+    elif os.path.isdir(d):
+        try:
+            fd, tmpfile = tempfile.mkstemp(dir=d)
+            os.close(fd)
+            os.remove(tmpfile)
+        except OSError:
+            raise PatroniException(msg.format(d, "the directory is not writable"))
+    else:
+        raise PatroniException(msg.format(d, "is not a directory"))
