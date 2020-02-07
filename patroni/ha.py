@@ -698,11 +698,12 @@ class Ha(object):
                         return False
                     if my_wal_position < st.wal_position:
                         logger.info('Wal position of %s is ahead of my wal position', st.member.name)
-                        # In synchronous mode the former leader might be still accessible and even be ahead of us.
-                        # We should not disqualify himself from the leader race in such a situation.
-                        if not self.is_synchronous_mode() or st.member.name != self.cluster.sync.leader:
+                        # In synchronous mode quorum members might be still accessible and even be ahead of us.
+                        # Because of quorum guarantees we don't care and will rely on votes to not lose useful
+                        # data.
+                        if not self.is_synchronous_mode():
                             return False
-                        logger.info('Ignoring the former leader being ahead of us')
+
         return quorum_votes >= quorum
 
     def is_failover_possible(self, members):
