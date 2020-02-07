@@ -688,6 +688,8 @@ class Ha(object):
         if members:
             for st in self.fetch_nodes_statuses(members):
                 if st.member.name in voting_set and st.wal_position and my_wal_position >= st.wal_position:
+                    if self.is_synchronous_mode():
+                        logger.info("Got quorum vote from %s", st.member.name)
                     quorum_votes += 1
                 if st.failover_limitation() is None:
                     # TODO: We should probably consider ourselves unhealthy even if the master can't be failed over to
