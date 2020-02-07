@@ -112,3 +112,11 @@ class QuorumTest(unittest.TestCase):
         # Quorum and sync states mismatched, somebody other than Patroni modified system state
         state = 2, set("abc"), 3, set("abd")
         self.assertRaises(QuorumError, lambda:list(QuorumStateResolver(*state, active=set("abc"), sync_wanted=2)))
+
+    def test_sync_high_quorum_low_safety_margin_not_1(self):
+        state = 3, set('abcdef'), 5, set('abcdef')
+        self.assertEqual(list(QuorumStateResolver(*state, active=set("abcdef"), sync_wanted=3)), [
+            ('sync', 4, set('abcdef')),   # Reduce safety margin to 1 (could be skipped but we are not smart enough)
+            ('quorum', 4, set('abcdef')), # Reduce quorum requirements
+            ('sync', 3, set('abcdef')),   # Reduce synchronization
+        ])

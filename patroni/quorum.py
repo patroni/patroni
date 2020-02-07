@@ -133,7 +133,8 @@ class QuorumStateResolver(object):
             # Case 3: quorum or replication factor is bigger than needed. In the middle of changing replication factor.
             if self.numsync > self.sync_wanted:
                 # Reduce replication factor
-                yield self.sync_update(min(self.sync_wanted, len(self.sync)), self.sync)
+                new_sync = clamp(self.sync_wanted, min=len(self.voters) - self.quorum + 1, max=len(self.sync))
+                yield self.sync_update(new_sync, self.sync)
             elif len(self.voters) > self.numsync:
                 # Reduce quorum
                 yield self.quorum_update(len(self.voters) + 1 - self.numsync, self.voters)
