@@ -479,6 +479,11 @@ class Ha(object):
                                        min_sync, num - 1)
                         num = min_sync
                     self.state_handler.config.set_synchronous_state(num, nodes)
+                    sync_state = {'numsync': num, 'sync': nodes}
+
+            if sync_state['numsync'] < min_sync or len(sync_state['sync']) < sync_state['numsync'] > min_sync:
+                # Minimum replication factor changed
+                self.state_handler.config.set_synchronous_state(min_sync, sync_state['sync'])
         else:
             self.disable_synchronous_replication()
 
