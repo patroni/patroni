@@ -17,7 +17,18 @@ restapi:
 #   cacert: /etc/ssl/certs/ssl-cacert-snakeoil.pem
 
 etcd:
+  #Provide host to do the initial discovery of the cluster topology:
   host: 127.0.0.1:2379
+  #Or use "hosts" to provide multiple endpoints
+  #Could be a comma separated string:
+  #hosts: host1:port1,host2:port2
+  #or an actual yaml list:
+  #hosts:
+  #- host1:port1
+  #- host2:port2
+  #Once discovery is complete Patroni will use the list of advertised clientURLs
+  #It is possible to change this behavior through by setting:
+  #use_proxies: true
 
 bootstrap:
   # this section will be written into Etcd:/<namespace>/<scope>/config after initializing new cluster
@@ -49,6 +60,9 @@ bootstrap:
   - data-checksums
 
   pg_hba:  # Add following lines to pg_hba.conf after running 'initdb'
+  # For kerberos gss based connectivity (discard @.*$)
+  #- host replication replicator 127.0.0.1/32 gss include_realm=0
+  #- host all all 0.0.0.0/0 gss include_realm=0
   - host replication replicator 127.0.0.1/32 md5
   - host all all 0.0.0.0/0 md5
 #  - hostssl all all 0.0.0.0/0 md5
@@ -78,7 +92,15 @@ postgresql:
     superuser:
       username: postgres
       password: zalando
+    rewind:  # Has no effect on postgres 10 and lower
+      username: rewind_user
+      password: rewind_password
+  # Server side kerberos spn
+#  krbsrvname: postgres
   parameters:
+    # Fully qualified kerberos ticket file for the running user
+    # same as KRB5CCNAME used by the GSS
+#    krb_server_keyfile: /var/spool/keytabs/postgres
     unix_socket_directories: '.'
   basebackup:
       - verbose

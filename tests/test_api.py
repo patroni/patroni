@@ -2,6 +2,7 @@ import datetime
 import json
 import psycopg2
 import unittest
+import socket
 
 from mock import Mock, PropertyMock, patch
 from patroni.api import RestApiHandler, RestApiServer
@@ -10,7 +11,8 @@ from patroni.ha import _MemberStatus
 from patroni.utils import tzutc
 from six import BytesIO as IO
 from six.moves import BaseHTTPServer
-from test_postgresql import psycopg2_connect, MockCursor
+from . import psycopg2_connect, MockCursor
+from .test_ha import get_cluster_initialized_without_leader
 
 
 future_restart_time = datetime.datetime.now(tzutc) + datetime.timedelta(days=5)
@@ -60,7 +62,7 @@ class MockHa(object):
         return 'reinitialize'
 
     @staticmethod
-    def restart():
+    def restart(*args, **kwargs):
         return (True, '')
 
     @staticmethod
@@ -73,7 +75,7 @@ class MockHa(object):
 
     @staticmethod
     def fetch_nodes_statuses(members):
-        return [_MemberStatus(None, True, None, None, {}, False)]
+        return [_MemberStatus(None, True, None, 0, None, {}, False)]
 
     @staticmethod
     def schedule_future_restart(data):
@@ -100,12 +102,20 @@ class MockHa(object):
         return False
 
 
+class MockLogger(object):
+
+    NORMAL_LOG_QUEUE_SIZE = 2
+    queue_size = 3
+    records_lost = 1
+
+
 class MockPatroni(object):
 
     ha = MockHa()
     config = Mock()
     postgresql = ha.state_handler
     dcs = Mock()
+    logger = MockLogger()
     tags = {}
     version = '0.00'
     noloadbalance = PropertyMock(return_value=False)
@@ -134,25 +144,29 @@ class MockRestApiServer(RestApiServer):
     def __init__(self, Handler, request, config=None):
         self.socket = 0
         self.serve_forever = Mock()
-        BaseHTTPServer.HTTPServer.__init__ = Mock()
         MockRestApiServer._BaseServer__is_shut_down = Mock()
         MockRestApiServer._BaseServer__shutdown_request = True
-        config = config or {'listen': '127.0.0.1:8008', 'auth': 'test:test', 'certfile': 'dumb'}
+        config = config or {'listen': '127.0.0.1:8008', 'auth': 'test:test', 'certfile': 'dumb', 'verify_client': 'a'}
         super(MockRestApiServer, self).__init__(MockPatroni(), config)
         Handler(MockRequest(request), ('0.0.0.0', 8080), self)
 
 
-@patch('ssl.wrap_socket', Mock(return_value=0))
+@patch('ssl.SSLContext.load_cert_chain', Mock())
+@patch('ssl.SSLContext.wrap_socket', Mock(return_value=0))
+@patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
 class TestRestApiHandler(unittest.TestCase):
 
     _authorization = '\nAuthorization: Basic dGVzdDp0ZXN0'
 
     def test_do_GET(self):
         MockRestApiServer(RestApiHandler, 'GET /replica')
+        MockRestApiServer(RestApiHandler, 'GET /read-only')
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={})):
             MockRestApiServer(RestApiHandler, 'GET /replica')
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'master'})):
             MockRestApiServer(RestApiHandler, 'GET /replica')
+        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'state': 'running'})):
+            MockRestApiServer(RestApiHandler, 'GET /health')
         MockRestApiServer(RestApiHandler, 'GET /master')
         MockPatroni.dcs.cluster.sync.sync_standby = MockPostgresql.name
         MockPatroni.dcs.cluster.is_synchronous_mode = Mock(return_value=True)
@@ -184,6 +198,17 @@ class TestRestApiHandler(unittest.TestCase):
     def test_basicauth(self):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'POST /restart HTTP/1.0'))
         MockRestApiServer(RestApiHandler, 'POST /restart HTTP/1.0\nAuthorization:')
+
+    @patch.object(MockPatroni, 'dcs')
+    def test_do_GET_cluster(self, mock_dcs):
+        mock_dcs.cluster = get_cluster_initialized_without_leader()
+        mock_dcs.cluster.members[1].data['xlog_location'] = 11
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /cluster'))
+
+    @patch.object(MockPatroni, 'dcs')
+    def test_do_GET_history(self, mock_dcs):
+        mock_dcs.cluster = get_cluster_initialized_without_leader()
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /history'))
 
     @patch.object(MockPatroni, 'dcs')
     def test_do_GET_config(self, mock_dcs):
@@ -221,11 +246,8 @@ class TestRestApiHandler(unittest.TestCase):
         mock_dcs.get_cluster.return_value.config = ClusterConfig.from_node(1, config)
         MockRestApiServer(RestApiHandler, request)
 
-    @patch.object(MockPatroni, 'sighup_handler', Mock(side_effect=Exception))
+    @patch.object(MockPatroni, 'sighup_handler', Mock())
     def test_do_POST_reload(self):
-        with patch.object(MockPatroni, 'config') as mock_config:
-            mock_config.reload_local_configuration.return_value = False
-            MockRestApiServer(RestApiHandler, 'POST /reload HTTP/1.0' + self._authorization)
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'POST /reload HTTP/1.0' + self._authorization))
 
     @patch.object(MockPatroni, 'dcs')
@@ -391,13 +413,32 @@ class TestRestApiHandler(unittest.TestCase):
         MockRestApiServer(RestApiHandler, post + '37\n\n{"candidate":"2","scheduled_at": "1"}')
 
 
-@patch('ssl.wrap_socket', Mock(return_value=0))
+@patch('ssl.SSLContext.load_cert_chain', Mock())
+@patch('ssl.SSLContext.wrap_socket', Mock(return_value=0))
+@patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
 class TestRestApiServer(unittest.TestCase):
 
     def test_reload_config(self):
         bad_config = {'listen': 'foo'}
         self.assertRaises(ValueError, MockRestApiServer, None, '', bad_config)
-        srv = MockRestApiServer(lambda a1, a2, a3: None, '')
+        srv = MockRestApiServer(Mock(), '', {'listen': '*:8008', 'certfile': 'a', 'verify_client': 'required'})
         self.assertRaises(ValueError, srv.reload_config, bad_config)
         self.assertRaises(ValueError, srv.reload_config, {})
-        srv.reload_config({'listen': '127.0.0.2:8008'})
+        with patch.object(socket.socket, 'setsockopt', Mock(side_effect=socket.error)):
+            srv.reload_config({'listen': ':8008'})
+
+    def test_check_auth(self):
+        srv = MockRestApiServer(Mock(), '', {'listen': '*:8008', 'certfile': 'a', 'verify_client': 'required'})
+        mock_rh = Mock()
+        mock_rh.request.getpeercert.return_value = None
+        self.assertIsNot(srv.check_auth(mock_rh), True)
+
+    def test_handle_error(self):
+        try:
+            raise Exception()
+        except Exception:
+            self.assertIsNone(MockRestApiServer.handle_error(None, ('127.0.0.1', 55555)))
+
+    def test_socket_error(self):
+        with patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock(side_effect=socket.error)):
+            self.assertRaises(socket.error, MockRestApiServer, Mock(), '', {'listen': '*:8008'})

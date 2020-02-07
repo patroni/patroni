@@ -1,6 +1,6 @@
 import os
-import unittest
 import sys
+import unittest
 
 from mock import MagicMock, Mock, patch
 from patroni.config import Config
@@ -15,10 +15,7 @@ class TestConfig(unittest.TestCase):
     def setUp(self):
         sys.argv = ['patroni.py']
         os.environ[Config.PATRONI_CONFIG_VARIABLE] = 'restapi: {}\npostgresql: {data_dir: foo}'
-        self.config = Config()
-
-    def test_no_config(self):
-        self.assertRaises(SystemExit, Config)
+        self.config = Config(None)
 
     def test_set_dynamic_configuration(self):
         with patch.object(Config, '_build_effective_configuration', Mock(side_effect=Exception)):
@@ -30,6 +27,8 @@ class TestConfig(unittest.TestCase):
             'PATRONI_NAME': 'postgres0',
             'PATRONI_NAMESPACE': '/patroni/',
             'PATRONI_SCOPE': 'batman2',
+            'PATRONI_LOGLEVEL': 'ERROR',
+            'PATRONI_LOG_LOGGERS': 'patroni.postmaster: WARNING, urllib3: DEBUG',
             'PATRONI_RESTAPI_USERNAME': 'username',
             'PATRONI_RESTAPI_PASSWORD': 'password',
             'PATRONI_RESTAPI_LISTEN': '0.0.0.0:8008',
@@ -49,7 +48,8 @@ class TestConfig(unittest.TestCase):
             'PATRONI_ETCD_CERT': '/cert',
             'PATRONI_ETCD_KEY': '/key',
             'PATRONI_CONSUL_HOST': '127.0.0.1:8500',
-            'PATRONI_KUBERNETES_LABELS': 'a:b:c',
+            'PATRONI_CONSUL_REGISTER_SERVICE': 'on',
+            'PATRONI_KUBERNETES_LABELS': 'a: b: c',
             'PATRONI_KUBERNETES_SCOPE_LABEL': 'a',
             'PATRONI_KUBERNETES_PORTS': '[{"name": "postgresql"}]',
             'PATRONI_ZOOKEEPER_HOSTS': "'host1:2181','host2:2181'",
@@ -63,12 +63,10 @@ class TestConfig(unittest.TestCase):
             'PATRONI_admin_PASSWORD': 'admin',
             'PATRONI_admin_OPTIONS': 'createrole,createdb'
         })
-        sys.argv = ['patroni.py', 'postgres0.yml']
-        config = Config()
+        config = Config('postgres0.yml')
         with patch.object(Config, '_load_config_file', Mock(return_value={'restapi': {}})):
             with patch.object(Config, '_build_effective_configuration', Mock(side_effect=Exception)):
-                self.assertRaises(Exception, config.reload_local_configuration, True)
-            self.assertTrue(config.reload_local_configuration(True))
+                config.reload_local_configuration()
             self.assertTrue(config.reload_local_configuration())
             self.assertIsNone(config.reload_local_configuration())
 
@@ -84,3 +82,15 @@ class TestConfig(unittest.TestCase):
             self.config.save_cache()
         with patch('os.fdopen', MagicMock()):
             self.config.save_cache()
+
+    def test_standby_cluster_parameters(self):
+        dynamic_configuration = {
+            'standby_cluster': {
+                'create_replica_methods': ['wal_e', 'basebackup'],
+                'host': 'localhost',
+                'port': 5432
+            }
+        }
+        self.config.set_dynamic_configuration(dynamic_configuration)
+        for name, value in dynamic_configuration['standby_cluster'].items():
+            self.assertEqual(self.config['standby_cluster'][name], value)

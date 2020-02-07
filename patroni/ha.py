@@ -3,7 +3,6 @@ import functools
 import json
 import logging
 import psycopg2
-import requests
 import sys
 import time
 import uuid
@@ -13,33 +12,38 @@ from multiprocessing.pool import ThreadPool
 from patroni.async_executor import AsyncExecutor, CriticalTask
 from patroni.exceptions import DCSError, PostgresConnectionException, PatroniException
 from patroni.postgresql import ACTION_ON_START, ACTION_ON_ROLE_CHANGE
+from patroni.postgresql.misc import postgres_version_to_int
+from patroni.postgresql.rewind import Rewind
 from patroni.quorum import QuorumStateResolver
-from patroni.utils import polling_loop, tzutc
+from patroni.utils import polling_loop, tzutc, is_standby_cluster as _is_standby_cluster
 from patroni.dcs import RemoteMember
 from threading import RLock
 
 logger = logging.getLogger(__name__)
 
 
-class _MemberStatus(namedtuple('_MemberStatus', 'member,reachable,in_recovery,wal_position,tags,watchdog_failed')):
+class _MemberStatus(namedtuple('_MemberStatus', ['member', 'reachable', 'in_recovery', 'timeline',
+                                                 'wal_position', 'tags', 'watchdog_failed'])):
     """Node status distilled from API response:
 
         member - dcs.Member object of the node
         reachable - `!False` if the node is not reachable or is not responding with correct JSON
         in_recovery - `!True` if pg_is_in_recovery() == true
-        wal_position - value of `replayed_location` or `location` from JSON, dependin on its role.
+        timeline - timeline value from JSON
+        wal_position - maximum value of `replayed_location` or `received_location` from JSON
         tags - dictionary with values of different tags (i.e. nofailover)
         watchdog_failed - indicates that watchdog is required by configuration but not available or failed
     """
     @classmethod
     def from_api_response(cls, member, json):
         is_master = json['role'] == 'master'
+        timeline = json.get('timeline', 0)
         wal = not is_master and max(json['xlog'].get('received_location', 0), json['xlog'].get('replayed_location', 0))
-        return cls(member, True, not is_master, wal, json.get('tags', {}), json.get('watchdog_failed', False))
+        return cls(member, True, not is_master, timeline, wal, json.get('tags', {}), json.get('watchdog_failed', False))
 
     @classmethod
     def unknown(cls, member):
-        return cls(member, False, None, 0, {}, False)
+        return cls(member, False, None, 0, 0, {}, False)
 
     def failover_limitation(self):
         """Returns reason why this node can't promote or None if everything is ok."""
@@ -57,6 +61,7 @@ class Ha(object):
     def __init__(self, patroni):
         self.patroni = patroni
         self.state_handler = patroni.postgresql
+        self._rewind = Rewind(self.state_handler)
         self.dcs = patroni.dcs
         self.cluster = None
         self.old_cluster = None
@@ -69,7 +74,7 @@ class Ha(object):
         self._post_bootstrap_task = None
         self._crash_recovery_executed = False
         self._start_timeout = None
-        self._async_executor = AsyncExecutor(self.state_handler, self.wakeup)
+        self._async_executor = AsyncExecutor(self.state_handler.cancellable, self.wakeup)
         self.watchdog = patroni.watchdog
 
         # Each member publishes various pieces of information to the DCS using touch_member. This lock protects
@@ -93,6 +98,9 @@ class Ha(object):
     def is_paused(self):
         return self.check_mode('pause')
 
+    def check_timeline(self):
+        return self.check_mode('check_timeline')
+
     def get_standby_cluster_config(self):
         if self.cluster and self.cluster.config and self.cluster.config.modify_index:
             config = self.cluster.config.data
@@ -101,17 +109,15 @@ class Ha(object):
         return config.get('standby_cluster')
 
     def is_standby_cluster(self):
-        config = self.get_standby_cluster_config()
-        # Check whether or not provided configuration describes a standby cluster
-        return isinstance(config, dict) and (config.get('host') or config.get('port') or config.get('restore_command'))
+        return _is_standby_cluster(self.get_standby_cluster_config())
 
     def is_leader(self):
         with self._is_leader_lock:
-            return self._is_leader and not self._leader_access_is_restricted
+            return self._is_leader > time.time() and not self._leader_access_is_restricted
 
     def set_is_leader(self, value):
         with self._is_leader_lock:
-            self._is_leader = value
+            self._is_leader = time.time() + self.dcs.ttl if value else 0
 
     def set_leader_access_is_restricted(self, value):
         with self._is_leader_lock:
@@ -125,7 +131,7 @@ class Ha(object):
             self.old_cluster = cluster
         self.cluster = cluster
 
-        if self.cluster.is_unlocked() or self.cluster.leader.name != self.state_handler.name:
+        if not self.has_lock(False):
             self.set_is_leader(False)
 
         self._leader_timeline = None if cluster.is_unlocked() else cluster.leader.timeline
@@ -149,9 +155,10 @@ class Ha(object):
             self.watchdog.keepalive()
         return ret
 
-    def has_lock(self):
+    def has_lock(self, info=True):
         lock_owner = self.cluster.leader and self.cluster.leader.name
-        logger.info('Lock owner: %s; I am %s', lock_owner, self.state_handler.name)
+        if info:
+            logger.info('Lock owner: %s; I am %s', lock_owner, self.state_handler.name)
         return lock_owner == self.state_handler.name
 
     def get_effective_tags(self):
@@ -168,12 +175,15 @@ class Ha(object):
                 'conn_url': self.state_handler.connection_string,
                 'api_url': self.patroni.api.connection_string,
                 'state': self.state_handler.state,
-                'role': self.state_handler.role
+                'role': self.state_handler.role,
+                'version': self.patroni.version
             }
 
             # following two lines are mainly necessary for consul, to avoid creation of master service
             if data['role'] == 'master' and not self.is_leader():
                 data['role'] = 'promoted'
+            if self.is_leader() and not self._rewind.checkpoint_after_promote():
+                data['checkpoint_after_promote'] = False
             tags = self.get_effective_tags()
             if tags:
                 data['tags'] = tags
@@ -182,10 +192,20 @@ class Ha(object):
             if self._async_executor.scheduled_action in (None, 'promote') \
                     and data['state'] in ['running', 'restarting', 'starting']:
                 try:
-                    timeline, wal_position = self.state_handler.timeline_wal_position()
+                    timeline, wal_position, pg_control_timeline = self.state_handler.timeline_wal_position()
                     data['xlog_location'] = wal_position
                     if not timeline:
-                        timeline = self.state_handler.replica_cached_timeline(self._leader_timeline)
+                        # So far the only way to get the current timeline on the standby is from
+                        # the replication connection. In order to avoid opening the replication
+                        # connection on every iteration of HA loop we will do it only when noticed
+                        # that the timeline on the primary has changed.
+                        # Unfortunately such optimization isn't possible on the standby_leader,
+                        # therefore we will get the timeline from pg_control, either by calling
+                        # pg_control_checkpoint() on 9.6+ or by parsing the output of pg_controldata.
+                        if self.state_handler.role == 'standby_leader':
+                            timeline = pg_control_timeline or self.state_handler.pg_control_timeline()
+                        else:
+                            timeline = self.state_handler.replica_cached_timeline(timeline)
                     if timeline:
                         data['timeline'] = timeline
                 except Exception:
@@ -201,7 +221,11 @@ class Ha(object):
             return self.dcs.touch_member(data)
 
     def clone(self, clone_member=None, msg='(without leader)'):
-        if self.state_handler.clone(clone_member):
+        if self.is_standby_cluster() and not isinstance(clone_member, RemoteMember):
+            clone_member = self.get_remote_member(clone_member)
+
+        self._rewind.reset_state()
+        if self.state_handler.bootstrap.clone(clone_member):
             logger.info('bootstrapped %s', msg)
             cluster = self.dcs.get_cluster()
             node_to_follow = self._get_node_to_follow(cluster)
@@ -215,9 +239,8 @@ class Ha(object):
             clone_member = self.cluster.get_clone_member(self.state_handler.name)
             member_role = 'leader' if clone_member == self.cluster.leader else 'replica'
             msg = "from {0} '{1}'".format(member_role, clone_member.name)
-            self._async_executor.schedule('bootstrap {0}'.format(msg))
-            self._async_executor.run_async(self.clone, args=(clone_member, msg))
-            return 'trying to bootstrap {0}'.format(msg)
+            ret = self._async_executor.try_run_async('bootstrap {0}'.format(msg), self.clone, args=(clone_member, msg))
+            return ret or 'trying to bootstrap {0}'.format(msg)
 
         # no initialize key and node is allowed to be master and has 'bootstrap' section in a configuration file
         elif self.cluster.initialize is None and not self.patroni.nofailover and 'bootstrap' in self.patroni.config:
@@ -226,25 +249,21 @@ class Ha(object):
                 self._post_bootstrap_task = CriticalTask()
 
                 if self.is_standby_cluster():
-                    self._async_executor.schedule('bootstrap_standby_leader')
-                    self._async_executor.run_async(self.bootstrap_standby_leader)
-                    return 'trying to bootstrap a new standby leader'
+                    ret = self._async_executor.try_run_async('bootstrap_standby_leader', self.bootstrap_standby_leader)
+                    return ret or 'trying to bootstrap a new standby leader'
                 else:
-                    self._async_executor.schedule('bootstrap')
-                    self._async_executor.run_async(
-                        self.state_handler.bootstrap,
-                        args=(self.patroni.config['bootstrap'],)
-                    )
-                    return 'trying to bootstrap a new cluster'
+                    ret = self._async_executor.try_run_async('bootstrap', self.state_handler.bootstrap.bootstrap,
+                                                             args=(self.patroni.config['bootstrap'],))
+                    return ret or 'trying to bootstrap a new cluster'
             else:
                 return 'failed to acquire initialize lock'
         else:
-            if self.state_handler.can_create_replica_without_replication_connection():
+            create_replica_methods = self.get_standby_cluster_config().get('create_replica_methods', []) \
+                                     if self.is_standby_cluster() else None
+            if self.state_handler.can_create_replica_without_replication_connection(create_replica_methods):
                 msg = 'bootstrap (without leader)'
-                self._async_executor.schedule(msg)
-                self._async_executor.run_async(self.clone)
-                return 'trying to ' + msg
-            return 'waiting for leader to bootstrap'
+                return self._async_executor.try_run_async(msg, self.clone) or 'trying to ' + msg
+            return 'waiting for {0}leader to bootstrap'.format('standby_' if self.is_standby_cluster() else '')
 
     def bootstrap_standby_leader(self):
         """ If we found 'standby' key in the configuration, we need to bootstrap
@@ -260,12 +279,19 @@ class Ha(object):
 
         return result
 
-    def _handle_rewind(self):
+    def _handle_rewind_or_reinitialize(self):
         leader = self.get_remote_master() if self.is_standby_cluster() else self.cluster.leader
-        if self.state_handler.rewind_needed_and_possible(leader):
-            self._async_executor.schedule('running pg_rewind from ' + leader.name)
-            self._async_executor.run_async(self.state_handler.rewind, (leader,))
-            return True
+        if not self._rewind.rewind_or_reinitialize_needed_and_possible(leader):
+            return None
+
+        if self._rewind.can_rewind:
+            msg = 'running pg_rewind from ' + leader.name
+            return self._async_executor.try_run_async(msg, self._rewind.execute, args=(leader,)) or msg
+
+        # remove_data_directory_on_diverged_timelines is set
+        if not self.is_standby_cluster():
+            msg = 'reinitializing due to diverged timelines'
+            return self._async_executor.try_run_async(msg, self._do_reinitialize, args=(self.cluster,)) or msg
 
     def recover(self):
         # Postgres is not running and we will restart in standby mode. Watchdog is not needed until we promote.
@@ -287,23 +313,27 @@ class Ha(object):
             timeout = None
 
         data = self.state_handler.controldata()
-        if data.get('Database cluster state') in ('in production', 'shutting down', 'in crash recovery') and \
-                not self._crash_recovery_executed and (self.cluster.is_unlocked() or self.state_handler.can_rewind):
+        logger.info('pg_controldata:\n%s\n', '\n'.join('  {0}: {1}'.format(k, v) for k, v in data.items()))
+        if data.get('Database cluster state') in ('in production', 'shutting down', 'in crash recovery') \
+                and not self._crash_recovery_executed and \
+                (self.cluster.is_unlocked() or self._rewind.can_rewind):
             self._crash_recovery_executed = True
-            self._async_executor.schedule('doing crash recovery in a single user mode')
-            self._async_executor.run_async(self.state_handler.fix_cluster_state)
-            return self._async_executor.scheduled_action
+            msg = 'doing crash recovery in a single user mode'
+            return self._async_executor.try_run_async(msg, self.state_handler.fix_cluster_state) or msg
 
         self.load_cluster_from_dcs()
 
+        role = 'replica'
         if self.is_standby_cluster() or not self.has_lock():
-            if not self.state_handler.rewind_executed:
-                self.state_handler.trigger_check_diverged_lsn()
-            if self._handle_rewind():
-                return self._async_executor.scheduled_action
+            if not self._rewind.executed:
+                self._rewind.trigger_check_diverged_lsn()
+            msg = self._handle_rewind_or_reinitialize()
+            if msg:
+                return msg
 
             if self.has_lock():  # in standby cluster
                 msg = "starting as a standby leader because i had the session lock"
+                role = 'standby_leader'
                 node_to_follow = self._get_node_to_follow(self.cluster)
             elif self.is_standby_cluster() and self.cluster.is_unlocked():
                 msg = "trying to follow a remote master because standby cluster is unhealthy"
@@ -315,27 +345,34 @@ class Ha(object):
             msg = "starting as readonly because i had the session lock"
             node_to_follow = None
 
-        self.recovering = True
-
-        self._async_executor.schedule('restarting after failure')
-        self._async_executor.run_async(self.state_handler.follow, (node_to_follow, timeout))
+        if self._async_executor.try_run_async('restarting after failure', self.state_handler.follow,
+                                              args=(node_to_follow, role, timeout)) is None:
+            self.recovering = True
         return msg
 
     def _get_node_to_follow(self, cluster):
         # determine the node to follow. If replicatefrom tag is set,
         # try to follow the node mentioned there, otherwise, follow the leader.
-        is_leader = self.cluster.leader and self.state_handler.name == self.cluster.leader.name
-
-        if self.is_standby_cluster() and (is_leader or self.cluster.is_unlocked()):
+        standby_config = self.get_standby_cluster_config()
+        is_standby_cluster = _is_standby_cluster(standby_config)
+        if is_standby_cluster and (self.cluster.is_unlocked() or self.has_lock(False)):
             node_to_follow = self.get_remote_master()
         elif self.patroni.replicatefrom and self.patroni.replicatefrom != self.state_handler.name:
             node_to_follow = cluster.get_member(self.patroni.replicatefrom)
         else:
             node_to_follow = cluster.leader
 
-        return (node_to_follow if
-                node_to_follow and
-                node_to_follow.name != self.state_handler.name else None)
+        node_to_follow = node_to_follow if node_to_follow and node_to_follow.name != self.state_handler.name else None
+
+        if node_to_follow and not isinstance(node_to_follow, RemoteMember):
+            # we are going to abuse Member.data to pass following parameters
+            params = ('restore_command', 'archive_cleanup_command')
+            for param in params:  # It is highly unlikely to happen, but we want to protect from the case
+                node_to_follow.data.pop(param, None)  # when above-mentioned params came from outside.
+            if is_standby_cluster:
+                node_to_follow.data.update({p: standby_config[p] for p in params if standby_config.get(p)})
+
+        return node_to_follow
 
     def follow(self, demote_reason, follow_reason, refresh=True):
         if refresh:
@@ -346,7 +383,8 @@ class Ha(object):
         node_to_follow = self._get_node_to_follow(self.cluster)
 
         if self.is_paused():
-            if not (self.state_handler.need_rewind and self.state_handler.can_rewind) or self.cluster.is_unlocked():
+            if not (self._rewind.is_needed and self._rewind.can_rewind_or_reinitialize_allowed)\
+                    or self.cluster.is_unlocked():
                 self.state_handler.set_role('master' if is_leader else 'replica')
                 if is_leader:
                     return 'continue to run as master without lock'
@@ -356,12 +394,26 @@ class Ha(object):
             self.demote('immediate-nolock')
             return demote_reason
 
-        if self._handle_rewind():
-            return self._async_executor.scheduled_action
+        msg = self._handle_rewind_or_reinitialize()
+        if msg:
+            return msg
 
-        if not self.state_handler.check_recovery_conf(node_to_follow):
-            self._async_executor.schedule('changing primary_conninfo and restarting')
-            self._async_executor.run_async(self.state_handler.follow, (node_to_follow,))
+        role = 'standby_leader' if isinstance(node_to_follow, RemoteMember) and self.has_lock(False) else 'replica'
+        # It might happen that leader key in the standby cluster references non-exiting member.
+        # In this case it is safe to continue running without changing recovery.conf
+        if self.is_standby_cluster() and role == 'replica' and not (node_to_follow and node_to_follow.conn_url):
+            return 'continue following the old known standby leader'
+        else:
+            change_required, restart_required = self.state_handler.config.check_recovery_conf(node_to_follow)
+            if change_required:
+                if restart_required:
+                    self._async_executor.try_run_async('changing primary_conninfo and restarting',
+                                                       self.state_handler.follow, args=(node_to_follow, role))
+                else:
+                    self.state_handler.follow(node_to_follow, role, do_reload=True)
+            elif role == 'standby_leader' and self.state_handler.role != role:
+                self.state_handler.set_role(role)
+                self.state_handler.call_nowait(ACTION_ON_ROLE_CHANGE)
 
         return follow_reason
 
@@ -371,7 +423,7 @@ class Ha(object):
     def disable_synchronous_replication(self):
         if not self.cluster.sync.is_empty and self.dcs.delete_sync_state(index=self.cluster.sync.index):
             logger.info("Disabled synchronous replication")
-        self.state_handler.set_synchronous_state(None)
+        self.state_handler.config.set_synchronous_state(None)
 
     def process_sync_replication(self):
         """Process synchronous standby behavior.
@@ -426,7 +478,7 @@ class Ha(object):
                                        " Commits will be delayed.",
                                        min_sync, num - 1)
                         num = min_sync
-                    self.state_handler.set_synchronous_state(num, nodes)
+                    self.state_handler.config.set_synchronous_state(num, nodes)
         else:
             self.disable_synchronous_replication()
 
@@ -455,19 +507,19 @@ class Ha(object):
 
         if not self.state_handler.use_multiple_sync and numsync > 2:
             numsync = 2 if self.patroni.config['minimum_replication_factor'] > 1 else 1
-            self.state_handler.set_synchronous_state(numsync, set([self.state_handler.name]))
+            self.state_handler.config.set_synchronous_state(numsync, set([self.state_handler.name]))
 
             if self.dcs.write_sync_state(leader=self.state_handler.name,
                                          quorum=1, members=[self.state_handler.name],
                                          index=self.cluster.sync.index):
                 # TODO: would be nice if we could get the new sync state while writing and update the state locally.
-                self.load_cluster_from_dcs()
+                self.load_cluster_from_dcs()  # FIXME: catch DCS error?
                 return True
             return False
 
         numsync = max(numsync, self.patroni.config['minimum_replication_factor'])
 
-        self.state_handler.set_synchronous_state(numsync, sync)
+        self.state_handler.config.set_synchronous_state(numsync, sync)
 
         return True
 
@@ -531,9 +583,7 @@ class Ha(object):
                 self.dcs.set_history_value(json.dumps(history, separators=(',', ':')))
 
     def enforce_follow_remote_master(self, message):
-        self.state_handler.set_role('standby_leader')
         demote_reason = 'cannot be a real master in standby cluster'
-
         return self.follow(demote_reason, message)
 
     def enforce_master_role(self, message, promote_message):
@@ -562,23 +612,26 @@ class Ha(object):
                 return 'Postponing promotion because synchronous replication state was updated by somebody else'
             if self.state_handler.role != 'master':
                 self.set_leader_access_is_restricted(self.cluster.has_permanent_logical_slots(self.state_handler.name))
-                self._async_executor.schedule('promote')
-                self._async_executor.run_async(self.state_handler.promote,
-                                               args=(self.dcs.loop_wait, self._leader_access_is_restricted))
-            # TODO: enable passing in active set from DCS information
-            # self.process_sync_replication()
+
+                def on_success():
+                    self._rewind.reset_state()
+                    logger.info("cleared rewind state after becoming the leader")
+
+                self._async_executor.try_run_async('promote', self.state_handler.promote,
+                                                   args=(self.dcs.loop_wait, on_success,
+                                                         self._leader_access_is_restricted))
             return promote_message
 
-    @staticmethod
-    def fetch_node_status(member):
+    def fetch_node_status(self, member):
         """This function perform http get request on member.api_url and fetches its status
         :returns: `_MemberStatus` object
         """
 
         try:
-            response = requests.get(member.api_url, timeout=2, verify=False)
-            logger.info('Got response from %s %s: %s', member.name, member.api_url, response.content)
-            return _MemberStatus.from_api_response(member, response.json())
+            response = self.patroni.request(member, timeout=2, retries=0)
+            data = response.data.decode('utf-8')
+            logger.info('Got response from %s %s: %s', member.name, member.api_url, data)
+            return _MemberStatus.from_api_response(member, json.loads(data))
         except Exception as e:
             logger.warning("Request failed to %s: GET %s (%s)", member.name, member.api_url, e)
         return _MemberStatus.unknown(member)
@@ -597,14 +650,23 @@ class Ha(object):
         :returns True when node is lagging
         """
         lag = (self.cluster.last_leader_operation or 0) - wal_position
-        return lag > self.state_handler.config.get('maximum_lag_on_failover', 0)
+        return lag > self.patroni.config.get('maximum_lag_on_failover', 0)
 
     def _is_healthiest_node(self, members, quorum=0, voting_set=frozenset(), check_replication_lag=True):
         """This method tries to determine whether I am healthy enough to became a new leader candidate or not."""
 
-        _, my_wal_position = self.state_handler.timeline_wal_position()
+        # We don't call `last_operation()` here because it returns a string
+        _, my_wal_position, _ = self.state_handler.timeline_wal_position()
         if check_replication_lag and self.is_lagging(my_wal_position):
+            logger.info('My wal position exceeds maximum replication lag')
             return False  # Too far behind last reported wal position on master
+
+        if not self.is_standby_cluster() and self.check_timeline():
+            cluster_timeline = self.cluster.timeline
+            my_timeline = self.state_handler.replica_cached_timeline(cluster_timeline)
+            if my_timeline < cluster_timeline:
+                logger.info('My timeline %s is behind last known cluster timeline %s', my_timeline, cluster_timeline)
+                return False
 
         # Prepare list of nodes to run check against
         members = [m for m in members if m.name != self.state_handler.name and
@@ -628,12 +690,17 @@ class Ha(object):
                         logger.warning('Master (%s) is still alive', st.member.name)
                         return False
                     if my_wal_position < st.wal_position:
-                        return False
-
+                        logger.info('Wal position of %s is ahead of my wal position', st.member.name)
+                        # In synchronous mode the former leader might be still accessible and even be ahead of us.
+                        # We should not disqualify himself from the leader race in such a situation.
+                        if not self.is_synchronous_mode() or st.member.name != self.cluster.sync.leader:
+                            return False
+                        logger.info('Ignoring the former leader being ahead of us')
         return quorum_votes >= quorum
 
     def is_failover_possible(self, members):
         ret = False
+        cluster_timeline = self.cluster.timeline
         members = [m for m in members if m.name != self.state_handler.name and not m.nofailover and m.api_url]
         if members:
             for st in self.fetch_nodes_statuses(members):
@@ -642,6 +709,9 @@ class Ha(object):
                     logger.info('Member %s is %s', st.member.name, not_allowed_reason)
                 elif self.is_lagging(st.wal_position):
                     logger.info('Member %s exceeds maximum replication lag', st.member.name)
+                elif self.check_timeline() and (not st.timeline or st.timeline < cluster_timeline):
+                    logger.info('Timeline %s of member %s is behind the cluster timeline %s',
+                                st.timeline, st.member.name, cluster_timeline)
                 else:
                     ret = True
         else:
@@ -734,10 +804,14 @@ class Ha(object):
 
         return self._is_healthiest_node(members.values(), quorum, voting_set)
 
-    def release_leader_key_voluntarily(self):
+    def _delete_leader(self):
+        self.set_is_leader(False)
         self.dcs.delete_leader()
-        self.touch_member()
         self.dcs.reset_cluster()
+
+    def release_leader_key_voluntarily(self):
+        self._delete_leader()
+        self.touch_member()
         logger.info("Leader key released")
 
     def demote(self, mode):
@@ -758,14 +832,15 @@ class Ha(object):
             'immediate-nolock': dict(stop='immediate', checkpoint=False, release=False, offline=False, async_req=True),
         }[mode]
 
-        self.state_handler.trigger_check_diverged_lsn()
+        self._rewind.trigger_check_diverged_lsn()
         self.state_handler.stop(mode_control['stop'], checkpoint=mode_control['checkpoint'],
                                 on_safepoint=self.watchdog.disable if self.watchdog.is_running else None)
         self.state_handler.set_role('demoted')
         self.set_is_leader(False)
 
         if mode_control['release']:
-            self.release_leader_key_voluntarily()
+            with self._async_executor:
+                self.release_leader_key_voluntarily()
             time.sleep(2)  # Give a time to somebody to take the leader lock
         if mode_control['offline']:
             node_to_follow, leader = None, None
@@ -777,12 +852,11 @@ class Ha(object):
         # there could be an async action already running, calling follow from here will lead
         # to racy state handler state updates.
         if mode_control['async_req']:
-            self._async_executor.schedule('starting after demotion')
-            self._async_executor.run_async(self.state_handler.follow, (node_to_follow,))
+            self._async_executor.try_run_async('starting after demotion', self.state_handler.follow, (node_to_follow,))
         else:
             if self.is_synchronous_mode():
-                self.state_handler.set_synchronous_state(None)
-            if self.state_handler.rewind_needed_and_possible(leader):
+                self.state_handler.config.set_synchronous_state(None)
+            if self._rewind.rewind_or_reinitialize_needed_and_possible(leader):
                 return False  # do not start postgres, but run pg_rewind on the next iteration
             self.state_handler.follow(node_to_follow)
 
@@ -851,9 +925,8 @@ class Ha(object):
                         members = [m for m in self.cluster.members
                                    if not failover.candidate or m.name == failover.candidate]
                     if self.is_failover_possible(members):  # check that there are healthy members
-                        self._async_executor.schedule('manual failover: demote')
-                        self._async_executor.run_async(self.demote, ('graceful',))
-                        return 'manual failover: demoting myself'
+                        ret = self._async_executor.try_run_async('manual failover: demote', self.demote, ('graceful',))
+                        return ret or 'manual failover: demoting myself'
                     else:
                         logger.warning('manual failover: no healthy members found, failover is not possible')
             else:
@@ -884,7 +957,7 @@ class Ha(object):
                     # standby leader disappeared, and this is a healthiest
                     # replica, so it should become a new standby leader.
                     # This imply that we need to start following a remote master
-                    msg = 'promoted self to a standby leader because i had the session lock'
+                    msg = 'promoted self to a standby leader by acquiring session lock'
                     return self.enforce_follow_remote_master(msg)
                 else:
                     return self.enforce_master_role(
@@ -898,7 +971,7 @@ class Ha(object):
             # when we are doing manual failover there is no guaranty that new leader is ahead of any other node
             # node tagged as nofailover can be ahead of the new leader either, but it is always excluded from elections
             if bool(self.cluster.failover) or self.patroni.nofailover:
-                self.state_handler.trigger_check_diverged_lsn()
+                self._rewind.trigger_check_diverged_lsn()
                 time.sleep(2)  # Give a time to somebody to take the leader lock
 
             if self.patroni.nofailover:
@@ -913,12 +986,11 @@ class Ha(object):
                 if self.cluster.failover and self.cluster.failover.candidate == self.state_handler.name:
                     return 'waiting to become master after promote...'
 
-                self.dcs.delete_leader()
-                self.dcs.reset_cluster()
+                self._delete_leader()
                 return 'removed leader lock because postgres is not running as master'
 
             if self.state_handler.is_leader() and self._leader_access_is_restricted:
-                self.state_handler.sync_replication_slots(self.cluster)
+                self.state_handler.slots_handler.sync_replication_slots(self.cluster)
                 self.state_handler.call_nowait(ACTION_ON_ROLE_CHANGE)
                 self.set_leader_access_is_restricted(False)
 
@@ -927,11 +999,16 @@ class Ha(object):
                 if msg is not None:
                     return msg
 
+                # check if the node is ready to be used by pg_rewind
+                self._rewind.check_for_checkpoint_after_promote()
+
                 if self.is_standby_cluster():
                     # in case of standby cluster we don't really need to
                     # enforce anything, since the leader is not a master.
                     # So just remind the role.
-                    msg = 'no action.  i am the standby leader with the lock'
+                    msg = 'no action.  i am the standby leader with the lock' \
+                          if self.state_handler.role == 'standby_leader' else \
+                          'promoted self to a standby leader because i had the session lock'
                     return self.enforce_follow_remote_master(msg)
                 else:
                     return self.enforce_master_role(
@@ -950,6 +1027,9 @@ class Ha(object):
                     return 'not promoting because failed to update leader lock in DCS'
         else:
             logger.info('does not have lock')
+        if self.is_standby_cluster():
+            return self.follow('cannot be a real master in standby cluster',
+                               'no action.  i am a secondary and i am following a standby leader', refresh=False)
         return self.follow('demoting self because i do not have the lock and i was a leader',
                            'no action.  i am a secondary and i am following a leader', refresh=False)
 
@@ -986,8 +1066,7 @@ class Ha(object):
         if role and role != self.state_handler.role:
             reason_to_cancel = "host role mismatch"
 
-        if (postgres_version and
-           self.state_handler.postgres_version_to_int(postgres_version) <= int(self.state_handler.server_version)):
+        if postgres_version and postgres_version_to_int(postgres_version) <= int(self.state_handler.server_version):
             reason_to_cancel = "postgres version mismatch"
 
         if pending_restart and not self.state_handler.pending_restart:
@@ -1081,7 +1160,7 @@ class Ha(object):
             if self.cluster.is_unlocked():
                 return 'Cluster has no leader, can not reinitialize'
 
-            if self.cluster.leader.name == self.state_handler.name:
+            if self.has_lock(False):
                 return 'I am the leader, can not reinitialize'
 
         if force:
@@ -1127,8 +1206,7 @@ class Ha(object):
             self.watchdog.disable()
             if self.has_lock():
                 self.state_handler.set_role('demoted')
-                self.dcs.delete_leader()
-                self.dcs.reset_cluster()
+                self._delete_leader()
                 return 'removed leader key after trying and failing to start postgres'
             return 'failed to start postgres'
         self._crash_recovery_executed = False
@@ -1151,17 +1229,16 @@ class Ha(object):
                 return 'waiting for end of recovery after bootstrap'
 
             self.state_handler.set_role('master')
-            self._async_executor.schedule('post_bootstrap')
-            self._async_executor.run_async(self.state_handler.post_bootstrap,
-                                           args=(self.patroni.config['bootstrap'], self._post_bootstrap_task))
-            return 'running post_bootstrap'
+            ret = self._async_executor.try_run_async('post_bootstrap', self.state_handler.bootstrap.post_bootstrap,
+                                                     args=(self.patroni.config['bootstrap'], self._post_bootstrap_task))
+            return ret or 'running post_bootstrap'
 
         self.state_handler.bootstrapping = False
         self.dcs.set_config_value(json.dumps(self.patroni.config.dynamic_configuration, separators=(',', ':')))
         if not self.watchdog.activate():
             logger.error('Cancelling bootstrap because watchdog activation failed')
             self.cancel_initialization()
-        self.state_handler.sync_replication_slots(self.cluster)
+        self.state_handler.slots_handler.sync_replication_slots(self.cluster)
         self.dcs.take_leader()
         self.set_is_leader(True)
         self.state_handler.call_nowait(ACTION_ON_START)
@@ -1250,7 +1327,7 @@ class Ha(object):
             if self.state_handler.bootstrapping:
                 return self.post_bootstrap()
 
-            if self.recovering and not self.state_handler.need_rewind:
+            if self.recovering and not self._rewind.is_needed:
                 self.recovering = False
                 # Check if we tried to recover and failed
                 msg = self.post_recover()
@@ -1270,40 +1347,41 @@ class Ha(object):
                     return 'released leader key voluntarily as data dir empty and currently leader'
 
                 return self.bootstrap()  # new node
-            # "bootstrap", but data directory is not empty
-            elif not self.sysid_valid(self.cluster.initialize) and self.cluster.is_unlocked() and not self.is_paused():
-                if not self.state_handler.cb_called and self.state_handler.is_running() \
-                        and not self.state_handler.is_leader():
-                    self._join_aborted = True
-                    logger.error('No initialize key in DCS and PostgreSQL is running as replica, aborting start')
-                    logger.error('Please first start Patroni on the node running as master')
-                    sys.exit(1)
-                self.dcs.initialize(create_new=(self.cluster.initialize is None), sysid=self.state_handler.sysid)
             else:
                 # check if we are allowed to join
                 data_sysid = self.state_handler.sysid
                 if not self.sysid_valid(data_sysid):
                     # data directory is not empty, but no valid sysid, cluster must be broken, suggest reinit
-                    return "data dir for the cluster is not empty, but system ID is invalid; consider doing reinitalize"
+                    return ("data dir for the cluster is not empty, but system ID is invalid; consider doing"
+                            "reinitialize")
 
-                if self.sysid_valid(self.cluster.initialize) and self.cluster.initialize != self.state_handler.sysid:
-                    logger.fatal("system ID mismatch, node %s belongs to a different cluster: %s != %s",
-                                 self.state_handler.name, self.cluster.initialize, self.state_handler.sysid)
-                    sys.exit(1)
+                if self.sysid_valid(self.cluster.initialize):
+                    if self.cluster.initialize != data_sysid:
+                        logger.fatal("system ID mismatch, node %s belongs to a different cluster: %s != %s",
+                                     self.state_handler.name, self.cluster.initialize, data_sysid)
+                        sys.exit(1)
+                elif self.cluster.is_unlocked() and not self.is_paused():
+                    # "bootstrap", but data directory is not empty
+                    if not self.state_handler.cb_called and self.state_handler.is_running() \
+                            and not self.state_handler.is_leader():
+                        self._join_aborted = True
+                        logger.error('No initialize key in DCS and PostgreSQL is running as replica, aborting start')
+                        logger.error('Please first start Patroni on the node running as master')
+                        sys.exit(1)
+                    self.dcs.initialize(create_new=(self.cluster.initialize is None), sysid=data_sysid)
 
             if not self.state_handler.is_healthy():
                 if self.is_paused():
                     if self.has_lock():
-                        self.dcs.delete_leader()
-                        self.dcs.reset_cluster()
+                        self._delete_leader()
                         return 'removed leader lock because postgres is not running'
                     # Normally we don't start Postgres in a paused state. We make an exception for the demoted primary
                     # that needs to be started after it had been stopped by demote. When there is no need to call rewind
                     # the demote code follows through to starting Postgres right away, however, in the rewind case
                     # it returns from demote and reaches this point to start PostgreSQL again after rewind. In that
                     # case it makes no sense to continue to recover() unless rewind has finished successfully.
-                    elif (self.state_handler.rewind_failed or
-                          not (self.state_handler.need_rewind and self.state_handler.can_rewind)):
+                    elif self._rewind.failed or not self._rewind.executed and not \
+                            (self._rewind.is_needed and self._rewind.can_rewind_or_reinitialize_allowed):
                         return 'postgres is not running'
 
                 # try to start dead postgres
@@ -1320,10 +1398,10 @@ class Ha(object):
                 # stops PostgreSQL, therefore, we only reload replication slots if no
                 # asynchronous processes are running (should be always the case for the master)
                 if not self._async_executor.busy and not self.state_handler.is_starting():
-                    self.state_handler.sync_replication_slots(self.cluster)
+                    self.state_handler.slots_handler.sync_replication_slots(self.cluster)
                     if not self.state_handler.cb_called:
                         if not self.state_handler.is_leader():
-                            self.state_handler.trigger_check_diverged_lsn()
+                            self._rewind.trigger_check_diverged_lsn()
                         self.state_handler.call_nowait(ACTION_ON_START)
         except DCSError:
             dcs_failed = True
@@ -1366,13 +1444,11 @@ class Ha(object):
                              (" Leaving watchdog running." if self.watchdog.is_running else ""))
 
     def watch(self, timeout):
-        cluster = self.cluster
         # watch on leader key changes if the postgres is running and leader is known and current node is not lock owner
-        if not self._async_executor.busy and cluster and cluster.leader \
-                and cluster.leader.name != self.state_handler.name:
-            leader_index = cluster.leader.index
-        else:
+        if self._async_executor.busy or self.cluster.is_unlocked() or self.has_lock(False):
             leader_index = None
+        else:
+            leader_index = self.cluster.leader.index
 
         return self.dcs.watch(leader_index, timeout)
 
@@ -1382,7 +1458,7 @@ class Ha(object):
         This usually happens on the master or if the node is running async action"""
         self.dcs.event.set()
 
-    def get_remote_master(self):
+    def get_remote_member(self, member=None):
         """ In case of standby cluster this will tel us from which remote
             master to stream. Config can be both patroni config or
             cluster.config.data
@@ -1390,17 +1466,16 @@ class Ha(object):
         cluster_params = self.get_standby_cluster_config()
 
         if cluster_params:
-            unique_name = 'remote_master:{}'.format(uuid.uuid1())
-            data = {
-                'conn_kwargs': {
-                    "host": cluster_params.get('host'),
-                    "port": cluster_params.get('port'),
-                },
-                'no_replication_slot': 'primary_slot_name' not in cluster_params,
-            }
-            data.update({
-                k: v for k, v in cluster_params.items()
-                if k in RemoteMember.allowed_keys()
-            })
+            name = member.name if member else 'remote_master:{}'.format(uuid.uuid1())
 
-            return RemoteMember(unique_name, data)
+            data = {k: v for k, v in cluster_params.items() if k in RemoteMember.allowed_keys()}
+            data['no_replication_slot'] = 'primary_slot_name' not in cluster_params
+            conn_kwargs = member.conn_kwargs() if member else \
+                {k: cluster_params[k] for k in ('host', 'port') if k in cluster_params}
+            if conn_kwargs:
+                data['conn_kwargs'] = conn_kwargs
+
+            return RemoteMember(name, data)
+
+    def get_remote_master(self):
+        return self.get_remote_member()

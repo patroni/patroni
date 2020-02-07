@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 
 from behave import step
@@ -9,13 +10,15 @@ SELECT * FROM pg_catalog.pg_stat_replication
 WHERE application_name = '{0}'
 """
 
+callback = sys.executable + " features/callback2.py "
+
 
 @step('I start {name:w} with callback configured')
 def start_patroni_with_callbacks(context, name):
     return context.pctl.start(name, custom_config={
         "postgresql": {
             "callbacks": {
-                "on_role_change": "features/callback.sh"
+                "on_role_change": sys.executable + " features/callback.py"
             }
         }
     })
@@ -24,29 +27,41 @@ def start_patroni_with_callbacks(context, name):
 @step('I start {name:w} in a cluster {cluster_name:w}')
 def start_patroni(context, name, cluster_name):
     return context.pctl.start(name, custom_config={
-        "scope": cluster_name
+        "scope": cluster_name,
+        "postgresql": {
+            "callbacks": {c: callback + name for c in ('on_start', 'on_stop', 'on_restart', 'on_role_change')},
+            "backup_restore": {
+                "command": (sys.executable + " features/backup_restore.py --sourcedir=" +
+                            os.path.join(context.pctl.patroni_path, 'data', 'basebackup'))}
+        }
     })
 
 
 @step('I start {name:w} in a standby cluster {cluster_name:w} as a clone of {name2:w}')
-def start_patroni_stanby_cluster(context, name, cluster_name, name2):
-    ctl = context.pctl._processes.pop(name, None)
+def start_patroni_standby_cluster(context, name, cluster_name, name2):
     # we need to remove patroni.dynamic.json in order to "bootstrap" standby cluster with existing PGDATA
-    if ctl:
-        os.unlink(os.path.join(ctl._data_dir, 'patroni.dynamic.json'))
+    os.unlink(os.path.join(context.pctl._processes[name]._data_dir, 'patroni.dynamic.json'))
     port = context.pctl._processes[name2]._connkwargs.get('port')
-    return context.pctl.start(name, custom_config={
+    context.pctl._processes[name].update_config({
         "scope": cluster_name,
         "bootstrap": {
             "dcs": {
+                "ttl": 20,
+                "loop_wait": 2,
+                "retry_timeout": 5,
                 "standby_cluster": {
                     "host": "localhost",
                     "port": port,
                     "primary_slot_name": "pm_1",
+                    "create_replica_methods": ["backup_restore", "basebackup"]
                 }
             }
+        },
+        "postgresql": {
+            "callbacks": {c: callback + name for c in ('on_start', 'on_stop', 'on_restart', 'on_role_change')}
         }
     })
+    return context.pctl.start(name)
 
 
 @step('{pg_name1:w} is replicating from {pg_name2:w} after {timeout:d} seconds')
@@ -61,8 +76,8 @@ def check_replication_status(context, pg_name1, pg_name2, timeout):
         )
 
         if cur and len(cur.fetchall()) != 0:
-            return True
+            break
 
         time.sleep(1)
-
-    return False
+    else:
+        assert False, "{0} is not replicating from {1} after {2} seconds".format(pg_name1, pg_name2, timeout)

@@ -4,6 +4,7 @@ Feature: basic replication
   Scenario: check replication of a single table
     Given I start postgres0
     Then postgres0 is a leader after 10 seconds
+    And there is a non empty initialize key in DCS after 15 seconds
     When I issue a PATCH request to http://127.0.0.1:8008/config with {"ttl": 20, "loop_wait": 2, "synchronous_mode": true}
     Then I receive a response code 200
     When I start postgres1
@@ -35,10 +36,12 @@ Feature: basic replication
     And I run patronictl.py resume batman
     Then I receive a response returncode 0
     And postgres2 role is the primary after 24 seconds
+    And Response on GET http://127.0.0.1:8010/history contains recovery after 10 seconds
     When I issue a PATCH request to http://127.0.0.1:8010/config with {"synchronous_mode": null, "master_start_timeout": 0}
     Then I receive a response code 200
     When I add the table bar to postgres2
     Then table bar is present on postgres1 after 20 seconds
+    And Response on GET http://127.0.0.1:8010/config contains master_start_timeout after 10 seconds
 
   Scenario: check immediate failover when master_start_timeout=0
     Given I kill postmaster on postgres2

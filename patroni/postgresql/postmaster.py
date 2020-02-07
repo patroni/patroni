@@ -1,19 +1,41 @@
 import logging
+import multiprocessing
 import os
 import psutil
 import re
 import signal
 import subprocess
+import sys
 
-from patroni import call_self
+from patroni import PATRONI_ENV_PREFIX
+
+# avoid spawning the resource tracker process
+if sys.version_info >= (3, 8):  # pragma: no cover
+    import multiprocessing.resource_tracker
+    multiprocessing.resource_tracker.getfd = lambda: 0
+elif sys.version_info >= (3, 4):  # pragma: no cover
+    import multiprocessing.semaphore_tracker
+    multiprocessing.semaphore_tracker.getfd = lambda: 0
 
 logger = logging.getLogger(__name__)
 
 STOP_SIGNALS = {
-    'smart': signal.SIGTERM,
-    'fast': signal.SIGINT,
-    'immediate': signal.SIGQUIT if os.name != 'nt' else signal.SIGABRT,
+    'smart': 'TERM',
+    'fast': 'INT',
+    'immediate': 'QUIT',
 }
+
+
+def pg_ctl_start(conn, cmdline, env):
+    if os.name != 'nt':
+        os.setsid()
+    try:
+        postmaster = subprocess.Popen(cmdline, close_fds=True, env=env)
+        conn.send(postmaster.pid)
+    except Exception:
+        logger.exception('Failed to execute %s', cmdline)
+        conn.send(None)
+    conn.close()
 
 
 class PostmasterProcess(psutil.Process):
@@ -83,7 +105,7 @@ class PostmasterProcess(psutil.Process):
         except psutil.NoSuchProcess:
             return None
 
-    def signal_stop(self, mode):
+    def signal_stop(self, mode, pg_ctl='pg_ctl'):
         """Signal postmaster process to stop
 
         :returns None if signaled, True if process is already gone, False if error
@@ -91,8 +113,10 @@ class PostmasterProcess(psutil.Process):
         if self.is_single_user:
             logger.warning("Cannot stop server; single-user server is running (PID: {0})".format(self.pid))
             return False
+        if os.name != 'posix':
+            return self.pg_ctl_kill(mode, pg_ctl)
         try:
-            self.send_signal(STOP_SIGNALS[mode])
+            self.send_signal(getattr(signal, 'SIG' + STOP_SIGNALS[mode]))
         except psutil.NoSuchProcess:
             return True
         except psutil.AccessDenied as e:
@@ -101,29 +125,42 @@ class PostmasterProcess(psutil.Process):
 
         return None
 
+    def pg_ctl_kill(self, mode, pg_ctl):
+        try:
+            status = subprocess.call([pg_ctl, "kill", STOP_SIGNALS[mode], str(self.pid)])
+        except OSError:
+            return False
+        if status == 0:
+            return None
+        else:
+            return not self.is_running()
+
     def wait_for_user_backends_to_close(self):
-        # These regexps are cross checked against versions PostgreSQL 9.1 .. 9.6
-        aux_proc_re = re.compile("(?:postgres:)( .*:)? (?:""(?:startup|logger|checkpointer|writer|wal writer|"
-                                 "autovacuum launcher|autovacuum worker|stats collector|wal receiver|archiver|"
-                                 "wal sender) process|bgworker: )")
+        # These regexps are cross checked against versions PostgreSQL 9.1 .. 11
+        aux_proc_re = re.compile("(?:postgres:)( .*:)? (?:(?:archiver|startup|autovacuum launcher|autovacuum worker|"
+                                 "checkpointer|logger|stats collector|wal receiver|wal writer|writer)(?: process  )?|"
+                                 "walreceiver|wal sender process|walsender|walwriter|background writer|"
+                                 "logical replication launcher|logical replication worker for|bgworker:) ")
 
         try:
-            user_backends = []
-            user_backends_cmdlines = []
-            for child in self.children():
-                try:
-                    cmdline = child.cmdline()[0]
-                    if not aux_proc_re.match(cmdline):
-                        user_backends.append(child)
-                        user_backends_cmdlines.append(cmdline)
-                except psutil.NoSuchProcess:
-                    pass
-            if user_backends:
-                logger.debug('Waiting for user backends %s to close', ', '.join(user_backends_cmdlines))
-                psutil.wait_procs(user_backends)
-            logger.debug("Backends closed")
+            children = self.children()
         except psutil.Error:
-            logger.exception('wait_for_user_backends_to_close')
+            return logger.debug('Failed to get list of postmaster children')
+
+        user_backends = []
+        user_backends_cmdlines = []
+        for child in children:
+            try:
+                cmdline = child.cmdline()[0]
+                if not aux_proc_re.match(cmdline):
+                    user_backends.append(child)
+                    user_backends_cmdlines.append(cmdline)
+            except psutil.NoSuchProcess:
+                pass
+        if user_backends:
+            logger.debug('Waiting for user backends %s to close', ', '.join(user_backends_cmdlines))
+            psutil.wait_procs(user_backends)
+        logger.debug("Backends closed")
 
     @staticmethod
     def start(pgcommand, data_dir, conf, options):
@@ -139,7 +176,7 @@ class PostmasterProcess(psutil.Process):
         # In order to make everything portable we can't use fork&exec approach here, so  we will call
         # ourselves and pass list of arguments which must be used to start postgres.
         # On Windows, in order to run a side-by-side assembly the specified env must include a valid SYSTEMROOT.
-        env = {p: os.environ[p] for p in ('PATH', 'LD_LIBRARY_PATH', 'LC_ALL', 'LANG', 'SYSTEMROOT') if p in os.environ}
+        env = {p: os.environ[p] for p in os.environ if not p.startswith(PATRONI_ENV_PREFIX)}
         try:
             proc = PostmasterProcess._from_pidfile(data_dir)
             if proc and not proc._is_postmaster_process():
@@ -156,10 +193,14 @@ class PostmasterProcess(psutil.Process):
             pass
         cmdline = [pgcommand, '-D', data_dir, '--config-file={}'.format(conf)] + options
         logger.debug("Starting postgres: %s", " ".join(cmdline))
-        proc = call_self(['pg_ctl_start'] + cmdline, close_fds=(os.name != 'nt'),
-                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
-        pid = int(proc.stdout.readline().strip())
-        proc.wait()
+        ctx = multiprocessing.get_context('spawn') if sys.version_info >= (3, 4) else multiprocessing
+        parent_conn, child_conn = ctx.Pipe(False)
+        proc = ctx.Process(target=pg_ctl_start, args=(child_conn, cmdline, env))
+        proc.start()
+        pid = parent_conn.recv()
+        proc.join()
+        if pid is None:
+            return
         logger.info('postmaster pid=%s', pid)
 
         # TODO: In an extremely unlikely case, the process could have exited and the pid reassigned. The start

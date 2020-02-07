@@ -1,6 +1,5 @@
 import collections
 import ctypes
-import fcntl
 import os
 import platform
 from patroni.watchdog.base import WatchdogBase, WatchdogError
@@ -17,11 +16,11 @@ IOC_DIRBITS = 2
 
 # Non-generic platform special cases
 machine = platform.machine()
-if machine in ['mips', 'sparc', 'powerpc', 'ppc64']:
+if machine in ['mips', 'sparc', 'powerpc', 'ppc64']:  # pragma: no cover
     IOC_SIZEBITS = 13
     IOC_DIRBITS = 3
     IOC_NONE, IOC_WRITE, IOC_READ = 1, 2, 4
-elif machine == 'parisc':
+elif machine == 'parisc':  # pragma: no cover
     IOC_WRITE, IOC_READ = 2, 1
 
 IOC_NRSHIFT = 0
@@ -162,7 +161,9 @@ class LinuxWatchdogDevice(WatchdogBase):
         Raises OSError or IOError (Python 2) when the ioctl fails."""
         if self._fd is None:
             raise WatchdogError("Watchdog device is closed")
-        fcntl.ioctl(self._fd, func, arg, True)
+        if os.name != 'nt':
+            import fcntl
+            fcntl.ioctl(self._fd, func, arg, True)
 
     def get_support(self):
         if self._support_cache is None:
@@ -217,7 +218,7 @@ class LinuxWatchdogDevice(WatchdogBase):
         return timeout.value
 
 
-class TestingWatchdogDevice(LinuxWatchdogDevice):
+class TestingWatchdogDevice(LinuxWatchdogDevice):  # pragma: no cover
     """Converts timeout ioctls to regular writes that can be intercepted from a named pipe."""
     timeout = 60
 

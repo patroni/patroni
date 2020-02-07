@@ -108,7 +108,7 @@ objects:
       spec:
         containers:
         - env:
-          - name: POD_IP
+          - name: PATRONI_KUBERNETES_POD_IP
             valueFrom:
               fieldRef:
                 apiVersion: v1

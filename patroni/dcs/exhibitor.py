@@ -1,10 +1,11 @@
+import json
 import logging
 import random
-import requests
 import time
 
 from patroni.dcs.zookeeper import ZooKeeper
-from requests.exceptions import RequestException
+from patroni.request import get as requests_get
+from patroni.utils import uri
 
 logger = logging.getLogger(__name__)
 
@@ -46,12 +47,11 @@ class ExhibitorEnsembleProvider(object):
     def _query_exhibitors(self, exhibitors):
         random.shuffle(exhibitors)
         for host in exhibitors:
-            uri = 'http://{0}:{1}{2}'.format(host, self._exhibitor_port, self._uri_path)
             try:
-                response = requests.get(uri, timeout=self.TIMEOUT)
-                return response.json()
-            except RequestException:
-                pass
+                response = requests_get(uri('http', (host, self._exhibitor_port), self._uri_path), timeout=self.TIMEOUT)
+                return json.loads(response.data.decode('utf-8'))
+            except Exception:
+                logging.debug('Request to %s failed', host)
         return None
 
     @property

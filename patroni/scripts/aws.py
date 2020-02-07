@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 
+import json
 import logging
-import requests
-from requests.exceptions import RequestException
 import sys
 import boto.ec2
 
 from patroni.utils import Retry, RetryFailedError
+from patroni.request import get as requests_get
 
 logger = logging.getLogger(__name__)
 
@@ -19,14 +19,14 @@ class AWSConnection(object):
         self._retry = Retry(deadline=300, max_delay=30, max_tries=-1, retry_exceptions=(boto.exception.StandardError,))
         try:
             # get the instance id
-            r = requests.get('http://169.254.169.254/latest/dynamic/instance-identity/document', timeout=2.1)
-        except RequestException:
+            r = requests_get('http://169.254.169.254/latest/dynamic/instance-identity/document', timeout=2.1)
+        except Exception:
             logger.error('cannot query AWS meta-data')
             return
 
-        if r.ok:
+        if r.status < 400:
             try:
-                content = r.json()
+                content = json.loads(r.data.decode('utf-8'))
                 self.instance_id = content['instanceId']
                 self.region = content['region']
             except Exception:

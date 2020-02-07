@@ -33,6 +33,35 @@ To install requirements on a Mac, run the following:
 
     brew install postgresql etcd haproxy libyaml python
 
+.. _psycopg2_install_options:
+
+**Psycopg2**
+
+Starting from `psycopg2-2.8 <http://initd.org/psycopg/articles/2019/04/04/psycopg-28-released/>`__ the binary version of psycopg2 will no longer be installed by default. Installing it from the source code requires C compiler and postgres+python dev packages.
+Since in the python world it is not possible to specify dependency as ``psycopg2 OR psycopg2-binary`` you will have to decide how to install it.
+
+There are a few options available:
+
+1. Use the package manager from your distro
+
+::
+
+    sudo apt-get install python-psycopg2   # install python2 psycopg2 module on Debian/Ubuntu
+    sudo apt-get install python3-psycopg2  # install python3 psycopg2 module on Debian/Ubuntu
+    sudo yum install python-psycopg2       # install python2 psycopg2 on RedHat/Fedora/CentOS
+
+2. Install psycopg2 from the binary package
+
+::
+
+    pip install psycopg2-binary
+
+3. Install psycopg2 from source
+
+::
+
+    pip install psycopg2>=2.5.4
+
 **General installation for pip**
 
 Patroni can be installed with pip:
@@ -65,6 +94,8 @@ For example, the command in order to install Patroni together with dependencies 
 Note that external tools to call in the replica creation or custom bootstrap scripts (i.e. WAL-E) should be installed
 independently of Patroni.
 
+
+.. _running_configuring:
 
 Running and Configuring
 -----------------------

@@ -1,17 +1,13 @@
 import abc
-import consul
 import datetime
-import etcd
-import kazoo.client
-import kazoo.exceptions
 import os
-import psutil
 import psycopg2
 import json
 import shutil
 import signal
 import six
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -84,7 +80,7 @@ class AbstractController(object):
 
 
 class PatroniController(AbstractController):
-    __PORT = 5440
+    __PORT = 5360
     PATRONI_CONFIG = '{}.yml'
     """ starts and stops individual patronis"""
 
@@ -110,19 +106,31 @@ class PatroniController(AbstractController):
         with open(os.path.join(self._data_dir, 'label'), 'w') as f:
             f.write(content)
 
-    def read_label(self):
+    def read_label(self, label):
         try:
-            with open(os.path.join(self._data_dir, 'label'), 'r') as f:
+            with open(os.path.join(self._data_dir, label), 'r') as f:
                 return f.read().strip()
         except IOError:
             return None
 
-    def add_tag_to_config(self, tag, value):
+    @staticmethod
+    def recursive_update(dst, src):
+        for k, v in src.items():
+            if k in dst and isinstance(dst[k], dict):
+                PatroniController.recursive_update(dst[k], v)
+            else:
+                dst[k] = v
+
+    def update_config(self, custom_config):
         with open(self._config) as r:
             config = yaml.safe_load(r)
-            config['tags']['tag'] = value
+            self.recursive_update(config, custom_config)
             with open(self._config, 'w') as w:
                 yaml.safe_dump(config, w, default_flow_style=False)
+        self._scope = config.get('scope', 'batman')
+
+    def add_tag_to_config(self, tag, value):
+        self.update_config({'tags': {tag: value}})
 
     def _start(self):
         if self.watchdog:
@@ -130,7 +138,8 @@ class PatroniController(AbstractController):
         if isinstance(self._context.dcs_ctl, KubernetesController):
             self._context.dcs_ctl.create_pod(self._name[8:], self._scope)
             os.environ['PATRONI_KUBERNETES_POD_IP'] = '10.0.0.' + self._name[-1]
-        return subprocess.Popen(['coverage', 'run', '--source=patroni', '-p', 'patroni.py', self._config],
+        return subprocess.Popen([sys.executable, '-m', 'coverage', 'run',
+                                '--source=patroni', '-p', 'patroni.py', self._config],
                                 stdout=self._log, stderr=subprocess.STDOUT, cwd=self._work_directory)
 
     def stop(self, kill=False, timeout=15, postgres=False):
@@ -162,7 +171,8 @@ class PatroniController(AbstractController):
 
         config['name'] = name
         config['postgresql']['data_dir'] = self._data_dir
-        config['postgresql']['use_unix_socket'] = True
+        config['postgresql']['use_unix_socket'] = os.name != 'nt'  # windows doesn't yet support unix-domain sockets
+        config['postgresql']['pgpass'] = os.path.join(tempfile.gettempdir(), 'pgpass_' + name)
         config['postgresql']['parameters'].update({
             'logging_collector': 'on', 'log_destination': 'csvlog', 'log_directory': self._output_dir,
             'log_filename': name + '.log', 'log_statement': 'all', 'log_min_messages': 'debug1',
@@ -174,13 +184,7 @@ class PatroniController(AbstractController):
                 config['bootstrap']['initdb'].extend([{'auth': 'md5'}, {'auth-host': 'md5'}])
 
         if custom_config is not None:
-            def recursive_update(dst, src):
-                for k, v in src.items():
-                    if k in dst and isinstance(dst[k], dict):
-                        recursive_update(dst[k], v)
-                    else:
-                        dst[k] = v
-            recursive_update(config, custom_config)
+            self.recursive_update(config, custom_config)
 
         if config['postgresql'].get('callbacks', {}).get('on_role_change'):
             config['postgresql']['callbacks']['on_role_change'] += ' ' + str(self.__PORT)
@@ -241,59 +245,24 @@ class PatroniController(AbstractController):
         except Exception:
             return None
 
-    def database_is_running(self):
-        pid = self._get_pid()
-        if not pid:
-            return False
-        try:
-            os.kill(pid, 0)
-        except OSError:
-            return False
-        return True
-
     def patroni_hang(self, timeout):
         hang = ProcessHang(self._handle.pid, timeout)
         self._closables.append(hang)
         hang.start()
-
-    def checkpoint_hang(self, timeout):
-        pid = self._get_pid()
-        if not pid:
-            return False
-        proc = psutil.Process(pid)
-        for child in proc.children():
-            if 'checkpoint' in child.cmdline()[0]:
-                checkpointer = child
-                break
-        else:
-            return False
-        hang = ProcessHang(checkpointer.pid, timeout)
-        self._closables.append(hang)
-        hang.start()
-        return True
 
     def cancel_background(self):
         for obj in self._closables:
             obj.close()
         self._closables = []
 
-    def terminate_backends(self):
-        pid = self._get_pid()
-        if not pid:
-            return False
-        proc = psutil.Process(pid)
-        for p in proc.children():
-            if 'process' not in p.cmdline()[0]:
-                p.terminate()
-
     @property
     def backup_source(self):
         return 'postgres://{username}:{password}@{host}:{port}/{database}'.format(**self._replication)
 
-    def backup(self, dest='basebackup'):
-        subprocess.call([PatroniPoolController.BACKUP_SCRIPT, '--walmethod=none',
-                         '--datadir=' + os.path.join(self._output_dir, dest),
-                         '--dbname=' + self.backup_source])
+    def backup(self, dest=os.path.join('data', 'basebackup')):
+        subprocess.call(PatroniPoolController.BACKUP_SCRIPT + ['--walmethod=none',
+                        '--datadir=' + os.path.join(self._work_directory, dest),
+                        '--dbname=' + self.backup_source])
 
 
 class ProcessHang(object):
@@ -366,8 +335,11 @@ class ConsulController(AbstractDcsController):
     def __init__(self, context):
         super(ConsulController, self).__init__(context)
         os.environ['PATRONI_CONSUL_HOST'] = 'localhost:8500'
-        self._client = consul.Consul()
+        os.environ['PATRONI_CONSUL_REGISTER_SERVICE'] = 'on'
         self._config_file = None
+
+        import consul
+        self._client = consul.Consul()
 
     def _start(self):
         self._config_file = self._work_directory + '.json'
@@ -408,6 +380,8 @@ class EtcdController(AbstractDcsController):
     def __init__(self, context):
         super(EtcdController, self).__init__(context)
         os.environ['PATRONI_ETCD_HOST'] = 'localhost:2379'
+
+        import etcd
         self._client = etcd.Client(port=2379)
 
     def _start(self):
@@ -415,12 +389,14 @@ class EtcdController(AbstractDcsController):
                                 stdout=self._log, stderr=subprocess.STDOUT)
 
     def query(self, key, scope='batman'):
+        import etcd
         try:
             return self._client.get(self.path(key, scope)).value
         except etcd.EtcdKeyNotFound:
             return None
 
     def cleanup_service_tree(self):
+        import etcd
         try:
             self._client.delete(self.path(scope=''), recursive=True)
         except (etcd.EtcdKeyNotFound, etcd.EtcdConnectionFailed):
@@ -464,13 +440,13 @@ class KubernetesController(AbstractDcsController):
 
     def delete_pod(self, name):
         try:
-            self._api.delete_namespaced_pod(name, self._namespace, self._client.V1DeleteOptions())
-        except:
+            self._api.delete_namespaced_pod(name, self._namespace, body=self._client.V1DeleteOptions())
+        except Exception:
             pass
         while True:
             try:
                 self._api.read_namespaced_pod(name, self._namespace)
-            except:
+            except Exception:
                 break
 
     def query(self, key, scope='batman'):
@@ -479,22 +455,23 @@ class KubernetesController(AbstractDcsController):
             return (pod.metadata.annotations or {}).get('status', '')
         else:
             try:
-                e = self._api.read_namespaced_endpoints(scope + ('' if key == 'leader' else '-' + key), self._namespace)
-                if key == 'leader':
+                ep = scope + {'leader': '', 'history': '-config', 'initialize': '-config'}.get(key, '-' + key)
+                e = self._api.read_namespaced_endpoints(ep, self._namespace)
+                if key != 'sync':
                     return e.metadata.annotations[key]
                 else:
                     return json.dumps(e.metadata.annotations)
-            except:
+            except Exception:
                 return None
 
     def cleanup_service_tree(self):
         try:
             self._api.delete_collection_namespaced_pod(self._namespace, label_selector=self._label_selector)
-        except:
+        except Exception:
             pass
         try:
             self._api.delete_collection_namespaced_endpoints(self._namespace, label_selector=self._label_selector)
-        except:
+        except Exception:
             pass
 
         while True:
@@ -514,18 +491,22 @@ class ZooKeeperController(AbstractDcsController):
         super(ZooKeeperController, self).__init__(context, False)
         if export_env:
             os.environ['PATRONI_ZOOKEEPER_HOSTS'] = "'localhost:2181'"
+
+        import kazoo.client
         self._client = kazoo.client.KazooClient()
 
     def _start(self):
         pass  # TODO: implement later
 
     def query(self, key, scope='batman'):
+        import kazoo.exceptions
         try:
             return self._client.get(self.path(key, scope))[0].decode('utf-8')
         except kazoo.exceptions.NoNodeError:
             return None
 
     def cleanup_service_tree(self):
+        import kazoo.exceptions
         try:
             self._client.delete(self.path(scope=''), recursive=True)
         except (kazoo.exceptions.NoNodeError):
@@ -552,7 +533,8 @@ class ExhibitorController(ZooKeeperController):
 
 class PatroniPoolController(object):
 
-    BACKUP_SCRIPT = 'features/backup_create.sh'
+    BACKUP_SCRIPT = [sys.executable, 'features/backup_create.py']
+    ARCHIVE_RESTORE_SCRIPT = ' '.join((sys.executable, os.path.abspath('features/archive-restore.py')))
 
     def __init__(self, context):
         self._context = context
@@ -585,9 +567,8 @@ class PatroniPoolController(object):
         self._processes[name].start(max_wait_limit)
 
     def __getattr__(self, func):
-        if func not in ['stop', 'query', 'write_label', 'read_label', 'check_role_has_changed_to', 'add_tag_to_config',
-                        'get_watchdog', 'database_is_running', 'checkpoint_hang', 'patroni_hang',
-                        'terminate_backends', 'backup']:
+        if func not in ['stop', 'query', 'write_label', 'read_label', 'check_role_has_changed_to',
+                        'add_tag_to_config', 'get_watchdog', 'patroni_hang', 'backup']:
             raise AttributeError("PatroniPoolController instance has no attribute '{0}'".format(func))
 
         def wrapper(name, *args, **kwargs):
@@ -601,7 +582,7 @@ class PatroniPoolController(object):
         self._processes.clear()
 
     def create_and_set_output_directory(self, feature_name):
-        feature_dir = os.path.join(self.patroni_path, 'features/output', feature_name.replace(' ', '_'))
+        feature_dir = os.path.join(self.patroni_path, 'features', 'output', feature_name.replace(' ', '_'))
         if os.path.exists(feature_dir):
             shutil.rmtree(feature_dir)
         os.makedirs(feature_dir)
@@ -614,7 +595,7 @@ class PatroniPoolController(object):
             'bootstrap': {
                 'method': 'pg_basebackup',
                 'pg_basebackup': {
-                    'command': self.BACKUP_SCRIPT + ' --walmethod=stream --dbname=' + f.backup_source
+                    'command': " ".join(self.BACKUP_SCRIPT) + ' --walmethod=stream --dbname=' + f.backup_source
                 },
                 'dcs': {
                     'postgresql': {
@@ -627,8 +608,9 @@ class PatroniPoolController(object):
             'postgresql': {
                 'parameters': {
                     'archive_mode': 'on',
-                    'archive_command': 'mkdir -p {0} && test ! -f {0}/%f && cp %p {0}/%f'.format(
-                            os.path.join(self._output_dir, 'wal_archive'))
+                    'archive_command': (self.ARCHIVE_RESTORE_SCRIPT + ' --mode archive ' +
+                                        '--dirname {} --filename %f --pathname %p').format(
+                                        os.path.join(self.patroni_path, 'data', 'wal_archive'))
                 },
                 'authentication': {
                     'superuser': {'password': 'zalando1'},
@@ -644,11 +626,14 @@ class PatroniPoolController(object):
             'bootstrap': {
                 'method': 'backup_restore',
                 'backup_restore': {
-                    'command': 'features/backup_restore.sh --sourcedir=' + os.path.join(self._output_dir, 'basebackup'),
+                    'command': (sys.executable + ' features/backup_restore.py --sourcedir=' +
+                                os.path.join(self.patroni_path, 'data', 'basebackup')),
                     'recovery_conf': {
                         'recovery_target_action': 'promote',
                         'recovery_target_timeline': 'latest',
-                        'restore_command': 'cp {0}/wal_archive/%f %p'.format(self._output_dir)
+                        'restore_command': (self.ARCHIVE_RESTORE_SCRIPT + ' --mode restore ' +
+                                            '--dirname {} --filename %f --pathname %p').format(
+                                            os.path.join(self.patroni_path, 'data', 'wal_archive'))
                     }
                 }
             },
@@ -802,8 +787,8 @@ def before_all(context):
 
 def after_all(context):
     context.dcs_ctl.stop()
-    subprocess.call(['coverage', 'combine'])
-    subprocess.call(['coverage', 'report'])
+    subprocess.call([sys.executable, '-m', 'coverage', 'combine'])
+    subprocess.call([sys.executable, '-m', 'coverage', 'report'])
 
 
 def before_feature(context, feature):
@@ -816,3 +801,5 @@ def after_feature(context, feature):
     context.pctl.stop_all()
     shutil.rmtree(os.path.join(context.pctl.patroni_path, 'data'))
     context.dcs_ctl.cleanup_service_tree()
+    if feature.status == 'failed':
+        shutil.copytree(context.pctl.output_dir, context.pctl.output_dir + '_failed')

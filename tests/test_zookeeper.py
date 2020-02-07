@@ -1,3 +1,4 @@
+import select
 import six
 import unittest
 
@@ -16,6 +17,7 @@ class MockKazooClient(Mock):
 
     def __init__(self, *args, **kwargs):
         super(MockKazooClient, self).__init__()
+        self._session_timeout = 30
 
     @property
     def client_id(self):
@@ -23,7 +25,7 @@ class MockKazooClient(Mock):
 
     @staticmethod
     def retry(func, *args, **kwargs):
-        func(*args, **kwargs)
+        return func(*args, **kwargs)
 
     def get(self, path, watch=None):
         if not isinstance(path, six.string_types):
@@ -114,6 +116,10 @@ class TestPatroniSequentialThreadingHandler(unittest.TestCase):
         self.assertIsNotNone(self.handler.create_connection(()))
         self.assertIsNotNone(self.handler.create_connection((), 40))
         self.assertIsNotNone(self.handler.create_connection(timeout=40))
+
+    @patch.object(SequentialThreadingHandler, 'select', Mock(side_effect=ValueError))
+    def test_select(self):
+        self.assertRaises(select.error, self.handler.select)
 
 
 class TestZooKeeper(unittest.TestCase):

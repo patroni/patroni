@@ -4,30 +4,37 @@ import signal
 import sys
 import time
 
+from patroni.version import __version__
+
 logger = logging.getLogger(__name__)
+
+PATRONI_ENV_PREFIX = 'PATRONI_'
 
 
 class Patroni(object):
 
-    def __init__(self):
+    def __init__(self, conf):
         from patroni.api import RestApiServer
-        from patroni.config import Config
         from patroni.dcs import get_dcs
         from patroni.ha import Ha
+        from patroni.log import PatroniLogger
         from patroni.postgresql import Postgresql
-        from patroni.version import __version__
+        from patroni.request import PatroniRequest
         from patroni.watchdog import Watchdog
 
         self.setup_signal_handlers()
 
         self.version = __version__
-        self.config = Config()
+        self.logger = PatroniLogger()
+        self.config = conf
+        self.logger.reload_config(self.config.get('log', {}))
         self.dcs = get_dcs(self.config)
         self.watchdog = Watchdog(self.config)
         self.load_dynamic_configuration()
 
         self.postgresql = Postgresql(self.config['postgresql'])
         self.api = RestApiServer(self, self.config['restapi'])
+        self.request = PatroniRequest(self.config, True)
         self.ha = Ha(self)
 
         self.tags = self.get_tags()
@@ -49,6 +56,7 @@ class Patroni(object):
                 break
             except DCSError:
                 logger.warning('Can not get cluster from dcs')
+                time.sleep(5)
 
     def get_tags(self):
         return {tag: value for tag, value in self.config.get('tags', {}).items()
@@ -62,13 +70,16 @@ class Patroni(object):
     def nosync(self):
         return bool(self.tags.get('nosync', False))
 
-    def reload_config(self):
+    def reload_config(self, sighup=False):
         try:
             self.tags = self.get_tags()
-            self.dcs.reload_config(self.config)
+            self.logger.reload_config(self.config.get('log', {}))
             self.watchdog.reload_config(self.config)
+            if sighup:
+                self.request.reload_config(self.config)
             self.api.reload_config(self.config['restapi'])
-            self.postgresql.reload_config(self.config['postgresql'])
+            self.postgresql.reload_config(self.config['postgresql'], sighup)
+            self.dcs.reload_config(self.config)
         except Exception:
             logger.exception('Failed to reload config_file=%s', self.config.config_file)
 
@@ -80,9 +91,10 @@ class Patroni(object):
         self._received_sighup = True
 
     def sigterm_handler(self, *args):
-        if not self._received_sigterm:
-            self._received_sigterm = True
-            sys.exit()
+        with self._sigterm_lock:
+            if not self._received_sigterm:
+                self._received_sigterm = True
+                sys.exit()
 
     @property
     def noloadbalance(self):
@@ -101,15 +113,23 @@ class Patroni(object):
         elif self.ha.watch(nap_time):
             self.next_run = time.time()
 
+    @property
+    def received_sigterm(self):
+        with self._sigterm_lock:
+            return self._received_sigterm
+
     def run(self):
         self.api.start()
+        self.logger.start()
         self.next_run = time.time()
 
-        while not self._received_sigterm:
+        while not self.received_sigterm:
             if self._received_sighup:
                 self._received_sighup = False
                 if self.config.reload_local_configuration():
-                    self.reload_config()
+                    self.reload_config(True)
+                else:
+                    self.postgresql.config.reload_config(self.config['postgresql'], True)
 
             logger.info(self.ha.run_cycle())
 
@@ -123,29 +143,47 @@ class Patroni(object):
             self.schedule_next_run()
 
     def setup_signal_handlers(self):
+        from threading import Lock
+
         self._received_sighup = False
+        self._sigterm_lock = Lock()
         self._received_sigterm = False
         if os.name != 'nt':
             signal.signal(signal.SIGHUP, self.sighup_handler)
         signal.signal(signal.SIGTERM, self.sigterm_handler)
 
     def shutdown(self):
+        with self._sigterm_lock:
+            self._received_sigterm = True
         try:
             self.api.shutdown()
         except Exception:
             logger.exception('Exception during RestApi.shutdown')
-        self.ha.shutdown()
+        try:
+            self.ha.shutdown()
+        except Exception:
+            logger.exception('Exception during Ha.shutdown')
+        self.logger.shutdown()
 
 
 def patroni_main():
-    logformat = os.environ.get('PATRONI_LOGFORMAT', '%(asctime)s %(levelname)s: %(message)s')
-    loglevel = os.environ.get('PATRONI_LOGLEVEL', 'INFO')
-    requests_loglevel = os.environ.get('PATRONI_REQUESTS_LOGLEVEL', 'WARNING')
-    logging.basicConfig(format=logformat, level=loglevel)
-    logging.getLogger('requests').setLevel(requests_loglevel)
-    logging.getLogger('patroni.quorum').setLevel(os.environ.get('PATRONI_QUORUM_LOGLEVEL', loglevel))
+    import argparse
+    from patroni.config import Config, ConfigParseError
 
-    patroni = Patroni()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--version', action='version', version='%(prog)s {0}'.format(__version__))
+    parser.add_argument('configfile', nargs='?', default='',
+                        help='Patroni may also read the configuration from the {0} environment variable'
+                        .format(Config.PATRONI_CONFIG_VARIABLE))
+    args = parser.parse_args()
+    try:
+        conf = Config(args.configfile)
+    except ConfigParseError as e:
+        if e.value:
+            print(e.value)
+        parser.print_help()
+        sys.exit(1)
+    patroni = Patroni(conf)
     try:
         patroni.run()
     except KeyboardInterrupt:
@@ -154,34 +192,38 @@ def patroni_main():
         patroni.shutdown()
 
 
-def pg_ctl_start(args):
-    import subprocess
-    if os.name != 'nt':
-        os.setsid()
-    postmaster = subprocess.Popen(args)
-    print(postmaster.pid)
+def fatal(string, *args):
+    sys.stderr.write('FATAL: ' + string.format(*args) + '\n')
+    sys.exit(1)
 
 
-def call_self(args, **kwargs):
-    """This function executes Patroni once again with provided arguments.
+def check_psycopg2():
+    min_psycopg2 = (2, 5, 4)
+    min_psycopg2_str = '.'.join(map(str, min_psycopg2))
 
-    :args: list of arguments to call Patroni with.
-    :returns: `Popen` object"""
+    def parse_version(version):
+        for e in version.split('.'):
+            try:
+                yield int(e)
+            except ValueError:
+                break
 
-    exe = [sys.executable]
-    if not getattr(sys, 'frozen', False):  # Binary distribution?
-        exe.append(sys.argv[0])
-
-    import subprocess
-    return subprocess.Popen(exe + args, **kwargs)
+    try:
+        import psycopg2
+        version_str = psycopg2.__version__.split(' ')[0]
+        version = tuple(parse_version(version_str))
+        if version < min_psycopg2:
+            fatal('Patroni requires psycopg2>={0}, but only {1} is available', min_psycopg2_str, version_str)
+    except ImportError:
+        fatal('Patroni requires psycopg2>={0} or psycopg2-binary', min_psycopg2_str)
 
 
 def main():
     if os.getpid() != 1:
-        if len(sys.argv) > 5 and sys.argv[1] == 'pg_ctl_start':
-            return pg_ctl_start(sys.argv[2:])
+        check_psycopg2()
         return patroni_main()
 
+    # Patroni started with PID=1, it looks like we are in the container
     pid = 0
 
     # Looks like we are in a docker, so we will act like init
@@ -200,16 +242,18 @@ def main():
         if pid:
             os.kill(pid, signo)
 
-    signal.signal(signal.SIGCHLD, sigchld_handler)
     if os.name != 'nt':
+        signal.signal(signal.SIGCHLD, sigchld_handler)
         signal.signal(signal.SIGHUP, passtochild)
         signal.signal(signal.SIGQUIT, passtochild)
+        signal.signal(signal.SIGUSR1, passtochild)
+        signal.signal(signal.SIGUSR2, passtochild)
     signal.signal(signal.SIGINT, passtochild)
-    signal.signal(signal.SIGUSR1, passtochild)
-    signal.signal(signal.SIGUSR2, passtochild)
     signal.signal(signal.SIGABRT, passtochild)
     signal.signal(signal.SIGTERM, passtochild)
 
-    patroni = call_self(sys.argv[1:])
+    import multiprocessing
+    patroni = multiprocessing.Process(target=patroni_main)
+    patroni.start()
     pid = patroni.pid
-    patroni.wait()
+    patroni.join()

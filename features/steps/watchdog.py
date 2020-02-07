@@ -44,31 +44,6 @@ def watchdog_was_triggered(context, name, timeout):
     assert False
 
 
-@then('{name:w} watchdog was not triggered')
-def watchdog_was_not_triggered(context, name):
-    assert not context.pctl.get_watchdog(name).was_triggered
-
-
-@step('{name:w} checkpoint takes {timeout:d} seconds')
-def checkpoint_hang(context, name, timeout):
-    assert context.pctl.checkpoint_hang(name, timeout)
-
-
 @step('{name:w} hangs for {timeout:d} seconds')
 def patroni_hang(context, name, timeout):
     return context.pctl.patroni_hang(name, timeout)
-
-
-@step('I terminate {name:w} user processes')
-def terminate_backends(context, name):
-    return context.pctl.terminate_backends(name)
-
-
-@step('Sleep for {timeout:d} seconds')
-def dcs_connection_lost(context, timeout):
-    time.sleep(timeout)
-
-
-@then('{name:w} database is running')
-def database_is_running(context, name):
-    assert context.pctl.database_is_running(name)

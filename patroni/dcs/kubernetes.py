@@ -8,11 +8,14 @@ import sys
 import time
 
 from kubernetes import client as k8s_client, config as k8s_config, watch as k8s_watch
-from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
-from patroni.exceptions import DCSError
-from patroni.utils import deep_compare, tzutc, Retry, RetryFailedError
+from urllib3 import Timeout
 from urllib3.exceptions import HTTPError
 from six.moves.http_client import HTTPException
+from threading import Condition, Lock, Thread
+
+from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, SyncState, TimelineHistory
+from ..exceptions import DCSError
+from ..utils import deep_compare, Retry, RetryFailedError, tzutc, USER_AGENT
 
 logger = logging.getLogger(__name__)
 
@@ -33,11 +36,27 @@ class CoreV1ApiProxy(object):
 
     def __init__(self, use_endpoints=False):
         self._api = k8s_client.CoreV1Api()
+        self._api.api_client.user_agent = USER_AGENT
+        self._api.api_client.rest_client.pool_manager.connection_pool_kw['maxsize'] = 10
         self._request_timeout = None
         self._use_endpoints = use_endpoints
 
-    def set_timeout(self, timeout):
-        self._request_timeout = (1, timeout / 3.0)
+    def configure_timeouts(self, loop_wait, retry_timeout, ttl):
+        # Normally every loop_wait seconds we should have receive something from the socket.
+        # If we didn't received anything after the loop_wait + retry_timeout it is a time
+        # to start worrying (send keepalive messages). Finally, the connection should be
+        # considered as dead if we received nothing from the socket after the ttl seconds.
+        cnt = 3
+        idle = int(loop_wait + retry_timeout)
+        intvl = max(1, int(float(ttl - idle) / cnt))
+        self._api.api_client.rest_client.pool_manager.connection_pool_kw['socket_options'] = [
+            (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1),
+            (socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, idle),
+            (socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, intvl),
+            (socket.IPPROTO_TCP, socket.TCP_KEEPCNT, cnt),
+            (socket.IPPROTO_TCP, 18, int(ttl * 1000))  # TCP_USER_TIMEOUT
+        ]
+        self._request_timeout = (1, retry_timeout / 3.0)
 
     def __getattr__(self, func):
         if func.endswith('_kind'):
@@ -70,6 +89,110 @@ def catch_kubernetes_errors(func):
     return wrapper
 
 
+class ObjectCache(Thread):
+
+    def __init__(self, dcs, func, retry, condition):
+        Thread.__init__(self)
+        self.daemon = True
+        self._api_client = k8s_client.ApiClient()
+        self._dcs = dcs
+        self._func = func
+        self._retry = retry
+        self._condition = condition
+        self._is_ready = False
+        self._object_cache = {}
+        self._object_cache_lock = Lock()
+        self._annotations_map = {self._dcs.leader_path: self._dcs._LEADER, self._dcs.config_path: self._dcs._CONFIG}
+        self.start()
+
+    def _list(self):
+        return self._func(_request_timeout=(self._retry.deadline, Timeout.DEFAULT_TIMEOUT))
+
+    def _watch(self, resource_version):
+        return self._func(_request_timeout=(self._retry.deadline, Timeout.DEFAULT_TIMEOUT),
+                          _preload_content=False, watch=True, resource_version=resource_version)
+
+    def set(self, name, value):
+        with self._object_cache_lock:
+            old_value = self._object_cache.get(name)
+            ret = not old_value or int(old_value.metadata.resource_version) < int(value.metadata.resource_version)
+            if ret:
+                self._object_cache[name] = value
+        return ret, old_value
+
+    def delete(self, name, resource_version):
+        with self._object_cache_lock:
+            old_value = self._object_cache.get(name)
+            ret = old_value and int(old_value.metadata.resource_version) < int(resource_version)
+            if ret:
+                del self._object_cache[name]
+        return not old_value or ret, old_value
+
+    def copy(self):
+        with self._object_cache_lock:
+            return self._object_cache.copy()
+
+    def _build_cache(self):
+        objects = self._list()
+        return_type = 'V1' + objects.kind[:-4]
+        with self._object_cache_lock:
+            self._object_cache = {item.metadata.name: item for item in objects.items}
+        with self._condition:
+            self._is_ready = True
+            self._condition.notify()
+
+        response = self._watch(objects.metadata.resource_version)
+        try:
+            for line in k8s_watch.watch.iter_resp_lines(response):
+                event = json.loads(line)
+                obj = event['object']
+                if obj.get('code') == 410:
+                    break
+
+                ev_type = event['type']
+                name = obj['metadata']['name']
+
+                if ev_type in ('ADDED', 'MODIFIED'):
+                    obj = k8s_watch.watch.SimpleNamespace(data=json.dumps(obj))
+                    obj = self._api_client.deserialize(obj, return_type)
+                    success, old_value = self.set(name, obj)
+                    if success:
+                        new_value = (obj.metadata.annotations or {}).get(self._annotations_map.get(name))
+                elif ev_type == 'DELETED':
+                    success, old_value = self.delete(name, obj['metadata']['resourceVersion'])
+                    new_value = None
+                else:
+                    logger.warning('Unexpected event type: %s', ev_type)
+                    continue
+
+                if success and return_type != 'V1Pod':
+                    if old_value:
+                        old_value = (old_value.metadata.annotations or {}).get(self._annotations_map.get(name))
+
+                    if old_value != new_value and \
+                            (name != self._dcs.config_path or old_value is not None and new_value is not None):
+                        logger.debug('%s changed from %s to %s', name, old_value, new_value)
+                        self._dcs.event.set()
+        finally:
+            with self._condition:
+                self._is_ready = False
+            response.close()
+            response.release_conn()
+
+    def run(self):
+        while True:
+            try:
+                self._build_cache()
+            except Exception as e:
+                with self._condition:
+                    self._is_ready = False
+                logger.error('ObjectCache.run %r', e)
+
+    def is_ready(self):
+        """Must be called only when holding the lock on `_condition`"""
+        return self._is_ready
+
+
 class Kubernetes(AbstractDCS):
 
     def __init__(self, config):
@@ -92,21 +215,32 @@ class Kubernetes(AbstractDCS):
         self.__subsets = None
         use_endpoints = config.get('use_endpoints') and (config.get('patronictl') or 'pod_ip' in config)
         if use_endpoints:
-            addresses = [k8s_client.V1EndpointAddress(ip=config['pod_ip'])]
+            addresses = [k8s_client.V1EndpointAddress(ip='127.0.0.1' if config.get('patronictl') else config['pod_ip'])]
             ports = []
             for p in config.get('ports', [{}]):
                 port = {'port': int(p.get('port', '5432'))}
                 port.update({n: p[n] for n in ('name', 'protocol') if p.get(n)})
                 ports.append(k8s_client.V1EndpointPort(**port))
             self.__subsets = [k8s_client.V1EndpointSubset(addresses=addresses, ports=ports)]
+            self._should_create_config_service = True
         self._api = CoreV1ApiProxy(use_endpoints)
-        self.set_retry_timeout(config['retry_timeout'])
-        self.set_ttl(config.get('ttl') or 30)
+        self.reload_config(config)
         self._leader_observed_record = {}
         self._leader_observed_time = None
         self._leader_resource_version = None
         self._leader_observed_subsets = []
+        self._config_resource_version = None
         self.__do_not_watch = False
+
+        self._condition = Condition()
+
+        pods_func = functools.partial(self._api.list_namespaced_pod, self._namespace,
+                                      label_selector=self._label_selector)
+        self._pods = ObjectCache(self, pods_func, self._retry, self._condition)
+
+        kinds_func = functools.partial(self._api.list_namespaced_kind, self._namespace,
+                                       label_selector=self._label_selector)
+        self._kinds = ObjectCache(self, kinds_func, self._retry, self._condition)
 
     def retry(self, *args, **kwargs):
         return self._retry.copy()(*args, **kwargs)
@@ -123,9 +257,16 @@ class Kubernetes(AbstractDCS):
         self.__do_not_watch = self._ttl != ttl
         self._ttl = ttl
 
+    @property
+    def ttl(self):
+        return self._ttl
+
     def set_retry_timeout(self, retry_timeout):
         self._retry.deadline = retry_timeout
-        self._api.set_timeout(retry_timeout)
+
+    def reload_config(self, config):
+        super(Kubernetes, self).reload_config(config)
+        self._api.configure_timeouts(self.loop_wait, self._retry.deadline, self.ttl)
 
     @staticmethod
     def member(pod):
@@ -134,17 +275,25 @@ class Kubernetes(AbstractDCS):
         member.data['pod_labels'] = pod.metadata.labels
         return member
 
+    def _wait_caches(self):
+        stop_time = time.time() + self._retry.deadline
+        while not (self._pods.is_ready() and self._kinds.is_ready()):
+            timeout = stop_time - time.time()
+            if timeout <= 0:
+                raise RetryFailedError('Exceeded retry deadline')
+            self._condition.wait(timeout)
+
     def _load_cluster(self):
         try:
-            # get list of members
-            response = self.retry(self._api.list_namespaced_pod, self._namespace, label_selector=self._label_selector)
-            members = [self.member(pod) for pod in response.items]
+            with self._condition:
+                self._wait_caches()
 
-            response = self.retry(self._api.list_namespaced_kind, self._namespace, label_selector=self._label_selector)
-            nodes = {item.metadata.name: item for item in response.items}
+                members = [self.member(pod) for pod in self._pods.copy().values()]
+                nodes = self._kinds.copy()
 
             config = nodes.get(self.config_path)
             metadata = config and config.metadata
+            self._config_resource_version = metadata.resource_version if metadata else None
             annotations = metadata and metadata.annotations or {}
 
             # get initialize flag
@@ -188,19 +337,20 @@ class Kubernetes(AbstractDCS):
             if metadata:
                 member = Member(-1, leader, None, {})
                 member = ([m for m in members if m.name == leader] or [member])[0]
-                leader = Leader(response.metadata.resource_version, None, member)
+                leader = Leader(metadata.resource_version, None, member)
 
             # failover key
             failover = nodes.get(self.failover_path)
             metadata = failover and failover.metadata
-            failover = Failover.from_node(metadata and metadata.resource_version, metadata and metadata.annotations)
+            failover = Failover.from_node(metadata and metadata.resource_version,
+                                          metadata and (metadata.annotations or {}).copy())
 
             # get synchronization state
             sync = nodes.get(self.sync_path)
             metadata = sync and sync.metadata
             sync = SyncState.from_node(metadata and metadata.resource_version,  metadata and metadata.annotations)
 
-            self._cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
+            return Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
         except Exception:
             logger.exception('get_cluster')
             raise KubernetesError('Kubernetes API is not responding properly')
@@ -272,7 +422,31 @@ class Kubernetes(AbstractDCS):
             body = k8s_client.V1Endpoints(**endpoints)
         else:
             body = k8s_client.V1ConfigMap(metadata=metadata)
-        return self.retry(func, self._namespace, body) if retry else func(self._namespace, body)
+        ret = self.retry(func, self._namespace, body) if retry else func(self._namespace, body)
+        if ret:
+            self._kinds.set(name, ret)
+        return ret
+
+    def patch_or_create_config(self, annotations, resource_version=None, patch=False, retry=True):
+        # SCOPE-config endpoint requires corresponding service otherwise it might be "cleaned" by k8s master
+        if self.__subsets and not patch and not resource_version:
+            self._should_create_config_service = True
+            self._create_config_service()
+        ret = self.patch_or_create(self.config_path, annotations, resource_version, patch, retry)
+        if ret:
+            self._config_resource_version = ret.metadata.resource_version
+        return ret
+
+    def _create_config_service(self):
+        metadata = k8s_client.V1ObjectMeta(namespace=self._namespace, name=self.config_path, labels=self._labels)
+        body = k8s_client.V1Service(metadata=metadata, spec=k8s_client.V1ServiceSpec(cluster_ip='None'))
+        try:
+            if not self._api.create_namespaced_service(self._namespace, body):
+                return
+        except Exception as e:
+            if not isinstance(e, k8s_client.rest.ApiException) or e.status != 409:  # Service already exists
+                return logger.exception('create_config_service failed')
+        self._should_create_config_service = False
 
     def _write_leader_optime(self, last_operation):
         """Unused"""
@@ -288,9 +462,7 @@ class Kubernetes(AbstractDCS):
         if last_operation:
             annotations[self._OPTIME] = last_operation
 
-        subsets = self.__subsets
-        if subsets is not None and access_is_restricted:
-            subsets = []
+        subsets = [] if access_is_restricted else self.__subsets
 
         ret = self.patch_or_create(self.leader_path, annotations, self._leader_resource_version, subsets=subsets)
         if ret:
@@ -327,19 +499,19 @@ class Kubernetes(AbstractDCS):
         """Unused"""
 
     def manual_failover(self, leader, candidate, scheduled_at=None, index=None):
-        annotations = {'leader': leader or None, 'member': candidate or None, 'scheduled_at': scheduled_at}
+        annotations = {'leader': leader or None, 'member': candidate or None,
+                       'scheduled_at': scheduled_at and scheduled_at.isoformat()}
         patch = bool(self.cluster and isinstance(self.cluster.failover, Failover) and self.cluster.failover.index)
         return self.patch_or_create(self.failover_path, annotations, index, bool(index or patch), False)
 
     def set_config_value(self, value, index=None):
-        patch = bool(index or self.cluster and self.cluster.config and self.cluster.config.index)
-        return self.patch_or_create(self.config_path, {self._CONFIG: value}, index, patch, False)
+        return self.patch_or_create_config({self._CONFIG: value}, index, bool(self._config_resource_version), False)
 
     @catch_kubernetes_errors
-    def touch_member(self, data, ttl=None, permanent=False):
+    def touch_member(self, data, permanent=False):
         cluster = self.cluster
         if cluster and cluster.leader and cluster.leader.name == self._name:
-            role = 'master'
+            role = 'promoted' if data['role'] in ('replica', 'promoted') else 'master'
         elif data['state'] == 'running' and data['role'] != 'master':
             role = data['role']
         else:
@@ -354,12 +526,14 @@ class Kubernetes(AbstractDCS):
                         'annotations': {'status': json.dumps(data, separators=(',', ':'))}}
             body = k8s_client.V1Pod(metadata=k8s_client.V1ObjectMeta(**metadata))
             ret = self._api.patch_namespaced_pod(self._name, self._namespace, body)
+        if self.__subsets and self._should_create_config_service:
+            self._create_config_service()
         return ret
 
     def initialize(self, create_new=True, sysid=""):
         cluster = self.cluster
         resource_version = cluster.config.index if cluster and cluster.config and cluster.config.index else None
-        return self.patch_or_create(self.config_path, {self._INITIALIZE: sysid}, resource_version)
+        return self.patch_or_create_config({self._INITIALIZE: sysid}, resource_version)
 
     def delete_leader(self):
         if self.cluster and isinstance(self.cluster.leader, Leader) and self.cluster.leader.name == self._name:
@@ -367,15 +541,14 @@ class Kubernetes(AbstractDCS):
             self.reset_cluster()
 
     def cancel_initialization(self):
-        self.patch_or_create(self.config_path, {self._INITIALIZE: None}, self.cluster.config.index, True)
+        self.patch_or_create_config({self._INITIALIZE: None}, self._config_resource_version, True)
 
     @catch_kubernetes_errors
     def delete_cluster(self):
         self.retry(self._api.delete_collection_namespaced_kind, self._namespace, label_selector=self._label_selector)
 
     def set_history_value(self, value):
-        patch = bool(self.cluster and self.cluster.config and self.cluster.config.index)
-        return self.patch_or_create(self.config_path, {self._HISTORY: value}, None, patch, False)
+        return self.patch_or_create_config({self._HISTORY: value}, None, bool(self._config_resource_version), False)
 
     def set_sync_state_value(self, value, index=None):
         """Unused"""
@@ -390,24 +563,6 @@ class Kubernetes(AbstractDCS):
         if self.__do_not_watch:
             self.__do_not_watch = False
             return True
-
-        if leader_index:
-            end_time = time.time() + timeout
-            w = k8s_watch.Watch()
-            while timeout >= 1:
-                try:
-                    for event in w.stream(self._api.list_namespaced_kind, self._namespace,
-                                          resource_version=leader_index, timeout_seconds=int(timeout + 0.5),
-                                          field_selector='metadata.name=' + self.leader_path,
-                                          _request_timeout=(1, timeout + 1)):
-                        return event['raw_object'].get('metadata', {}).get('resourceVersion') != leader_index
-                    return False
-                except KeyboardInterrupt:
-                    raise
-                except Exception:
-                    logger.exception('watch')
-
-                timeout = end_time - time.time()
 
         try:
             return super(Kubernetes, self).watch(None, timeout)

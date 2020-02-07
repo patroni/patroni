@@ -9,11 +9,12 @@ import pkgutil
 import re
 import six
 import sys
+import time
 
 from collections import defaultdict, namedtuple
 from copy import deepcopy
 from patroni.exceptions import PatroniException
-from patroni.utils import parse_bool
+from patroni.utils import parse_bool, uri
 from random import randint
 from six.moves.urllib_parse import urlparse, urlunparse, parse_qsl
 from threading import Event, Lock
@@ -72,26 +73,34 @@ def dcs_modules():
 
 
 def get_dcs(config):
-    available_implementations = set()
-    for module_name in dcs_modules():
-        try:
-            module = importlib.import_module(module_name)
-            for name in filter(lambda name: not name.startswith('__'), dir(module)):  # iterate through module content
-                item = getattr(module, name)
-                name = name.lower()
-                # try to find implementation of AbstractDCS interface, class name must match with module_name
-                if inspect.isclass(item) and issubclass(item, AbstractDCS) and __package__ + '.' + name == module_name:
-                    available_implementations.add(name)
-                    if name in config:  # which has configuration section in the config file
+    modules = dcs_modules()
+
+    for module_name in modules:
+        name = module_name.split('.')[-1]
+        if name in config:  # we will try to import only modules which have configuration section in the config file
+            try:
+                module = importlib.import_module(module_name)
+                for key, item in module.__dict__.items():  # iterate through the module content
+                    # try to find implementation of AbstractDCS interface, class name must match with module_name
+                    if key.lower() == name and inspect.isclass(item) and issubclass(item, AbstractDCS):
                         # propagate some parameters
                         config[name].update({p: config[p] for p in ('namespace', 'name', 'scope', 'loop_wait',
                                              'patronictl', 'ttl', 'retry_timeout') if p in config})
                         return item(config[name])
+            except ImportError:
+                logger.debug('Failed to import %s', module_name)
+
+    available_implementations = []
+    for module_name in modules:
+        name = module_name.split('.')[-1]
+        try:
+            module = importlib.import_module(module_name)
+            available_implementations.extend(name for key, item in module.__dict__.items() if key.lower() == name
+                                             and inspect.isclass(item) and issubclass(item, AbstractDCS))
         except ImportError:
-            if not config.get('patronictl'):
-                logger.info('Failed to import %s', module_name)
+            logger.info('Failed to import %s', module_name)
     raise PatroniException("""Can not find suitable configuration of distributed configuration store
-Available implementations: """ + ', '.join(available_implementations))
+Available implementations: """ + ', '.join(sorted(set(available_implementations))))
 
 
 class Member(namedtuple('Member', 'index,name,session,data')):
@@ -133,10 +142,7 @@ class Member(namedtuple('Member', 'index,name,session,data')):
             return conn_url
 
         if conn_kwargs:
-            conn_url = 'postgresql://{host}:{port}'.format(
-                host=conn_kwargs.get('host'),
-                port=conn_kwargs.get('port'),
-            )
+            conn_url = uri('postgresql', (conn_kwargs.get('host'), conn_kwargs.get('port', 5432)))
             self.data['conn_url'] = conn_url
             return conn_url
 
@@ -159,11 +165,11 @@ class Member(namedtuple('Member', 'index,name,session,data')):
             }
             self.data['conn_kwargs'] = ret.copy()
 
+        # apply any remaining authentication parameters
         if auth and isinstance(auth, dict):
+            ret.update({k: v for k, v in auth.items() if v is not None})
             if 'username' in auth:
-                ret['user'] = auth['username']
-            if 'password' in auth:
-                ret['password'] = auth['password']
+                ret['user'] = ret.pop('username')
         return ret
 
     @property
@@ -235,8 +241,26 @@ class Leader(namedtuple('Leader', 'index,session,member')):
         return self.member.conn_url
 
     @property
+    def data(self):
+        return self.member.data
+
+    @property
     def timeline(self):
-        return self.member.data.get('timeline')
+        return self.data.get('timeline')
+
+    @property
+    def checkpoint_after_promote(self):
+        """
+        >>> Leader(1, '', Member.from_node(1, '', '', '{"version":"z"}')).checkpoint_after_promote
+        """
+        version = self.data.get('version')
+        if version:
+            try:
+                # 1.5.6 is the last version which doesn't expose checkpoint_after_promote: false
+                if tuple(map(int, version.split('.'))) > (1, 5, 6):
+                    return self.data['role'] == 'master' and 'checkpoint_after_promote' not in self.data
+            except Exception:
+                logger.debug('Failed to parse Patroni version %s', version)
 
 
 class Failover(namedtuple('Failover', 'index,leader,candidate,scheduled_at')):
@@ -391,7 +415,7 @@ class SyncState(namedtuple('SyncState', 'index,leader,quorum,members')):
         return name is not None and name in self.members
 
 
-class TimelineHistory(namedtuple('TimelineHistory', 'index,lines')):
+class TimelineHistory(namedtuple('TimelineHistory', 'index,value,lines')):
     """Object representing timeline history file"""
 
     @staticmethod
@@ -407,7 +431,7 @@ class TimelineHistory(namedtuple('TimelineHistory', 'index,lines')):
             lines = None
         if not isinstance(lines, list):
             lines = []
-        return TimelineHistory(index, lines)
+        return TimelineHistory(index, value, lines)
 
 
 class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operation,members,failover,sync,history')):
@@ -453,14 +477,16 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
         # the current master, because that member would replicate from elsewhere. We still create the slot if
         # the replicatefrom destination member is currently not a member of the cluster (fallback to the
         # master), or if replicatefrom destination member happens to be the current master
+        use_slots = self.config and self.config.data.get('postgresql', {}).get('use_slots', True)
         if role in ('master', 'standby_leader'):
-            slot_members = [m.name for m in self.members if m.name != name and
+            slot_members = [m.name for m in self.members if use_slots and m.name != name and
                             (m.replicatefrom is None or m.replicatefrom == name or
                              not self.has_member(m.replicatefrom))]
             permanent_slots = (self.config and self.config.permanent_slots or {}).copy()
         else:
             # only manage slots for replicas that replicate from this one, except for the leader among them
-            slot_members = [m.name for m in self.members if m.replicatefrom == name and m.name != self.leader.name]
+            slot_members = [m.name for m in self.members if use_slots and
+                            m.replicatefrom == name and m.name != self.leader.name]
             permanent_slots = {}
 
         slots = {slot_name_from_member_name(name): {'type': 'physical'} for name in slot_members}
@@ -507,6 +533,26 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
         slots = self.get_replication_slots(name, 'master').values()
         return any(v for v in slots if v.get("type") == "logical")
 
+    @property
+    def timeline(self):
+        """
+        >>> Cluster(0, 0, 0, 0, 0, 0, 0, 0).timeline
+        0
+        >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[]')).timeline
+        1
+        >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[["a"]]')).timeline
+        0
+        """
+        if self.history:
+            if self.history.lines:
+                try:
+                    return int(self.history.lines[-1][0]) + 1
+                except Exception:
+                    logger.error('Failed to parse cluster history from DCS: %s', self.history.lines)
+            elif self.history.value == '[]':
+                return 1
+        return 0
+
 
 @six.add_metaclass(abc.ABCMeta)
 class AbstractDCS(object):
@@ -532,6 +578,7 @@ class AbstractDCS(object):
 
         self._ctl = bool(config.get('patronictl', False))
         self._cluster = None
+        self._cluster_valid_till = 0
         self._cluster_thread_lock = Lock()
         self._last_leader_operation = ''
         self.event = Event()
@@ -580,6 +627,10 @@ class AbstractDCS(object):
         """Set the new ttl value for leader key"""
 
     @abc.abstractmethod
+    def ttl(self):
+        """Get new ttl value"""
+
+    @abc.abstractmethod
     def set_retry_timeout(self, retry_timeout):
         """Set the new value for retry_timeout"""
 
@@ -606,22 +657,26 @@ class AbstractDCS(object):
            instance would be demoted."""
 
     def get_cluster(self):
+        try:
+            cluster = self._load_cluster()
+        except Exception:
+            self.reset_cluster()
+            raise
+
         with self._cluster_thread_lock:
-            try:
-                self._load_cluster()
-            except Exception:
-                self._cluster = None
-                raise
-            return self._cluster
+            self._cluster = cluster
+            self._cluster_valid_till = time.time() + self.ttl
+            return cluster
 
     @property
     def cluster(self):
         with self._cluster_thread_lock:
-            return self._cluster
+            return self._cluster if self._cluster_valid_till > time.time() else None
 
     def reset_cluster(self):
         with self._cluster_thread_lock:
             self._cluster = None
+            self._cluster_valid_till = 0
 
     @abc.abstractmethod
     def _write_leader_optime(self, last_operation):
@@ -687,7 +742,7 @@ class AbstractDCS(object):
         """Create or update `/config` key"""
 
     @abc.abstractmethod
-    def touch_member(self, data, ttl=None, permanent=False):
+    def touch_member(self, data, permanent=False):
         """Update member key in DCS.
         This method should create or update key with the name = '/members/' + `~self._name`
         and value = data in a given DCS.

@@ -2,19 +2,33 @@ import json
 import logging
 import os
 import shutil
-import six
-import sys
 import tempfile
 import yaml
 
 from collections import defaultdict
 from copy import deepcopy
+from patroni import PATRONI_ENV_PREFIX
+from patroni.exceptions import ConfigParseError
 from patroni.dcs import ClusterConfig
-from patroni.postgresql import Postgresql
+from patroni.postgresql.config import CaseInsensitiveDict, ConfigHandler
 from patroni.utils import deep_compare, parse_bool, parse_int, patch_config
-from requests.structures import CaseInsensitiveDict
 
 logger = logging.getLogger(__name__)
+
+_AUTH_ALLOWED_PARAMETERS = (
+    'username',
+    'password',
+    'sslmode',
+    'sslcert',
+    'sslkey',
+    'sslrootcert',
+    'sslcrl'
+)
+
+
+def default_validator(conf):
+    if not conf:
+        return "Config is empty."
 
 
 class Config(object):
@@ -37,13 +51,13 @@ class Config(object):
          to work with it as with the old `config` object.
     """
 
-    PATRONI_ENV_PREFIX = 'PATRONI_'
     PATRONI_CONFIG_VARIABLE = PATRONI_ENV_PREFIX + 'CONFIGURATION'
 
     __CACHE_FILENAME = 'patroni.dynamic.json'
     __DEFAULT_CONFIG = {
         'ttl': 30, 'loop_wait': 10, 'retry_timeout': 10,
         'maximum_lag_on_failover': 1048576,
+        'check_timeline': False,
         'master_start_timeout': 300,
         'synchronous_mode': False,
         'synchronous_mode_strict': False,
@@ -61,34 +75,33 @@ class Config(object):
         'postgresql': {
             'bin_dir': '',
             'use_slots': True,
-            'parameters': CaseInsensitiveDict({p: v[0] for p, v in Postgresql.CMDLINE_OPTIONS.items()})
+            'parameters': CaseInsensitiveDict({p: v[0] for p, v in ConfigHandler.CMDLINE_OPTIONS.items()})
         },
         'watchdog': {
             'mode': 'automatic',
         }
     }
 
-    def __init__(self):
+    def __init__(self, configfile, validator=default_validator):
         self._modify_index = -1
         self._dynamic_configuration = {}
 
         self.__environment_configuration = self._build_environment_configuration()
 
         # Patroni reads the configuration from the command-line argument if it exists, otherwise from the environment
-        self._config_file = len(sys.argv) >= 2 and os.path.isfile(sys.argv[1]) and sys.argv[1]
+        self._config_file = configfile and os.path.isfile(configfile) and configfile
         if self._config_file:
             self._local_configuration = self._load_config_file()
         else:
             config_env = os.environ.pop(self.PATRONI_CONFIG_VARIABLE, None)
             self._local_configuration = config_env and yaml.safe_load(config_env) or self.__environment_configuration
-            if not self._local_configuration:
-                print('Usage: {0} config.yml'.format(sys.argv[0]))
-                print('\tPatroni may also read the configuration from the {0} environment variable'.
-                      format(self.PATRONI_CONFIG_VARIABLE))
-                sys.exit(1)
+        if validator:
+            error = validator(self._local_configuration)
+            if error:
+                raise ConfigParseError(error)
 
         self.__effective_configuration = self._build_effective_configuration({}, self._local_configuration)
-        self._data_dir = self.__effective_configuration['postgresql']['data_dir']
+        self._data_dir = self.__effective_configuration.get('postgresql', {}).get('data_dir', "")
         self._cache_file = os.path.join(self._data_dir, self.__CACHE_FILENAME)
         self._load_cache()
         self._cache_needs_saving = False
@@ -160,31 +173,25 @@ class Config(object):
             except Exception:
                 logger.exception('Exception when setting dynamic_configuration')
 
-    def reload_local_configuration(self, dry_run=False):
+    def reload_local_configuration(self):
         if self.config_file:
             try:
                 configuration = self._load_config_file()
                 if not deep_compare(self._local_configuration, configuration):
                     new_configuration = self._build_effective_configuration(self._dynamic_configuration, configuration)
-                    if dry_run:
-                        return not deep_compare(new_configuration, self.__effective_configuration)
                     self._local_configuration = configuration
                     self.__effective_configuration = new_configuration
                     return True
                 else:
-                    logger.info('No configuration items changed, nothing to reload.')
+                    logger.info('No local configuration items changed.')
             except Exception:
                 logger.exception('Exception when reloading local configuration from %s', self.config_file)
-                if dry_run:
-                    raise
 
     @staticmethod
     def _process_postgresql_parameters(parameters, is_local=False):
-        ret = {}
-        for name, value in (parameters or {}).items():
-            if name not in Postgresql.CMDLINE_OPTIONS or not is_local and Postgresql.CMDLINE_OPTIONS[name][1](value):
-                ret[name] = value
-        return ret
+        return {name: value for name, value in (parameters or {}).items()
+                if name not in ConfigHandler.CMDLINE_OPTIONS or
+                not is_local and ConfigHandler.CMDLINE_OPTIONS[name][1](value)}
 
     def _safe_copy_dynamic_configuration(self, dynamic_configuration):
         config = deepcopy(self.__DEFAULT_CONFIG)
@@ -197,12 +204,9 @@ class Config(object):
                     elif name not in ('connect_address', 'listen', 'data_dir', 'pgpass', 'authentication'):
                         config['postgresql'][name] = deepcopy(value)
             elif name == 'standby_cluster':
-                allowed_keys = self.__DEFAULT_CONFIG['standby_cluster'].keys()
-                expected = {
-                    k: v for k, v in (value or {}).items()
-                    if (k in allowed_keys and isinstance(v, six.string_types))
-                }
-                config['standby_cluster'].update(expected)
+                for name, value in (value or {}).items():
+                    if name in self.__DEFAULT_CONFIG['standby_cluster']:
+                        config['standby_cluster'][name] = deepcopy(value)
             elif name in config:  # only variables present in __DEFAULT_CONFIG allowed to be overriden from DCS
                 if name in ('synchronous_mode', 'synchronous_mode_strict'):
                     config[name] = value
@@ -215,12 +219,21 @@ class Config(object):
         ret = defaultdict(dict)
 
         def _popenv(name):
-            return os.environ.pop(Config.PATRONI_ENV_PREFIX + name.upper(), None)
+            return os.environ.pop(PATRONI_ENV_PREFIX + name.upper(), None)
 
         for param in ('name', 'namespace', 'scope'):
             value = _popenv(param)
             if value:
                 ret[param] = value
+
+        def _fix_log_env(name, oldname):
+            value = _popenv(oldname)
+            name = PATRONI_ENV_PREFIX + 'LOG_' + name.upper()
+            if value and name not in os.environ:
+                os.environ[name] = value
+
+        for name, oldname in (('level', 'loglevel'), ('format', 'logformat'), ('dateformat', 'log_datefmt')):
+            _fix_log_env(name, oldname)
 
         def _set_section_values(section, params):
             for param in params:
@@ -228,12 +241,30 @@ class Config(object):
                 if value:
                     ret[section][param] = value
 
-        _set_section_values('restapi', ['listen', 'connect_address', 'certfile', 'keyfile'])
-        _set_section_values('postgresql', ['listen', 'connect_address', 'data_dir', 'pgpass', 'bin_dir'])
+        _set_section_values('restapi', ['listen', 'connect_address', 'certfile', 'keyfile', 'cafile', 'verify_client'])
+        _set_section_values('ctl', ['insecure', 'cacert', 'certfile', 'keyfile'])
+        _set_section_values('postgresql', ['listen', 'connect_address', 'config_dir', 'data_dir', 'pgpass', 'bin_dir'])
+        _set_section_values('log', ['level', 'traceback_level', 'format', 'dateformat', 'max_queue_size',
+                                    'dir', 'file_size', 'file_num', 'loggers'])
 
-        def _get_auth(name):
+        def _parse_dict(value):
+            if not value.strip().startswith('{'):
+                value = '{{{0}}}'.format(value)
+            try:
+                return yaml.safe_load(value)
+            except Exception:
+                logger.exception('Exception when parsing dict %s', value)
+                return None
+
+        value = ret.get('log', {}).pop('loggers', None)
+        if value:
+            value = _parse_dict(value)
+            if value:
+                ret['log']['loggers'] = value
+
+        def _get_auth(name, params=None):
             ret = {}
-            for param in ('username', 'password'):
+            for param in params or _AUTH_ALLOWED_PARAMETERS[:2]:
                 value = _popenv(name + '_' + param)
                 if value:
                     ret[param] = value
@@ -244,15 +275,13 @@ class Config(object):
             ret['restapi']['authentication'] = restapi_auth
 
         authentication = {}
-        for user_type in ('replication', 'superuser'):
-            entry = _get_auth(user_type)
+        for user_type in ('replication', 'superuser', 'rewind'):
+            entry = _get_auth(user_type, _AUTH_ALLOWED_PARAMETERS)
             if entry:
                 authentication[user_type] = entry
 
         if authentication:
             ret['postgresql']['authentication'] = authentication
-
-        users = {}
 
         def _parse_list(value):
             if not (value.strip().startswith('-') or '[' in value):
@@ -264,38 +293,41 @@ class Config(object):
                 return None
 
         for param in list(os.environ.keys()):
-            if param.startswith(Config.PATRONI_ENV_PREFIX):
+            if param.startswith(PATRONI_ENV_PREFIX):
+                # PATRONI_(ETCD|CONSUL|ZOOKEEPER|EXHIBITOR|...)_(HOSTS?|PORT|..)
                 name, suffix = (param[8:].split('_', 1) + [''])[:2]
-                if name and suffix:
-                    # PATRONI_(ETCD|CONSUL|ZOOKEEPER|EXHIBITOR|...)_(HOSTS?|PORT|..)
-                    if suffix in ('HOST', 'HOSTS', 'PORT', 'SRV', 'URL', 'PROXY', 'CACERT', 'CERT',
-                                  'KEY', 'VERIFY', 'TOKEN', 'CHECKS', 'DC', 'NAMESPACE', 'CONTEXT',
-                                  'USE_ENDPOINTS', 'SCOPE_LABEL', 'ROLE_LABEL', 'POD_IP', 'PORTS', 'LABELS'):
-                        value = os.environ.pop(param)
-                        if suffix == 'PORT':
-                            value = value and parse_int(value)
-                        elif suffix in ('HOSTS', 'PORTS', 'CHECKS'):
-                            value = value and _parse_list(value)
-                        elif suffix == 'LABELS':
-                            if not value.strip().startswith('{'):
-                                value = '{{{0}}}'.format(value)
-                            try:
-                                value = yaml.safe_load(value)
-                            except Exception:
-                                logger.exception('Exception when parsing dict %s', value)
-                                value = None
-                        if value:
-                            ret[name.lower()][suffix.lower()] = value
-                    # PATRONI_<username>_PASSWORD=<password>, PATRONI_<username>_OPTIONS=<option1,option2,...>
-                    # CREATE USER "<username>" WITH <OPTIONS> PASSWORD '<password>'
-                    elif suffix == 'PASSWORD':
-                        password = os.environ.pop(param)
-                        if password:
-                            users[name] = {'password': password}
-                            options = os.environ.pop(param[:-9] + '_OPTIONS', None)
-                            options = options and _parse_list(options)
-                            if options:
-                                users[name]['options'] = options
+                if suffix in ('HOST', 'HOSTS', 'PORT', 'USE_PROXIES', 'PROTOCOL', 'SRV', 'URL', 'PROXY',
+                              'CACERT', 'CERT', 'KEY', 'VERIFY', 'TOKEN', 'CHECKS', 'DC', 'CONSISTENCY',
+                              'REGISTER_SERVICE', 'SERVICE_CHECK_INTERVAL', 'NAMESPACE', 'CONTEXT',
+                              'USE_ENDPOINTS', 'SCOPE_LABEL', 'ROLE_LABEL', 'POD_IP', 'PORTS', 'LABELS') and name:
+                    value = os.environ.pop(param)
+                    if suffix == 'PORT':
+                        value = value and parse_int(value)
+                    elif suffix in ('HOSTS', 'PORTS', 'CHECKS'):
+                        value = value and _parse_list(value)
+                    elif suffix == 'LABELS':
+                        value = _parse_dict(value)
+                    elif suffix in ('USE_PROXIES', 'REGISTER_SERVICE'):
+                        value = parse_bool(value)
+                    if value:
+                        ret[name.lower()][suffix.lower()] = value
+        if 'etcd' in ret:
+            ret['etcd'].update(_get_auth('etcd'))
+
+        users = {}
+        for param in list(os.environ.keys()):
+            if param.startswith(PATRONI_ENV_PREFIX):
+                name, suffix = (param[8:].rsplit('_', 1) + [''])[:2]
+                # PATRONI_<username>_PASSWORD=<password>, PATRONI_<username>_OPTIONS=<option1,option2,...>
+                # CREATE USER "<username>" WITH <OPTIONS> PASSWORD '<password>'
+                if name and suffix == 'PASSWORD':
+                    password = os.environ.pop(param)
+                    if password:
+                        users[name] = {'password': password}
+                        options = os.environ.pop(param[:-9] + '_OPTIONS', None)
+                        options = options and _parse_list(options)
+                        if options:
+                            users[name]['options'] = options
         if users:
             ret['bootstrap']['users'] = users
 
@@ -314,7 +346,7 @@ class Config(object):
                 config[name] = deepcopy(value) if value else {}
 
         # restapi server expects to get restapi.auth = 'username:password'
-        if 'authentication' in config['restapi']:
+        if 'restapi' in config and 'authentication' in config['restapi']:
             config['restapi']['auth'] = '{username}:{password}'.format(**config['restapi']['authentication'])
 
         # special treatment for old config
@@ -333,6 +365,11 @@ class Config(object):
         if 'superuser' not in pg_config['authentication'] and 'pg_rewind' in pg_config:
             pg_config['authentication']['superuser'] = pg_config['pg_rewind']
 
+        # handle setting additional connection parameters that may be available
+        # in the configuration file, such as SSL connection parameters
+        for name, value in pg_config['authentication'].items():
+            pg_config['authentication'][name] = {n: v for n, v in value.items() if n in _AUTH_ALLOWED_PARAMETERS}
+
         # no 'name' in config
         if 'name' not in config and 'name' in pg_config:
             config['name'] = pg_config['name']
@@ -342,7 +379,7 @@ class Config(object):
             'scope',
             'retry_timeout',
             'synchronous_mode',
-            'maximum_lag_on_failover'
+            'synchronous_mode_strict',
         )
 
         pg_config.update({p: config[p] for p in updated_fields if p in config})

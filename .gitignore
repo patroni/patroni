@@ -51,3 +51,9 @@ scm-source.json
 docs/build/
 docs/source/_static/
 docs/source/_templates/
+
+# Pycharm IDE
+.idea/
+
+#VSCode IDE
+.vscode/

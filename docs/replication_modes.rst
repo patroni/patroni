@@ -13,6 +13,8 @@ In asynchronous mode the cluster is allowed to lose some committed transactions 
 
 The amount of transactions that can be lost is controlled via ``maximum_lag_on_failover`` parameter. Because the primary transaction log position is not sampled in real time, in reality the amount of lost data on failover is worst case bounded by  ``maximum_lag_on_failover`` bytes of transaction log plus the amount that is written in the last ``ttl`` seconds (``loop_wait``/2 seconds in the average case). However typical steady state replication delay is well under a second.
 
+By default, when running leader elections, Patroni does not take into account the current timeline of replicas, what in some cases could be undesirable behavior. You can prevent the node not having the same timeline as a former master become the new leader by changing the value of ``check_timeline`` parameter to ``true``.
+
 PostgreSQL synchronous replication
 ----------------------------------
 
@@ -46,8 +48,8 @@ When it is absolutely necessary to guarantee that each write is stored durably
 on at least two nodes, users can set ``minimum_replication_factor`` to a higher
 value. This makes sure that no commit can succeed unless it's replicated to at
 least this number of nodes. If not enough synchronous standby candidates are
-available all client write requests will block until enough synchrnous replicas
-come online (unless replication is explictly disabled for the transaction using
+available all client write requests will block until enough synchronous replicas
+come online (unless replication is explicitly disabled for the transaction using
 ``synchronous_commit=off``.
 
 For PostgreSQL versions before 9.6 maximum supported ``replication_factor`` is 2. For PostgreSQL versions 9.6 and up higher levels can be used. Starting from PostgreSQL version 10 quorum commit is supported. This means that any combination of standbys can acknowledge the commit. In earlier versions PostgreSQL picks specific standbys for synchronization. On standby failure the replication connection has to time out or the standbys cluster membership has to expire before synchronization is switched to another standby or switched off and commits can succeed. This can take up to ``ttl`` + ``loop_wait`` seconds. Quorum commit helps to reduce worst case latencies even during normal operation as a higher latency of replicating to one standby can be compensated by other standbys. Manually shutting down or restarting a standby will not cause a commit service interruption. Standby will signal the primary to release itself from synchronous standby duties before PostgreSQL shutdown is initiated.

@@ -20,11 +20,11 @@ bootstrap:
   - data-checksums
   pg_hba:
   - host all all 0.0.0.0/0 md5
-  - host replication ${PATRONI_REPLICATION_USERNAME} ${POD_IP}/16    md5
+  - host replication ${PATRONI_REPLICATION_USERNAME} ${PATRONI_KUBERNETES_POD_IP}/16 md5
 restapi:
-  connect_address: '${POD_IP}:8008'
+  connect_address: '${PATRONI_KUBERNETES_POD_IP}:8008'
 postgresql:
-  connect_address: '${POD_IP}:5432'
+  connect_address: '${PATRONI_KUBERNETES_POD_IP}:5432'
   authentication:
     superuser:
       password: '${PATRONI_SUPERUSER_PASSWORD}'
