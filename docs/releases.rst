@@ -3,6 +3,68 @@
 Release notes
 =============
 
+Version 1.6.4
+-------------
+
+**New features**
+
+- Implemented ``--wait`` option for ``patronictl reinit`` (Igor Yanchenko)
+
+  Patronictl will wait for ``reinit`` to finish is the ``--wait`` option is used.
+
+- Further improvements of Windows support (Igor Yanchenko, Alexander Kukushkin)
+
+  1. All shell scripts which are used for integration testing are rewritten in python
+  2. The ``pg_ctl kill`` will be used to stop postgres on non posix systems
+  3. Don't try to use unix-domain sockets
+
+
+**Stability improvements**
+
+- Make sure ``unix_socket_directories`` and ``stats_temp_directory`` exist (Igor)
+
+  Upon the start of Patroni and Postgres make sure that ``unix_socket_directories`` and ``stats_temp_directory`` exist or try to create them. Patroni will exit if failed to create them.
+
+- Make sure ``postgresql.pgpass`` is located in the place where Patroni has write access (Igor)
+
+  In case if it doesn't have a write access Patroni will exit with exception.
+
+- Disable Consul ``serfHealth`` check by default (Kostiantyn Nemchenko)
+
+  Even in case of little network problems the failing ``serfHealth`` leads to invalidation of all sessions associated with the node. Therefore, the leader key is lost much earlier than ``ttl`` which causes unwanted restarts of replicas and maybe demotion of the primary.
+
+- Configure tcp keepalives for connections to K8s API (Alexander)
+
+  In case if we get nothing from the socket after TTL seconds it can be considered dead.
+
+- Avoid logging of passwords on user creation (Alexander)
+
+  If the password is rejected or logging is configured to verbose or not configured at all it might happen that the password is written into postgres logs. In order to avoid it Patroni will change ``log_statement``, ``log_min_duration_statement``, and ``log_min_error_statement`` to some safe values before doing the attempt to create/update user.
+
+
+**Bugfixes**
+
+- Use ``restore_command`` from the ``standby_cluster`` config on cascading replicas (Alexander)
+
+  The ``standby_leader`` was already doing it from the beginning the feature existed. Not doing the same on replicas might prevent them from catching up with standby leader.
+
+- Update timeline reported by the standby cluster (Alexander)
+
+  In case of timeline switch the standby cluster was correctly replicating from the primary but ``patronictl`` was reporting the old timeline.
+
+- Allow certain recovery parameters be defined in the custom_conf (Alexander)
+
+  When doing validation of recovery parameters on replica Patroni will skip ``archive_cleanup_command``, ``promote_trigger_file``, ``recovery_end_command``, ``recovery_min_apply_delay``, and ``restore_command`` if they are not defined in the patroni config but in files other than ``postgresql.auto.conf`` or ``postgresql.conf``.
+
+- Improve handling of postgresql parameters with period in its name (Alexander)
+
+  Such parameters could be defined by extensions where the unit is not necessarily a string. Changing the value might require a restart (for example ``pg_stat_statements.max``).
+
+- Improve exception handling during shutdown (Alexander)
+
+  During shutdown Patroni is trying to update its status in the DCS. If the DCS is inaccessible an exception might be raised. Lack of exception handling was preventing logger thread from stopping.
+
+
 Version 1.6.3
 -------------
 
