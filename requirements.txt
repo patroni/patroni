@@ -7,7 +7,6 @@ python-etcd>=0.4.3,<0.5
 python-consul>=0.7.1
 click>=4.1
 prettytable>=0.7
-tzlocal
 python-dateutil
 psutil>=2.0.0
 cdiff
