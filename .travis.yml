@@ -7,7 +7,7 @@ addons:
       - expect-dev # for unbuffer
 env:
   global:
-  - ETCDVERSION=3.0.17 ZKVERSION=3.4.11 CONSULVERSION=0.7.4
+  - ETCDVERSION=3.0.17 ZKVERSION=3.4.14 CONSULVERSION=0.7.4
   - PYVERSIONS="2.7 3.5 3.6"
   - EXCLUDE_BEHAVE="3.5"
   - BOTO_CONFIG=/doesnotexist

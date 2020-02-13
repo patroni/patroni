@@ -6,6 +6,7 @@ import click
 import codecs
 import datetime
 import dateutil.parser
+import dateutil.tz
 import cdiff
 import copy
 import difflib
@@ -19,7 +20,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import tzlocal
 import yaml
 
 from click import ClickException
@@ -445,7 +445,7 @@ def parse_scheduled(scheduled):
         try:
             scheduled_at = dateutil.parser.parse(scheduled)
             if scheduled_at.tzinfo is None:
-                scheduled_at = tzlocal.get_localzone().localize(scheduled_at)
+                scheduled_at = scheduled_at.replace(tzinfo=dateutil.tz.tzlocal())
         except (ValueError, TypeError):
             message = 'Unable to parse scheduled timestamp ({0}). It should be in an unambiguous format (e.g. ISO 8601)'
             raise PatroniCtlException(message.format(scheduled))
