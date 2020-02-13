@@ -70,7 +70,7 @@ def is_ipv4_address(ip):
     try:
         socket.inet_aton(ip)
     except Exception:
-        raise ConfigParseError("Is not valid ipv4 address")
+        raise ConfigParseError("Is not a valid ipv4 address")
     return True
 
 
@@ -78,7 +78,7 @@ def is_ipv6_address(ip):
     try:
         socket.inet_pton(socket.AF_INET6, ip)
     except Exception:
-        raise ConfigParseError("Is not valid ipv6 address")
+        raise ConfigParseError("Is not a valid ipv6 address")
     return True
 
 
