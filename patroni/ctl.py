@@ -31,8 +31,8 @@ from patroni.postgresql.misc import postgres_version_to_int
 from patroni.utils import cluster_as_json, patch_config, polling_loop
 from patroni.request import PatroniRequest
 from patroni.version import __version__
-from prettytable import PrettyTable
 from six.moves.urllib_parse import urlparse
+from terminaltables import SingleTable
 
 CONFIG_DIR_PATH = click.get_app_dir('patroni')
 CONFIG_FILE_PATH = os.path.join(CONFIG_DIR_PATH, 'patronictl.yaml')
@@ -133,31 +133,32 @@ def request_patroni(member, method='GET', endpoint=None, data=None):
     return request_executor(member, method, endpoint, data)
 
 
-def print_output(columns, rows=None, alignment=None, fmt='pretty', header=True, delimiter='\t'):
-    rows = rows or []
-    if fmt == 'pretty':
-        t = PrettyTable(columns)
-        for k, v in (alignment or {}).items():
-            t.align[k] = v
-        for r in rows:
-            t.add_row(r)
-        click.echo(t)
-        return
-
+def print_output(columns, rows, alignment=None, fmt='pretty', header=None, delimiter='\t'):
     if fmt in ['json', 'yaml', 'yml']:
-        elements = [dict(zip(columns, r)) for r in rows]
-        if fmt == 'json':
-            click.echo(json.dumps(elements))
-        elif fmt in ('yaml', 'yml'):
-            click.echo(yaml.safe_dump(elements, encoding=None, default_flow_style=False, allow_unicode=True, width=200))
+        elements = [{k: v for k, v in zip(columns, r) if not header or str(v)} for r in rows]
+        func = json.dumps if fmt == 'json' else format_config_for_editing
+        click.echo(func(elements))
+    elif fmt in ('pretty', 'tsv'):
+        list_cluster = bool(header and columns and columns[0] == 'Cluster')
+        if list_cluster and 'Tags' in columns:  # we want to format member tags as YAML
+            i = columns.index('Tags')
+            for row in rows:
+                if row[i]:
+                    row[i] = format_config_for_editing(row[i], fmt == 'tsv').strip()
+        s = int(list_cluster and fmt == 'pretty')  # skip cluster name if pretty-printing
+        table_data = [columns[s:]] + [row[s:] for row in rows]
 
-    if fmt == 'tsv':
-        if columns is not None and header:
-            click.echo(delimiter.join(columns))
-
-        for r in rows:
-            c = [str(c) for c in r]
-            click.echo(delimiter.join(c))
+        if fmt == 'tsv':
+            for r in table_data:
+                click.echo(delimiter.join(map(str, r)))
+        else:
+            table = SingleTable(table_data, header)
+            table.inner_row_border = any(any(isinstance(c, six.string_types) and '\n' in c for c in r) for r in rows)
+            for i, name in enumerate(table_data[0]):
+                default = 'left'
+                jmap = {m[0]: m for m in ('center', default, 'right')}
+                table.justify_columns[i] = jmap.get((alignment or {}).get(name, default)[0], default)
+            click.echo(table.table)
 
 
 def watching(w, watch, max_count=None, clear=True):
@@ -307,7 +308,6 @@ def dsn(obj, cluster_name, role, member):
 @ctl.command('query', help='Query a Patroni PostgreSQL member')
 @arg_cluster_name
 @option_format
-@click.option('--format', 'fmt', help='Output format (pretty, json)', default='tsv')
 @click.option('--file', '-f', 'p_file', help='Execute the SQL commands from this file', type=click.File('rb'))
 @click.option('--password', help='force password prompt', is_flag=True)
 @click.option('-U', '--username', help='database user name', type=str)
@@ -364,8 +364,8 @@ def query(
         if cursor is None:
             cluster = dcs.get_cluster()
 
-        output, cursor = query_member(cluster, cursor, member, role, command, connect_parameters)
-        print_output(None, output, fmt=fmt, delimiter=delimiter)
+        output, header = query_member(cluster, cursor, member, role, command, connect_parameters)
+        print_output(header, output, fmt=fmt, delimiter=delimiter)
 
 
 def query_member(cluster, cursor, member, role, command, connect_parameters):
@@ -382,15 +382,8 @@ def query_member(cluster, cursor, member, role, command, connect_parameters):
             logging.debug(message)
             return [[timestamp(0), message]], None
 
-        cursor.execute('SELECT pg_catalog.pg_is_in_recovery()')
-        in_recovery = cursor.fetchone()[0]
-
-        if in_recovery and role == 'master' or not in_recovery and role == 'replica':
-            cursor.connection.close()
-            return None, None
-
         cursor.execute(command)
-        return cursor.fetchall(), cursor
+        return cursor.fetchall(), [d.name for d in cursor.description]
     except (psycopg2.OperationalError, psycopg2.DatabaseError) as oe:
         logging.debug(oe)
         if cursor is not None and not cursor.connection.closed:
@@ -723,6 +716,7 @@ def switchover(obj, cluster_name, master, candidate, force, scheduled):
 def output_members(cluster, name, extended=False, fmt='pretty'):
     rows = []
     logging.debug(cluster)
+    initialize = {None: 'uninitialized', '': 'initializing'}.get(cluster.initialize, cluster.initialize)
     cluster = cluster_as_json(cluster)
 
     columns = ['Cluster', 'Member', 'Host', 'Role', 'State', 'TL', 'Lag in MB']
@@ -741,8 +735,7 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
         m.update(cluster=name, member=m['name'], tl=m.get('timeline', ''),
                  role='' if m['role'] == 'replica' else m['role'].replace('_', ' ').title(),
                  lag_in_mb=round(lag/1024/1024) if isinstance(lag, six.integer_types) else lag,
-                 pending_restart='*' if m.get('pending_restart') else '',
-                 tags=json.dumps(m['tags']) if m.get('tags') else '')
+                 pending_restart='*' if m.get('pending_restart') else '')
 
         if append_port:
             m['host'] = ':'.join([m['host'], str(m['port'])])
@@ -755,7 +748,7 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
 
         rows.append([m.get(n.lower().replace(' ', '_'), '') for n in columns])
 
-    print_output(columns, rows, {'Lag in MB': 'r', 'TL': 'r', 'Tags': 'l'}, fmt)
+    print_output(columns, rows, {'Lag in MB': 'r', 'TL': 'r'}, fmt, ' Cluster: {0} ({1}) '.format(name, initialize))
 
     if fmt != 'pretty':  # Omit service info when using machine-readable formats
         return
@@ -1001,12 +994,12 @@ def show_diff(before_editing, after_editing):
             click.echo(line.rstrip('\n'))
 
 
-def format_config_for_editing(data):
+def format_config_for_editing(data, default_flow_style=False):
     """Formats configuration as YAML for human consumption.
 
     :param data: configuration as nested dictionaries
     :returns unicode YAML of the configuration"""
-    return yaml.safe_dump(data, default_flow_style=False, encoding=None, allow_unicode=True)
+    return yaml.safe_dump(data, default_flow_style=default_flow_style, encoding=None, allow_unicode=True, width=200)
 
 
 def apply_config_changes(before_editing, data, kvpairs):
