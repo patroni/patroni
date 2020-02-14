@@ -200,9 +200,6 @@ class TestCtl(unittest.TestCase):
             rows = query_member(None, None, None, 'master', 'SELECT pg_catalog.pg_is_in_recovery()', {})
             self.assertTrue('False' in str(rows))
 
-            rows = query_member(None, None, None, 'replica', 'SELECT pg_catalog.pg_is_in_recovery()', {})
-            self.assertEqual(rows, (None, None))
-
             with patch.object(MockCursor, 'execute', Mock(side_effect=OperationalError('bla'))):
                 rows = query_member(None, None, None, 'replica', 'SELECT pg_catalog.pg_is_in_recovery()', {})
 

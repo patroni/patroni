@@ -75,6 +75,7 @@ class MockCursor(object):
         self.closed = False
         self.rowcount = 0
         self.results = []
+        self.description = []
 
     def execute(self, sql, *params):
         if sql.startswith('blabla'):

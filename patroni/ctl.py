@@ -146,7 +146,7 @@ def print_output(columns, rows, alignment=None, fmt='pretty', header=None, delim
                 if row[i]:
                     row[i] = format_config_for_editing(row[i], fmt == 'tsv').strip()
         s = int(list_cluster and fmt == 'pretty')  # skip cluster name if pretty-printing
-        table_data = [columns[s:]] + [row[s:] for row in rows]
+        table_data = ([columns[s:]] if columns else []) + [row[s:] for row in rows]
 
         if fmt == 'tsv':
             for r in table_data:
