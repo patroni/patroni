@@ -107,7 +107,7 @@ obtain those files from the git repository and replace `./patroni.py` below with
 To get started, do the following from different terminals:
 ::
 
-    > etcd --data-dir=data/etcd
+    > etcd --data-dir=data/etcd --enable-v2=true
     > ./patroni.py postgres0.yml
     > ./patroni.py postgres1.yml
 
