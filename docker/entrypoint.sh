@@ -25,7 +25,7 @@ case "$1" in
             while ! etcdctl cluster-health 2> /dev/null; do
                 sleep 1
             done
-            exec dumb-init $CONFD etcd -node $(echo $ETCDCTL_ENDPOINTS | sed 's/,/ -node /g')
+            exec dumb-init $CONFD etcdv3 -node $(echo $ETCDCTL_ENDPOINTS | sed 's/,/ -node /g')
         fi
         ;;
     etcd)
@@ -37,7 +37,7 @@ case "$1" in
 esac
 
 ## We start an etcd
-if [ -z "$PATRONI_ETCD_HOSTS" ] && [ -z "$PATRONI_ZOOKEEPER_HOSTS" ]; then
+if [ -z "$PATRONI_ETCD3_HOSTS" ] && [ -z "$PATRONI_ZOOKEEPER_HOSTS" ]; then
     export PATRONI_ETCD_URL="http://127.0.0.1:2379"
     etcd --data-dir /tmp/etcd.data -advertise-client-urls=$PATRONI_ETCD_URL -listen-client-urls=http://0.0.0.0:2379 > /var/log/etcd.log 2> /var/log/etcd.err &
 fi
