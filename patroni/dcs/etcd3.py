@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 import base64
 import etcd
+import functools
 import json
 import logging
 import os
@@ -9,13 +10,12 @@ import socket
 import time
 import urllib3
 
-from json.decoder import WHITESPACE
-from threading import Lock, Thread
+from threading import Condition, Lock, Thread
 
 from . import ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
 from .etcd import AbstractEtcdClientWithFailover, AbstractEtcd, catch_etcd_errors
 from ..exceptions import DCSError, PatroniException
-from ..utils import deep_compare, Retry, RetryFailedError, USER_AGENT
+from ..utils import deep_compare, iter_response_objects, Retry, RetryFailedError, USER_AGENT
 
 logger = logging.getLogger(__name__)
 
@@ -189,124 +189,11 @@ def build_range_request(key, range_end=None):
     return fields
 
 
-class Watcher(Thread):
-
-    def __init__(self, client, event, config_path, leader_path):
-        """
-        :param client: reference to Etcd3Client
-        :param event: reference to Etcd3.event
-        :param config_path: the config key name
-        :param leader_path: the leader key name
-        """
-        super(Watcher, self).__init__()
-        self.daemon = True
-        self._client = client
-        self._event = event
-        self._config_path = config_path
-        self._config_path_base64 = base64_encode(config_path)
-        self._config_value = None
-        self._leader_path = leader_path
-        self._leader_path_base64 = base64_encode(leader_path)
-        self._decoder = json.JSONDecoder()
-        self._response = None
-        self._response_lock = Lock()
-        self.start()
-
-    def _process_event(self, event):
-        key = event['kv']['key']
-        value = event['kv'].get('value', '')
-        if key == self._leader_path_base64:
-            if event.get('type') == 'DELETE':
-                logger.debug('Leader key was deleted')
-                self._event.set()
-            elif self._leader_value and value != self._leader_value:
-                logger.debug('Leader changed from %s to %s', base64_decode(self._leader_value), base64_decode(value))
-                self._event.set()
-            self._leader_value = value
-        elif key == self._config_path_base64:
-            if value != self._config_value:
-                logger.debug('Config changed to %s', base64_decode(value))
-                self._event.set()
-            self._config_value = value
-
-    def _process_message(self, message):
-        for event in message.get('events', []):
-            self._process_event(event)
-
-    def _process_chunk(self, chunk):
-        length = len(chunk)
-        idx = WHITESPACE.match(chunk, 0).end()
-        while idx < length:
-            try:
-                message, idx = self._decoder.raw_decode(chunk, idx)
-            except ValueError:  # malformed or incomplete JSON, unlikely to happen
-                break
-            else:
-                self._process_message(message.get('result', message))
-                idx = WHITESPACE.match(chunk, idx).end()
-        return chunk[idx:]
-
-    @staticmethod
-    def _finish_response(response):
-        try:
-            response.close()
-        finally:
-            response.release_conn()
-
-    def _do_watch(self):
-        with self._response_lock:
-            self._response = None
-        response = self._client.watch(self._config_path, increment_last_byte(self._leader_path))
-        with self._response_lock:
-            if self._response is None:
-                self._response = response
-
-        if not self._response:
-            return self._finish_response(response)
-
-        left = ''
-        for chunk in response.stream():
-            chunk = left + chunk.decode('utf-8')
-            left = self._process_chunk(chunk)
-
-    def run(self):
-        while True:
-            try:
-                self._leader_value = None
-                self._do_watch()
-            except Exception as e:
-                logger.error('Watcher.run %r', e)
-            finally:
-                with self._response_lock:
-                    response, self._response = self._response, None
-                if response:
-                    self._finish_response(response)
-            time.sleep(1)
-
-    def kill_stream(self):
-        sock = None
-        with self._response_lock:
-            if self._response:
-                try:
-                    sock = self._response.connection.sock
-                except Exception:
-                    sock = None
-            else:
-                self._response = False
-        if sock:
-            try:
-                sock.shutdown(socket.SHUT_RDWR)
-                sock.close()
-            except Exception as e:
-                logger.debug('Error on socket.shutdown: %r', e)
-
-
 class Etcd3Client(AbstractEtcdClientWithFailover):
 
     def __init__(self, config, dns_resolver, cache_ttl=300):
         self._token = None
         self._cluster_version = None
-        self._watcher = None
         self.version_prefix = '/v3beta'
         super(Etcd3Client, self).__init__(config, dns_resolver, cache_ttl)
 
@@ -345,11 +232,6 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
             kwargs['body'] = json.dumps(params)
             kwargs['headers']['Content-Type'] = 'application/json'
         return self.http.urlopen, kwargs
-
-    def _next_server(self, cause=None):
-        ret = super(Etcd3Client, self)._next_server(cause)
-        self._restart_watcher()
-        return ret
 
     @staticmethod
     def _handle_server_response(response):
@@ -413,14 +295,12 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
             except AuthNotEnabled:
                 logger.info('Etcd authentication is not enabled')
                 self._token = None
-                if old_token:
-                    self._restart_watcher()
             except Exception:
                 self._token = old_token
                 raise
             else:
                 self._token = response.get('token')
-                self._restart_watcher()
+            return old_token != self._token
 
     def _handle_auth_errors(func):
         def wrapper(self, *args, **kwargs):
@@ -482,8 +362,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
     def deleterange(self, key, range_end=None, mod_revision=None, retry=None):
         fields = build_range_request(key, range_end)
         if mod_revision is None:
-            fields['retry'] = retry
-            return self.call_rpc('/kv/deleterange', fields)
+            return self.call_rpc('/kv/deleterange', fields, retry)
         compare = {'target': 'MOD', 'mod_revision': mod_revision, 'key': fields['key']}
         ret = self.call_rpc('/kv/txn', {'compare': [compare], 'success': [{'request_delete_range': fields}]}, retry)
         return ret.get('succeeded')
@@ -491,32 +370,230 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
     def deleteprefix(self, key, retry=None):
         return self.deleterange(key, increment_last_byte(key), retry=retry)
 
-    def watch(self, key, range_end=None, filters=None):
+    def watchrange(self, key, range_end=None, start_revision=None, filters=None):
         """returns: response object"""
         params = build_range_request(key, range_end)
+        if start_revision is not None:
+            params['start_revision'] = start_revision
         params['filters'] = filters or []
         request_executor, kwargs = self._prepare_request({'create_request': params})
         kwargs.update(timeout=urllib3.Timeout(connect=kwargs['timeout']), retries=0)
         return request_executor(self._MPOST, self._base_uri + self.version_prefix + '/watch', **kwargs)
 
+    def watchprefix(self, key, start_revision=None, filters=None):
+        return self.watchrange(key, increment_last_byte(key), start_revision, filters)
+
+
+class KVCache(Thread):
+
+    def __init__(self, dcs, get_cluster_func, watch_cluster_func, condition):
+        Thread.__init__(self)
+        self.daemon = True
+        self._dcs = dcs
+        self._get_cluster_func = get_cluster_func
+        self._watch_cluster_func = watch_cluster_func
+        self._condition = condition
+        self._config_key = base64_encode(dcs.config_path)
+        self._leader_key = base64_encode(dcs.leader_path)
+        self._is_ready = False
+        self._response = None
+        self._response_lock = Lock()
+        self._object_cache = {}
+        self._object_cache_lock = Lock()
+        self.start()
+
+    def set(self, value, overwrite=False):
+        with self._object_cache_lock:
+            name = value['key']
+            old_value = self._object_cache.get(name)
+            ret = not old_value or int(old_value['mod_revision']) < int(value['mod_revision'])
+            if ret or overwrite and old_value['mod_revision'] == value['mod_revision']:
+                self._object_cache[name] = value
+        return ret, old_value
+
+    def delete(self, name, mod_revision):
+        with self._object_cache_lock:
+            old_value = self._object_cache.get(name)
+            ret = old_value and int(old_value['mod_revision']) < int(mod_revision)
+            if ret:
+                del self._object_cache[name]
+        return not old_value or ret, old_value
+
+    def copy(self):
+        with self._object_cache_lock:
+            return [v.copy() for v in self._object_cache.values()]
+
+    def _process_event(self, event):
+        kv = event['kv']
+        key = kv['key']
+        if event.get('type') == 'DELETE':
+            success, old_value = self.delete(key, kv['mod_revision'])
+        else:
+            success, old_value = self.set(kv, True)
+
+        if success:
+            old_value = old_value and old_value.get('value')
+            new_value = kv.get('value')
+
+            if old_value != new_value and (key == self._leader_key or key == self._config_key
+                                           and old_value is not None and new_value is not None):
+                logger.debug('%s changed from %s to %s', key, old_value, new_value)
+                self._dcs.event.set()
+
+    def _process_message(self, message):
+        for event in message.get('events', []):
+            self._process_event(event)
+
+    @staticmethod
+    def _finish_response(response):
+        try:
+            response.close()
+        finally:
+            response.release_conn()
+
+    def _do_watch(self, revision):
+        with self._response_lock:
+            self._response = None
+        response = self._watch_cluster_func(revision)
+        with self._response_lock:
+            if self._response is None:
+                self._response = response
+
+        if not self._response:
+            return self._finish_response(response)
+
+        for message in iter_response_objects(response):
+            self._process_message(message.get('result', message))
+
+    def _build_cache(self):
+        result = self._get_cluster_func()
+        with self._object_cache_lock:
+            self._object_cache = {node['key']: node for node in result.get('kvs', [])}
+        with self._condition:
+            self._is_ready = True
+            self._condition.notify()
+
+        try:
+            self._do_watch(result['header']['revision'])
+        finally:
+            with self._condition:
+                self._is_ready = False
+            with self._response_lock:
+                response, self._response = self._response, None
+            if response:
+                self._finish_response(response)
+
+    def run(self):
+        while True:
+            try:
+                self._build_cache()
+            except Exception as e:
+                logger.error('KVCache.run %r', e)
+                time.sleep(1)
+
+    def kill_stream(self):
+        sock = None
+        with self._response_lock:
+            if self._response:
+                try:
+                    sock = self._response.connection.sock
+                except Exception:
+                    sock = None
+            else:
+                self._response = False
+        if sock:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+                sock.close()
+            except Exception as e:
+                logger.debug('Error on socket.shutdown: %r', e)
+
+    def is_ready(self):
+        """Must be called only when holding the lock on `_condition`"""
+        return self._is_ready
+
+
+class PatroniEtcd3Client(Etcd3Client):
+
+    def __init__(self, *args, **kwargs):
+        self._kv_cache = None
+        super(PatroniEtcd3Client, self).__init__(*args, **kwargs)
+
+    def configure(self, etcd3):
+        self.cluster_prefix = etcd3.client_path('')
+        self._get_cluster_func = functools.partial(etcd3.retry, self.prefix, self.cluster_prefix)
+
     def start_watcher(self, etcd3):
         if self._cluster_version >= (3, 1):
-            self._watcher = Watcher(self, etcd3.event, etcd3.config_path, etcd3.leader_path)
+            self._condition = Condition()
+            watch_cluster_func = functools.partial(self.watchprefix, self.cluster_prefix)
+            self._kv_cache = KVCache(etcd3, self._get_cluster_func, watch_cluster_func, self._condition)
 
     def _restart_watcher(self):
-        if self._watcher:
-            self._watcher.kill_stream()
+        if self._kv_cache:
+            self._kv_cache.kill_stream()
+
+    def _next_server(self, cause=None):
+        ret = super(PatroniEtcd3Client, self)._next_server(cause)
+        self._restart_watcher()
+        return ret
+
+    def authenticate(self):
+        ret = super(PatroniEtcd3Client, self).authenticate()
+        if ret:
+            self._restart_watcher()
+        return ret
+
+    def _wait_cache(self, timeout):
+        stop_time = time.time() + timeout
+        while not self._kv_cache.is_ready():
+            timeout = stop_time - time.time()
+            if timeout <= 0:
+                raise RetryFailedError('Exceeded retry deadline')
+            self._condition.wait(timeout)
+
+    def get_cluster(self, timeout):
+        if self._kv_cache:
+            with self._condition:
+                self._wait_cache(timeout)
+                return self._kv_cache.copy()
+        else:
+            return self._get_cluster_func().get('kvs', [])
+
+    def call_rpc(self, method, fields, retry=None):
+        ret = super(PatroniEtcd3Client, self).call_rpc(method, fields, retry)
+
+        if self._kv_cache:
+            value = delete = None
+            if method == '/kv/txn' and ret.get('succeeded'):
+                on_success = fields['success'][0]
+                value = on_success.get('request_put')
+                delete = on_success.get('request_delete_range')
+            elif method == '/kv/put' and ret:
+                value = fields
+            elif method == '/kv/deleterange' and ret:
+                delete = fields
+
+            if value:
+                value['mod_revision'] = ret['header']['revision']
+                self._kv_cache.set(value)
+            elif delete and 'range_end' not in delete:
+                self._kv_cache.delete(delete['key'], ret['header']['revision'])
+
+        return ret
 
 
 class Etcd3(AbstractEtcd):
 
     def __init__(self, config):
-        super(Etcd3, self).__init__(config, Etcd3Client, Etcd3ClientError)
+        super(Etcd3, self).__init__(config, PatroniEtcd3Client, Etcd3ClientError)
         self._retry = Retry(deadline=config['retry_timeout'], max_delay=1, max_tries=-1,
                             retry_exceptions=(DeadlineExceeded, Unavailable))
         self.__do_not_watch = False
         self._lease = None
         self._last_lease_refresh = 0
+
+        self._client.configure(self)
         if not self._ctl:
             self._client.start_watcher(self)
             self.create_lease()
@@ -562,14 +639,14 @@ class Etcd3(AbstractEtcd):
     def _load_cluster(self):
         cluster = None
         try:
-            path = self.client_path('')
-            result = self.retry(self._client.prefix, path)
+            path_len = len(self._client.cluster_prefix)
+
             nodes = {}
-            for node in result.get('kvs', []):
+            for node in self._client.get_cluster(self._retry.deadline):
                 node['key'] = base64_decode(node['key'])
                 node['value'] = base64_decode(node.get('value', ''))
                 node['lease'] = node.get('lease')
-                nodes[node['key'][len(path):].lstrip('/')] = node
+                nodes[node['key'][path_len:].lstrip('/')] = node
 
             # get initialize flag
             initialize = nodes.get(self._INITIALIZE)
@@ -700,7 +777,7 @@ class Etcd3(AbstractEtcd):
 
     @catch_etcd_errors
     def delete_cluster(self):
-        return self.retry(self._client.deleteprefix, self.client_path(''))
+        return self.retry(self._client.deleteprefix, self._client.cluster_prefix)
 
     @catch_etcd_errors
     def set_history_value(self, value):
