@@ -776,14 +776,24 @@ class Postgresql(object):
         if self.pre_promote_script and not self._pre_promote():
             return False
 
-        ret = self.pg_ctl('promote', '-W')
-        if ret:
-            self.set_role('master')
-            if on_success is not None:
-                on_success()
-            if not access_is_restricted:
-                self.call_nowait(ACTION_ON_ROLE_CHANGE)
-            ret = self._wait_promote(wait_seconds)
+        if self.cancellable.is_cancelled:
+            return False
+
+        ret = False
+        with self.pre_promote_task or null_context():
+
+            if self.pre_promote_task and self.pre_promote_task.is_cancelled:
+                logger.info("pre-promote script cancelled.")
+                return False
+
+            ret = self.pg_ctl('promote', '-W')
+            if ret:
+                self.set_role('master')
+                if on_success is not None:
+                    on_success()
+                if not access_is_restricted:
+                    self.call_nowait(ACTION_ON_ROLE_CHANGE)
+                ret = self._wait_promote(wait_seconds)
         return ret
 
     def timeline_wal_position(self):
