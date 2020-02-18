@@ -6,6 +6,7 @@ import socket
 import stat
 import time
 
+from patroni.exceptions import PatroniException
 from six.moves.urllib_parse import urlparse, parse_qsl, unquote
 from urllib3.response import HTTPHeaderDict
 
@@ -334,7 +335,10 @@ class ConfigHandler(object):
         self._standby_signal = os.path.join(postgresql.data_dir, 'standby.signal')
         self._auto_conf = os.path.join(postgresql.data_dir, 'postgresql.auto.conf')
         self._auto_conf_mtime = None
-        self._pgpass = config.get('pgpass') or os.path.join(os.path.expanduser('~'), 'pgpass')
+        self._pgpass = os.path.abspath(config.get('pgpass') or os.path.join(os.path.expanduser('~'), 'pgpass'))
+        if os.path.exists(self._pgpass) and not os.path.isfile(self._pgpass):
+            raise PatroniException("'{}' exists and it's not a file, check your `postgresql.pgpass` configuration"
+                                   .format(self._pgpass))
         self._passfile = None
         self._passfile_mtime = None
         self._synchronous_standby_names = None
@@ -360,6 +364,8 @@ class ConfigHandler(object):
         if "stats_temp_directory" in self._server_parameters:
             self.try_to_create_dir(self._server_parameters["stats_temp_directory"],
                                    "'{}' is defined in stats_temp_directory, {}")
+        self.try_to_create_dir(os.path.dirname(self._pgpass),
+                               "'{}' is defined in `postgresql.pgpass`, {}")
 
     @property
     def _configuration_to_save(self):
@@ -450,7 +456,7 @@ class ConfigHandler(object):
         # when we are doing custom bootstrap we assume that we don't know superuser password
         # and in order to be able to change it, we are opening trust access from a certain address
         if self._postgresql.bootstrap.running_custom_bootstrap:
-            addresses = {'': 'local'}
+            addresses = {} if os.name == 'nt' else {'': 'local'}  # windows doesn't yet support unix-domain sockets
             if 'host' in self.local_replication_address and not self.local_replication_address['host'].startswith('/'):
                 addresses.update({sa[0] + '/32': 'host' for _, _, _, _, sa in socket.getaddrinfo(
                                   self.local_replication_address['host'], self.local_replication_address['port'],
@@ -579,7 +585,7 @@ class ConfigHandler(object):
 
         try:
             values = self._get_pg_settings(self._recovery_parameters_to_compare).values()
-            values = {p[0]: [p[1], p[4] == 'postmaster'] for p in values}
+            values = {p[0]: [p[1], p[4] == 'postmaster', p[5]] for p in values}
             self._postgresql_conf_mtime = pg_conf_mtime
             self._auto_conf_mtime = auto_conf_mtime
             self._postmaster_ctime = postmaster_ctime
@@ -688,6 +694,12 @@ class ConfigHandler(object):
 
         wanted_recovery_params = self.build_recovery_params(member)
         for param, value in self._current_recovery_params.items():
+            # Skip certain parameters defined in the included postgres config files
+            # if we know that they are not specified in the patroni configuration.
+            if len(value) > 2 and value[2] not in (self._postgresql_conf, self._auto_conf) and \
+                    param in ('archive_cleanup_command', 'promote_trigger_file', 'recovery_end_command',
+                              'recovery_min_apply_delay', 'restore_command') and param not in wanted_recovery_params:
+                continue
             if param == 'recovery_min_apply_delay':
                 if not compare_values('integer', 'ms', value[0], wanted_recovery_params.get(param, 0)):
                     record_missmatch(value[1])
@@ -857,7 +869,7 @@ class ConfigHandler(object):
         self._postgresql.set_connection_kwargs(self.local_connect_kwargs)
 
     def _get_pg_settings(self, names):
-        return {r[0]: r for r in self._postgresql.query(('SELECT name, setting, unit, vartype, context '
+        return {r[0]: r for r in self._postgresql.query(('SELECT name, setting, unit, vartype, context, sourcefile'
                                                          + ' FROM pg_catalog.pg_settings ' +
                                                          ' WHERE pg_catalog.lower(name) = ANY(%s)'),
                                                         [n.lower() for n in names])}
@@ -886,9 +898,9 @@ class ConfigHandler(object):
         conf_changed = hba_changed = ident_changed = local_connection_address_changed = pending_restart = False
         if self._postgresql.state == 'running':
             changes = CaseInsensitiveDict({p: v for p, v in server_parameters.items()
-                                           if '.' not in p and p.lower() not in self._RECOVERY_PARAMETERS})
+                                           if p.lower() not in self._RECOVERY_PARAMETERS})
             changes.update({p: None for p in self._server_parameters.keys()
-                            if not ('.' in p or p in changes or p.lower() in self._RECOVERY_PARAMETERS)})
+                            if not (p in changes or p.lower() in self._RECOVERY_PARAMETERS)})
             if changes:
                 if 'wal_buffers' in changes:  # we need to calculate the default value of wal_buffers
                     undef = [p for p in ('shared_buffers', 'wal_segment_size', 'wal_block_size') if p not in changes]
@@ -914,20 +926,16 @@ class ConfigHandler(object):
                                     local_connection_address_changed = True
                             else:
                                 logger.info('Changed %s from %s to %s', r[0], r[1], new_value)
-                for param in changes:
-                    if param in server_parameters:
+                for param, value in changes.items():
+                    if '.' in param:
+                        # Check that user-defined-paramters have changed (parameters with period in name)
+                        if value is None or param not in self._server_parameters \
+                                or str(value) != str(self._server_parameters[param]):
+                            logger.info('Changed %s from %s to %s', param, self._server_parameters.get(param), value)
+                            conf_changed = True
+                    elif param in server_parameters:
                         logger.warning('Removing invalid parameter `%s` from postgresql.parameters', param)
                         server_parameters.pop(param)
-
-            # Check that user-defined-paramters have changed (parameters with period in name)
-            for p, v in server_parameters.items():
-                if '.' in p and (p not in self._server_parameters or str(v) != str(self._server_parameters[p])):
-                    logger.info('Changed %s from %s to %s', p, self._server_parameters.get(p), v)
-                    conf_changed = True
-            for p, v in self._server_parameters.items():
-                if '.' in p and (p not in server_parameters or str(v) != str(server_parameters[p])):
-                    logger.info('Changed %s from %s to %s', p, v, server_parameters.get(p))
-                    conf_changed = True
 
             if not server_parameters.get('hba_file') and config.get('pg_hba'):
                 hba_changed = self._config.get('pg_hba', []) != config['pg_hba']

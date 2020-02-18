@@ -171,7 +171,8 @@ class PatroniController(AbstractController):
 
         config['name'] = name
         config['postgresql']['data_dir'] = self._data_dir
-        config['postgresql']['use_unix_socket'] = True
+        config['postgresql']['use_unix_socket'] = os.name != 'nt'  # windows doesn't yet support unix-domain sockets
+        config['postgresql']['pgpass'] = os.path.join(tempfile.gettempdir(), 'pgpass_' + name)
         config['postgresql']['parameters'].update({
             'logging_collector': 'on', 'log_destination': 'csvlog', 'log_directory': self._output_dir,
             'log_filename': name + '.log', 'log_statement': 'all', 'log_min_messages': 'debug1',

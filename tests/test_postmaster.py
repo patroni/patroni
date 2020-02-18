@@ -66,6 +66,8 @@ class TestPostmasterProcess(unittest.TestCase):
     @patch('psutil.Process.__init__', Mock())
     @patch('psutil.Process.send_signal')
     @patch('psutil.Process.pid', Mock(return_value=123))
+    @patch('os.name', 'posix')
+    @patch('signal.SIGQUIT', 3, create=True)
     def test_signal_stop(self, mock_send_signal):
         proc = PostmasterProcess(-123)
         self.assertEqual(proc.signal_stop('immediate'), False)
@@ -75,6 +77,21 @@ class TestPostmasterProcess(unittest.TestCase):
         self.assertEqual(proc.signal_stop('immediate'), None)
         self.assertEqual(proc.signal_stop('immediate'), True)
         self.assertEqual(proc.signal_stop('immediate'), False)
+
+    @patch('psutil.Process.__init__', Mock())
+    @patch('patroni.postgresql.postmaster.os')
+    @patch('subprocess.call', Mock(side_effect=[0, OSError, 1]))
+    @patch('psutil.Process.pid', Mock(return_value=123))
+    @patch('psutil.Process.is_running', Mock(return_value=False))
+    def test_signal_stop_nt(self, mock_os):
+        mock_os.configure_mock(name="nt")
+        proc = PostmasterProcess(-123)
+        self.assertEqual(proc.signal_stop('immediate'), False)
+
+        proc = PostmasterProcess(123)
+        self.assertEqual(proc.signal_stop('immediate'), None)
+        self.assertEqual(proc.signal_stop('immediate'), False)
+        self.assertEqual(proc.signal_stop('immediate'), True)
 
     @patch('psutil.Process.__init__', Mock())
     @patch('psutil.wait_procs')
