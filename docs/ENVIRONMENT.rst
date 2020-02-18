@@ -8,6 +8,7 @@ It is possible to override some of the configuration parameters defined in the P
 Global/Universal
 ----------------
 -  **PATRONI\_CONFIGURATION**: it is possible to set the entire configuration for the Patroni via ``PATRONI_CONFIGURATION`` environment variable. In this case any other environment variables will not be considered!
+-  **PATRONI\_CONFIG\_FILE**: location of the configuration file. 
 -  **PATRONI\_NAME**: name of the node where the current instance of Patroni is running. Must be unique for the cluster.
 -  **PATRONI\_NAMESPACE**: path within the configuration store where Patroni will keep information about the cluster. Default value: "/service"
 -  **PATRONI\_SCOPE**: cluster name
