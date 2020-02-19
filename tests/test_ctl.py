@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from mock import patch, Mock
 from patroni.ctl import ctl, store_config, load_config, output_members, get_dcs, parse_dcs, \
     get_all_members, get_any_member, get_cursor, query_member, configure, PatroniCtlException, apply_config_changes, \
-    format_config_for_editing, show_diff, invoke_editor, format_pg_version, find_executable
+    format_config_for_editing, show_diff, invoke_editor, format_pg_version, find_executable, print_output
 from patroni.dcs.etcd import Client, Failover
 from patroni.utils import tzutc
 from psycopg2 import OperationalError
@@ -32,7 +32,8 @@ def test_rw_config():
 
 
 @patch('patroni.ctl.load_config',
-       Mock(return_value={'scope': 'alpha', 'postgresql': {'data_dir': '.', 'pgpass': './pgpass', 'parameters': {}, 'retry_timeout': 5},
+       Mock(return_value={'scope': 'alpha', 'postgresql': {'data_dir': '.', 'pgpass': './pgpass',
+                                                           'parameters': {}, 'retry_timeout': 5},
                           'restapi': {'listen': '::', 'certfile': 'a'}, 'etcd': {'host': 'localhost:2379'}}))
 class TestCtl(unittest.TestCase):
 
@@ -160,6 +161,12 @@ class TestCtl(unittest.TestCase):
     @patch('patroni.dcs.dcs_modules', Mock(return_value=['patroni.dcs.dummy', 'patroni.dcs.etcd']))
     def test_get_dcs(self):
         self.assertRaises(PatroniCtlException, get_dcs, {'dummy': {}}, 'dummy')
+
+    @patch('sys.platform', 'win32')
+    @patch('click.echo')
+    def test_print_output(self, mock_click_echo):
+        print_output(['a'], [])
+        mock_click_echo.assert_called_once_with('+---+\n| a |\n+---+')
 
     @patch('psycopg2.connect', psycopg2_connect)
     @patch('patroni.ctl.query_member', Mock(return_value=([['mock column']], None)))

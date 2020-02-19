@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 '''
 Patroni Control
 '''
@@ -32,7 +33,7 @@ from patroni.utils import cluster_as_json, patch_config, polling_loop
 from patroni.request import PatroniRequest
 from patroni.version import __version__
 from six.moves.urllib_parse import urlparse
-from terminaltables import SingleTable
+from texttable import Texttable
 
 CONFIG_DIR_PATH = click.get_app_dir('patroni')
 CONFIG_FILE_PATH = os.path.join(CONFIG_DIR_PATH, 'patronictl.yaml')
@@ -44,6 +45,44 @@ DCS_DEFAULTS = {'zookeeper': {'port': 2181, 'template': "zookeeper:\n hosts: ['{
 
 class PatroniCtlException(ClickException):
     pass
+
+
+class PatronictlTexttable(Texttable):
+
+    def __init__(self, header=None):
+        Texttable.__init__(self, 0)
+        self.__table_header = header
+        self.__hline_num = 0
+
+        if sys.platform != 'win32':
+            self._char_horiz = u'─'
+            self._char_vert = u'│'
+            self._hline_header = self._hline
+        self._char_header = self._char_horiz
+
+    def _is_first_hline(self):
+        return self.__hline_num == 0
+
+    def _is_last_hline(self):
+        return self.__hline_num > (len(self._rows) if self._has_hlines() else int(bool(self._header)))
+
+    def _hline(self):
+        if sys.platform == 'win32':
+            left = right = self._char_corner
+        elif self._is_first_hline():
+            left, self._char_corner, right = u'┌', u'┬', u'┐'
+        elif not self._is_last_hline():
+            left, self._char_corner, right = u'├', u'┼', u'┤'
+        else:
+            left, self._char_corner, right = u'└', u'┴', u'┘'
+
+        line = self._build_hline()
+
+        if self._is_first_hline() and self.__table_header:
+            left += self.__table_header
+
+        self.__hline_num += 1
+        return left + line[len(left):-2] + right + '\n'
 
 
 def parse_dcs(dcs):
@@ -145,20 +184,25 @@ def print_output(columns, rows, alignment=None, fmt='pretty', header=None, delim
             for row in rows:
                 if row[i]:
                     row[i] = format_config_for_editing(row[i], fmt == 'tsv').strip()
-        s = int(list_cluster and fmt == 'pretty')  # skip cluster name if pretty-printing
-        table_data = ([columns[s:]] if columns else []) + [row[s:] for row in rows]
+        if list_cluster and fmt == 'pretty':  # skip cluster name if pretty-printing
+            columns = columns[1:] if columns else []
+            rows = [row[1:] for row in rows]
 
         if fmt == 'tsv':
-            for r in table_data:
+            for r in [columns] + rows:
                 click.echo(delimiter.join(map(str, r)))
         else:
-            table = SingleTable(table_data, header)
-            table.inner_row_border = any(any(isinstance(c, six.string_types) and '\n' in c for c in r) for r in rows)
-            for i, name in enumerate(table_data[0]):
-                default = 'left'
-                jmap = {m[0]: m for m in ('center', default, 'right')}
-                table.justify_columns[i] = jmap.get((alignment or {}).get(name, default)[0], default)
-            click.echo(table.table)
+            table = PatronictlTexttable(header)
+            if not any(any(isinstance(c, six.string_types) and '\n' in c for c in r) for r in rows):
+                table.set_deco(Texttable.VLINES | Texttable.BORDER | Texttable.HEADER)
+            if rows:
+                if columns:
+                    table.header(columns)
+                    table.set_cols_align([(alignment or {}).get(c, 'l') for c in columns])
+                table.add_rows(rows, header=False)
+            else:
+                table.add_rows([columns], header=False)
+            click.echo(table.draw())
 
 
 def watching(w, watch, max_count=None, clear=True):
