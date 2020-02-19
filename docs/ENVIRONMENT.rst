@@ -8,7 +8,6 @@ It is possible to override some of the configuration parameters defined in the P
 Global/Universal
 ----------------
 -  **PATRONI\_CONFIGURATION**: it is possible to set the entire configuration for the Patroni via ``PATRONI_CONFIGURATION`` environment variable. In this case any other environment variables will not be considered!
--  **PATRONI\_CONFIG\_FILE**: location of the configuration file. 
 -  **PATRONI\_NAME**: name of the node where the current instance of Patroni is running. Must be unique for the cluster.
 -  **PATRONI\_NAMESPACE**: path within the configuration store where Patroni will keep information about the cluster. Default value: "/service"
 -  **PATRONI\_SCOPE**: cluster name
@@ -131,6 +130,7 @@ REST API
 
 CTL
 ---
+-  **PATRONICTL\_CONFIG\_FILE**: location of the configuration file. 
 -  **PATRONI\_CTL\_INSECURE**: Allow connections to REST API without verifying SSL certs.
 -  **PATRONI\_CTL\_CACERT**: Specifies the file with the CA_BUNDLE file or directory with certificates of trusted CAs to use while verifying REST API SSL certs. If not provided patronictl will use the value provided for REST API "cafile" parameter.
 -  **PATRONI\_CTL\_CERTFILE**: Specifies the file with the client certificate in the PEM format. If not provided patronictl will use the value provided for REST API "certfile" parameter.
