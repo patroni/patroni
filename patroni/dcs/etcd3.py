@@ -20,7 +20,7 @@ from ..utils import deep_compare, iter_response_objects, Retry, RetryFailedError
 logger = logging.getLogger(__name__)
 
 
-class EtcdError(DCSError):
+class Etcd3Error(DCSError):
     pass
 
 
@@ -593,13 +593,13 @@ class Etcd3(AbstractEtcd):
             return self.retry(self._do_refresh_lease)
         except (Etcd3ClientError, RetryFailedError):
             logger.exception('refresh_lease')
-        raise EtcdError('Failed ro keepalive/grant lease')
+        raise Etcd3Error('Failed ro keepalive/grant lease')
 
     def create_lease(self):
         while not self._lease:
             try:
                 self.refresh_lease()
-            except EtcdError:
+            except Etcd3Error:
                 logger.info('waiting on etcd')
                 time.sleep(5)
 
@@ -661,7 +661,7 @@ class Etcd3(AbstractEtcd):
         except UnsupportedEtcdVersion:
             raise
         except Exception as e:
-            self._handle_exception(e, 'get_cluster', raise_ex=EtcdError('Etcd is not responding properly'))
+            self._handle_exception(e, 'get_cluster', raise_ex=Etcd3Error('Etcd is not responding properly'))
         self._has_failed = False
         return cluster
 
