@@ -1148,6 +1148,8 @@ class Ha(object):
                 return 'removed leader key after trying and failing to start postgres'
             return 'failed to start postgres'
         self._crash_recovery_executed = False
+        if self._rewind.executed and not self._rewind.failed:
+            self._rewind.reset_state()
         return None
 
     def cancel_initialization(self):
