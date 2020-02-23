@@ -57,6 +57,8 @@ You can ensure that a standby never becomes the synchronous standby by setting `
 
 Synchronous mode can be switched on and off via Patroni REST interface. See :ref:`dynamic configuration <dynamic_configuration>` for instructions.
 
+Note: because of the way synchronous replication implemented in PostgreSQL it is still possible to lost transactions even using ``synchronous_mode_strict``. If PostgreSQL backend is canceled while waiting for aknowdledge of synchronous replication (as a result of packet cancellation due to client timeout or backend failure) transaction changes become visible for other backends. Such changes are non-replicated yet and may be lost in case of stanby promotion.
+
 
 Synchronous mode implementation
 -------------------------------
