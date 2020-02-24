@@ -168,7 +168,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         self.version_prefix = '/v3beta'
         super(Etcd3Client, self).__init__(config, dns_resolver, cache_ttl)
 
-        if six.PY2:
+        if six.PY2:  # pragma: no cover
             # Old grpc-gateway sometimes sends double 'transfer-encoding: chunked' headers,
             # what breaks the old (python2.7) httplib.HTTPConnection (it closes the socket).
             def dedup_addheader(httpm, key, value):
@@ -314,6 +314,9 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
     def lease_keepalive(self, ID, retry=None):
         return self.call_rpc('/lease/keepalive', {'ID': ID}, retry).get('result', {}).get('TTL')
 
+    def txn(self, compare, success, retry=None):
+        return self.call_rpc('/kv/txn', {'compare': [compare], 'success': [success]}, retry).get('succeeded')
+
     @_handle_auth_errors
     def put(self, key, value, lease=None, create_revision=None, mod_revision=None, retry=None):
         fields = {'key': base64_encode(key), 'value': base64_encode(value)}
@@ -326,8 +329,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         else:
             return self.call_rpc('/kv/put', fields, retry)
         compare['key'] = fields['key']
-        return self.call_rpc('/kv/txn', {'compare': [compare], 'success': [{'request_put': fields}]},
-                             retry).get('succeeded')
+        return self.txn(compare, {'request_put': fields}, retry)
 
     @_handle_auth_errors
     def deleterange(self, key, range_end=None, mod_revision=None, retry=None):
@@ -335,8 +337,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         if mod_revision is None:
             return self.call_rpc('/kv/deleterange', fields, retry)
         compare = {'target': 'MOD', 'mod_revision': mod_revision, 'key': fields['key']}
-        ret = self.call_rpc('/kv/txn', {'compare': [compare], 'success': [{'request_delete_range': fields}]}, retry)
-        return ret.get('succeeded')
+        return self.txn(compare, {'request_delete_range': fields}, retry)
 
     def deleteprefix(self, key, retry=None):
         return self.deleterange(key, increment_last_byte(key), retry=retry)
