@@ -32,7 +32,7 @@ def test_rw_config():
 
 
 @patch('patroni.ctl.load_config',
-       Mock(return_value={'scope': 'alpha', 'postgresql': {'data_dir': '.', 'parameters': {}, 'retry_timeout': 5},
+       Mock(return_value={'scope': 'alpha', 'postgresql': {'data_dir': '.', 'pgpass': './pgpass', 'parameters': {}, 'retry_timeout': 5},
                           'restapi': {'listen': '::', 'certfile': 'a'}, 'etcd': {'host': 'localhost:2379'}}))
 class TestCtl(unittest.TestCase):
 

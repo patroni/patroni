@@ -169,15 +169,21 @@ class Patroni(object):
 def patroni_main():
     import argparse
     from patroni.config import Config, ConfigParseError
+    from patroni.validator import schema
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--version', action='version', version='%(prog)s {0}'.format(__version__))
+    parser.add_argument('--validate-config', action='store_true', help='Run config validator and exit')
     parser.add_argument('configfile', nargs='?', default='',
                         help='Patroni may also read the configuration from the {0} environment variable'
                         .format(Config.PATRONI_CONFIG_VARIABLE))
     args = parser.parse_args()
     try:
-        conf = Config(args.configfile)
+        if args.validate_config:
+            conf = Config(args.configfile, validator=schema)
+            sys.exit()
+        else:
+            conf = Config(args.configfile)
     except ConfigParseError as e:
         if e.value:
             print(e.value)
