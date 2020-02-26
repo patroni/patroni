@@ -130,7 +130,8 @@ class Patroni(AbstractPatroniDaemon):
 
 
 def patroni_main():
-    abstract_main(Patroni)
+    from patroni.validator import schema
+    abstract_main(Patroni, schema)
 
 
 def fatal(string, *args):

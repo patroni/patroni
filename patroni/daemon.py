@@ -69,7 +69,7 @@ class AbstractPatroniDaemon(object):
         self.logger.shutdown()
 
 
-def abstract_main(cls):
+def abstract_main(cls, validator=None):
     import argparse
 
     from .config import Config, ConfigParseError
@@ -77,11 +77,17 @@ def abstract_main(cls):
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--version', action='version', version='%(prog)s {0}'.format(__version__))
+    if validator:
+        parser.add_argument('--validate-config', action='store_true', help='Run config validator and exit')
     parser.add_argument('configfile', nargs='?', default='',
                         help='Patroni may also read the configuration from the {0} environment variable'
                         .format(Config.PATRONI_CONFIG_VARIABLE))
     args = parser.parse_args()
     try:
+        if validator and args.validate_config:
+            Config(args.configfile, validator=validator)
+            sys.exit()
+
         config = Config(args.configfile)
     except ConfigParseError as e:
         if e.value:
