@@ -196,6 +196,10 @@ class TestClient(unittest.TestCase):
                           timeout=1, source_address=('localhost', 53333),
                           socket_options=[(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)])
 
+    def test___del__(self):
+        self.client.http.clear = Mock(side_effect=TypeError)
+        del self.client
+
 
 @patch('patroni.dcs.etcd.requests_get', requests_get)
 @patch('socket.getaddrinfo', socket_getaddrinfo)

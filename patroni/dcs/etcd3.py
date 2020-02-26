@@ -7,6 +7,7 @@ import logging
 import os
 import six
 import socket
+import sys
 import time
 import urllib3
 
@@ -15,7 +16,7 @@ from threading import Condition, Lock, Thread
 from . import ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
 from .etcd import AbstractEtcdClientWithFailover, AbstractEtcd, catch_etcd_errors
 from ..exceptions import DCSError, PatroniException
-from ..utils import deep_compare, iter_response_objects, Retry, RetryFailedError, USER_AGENT
+from ..utils import deep_compare, iter_response_objects, RetryFailedError, USER_AGENT
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +162,8 @@ def build_range_request(key, range_end=None):
 
 
 class Etcd3Client(AbstractEtcdClientWithFailover):
+
+    ERROR_CLS = Etcd3ClientError
 
     def __init__(self, config, dns_resolver, cache_ttl=300):
         self._token = None
@@ -558,9 +561,8 @@ class PatroniEtcd3Client(Etcd3Client):
 class Etcd3(AbstractEtcd):
 
     def __init__(self, config):
-        super(Etcd3, self).__init__(config, PatroniEtcd3Client, Etcd3ClientError)
-        self._retry = Retry(deadline=config['retry_timeout'], max_delay=1, max_tries=-1,
-                            retry_exceptions=(DeadlineExceeded, Unavailable, FailedPrecondition))
+        super(Etcd3, self).__init__(config, PatroniEtcd3Client)
+        self._retry.retry_exceptions = (DeadlineExceeded, Unavailable, FailedPrecondition)
         self.__do_not_watch = False
         self._lease = None
         self._last_lease_refresh = 0
@@ -569,6 +571,34 @@ class Etcd3(AbstractEtcd):
         if not self._ctl:
             self._client.start_watcher(self)
             self.create_lease()
+
+    def set_socket_options(self, sock, socket_options):
+        cnt = 3
+        timeout = self.ttl
+        idle = int(self.loop_wait + self._retry.deadline)
+        intvl = max(1, int(float(timeout - idle) / cnt))
+
+        SIO_KEEPALIVE_VALS = getattr(socket, 'SIO_KEEPALIVE_VALS', None)
+        if SIO_KEEPALIVE_VALS is not None:  # Windows
+            return sock.ioctl(SIO_KEEPALIVE_VALS, (1, idle * 1000, intvl * 1000))
+
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+
+        if sys.platform.startswith('linux'):
+            sock.setsockopt(socket.SOL_TCP, 18, int(timeout * 1000))  # TCP_USER_TIMEOUT
+            TCP_KEEPIDLE = socket.TCP_KEEPIDLE
+            TCP_KEEPINTVL = socket.TCP_KEEPINTVL
+            TCP_KEEPCNT = socket.TCP_KEEPCNT
+        elif sys.platform.startswith('darwin'):
+            TCP_KEEPIDLE = 0x10  # (named "TCP_KEEPALIVE" in C)
+            TCP_KEEPINTVL = 0x101
+            TCP_KEEPCNT = 0x102
+        else:
+            return
+
+        sock.setsockopt(socket.IPPROTO_TCP, TCP_KEEPIDLE, idle)
+        sock.setsockopt(socket.IPPROTO_TCP, TCP_KEEPINTVL, intvl)
+        sock.setsockopt(socket.IPPROTO_TCP, TCP_KEEPCNT, cnt)
 
     def set_ttl(self, ttl):
         self.__do_not_watch = super(Etcd3, self).set_ttl(ttl)

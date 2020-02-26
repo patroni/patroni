@@ -238,3 +238,10 @@ class TestEtcd3(BaseTestEtcd3):
         self.etcd3.set_ttl(10)
         self.etcd3.watch(None, 0)
         self.etcd3.watch(None, 0)
+
+    def test_set_socket_options(self):
+        with patch('socket.SIO_KEEPALIVE_VALS', 1, create=True):
+            self.etcd3.set_socket_options(Mock(), None)
+        for platform in ('linux2', 'darwin', 'other'):
+            with patch('sys.platform', platform):
+                self.etcd3.set_socket_options(Mock(), None)
