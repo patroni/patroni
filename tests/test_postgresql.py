@@ -134,6 +134,9 @@ class TestPostgresql(BaseTestPostgresql):
 
         self.p.cancellable.cancel()
         self.assertFalse(self.p.start())
+        with patch('patroni.postgresql.config.ConfigHandler.effective_configuration',
+                   PropertyMock(side_effect=Exception)):
+            self.assertIsNone(self.p.start())
 
     @patch.object(Postgresql, 'pg_isready')
     @patch('patroni.postgresql.polling_loop', Mock(return_value=range(1)))

@@ -1143,7 +1143,8 @@ class Ha(object):
         if not self.state_handler.is_running():
             self.watchdog.disable()
             if self.has_lock():
-                self.state_handler.set_role('demoted')
+                if self.state_handler.role in ('master', 'standby_leader'):
+                    self.state_handler.set_role('demoted')
                 self._delete_leader()
                 return 'removed leader key after trying and failing to start postgres'
             return 'failed to start postgres'
@@ -1172,10 +1173,11 @@ class Ha(object):
             return ret or 'running post_bootstrap'
 
         self.state_handler.bootstrapping = False
-        self.dcs.set_config_value(json.dumps(self.patroni.config.dynamic_configuration, separators=(',', ':')))
         if not self.watchdog.activate():
             logger.error('Cancelling bootstrap because watchdog activation failed')
             self.cancel_initialization()
+        self.dcs.initialize(create_new=(self.cluster.initialize is None), sysid=self.state_handler.sysid)
+        self.dcs.set_config_value(json.dumps(self.patroni.config.dynamic_configuration, separators=(',', ':')))
         self.state_handler.slots_handler.sync_replication_slots(self.cluster)
         self.dcs.take_leader()
         self.set_is_leader(True)
@@ -1290,8 +1292,8 @@ class Ha(object):
                 data_sysid = self.state_handler.sysid
                 if not self.sysid_valid(data_sysid):
                     # data directory is not empty, but no valid sysid, cluster must be broken, suggest reinit
-                    return ("data dir for the cluster is not empty, but system ID is invalid; consider doing"
-                            "reinitialize")
+                    return ("data dir for the cluster is not empty, "
+                            "but system ID is invalid; consider doing reinitialize")
 
                 if self.sysid_valid(self.cluster.initialize):
                     if self.cluster.initialize != data_sysid:
