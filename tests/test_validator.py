@@ -126,7 +126,7 @@ class TestValidator(unittest.TestCase):
     def test_empty_config(self, mock_out, mock_err):
         schema({})
         output = mock_out.getvalue()
-        self.assertEqual(['consul', 'etcd', 'exhibitor', 'kubernetes', 'name', 'postgresql', 'restapi', 'scope', 'zookeeper'], parse_output(output))
+        self.assertEqual(['consul', 'etcd', 'etcd3', 'exhibitor', 'kubernetes', 'name', 'postgresql', 'restapi', 'scope', 'zookeeper'], parse_output(output))
 
     def test_complete_config(self, mock_out, mock_err):
         schema(config)

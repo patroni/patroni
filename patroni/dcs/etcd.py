@@ -416,7 +416,8 @@ class AbstractEtcd(AbstractDCS):
         if isinstance(raise_ex, Exception):
             raise raise_ex
 
-    def set_socket_options(self, sock, socket_options):
+    @staticmethod
+    def set_socket_options(sock, socket_options):
         if socket_options:
             for opt in socket_options:
                 sock.setsockopt(*opt)

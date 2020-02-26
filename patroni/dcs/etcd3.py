@@ -189,7 +189,6 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
             self.authenticate()
         except Exception as e:
             logger.fatal('Etcd3 authentication failed: %r', e)
-            import sys
             sys.exit(1)
 
     def _get_headers(self):
