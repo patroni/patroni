@@ -621,6 +621,7 @@ class TestHa(PostgresInit):
     def test_post_recover(self):
         self.p.is_running = false
         self.ha.has_lock = true
+        self.p.set_role('master')
         self.assertEqual(self.ha.post_recover(), 'removed leader key after trying and failing to start postgres')
         self.ha.has_lock = false
         self.assertEqual(self.ha.post_recover(), 'failed to start postgres')

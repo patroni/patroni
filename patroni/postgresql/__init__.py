@@ -413,7 +413,11 @@ class Postgresql(object):
         self.set_state('starting')
         self._pending_restart = False
 
-        configuration = self.config.effective_configuration
+        try:
+            configuration = self.config.effective_configuration
+        except Exception:
+            return None
+
         self.config.check_directories()
         self.config.write_postgresql_conf(configuration)
         self.config.resolve_connection_addresses()
