@@ -204,7 +204,7 @@ class Ha(object):
                         if self.state_handler.role == 'standby_leader':
                             timeline = pg_control_timeline or self.state_handler.pg_control_timeline()
                         else:
-                            timeline = self.state_handler.replica_cached_timeline(timeline)
+                            timeline = self.state_handler.replica_cached_timeline(self._leader_timeline)
                     if timeline:
                         data['timeline'] = timeline
                 except Exception:
@@ -1143,11 +1143,14 @@ class Ha(object):
         if not self.state_handler.is_running():
             self.watchdog.disable()
             if self.has_lock():
-                self.state_handler.set_role('demoted')
+                if self.state_handler.role in ('master', 'standby_leader'):
+                    self.state_handler.set_role('demoted')
                 self._delete_leader()
                 return 'removed leader key after trying and failing to start postgres'
             return 'failed to start postgres'
         self._crash_recovery_executed = False
+        if self._rewind.executed and not self._rewind.failed:
+            self._rewind.reset_state()
         return None
 
     def cancel_initialization(self):
@@ -1172,10 +1175,11 @@ class Ha(object):
             return ret or 'running post_bootstrap'
 
         self.state_handler.bootstrapping = False
-        self.dcs.set_config_value(json.dumps(self.patroni.config.dynamic_configuration, separators=(',', ':')))
         if not self.watchdog.activate():
             logger.error('Cancelling bootstrap because watchdog activation failed')
             self.cancel_initialization()
+        self.dcs.initialize(create_new=(self.cluster.initialize is None), sysid=self.state_handler.sysid)
+        self.dcs.set_config_value(json.dumps(self.patroni.config.dynamic_configuration, separators=(',', ':')))
         self.state_handler.slots_handler.sync_replication_slots(self.cluster)
         self.dcs.take_leader()
         self.set_is_leader(True)
@@ -1290,8 +1294,8 @@ class Ha(object):
                 data_sysid = self.state_handler.sysid
                 if not self.sysid_valid(data_sysid):
                     # data directory is not empty, but no valid sysid, cluster must be broken, suggest reinit
-                    return ("data dir for the cluster is not empty, but system ID is invalid; consider doing"
-                            "reinitialize")
+                    return ("data dir for the cluster is not empty, "
+                            "but system ID is invalid; consider doing reinitialize")
 
                 if self.sysid_valid(self.cluster.initialize):
                     if self.cluster.initialize != data_sysid:

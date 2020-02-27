@@ -618,12 +618,17 @@ class TestHa(PostgresInit):
         member = Member(0, 'test', 1, {'api_url': 'http://localhost:8011/patroni'})
         self.ha.fetch_node_status(member)
 
+    @patch.object(Rewind, 'pg_rewind', true)
+    @patch.object(Rewind, 'check_leader_is_not_in_recovery', true)
     def test_post_recover(self):
         self.p.is_running = false
         self.ha.has_lock = true
+        self.p.set_role('master')
         self.assertEqual(self.ha.post_recover(), 'removed leader key after trying and failing to start postgres')
         self.ha.has_lock = false
         self.assertEqual(self.ha.post_recover(), 'failed to start postgres')
+        leader = Leader(0, 0, Member(0, 'l', 2, {"version": "1.6", "conn_url": "postgres://a", "role": "master"}))
+        self.ha._rewind.execute(leader)
         self.p.is_running = true
         self.assertIsNone(self.ha.post_recover())
 

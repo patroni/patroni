@@ -464,3 +464,9 @@ def validate_directory(d, msg="{} {}"):
             raise PatroniException(msg.format(d, "the directory is not writable"))
     else:
         raise PatroniException(msg.format(d, "is not a directory"))
+
+
+def data_directory_is_empty(data_dir):
+    if not os.path.exists(data_dir):
+        return True
+    return all(os.name != 'nt' and (n.startswith('.') or n == 'lost+found') for n in os.listdir(data_dir))

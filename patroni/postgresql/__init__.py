@@ -17,7 +17,7 @@ from patroni.postgresql.misc import parse_history, postgres_major_version_to_int
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.slots import SlotsHandler
 from patroni.exceptions import PostgresConnectionException
-from patroni.utils import Retry, RetryFailedError, polling_loop
+from patroni.utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty
 from threading import current_thread, Lock
 
 
@@ -266,9 +266,7 @@ class Postgresql(object):
     def data_directory_empty(self):
         if self.pg_control_exists():
             return False
-        if not os.path.exists(self._data_dir):
-            return True
-        return all(os.name != 'nt' and (n.startswith('.') or n == 'lost+found') for n in os.listdir(self._data_dir))
+        return data_directory_is_empty(self._data_dir)
 
     def replica_method_options(self, method):
         return deepcopy(self.config.get(method, {}))
@@ -415,7 +413,11 @@ class Postgresql(object):
         self.set_state('starting')
         self._pending_restart = False
 
-        configuration = self.config.effective_configuration
+        try:
+            configuration = self.config.effective_configuration
+        except Exception:
+            return None
+
         self.config.check_directories()
         self.config.write_postgresql_conf(configuration)
         self.config.resolve_connection_addresses()

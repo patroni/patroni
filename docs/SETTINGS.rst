@@ -20,7 +20,7 @@ Dynamic configuration is stored in the DCS (Distributed Configuration Store) and
 -  **synchronous\_mode\_strict**: prevents disabling synchronous replication if no synchronous replicas are available, blocking all client writes to the master. See :ref:`replication modes documentation <replication_modes>` for details.
 -  **postgresql**:
     -  **use\_pg\_rewind**: whether or not to use pg_rewind. Defaults to `false`.
-    -  **use\_slots**: whether or not to use replication_slots. Defaults to `true` on PostgreSQL 9.4+.
+    -  **use\_slots**: whether or not to use replication slots. Defaults to `true` on PostgreSQL 9.4+.
     -  **recovery\_conf**: additional configuration settings written to recovery.conf when configuring follower. There is no recovery.conf anymore in PostgreSQL 12, but you may continue using this section, because Patroni handles it transparently.
     -  **parameters**: list of configuration settings for Postgres.
 -  **standby\_cluster**: if this section is defined, we want to bootstrap a standby cluster.
@@ -32,7 +32,7 @@ Dynamic configuration is stored in the DCS (Distributed Configuration Store) and
     -  **archive\_cleanup\_command**: cleanup command for standby leader
     -  **recovery\_min\_apply\_delay**: how long to wait before actually apply WAL records on a standby leader
 -  **slots**: define permanent replication slots. These slots will be preserved during switchover/failover. Patroni will try to create slots before opening connections to the cluster.
-    -  **my_slot_name**: the name of replication slot. It is the responsibility of the operator to make sure that there are no clashes in names between replication slots automatically created by Patroni for members and permanent replication slots.
+    -  **my_slot_name**: the name of replication slot. If the permanent slot name matches with the name of the current primary it will not be created. Everything else is the responsibility of the operator to make sure that there are no clashes in names between replication slots automatically created by Patroni for members and permanent replication slots.
         -  **type**: slot type. Could be ``physical`` or ``logical``. If the slot is logical, you have to additionally define ``database`` and ``plugin``.
         -  **database**: the database name where logical slots should be created.
         -  **plugin**: the plugin name for the logical slot.

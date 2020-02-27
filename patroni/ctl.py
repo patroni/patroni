@@ -6,6 +6,7 @@ import click
 import codecs
 import datetime
 import dateutil.parser
+import dateutil.tz
 import cdiff
 import copy
 import difflib
@@ -19,7 +20,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import tzlocal
 import yaml
 
 from click import ClickException
@@ -445,7 +445,7 @@ def parse_scheduled(scheduled):
         try:
             scheduled_at = dateutil.parser.parse(scheduled)
             if scheduled_at.tzinfo is None:
-                scheduled_at = tzlocal.get_localzone().localize(scheduled_at)
+                scheduled_at = scheduled_at.replace(tzinfo=dateutil.tz.tzlocal())
         except (ValueError, TypeError):
             message = 'Unable to parse scheduled timestamp ({0}). It should be in an unambiguous format (e.g. ISO 8601)'
             raise PatroniCtlException(message.format(scheduled))
@@ -726,7 +726,7 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
     cluster = cluster_as_json(cluster)
 
     columns = ['Cluster', 'Member', 'Host', 'Role', 'State', 'TL', 'Lag in MB']
-    for c in ('Pending restart', 'Scheduled restart'):
+    for c in ('Pending restart', 'Scheduled restart', 'Tags'):
         if extended or any(m.get(c.lower().replace(' ', '_')) for m in cluster['members']):
             columns.append(c)
 
@@ -741,7 +741,8 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
         m.update(cluster=name, member=m['name'], tl=m.get('timeline', ''),
                  role='' if m['role'] == 'replica' else m['role'].replace('_', ' ').title(),
                  lag_in_mb=round(lag/1024/1024) if isinstance(lag, six.integer_types) else lag,
-                 pending_restart='*' if m.get('pending_restart') else '')
+                 pending_restart='*' if m.get('pending_restart') else '',
+                 tags=json.dumps(m['tags']) if m.get('tags') else '')
 
         if append_port:
             m['host'] = ':'.join([m['host'], str(m['port'])])
@@ -754,7 +755,7 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
 
         rows.append([m.get(n.lower().replace(' ', '_'), '') for n in columns])
 
-    print_output(columns, rows, {'Lag in MB': 'r', 'TL': 'r'}, fmt)
+    print_output(columns, rows, {'Lag in MB': 'r', 'TL': 'r', 'Tags': 'l'}, fmt)
 
     if fmt != 'pretty':  # Omit service info when using machine-readable formats
         return

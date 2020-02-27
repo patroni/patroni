@@ -134,6 +134,9 @@ class TestPostgresql(BaseTestPostgresql):
 
         self.p.cancellable.cancel()
         self.assertFalse(self.p.start())
+        with patch('patroni.postgresql.config.ConfigHandler.effective_configuration',
+                   PropertyMock(side_effect=Exception)):
+            self.assertIsNone(self.p.start())
 
     @patch.object(Postgresql, 'pg_isready')
     @patch('patroni.postgresql.polling_loop', Mock(return_value=range(1)))
@@ -281,8 +284,8 @@ class TestPostgresql(BaseTestPostgresql):
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def test_sync_replication_slots(self):
         self.p.start()
-        config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'},
-                                             'A': 0, 'test_3': 0, 'b': {'type': 'logical', 'plugin': '1'}}}, 1)
+        config = ClusterConfig(1, {'slots': {'test_3': {'database': 'a', 'plugin': 'b'},
+                                             'A': 0, 'ls': 0, 'b': {'type': 'logical', 'plugin': '1'}}}, 1)
         cluster = Cluster(True, config, self.leader, 0, [self.me, self.other, self.leadermem], None, None, None)
         with mock.patch('patroni.postgresql.Postgresql._query', Mock(side_effect=psycopg2.OperationalError)):
             self.p.slots_handler.sync_replication_slots(cluster)
