@@ -174,3 +174,8 @@ class TestCacheBuilder(unittest.TestCase):
     @patch('patroni.dcs.kubernetes.ObjectCache._build_cache', Mock(side_effect=Exception))
     def test_run(self):
         self.assertRaises(SleepException, self.k._pods.run)
+
+    @patch('time.sleep', Mock())
+    def test__list(self):
+        self.k._pods._func = Mock(side_effect=Exception)
+        self.assertRaises(Exception, self.k._pods._list)
