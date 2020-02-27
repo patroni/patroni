@@ -204,7 +204,7 @@ class Ha(object):
                         if self.state_handler.role == 'standby_leader':
                             timeline = pg_control_timeline or self.state_handler.pg_control_timeline()
                         else:
-                            timeline = self.state_handler.replica_cached_timeline(timeline)
+                            timeline = self.state_handler.replica_cached_timeline(self._leader_timeline)
                     if timeline:
                         data['timeline'] = timeline
                 except Exception:
