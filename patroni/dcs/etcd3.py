@@ -117,23 +117,20 @@ errStringToClientError = {s.error: s for s in Etcd3ClientError.get_subclasses() 
 errCodeToClientError = {s.code: s for s in Etcd3ClientError.__subclasses__()}
 
 
-def _raise_for_status(response):
-    if response.status < 400:
-        return
-    data = response.data.decode('utf-8')
+def _raise_for_data(data, status_code=None):
     try:
-        data = json.loads(data)
         error = data.get('error') or data.get('Error')
         if isinstance(error, dict):  # streaming response
+            status_code = error.get('http_code')
             code = error['grpc_code']
             error = error['message']
         else:
             code = data.get('code') or data.get('Code')
     except Exception:
-        error = data
+        error = str(data)
         code = GRPCCode.Unknown
     err = errStringToClientError.get(error) or errCodeToClientError.get(code) or Unknown
-    raise err(code, error, response.status)
+    raise err(code, error, status_code)
 
 
 def to_bytes(v):
@@ -163,11 +160,12 @@ def build_range_request(key, range_end=None):
 
 class Etcd3Client(AbstractEtcdClientWithFailover):
 
-    ERROR_CLS = Etcd3ClientError
+    ERROR_CLS = Etcd3Error
 
     def __init__(self, config, dns_resolver, cache_ttl=300):
         self._token = None
         self._cluster_version = None
+        self._prev_base_uri = None
         self.version_prefix = '/v3beta'
         super(Etcd3Client, self).__init__(config, dns_resolver, cache_ttl)
 
@@ -208,14 +206,19 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
 
     @staticmethod
     def _handle_server_response(response):
-        _raise_for_status(response)
+        data = response.data
         try:
-            return json.loads(response.data.decode('utf-8'))
+            data = data.decode('utf-8')
+            data = json.loads(data)
         except (TypeError, ValueError, UnicodeError) as e:
-            raise etcd.EtcdException('Server response was not valid JSON: %r' % e)
+            if response.status < 400:
+                raise etcd.EtcdException('Server response was not valid JSON: %r' % e)
+        if response.status < 400:
+            return data
+        _raise_for_data(data, response.status)
 
     def _ensure_version_prefix(self):
-        if self.version_prefix != '/v3':
+        if self.version_prefix != '/v3' and self._base_uri != self._prev_base_uri:
             request_executor, kwargs = self._prepare_request()
             response = request_executor(self._MGET, self._base_uri + '/version', **kwargs)
             response = self._handle_server_response(response)
@@ -223,10 +226,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
             server_version_str = response['etcdserver']
             server_version = tuple(int(x) for x in server_version_str.split('.'))
             cluster_version_str = response['etcdcluster']
-            try:
-                self._cluster_version = tuple(int(x) for x in cluster_version_str.split('.'))
-            except ValueError:
-                raise Etcd3Exception
+            self._cluster_version = tuple(int(x) for x in cluster_version_str.split('.'))
 
             if self._cluster_version < (3, 0) or server_version < (3, 0, 4):
                 raise UnsupportedEtcdVersion('Detected Etcd version {0} is lower than 3.0.4'.format(server_version_str))
@@ -244,9 +244,13 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
                 self.version_prefix = '/v3beta'
             else:
                 self.version_prefix = '/v3'
+        self._prev_base_uri = self._base_uri
 
     def _refresh_machines_cache(self):
-        self._ensure_version_prefix()
+        try:
+            self._ensure_version_prefix()
+        except Exception:
+            raise etcd.EtcdException
         super(Etcd3Client, self)._refresh_machines_cache()
 
     def _get_members(self):
@@ -415,7 +419,9 @@ class KVCache(Thread):
                 self._dcs.event.set()
 
     def _process_message(self, message):
-        for event in message.get('events', []):
+        if 'error' in message:
+            _raise_for_data(message)
+        for event in message.get('result', {}).get('events', []):
             self._process_event(event)
 
     @staticmethod
@@ -437,7 +443,7 @@ class KVCache(Thread):
             return self._finish_response(response)
 
         for message in iter_response_objects(response):
-            self._process_message(message.get('result', message))
+            self._process_message(message)
 
     def _build_cache(self):
         result = self._get_cluster_func()
@@ -560,8 +566,7 @@ class PatroniEtcd3Client(Etcd3Client):
 class Etcd3(AbstractEtcd):
 
     def __init__(self, config):
-        super(Etcd3, self).__init__(config, PatroniEtcd3Client)
-        self._retry.retry_exceptions = (DeadlineExceeded, Unavailable, FailedPrecondition)
+        super(Etcd3, self).__init__(config, PatroniEtcd3Client, (DeadlineExceeded, Unavailable, FailedPrecondition))
         self.__do_not_watch = False
         self._lease = None
         self._last_lease_refresh = 0

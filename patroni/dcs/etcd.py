@@ -170,7 +170,7 @@ class AbstractEtcdClientWithFailover(etcd.Client):
                 machines = list(self._get_members())
                 logger.debug("Retrieved list of machines: %s", machines)
                 if not machines:
-                    raise self.ERROR_CLS
+                    raise etcd.EtcdException
                 random.shuffle(machines)
                 for url in machines:
                     r = urlparse(url)
@@ -248,7 +248,7 @@ class AbstractEtcdClientWithFailover(etcd.Client):
 
                     if response is False:
                         if not retry:
-                            raise self.ERROR_CLS('{0} {1} request failed'.format(method, path))
+                            raise etcd.EtcdException('{0} {1} request failed'.format(method, path))
                         some_request_failed = True
                 if some_request_failed:
                     self._refresh_machines_cache()
@@ -346,7 +346,7 @@ class AbstractEtcdClientWithFailover(etcd.Client):
 
         # Can not bootstrap list of etcd-cluster members, giving up
         if not self._machines_cache:
-            raise self.ERROR_CLS
+            raise etcd.EtcdException
 
         # After filling up initial list of machines_cache we should ask etcd-cluster about actual list
         self._base_uri = self._next_server()
@@ -364,7 +364,7 @@ class AbstractEtcdClientWithFailover(etcd.Client):
 
 class EtcdClient(AbstractEtcdClientWithFailover):
 
-    ERROR_CLS = etcd.EtcdException
+    ERROR_CLS = EtcdError
 
     def __del__(self):
         if self.http is not None:
@@ -387,10 +387,10 @@ class EtcdClient(AbstractEtcdClientWithFailover):
 
 class AbstractEtcd(AbstractDCS):
 
-    def __init__(self, config, client_cls):
+    def __init__(self, config, client_cls, retry_errors_cls):
         super(AbstractEtcd, self).__init__(config)
         self._retry = Retry(deadline=config['retry_timeout'], max_delay=1, max_tries=-1,
-                            retry_exceptions=client_cls.ERROR_CLS)
+                            retry_exceptions=retry_errors_cls)
         self._ttl = int(config.get('ttl') or 30)
         self._client = self.get_etcd_client(config, client_cls)
         self.__do_not_watch = False
@@ -525,11 +525,11 @@ def catch_etcd_errors(func):
             retval = func(self, *args, **kwargs) is not None
             self._has_failed = False
             return retval
-        except (RetryFailedError, self._client.ERROR_CLS) as e:
+        except (RetryFailedError, etcd.EtcdException) as e:
             self._handle_exception(e)
             return False
         except Exception as e:
-            self._handle_exception(e, raise_ex=EtcdError('unexpected error'))
+            self._handle_exception(e, raise_ex=self._client.ERROR_CLS('unexpected error'))
 
     return wrapper
 
@@ -537,8 +537,7 @@ def catch_etcd_errors(func):
 class Etcd(AbstractEtcd):
 
     def __init__(self, config):
-        super(Etcd, self).__init__(config, EtcdClient)
-        self._retry.retry_exceptions = (etcd.EtcdLeaderElectionInProgress, EtcdRaftInternal)
+        super(Etcd, self).__init__(config, EtcdClient, (etcd.EtcdLeaderElectionInProgress, EtcdRaftInternal))
         self.__do_not_watch = False
 
     def set_ttl(self, ttl):

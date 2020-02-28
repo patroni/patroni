@@ -5,7 +5,7 @@ import urllib3
 
 from mock import Mock, patch
 from patroni.dcs.etcd3 import PatroniEtcd3Client, Cluster, Etcd3, Etcd3Error, Etcd3Exception, Etcd3ClientError,\
-        RetryFailedError, InvalidAuthToken, Unknown, UnsupportedEtcdVersion, UserEmpty, base64_encode
+        RetryFailedError, InvalidAuthToken, Unavailable, Unknown, UnsupportedEtcdVersion, UserEmpty, base64_encode
 from threading import Thread
 
 from . import SleepException, MockResponse
@@ -44,7 +44,7 @@ def mock_urlopen(self, method, url, **kwargs):
                 {'kv': {'key': key, 'value': base64_encode('buzz'), 'mod_revision': '3'}},
                 {'type': 'DELETE', 'kv': {'key': key, 'mod_revision': '4'}}
             ]}
-        })[:-1].encode('utf-8'), b'}'])
+        })[:-1].encode('utf-8'), b'}{"error":{"grpc_code":14,"message":"","http_code":503}}'])
     elif url.endswith('/kv/put') or url.endswith('/kv/txn'):
         ret.status_code = 400
         ret.content = '{"code":5,"error":"etcdserver: requested lease not found"}'
@@ -78,7 +78,7 @@ class TestKVCache(BaseTestEtcd3):
 
     @patch.object(urllib3.PoolManager, 'urlopen', mock_urlopen)
     def test_kill_stream(self):
-        self.kv_cache._do_watch('1')
+        self.assertRaises(Unavailable, self.kv_cache._do_watch, '1')
         self.kv_cache.kill_stream()
         with patch.object(MockResponse, 'connection', create=True) as mock_conn:
             self.kv_cache.kill_stream()
@@ -135,7 +135,7 @@ class TestPatroniEtcd3Client(BaseTestEtcd3):
         self.assertRaises(etcd.EtcdException, self.client._handle_server_response, response)
         response.status_code = 400
         self.assertRaises(Unknown, self.client._handle_server_response, response)
-        response.content = '{"error":{"grpc_code":0,"message":""}}'
+        response.content = '{"error":{"grpc_code":0,"message":"","http_code":400}}'
         try:
             self.client._handle_server_response(response)
         except Unknown as e:
@@ -146,13 +146,14 @@ class TestPatroniEtcd3Client(BaseTestEtcd3):
         self.client.version_prefix = None
         mock_urlopen.return_value = MockResponse()
         mock_urlopen.return_value.content = '{"etcdserver": "3.0.3", "etcdcluster": "3.0."}'
-        self.assertRaises(Etcd3Exception, self.client._ensure_version_prefix)
+        self.assertRaises(etcd.EtcdException, self.client._refresh_machines_cache)
         mock_urlopen.return_value.content = '{"etcdserver": "3.0.3", "etcdcluster": "3.0.0"}'
         self.assertRaises(UnsupportedEtcdVersion, self.client._ensure_version_prefix)
         mock_urlopen.return_value.content = '{"etcdserver": "3.0.4", "etcdcluster": "3.0.0"}'
         self.client._ensure_version_prefix()
         self.assertEqual(self.client.version_prefix, '/v3alpha')
         mock_urlopen.return_value.content = '{"etcdserver": "3.4.4", "etcdcluster": "3.4.0"}'
+        self.client._prev_base_uri = None
         self.client._ensure_version_prefix()
         self.assertEqual(self.client.version_prefix, '/v3')
 
