@@ -1,7 +1,6 @@
 from __future__ import absolute_import
 import base64
 import etcd
-import functools
 import json
 import logging
 import os
@@ -364,13 +363,12 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
 
 class KVCache(Thread):
 
-    def __init__(self, dcs, get_cluster_func, watch_cluster_func, condition):
+    def __init__(self, dcs, client):
         Thread.__init__(self)
         self.daemon = True
         self._dcs = dcs
-        self._get_cluster_func = get_cluster_func
-        self._watch_cluster_func = watch_cluster_func
-        self._condition = condition
+        self._client = client
+        self.condition = Condition()
         self._config_key = base64_encode(dcs.config_path)
         self._leader_key = base64_encode(dcs.leader_path)
         self._is_ready = False
@@ -434,7 +432,7 @@ class KVCache(Thread):
     def _do_watch(self, revision):
         with self._response_lock:
             self._response = None
-        response = self._watch_cluster_func(revision)
+        response = self._client.watchprefix(self._dcs.cluster_prefix)
         with self._response_lock:
             if self._response is None:
                 self._response = response
@@ -446,17 +444,17 @@ class KVCache(Thread):
             self._process_message(message)
 
     def _build_cache(self):
-        result = self._get_cluster_func()
+        result = self._client.prefix(self._dcs.cluster_prefix)
         with self._object_cache_lock:
             self._object_cache = {node['key']: node for node in result.get('kvs', [])}
-        with self._condition:
+        with self.condition:
             self._is_ready = True
-            self._condition.notify()
+            self.condition.notify()
 
         try:
             self._do_watch(result['header']['revision'])
         finally:
-            with self._condition:
+            with self.condition:
                 self._is_ready = False
             with self._response_lock:
                 response, self._response = self._response, None
@@ -489,7 +487,7 @@ class KVCache(Thread):
                 logger.debug('Error on socket.shutdown: %r', e)
 
     def is_ready(self):
-        """Must be called only when holding the lock on `_condition`"""
+        """Must be called only when holding the lock on `condition`"""
         return self._is_ready
 
 
@@ -500,14 +498,11 @@ class PatroniEtcd3Client(Etcd3Client):
         super(PatroniEtcd3Client, self).__init__(*args, **kwargs)
 
     def configure(self, etcd3):
-        self.cluster_prefix = etcd3.client_path('')
-        self._get_cluster_func = functools.partial(etcd3.retry, self.prefix, self.cluster_prefix)
+        self._etcd3 = etcd3
 
-    def start_watcher(self, etcd3):
+    def start_watcher(self):
         if self._cluster_version >= (3, 1):
-            self._condition = Condition()
-            watch_cluster_func = functools.partial(self.watchprefix, self.cluster_prefix)
-            self._kv_cache = KVCache(etcd3, self._get_cluster_func, watch_cluster_func, self._condition)
+            self._kv_cache = KVCache(self._etcd3, self)
 
     def _restart_watcher(self):
         if self._kv_cache:
@@ -530,15 +525,15 @@ class PatroniEtcd3Client(Etcd3Client):
             timeout = stop_time - time.time()
             if timeout <= 0:
                 raise RetryFailedError('Exceeded retry deadline')
-            self._condition.wait(timeout)
+            self._kv_cache.condition.wait(timeout)
 
-    def get_cluster(self, timeout):
+    def get_cluster(self):
         if self._kv_cache:
-            with self._condition:
-                self._wait_cache(timeout)
+            with self._kv_cache.condition:
+                self._wait_cache(self._etcd3._retry.deadline)
                 return self._kv_cache.copy()
         else:
-            return self._get_cluster_func().get('kvs', [])
+            return self._etcd3.retry(self.prefix, self._etcd3.cluster_prefix).get('kvs', [])
 
     def call_rpc(self, method, fields, retry=None):
         ret = super(PatroniEtcd3Client, self).call_rpc(method, fields, retry)
@@ -573,7 +568,7 @@ class Etcd3(AbstractEtcd):
 
         self._client.configure(self)
         if not self._ctl:
-            self._client.start_watcher(self)
+            self._client.start_watcher()
             self.create_lease()
 
     def set_socket_options(self, sock, socket_options):
@@ -638,6 +633,10 @@ class Etcd3(AbstractEtcd):
                 logger.info('waiting on etcd')
                 time.sleep(5)
 
+    @property
+    def cluster_prefix(self):
+        return self.client_path('')
+
     @staticmethod
     def member(node):
         return Member.from_node(node['mod_revision'], os.path.basename(node['key']), node['lease'], node['value'])
@@ -645,10 +644,10 @@ class Etcd3(AbstractEtcd):
     def _load_cluster(self):
         cluster = None
         try:
-            path_len = len(self._client.cluster_prefix)
+            path_len = len(self.cluster_prefix)
 
             nodes = {}
-            for node in self._client.get_cluster(self._retry.deadline):
+            for node in self._client.get_cluster():
                 node['key'] = base64_decode(node['key'])
                 node['value'] = base64_decode(node.get('value', ''))
                 node['lease'] = node.get('lease')
@@ -783,7 +782,7 @@ class Etcd3(AbstractEtcd):
 
     @catch_etcd_errors
     def delete_cluster(self):
-        return self.retry(self._client.deleteprefix, self._client.cluster_prefix)
+        return self.retry(self._client.deleteprefix, self.cluster_prefix)
 
     @catch_etcd_errors
     def set_history_value(self, value):

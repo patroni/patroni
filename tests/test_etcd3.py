@@ -4,8 +4,8 @@ import unittest
 import urllib3
 
 from mock import Mock, patch
-from patroni.dcs.etcd3 import PatroniEtcd3Client, Cluster, Etcd3, Etcd3Error, Etcd3Exception, Etcd3ClientError,\
-        RetryFailedError, InvalidAuthToken, Unavailable, Unknown, UnsupportedEtcdVersion, UserEmpty, base64_encode
+from patroni.dcs.etcd3 import PatroniEtcd3Client, Cluster, Etcd3, Etcd3Error, Etcd3ClientError, RetryFailedError,\
+        InvalidAuthToken, Unavailable, Unknown, UnsupportedEtcdVersion, UserEmpty, base64_encode
 from threading import Thread
 
 from . import SleepException, MockResponse
@@ -68,7 +68,7 @@ class BaseTestEtcd3(unittest.TestCase):
 class TestKVCache(BaseTestEtcd3):
 
     def test__do_watch(self):
-        self.kv_cache._watch_cluster_func = Mock(return_value=False)
+        self.client.watchprefix = Mock(return_value=False)
         self.assertRaises(AttributeError, self.kv_cache._do_watch, '1')
 
     @patch('time.sleep', Mock(side_effect=SleepException))
@@ -103,7 +103,7 @@ class TestPatroniEtcd3Client(BaseTestEtcd3):
 
     @patch('time.time', Mock(side_effect=[1, 10.9, 100]))
     def test__wait_cache(self):
-        with self.client._condition:
+        with self.kv_cache.condition:
             self.assertRaises(RetryFailedError, self.client._wait_cache, 10)
 
     @patch.object(urllib3.PoolManager, 'urlopen')
