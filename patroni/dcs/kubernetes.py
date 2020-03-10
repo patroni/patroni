@@ -191,6 +191,7 @@ class ObjectCache(Thread):
                 with self._condition:
                     self._is_ready = False
                 logger.error('ObjectCache.run %r', e)
+                time.sleep(1)
 
     def is_ready(self):
         """Must be called only when holding the lock on `_condition`"""
