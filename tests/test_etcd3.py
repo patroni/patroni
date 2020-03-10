@@ -146,6 +146,7 @@ class TestPatroniEtcd3Client(BaseTestEtcd3):
         self.client.version_prefix = None
         mock_urlopen.return_value = MockResponse()
         mock_urlopen.return_value.content = '{"etcdserver": "3.0.3", "etcdcluster": "3.0."}'
+        self.client._update_machines_cache = True
         self.assertRaises(etcd.EtcdException, self.client._refresh_machines_cache)
         mock_urlopen.return_value.content = '{"etcdserver": "3.0.3", "etcdcluster": "3.0.0"}'
         self.assertRaises(UnsupportedEtcdVersion, self.client._ensure_version_prefix)

@@ -249,8 +249,10 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         try:
             self._ensure_version_prefix()
         except Exception:
-            raise etcd.EtcdException
-        super(Etcd3Client, self)._refresh_machines_cache()
+            if self._update_machines_cache:
+                raise etcd.EtcdException
+        else:
+            super(Etcd3Client, self)._refresh_machines_cache()
 
     def _get_members(self):
         request_executor, kwargs = self._prepare_request({})
@@ -432,7 +434,7 @@ class KVCache(Thread):
     def _do_watch(self, revision):
         with self._response_lock:
             self._response = None
-        response = self._client.watchprefix(self._dcs.cluster_prefix)
+        response = self._client.watchprefix(self._dcs.cluster_prefix, revision)
         with self._response_lock:
             if self._response is None:
                 self._response = response
@@ -453,6 +455,8 @@ class KVCache(Thread):
 
         try:
             self._do_watch(result['header']['revision'])
+        except Exception as e:
+            logger.error('watchprefix failed: %r', e)
         finally:
             with self.condition:
                 self._is_ready = False
