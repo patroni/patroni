@@ -9,6 +9,7 @@ from patroni.version import __version__
 logger = logging.getLogger(__name__)
 
 PATRONI_ENV_PREFIX = 'PATRONI_'
+KUBERNETES_ENV_PREFIX = 'KUBERNETES_'
 
 
 class Patroni(object):

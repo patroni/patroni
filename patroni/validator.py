@@ -19,11 +19,11 @@ def data_directory_empty(data_dir):
 
 def validate_connect_address(address):
     try:
-        host, _ = split_host_port(address, None)
-    except (ValueError, TypeError):
+        host, _ = split_host_port(address, 1)
+    except (AttributeError, TypeError, ValueError):
         raise ConfigParseError("contains a wrong value")
-    if host in ["127.0.0.1", "0.0.0.0", "*", "::1"]:
-        raise ConfigParseError('must not contain "127.0.0.1", "0.0.0.0", "*", "::1"')
+    if host in ["127.0.0.1", "0.0.0.0", "*", "::1", "localhost"]:
+        raise ConfigParseError('must not contain "127.0.0.1", "0.0.0.0", "*", "::1", "localhost"')
     return True
 
 

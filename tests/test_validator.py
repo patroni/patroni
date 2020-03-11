@@ -1,11 +1,14 @@
-import unittest
+import copy
 import os
 import socket
-import copy
+import unittest
+
 from mock import Mock, patch, mock_open
+from patroni.dcs import dcs_modules
 from patroni.validator import schema
 from six import StringIO
 
+available_dcs = [m.split(".")[-1] for m in dcs_modules()]
 config = {
     "name": "string",
     "scope": "string",
@@ -21,7 +24,7 @@ config = {
             "maximum_lag_on_failover": 1000
             },
         "pg_hba": ["string"],
-        "initdb": ["string", {"key":"value"}]
+        "initdb": ["string", {"key": "value"}]
     },
     "consul": {
         "host": "127.0.0.1:5000"
@@ -79,6 +82,7 @@ config = {
 directories = []
 files = []
 
+
 def isfile_side_effect(arg):
     return arg in files
 
@@ -126,7 +130,8 @@ class TestValidator(unittest.TestCase):
     def test_empty_config(self, mock_out, mock_err):
         schema({})
         output = mock_out.getvalue()
-        self.assertEqual(['consul', 'etcd', 'exhibitor', 'kubernetes', 'name', 'postgresql', 'restapi', 'scope', 'zookeeper'], parse_output(output))
+        expected = list(sorted(['name', 'postgresql', 'restapi', 'scope'] + available_dcs))
+        self.assertEqual(expected, parse_output(output))
 
     def test_complete_config(self, mock_out, mock_err):
         schema(config)
@@ -137,20 +142,20 @@ class TestValidator(unittest.TestCase):
         files.append(config["postgresql"]["data_dir"])
         files.append(config["postgresql"]["bin_dir"])
         c = copy.deepcopy(config)
-        c["restapi"]["connect_address"] = False
-        c["etcd"]["hosts"] = ["127.0.0.1:2379","1244.0.0.1:2379","127.0.0.1:invalidport"]
+        c["restapi"]["connect_address"] = 'False:blabla'
+        c["etcd"]["hosts"] = ["127.0.0.1:2379", "1244.0.0.1:2379", "127.0.0.1:invalidport"]
         c["kubernetes"]["pod_ip"] = "127.0.0.1111"
         schema(c)
         output = mock_out.getvalue()
         self.assertEqual(['etcd.hosts.1', 'etcd.hosts.2', 'kubernetes.pod_ip', 'postgresql.bin_dir',
-                          'postgresql.data_dir', 'restapi.connect_address'] , parse_output(output))
+                          'postgresql.data_dir', 'restapi.connect_address'], parse_output(output))
 
     def test_bin_dir_is_empty(self, mock_out, mock_err):
         directories.append(config["postgresql"]["data_dir"])
         directories.append(config["postgresql"]["bin_dir"])
         files.append(os.path.join(config["postgresql"]["data_dir"], "global", "pg_control"))
         c = copy.deepcopy(config)
-        c["restapi"]["connect_address"] = "127.0.0.1"
+        c["restapi"]["connect_address"] = "127.0.0.1:8008"
         c["kubernetes"]["pod_ip"] = "::1"
         c["consul"]["host"] = "127.0.0.1:50000"
         c["etcd"]["host"] = "127.0.0.1:237"
@@ -207,7 +212,6 @@ class TestValidator(unittest.TestCase):
         output = mock_out.getvalue()
         self.assertEqual(['postgresql.data_dir'], parse_output(output))
 
-
     def test_data_dir_is_empty_string(self, mock_out, mock_err):
         directories.append(config["postgresql"]["data_dir"])
         directories.append(config["postgresql"]["bin_dir"])
@@ -218,4 +222,5 @@ class TestValidator(unittest.TestCase):
         c["postgresql"]["bin_dir"] = ""
         schema(c)
         output = mock_out.getvalue()
-        self.assertEqual(['kubernetes', 'postgresql.bin_dir', 'postgresql.data_dir', 'postgresql.pg_hba'], parse_output(output))
+        self.assertEqual(['kubernetes', 'postgresql.bin_dir',
+                          'postgresql.data_dir', 'postgresql.pg_hba'], parse_output(output))

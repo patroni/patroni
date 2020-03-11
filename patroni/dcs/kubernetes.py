@@ -306,7 +306,11 @@ class ObjectCache(Thread):
         self.start()
 
     def _list(self):
-        return self._func(_request_timeout=(self._retry.deadline, Timeout.DEFAULT_TIMEOUT))
+        try:
+            return self._func(_request_timeout=(self._retry.deadline, Timeout.DEFAULT_TIMEOUT))
+        except Exception:
+            time.sleep(1)
+            raise
 
     def _watch(self, resource_version):
         return self._func(_request_timeout=(self._retry.deadline, Timeout.DEFAULT_TIMEOUT),
