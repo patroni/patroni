@@ -169,8 +169,12 @@ class Patroni(object):
 
 def patroni_main():
     import argparse
+
+    from multiprocessing import freeze_support
     from patroni.config import Config, ConfigParseError
     from patroni.validator import schema
+
+    freeze_support()
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--version', action='version', version='%(prog)s {0}'.format(__version__))
