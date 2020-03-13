@@ -31,6 +31,13 @@ class KubernetesRetriableException(k8s_client.rest.ApiException):
         self.body = orig.body
         self.headers = orig.headers
 
+    @property
+    def sleeptime(self):
+        try:
+            return int(self.headers['retry-after'])
+        except Exception:
+            return None
+
 
 class CoreV1ApiProxy(object):
 
@@ -68,7 +75,7 @@ class CoreV1ApiProxy(object):
             try:
                 return getattr(self._api, func)(*args, **kwargs)
             except k8s_client.rest.ApiException as e:
-                if e.status in (502, 503, 504):  # XXX
+                if e.status in (502, 503, 504) or e.headers and 'retry-after' in e.headers:  # XXX
                     raise KubernetesRetriableException(e)
                 raise
         return wrapper
