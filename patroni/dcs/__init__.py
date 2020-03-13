@@ -196,6 +196,10 @@ class Member(namedtuple('Member', 'index,name,session,data')):
         return self.tags.get('clonefrom', False) and bool(self.conn_url)
 
     @property
+    def noslotdrop(self):
+        return self.tags.get('noslotdrop', False)
+
+    @property
     def state(self):
         return self.data.get('state', 'unknown')
 

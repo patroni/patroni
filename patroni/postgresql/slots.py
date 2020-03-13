@@ -46,17 +46,19 @@ class SlotsHandler(object):
 
                 slots = cluster.get_replication_slots(self._postgresql.name, self._postgresql.role)
 
+                noslotdrop = cluster.get_member(self._postgresql.name).noslotdrop if cluster.has_member(self._postgresql.name) else False
                 # drop old replication slots which are not presented in desired slots
-                for name in set(self._replication_slots) - set(slots):
-                    if not self.drop_replication_slot(name):
-                        logger.error("Failed to drop replication slot '%s'", name)
-                        self._schedule_load_slots = True
+                if not noslotdrop:
+                    for name in set(self._replication_slots) - set(slots):
+                        if not self.drop_replication_slot(name):
+                            logger.error("Failed to drop replication slot '%s'", name)
+                            self._schedule_load_slots = True
 
                 immediately_reserve = ', true' if self._postgresql.major_version >= 90600 else ''
 
                 logical_slots = defaultdict(dict)
                 for name, value in slots.items():
-                    if name in self._replication_slots and not compare_slots(value, self._replication_slots[name]):
+                    if name in self._replication_slots and not compare_slots(value, self._replication_slots[name]) and not noslotdrop:
                         logger.info("Trying to drop replication slot '%s' because value is changing from %s to %s",
                                     name, self._replication_slots[name], value)
                         if not self.drop_replication_slot(name):

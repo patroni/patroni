@@ -374,6 +374,7 @@ schema = Schema({
     Optional("clonefrom"): bool,
     Optional("noloadbalance"): bool,
     Optional("replicatefrom"): str,
-    Optional("nosync"): bool
+    Optional("nosync"): bool,
+    Optional("noslotdrop"): bool
   }
 })

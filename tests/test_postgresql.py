@@ -303,6 +303,32 @@ class TestPostgresql(BaseTestPostgresql):
             self.assertTrue("test-3" in ca, "non matching {0}".format(ca))
             self.assertTrue("test.3" in ca, "non matching {0}".format(ca))
 
+    @patch.object(Postgresql, 'is_running', Mock(return_value=True))
+    def test_noslotdrop(self):
+        self.p.start()
+        config = ClusterConfig(1, {'slots': {}}, 1)
+        cluster = Cluster(True, config, self.leader, 0, [self.me, self.other, self.leadermem], None, None, None)
+        self.assertFalse(cluster.get_member('leader').noslotdrop)
+        self.assertFalse(cluster.get_member('test-1').noslotdrop)
+        cluster.get_member('leader').data['tags'] = {'noslotdrop': False}
+        cluster.get_member('leader').data['role'] = 'master'
+        cluster.get_member('leader').data['state'] = 'running'
+        cluster.member = cluster.get_member('leader')
+        self.assertFalse(cluster.get_member('leader').noslotdrop)
+        self.p.name = 'leader'
+        with patch('patroni.postgresql.slots.logger.error', new_callable=Mock()) as errorlog_mock:
+            self.p.slots_handler.sync_replication_slots(cluster)
+            self.assertEqual(errorlog_mock.call_count, 5)
+            self.assertTrue(len([x for x in errorlog_mock.call_args_list[0][0] if x.find('Failed to drop')]), 3)
+        # drop replication slot count should be 0 when noslotdrop tag is set to True
+        cluster.get_member('leader').data['tags'] = {'noslotdrop': True}
+        cluster.member = cluster.get_member('leader')
+        self.assertTrue(cluster.get_member('leader').noslotdrop)
+        with patch('patroni.postgresql.slots.logger.error', new_callable=Mock()) as errorlog_mock:
+            self.p.slots_handler.sync_replication_slots(cluster)
+            self.assertEqual(errorlog_mock.call_count, 2)
+            self.assertTrue(len([x for x in errorlog_mock.call_args_list[0][0] if x.find('Failed to drop')]), 0)
+
     @patch.object(MockCursor, 'execute', Mock(side_effect=psycopg2.OperationalError))
     def test__query(self):
         self.assertRaises(PostgresConnectionException, self.p._query, 'blabla')

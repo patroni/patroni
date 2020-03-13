@@ -240,3 +240,4 @@ Tags
 - **noloadbalance**: ``true`` or ``false``. If set to ``true`` the node will return HTTP Status Code 503 for the ``GET /replica`` REST API health-check and therefore will be excluded from the load-balancing. Defaults to ``false``.
 - **replicatefrom**: The IP address/hostname of another replica. Used to support cascading replication.
 - **nosync**: ``true`` or ``false``. If set to ``true`` the node will never be selected as a synchronous replica.
+- **noslotdrop**: ``true`` or ``false``. If set to ``true`` the node will retain the inactive replication slots. Defaults to ``false``. Patroni drops related physical replication slots by default, when the standby is taken offline for maintenance. When set to ``true``, it retains the slot.

@@ -61,7 +61,7 @@ class Patroni(object):
 
     def get_tags(self):
         return {tag: value for tag, value in self.config.get('tags', {}).items()
-                if tag not in ('clonefrom', 'nofailover', 'noloadbalance', 'nosync') or value}
+                if tag not in ('clonefrom', 'nofailover', 'noloadbalance', 'nosync', 'noslotdrop') or value}
 
     @property
     def nofailover(self):
