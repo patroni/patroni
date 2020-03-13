@@ -66,8 +66,11 @@ def dcs_modules():
     module_prefix = __package__ + '.'
 
     if getattr(sys, 'frozen', False):
-        importer = pkgutil.get_importer(dcs_dirname)
-        return [module for module in list(importer.toc) if module.startswith(module_prefix) and module.count('.') == 2]
+        toc = set()
+        for importer in pkgutil.iter_importers(dcs_dirname):
+            if hasattr(importer, 'toc'):
+                toc |= importer.toc
+        return [module for module in toc if module.startswith(module_prefix) and module.count('.') == 2]
     else:
         return [module_prefix + name for _, name, is_pkg in pkgutil.iter_modules([dcs_dirname]) if not is_pkg]
 
