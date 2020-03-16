@@ -23,6 +23,7 @@ STOP_SIGNALS = {
     'smart': 'TERM',
     'fast': 'INT',
     'immediate': 'QUIT',
+    'abort': 'KILL' if os.name != 'nt' else 'ABRT',
 }
 
 
@@ -113,10 +114,18 @@ class PostmasterProcess(psutil.Process):
         if self.is_single_user:
             logger.warning("Cannot stop server; single-user server is running (PID: {0})".format(self.pid))
             return False
-        if os.name != 'posix':
+        if os.name != 'posix' and pg_ctl:
             return self.pg_ctl_kill(mode, pg_ctl)
         try:
+            children = self.children()
             self.send_signal(getattr(signal, 'SIG' + STOP_SIGNALS[mode]))
+            if mode == 'abort':
+                _, alive = psutil.wait_procs(children, timeout=1)
+                for child in alive:
+                    try:
+                        child.send_signal(getattr(signal, 'SIG' + STOP_SIGNALS[mode]))
+                    except psutil.NoSuchProcess:
+                        pass
         except psutil.NoSuchProcess:
             return True
         except psutil.AccessDenied as e:

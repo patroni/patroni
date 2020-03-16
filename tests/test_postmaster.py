@@ -69,29 +69,41 @@ class TestPostmasterProcess(unittest.TestCase):
     @patch('os.name', 'posix')
     @patch('signal.SIGQUIT', 3, create=True)
     def test_signal_stop(self, mock_send_signal):
-        proc = PostmasterProcess(-123)
-        self.assertEqual(proc.signal_stop('immediate'), False)
-
         mock_send_signal.side_effect = [None, psutil.NoSuchProcess(123), psutil.AccessDenied()]
-        proc = PostmasterProcess(123)
-        self.assertEqual(proc.signal_stop('immediate'), None)
-        self.assertEqual(proc.signal_stop('immediate'), True)
-        self.assertEqual(proc.signal_stop('immediate'), False)
+        c1 = Mock()
+        c1.cmdline = Mock(return_value=["postgres: startup process   "])
+        c2 = Mock()
+        c2.cmdline = Mock(return_value=["postgres: postgres postgres [local] idle"])
+        c3 = Mock()
+        c3.cmdline = Mock(side_effect=psutil.NoSuchProcess(123))
+        with patch('psutil.Process.children', Mock(return_value=[c1, c2, c3])):
+            proc = PostmasterProcess(-123)
+            self.assertEqual(proc.signal_stop('immediate'), False)
+            proc = PostmasterProcess(123)
+            self.assertEqual(proc.signal_stop('immediate'), None)
+            self.assertEqual(proc.signal_stop('immediate'), True)
+            self.assertEqual(proc.signal_stop('immediate'), False)
 
     @patch('psutil.Process.__init__', Mock())
     @patch('patroni.postgresql.postmaster.os')
     @patch('subprocess.call', Mock(side_effect=[0, OSError, 1]))
     @patch('psutil.Process.pid', Mock(return_value=123))
-    @patch('psutil.Process.is_running', Mock(return_value=False))
     def test_signal_stop_nt(self, mock_os):
         mock_os.configure_mock(name="nt")
         proc = PostmasterProcess(-123)
         self.assertEqual(proc.signal_stop('immediate'), False)
-
-        proc = PostmasterProcess(123)
-        self.assertEqual(proc.signal_stop('immediate'), None)
-        self.assertEqual(proc.signal_stop('immediate'), False)
-        self.assertEqual(proc.signal_stop('immediate'), True)
+        c1 = Mock()
+        c1.cmdline = Mock(return_value=["postgres: startup process   "])
+        c2 = Mock()
+        c2.cmdline = Mock(return_value=["postgres: postgres postgres [local] idle"])
+        c3 = Mock()
+        c3.cmdline = Mock(side_effect=psutil.NoSuchProcess(123))
+        with patch('psutil.Process.children', Mock(return_value=[c1, c2, c3])):
+            proc = PostmasterProcess(123)
+            self.assertEqual(proc.signal_stop('immediate'), None)
+            self.assertEqual(proc.signal_stop('immediate'), False)
+            with patch('psutil.Process.is_running', Mock(return_value=None)):
+                self.assertEqual(proc.signal_stop('immediate'), True)
 
     @patch('psutil.Process.__init__', Mock())
     @patch('psutil.wait_procs')

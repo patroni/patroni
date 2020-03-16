@@ -19,6 +19,7 @@ from patroni.postgresql.slots import SlotsHandler
 from patroni.exceptions import PostgresConnectionException
 from patroni.utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty
 from threading import current_thread, Lock
+from psutil import TimeoutExpired
 
 
 logger = logging.getLogger(__name__)
@@ -82,6 +83,8 @@ class Postgresql(object):
         # Retry 'pg_is_in_recovery()' only once
         self._is_leader_retry = Retry(max_tries=1, deadline=config['retry_timeout']/2.0, max_delay=1,
                                       retry_exceptions=PostgresConnectionException)
+
+        self.stop_retry = Retry(max_tries=1, max_delay=1, retry_exceptions=(psycopg2.Error, TimeoutExpired))
 
         self._role_lock = Lock()
         self.set_role(self.get_postgres_role_from_data_directory())
@@ -462,24 +465,32 @@ class Postgresql(object):
         else:
             return None
 
-    def checkpoint(self, connect_kwargs=None):
+    @staticmethod
+    def wait_for_checkpoint(check_not_is_in_recovery, connect_kwargs):
+        """Issue PostgreSQL checkpoint."""
+        with get_connection_cursor(**connect_kwargs) as cur:
+            cur.execute("SET statement_timeout = 0")
+            if check_not_is_in_recovery:
+                cur.execute('SELECT pg_catalog.pg_is_in_recovery()')
+                if cur.fetchone()[0]:
+                    return 'is_in_recovery=true'
+            return cur.execute('CHECKPOINT')
+
+    def checkpoint(self, connect_kwargs=None, timeout=None):
         check_not_is_in_recovery = connect_kwargs is not None
         connect_kwargs = connect_kwargs or self.config.local_connect_kwargs
         for p in ['connect_timeout', 'options']:
             connect_kwargs.pop(p, None)
+        if timeout:
+            connect_kwargs['connect_timeout'] = timeout
+            self.stop_retry.deadline=timeout
         try:
-            with get_connection_cursor(**connect_kwargs) as cur:
-                cur.execute("SET statement_timeout = 0")
-                if check_not_is_in_recovery:
-                    cur.execute('SELECT pg_catalog.pg_is_in_recovery()')
-                    if cur.fetchone()[0]:
-                        return 'is_in_recovery=true'
-                return cur.execute('CHECKPOINT')
-        except psycopg2.Error:
+            return self.stop_retry(self.wait_for_checkpoint, check_not_is_in_recovery, connect_kwargs) if timeout else self.wait_for_checkpoint(check_not_is_in_recovery, connect_kwargs)
+        except (psycopg2.Error, RetryFailedError):
             logger.exception('Exception during CHECKPOINT')
             return 'not accessible or not healty'
 
-    def stop(self, mode='fast', block_callbacks=False, checkpoint=None, on_safepoint=None):
+    def stop(self, mode='fast', block_callbacks=False, checkpoint=None, on_safepoint=None, stop_timeout=None):
         """Stop PostgreSQL
 
         Supports a callback when a safepoint is reached. A safepoint is when no user backend can return a successful
@@ -491,7 +502,7 @@ class Postgresql(object):
         if checkpoint is None:
             checkpoint = False if mode == 'immediate' else True
 
-        success, pg_signaled = self._do_stop(mode, block_callbacks, checkpoint, on_safepoint)
+        success, pg_signaled = self._do_stop(mode, block_callbacks, checkpoint, on_safepoint, stop_timeout)
         if success:
             # block_callbacks is used during restart to avoid
             # running start/stop callbacks in addition to restart ones
@@ -504,7 +515,7 @@ class Postgresql(object):
             self.set_state('stop failed')
         return success
 
-    def _do_stop(self, mode, block_callbacks, checkpoint, on_safepoint):
+    def _do_stop(self, mode, block_callbacks, checkpoint, on_safepoint, stop_timeout):
         postmaster = self.is_running()
         if not postmaster:
             if on_safepoint:
@@ -512,7 +523,7 @@ class Postgresql(object):
             return True, False
 
         if checkpoint and not self.is_starting():
-            self.checkpoint()
+            self.checkpoint(timeout=stop_timeout)
 
         if not block_callbacks:
             self.set_state('stopping')
@@ -531,9 +542,33 @@ class Postgresql(object):
             postmaster.wait_for_user_backends_to_close()
             on_safepoint()
 
+        if stop_timeout:
+            try:
+                postmaster.wait(timeout=stop_timeout)
+                return True, True
+            except TimeoutExpired:
+                logger.warning("Timeout during postmaster stop, aborting Postgres.")
+                if self.terminate_postmaster(postmaster, mode, stop_timeout):
+                    return True, True
+            except Exception:
+                logger.warning("Exception during stop postmaster")
+
         postmaster.wait()
 
         return True, True
+
+    def terminate_postmaster(self, postmaster, mode, stop_timeout):
+        if mode in ['fast', 'smart']:
+            try:
+                success = postmaster.signal_stop('immediate', self.pgcommand('pg_ctl'))
+                if success is not None:
+                    return True
+                postmaster.wait(timeout=stop_timeout)
+                return True
+            except TimeoutExpired:
+                pass
+        logger.warning("Sending SIGKILL to Postmaster and its children")
+        return True if postmaster.signal_stop('abort', None) else False
 
     def terminate_starting_postmaster(self, postmaster):
         """Terminates a postmaster that has not yet opened ports or possibly even written a pid file. Blocks
@@ -610,7 +645,7 @@ class Postgresql(object):
 
         return self.state == 'running'
 
-    def restart(self, timeout=None, task=None, block_callbacks=False, role=None):
+    def restart(self, timeout=None, task=None, block_callbacks=False, role=None, stop_timeout=None):
         """Restarts PostgreSQL.
 
         When timeout parameter is set the call will block either until PostgreSQL has started, failed to start or
@@ -621,7 +656,7 @@ class Postgresql(object):
         self.set_state('restarting')
         if not block_callbacks:
             self.__cb_pending = ACTION_ON_RESTART
-        ret = self.stop(block_callbacks=True) and self.start(timeout, task, True, role)
+        ret = self.stop(block_callbacks=True, stop_timeout=stop_timeout) and self.start(timeout, task, True, role)
         if not ret and not self.is_starting():
             self.set_state('restart failed ({0})'.format(self.state))
         return ret

@@ -168,23 +168,26 @@ class TestPostgresql(BaseTestPostgresql):
         mock_callback = Mock()
         mock_is_running.return_value = None
         self.assertTrue(self.p.stop(on_safepoint=mock_callback))
+        self.assertTrue(self.p.stop(on_safepoint=mock_callback, stop_timeout=30))
         mock_callback.assert_called()
 
         # Is running, stopped successfully
         mock_is_running.return_value = mock_postmaster = MockPostmaster()
         mock_callback.reset_mock()
         self.assertTrue(self.p.stop(on_safepoint=mock_callback))
+        self.assertTrue(self.p.stop(on_safepoint=mock_callback, stop_timeout=30))
         mock_callback.assert_called()
         mock_postmaster.signal_stop.assert_called()
 
         # Stop signal failed
         mock_postmaster.signal_stop.return_value = False
         self.assertFalse(self.p.stop())
+        self.assertFalse(self.p.stop(stop_timeout=30))
 
         # Stop signal failed to find process
         mock_postmaster.signal_stop.return_value = True
         mock_callback.reset_mock()
-        self.assertTrue(self.p.stop(on_safepoint=mock_callback))
+        self.assertTrue(self.p.stop(on_safepoint=mock_callback, stop_timeout=30))
         mock_callback.assert_called()
 
     def test_restart(self):
@@ -198,12 +201,18 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.config.write_pgpass({'host': 'localhost', 'port': '5432', 'user': 'foo'})
         self.p.config.write_pgpass({'host': 'localhost', 'port': '5432', 'user': 'foo', 'password': 'bar'})
 
+    @patch.object(MockCursor, 'execute', Mock(side_effect=psycopg2.OperationalError))
     def test_checkpoint(self):
         with patch.object(MockCursor, 'fetchone', Mock(return_value=(True, ))):
-            self.assertEqual(self.p.checkpoint({'user': 'postgres'}), 'is_in_recovery=true')
+            with patch.object(MockCursor, 'execute', Mock(return_value=(True, ),)):
+                self.assertEqual(self.p.wait_for_checkpoint('is_in_recovery=true', {'user': 'postgres'}), 'is_in_recovery=true')
+                self.assertEqual(self.p.checkpoint({'user': 'postgres'}), 'is_in_recovery=true')
+                self.assertEqual(self.p.checkpoint({'user': 'postgres'}, timeout=10), 'is_in_recovery=true')
         with patch.object(MockCursor, 'execute', Mock(return_value=None)):
             self.assertIsNone(self.p.checkpoint())
+            self.assertIsNone(self.p.checkpoint(timeout=10))
         self.assertEqual(self.p.checkpoint(), 'not accessible or not healty')
+        self.assertEqual(self.p.checkpoint(timeout=10), 'not accessible or not healty')
 
     @patch('patroni.postgresql.config.mtime', mock_mtime)
     @patch('patroni.postgresql.config.ConfigHandler._get_pg_settings')
