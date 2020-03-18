@@ -554,7 +554,7 @@ def is_cluster_healthy(patroni, cluster):
                 data = json.loads(response.data.decode('utf-8'))
             except Exception as e:
                 logger.warning("Request failed to %s: GET %s (%s)", m.name, m.api_url, e)
-            if len(data['replication']) + 1 != len(cluster.members):
+            if not 'replication' in data or len(data['replication']) + 1 != len(cluster.members):
                 logger.warning('cluster is not healthy: not all members take part in replication')
                 return False
     if cluster.config:
