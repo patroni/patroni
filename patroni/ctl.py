@@ -1319,8 +1319,11 @@ def cluster_health(obj, cluster_name):
         if r.status == 200:
             click.echo('cluster is healthy')
             return
+        else:
+	    click.echo('cluster has leader but is not healthy')
+            sys.exit(1)
     click.echo('cluster is not healthy')
-    sys.exit(1)
+    sys.exit(2)
 
 def format_pg_version(version):
     if version < 100000:
