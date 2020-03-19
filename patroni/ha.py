@@ -1072,7 +1072,8 @@ class Ha(object):
         self.set_start_timeout(timeout)
 
         # For non async cases we want to wait for restart to complete or timeout before returning.
-        do_restart = functools.partial(self.state_handler.restart, timeout, self._async_executor.critical_task, stop_timeout=self.master_stop_timeout())
+        do_restart = functools.partial(self.state_handler.restart, timeout, self._async_executor.critical_task,
+                                       stop_timeout=self.master_stop_timeout())
         if self.is_synchronous_mode() and not self.has_lock():
             do_restart = functools.partial(self.while_not_sync_standby, do_restart)
 
@@ -1379,7 +1380,8 @@ class Ha(object):
             # This might not be the desired behavior of users, as a graceful shutdown of the host can mean lost data.
             # We probably need to something smarter here.
             disable_wd = self.watchdog.disable if self.watchdog.is_running else None
-            self.while_not_sync_standby(lambda: self.state_handler.stop(checkpoint=False, on_safepoint=disable_wd, stop_timeout=self.master_stop_timeout()))
+            self.while_not_sync_standby(lambda: self.state_handler.stop(checkpoint=False, on_safepoint=disable_wd,
+                                                                        stop_timeout=self.master_stop_timeout()))
             if not self.state_handler.is_running():
                 if self.has_lock():
                     self.dcs.delete_leader()

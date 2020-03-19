@@ -483,9 +483,10 @@ class Postgresql(object):
             connect_kwargs.pop(p, None)
         if timeout:
             connect_kwargs['connect_timeout'] = timeout
-            self.stop_retry.deadline=timeout
+            self.stop_retry.deadline = timeout
         try:
-            return self.stop_retry(self.wait_for_checkpoint, check_not_is_in_recovery, connect_kwargs) if timeout else self.wait_for_checkpoint(check_not_is_in_recovery, connect_kwargs)
+            return self.stop_retry(self.wait_for_checkpoint, check_not_is_in_recovery, connect_kwargs) if timeout \
+                                   else self.wait_for_checkpoint(check_not_is_in_recovery, connect_kwargs)
         except (psycopg2.Error, RetryFailedError):
             logger.exception('Exception during CHECKPOINT')
             return 'not accessible or not healty'

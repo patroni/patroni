@@ -88,6 +88,7 @@ class TestPostmasterProcess(unittest.TestCase):
     @patch('patroni.postgresql.postmaster.os')
     @patch('subprocess.call', Mock(side_effect=[0, OSError, 1]))
     @patch('psutil.Process.pid', Mock(return_value=123))
+    @patch('psutil.Process.is_running', Mock(return_value=False))
     def test_signal_stop_nt(self, mock_os):
         mock_os.configure_mock(name="nt")
         proc = PostmasterProcess(-123)
