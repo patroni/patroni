@@ -96,7 +96,7 @@ class Ha(object):
 
     def master_stop_timeout(self):
         """ Master stop timeout """
-        ret = parse_int(self.patroni.config.dynamic_configuration.get('master_stop_timeout'))
+        ret = parse_int(self.patroni.config['master_stop_timeout'])
         return ret if ret and ret > 0 and self.is_synchronous_mode() else None
 
     def is_paused(self):
@@ -1072,8 +1072,7 @@ class Ha(object):
         self.set_start_timeout(timeout)
 
         # For non async cases we want to wait for restart to complete or timeout before returning.
-        do_restart = functools.partial(self.state_handler.restart, timeout, self._async_executor.critical_task,
-                                       stop_timeout=self.master_stop_timeout())
+        do_restart = functools.partial(self.state_handler.restart, timeout, self._async_executor.critical_task)
         if self.is_synchronous_mode() and not self.has_lock():
             do_restart = functools.partial(self.while_not_sync_standby, do_restart)
 

@@ -818,11 +818,10 @@ class TestHa(PostgresInit):
         demote.assert_called_once()
 
     def test_master_stop_timeout(self):
+        self.assertEqual( self.ha.master_stop_timeout(), None )
         self.ha.patroni.config.set_dynamic_configuration({'master_stop_timeout': 30})
         with patch.object(Ha, 'is_synchronous_mode', Mock(return_value=True)):
             self.assertEqual( self.ha.master_stop_timeout(), 30 )
-            self.ha.patroni.config.set_dynamic_configuration({'master_stop_timeout': None})
-            self.assertEqual( self.ha.master_stop_timeout(), None )
         self.ha.patroni.config.set_dynamic_configuration({'master_stop_timeout': 30})
         with patch.object(Ha, 'is_synchronous_mode', Mock(return_value=False)):
             self.assertEqual( self.ha.master_stop_timeout(), None )

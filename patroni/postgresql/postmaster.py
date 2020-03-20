@@ -8,6 +8,7 @@ import subprocess
 import sys
 
 from patroni import PATRONI_ENV_PREFIX, KUBERNETES_ENV_PREFIX
+from threading import Lock
 
 # avoid spawning the resource tracker process
 if sys.version_info >= (3, 8):  # pragma: no cover
@@ -23,7 +24,6 @@ STOP_SIGNALS = {
     'smart': 'TERM',
     'fast': 'INT',
     'immediate': 'QUIT',
-    'abort': 'KILL' if os.name != 'nt' else 'ABRT',
 }
 
 
@@ -106,6 +106,34 @@ class PostmasterProcess(psutil.Process):
         except psutil.NoSuchProcess:
             return None
 
+    def signal_kill(self):
+        """to suspend and kill postmaster and all children
+
+        :returns None if postmaster and children are killed, True if process is already gone, False if error
+        """
+        if self.is_single_user:
+            logger.warning("Cannot stop server; single-user server is running (PID: {0})".format(self.pid))
+            return False
+        plock = Lock()
+        with plock:
+            try:
+                self.suspend()
+                children = self.children()
+                self.kill()
+            except psutil.NoSuchProcess:
+                return True
+            except psutil.AccessDenied as e:
+                logger.warning("Could not kill PostgreSQL (error: {0})".format(e))
+                return False
+            _, alive = psutil.wait_procs(children, timeout=3)
+            for child in alive:
+                try:
+                    child.kill()
+                except psutil.NoSuchProcess:
+                    continue
+
+        return None
+
     def signal_stop(self, mode, pg_ctl='pg_ctl'):
         """Signal postmaster process to stop
 
@@ -114,18 +142,10 @@ class PostmasterProcess(psutil.Process):
         if self.is_single_user:
             logger.warning("Cannot stop server; single-user server is running (PID: {0})".format(self.pid))
             return False
-        if os.name != 'posix' and pg_ctl:
+        if os.name != 'posix':
             return self.pg_ctl_kill(mode, pg_ctl)
         try:
-            children = self.children()
             self.send_signal(getattr(signal, 'SIG' + STOP_SIGNALS[mode]))
-            if mode == 'abort':
-                _, alive = psutil.wait_procs(children, timeout=1)
-                for child in alive:
-                    try:
-                        child.send_signal(getattr(signal, 'SIG' + STOP_SIGNALS[mode]))
-                    except psutil.NoSuchProcess:
-                        pass
         except psutil.NoSuchProcess:
             return True
         except psutil.AccessDenied as e:

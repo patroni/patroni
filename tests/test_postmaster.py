@@ -83,6 +83,11 @@ class TestPostmasterProcess(unittest.TestCase):
             self.assertEqual(proc.signal_stop('immediate'), None)
             self.assertEqual(proc.signal_stop('immediate'), True)
             self.assertEqual(proc.signal_stop('immediate'), False)
+        with patch('psutil.Process.children', Mock(return_value=[c1, c2, c3])) as pchild, \
+             patch('psutil.Process.suspend', return_value=True) as psusp, \
+             patch('psutil.Process.kill', return_value=True) as pkill:
+            proc = PostmasterProcess(123)
+            self.assertEqual(proc.signal_kill(), None)
 
     @patch('psutil.Process.__init__', Mock())
     @patch('patroni.postgresql.postmaster.os')
@@ -105,6 +110,11 @@ class TestPostmasterProcess(unittest.TestCase):
             self.assertEqual(proc.signal_stop('immediate'), False)
             with patch('psutil.Process.is_running', Mock(return_value=None)):
                 self.assertEqual(proc.signal_stop('immediate'), True)
+        with patch('psutil.Process.children', Mock(return_value=[c1, c2, c3])), \
+             patch('psutil.Process.suspend', return_value=True), \
+             patch('psutil.Process.kill', return_value=True):
+            proc = PostmasterProcess(123)
+            self.assertEqual(proc.signal_kill(), None)
 
     @patch('psutil.Process.__init__', Mock())
     @patch('psutil.wait_procs')

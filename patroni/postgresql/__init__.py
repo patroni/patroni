@@ -84,8 +84,6 @@ class Postgresql(object):
         self._is_leader_retry = Retry(max_tries=1, deadline=config['retry_timeout']/2.0, max_delay=1,
                                       retry_exceptions=PostgresConnectionException)
 
-        self.stop_retry = Retry(max_tries=1, max_delay=1, retry_exceptions=(psycopg2.Error, TimeoutExpired))
-
         self._role_lock = Lock()
         self.set_role(self.get_postgres_role_from_data_directory())
         self._state_entry_timestamp = None
@@ -465,17 +463,6 @@ class Postgresql(object):
         else:
             return None
 
-    @staticmethod
-    def wait_for_checkpoint(check_not_is_in_recovery, connect_kwargs):
-        """Issue PostgreSQL checkpoint."""
-        with get_connection_cursor(**connect_kwargs) as cur:
-            cur.execute("SET statement_timeout = 0")
-            if check_not_is_in_recovery:
-                cur.execute('SELECT pg_catalog.pg_is_in_recovery()')
-                if cur.fetchone()[0]:
-                    return 'is_in_recovery=true'
-            return cur.execute('CHECKPOINT')
-
     def checkpoint(self, connect_kwargs=None, timeout=None):
         check_not_is_in_recovery = connect_kwargs is not None
         connect_kwargs = connect_kwargs or self.config.local_connect_kwargs
@@ -483,11 +470,15 @@ class Postgresql(object):
             connect_kwargs.pop(p, None)
         if timeout:
             connect_kwargs['connect_timeout'] = timeout
-            self.stop_retry.deadline = timeout
         try:
-            return self.stop_retry(self.wait_for_checkpoint, check_not_is_in_recovery, connect_kwargs) if timeout \
-                                   else self.wait_for_checkpoint(check_not_is_in_recovery, connect_kwargs)
-        except (psycopg2.Error, RetryFailedError):
+            with get_connection_cursor(**connect_kwargs) as cur:
+                cur.execute("SET statement_timeout = 0")
+                if check_not_is_in_recovery:
+                    cur.execute('SELECT pg_catalog.pg_is_in_recovery()')
+                    if cur.fetchone()[0]:
+                        return 'is_in_recovery=true'
+                return cur.execute('CHECKPOINT')
+        except psycopg2.Error:
             logger.exception('Exception during CHECKPOINT')
             return 'not accessible or not healty'
 
@@ -569,7 +560,7 @@ class Postgresql(object):
             except TimeoutExpired:
                 pass
         logger.warning("Sending SIGKILL to Postmaster and its children")
-        return True if postmaster.signal_stop('abort', None) else False
+        return True if postmaster.signal_kill() else False
 
     def terminate_starting_postmaster(self, postmaster):
         """Terminates a postmaster that has not yet opened ports or possibly even written a pid file. Blocks

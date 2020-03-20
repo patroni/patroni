@@ -205,7 +205,6 @@ class TestPostgresql(BaseTestPostgresql):
     def test_checkpoint(self):
         with patch.object(MockCursor, 'fetchone', Mock(return_value=(True, ))):
             with patch.object(MockCursor, 'execute', Mock(return_value=(True, ),)):
-                self.assertEqual(self.p.wait_for_checkpoint('is_in_recovery=true', {'user': 'postgres'}), 'is_in_recovery=true')
                 self.assertEqual(self.p.checkpoint({'user': 'postgres'}), 'is_in_recovery=true')
                 self.assertEqual(self.p.checkpoint({'user': 'postgres'}, timeout=10), 'is_in_recovery=true')
         with patch.object(MockCursor, 'execute', Mock(return_value=None)):
