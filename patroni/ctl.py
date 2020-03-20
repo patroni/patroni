@@ -1315,7 +1315,7 @@ def cluster_health(obj, cluster_name):
     cluster = get_dcs(obj, cluster_name).get_cluster()
     if cluster.leader:
         member = cluster.leader.member
-        r = request_patroni(member, 'get', 'cluster_health')
+        r = request_patroni(member, 'get', 'cluster-health')
         if r.status == 200:
             click.echo('cluster is healthy')
             return
