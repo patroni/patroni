@@ -88,7 +88,7 @@ Consul
 Most of the parameters are optional, but you have to specify one of the **host** or **url**
 
 -  **host**: the host:port for the Consul endpoint.
--  **url**: url for the Consul endpoint.
+-  **url**: url for the Consul endpoint, in format: http(s)://host:port.
 -  **port**: (optional) Consul port.
 -  **scheme**: (optional) **http** or **https**, defaults to **http**.
 -  **token**: (optional) ACL token.
