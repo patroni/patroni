@@ -534,18 +534,12 @@ class Postgresql(object):
             postmaster.wait_for_user_backends_to_close()
             on_safepoint()
 
-        if stop_timeout:
-            try:
-                postmaster.wait(timeout=stop_timeout)
-                return True, True
-            except TimeoutExpired:
-                logger.warning("Timeout during postmaster stop, aborting Postgres.")
-                if self.terminate_postmaster(postmaster, mode, stop_timeout):
-                    return True, True
-            except Exception:
-                logger.warning("Exception during stop postmaster")
-
-        postmaster.wait()
+        try:
+            postmaster.wait(timeout=stop_timeout)
+        except TimeoutExpired:
+            logger.warning("Timeout during postmaster stop, aborting Postgres.")
+            if not self.terminate_postmaster(postmaster, mode, stop_timeout):
+                postmaster.wait()
 
         return True, True
 
@@ -553,14 +547,14 @@ class Postgresql(object):
         if mode in ['fast', 'smart']:
             try:
                 success = postmaster.signal_stop('immediate', self.pgcommand('pg_ctl'))
-                if success is not None:
+                if success:
                     return True
                 postmaster.wait(timeout=stop_timeout)
                 return True
             except TimeoutExpired:
                 pass
         logger.warning("Sending SIGKILL to Postmaster and its children")
-        return True if postmaster.signal_kill() else False
+        return postmaster.signal_kill()
 
     def terminate_starting_postmaster(self, postmaster):
         """Terminates a postmaster that has not yet opened ports or possibly even written a pid file. Blocks

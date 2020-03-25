@@ -8,7 +8,6 @@ import subprocess
 import sys
 
 from patroni import PATRONI_ENV_PREFIX, KUBERNETES_ENV_PREFIX
-from threading import Lock
 
 # avoid spawning the resource tracker process
 if sys.version_info >= (3, 8):  # pragma: no cover
@@ -109,30 +108,25 @@ class PostmasterProcess(psutil.Process):
     def signal_kill(self):
         """to suspend and kill postmaster and all children
 
-        :returns None if postmaster and children are killed, True if process is already gone, False if error
+        :returns True if postmaster and children are killed, False if error
         """
-        if self.is_single_user:
-            logger.warning("Cannot stop server; single-user server is running (PID: {0})".format(self.pid))
+        try:
+            self.suspend()
+            children = self.children()
+            self.kill()
+        except psutil.NoSuchProcess:
+            pass
+        except psutil.AccessDenied as e:
+            logger.warning("Could not kill PostgreSQL (error: {0})".format(e))
             return False
-        plock = Lock()
-        with plock:
+        _, alive = psutil.wait_procs(children, timeout=0)
+        for child in alive:
             try:
-                self.suspend()
-                children = self.children()
-                self.kill()
+                child.kill()
             except psutil.NoSuchProcess:
-                return True
-            except psutil.AccessDenied as e:
-                logger.warning("Could not kill PostgreSQL (error: {0})".format(e))
-                return False
-            _, alive = psutil.wait_procs(children, timeout=3)
-            for child in alive:
-                try:
-                    child.kill()
-                except psutil.NoSuchProcess:
-                    continue
+                continue
 
-        return None
+        return True
 
     def signal_stop(self, mode, pg_ctl='pg_ctl'):
         """Signal postmaster process to stop

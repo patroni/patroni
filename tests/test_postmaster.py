@@ -87,7 +87,7 @@ class TestPostmasterProcess(unittest.TestCase):
              patch('psutil.Process.suspend', return_value=True), \
              patch('psutil.Process.kill', return_value=True):
             proc = PostmasterProcess(123)
-            self.assertEqual(proc.signal_kill(), None)
+            self.assertEqual(proc.signal_kill(), True)
 
     @patch('psutil.Process.__init__', Mock())
     @patch('patroni.postgresql.postmaster.os')
@@ -114,7 +114,7 @@ class TestPostmasterProcess(unittest.TestCase):
              patch('psutil.Process.suspend', return_value=True), \
              patch('psutil.Process.kill', return_value=True):
             proc = PostmasterProcess(123)
-            self.assertEqual(proc.signal_kill(), None)
+            self.assertEqual(proc.signal_kill(), True)
 
     @patch('psutil.Process.__init__', Mock())
     @patch('psutil.wait_procs')
