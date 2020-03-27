@@ -24,7 +24,6 @@ CONFIG_FILE_PATH = './test-ctl.yaml'
 def test_rw_config():
     runner = CliRunner()
     with runner.isolated_filesystem():
-        load_config(CONFIG_FILE_PATH + '/dummy', None)
         store_config({'etcd': {'host': 'localhost:2379'}}, CONFIG_FILE_PATH + '/dummy')
         load_config(CONFIG_FILE_PATH + '/dummy', '0.0.0.0')
         os.remove(CONFIG_FILE_PATH + '/dummy')
@@ -42,6 +41,12 @@ class TestCtl(unittest.TestCase):
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
             self.runner = CliRunner()
             self.e = get_dcs({'etcd': {'ttl': 30, 'host': 'ok:2379', 'retry_timeout': 10}}, 'foo')
+
+    def test_abort_on_missing_or_unaccessible_config(self):
+        runner = CliRunner()
+        with runner.isolated_filesystem():
+            with self.assertRaises(PatroniCtlException):
+                load_config('./non-existing-config-file', None)
 
     @patch('psycopg2.connect', psycopg2_connect)
     def test_get_cursor(self):

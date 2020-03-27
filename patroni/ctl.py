@@ -69,7 +69,11 @@ def load_config(path, dcs):
     from patroni.config import Config
 
     if not (os.path.exists(path) and os.access(path, os.R_OK)):
-        logging.debug('Ignoring configuration file "%s". It does not exists or is not readable.', path)
+        if path != CONFIG_FILE_PATH:    # bail if non-default config location specified but file not found / readable
+            raise PatroniCtlException('Provided config file {0} not existing or no read rights.'
+                                      ' Check the -c/--config-file parameter'.format(path))
+        else:
+            logging.debug('Ignoring configuration file "%s". It does not exists or is not readable.', path)
     else:
         logging.debug('Loading configuration from file %s', path)
     config = Config(path, validator=None).copy()
