@@ -119,8 +119,7 @@ class PostmasterProcess(psutil.Process):
         except psutil.AccessDenied as e:
             logger.warning("Could not kill PostgreSQL (error: {0})".format(e))
             return False
-        _, alive = psutil.wait_procs(children, timeout=0)
-        for child in alive:
+        for child in children:
             try:
                 child.kill()
             except psutil.NoSuchProcess:
