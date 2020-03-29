@@ -217,7 +217,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         _raise_for_data(data, response.status)
 
     def _ensure_version_prefix(self):
-        if self.version_prefix != '/v3' and self._base_uri != self._prev_base_uri:
+        if self.version_prefix != '/v3':
             request_executor, kwargs = self._prepare_request()
             response = request_executor(self._MGET, self._base_uri + '/version', **kwargs)
             response = self._handle_server_response(response)
@@ -258,7 +258,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         request_executor, kwargs = self._prepare_request({})
         resp = request_executor(self._MPOST, self._base_uri + self.version_prefix + '/cluster/member/list', **kwargs)
         members = self._handle_server_response(resp)['members']
-        return set(url for member in members for url in member['clientURLs'])
+        return set(url for member in members for url in member.get('clientURLs', []))
 
     def call_rpc(self, method, fields, retry=None):
         fields['retry'] = retry
