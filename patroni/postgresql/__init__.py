@@ -642,7 +642,7 @@ class Postgresql(object):
         self.set_state('restarting')
         if not block_callbacks:
             self.__cb_pending = ACTION_ON_RESTART
-        ret = self.stop(block_callbacks=True, stop_timeout=stop_timeout) and self.start(timeout, task, True, role)
+        ret = self.stop(block_callbacks=True) and self.start(timeout, task, True, role)
         if not ret and not self.is_starting():
             self.set_state('restart failed ({0})'.format(self.state))
         return ret
