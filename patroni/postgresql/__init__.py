@@ -631,7 +631,7 @@ class Postgresql(object):
 
         return self.state == 'running'
 
-    def restart(self, timeout=None, task=None, block_callbacks=False, role=None, stop_timeout=None):
+    def restart(self, timeout=None, task=None, block_callbacks=False, role=None):
         """Restarts PostgreSQL.
 
         When timeout parameter is set the call will block either until PostgreSQL has started, failed to start or
