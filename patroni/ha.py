@@ -1285,7 +1285,7 @@ class Ha(object):
             # is data directory empty?
             if self.state_handler.data_directory_empty():
                 self.state_handler.set_role('uninitialized')
-                self.state_handler.stop('immediate', stop_timeout=self.master_stop_timeout())
+                self.state_handler.stop('immediate', stop_timeout=self.patroni.config['retry_timeout'])
                 # In case datadir went away while we were master.
                 self.watchdog.disable()
 
