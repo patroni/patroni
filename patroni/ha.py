@@ -1162,7 +1162,7 @@ class Ha(object):
     def cancel_initialization(self):
         logger.info('removing initialize key after failed attempt to bootstrap the cluster')
         self.dcs.cancel_initialization()
-        self.state_handler.stop('immediate', stop_timeout=self.master_stop_timeout())
+        self.state_handler.stop('immediate', stop_timeout=self.patroni.config['retry_timeout'])
         self.state_handler.move_data_directory()
         raise PatroniException('Failed to bootstrap cluster')
 
