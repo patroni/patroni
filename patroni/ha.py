@@ -1089,7 +1089,7 @@ class Ha(object):
                 return (False, 'restart failed')
 
     def _do_reinitialize(self, cluster):
-        self.state_handler.stop('immediate', stop_timeout=self.master_stop_timeout())
+        self.state_handler.stop('immediate', stop_timeout=self.patroni.config['retry_timeout'])
         # Commented redundant data directory cleanup here
         # self.state_handler.remove_data_directory()
 
