@@ -112,7 +112,7 @@ class PostmasterProcess(psutil.Process):
         """
         try:
             self.suspend()
-            children = self.children()
+            children = self.children(recursive=True)
             self.kill()
         except psutil.NoSuchProcess:
             pass
