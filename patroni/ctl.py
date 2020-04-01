@@ -868,7 +868,7 @@ def scaffold(obj, cluster_name, sysid):
     click.echo("Cluster {0} has been created successfully".format(cluster_name))
 
 
-@ctl.command('flush', help='Flush scheduled events')
+@ctl.command('flush', help='Discard scheduled events (restarts only currently)')
 @click.argument('cluster_name')
 @click.argument('member_names', nargs=-1)
 @click.argument('target', type=click.Choice(['restart']))
