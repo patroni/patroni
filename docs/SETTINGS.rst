@@ -87,20 +87,20 @@ Consul
 ------
 Most of the parameters are optional, but you have to specify one of the **host** or **url**
 
--  **host**: the host:port for the Consul endpoint, in format: http(s)://host:port
--  **url**: url for the Consul endpoint
--  **port**: (optional) Consul port
--  **scheme**: (optional) **http** or **https**, defaults to **http**
--  **token**: (optional) ACL token
--  **verify**: (optional) whether to verify the SSL certificate for HTTPS requests
+-  **host**: the host:port for the Consul local agent.
+-  **url**: url for the Consul local agent, in format: http(s)://host:port.
+-  **port**: (optional) Consul port.
+-  **scheme**: (optional) **http** or **https**, defaults to **http**.
+-  **token**: (optional) ACL token.
+-  **verify**: (optional) whether to verify the SSL certificate for HTTPS requests.
 -  **cacert**: (optional) The ca certificate. If present it will enable validation.
--  **cert**: (optional) file with the client certificate
+-  **cert**: (optional) file with the client certificate.
 -  **key**: (optional) file with the client key. Can be empty if the key is part of **cert**.
 -  **dc**: (optional) Datacenter to communicate with. By default the datacenter of the host is used.
 -  **consistency**: (optional) Select consul consistency mode. Possible values are ``default``, ``consistent``, or ``stale`` (more details in `consul API reference <https://www.consul.io/api/features/consistency.html/>`__)
 -  **checks**: (optional) list of Consul health checks used for the session. By default an empty list is used.
--  **register\_service**: (optional) whether or not to register a service with the name defined by the scope parameter and the tag master, replica or standby-leader depending on the node's role. Defaults to **false**
--  **service\_check\_interval**: (optional) how often to perform health check against registered url
+-  **register\_service**: (optional) whether or not to register a service with the name defined by the scope parameter and the tag master, replica or standby-leader depending on the node's role. Defaults to **false**.
+-  **service\_check\_interval**: (optional) how often to perform health check against registered url.
 
 Etcd
 ----
@@ -109,8 +109,8 @@ Most of the parameters are optional, but you have to specify one of the **host**
 -  **host**: the host:port for the etcd endpoint.
 -  **hosts**: list of etcd endpoint in format host1:port1,host2:port2,etc... Could be a comma separated string or an actual yaml list.
 -  **use\_proxies**: If this parameter is set to true, Patroni will consider **hosts** as a list of proxies and will not perform a topology discovery of etcd cluster.
--  **url**: url for the etcd
--  **proxy**: proxy url for the etcd. If you are connecting to the etcd using proxy, use this parameter instead of **url**
+-  **url**: url for the etcd.
+-  **proxy**: proxy url for the etcd. If you are connecting to the etcd using proxy, use this parameter instead of **url**.
 -  **srv**: Domain to search the SRV record(s) for cluster autodiscovery.
 -  **protocol**: (optional) http or https, if not specified http is used. If the **url** or **proxy** is specified - will take protocol from them.
 -  **username**: (optional) username for etcd authentication.
@@ -126,7 +126,7 @@ ZooKeeper
 Exhibitor
 ---------
 -  **hosts**: initial list of Exhibitor (ZooKeeper) nodes in format: 'host1,host2,etc...'. This list updates automatically whenever the Exhibitor (ZooKeeper) cluster topology changes.
--  **poll\_interval**: how often the list of ZooKeeper and Exhibitor nodes should be updated from Exhibitor
+-  **poll\_interval**: how often the list of ZooKeeper and Exhibitor nodes should be updated from Exhibitor.
 -  **port**: Exhibitor port.
 
 .. _kubernetes_settings:
