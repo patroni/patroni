@@ -124,7 +124,7 @@ class PostmasterProcess(psutil.Process):
                 child.kill()
             except psutil.NoSuchProcess:
                 continue
-
+        psutil.wait_procs(children + [self])
         return True
 
     def signal_stop(self, mode, pg_ctl='pg_ctl'):
