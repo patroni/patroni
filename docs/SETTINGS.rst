@@ -85,7 +85,9 @@ Bootstrap configuration
 
 Consul
 ------
-Most of the parameters are optional, but you have to specify one of the **host** or **url**
+Most of the parameters are optional, but you have to specify one of the **host** or **url**.
+
+*Restart is required:* when changing these parameters, sending SIGHUP to the Patroni patroni process is not enough, you need to restart it.
 
 -  **host**: the host:port for the Consul local agent.
 -  **url**: url for the Consul local agent, in format: http(s)://host:port.
