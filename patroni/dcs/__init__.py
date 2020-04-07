@@ -162,7 +162,7 @@ class Member(namedtuple('Member', 'index,name,session,data')):
         else:
             conn_url = self.conn_url
             if not conn_url:
-                return {}  # due to the invalid conn_url we don't care about authentication parameters 
+                return {}  # due to the invalid conn_url we don't care about authentication parameters
             r = urlparse(conn_url)
             ret = {
                 'host': r.hostname,
