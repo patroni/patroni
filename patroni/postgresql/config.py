@@ -651,7 +651,7 @@ class ConfigHandler(object):
             else:
                 return False
 
-        return all(primary_conninfo.get(p) == str(v) for p, v in wanted_primary_conninfo.items())
+        return all(primary_conninfo.get(p) == str(v) for p, v in wanted_primary_conninfo.items() if v is not None)
 
     def check_recovery_conf(self, member):
         """Returns a tuple. The first boolean element indicates that recovery params don't match

@@ -72,10 +72,9 @@ class TestCtl(unittest.TestCase):
     def test_output_members(self):
         scheduled_at = datetime.now(tzutc) + timedelta(seconds=600)
         cluster = get_cluster_initialized_with_leader(Failover(1, 'foo', 'bar', scheduled_at))
-        self.assertIsNone(output_members(cluster, name='abc', fmt='pretty'))
-        self.assertIsNone(output_members(cluster, name='abc', fmt='json'))
-        self.assertIsNone(output_members(cluster, name='abc', fmt='yaml'))
-        self.assertIsNone(output_members(cluster, name='abc', fmt='tsv'))
+        del cluster.members[1].data['conn_url']
+        for fmt in ('pretty', 'json', 'yaml', 'tsv'):
+            self.assertIsNone(output_members(cluster, name='abc', fmt=fmt))
 
     @patch('patroni.ctl.get_dcs')
     @patch.object(PoolManager, 'request', Mock(return_value=MockResponse()))

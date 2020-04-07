@@ -735,20 +735,21 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
             columns.append(c)
 
     # Show Host as 'host:port' if somebody is running on non-standard port or two nodes are running on the same host
-    append_port = any(m['port'] != 5432 for m in cluster['members']) or\
-        len(set(m['host'] for m in cluster['members'])) < len(cluster['members'])
+    members = [m for m in cluster['members'] if 'host' in m]
+    append_port = any('port' in m and m['port'] != 5432 for m in members) or\
+        len(set(m['host'] for m in cluster['members'])) < len(members)
 
     for m in cluster['members']:
         logging.debug(m)
 
         lag = m.get('lag', '')
-        m.update(cluster=name, member=m['name'], tl=m.get('timeline', ''),
+        m.update(cluster=name, member=m['name'], host=m.get('host'), tl=m.get('timeline', ''),
                  role='' if m['role'] == 'replica' else m['role'].replace('_', ' ').title(),
                  lag_in_mb=round(lag/1024/1024) if isinstance(lag, six.integer_types) else lag,
                  pending_restart='*' if m.get('pending_restart') else '',
                  tags=json.dumps(m['tags']) if m.get('tags') else '')
 
-        if append_port:
+        if append_port and m['host'] and m.get('port'):
             m['host'] = ':'.join([m['host'], str(m['port'])])
 
         if 'scheduled_restart' in m:

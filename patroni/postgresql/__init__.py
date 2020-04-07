@@ -651,10 +651,10 @@ class Postgresql(object):
         return result
 
     @contextmanager
-    def get_replication_connection_cursor(self, host='localhost', port=5432, database=None, **kwargs):
+    def get_replication_connection_cursor(self, host='localhost', port=5432, **kwargs):
         conn_kwargs = self.config.replication.copy()
-        conn_kwargs.update(host=host, port=int(port), database=database or self._database, connect_timeout=3,
-                           user=conn_kwargs.pop('username'), replication=1, options='-c statement_timeout=2000')
+        conn_kwargs.update(host=host, port=int(port) if port else None, user=conn_kwargs.pop('username'),
+                           connect_timeout=3, replication=1, options='-c statement_timeout=2000')
         with get_connection_cursor(**conn_kwargs) as cur:
             yield cur
 
