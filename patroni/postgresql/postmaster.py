@@ -140,7 +140,7 @@ class PostmasterProcess(psutil.Process):
                 pass
         psutil.wait_procs(children + [self])
         return True
-    
+
     def signal_stop(self, mode, pg_ctl='pg_ctl'):
         """Signal postmaster process to stop
 
