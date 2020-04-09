@@ -140,10 +140,10 @@ class Member(namedtuple('Member', 'index,name,session,data')):
     @property
     def conn_url(self):
         conn_url = self.data.get('conn_url')
-        conn_kwargs = self.data.get('conn_kwargs')
         if conn_url:
             return conn_url
 
+        conn_kwargs = self.data.get('conn_kwargs')
         if conn_kwargs:
             conn_url = uri('postgresql', (conn_kwargs.get('host'), conn_kwargs.get('port', 5432)))
             self.data['conn_url'] = conn_url
@@ -151,16 +151,19 @@ class Member(namedtuple('Member', 'index,name,session,data')):
 
     def conn_kwargs(self, auth=None):
         defaults = {
-            "host": "",
-            "port": "",
-            "database": ""
+            "host": None,
+            "port": None,
+            "database": None
         }
         ret = self.data.get('conn_kwargs')
         if ret:
             defaults.update(ret)
             ret = defaults
         else:
-            r = urlparse(self.conn_url)
+            conn_url = self.conn_url
+            if not conn_url:
+                return {}  # due to the invalid conn_url we don't care about authentication parameters
+            r = urlparse(conn_url)
             ret = {
                 'host': r.hostname,
                 'port': r.port or 5432,
