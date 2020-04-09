@@ -66,6 +66,7 @@ class MockPostmaster(object):
         self.wait_for_user_backends_to_close = Mock()
         self.signal_stop = Mock(return_value=None)
         self.wait = Mock()
+        self.signal_kill = Mock(return_value=False)
 
 
 class MockCursor(object):
