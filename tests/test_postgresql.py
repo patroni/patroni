@@ -198,7 +198,7 @@ class TestPostgresql(BaseTestPostgresql):
         mock_callback.reset_mock()
         self.assertTrue(self.p.stop(on_safepoint=mock_callback))
         mock_callback.assert_called()
- 
+
         # Fast shutdown is timed out but when immediate postmaster is already gone
         mock_postmaster.wait.side_effect = [psutil.TimeoutExpired(30), Mock()]
         mock_postmaster.signal_stop.side_effect = [None, True]
