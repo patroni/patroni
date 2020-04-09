@@ -19,9 +19,7 @@ from .test_ha import get_cluster_initialized_without_leader, get_cluster_initial
     get_cluster_initialized_with_only_leader, get_cluster_not_initialized_without_leader, get_cluster, Member
 
 
-
 def test_rw_config():
-    global CONFIG_FILE_PATH
     runner = CliRunner()
     with runner.isolated_filesystem():
         load_config(CONFIG_FILE_PATH, None)
@@ -33,7 +31,7 @@ def test_rw_config():
 
 
 @patch('patroni.ctl.load_config',
-       Mock(return_value={'scope': 'alpha', 'postgresql': {'data_dir': '.', 'pgpass': './pgpass', 'parameters': {}, 'retry_timeout': 5},
+       Mock(return_value={'scope': 'alpha', 'postgresql': {'data_dir': '.', 'parameters': {}, 'retry_timeout': 5},
                           'restapi': {'listen': '::', 'certfile': 'a'}, 'etcd': {'host': 'localhost:2379'}}))
 class TestCtl(unittest.TestCase):
 
