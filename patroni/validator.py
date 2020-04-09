@@ -110,8 +110,8 @@ def validate_data_dir(data_dir):
             bin_dir = schema.data.get("postgresql", {}).get("bin_dir", None)
             major_version = get_major_version(bin_dir)
             if pgversion != major_version:
-                raise ConfigParseError("data_dir directory postgresql version ({}) doesn't match"
-                                       "with 'postgres --version' output ({})".format(pgversion, major_version))
+                raise ConfigParseError("data_dir directory postgresql version ({}) doesn't match with "
+                                       "'postgres --version' output ({})".format(pgversion, major_version))
     return True
 
 
