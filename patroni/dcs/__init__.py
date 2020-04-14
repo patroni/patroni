@@ -539,6 +539,7 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
     def max_timelines_history(self):
         return self.config.data.get('max_timelines_history', 0)
 
+
 @six.add_metaclass(abc.ABCMeta)
 class AbstractDCS(object):
 
