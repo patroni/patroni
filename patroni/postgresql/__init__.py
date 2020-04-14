@@ -738,6 +738,8 @@ class Postgresql(object):
             if not access_is_restricted:
                 self.call_nowait(ACTION_ON_ROLE_CHANGE)
             ret = self._wait_promote(wait_seconds)
+            if ret:
+                self.checkpoint()
         return ret
 
     def timeline_wal_position(self):
