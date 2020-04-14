@@ -803,13 +803,12 @@ class Postgresql(object):
 
                 pg_tblsp_path = os.path.join(self._data_dir, 'pg_tblspc')
                 if os.path.exists(pg_tblsp_path):
-                    with os.scandir(pg_tblsp_path) as pgtsp:
-                        for dobj in pgtsp:
-                            if not dobj.name.startswith('.') and dobj.is_symlink() and parse_int(dobj.name) is not None:
-                                pg_tsp_path = os.path.realpath(dobj.path)
-                                if pg_tsp_path is not None and os.path.exists(pg_tsp_path):
-                                    logger.info('Removing user defined tablespace directory: %s', pg_tsp_path)
-                                    shutil.rmtree(pg_tsp_path)
+                    for tspdn in [os.path.join(pg_tblsp_path, dn) for dn in os.listdir(pg_tblsp_path)
+                                  if parse_int(dn) and os.path.islink(os.path.join(pg_tblsp_path, dn))]:
+                        pg_tsp_path = os.path.realpath(tspdn)
+                        if pg_tsp_path is not None and os.path.exists(pg_tsp_path):
+                            logger.info('Removing user defined tablespace directory: %s', pg_tsp_path)
+                            shutil.rmtree(pg_tsp_path, ignore_errors=True)
 
                 shutil.rmtree(self._data_dir)
         except (IOError, OSError):
