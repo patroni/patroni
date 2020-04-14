@@ -17,7 +17,7 @@ from patroni.postgresql.misc import parse_history, postgres_major_version_to_int
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.slots import SlotsHandler
 from patroni.exceptions import PostgresConnectionException
-from patroni.utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty
+from patroni.utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty, parse_int
 from threading import current_thread, Lock
 
 
@@ -679,7 +679,7 @@ class Postgresql(object):
     def get_master_timeline(self):
         return self._cluster_info_state_get('timeline')
 
-    def get_history(self, timeline):
+    def get_history(self, timeline, max_timelines=0):
         history_path = 'pg_{0}/{1:08X}.history'.format(self.wal_name, timeline)
         try:
             cursor = self._connection.cursor()
@@ -687,7 +687,7 @@ class Postgresql(object):
             isdir, modification = cursor.fetchone()
             if not isdir:
                 cursor.execute('SELECT pg_catalog.pg_read_file(%s)', (history_path,))
-                history = list(parse_history(cursor.fetchone()[0]))
+                history = list(parse_history(cursor.fetchone()[0], max_timelines))
                 if history[-1][0] == timeline - 1:
                     history[-1].append(modification.isoformat())
                 return history
@@ -800,6 +800,16 @@ class Postgresql(object):
                         pg_wal_realpath = os.path.realpath(pg_wal_path)
                         logger.info('Removing WAL directory: %s', pg_wal_realpath)
                         shutil.rmtree(pg_wal_realpath)
+
+                pg_tblsp_path = os.path.join(self._data_dir, 'pg_tblspc')
+                if os.path.exists(pg_tblsp_path):
+                    with os.scandir(pg_tblsp_path) as pgtsp:
+                        for dobj in pgtsp:
+                            if not dobj.name.startswith('.') and dobj.is_symlink() and parse_int(dobj.name) is not None:
+                                pg_tsp_path = os.path.realpath(dobj.path)
+                                if pg_tsp_path is not None and os.path.exists(pg_tsp_path):
+                                    logger.info('Removing user defined tablespace directory: %s', pg_tsp_path)
+                                    shutil.rmtree(pg_tsp_path)
 
                 shutil.rmtree(self._data_dir)
         except (IOError, OSError):
