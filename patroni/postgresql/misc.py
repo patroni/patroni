@@ -58,12 +58,8 @@ def parse_lsn(lsn):
     return int(t[0], 16) * 0x100000000 + int(t[1], 16)
 
 
-def parse_history(data, max_timelines=0):
-    timelines = None
-    if max_timelines is not None and abs(max_timelines) > 0:
-        # twice the requested as the timeline history has empty lines
-        timelines = -abs(max_timelines*2)
-    for line in data.split('\n')[timelines:]:
+def parse_history(data):
+    for line in data.split('\n'):
         values = line.strip().split('\t')
         if len(values) == 3:
             try:

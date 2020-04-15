@@ -17,7 +17,7 @@ from patroni.postgresql.misc import parse_history, postgres_major_version_to_int
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.slots import SlotsHandler
 from patroni.exceptions import PostgresConnectionException
-from patroni.utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty, parse_int
+from patroni.utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty
 from threading import current_thread, Lock
 
 
@@ -687,10 +687,10 @@ class Postgresql(object):
             isdir, modification = cursor.fetchone()
             if not isdir:
                 cursor.execute('SELECT pg_catalog.pg_read_file(%s)', (history_path,))
-                history = list(parse_history(cursor.fetchone()[0], max_timelines))
+                history = list(parse_history(cursor.fetchone()[0]))
                 if history[-1][0] == timeline - 1:
                     history[-1].append(modification.isoformat())
-                return history
+                return history[-max_timelines:]
         except Exception:
             logger.exception('Failed to read and parse %s', (history_path,))
 
@@ -800,15 +800,6 @@ class Postgresql(object):
                         pg_wal_realpath = os.path.realpath(pg_wal_path)
                         logger.info('Removing WAL directory: %s', pg_wal_realpath)
                         shutil.rmtree(pg_wal_realpath)
-
-                pg_tblsp_path = os.path.join(self._data_dir, 'pg_tblspc')
-                if os.path.exists(pg_tblsp_path):
-                    for tspdn in [os.path.join(pg_tblsp_path, dn) for dn in os.listdir(pg_tblsp_path)
-                                  if parse_int(dn) and os.path.islink(os.path.join(pg_tblsp_path, dn))]:
-                        pg_tsp_path = os.path.realpath(tspdn)
-                        if pg_tsp_path is not None and os.path.exists(pg_tsp_path):
-                            logger.info('Removing user defined tablespace directory: %s', pg_tsp_path)
-                            shutil.rmtree(pg_tsp_path, ignore_errors=True)
 
                 shutil.rmtree(self._data_dir)
         except (IOError, OSError):
