@@ -1,18 +1,13 @@
 ## This Dockerfile is meant to aid in the building and debugging patroni whilst developing on your local machine
 ## It has all the necessary components to play/debug with a single node appliance, running etcd
 ARG PG_MAJOR=10
-ARG COMPRESS=false
 ARG PGHOME=/home/postgres
 ARG PGDATA=$PGHOME/data
-ARG LC_ALL=C.UTF-8
-ARG LANG=C.UTF-8
 
 FROM postgres:$PG_MAJOR as builder
 
 ARG PGHOME
 ARG PGDATA
-ARG LC_ALL
-ARG LANG
 
 ENV ETCDVERSION=2.3.8 CONFDVERSION=0.16.0
 
@@ -23,8 +18,8 @@ RUN set -ex \
     # postgres:10 is based on debian, which has the patroni package. We will install all required dependencies
     && apt-cache depends patroni | sed -n -e 's/.*Depends: \(python3-.\+\)$/\1/p' \
             | grep -Ev '^python3-(sphinx|etcd|consul|kazoo|kubernetes)' \
-            | xargs apt-get install -y vim curl less jq locales haproxy sudo \
-                            python3-etcd python3-kazoo python3-pip busybox \
+            | xargs apt-get install -y vim-tiny curl less jq locales haproxy \
+                            python3-etcd python3-kazoo python3-pip \
                             net-tools iputils-ping --fix-missing \
     && pip3 install dumb-init \
 \
@@ -86,33 +81,11 @@ RUN set -ex \
         /usr/share/vim/vim80/doc \
         /usr/share/vim/vim80/lang \
         /usr/share/vim/vim80/tutor \
-#        /var/lib/dpkg/info/* \
+        # /var/lib/dpkg/info/* \
     && find /usr/bin -xtype l -delete \
     && find /var/log -type f -exec truncate --size 0 {} \; \
     && find /usr/lib/python3/dist-packages -name '*test*' | xargs rm -fr \
     && find /lib/x86_64-linux-gnu/security -type f ! -name pam_env.so ! -name pam_permit.so ! -name pam_unix.so -delete
-
-# perform compression if it is necessary
-ARG COMPRESS
-RUN if [ "$COMPRESS" = "true" ]; then \
-        set -ex \
-        # Allow certain sudo commands from postgres
-        && echo 'postgres ALL=(ALL) NOPASSWD: /bin/tar xpJf /a.tar.xz -C /, /bin/rm /a.tar.xz, /bin/ln -snf dash /bin/sh' >> /etc/sudoers \
-        && ln -snf busybox /bin/sh \
-        && files="/bin/sh /usr/bin/sudo /usr/lib/sudo/sudoers.so /lib/x86_64-linux-gnu/security/pam_*.so" \
-        && libs="$(ldd $files | awk '{print $3;}' | grep '^/' | sort -u) /lib/x86_64-linux-gnu/ld-linux-x86-64.so.* /lib/x86_64-linux-gnu/libnsl.so.* /lib/x86_64-linux-gnu/libnss_compat.so.*" \
-        && (echo /var/run $files $libs | tr ' ' '\n' && realpath $files $libs) | sort -u | sed 's/^\///' > /exclude \
-        && find /etc/alternatives -xtype l -delete \
-        && save_dirs="usr lib var bin sbin etc/ssl etc/init.d etc/alternatives etc/apt" \
-        && XZ_OPT=-e9v tar -X /exclude -cpJf a.tar.xz $save_dirs \
-        # we call "cat /exclude" to avoid including files from the $save_dirs that are also among
-        # the exceptions listed in the /exclude, as "uniq -u" eliminates all non-unique lines.
-        # By calling "cat /exclude" a second time we guarantee that there will be at least two lines
-        # for each exception and therefore they will be excluded from the output passed to 'rm'.
-        && /bin/busybox sh -c "(find $save_dirs -not -type d && cat /exclude /exclude && echo exclude) | sort | uniq -u | xargs /bin/busybox rm" \
-        && /bin/busybox --install -s \
-        && /bin/busybox sh -c "find $save_dirs -type d -depth -exec rmdir -p {} \; 2> /dev/null"; \
-    fi
 
 FROM scratch
 COPY --from=builder / /
@@ -120,15 +93,11 @@ COPY --from=builder / /
 LABEL maintainer="Alexander Kukushkin <alexander.kukushkin@zalando.de>"
 
 ARG PG_MAJOR
-ARG COMPRESS
 ARG PGHOME
 ARG PGDATA
-ARG LC_ALL
-ARG LANG
-
 ARG PGBIN=/usr/lib/postgresql/$PG_MAJOR/bin
 
-ENV LC_ALL=$LC_ALL LANG=$LANG EDITOR=/usr/bin/editor
+ENV LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 EDITOR=/usr/bin/editor
 ENV PGDATA=$PGDATA PATH=$PATH:$PGBIN
 
 COPY patroni /patroni/
@@ -149,7 +118,6 @@ RUN sed -i 's/env python/&3/' /patroni*.py \
     && sed -i 's/^\(scope\|name\|etcd\|  host\|  authentication\|  pg_hba\|  parameters\):/#&/' postgres?.yml \
     && sed -i 's/^    \(replication\|superuser\|rewind\|unix_socket_directories\|\(\(  \)\{0,1\}\(username\|password\)\)\):/#&/' postgres?.yml \
     && sed -i 's/^      parameters:/      pg_hba:\n      - local all all trust\n      - host replication all all md5\n      - host all all all md5\n&\n        max_connections: 100/'  postgres?.yml \
-    && if [ "$COMPRESS" = "true" ]; then chmod u+s /usr/bin/sudo; fi \
     && chmod +s /bin/ping \
     && chown -R postgres:postgres $PGHOME /run /etc/haproxy
 

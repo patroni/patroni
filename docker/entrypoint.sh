@@ -1,12 +1,5 @@
 #!/bin/sh
 
-if [ -f /a.tar.xz ]; then
-    echo "decompressing image..."
-    sudo tar xpJf /a.tar.xz -C / > /dev/null 2>&1
-    sudo rm /a.tar.xz
-    sudo ln -snf dash /bin/sh
-fi
-
 readonly PATRONI_SCOPE=${PATRONI_SCOPE:-batman}
 PATRONI_NAMESPACE=${PATRONI_NAMESPACE:-/service}
 readonly PATRONI_NAMESPACE=${PATRONI_NAMESPACE%/}
