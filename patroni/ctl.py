@@ -47,7 +47,7 @@ class PatroniCtlException(ClickException):
     pass
 
 
-class PatronictlTexttable(Texttable):
+class PatronictlPrettyTable(Texttable):
 
     def __init__(self, header=None):
         Texttable.__init__(self, 0)
@@ -108,7 +108,11 @@ def load_config(path, dcs):
     from patroni.config import Config
 
     if not (os.path.exists(path) and os.access(path, os.R_OK)):
-        logging.debug('Ignoring configuration file "%s". It does not exists or is not readable.', path)
+        if path != CONFIG_FILE_PATH:    # bail if non-default config location specified but file not found / readable
+            raise PatroniCtlException('Provided config file {0} not existing or no read rights.'
+                                      ' Check the -c/--config-file parameter'.format(path))
+        else:
+            logging.debug('Ignoring configuration file "%s". It does not exists or is not readable.', path)
     else:
         logging.debug('Loading configuration from file %s', path)
     config = Config(path, validator=None).copy()
@@ -129,7 +133,7 @@ def store_config(config, path):
         yaml.dump(config, fd)
 
 
-option_format = click.option('--format', '-f', 'fmt', help='Output format (pretty, json, yaml)', default='pretty')
+option_format = click.option('--format', '-f', 'fmt', help='Output format (pretty, tsv, json, yaml)', default='pretty')
 option_watchrefresh = click.option('-w', '--watch', type=float, help='Auto update the screen every X seconds')
 option_watch = click.option('-W', is_flag=True, help='Auto update the screen every 2 seconds')
 option_force = click.option('--force', is_flag=True, help='Do not ask for confirmation at any point')
@@ -173,11 +177,11 @@ def request_patroni(member, method='GET', endpoint=None, data=None):
 
 
 def print_output(columns, rows, alignment=None, fmt='pretty', header=None, delimiter='\t'):
-    if fmt in ['json', 'yaml', 'yml']:
+    if fmt in {'json', 'yaml', 'yml'}:
         elements = [{k: v for k, v in zip(columns, r) if not header or str(v)} for r in rows]
         func = json.dumps if fmt == 'json' else format_config_for_editing
         click.echo(func(elements))
-    elif fmt in ('pretty', 'tsv'):
+    elif fmt in {'pretty', 'tsv'}:
         list_cluster = bool(header and columns and columns[0] == 'Cluster')
         if list_cluster and 'Tags' in columns:  # we want to format member tags as YAML
             i = columns.index('Tags')
@@ -189,10 +193,10 @@ def print_output(columns, rows, alignment=None, fmt='pretty', header=None, delim
             rows = [row[1:] for row in rows]
 
         if fmt == 'tsv':
-            for r in [columns] + rows:
+            for r in ([columns] if columns else []) + rows:
                 click.echo(delimiter.join(map(str, r)))
         else:
-            table = PatronictlTexttable(header)
+            table = PatronictlPrettyTable(header)
             if not any(any(isinstance(c, six.string_types) and '\n' in c for c in r) for r in rows):
                 table.set_deco(Texttable.VLINES | Texttable.BORDER | Texttable.HEADER)
             if rows:
@@ -351,7 +355,7 @@ def dsn(obj, cluster_name, role, member):
 
 @ctl.command('query', help='Query a Patroni PostgreSQL member')
 @arg_cluster_name
-@option_format
+@click.option('--format', 'fmt', help='Output format (pretty, tsv, json, yaml)', default='tsv')
 @click.option('--file', '-f', 'p_file', help='Execute the SQL commands from this file', type=click.File('rb'))
 @click.option('--password', help='force password prompt', is_flag=True)
 @click.option('-U', '--username', help='database user name', type=str)
@@ -769,19 +773,20 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
             columns.append(c)
 
     # Show Host as 'host:port' if somebody is running on non-standard port or two nodes are running on the same host
-    append_port = any(m['port'] != 5432 for m in cluster['members']) or\
-        len(set(m['host'] for m in cluster['members'])) < len(cluster['members'])
+    members = [m for m in cluster['members'] if 'host' in m]
+    append_port = any('port' in m and m['port'] != 5432 for m in members) or\
+        len(set(m['host'] for m in cluster['members'])) < len(members)
 
     for m in cluster['members']:
         logging.debug(m)
 
         lag = m.get('lag', '')
-        m.update(cluster=name, member=m['name'], tl=m.get('timeline', ''),
+        m.update(cluster=name, member=m['name'], host=m.get('host'), tl=m.get('timeline', ''),
                  role='' if m['role'] == 'replica' else m['role'].replace('_', ' ').title(),
                  lag_in_mb=round(lag/1024/1024) if isinstance(lag, six.integer_types) else lag,
                  pending_restart='*' if m.get('pending_restart') else '')
 
-        if append_port:
+        if append_port and m['host'] and m.get('port'):
             m['host'] = ':'.join([m['host'], str(m['port'])])
 
         if 'scheduled_restart' in m:
@@ -792,7 +797,8 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
 
         rows.append([m.get(n.lower().replace(' ', '_'), '') for n in columns])
 
-    print_output(columns, rows, {'Lag in MB': 'r', 'TL': 'r'}, fmt, ' Cluster: {0} ({1}) '.format(name, initialize))
+    print_output(columns, rows, {'Lag in MB': 'r', 'TL': 'r', 'Tags': 'l'},
+                 fmt, ' Cluster: {0} ({1}) '.format(name, initialize))
 
     if fmt != 'pretty':  # Omit service info when using machine-readable formats
         return
@@ -905,7 +911,7 @@ def scaffold(obj, cluster_name, sysid):
     click.echo("Cluster {0} has been created successfully".format(cluster_name))
 
 
-@ctl.command('flush', help='Flush scheduled events')
+@ctl.command('flush', help='Discard scheduled events (restarts only currently)')
 @click.argument('cluster_name')
 @click.argument('member_names', nargs=-1)
 @click.argument('target', type=click.Choice(['restart']))

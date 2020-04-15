@@ -35,8 +35,8 @@ Example: defining ``PATRONI_admin_PASSWORD=strongpasswd`` and ``PATRONI_admin_OP
 
 Consul
 ------
--  **PATRONI\_CONSUL\_HOST**: the host:port for the Consul endpoint.
--  **PATRONI\_CONSUL\_URL**: url for the Consul, in format: http(s)://host:port
+-  **PATRONI\_CONSUL\_HOST**: the host:port for the Consul local agent.
+-  **PATRONI\_CONSUL\_URL**: url for the Consul local agent, in format: http(s)://host:port
 -  **PATRONI\_CONSUL\_PORT**: (optional) Consul port
 -  **PATRONI\_CONSUL\_SCHEME**: (optional) **http** or **https**, defaults to **http**
 -  **PATRONI\_CONSUL\_TOKEN**: (optional) ACL token
@@ -130,6 +130,7 @@ REST API
 
 CTL
 ---
+-  **PATRONICTL\_CONFIG\_FILE**: location of the configuration file. 
 -  **PATRONI\_CTL\_INSECURE**: Allow connections to REST API without verifying SSL certs.
 -  **PATRONI\_CTL\_CACERT**: Specifies the file with the CA_BUNDLE file or directory with certificates of trusted CAs to use while verifying REST API SSL certs. If not provided patronictl will use the value provided for REST API "cafile" parameter.
 -  **PATRONI\_CTL\_CERTFILE**: Specifies the file with the client certificate in the PEM format. If not provided patronictl will use the value provided for REST API "certfile" parameter.

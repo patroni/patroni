@@ -33,13 +33,18 @@ def mock_config_map(*args, **kwargs):
     mock.metadata.resource_version = '2'
     return mock
 
-
+@patch('socket.TCP_KEEPIDLE', 4, create=True)
+@patch('socket.TCP_KEEPINTVL', 5, create=True)
+@patch('socket.TCP_KEEPCNT', 6, create=True)
 @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_config_map', mock_config_map)
 @patch.object(k8s_client.CoreV1Api, 'create_namespaced_config_map', mock_config_map)
 @patch('kubernetes.client.api_client.ThreadPool', Mock(), create=True)
 @patch.object(Thread, 'start', Mock())
 class TestKubernetes(unittest.TestCase):
 
+    @patch('socket.TCP_KEEPIDLE', 4, create=True)
+    @patch('socket.TCP_KEEPINTVL', 5, create=True)
+    @patch('socket.TCP_KEEPCNT', 6, create=True)
     @patch('kubernetes.config.load_kube_config', Mock())
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_config_map', mock_list_namespaced_config_map)
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_pod', mock_list_namespaced_pod)
@@ -149,6 +154,9 @@ class TestKubernetes(unittest.TestCase):
 
 class TestCacheBuilder(unittest.TestCase):
 
+    @patch('socket.TCP_KEEPIDLE', 4, create=True)
+    @patch('socket.TCP_KEEPINTVL', 5, create=True)
+    @patch('socket.TCP_KEEPCNT', 6, create=True)
     @patch('kubernetes.config.load_kube_config', Mock())
     @patch('kubernetes.client.api_client.ThreadPool', Mock(), create=True)
     @patch.object(Thread, 'start', Mock())
@@ -174,3 +182,8 @@ class TestCacheBuilder(unittest.TestCase):
     @patch('patroni.dcs.kubernetes.ObjectCache._build_cache', Mock(side_effect=Exception))
     def test_run(self):
         self.assertRaises(SleepException, self.k._pods.run)
+
+    @patch('time.sleep', Mock())
+    def test__list(self):
+        self.k._pods._func = Mock(side_effect=Exception)
+        self.assertRaises(Exception, self.k._pods._list)

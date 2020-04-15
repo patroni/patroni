@@ -17,8 +17,9 @@ from patroni.postgresql.misc import parse_history, postgres_major_version_to_int
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.slots import SlotsHandler
 from patroni.exceptions import PostgresConnectionException
-from patroni.utils import Retry, RetryFailedError, polling_loop
+from patroni.utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty
 from threading import current_thread, Lock
+from psutil import TimeoutExpired
 
 
 logger = logging.getLogger(__name__)
@@ -266,9 +267,7 @@ class Postgresql(object):
     def data_directory_empty(self):
         if self.pg_control_exists():
             return False
-        if not os.path.exists(self._data_dir):
-            return True
-        return all(os.name != 'nt' and (n.startswith('.') or n == 'lost+found') for n in os.listdir(self._data_dir))
+        return data_directory_is_empty(self._data_dir)
 
     def replica_method_options(self, method):
         return deepcopy(self.config.get(method, {}))
@@ -415,7 +414,11 @@ class Postgresql(object):
         self.set_state('starting')
         self._pending_restart = False
 
-        configuration = self.config.effective_configuration
+        try:
+            configuration = self.config.effective_configuration
+        except Exception:
+            return None
+
         self.config.check_directories()
         self.config.write_postgresql_conf(configuration)
         self.config.resolve_connection_addresses()
@@ -460,11 +463,13 @@ class Postgresql(object):
         else:
             return None
 
-    def checkpoint(self, connect_kwargs=None):
+    def checkpoint(self, connect_kwargs=None, timeout=None):
         check_not_is_in_recovery = connect_kwargs is not None
         connect_kwargs = connect_kwargs or self.config.local_connect_kwargs
         for p in ['connect_timeout', 'options']:
             connect_kwargs.pop(p, None)
+        if timeout:
+            connect_kwargs['connect_timeout'] = timeout
         try:
             with get_connection_cursor(**connect_kwargs) as cur:
                 cur.execute("SET statement_timeout = 0")
@@ -477,7 +482,7 @@ class Postgresql(object):
             logger.exception('Exception during CHECKPOINT')
             return 'not accessible or not healty'
 
-    def stop(self, mode='fast', block_callbacks=False, checkpoint=None, on_safepoint=None):
+    def stop(self, mode='fast', block_callbacks=False, checkpoint=None, on_safepoint=None, stop_timeout=None):
         """Stop PostgreSQL
 
         Supports a callback when a safepoint is reached. A safepoint is when no user backend can return a successful
@@ -489,7 +494,7 @@ class Postgresql(object):
         if checkpoint is None:
             checkpoint = False if mode == 'immediate' else True
 
-        success, pg_signaled = self._do_stop(mode, block_callbacks, checkpoint, on_safepoint)
+        success, pg_signaled = self._do_stop(mode, block_callbacks, checkpoint, on_safepoint, stop_timeout)
         if success:
             # block_callbacks is used during restart to avoid
             # running start/stop callbacks in addition to restart ones
@@ -502,7 +507,7 @@ class Postgresql(object):
             self.set_state('stop failed')
         return success
 
-    def _do_stop(self, mode, block_callbacks, checkpoint, on_safepoint):
+    def _do_stop(self, mode, block_callbacks, checkpoint, on_safepoint, stop_timeout):
         postmaster = self.is_running()
         if not postmaster:
             if on_safepoint:
@@ -510,7 +515,7 @@ class Postgresql(object):
             return True, False
 
         if checkpoint and not self.is_starting():
-            self.checkpoint()
+            self.checkpoint(timeout=stop_timeout)
 
         if not block_callbacks:
             self.set_state('stopping')
@@ -529,9 +534,27 @@ class Postgresql(object):
             postmaster.wait_for_user_backends_to_close()
             on_safepoint()
 
-        postmaster.wait()
+        try:
+            postmaster.wait(timeout=stop_timeout)
+        except TimeoutExpired:
+            logger.warning("Timeout during postmaster stop, aborting Postgres.")
+            if not self.terminate_postmaster(postmaster, mode, stop_timeout):
+                postmaster.wait()
 
         return True, True
+
+    def terminate_postmaster(self, postmaster, mode, stop_timeout):
+        if mode in ['fast', 'smart']:
+            try:
+                success = postmaster.signal_stop('immediate', self.pgcommand('pg_ctl'))
+                if success:
+                    return True
+                postmaster.wait(timeout=stop_timeout)
+                return True
+            except TimeoutExpired:
+                pass
+        logger.warning("Sending SIGKILL to Postmaster and its children")
+        return postmaster.signal_kill()
 
     def terminate_starting_postmaster(self, postmaster):
         """Terminates a postmaster that has not yet opened ports or possibly even written a pid file. Blocks
@@ -649,10 +672,10 @@ class Postgresql(object):
         return result
 
     @contextmanager
-    def get_replication_connection_cursor(self, host='localhost', port=5432, database=None, **kwargs):
+    def get_replication_connection_cursor(self, host='localhost', port=5432, **kwargs):
         conn_kwargs = self.config.replication.copy()
-        conn_kwargs.update(host=host, port=int(port), database=database or self._database, connect_timeout=3,
-                           user=conn_kwargs.pop('username'), replication=1, options='-c statement_timeout=2000')
+        conn_kwargs.update(host=host, port=int(port) if port else None, user=conn_kwargs.pop('username'),
+                           connect_timeout=3, replication=1, options='-c statement_timeout=2000')
         with get_connection_cursor(**conn_kwargs) as cur:
             yield cur
 
