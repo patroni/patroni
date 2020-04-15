@@ -87,19 +87,19 @@ Consul
 ------
 Most of the parameters are optional, but you have to specify one of the **host** or **url**.
 
-*Restart is required:* when changing these parameters, sending SIGHUP to the Patroni process is not enough, you need to restart it.
+Important: unless otherwise stated, a change is applied only after restarting the Patroni process (sending SIGHUP would not work).
 
 -  **host**: the host:port for the Consul local agent.
 -  **url**: url for the Consul local agent, in format: http(s)://host:port.
 -  **port**: (optional) Consul port.
 -  **scheme**: (optional) **http** or **https**, defaults to **http**.
--  **token**: (optional) ACL token.
+-  **token**: (optional; changing does not require a restart) ACL token.
 -  **verify**: (optional) whether to verify the SSL certificate for HTTPS requests.
 -  **cacert**: (optional) The ca certificate. If present it will enable validation.
 -  **cert**: (optional) file with the client certificate.
 -  **key**: (optional) file with the client key. Can be empty if the key is part of **cert**.
 -  **dc**: (optional) Datacenter to communicate with. By default the datacenter of the host is used.
--  **consistency**: (optional) Select consul consistency mode. Possible values are ``default``, ``consistent``, or ``stale`` (more details in `consul API reference <https://www.consul.io/api/features/consistency.html/>`__)
+-  **consistency**: (optional; changing does not require a restart) Select consul consistency mode. Possible values are ``default``, ``consistent``, or ``stale`` (more details in `consul API reference <https://www.consul.io/api/features/consistency.html/>`__)
 -  **checks**: (optional) list of Consul health checks used for the session. By default an empty list is used.
 -  **register\_service**: (optional) whether or not to register a service with the name defined by the scope parameter and the tag master, replica or standby-leader depending on the node's role. Defaults to **false**.
 -  **service\_check\_interval**: (optional) how often to perform health check against registered url.
