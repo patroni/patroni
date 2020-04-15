@@ -177,6 +177,7 @@ class Client(etcd.Client):
                         self._dns_resolver.resolve_async(r.hostname, port)
                     return machines
             except Exception as e:
+                self.http.clear()
                 logger.error("Failed to get list of machines from %s%s: %r", base_uri, self.version_prefix, e)
 
         raise etcd.EtcdConnectionFailed('No more machines in the cluster')
@@ -198,6 +199,7 @@ class Client(etcd.Client):
                     self._refresh_machines_cache()
                 return response
             except (HTTPError, HTTPException, socket.error, socket.timeout) as e:
+                self.http.clear()
                 # switch to the next etcd node because we don't know exactly what happened,
                 # whether the key didn't received an update or there is a network problem.
                 if not retry and i + 1 < len(machines_cache):
@@ -646,7 +648,6 @@ class Etcd(AbstractDCS):
                     # than reestablishing http connection every time from every replica.
                     return True
                 except etcd.EtcdWatchTimedOut:
-                    self._client.http.clear()
                     self._has_failed = False
                     return False
                 except (etcd.EtcdEventIndexCleared, etcd.EtcdWatcherCleared):  # Watch failed
