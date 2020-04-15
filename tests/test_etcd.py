@@ -163,8 +163,13 @@ class TestClient(unittest.TestCase):
                 patch.object(Client, '_load_machines_cache', Mock(side_effect=Exception)):
             self.client.http.request = Mock(side_effect=socket.error)
             self.assertRaises(etcd.EtcdException, rtry, self.client.api_execute, '/', 'GET', params={'retry': rtry})
+
+        with patch.object(Client, '_calculate_timeouts', Mock(side_effect=[(1, 1, 0), (1, 1, 0), (0, 1, 0)])),\
+                patch.object(Client, '_load_machines_cache', Mock(return_value=True)):
+            self.assertRaises(etcd.EtcdException, rtry, self.client.api_execute, '/', 'GET', params={'retry': rtry})
+
         with patch.object(Client, '_do_http_request', Mock(side_effect=etcd.EtcdException)):
-            self.client._read_timeout = 0
+            self.client._read_timeout = 0.01
             self.assertRaises(etcd.EtcdException, self.client.api_execute, '/', 'GET')
 
     def test_get_srv_record(self):

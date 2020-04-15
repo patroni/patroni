@@ -11,6 +11,7 @@ import time
 
 from dns.exception import DNSException
 from dns import resolver
+from urllib3 import Timeout
 from urllib3.exceptions import HTTPError, ReadTimeoutError, ProtocolError
 from six.moves.queue import Queue
 from six.moves.http_client import HTTPException
@@ -137,7 +138,7 @@ class Client(etcd.Client):
             kwargs.update(retries=0, timeout=timeout)
         else:
             _, per_node_timeout, per_node_retries = self._calculate_timeouts(etcd_nodes)
-            kwargs.update(timeout=per_node_timeout, retries=per_node_retries)
+            kwargs.update(timeout=Timeout(connect=1, total=per_node_timeout), retries=per_node_retries)
         return kwargs
 
     def set_machines_cache_ttl(self, cache_ttl):
@@ -160,7 +161,7 @@ class Client(etcd.Client):
         Also this method implements the same timeout-retry logic as `api_execute`, because
         the original method was retrying 2 times with the `read_timeout` on each node."""
 
-        machines_cache = list(self.machines_cache)
+        machines_cache = self.machines_cache
         kwargs = self._build_request_parameters(len(machines_cache))
 
         for base_uri in machines_cache:
@@ -237,7 +238,7 @@ class Client(etcd.Client):
         elif not self._use_proxies and time.time() - self._machines_cache_updated > self._machines_cache_ttl:
             self._refresh_machines_cache()
 
-        machines_cache = list(self.machines_cache)
+        machines_cache = self.machines_cache
         etcd_nodes = len(machines_cache)
         kwargs.update(self._build_request_parameters(etcd_nodes, timeout))
 
@@ -249,7 +250,9 @@ class Client(etcd.Client):
                 raise
             except etcd.EtcdConnectionFailed:
                 try:
-                    self._load_machines_cache()
+                    if self._load_machines_cache():
+                        machines_cache = self.machines_cache
+                        etcd_nodes = len(machines_cache)
                 except Exception as e:
                     logger.debug('Failed to update list of etcd nodes')
                 sleeptime = retry.sleeptime
@@ -261,7 +264,7 @@ class Client(etcd.Client):
                 retry.sleep_func(sleeptime)
                 retry.update_delay()
                 # We still have some time left. Partially reduce `machines_cache` and retry request
-                kwargs.update(timeout=timeout, retries=retries)
+                kwargs.update(timeout=Timeout(connect=1, total=timeout), retries=retries)
                 machines_cache = machines_cache[:nodes]
 
     @staticmethod
@@ -343,13 +346,15 @@ class Client(etcd.Client):
         # topology (list of hosts in the Patroni config or DNS records, A or SRV) we might get into the situation
         # the the real topology doesn't match anymore with the topology resolved from the configuration file.
         # In case if the "initial" topology is the same as before we will not override the `_machines_cache`.
-        if set(machines_cache) != set(self._initial_machines_cache):
+        ret = set(machines_cache) != set(self._initial_machines_cache)
+        if ret:
             self._initial_machines_cache = self._machines_cache = machines_cache
 
             # After filling up the initial list of machines_cache we should ask etcd-cluster about actual list
             self._refresh_machines_cache(True)
 
         self._update_machines_cache = False
+        return ret
 
     def _refresh_machines_cache(self, updating_cache=False):
         if self._use_proxies:
