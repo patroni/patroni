@@ -19,11 +19,11 @@ def data_directory_empty(data_dir):
 
 def validate_connect_address(address):
     try:
-        host, _ = split_host_port(address, None)
-    except (ValueError, TypeError):
+        host, _ = split_host_port(address, 1)
+    except (AttributeError, TypeError, ValueError):
         raise ConfigParseError("contains a wrong value")
-    if host in ["127.0.0.1", "0.0.0.0", "*", "::1"]:
-        raise ConfigParseError('must not contain "127.0.0.1", "0.0.0.0", "*", "::1"')
+    if host in ["127.0.0.1", "0.0.0.0", "*", "::1", "localhost"]:
+        raise ConfigParseError('must not contain "127.0.0.1", "0.0.0.0", "*", "::1", "localhost"')
     return True
 
 
@@ -110,8 +110,8 @@ def validate_data_dir(data_dir):
             bin_dir = schema.data.get("postgresql", {}).get("bin_dir", None)
             major_version = get_major_version(bin_dir)
             if pgversion != major_version:
-                raise ConfigParseError("data_dir directory postgresql version ({}) doesn't match"
-                                       "with 'postgres --version' output ({})".format(pgversion, major_version))
+                raise ConfigParseError("data_dir directory postgresql version ({}) doesn't match with "
+                                       "'postgres --version' output ({})".format(pgversion, major_version))
     return True
 
 

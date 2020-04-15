@@ -10,6 +10,7 @@ from .version import __version__
 logger = logging.getLogger(__name__)
 
 PATRONI_ENV_PREFIX = 'PATRONI_'
+KUBERNETES_ENV_PREFIX = 'KUBERNETES_'
 
 
 class Patroni(AbstractPatroniDaemon):
@@ -130,7 +131,10 @@ class Patroni(AbstractPatroniDaemon):
 
 
 def patroni_main():
+    from multiprocessing import freeze_support
     from patroni.validator import schema
+
+    freeze_support()
     abstract_main(Patroni, schema)
 
 

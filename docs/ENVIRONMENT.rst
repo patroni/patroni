@@ -35,8 +35,8 @@ Example: defining ``PATRONI_admin_PASSWORD=strongpasswd`` and ``PATRONI_admin_OP
 
 Consul
 ------
--  **PATRONI\_CONSUL\_HOST**: the host:port for the Consul endpoint.
--  **PATRONI\_CONSUL\_URL**: url for the Consul, in format: http(s)://host:port
+-  **PATRONI\_CONSUL\_HOST**: the host:port for the Consul local agent.
+-  **PATRONI\_CONSUL\_URL**: url for the Consul local agent, in format: http(s)://host:port
 -  **PATRONI\_CONSUL\_PORT**: (optional) Consul port
 -  **PATRONI\_CONSUL\_SCHEME**: (optional) **http** or **https**, defaults to **http**
 -  **PATRONI\_CONSUL\_TOKEN**: (optional) ACL token

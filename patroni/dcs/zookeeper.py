@@ -76,7 +76,7 @@ class ZooKeeper(AbstractDCS):
 
         self._client.start()
 
-    def _kazoo_connect(self, host, port):
+    def _kazoo_connect(self, *args):
         """Kazoo is using Ping's to determine health of connection to zookeeper. If there is no
         response on Ping after Ping interval (1/2 from read_timeout) it will consider current
         connection dead and try to connect to another node. Without this "magic" it was taking
@@ -88,7 +88,7 @@ class ZooKeeper(AbstractDCS):
         than loop_wait, because we can spend up to 2 seconds when calling `touch_member()` and
         `write_leader_optime()` methods, which also may hang..."""
 
-        ret = self._orig_kazoo_connect(host, port)
+        ret = self._orig_kazoo_connect(*args)
         return max(self.loop_wait - 2, 2)*1000, ret[1]
 
     def session_listener(self, state):

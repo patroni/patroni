@@ -53,10 +53,7 @@ class HTTPClient(object):
                 kwargs['cert_file'] = cert
         if ca_cert:
             kwargs['ca_certs'] = ca_cert
-        if verify or ca_cert:
-            kwargs['cert_reqs'] = ssl.CERT_REQUIRED
-        else:
-            kwargs['cert_reqs'] = ssl.CERT_NONE
+        kwargs['cert_reqs'] = ssl.CERT_REQUIRED if verify or ca_cert else ssl.CERT_NONE
         self.http = urllib3.PoolManager(num_pools=10, **kwargs)
         self._ttl = None
 
