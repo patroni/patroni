@@ -1,10 +1,10 @@
 global
-	maxconn 100
+	maxconn 2000
 
 defaults
 	log	global
 	mode	tcp
-	retries 2
+	retries	2
 	timeout client 30m
 	timeout connect 4s
 	timeout server 30m
@@ -21,12 +21,12 @@ listen master
 	option httpchk OPTIONS /master
 	http-check expect status 200
 	default-server inter 3s fall 3 rise 2 on-marked-down shutdown-sessions
-{{range gets "/members/*"}}	server {{base .Key}} {{$data := json .Value}}{{base (replace (index (split $data.conn_url "/") 2) "@" "/" -1)}} maxconn 100 check port {{index (split (index (split $data.api_url "/") 2) ":") 1}}
+{{range gets "/members/*"}}	server {{base .Key}} {{$data := json .Value}}{{base (replace (index (split $data.conn_url "/") 2) "@" "/" -1)}} maxconn 1000 check port {{index (split (index (split $data.api_url "/") 2) ":") 1}}
 {{end}}
 listen replicas
 	bind *:5001
 	option httpchk OPTIONS /replica
 	http-check expect status 200
 	default-server inter 3s fall 3 rise 2 on-marked-down shutdown-sessions
-{{range gets "/members/*"}}	server {{base .Key}} {{$data := json .Value}}{{base (replace (index (split $data.conn_url "/") 2) "@" "/" -1)}} maxconn 100 check port {{index (split (index (split $data.api_url "/") 2) ":") 1}}
+{{range gets "/members/*"}}	server {{base .Key}} {{$data := json .Value}}{{base (replace (index (split $data.conn_url "/") 2) "@" "/" -1)}} maxconn 500 check port {{index (split (index (split $data.api_url "/") 2) ":") 1}}
 {{end}}
