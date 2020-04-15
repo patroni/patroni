@@ -194,14 +194,14 @@ class Client(etcd.Client):
                 response.data.decode('utf-8')
                 self._check_cluster_id(response)
                 if some_request_failed:
-                    self._base_uri = base_uri
+                    self.set_base_uri(base_uri)
                     self._refresh_machines_cache()
                 return response
             except (HTTPError, HTTPException, socket.error, socket.timeout) as e:
                 # switch to the next etcd node because we don't know exactly what happened,
                 # whether the key didn't received an update or there is a network problem.
                 if not retry and i + 1 < len(machines_cache):
-                    self._base_uri = machines_cache[i + 1]
+                    self.set_base_uri(machines_cache[i + 1])
                 if (isinstance(fields, dict) and fields.get("wait") == "true" and
                         isinstance(e, (ReadTimeoutError, ProtocolError))):
                     logger.debug("Watch timed out.")
@@ -363,8 +363,12 @@ class Client(etcd.Client):
                 return
 
         if self._base_uri not in self._machines_cache:
-            self._base_uri = self._machines_cache[0]
+            self.set_base_uri(self._machines_cache[0])
         self._machines_cache_updated = time.time()
+
+    def set_base_uri(self, value):
+        logger.info('Selected new etcd server %s', value)
+        self._base_uri = value
 
 
 class Etcd(AbstractDCS):
