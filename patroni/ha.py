@@ -14,7 +14,7 @@ from patroni.exceptions import DCSError, PostgresConnectionException, PatroniExc
 from patroni.postgresql import ACTION_ON_START, ACTION_ON_ROLE_CHANGE
 from patroni.postgresql.misc import postgres_version_to_int
 from patroni.postgresql.rewind import Rewind
-from patroni.utils import polling_loop, tzutc, is_standby_cluster as _is_standby_cluster
+from patroni.utils import polling_loop, tzutc, is_standby_cluster as _is_standby_cluster, parse_int
 from patroni.dcs import RemoteMember
 from threading import RLock
 
@@ -93,6 +93,11 @@ class Ha(object):
             return self.cluster.check_mode(mode)
         else:
             return self.patroni.config.check_mode(mode)
+
+    def master_stop_timeout(self):
+        """ Master stop timeout """
+        ret = parse_int(self.patroni.config['master_stop_timeout'])
+        return ret if ret and ret > 0 and self.is_synchronous_mode() else None
 
     def is_paused(self):
         return self.check_mode('pause')
@@ -772,7 +777,8 @@ class Ha(object):
 
         self._rewind.trigger_check_diverged_lsn()
         self.state_handler.stop(mode_control['stop'], checkpoint=mode_control['checkpoint'],
-                                on_safepoint=self.watchdog.disable if self.watchdog.is_running else None)
+                                on_safepoint=self.watchdog.disable if self.watchdog.is_running else None,
+                                stop_timeout=self.master_stop_timeout())
         self.state_handler.set_role('demoted')
         self.set_is_leader(False)
 
@@ -1083,7 +1089,7 @@ class Ha(object):
                 return (False, 'restart failed')
 
     def _do_reinitialize(self, cluster):
-        self.state_handler.stop('immediate')
+        self.state_handler.stop('immediate', stop_timeout=self.patroni.config['retry_timeout'])
         # Commented redundant data directory cleanup here
         # self.state_handler.remove_data_directory()
 
@@ -1156,7 +1162,7 @@ class Ha(object):
     def cancel_initialization(self):
         logger.info('removing initialize key after failed attempt to bootstrap the cluster')
         self.dcs.cancel_initialization()
-        self.state_handler.stop('immediate')
+        self.state_handler.stop('immediate', stop_timeout=self.patroni.config['retry_timeout'])
         self.state_handler.move_data_directory()
         raise PatroniException('Failed to bootstrap cluster')
 
@@ -1279,7 +1285,7 @@ class Ha(object):
             # is data directory empty?
             if self.state_handler.data_directory_empty():
                 self.state_handler.set_role('uninitialized')
-                self.state_handler.stop('immediate')
+                self.state_handler.stop('immediate', stop_timeout=self.patroni.config['retry_timeout'])
                 # In case datadir went away while we were master.
                 self.watchdog.disable()
 
@@ -1373,7 +1379,8 @@ class Ha(object):
             # This might not be the desired behavior of users, as a graceful shutdown of the host can mean lost data.
             # We probably need to something smarter here.
             disable_wd = self.watchdog.disable if self.watchdog.is_running else None
-            self.while_not_sync_standby(lambda: self.state_handler.stop(checkpoint=False, on_safepoint=disable_wd))
+            self.while_not_sync_standby(lambda: self.state_handler.stop(checkpoint=False, on_safepoint=disable_wd,
+                                                                        stop_timeout=self.master_stop_timeout()))
             if not self.state_handler.is_running():
                 if self.has_lock():
                     self.dcs.delete_leader()

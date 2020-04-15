@@ -614,6 +614,7 @@ class ConfigHandler(object):
                 values[match.group(1)] = [value, True]
             self._recovery_conf_mtime = recovery_conf_mtime
         values.setdefault('recovery_min_apply_delay', ['0', True])
+        values['recovery_min_apply_delay'][0] = parse_int(values['recovery_min_apply_delay'][0], 'ms')
         values.update({param: ['', True] for param in self._recovery_parameters_to_compare if param not in values})
         return values, True
 
@@ -651,7 +652,7 @@ class ConfigHandler(object):
             else:
                 return False
 
-        return all(primary_conninfo.get(p) == str(v) for p, v in wanted_primary_conninfo.items())
+        return all(primary_conninfo.get(p) == str(v) for p, v in wanted_primary_conninfo.items() if v is not None)
 
     def check_recovery_conf(self, member):
         """Returns a tuple. The first boolean element indicates that recovery params don't match
