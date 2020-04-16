@@ -105,6 +105,42 @@ class PostmasterProcess(psutil.Process):
         except psutil.NoSuchProcess:
             return None
 
+    def signal_kill(self):
+        """to suspend and kill postmaster and all children
+
+        :returns True if postmaster and children are killed, False if error
+        """
+        try:
+            self.suspend()
+        except psutil.NoSuchProcess:
+            return True
+        except psutil.Error as e:
+            logger.warning('Failed to suspend postmaster: %s', e)
+
+        try:
+            children = self.children(recursive=True)
+        except psutil.NoSuchProcess:
+            return True
+        except psutil.Error as e:
+            logger.warning('Failed to get a list of postmaster children: %s', e)
+            children = []
+
+        try:
+            self.kill()
+        except psutil.NoSuchProcess:
+            return True
+        except psutil.Error as e:
+            logger.warning('Could not kill postmaster: %s', e)
+            return False
+
+        for child in children:
+            try:
+                child.kill()
+            except psutil.Error:
+                pass
+        psutil.wait_procs(children + [self])
+        return True
+
     def signal_stop(self, mode, pg_ctl='pg_ctl'):
         """Signal postmaster process to stop
 
