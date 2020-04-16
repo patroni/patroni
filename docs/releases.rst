@@ -67,7 +67,7 @@ Version 1.6.5
 
   It is mostly necessary to avoid flooding logs, but also helps to prevent starvation of the main thread.
 
-- Retry if the ``retry-after`` http header is set (Alexander)
+- Retry if the ``retry-after`` http header is returned by K8s API (Alexander)
 
   If the K8s API server is overwhelmed with requests it might ask to retry.
 
@@ -77,7 +77,7 @@ Version 1.6.5
 
 - Clean up tablespaces on reinitialize (Krishna)
 
-  During reinit, Patroni was removing only ``PGDATA`` and leaving user-defined tablespace directories. This is causing Patroni to loop in reinit. The previous workarond for the problem was implementing the :ref:`custom_bootstrap <custom_bootstrap>` script.
+  During reinit, Patroni was removing only ``PGDATA`` and leaving user-defined tablespace directories. This is causing Patroni to loop in reinit. The previous workarond for the problem was implementing the :ref:`custom bootstrap <custom_bootstrap>` script.
 
 
 **Bugfixes**
