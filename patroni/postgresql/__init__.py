@@ -679,7 +679,7 @@ class Postgresql(object):
     def get_master_timeline(self):
         return self._cluster_info_state_get('timeline')
 
-    def get_history(self, timeline, max_timelines=0):
+    def get_history(self, timeline):
         history_path = 'pg_{0}/{1:08X}.history'.format(self.wal_name, timeline)
         try:
             cursor = self._connection.cursor()
@@ -690,7 +690,7 @@ class Postgresql(object):
                 history = list(parse_history(cursor.fetchone()[0]))
                 if history[-1][0] == timeline - 1:
                     history[-1].append(modification.isoformat())
-                return history[-max_timelines:]
+                return history
         except Exception:
             logger.exception('Failed to read and parse %s', (history_path,))
 
