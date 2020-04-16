@@ -1,6 +1,5 @@
 import mock  # for the mock.call method, importing it without a namespace breaks python3
 import os
-import psutil
 import psycopg2
 import re
 import subprocess
@@ -178,17 +177,6 @@ class TestPostgresql(BaseTestPostgresql):
         mock_callback.assert_called()
         mock_postmaster.signal_stop.assert_called()
 
-        # Timed out waiting for fast shutdown triggers immediate shutdown
-        mock_postmaster.wait.side_effect = [psutil.TimeoutExpired(30), psutil.TimeoutExpired(30), Mock()]
-        mock_callback.reset_mock()
-        self.assertTrue(self.p.stop(on_safepoint=mock_callback, stop_timeout=30))
-        mock_callback.assert_called()
-        mock_postmaster.signal_stop.assert_called()
-
-        # Immediate shutdown succeeded
-        mock_postmaster.wait.side_effect = [psutil.TimeoutExpired(30), Mock()]
-        self.assertTrue(self.p.stop(on_safepoint=mock_callback, stop_timeout=30))
-
         # Stop signal failed
         mock_postmaster.signal_stop.return_value = False
         self.assertFalse(self.p.stop())
@@ -198,11 +186,6 @@ class TestPostgresql(BaseTestPostgresql):
         mock_callback.reset_mock()
         self.assertTrue(self.p.stop(on_safepoint=mock_callback))
         mock_callback.assert_called()
-
-        # Fast shutdown is timed out but when immediate postmaster is already gone
-        mock_postmaster.wait.side_effect = [psutil.TimeoutExpired(30), Mock()]
-        mock_postmaster.signal_stop.side_effect = [None, True]
-        self.assertTrue(self.p.stop(on_safepoint=mock_callback, stop_timeout=30))
 
     def test_restart(self):
         self.p.start = Mock(return_value=False)
@@ -220,7 +203,7 @@ class TestPostgresql(BaseTestPostgresql):
             self.assertEqual(self.p.checkpoint({'user': 'postgres'}), 'is_in_recovery=true')
         with patch.object(MockCursor, 'execute', Mock(return_value=None)):
             self.assertIsNone(self.p.checkpoint())
-        self.assertEqual(self.p.checkpoint(timeout=10), 'not accessible or not healty')
+        self.assertEqual(self.p.checkpoint(), 'not accessible or not healty')
 
     @patch('patroni.postgresql.config.mtime', mock_mtime)
     @patch('patroni.postgresql.config.ConfigHandler._get_pg_settings')

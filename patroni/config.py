@@ -59,7 +59,6 @@ class Config(object):
         'maximum_lag_on_failover': 1048576,
         'check_timeline': False,
         'master_start_timeout': 300,
-        'master_stop_timeout': 0,
         'synchronous_mode': False,
         'synchronous_mode_strict': False,
         'standby_cluster': {
