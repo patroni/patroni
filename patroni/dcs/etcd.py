@@ -70,6 +70,9 @@ class DnsCachingResolver(Thread):
     def resolve_async(self, host, port, attempt=0):
         self._resolve_queue.put(((host, port), attempt))
 
+    def remove(self, host, port):
+        self._cache.pop((host, port), None)
+
     @staticmethod
     def _do_resolve(host, port):
         try:
@@ -172,10 +175,7 @@ class Client(etcd.Client):
                 logger.debug("Retrieved list of machines: %s", machines)
                 if machines:
                     random.shuffle(machines)
-                    for url in machines:
-                        r = urlparse(url)
-                        port = r.port or (443 if r.scheme == 'https' else 80)
-                        self._dns_resolver.resolve_async(r.hostname, port)
+                    self._update_dns_cache(self._dns_resolver.resolve_async, machines)
                     return machines
             except Exception as e:
                 self.http.clear()
@@ -326,6 +326,13 @@ class Client(etcd.Client):
             machines_cache = self._get_machines_cache_from_dns(self._config['host'], self._config['port'])
         return machines_cache
 
+    @staticmethod
+    def _update_dns_cache(func, machines):
+        for url in machines:
+            r = urlparse(url)
+            port = r.port or (443 if r.scheme == 'https' else 80)
+            func(r.hostname, port)
+
     def _load_machines_cache(self):
         """This method should fill up `_machines_cache` from scratch.
         It could happen only in two cases:
@@ -341,6 +348,9 @@ class Client(etcd.Client):
         # Can not bootstrap list of etcd-cluster members, giving up
         if not machines_cache:
             raise etcd.EtcdException
+
+        # enforce resolving dns name,they might get new ips
+        self._update_dns_cache(self._dns_resolver.remove, machines_cache)
 
         # The etcd cluster could change its topology over time and depending on how we resolve the initial
         # topology (list of hosts in the Patroni config or DNS records, A or SRV) we might get into the situation
