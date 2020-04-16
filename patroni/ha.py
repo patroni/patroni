@@ -576,7 +576,16 @@ class Ha(object):
                 self._async_executor.try_run_async('promote', self.state_handler.promote,
                                                    args=(self.dcs.loop_wait, on_success,
                                                          self._leader_access_is_restricted))
+                self._async_executor.run_async(self._do_checkpoint_after_promote)
+
             return promote_message
+
+    def _do_checkpoint_after_promote(self):
+        for _ in polling_loop(timeout=self.dcs.loop_wait*2, interval=2):
+            if self.state_handler.is_leader() and self._async_executor.scheduled_action != 'promote':
+                self.state_handler.checkpoint()
+                break
+        return None
 
     def fetch_node_status(self, member):
         """This function perform http get request on member.api_url and fetches its status
