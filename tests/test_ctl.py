@@ -30,9 +30,9 @@ def test_rw_config():
         os.rmdir(CONFIG_PATH)
 
 
-@patch('patroni.ctl.load_config',
-       Mock(return_value={'scope': 'alpha', 'postgresql': {'data_dir': '.', 'parameters': {}, 'retry_timeout': 5},
-                          'restapi': {'listen': '::', 'certfile': 'a'}, 'etcd': {'host': 'localhost:2379'}}))
+@patch('patroni.ctl.load_config', Mock(return_value={
+    'scope': 'alpha', 'restapi': {'listen': '::', 'certfile': 'a'}, 'etcd': {'host': 'localhost:2379'},
+    'postgresql': {'data_dir': '.', 'pgpass': './pgpass', 'parameters': {}, 'retry_timeout': 5}}))
 class TestCtl(unittest.TestCase):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
