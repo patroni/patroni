@@ -174,6 +174,7 @@ def run_async(self, func, args=()):
 @patch('patroni.async_executor.AsyncExecutor.run_async', run_async)
 @patch('subprocess.call', Mock(return_value=0))
 @patch('time.sleep', Mock())
+@patch.object(Ha, '_do_checkpoint_after_promote', Mock(return_value=None))
 class TestHa(PostgresInit):
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
