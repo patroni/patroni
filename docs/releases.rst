@@ -10,7 +10,7 @@ Version 1.6.5
 
 - Master stop timeout (Krishna Sarabu)
 
-  The number of seconds Patroni is allowed to wait when stopping Postgres and effective only when ``synchronous_mode`` is enabled. When set to value greater than 0 and the ``synchronous_mode`` is enabled, Patroni sends ``SIGKILL`` to the postmaster if the stop operation is running for more than the value set by ``master_stop_timeout``. Set the value according to your durability/availability tradeoff. If the parameter is not set or set to non-positive value, ``master_stop_timeout`` does not apply.
+  The number of seconds Patroni is allowed to wait when stopping Postgres. Effective only when ``synchronous_mode`` is enabled. When set to value greater than 0 and the ``synchronous_mode`` is enabled, Patroni sends ``SIGKILL`` to the postmaster if the stop operation is running for more than the value set by ``master_stop_timeout``. Set the value according to your durability/availability tradeoff. If the parameter is not set or set to non-positive value, ``master_stop_timeout`` does not have an effect.
 
 - Don't create permanent physical slot with name of the primary (Alexander Kukushkin)
 
@@ -20,9 +20,9 @@ Version 1.6.5
 
   Use ``patroni --validate-config patroni.yaml`` in order to validate Patroni configuration.
 
-- Possibility to configure max timelines history (Krishna)
+- Possibility to configure max length of timelines history (Krishna)
 
-  Patroni writes the history of failovers/switchovers into the ``/history`` key in DCS. Over time the size of this key becomes big, but in most cases only a few last lines are interesting. The ``max_timelines_history`` parameter allows to specifiy the maximum timelines history should be kept in DCS.
+  Patroni writes the history of failovers/switchovers into the ``/history`` key in DCS. Over time the size of this key becomes big, but in most cases only the last few lines are interesting. The ``max_timelines_history`` parameter allows to specify the maximum number of timeline history items to be kept in DCS.
 
 - Kazoo 2.7.0 compatibility (Danyal Prout)
 
@@ -35,9 +35,9 @@ Version 1.6.5
 
   Tags are configured individually for every node and there was no easy way to get an overview of them
 
-- Improve membes output (Alexander)
+- Improve members output (Alexander)
 
-  The redundant cluster name won't be shown anymore on every line, but only in the table header.
+  The redundant cluster name won't be shown anymore on every line, only in the table header.
 
 .. code-block:: bash
 
@@ -54,20 +54,20 @@ Version 1.6.5
 
 - Fail if a config file is specified explicitly but not found (Kaarel Moppel)
 
-  Previously ``patronictl`` was only reporting `DEBUG` message.
+  Previously ``patronictl`` was only reporting a ``DEBUG`` message.
 
 - Solved the problem of not initialized K8s pod breaking patronictl (Alexander)
 
-  Patroni is relying on certain pod annotations on K8s. When one of the Patroni pods is stopping or starting there is no valid annotation yet and `patronictl`` was failing with exception.
+  Patroni is relying on certain pod annotations on K8s. When one of the Patroni pods is stopping or starting there is no valid annotation yet and ``patronictl`` was failing with an exception.
 
 
 **Stability improvements**
 
-- Apply 1 second backoff if LIST call do K8s API server failed (Alexander)
+- Apply 1 second backoff if LIST call to K8s API server failed (Alexander)
 
   It is mostly necessary to avoid flooding logs, but also helps to prevent starvation of the main thread.
 
-- Retry if the ``retry-after`` http header is returned by K8s API (Alexander)
+- Retry if the ``retry-after`` HTTP header is returned by K8s API (Alexander)
 
   If the K8s API server is overwhelmed with requests it might ask to retry.
 
@@ -82,21 +82,21 @@ Version 1.6.5
 
 **Bugfixes**
 
-- Disable SSL verification for Consul when it is required (Julien Riou)
+- Disable SSL verification for Consul when required (Julien Riou)
 
-  Starting from certain version of ``urllib3``, the ``cert_reqs`` must be explicitly set ``ssl.CERT_NONE`` in order to effectively disable SSL verification.
+  Starting from a certain version of ``urllib3``, the ``cert_reqs`` must be explicitly set to ``ssl.CERT_NONE`` in order to effectively disable SSL verification.
 
 - Avoid opening replication connection on every cycle of HA loop (Alexander)
 
-  Regression was introduced in the ``1.6.4``.
+  Regression was introduced in 1.6.4.
 
 - Call ``on_role_change`` callback on failed primary (Alexander)
 
-  In certain cases it could lead to VIP remining attached to the old primary. Regression was introduced in the ``1.4.5``.
+  In certain cases it could lead to the virtual IP remaining attached to the old primary. Regression was introduced in 1.4.5.
 
 - Reset rewind state if postgres started after successful pg_rewind (Alexander)
 
-  As a result of bug Patroni was starting up manually shut down postgres in the pause mode.
+  As a result of this bug Patroni was starting up manually shut down postgres in the pause mode.
 
 - Convert ``recovery_min_apply_delay`` to ``ms`` when checking ``recovery.conf``
 
@@ -104,7 +104,7 @@ Version 1.6.5
 
 - PyInstaller compatibility (Alexander)
 
-  PyInstaller freezes (packages) Python applications into stand-alone executables. The compatibility was broken when we switched to ``spawn`` method instead of ``fork`` for ``multiprocessing``.
+  PyInstaller freezes (packages) Python applications into stand-alone executables. The compatibility was broken when we switched to the ``spawn`` method instead of ``fork`` for ``multiprocessing``.
 
 
 Version 1.6.4
