@@ -412,6 +412,10 @@ class TestPostgresql(BaseTestPostgresql):
                     pass
         os.makedirs(os.path.join(self.p.data_dir, 'foo'))
         _symlink('foo', os.path.join(self.p.data_dir, 'pg_wal'))
+        os.makedirs(os.path.join(self.p.data_dir, 'foo_tsp'))
+        pg_tblspc = os.path.join(self.p.data_dir, 'pg_tblspc')
+        os.makedirs(pg_tblspc)
+        _symlink('../foo_tsp', os.path.join(pg_tblspc, '12345'))
         self.p.remove_data_directory()
         open(self.p.data_dir, 'w').close()
         self.p.remove_data_directory()
