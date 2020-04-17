@@ -944,7 +944,7 @@ class Ha(object):
                     return msg
 
                 # check if the node is ready to be used by pg_rewind
-                self._rewind.check_for_checkpoint_after_promote()
+                self._rewind.ensure_checkpoint_after_promote()
 
                 if self.is_standby_cluster():
                     # in case of standby cluster we don't really need to
