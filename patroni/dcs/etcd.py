@@ -255,7 +255,7 @@ class Client(etcd.Client):
                         machines_cache = self.machines_cache
                         etcd_nodes = len(machines_cache)
                 except Exception as e:
-                    logger.debug('Failed to update list of etcd nodes')
+                    logger.debug('Failed to update list of etcd nodes: %r', e)
                 sleeptime = retry.sleeptime
                 remaining_time = retry.stoptime - sleeptime - time.time()
                 nodes, timeout, retries = self._calculate_timeouts(etcd_nodes, remaining_time)
