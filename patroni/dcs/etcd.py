@@ -141,7 +141,8 @@ class Client(etcd.Client):
             kwargs.update(retries=0, timeout=timeout)
         else:
             _, per_node_timeout, per_node_retries = self._calculate_timeouts(etcd_nodes)
-            kwargs.update(timeout=Timeout(connect=1, total=per_node_timeout), retries=per_node_retries)
+            connect_timeout = max(1, per_node_timeout/2)
+            kwargs.update(timeout=Timeout(connect=connect_timeout, total=per_node_timeout), retries=per_node_retries)
         return kwargs
 
     def set_machines_cache_ttl(self, cache_ttl):
@@ -264,7 +265,7 @@ class Client(etcd.Client):
                 retry.sleep_func(sleeptime)
                 retry.update_delay()
                 # We still have some time left. Partially reduce `machines_cache` and retry request
-                kwargs.update(timeout=Timeout(connect=1, total=timeout), retries=retries)
+                kwargs.update(timeout=Timeout(connect=max(1, timeout/2), total=timeout), retries=retries)
                 machines_cache = machines_cache[:nodes]
 
     @staticmethod
