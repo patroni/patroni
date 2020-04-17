@@ -249,7 +249,7 @@ class Client(etcd.Client):
                 return self._handle_server_response(response)
             except etcd.EtcdWatchTimedOut:
                 raise
-            except etcd.EtcdConnectionFailed:
+            except etcd.EtcdConnectionFailed as ex:
                 try:
                     if self._load_machines_cache():
                         machines_cache = self.machines_cache
@@ -261,7 +261,7 @@ class Client(etcd.Client):
                 nodes, timeout, retries = self._calculate_timeouts(etcd_nodes, remaining_time)
                 if nodes == 0:
                     self._update_machines_cache = True
-                    raise
+                    raise ex
                 retry.sleep_func(sleeptime)
                 retry.update_delay()
                 # We still have some time left. Partially reduce `machines_cache` and retry request
