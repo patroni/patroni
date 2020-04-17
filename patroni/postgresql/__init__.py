@@ -17,7 +17,7 @@ from patroni.postgresql.misc import parse_history, postgres_major_version_to_int
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.slots import SlotsHandler
 from patroni.exceptions import PostgresConnectionException
-from patroni.utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty
+from patroni.utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty, parse_int
 from threading import current_thread, Lock
 from psutil import TimeoutExpired
 
@@ -821,6 +821,15 @@ class Postgresql(object):
                         pg_wal_realpath = os.path.realpath(pg_wal_path)
                         logger.info('Removing WAL directory: %s', pg_wal_realpath)
                         shutil.rmtree(pg_wal_realpath)
+                # Remove user defined tablespace directory
+                pg_tblsp_dir = os.path.join(self._data_dir, 'pg_tblspc')
+                if os.path.exists(pg_tblsp_dir):
+                    for tsdn in os.listdir(pg_tblsp_dir):
+                        pg_tsp_path = os.path.join(pg_tblsp_dir, tsdn)
+                        if parse_int(tsdn) and os.path.islink(pg_tsp_path):
+                            pg_tsp_rpath = os.path.realpath(pg_tsp_path)
+                            logger.info('Removing user defined tablespace directory: %s', pg_tsp_rpath)
+                            shutil.rmtree(pg_tsp_rpath, ignore_errors=True)
 
                 shutil.rmtree(self._data_dir)
         except (IOError, OSError):
