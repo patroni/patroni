@@ -79,6 +79,18 @@ Version 1.6.5
 
   During reinit, Patroni was removing only ``PGDATA`` and leaving user-defined tablespace directories. This is causing Patroni to loop in reinit. The previous workarond for the problem was implementing the :ref:`custom bootstrap <custom_bootstrap>` script.
 
+- Explicitely execute the ``CHEKPOINT`` after promote happened (Alexander)
+
+  It helps to reduce a time before the new primary is usable for ``pg_rewind``.
+
+- Smart refresh of Etcd members (Alexander)
+
+  In case if Patroni failed to execute a request on all members of Etcd cluster Patroni will re-check ``A`` or ``SRV`` records for changes of ips/hosts before retrying the next time.
+
+- Skip missing values from ``pg_controldata`` (Feike)
+
+  Values are missing when trying to use binaries which version doesn't match with PGDATA. Patroni will try to start postgres anyway, and postgres will complain that major version doesn't match and abort with the error.
+
 
 **Bugfixes**
 
