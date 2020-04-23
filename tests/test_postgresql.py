@@ -716,7 +716,6 @@ class TestPostgresql(BaseTestPostgresql):
         with patch.object(Postgresql, 'controldata',
                           Mock(return_value={'max_connections setting': '200',
                                              'max_worker_processes setting': '20',
-                                             'max_prepared_xacts setting': '100',
                                              'max_locks_per_xact setting': '100',
                                              'max_wal_senders setting': 10})):
             self.p.cancellable.cancel()
