@@ -664,7 +664,7 @@ class Postgresql(object):
                 data = subprocess.check_output([self.pgcommand('pg_controldata'), self._data_dir], env=env)
                 if data:
                     data = data.decode('utf-8').splitlines()
-                    # pg_controldata output depends on major verion. Some of parameters are prefixed by 'Current '
+                    # pg_controldata output depends on major version. Some of parameters are prefixed by 'Current '
                     result = {l.split(':')[0].replace('Current ', '', 1): l.split(':', 1)[1].strip() for l in data
                               if l and ':' in l}
             except subprocess.CalledProcessError:
