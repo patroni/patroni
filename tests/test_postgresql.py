@@ -412,6 +412,10 @@ class TestPostgresql(BaseTestPostgresql):
                     pass
         os.makedirs(os.path.join(self.p.data_dir, 'foo'))
         _symlink('foo', os.path.join(self.p.data_dir, 'pg_wal'))
+        os.makedirs(os.path.join(self.p.data_dir, 'foo_tsp'))
+        pg_tblspc = os.path.join(self.p.data_dir, 'pg_tblspc')
+        os.makedirs(pg_tblspc)
+        _symlink('../foo_tsp', os.path.join(pg_tblspc, '12345'))
         self.p.remove_data_directory()
         open(self.p.data_dir, 'w').close()
         self.p.remove_data_directory()
@@ -712,7 +716,6 @@ class TestPostgresql(BaseTestPostgresql):
         with patch.object(Postgresql, 'controldata',
                           Mock(return_value={'max_connections setting': '200',
                                              'max_worker_processes setting': '20',
-                                             'max_prepared_xacts setting': '100',
                                              'max_locks_per_xact setting': '100',
                                              'max_wal_senders setting': 10})):
             self.p.cancellable.cancel()
