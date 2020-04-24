@@ -140,7 +140,7 @@ class AbstractEtcdClientWithFailover(etcd.Client):
         basic_auth = ':'.join((self.username, self.password)) if self.username and self.password else None
         return urllib3.make_headers(basic_auth=basic_auth, user_agent=USER_AGENT)
 
-    def _build_request_parameters(self, etcd_nodes, timeout=None):
+    def _prepare_common_parameters(self, etcd_nodes, timeout=None):
         kwargs = {'headers': self._get_headers(), 'redirect': self.allow_redirect, 'preload_content': False}
 
         if timeout is not None:
@@ -232,8 +232,8 @@ class AbstractEtcdClientWithFailover(etcd.Client):
         raise etcd.EtcdConnectionFailed('No more machines in the cluster')
 
     @abc.abstractmethod
-    def _prepare_request(self, etcd_nodes, params=None, timeout=None):
-        """returns: a tuple of request_executor and kwargs"""
+    def _prepare_request(self, kwargs, params=None, method=None):
+        """returns: request_executor"""
 
     def api_execute(self, path, method, params=None, timeout=None):
         retry = params.pop('retry', None) if isinstance(params, dict) else None
@@ -247,9 +247,8 @@ class AbstractEtcdClientWithFailover(etcd.Client):
         machines_cache = self.machines_cache
         etcd_nodes = len(machines_cache)
 
-        request_executor, kwargs = self._prepare_request(etcd_nodes, params, timeout)
-        if method not in (self._MPOST, self._MPUT) and 'encode_multipart' in kwargs:
-            del kwargs['encode_multipart']
+        kwargs = self._prepare_common_parameters(etcd_nodes, timeout)
+        request_executor = self._prepare_request(kwargs, params, method)
 
         while True:
             try:
@@ -409,17 +408,18 @@ class EtcdClient(AbstractEtcdClientWithFailover):
                 pass
 
     def _prepare_get_members(self, etcd_nodes):
-        return self._prepare_request(etcd_nodes)[1]
+        return self._prepare_common_parameters(etcd_nodes)
 
     def _get_members(self, base_uri, **kwargs):
         response = self.http.request(self._MGET, base_uri + self.version_prefix + '/machines', **kwargs)
         data = self._handle_server_response(response).data.decode('utf-8')
         return [m.strip() for m in data.split(',') if m.strip()]
 
-    def _prepare_request(self, etcd_nodes, params=None, timeout=None):
-        kwargs = self._build_request_parameters(etcd_nodes, timeout)
-        kwargs.update({'fields': params, 'encode_multipart': False})
-        return self.http.request, kwargs
+    def _prepare_request(self, kwargs, params=None, method=None):
+        kwargs['fields'] = params
+        if method in (self._MPOST, self._MPUT):
+            kwargs['encode_multipart'] = False
+        return self.http.request
 
 
 class AbstractEtcd(AbstractDCS):

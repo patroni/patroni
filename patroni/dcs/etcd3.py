@@ -193,12 +193,11 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
             headers['authorization'] = self._token
         return headers
 
-    def _prepare_request(self, etcd_nodes, params=None, timeout=None):
-        kwargs = self._build_request_parameters(etcd_nodes, timeout)
+    def _prepare_request(self, kwargs, params=None, method=None):
         if params is not None:
             kwargs['body'] = json.dumps(params)
             kwargs['headers']['Content-Type'] = 'application/json'
-        return self.http.urlopen, kwargs
+        return self.http.urlopen
 
     @staticmethod
     def _handle_server_response(response):
@@ -241,7 +240,9 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
                 self.version_prefix = '/v3'
 
     def _prepare_get_members(self, etcd_nodes):
-        return self._prepare_request(etcd_nodes, {})[1]
+        kwargs = self._prepare_common_parameters(etcd_nodes)
+        self._prepare_request(kwargs, {})
+        return kwargs
 
     def _get_members(self, base_uri, **kwargs):
         self._ensure_version_prefix(base_uri, **kwargs)
@@ -344,7 +345,8 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         if start_revision is not None:
             params['start_revision'] = start_revision
         params['filters'] = filters or []
-        request_executor, kwargs = self._prepare_request(1, {'create_request': params}, 1)
+        kwargs = self._prepare_common_parameters(1, self.read_timeout)
+        request_executor = self._prepare_request(kwargs, {'create_request': params})
         kwargs.update(timeout=urllib3.Timeout(connect=kwargs['timeout']), retries=0)
         return request_executor(self._MPOST, self._base_uri + self.version_prefix + '/watch', **kwargs)
 
