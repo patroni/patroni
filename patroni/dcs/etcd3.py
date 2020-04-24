@@ -164,7 +164,6 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
     def __init__(self, config, dns_resolver, cache_ttl=300):
         self._token = None
         self._cluster_version = None
-        self._prev_base_uri = None
         self.version_prefix = '/v3beta'
         super(Etcd3Client, self).__init__(config, dns_resolver, cache_ttl)
 
@@ -216,7 +215,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
 
     def _ensure_version_prefix(self, base_uri, **kwargs):
         if self.version_prefix != '/v3':
-            response = self.http.urlopen(self._MGET, self._base_uri + '/version', **kwargs)
+            response = self.http.urlopen(self._MGET, base_uri + '/version', **kwargs)
             response = self._handle_server_response(response)
 
             server_version_str = response['etcdserver']
@@ -240,7 +239,6 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
                 self.version_prefix = '/v3beta'
             else:
                 self.version_prefix = '/v3'
-        self._prev_base_uri = self._base_uri
 
     def _prepare_get_members(self, etcd_nodes):
         return self._prepare_request(etcd_nodes, {})[1]
