@@ -130,12 +130,11 @@ class TestClient(unittest.TestCase):
             self.client.http.request_encode_body = http_request
 
     def test_machines(self):
-        self.client._base_uri = 'http://localhost:4001'
-        self.client._machines_cache = ['http://localhost:2379']
+        self.client._base_uri = 'http://localhost:4002'
+        self.client._machines_cache = ['http://localhost:4002', 'http://localhost:2379']
         self.assertIsNotNone(self.client.machines)
         self.client._base_uri = 'http://localhost:4001'
-        self.client._machines_cache = []
-        self.assertIsNotNone(self.client.machines)
+        self.client._machines_cache = ['http://localhost:4001']
         self.client._update_machines_cache = True
         machines = None
         try:
@@ -146,25 +145,29 @@ class TestClient(unittest.TestCase):
 
     @patch.object(EtcdClient, 'machines')
     def test_api_execute(self, mock_machines):
-        mock_machines.__get__ = Mock(return_value=['http://localhost:2379'])
+        mock_machines.__get__ = Mock(return_value=['http://localhost:4001', 'http://localhost:2379'])
         self.client._base_uri = 'http://localhost:4001'
-        self.client._machines_cache = ['http://localhost:2379']
         self.assertRaises(etcd.EtcdException, self.client.api_execute, '/', 'POST', timeout=0)
         self.client._base_uri = 'http://localhost:4001'
-        self.client._machines_cache = ['http://localhost:2379']
         rtry = Retry(deadline=10, max_delay=1, max_tries=-1, retry_exceptions=(etcd.EtcdLeaderElectionInProgress,))
         rtry(self.client.api_execute, '/', 'POST', timeout=0, params={'retry': rtry})
-        mock_machines.__get__ = Mock(return_value=['http://localhost:2379'])
         self.client._machines_cache_updated = 0
         self.client.api_execute('/', 'POST', timeout=0)
         self.client._machines_cache = [self.client._base_uri]
         self.assertRaises(etcd.EtcdWatchTimedOut, self.client.api_execute, '/timeout', 'POST', params={'wait': 'true'})
         self.assertRaises(etcd.EtcdWatchTimedOut, self.client.api_execute, '/timeout', 'POST', params={'wait': 'true'})
 
-        with patch.object(EtcdClient, '_do_http_request', Mock(side_effect=etcd.EtcdConnectionFailed)):
-            with patch.object(EtcdClient, '_calculate_timeouts', Mock(side_effect=[(1, 1, 0), (1, 1, 0), (0, 1, 0)])):
-                self.assertRaises(etcd.EtcdException, rtry, self.client.api_execute, '/', 'GET', params={'retry': rtry})
-            self.client._read_timeout = 0
+        with patch.object(EtcdClient, '_calculate_timeouts', Mock(side_effect=[(1, 1, 0), (1, 1, 0), (0, 1, 0)])),\
+                patch.object(EtcdClient, '_load_machines_cache', Mock(side_effect=Exception)):
+            self.client.http.request = Mock(side_effect=socket.error)
+            self.assertRaises(etcd.EtcdException, rtry, self.client.api_execute, '/', 'GET', params={'retry': rtry})
+
+        with patch.object(EtcdClient, '_calculate_timeouts', Mock(side_effect=[(1, 1, 0), (1, 1, 0), (0, 1, 0)])),\
+                patch.object(EtcdClient, '_load_machines_cache', Mock(return_value=True)):
+            self.assertRaises(etcd.EtcdException, rtry, self.client.api_execute, '/', 'GET', params={'retry': rtry})
+
+        with patch.object(EtcdClient, '_do_http_request', Mock(side_effect=etcd.EtcdException)):
+            self.client._read_timeout = 0.01
             self.assertRaises(etcd.EtcdException, self.client.api_execute, '/', 'GET')
 
     def test_get_srv_record(self):
@@ -180,8 +183,12 @@ class TestClient(unittest.TestCase):
         self.client._get_machines_cache_from_dns('error', 2379)
 
     @patch.object(EtcdClient, 'machines')
-    def test__load_machines_cache(self, mock_machines):
-        mock_machines.__get__ = Mock(return_value=['http://localhost:2379'])
+    def test__refresh_machines_cache(self, mock_machines):
+        mock_machines.__get__ = Mock(side_effect=etcd.EtcdConnectionFailed)
+        self.assertIsNone(self.client._refresh_machines_cache())
+        self.assertRaises(etcd.EtcdException, self.client._refresh_machines_cache, True)
+
+    def test__load_machines_cache(self):
         self.client._config = {}
         self.assertRaises(Exception, self.client._load_machines_cache)
         self.client._config = {'srv': 'blabla'}

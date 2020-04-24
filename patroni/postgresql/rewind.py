@@ -2,9 +2,12 @@ import logging
 import os
 import subprocess
 
-from patroni.dcs import Leader
-from patroni.postgresql.connection import get_connection_cursor
-from patroni.postgresql.misc import parse_history, parse_lsn
+from threading import Lock, Thread
+
+from .connection import get_connection_cursor
+from .misc import parse_history, parse_lsn
+from ..async_executor import CriticalTask
+from ..dcs import Leader
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +19,7 @@ class Rewind(object):
 
     def __init__(self, postgresql):
         self._postgresql = postgresql
+        self._checkpoint_task_lock = Lock()
         self.reset_state()
 
     @staticmethod
@@ -131,10 +135,32 @@ class Rewind(object):
             self._check_timeline_and_lsn(leader)
         return leader and leader.conn_url and self._state == REWIND_STATUS.NEED
 
-    def check_for_checkpoint_after_promote(self):
-        if self._state == REWIND_STATUS.INITIAL and self._postgresql.is_leader() and \
-                self._postgresql.get_master_timeline() == self._postgresql.pg_control_timeline():
-            self._state = REWIND_STATUS.CHECKPOINT
+    def __checkpoint(self, task):
+        try:
+            result = self._postgresql.checkpoint()
+        except Exception as e:
+            result = 'Exception: ' + str(e)
+        with task:
+            task.complete(not bool(result))
+
+    def ensure_checkpoint_after_promote(self):
+        """After promote issue a CHECKPOINT from a new thread and asynchronously check the result.
+        In case if CHECKPOINT failed, just check that timeline in pg_control was updated."""
+
+        if self._state == REWIND_STATUS.INITIAL and self._postgresql.is_leader():
+            with self._checkpoint_task_lock:
+                if self._checkpoint_task:
+                    with self._checkpoint_task:
+                        if self._checkpoint_task.result:
+                            self._state = REWIND_STATUS.CHECKPOINT
+                        if self._checkpoint_task.result is not False:
+                            return
+                else:
+                    self._checkpoint_task = CriticalTask()
+                    return Thread(target=self.__checkpoint, args=(self._checkpoint_task,)).start()
+
+            if self._postgresql.get_master_timeline() == self._postgresql.pg_control_timeline():
+                self._state = REWIND_STATUS.CHECKPOINT
 
     def checkpoint_after_promote(self):
         return self._state == REWIND_STATUS.CHECKPOINT
@@ -191,6 +217,8 @@ class Rewind(object):
 
     def reset_state(self):
         self._state = REWIND_STATUS.INITIAL
+        with self._checkpoint_task_lock:
+            self._checkpoint_task = None
 
     @property
     def is_needed(self):

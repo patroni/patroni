@@ -145,17 +145,14 @@ class TestPatroniEtcd3Client(BaseTestEtcd3):
     def test__ensure_version_prefix(self, mock_urlopen):
         self.client.version_prefix = None
         mock_urlopen.return_value = MockResponse()
-        mock_urlopen.return_value.content = '{"etcdserver": "3.0.3", "etcdcluster": "3.0."}'
-        self.client._update_machines_cache = True
-        self.assertRaises(etcd.EtcdException, self.client._refresh_machines_cache)
         mock_urlopen.return_value.content = '{"etcdserver": "3.0.3", "etcdcluster": "3.0.0"}'
-        self.assertRaises(UnsupportedEtcdVersion, self.client._ensure_version_prefix)
+        self.assertRaises(UnsupportedEtcdVersion, self.client._ensure_version_prefix, '')
         mock_urlopen.return_value.content = '{"etcdserver": "3.0.4", "etcdcluster": "3.0.0"}'
-        self.client._ensure_version_prefix()
+        self.client._ensure_version_prefix('')
         self.assertEqual(self.client.version_prefix, '/v3alpha')
         mock_urlopen.return_value.content = '{"etcdserver": "3.4.4", "etcdcluster": "3.4.0"}'
         self.client._prev_base_uri = None
-        self.client._ensure_version_prefix()
+        self.client._ensure_version_prefix('')
         self.assertEqual(self.client.version_prefix, '/v3')
 
 

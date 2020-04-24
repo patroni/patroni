@@ -17,8 +17,9 @@ from patroni.postgresql.misc import parse_history, postgres_major_version_to_int
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.slots import SlotsHandler
 from patroni.exceptions import PostgresConnectionException
-from patroni.utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty
+from patroni.utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty, parse_int
 from threading import current_thread, Lock
+from psutil import TimeoutExpired
 
 
 logger = logging.getLogger(__name__)
@@ -413,7 +414,11 @@ class Postgresql(object):
         self.set_state('starting')
         self._pending_restart = False
 
-        configuration = self.config.effective_configuration
+        try:
+            configuration = self.config.effective_configuration
+        except Exception:
+            return None
+
         self.config.check_directories()
         self.config.write_postgresql_conf(configuration)
         self.config.resolve_connection_addresses()
@@ -458,11 +463,13 @@ class Postgresql(object):
         else:
             return None
 
-    def checkpoint(self, connect_kwargs=None):
+    def checkpoint(self, connect_kwargs=None, timeout=None):
         check_not_is_in_recovery = connect_kwargs is not None
         connect_kwargs = connect_kwargs or self.config.local_connect_kwargs
         for p in ['connect_timeout', 'options']:
             connect_kwargs.pop(p, None)
+        if timeout:
+            connect_kwargs['connect_timeout'] = timeout
         try:
             with get_connection_cursor(**connect_kwargs) as cur:
                 cur.execute("SET statement_timeout = 0")
@@ -475,7 +482,7 @@ class Postgresql(object):
             logger.exception('Exception during CHECKPOINT')
             return 'not accessible or not healty'
 
-    def stop(self, mode='fast', block_callbacks=False, checkpoint=None, on_safepoint=None):
+    def stop(self, mode='fast', block_callbacks=False, checkpoint=None, on_safepoint=None, stop_timeout=None):
         """Stop PostgreSQL
 
         Supports a callback when a safepoint is reached. A safepoint is when no user backend can return a successful
@@ -487,7 +494,7 @@ class Postgresql(object):
         if checkpoint is None:
             checkpoint = False if mode == 'immediate' else True
 
-        success, pg_signaled = self._do_stop(mode, block_callbacks, checkpoint, on_safepoint)
+        success, pg_signaled = self._do_stop(mode, block_callbacks, checkpoint, on_safepoint, stop_timeout)
         if success:
             # block_callbacks is used during restart to avoid
             # running start/stop callbacks in addition to restart ones
@@ -500,7 +507,7 @@ class Postgresql(object):
             self.set_state('stop failed')
         return success
 
-    def _do_stop(self, mode, block_callbacks, checkpoint, on_safepoint):
+    def _do_stop(self, mode, block_callbacks, checkpoint, on_safepoint, stop_timeout):
         postmaster = self.is_running()
         if not postmaster:
             if on_safepoint:
@@ -508,7 +515,7 @@ class Postgresql(object):
             return True, False
 
         if checkpoint and not self.is_starting():
-            self.checkpoint()
+            self.checkpoint(timeout=stop_timeout)
 
         if not block_callbacks:
             self.set_state('stopping')
@@ -527,9 +534,27 @@ class Postgresql(object):
             postmaster.wait_for_user_backends_to_close()
             on_safepoint()
 
-        postmaster.wait()
+        try:
+            postmaster.wait(timeout=stop_timeout)
+        except TimeoutExpired:
+            logger.warning("Timeout during postmaster stop, aborting Postgres.")
+            if not self.terminate_postmaster(postmaster, mode, stop_timeout):
+                postmaster.wait()
 
         return True, True
+
+    def terminate_postmaster(self, postmaster, mode, stop_timeout):
+        if mode in ['fast', 'smart']:
+            try:
+                success = postmaster.signal_stop('immediate', self.pgcommand('pg_ctl'))
+                if success:
+                    return True
+                postmaster.wait(timeout=stop_timeout)
+                return True
+            except TimeoutExpired:
+                pass
+        logger.warning("Sending SIGKILL to Postmaster and its children")
+        return postmaster.signal_kill()
 
     def terminate_starting_postmaster(self, postmaster):
         """Terminates a postmaster that has not yet opened ports or possibly even written a pid file. Blocks
@@ -639,7 +664,7 @@ class Postgresql(object):
                 data = subprocess.check_output([self.pgcommand('pg_controldata'), self._data_dir], env=env)
                 if data:
                     data = data.decode('utf-8').splitlines()
-                    # pg_controldata output depends on major verion. Some of parameters are prefixed by 'Current '
+                    # pg_controldata output depends on major version. Some of parameters are prefixed by 'Current '
                     result = {l.split(':')[0].replace('Current ', '', 1): l.split(':', 1)[1].strip() for l in data
                               if l and ':' in l}
             except subprocess.CalledProcessError:
@@ -647,10 +672,10 @@ class Postgresql(object):
         return result
 
     @contextmanager
-    def get_replication_connection_cursor(self, host='localhost', port=5432, database=None, **kwargs):
+    def get_replication_connection_cursor(self, host='localhost', port=5432, **kwargs):
         conn_kwargs = self.config.replication.copy()
-        conn_kwargs.update(host=host, port=int(port), database=database or self._database, connect_timeout=3,
-                           user=conn_kwargs.pop('username'), replication=1, options='-c statement_timeout=2000')
+        conn_kwargs.update(host=host, port=int(port) if port else None, user=conn_kwargs.pop('username'),
+                           connect_timeout=3, replication=1, options='-c statement_timeout=2000')
         with get_connection_cursor(**conn_kwargs) as cur:
             yield cur
 
@@ -796,6 +821,15 @@ class Postgresql(object):
                         pg_wal_realpath = os.path.realpath(pg_wal_path)
                         logger.info('Removing WAL directory: %s', pg_wal_realpath)
                         shutil.rmtree(pg_wal_realpath)
+                # Remove user defined tablespace directory
+                pg_tblsp_dir = os.path.join(self._data_dir, 'pg_tblspc')
+                if os.path.exists(pg_tblsp_dir):
+                    for tsdn in os.listdir(pg_tblsp_dir):
+                        pg_tsp_path = os.path.join(pg_tblsp_dir, tsdn)
+                        if parse_int(tsdn) and os.path.islink(pg_tsp_path):
+                            pg_tsp_rpath = os.path.realpath(pg_tsp_path)
+                            logger.info('Removing user defined tablespace directory: %s', pg_tsp_rpath)
+                            shutil.rmtree(pg_tsp_rpath, ignore_errors=True)
 
                 shutil.rmtree(self._data_dir)
         except (IOError, OSError):

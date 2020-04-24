@@ -66,8 +66,11 @@ def dcs_modules():
     module_prefix = __package__ + '.'
 
     if getattr(sys, 'frozen', False):
-        importer = pkgutil.get_importer(dcs_dirname)
-        return [module for module in list(importer.toc) if module.startswith(module_prefix) and module.count('.') == 2]
+        toc = set()
+        for importer in pkgutil.iter_importers(dcs_dirname):
+            if hasattr(importer, 'toc'):
+                toc |= importer.toc
+        return [module for module in toc if module.startswith(module_prefix) and module.count('.') == 2]
     else:
         return [module_prefix + name for _, name, is_pkg in pkgutil.iter_modules([dcs_dirname]) if not is_pkg]
 
@@ -137,10 +140,10 @@ class Member(namedtuple('Member', 'index,name,session,data')):
     @property
     def conn_url(self):
         conn_url = self.data.get('conn_url')
-        conn_kwargs = self.data.get('conn_kwargs')
         if conn_url:
             return conn_url
 
+        conn_kwargs = self.data.get('conn_kwargs')
         if conn_kwargs:
             conn_url = uri('postgresql', (conn_kwargs.get('host'), conn_kwargs.get('port', 5432)))
             self.data['conn_url'] = conn_url
@@ -148,16 +151,19 @@ class Member(namedtuple('Member', 'index,name,session,data')):
 
     def conn_kwargs(self, auth=None):
         defaults = {
-            "host": "",
-            "port": "",
-            "database": ""
+            "host": None,
+            "port": None,
+            "database": None
         }
         ret = self.data.get('conn_kwargs')
         if ret:
             defaults.update(ret)
             ret = defaults
         else:
-            r = urlparse(self.conn_url)
+            conn_url = self.conn_url
+            if not conn_url:
+                return {}  # due to the invalid conn_url we don't care about authentication parameters
+            r = urlparse(conn_url)
             ret = {
                 'host': r.hostname,
                 'port': r.port or 5432,
@@ -334,6 +340,10 @@ class ClusterConfig(namedtuple('ClusterConfig', 'index,data,modify_index')):
                 self.data.get('permanent_replication_slots') or
                 self.data.get('permanent_slots') or self.data.get('slots')
         ) or {}
+
+    @property
+    def max_timelines_history(self):
+        return self.data.get('max_timelines_history', 0)
 
 
 class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):

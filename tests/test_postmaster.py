@@ -64,6 +64,37 @@ class TestPostmasterProcess(unittest.TestCase):
         self.assertNotEqual(PostmasterProcess.from_pid(123), None)
 
     @patch('psutil.Process.__init__', Mock())
+    @patch('psutil.wait_procs', Mock())
+    @patch('psutil.Process.suspend')
+    @patch('psutil.Process.children')
+    @patch('psutil.Process.kill')
+    def test_signal_kill(self, mock_kill, mock_children, mock_suspend):
+        proc = PostmasterProcess(123)
+
+        # all processes successfully stopped
+        mock_children.return_value = [Mock()]
+        mock_children.return_value[0].kill.side_effect = psutil.Error
+        self.assertTrue(proc.signal_kill())
+
+        # postmaster has gone before suspend
+        mock_suspend.side_effect = psutil.NoSuchProcess(123)
+        self.assertTrue(proc.signal_kill())
+
+        # postmaster has gone before we got a list of children
+        mock_suspend.side_effect = psutil.Error()
+        mock_children.side_effect = psutil.NoSuchProcess(123)
+        self.assertTrue(proc.signal_kill())
+
+        # postmaster has gone after we got a list of children
+        mock_children.side_effect = psutil.Error()
+        mock_kill.side_effect = psutil.NoSuchProcess(123)
+        self.assertTrue(proc.signal_kill())
+
+        # failed to kill postmaster
+        mock_kill.side_effect = psutil.AccessDenied(123)
+        self.assertFalse(proc.signal_kill())
+
+    @patch('psutil.Process.__init__', Mock())
     @patch('psutil.Process.send_signal')
     @patch('psutil.Process.pid', Mock(return_value=123))
     @patch('os.name', 'posix')

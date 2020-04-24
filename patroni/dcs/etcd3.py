@@ -194,11 +194,9 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
             headers['authorization'] = self._token
         return headers
 
-    def _prepare_request(self, params=None, timeout=None):
-        kwargs = self._build_request_parameters(timeout)
-        if params is None:
-            kwargs['body'] = ''
-        else:
+    def _prepare_request(self, etcd_nodes, params=None, timeout=None):
+        kwargs = self._build_request_parameters(etcd_nodes, timeout)
+        if params is not None:
             kwargs['body'] = json.dumps(params)
             kwargs['headers']['Content-Type'] = 'application/json'
         return self.http.urlopen, kwargs
@@ -216,10 +214,9 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
             return data
         _raise_for_data(data, response.status)
 
-    def _ensure_version_prefix(self):
+    def _ensure_version_prefix(self, base_uri, **kwargs):
         if self.version_prefix != '/v3':
-            request_executor, kwargs = self._prepare_request()
-            response = request_executor(self._MGET, self._base_uri + '/version', **kwargs)
+            response = self.http.urlopen(self._MGET, self._base_uri + '/version', **kwargs)
             response = self._handle_server_response(response)
 
             server_version_str = response['etcdserver']
@@ -245,18 +242,12 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
                 self.version_prefix = '/v3'
         self._prev_base_uri = self._base_uri
 
-    def _refresh_machines_cache(self):
-        try:
-            self._ensure_version_prefix()
-        except Exception:
-            if self._update_machines_cache:
-                raise etcd.EtcdException
-        else:
-            super(Etcd3Client, self)._refresh_machines_cache()
+    def _prepare_get_members(self, etcd_nodes):
+        return self._prepare_request(etcd_nodes, {})[1]
 
-    def _get_members(self):
-        request_executor, kwargs = self._prepare_request({})
-        resp = request_executor(self._MPOST, self._base_uri + self.version_prefix + '/cluster/member/list', **kwargs)
+    def _get_members(self, base_uri, **kwargs):
+        self._ensure_version_prefix(base_uri, **kwargs)
+        resp = self.http.urlopen(self._MPOST, base_uri + self.version_prefix + '/cluster/member/list', **kwargs)
         members = self._handle_server_response(resp)['members']
         return set(url for member in members for url in member.get('clientURLs', []))
 
@@ -355,7 +346,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         if start_revision is not None:
             params['start_revision'] = start_revision
         params['filters'] = filters or []
-        request_executor, kwargs = self._prepare_request({'create_request': params})
+        request_executor, kwargs = self._prepare_request(1, {'create_request': params}, 1)
         kwargs.update(timeout=urllib3.Timeout(connect=kwargs['timeout']), retries=0)
         return request_executor(self._MPOST, self._base_uri + self.version_prefix + '/watch', **kwargs)
 
@@ -419,6 +410,7 @@ class KVCache(Thread):
                 self._dcs.event.set()
 
     def _process_message(self, message):
+        logger.debug('Received message: %s', message)
         if 'error' in message:
             _raise_for_data(message)
         for event in message.get('result', {}).get('events', []):
@@ -446,7 +438,7 @@ class KVCache(Thread):
             self._process_message(message)
 
     def _build_cache(self):
-        result = self._client.prefix(self._dcs.cluster_prefix)
+        result = self._dcs.retry(self._client.prefix, self._dcs.cluster_prefix)
         with self._object_cache_lock:
             self._object_cache = {node['key']: node for node in result.get('kvs', [])}
         with self.condition:
@@ -512,10 +504,9 @@ class PatroniEtcd3Client(Etcd3Client):
         if self._kv_cache:
             self._kv_cache.kill_stream()
 
-    def _next_server(self, cause=None):
-        ret = super(PatroniEtcd3Client, self)._next_server(cause)
+    def set_base_uri(self, value):
+        super(PatroniEtcd3Client, self).set_base_uri(value)
         self._restart_watcher()
-        return ret
 
     def authenticate(self):
         ret = super(PatroniEtcd3Client, self).authenticate()
