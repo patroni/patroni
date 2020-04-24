@@ -412,9 +412,12 @@ def cluster_as_json(cluster):
         else:
             role = 'replica'
 
+        member = {'name': m.name, 'role': role, 'state': m.data.get('state', ''), 'api_url': m.api_url}
         conn_kwargs = m.conn_kwargs()
-        member = {'name': m.name, 'host': conn_kwargs['host'], 'port': int(conn_kwargs['port']),
-                  'role': role, 'state': m.data.get('state', ''), 'api_url': m.api_url}
+        if conn_kwargs.get('host'):
+            member['host'] = conn_kwargs['host']
+            if conn_kwargs.get('port'):
+                member['port'] = int(conn_kwargs['port'])
         optional_attributes = ('timeline', 'pending_restart', 'scheduled_restart', 'tags')
         member.update({n: m.data[n] for n in optional_attributes if n in m.data})
 

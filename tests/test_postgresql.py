@@ -1,5 +1,6 @@
 import mock  # for the mock.call method, importing it without a namespace breaks python3
 import os
+import psutil
 import psycopg2
 import re
 import subprocess
@@ -177,6 +178,17 @@ class TestPostgresql(BaseTestPostgresql):
         mock_callback.assert_called()
         mock_postmaster.signal_stop.assert_called()
 
+        # Timed out waiting for fast shutdown triggers immediate shutdown
+        mock_postmaster.wait.side_effect = [psutil.TimeoutExpired(30), psutil.TimeoutExpired(30), Mock()]
+        mock_callback.reset_mock()
+        self.assertTrue(self.p.stop(on_safepoint=mock_callback, stop_timeout=30))
+        mock_callback.assert_called()
+        mock_postmaster.signal_stop.assert_called()
+
+        # Immediate shutdown succeeded
+        mock_postmaster.wait.side_effect = [psutil.TimeoutExpired(30), Mock()]
+        self.assertTrue(self.p.stop(on_safepoint=mock_callback, stop_timeout=30))
+
         # Stop signal failed
         mock_postmaster.signal_stop.return_value = False
         self.assertFalse(self.p.stop())
@@ -186,6 +198,11 @@ class TestPostgresql(BaseTestPostgresql):
         mock_callback.reset_mock()
         self.assertTrue(self.p.stop(on_safepoint=mock_callback))
         mock_callback.assert_called()
+
+        # Fast shutdown is timed out but when immediate postmaster is already gone
+        mock_postmaster.wait.side_effect = [psutil.TimeoutExpired(30), Mock()]
+        mock_postmaster.signal_stop.side_effect = [None, True]
+        self.assertTrue(self.p.stop(on_safepoint=mock_callback, stop_timeout=30))
 
     def test_restart(self):
         self.p.start = Mock(return_value=False)
@@ -203,7 +220,7 @@ class TestPostgresql(BaseTestPostgresql):
             self.assertEqual(self.p.checkpoint({'user': 'postgres'}), 'is_in_recovery=true')
         with patch.object(MockCursor, 'execute', Mock(return_value=None)):
             self.assertIsNone(self.p.checkpoint())
-        self.assertEqual(self.p.checkpoint(), 'not accessible or not healty')
+        self.assertEqual(self.p.checkpoint(timeout=10), 'not accessible or not healty')
 
     @patch('patroni.postgresql.config.mtime', mock_mtime)
     @patch('patroni.postgresql.config.ConfigHandler._get_pg_settings')
@@ -395,6 +412,10 @@ class TestPostgresql(BaseTestPostgresql):
                     pass
         os.makedirs(os.path.join(self.p.data_dir, 'foo'))
         _symlink('foo', os.path.join(self.p.data_dir, 'pg_wal'))
+        os.makedirs(os.path.join(self.p.data_dir, 'foo_tsp'))
+        pg_tblspc = os.path.join(self.p.data_dir, 'pg_tblspc')
+        os.makedirs(pg_tblspc)
+        _symlink('../foo_tsp', os.path.join(pg_tblspc, '12345'))
         self.p.remove_data_directory()
         open(self.p.data_dir, 'w').close()
         self.p.remove_data_directory()
@@ -695,7 +716,6 @@ class TestPostgresql(BaseTestPostgresql):
         with patch.object(Postgresql, 'controldata',
                           Mock(return_value={'max_connections setting': '200',
                                              'max_worker_processes setting': '20',
-                                             'max_prepared_xacts setting': '100',
                                              'max_locks_per_xact setting': '100',
                                              'max_wal_senders setting': 10})):
             self.p.cancellable.cancel()

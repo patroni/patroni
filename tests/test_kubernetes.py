@@ -106,11 +106,17 @@ class TestCoreV1Api(unittest.TestCase):
         self.assertEqual(str(self.a.delete_namespaced_pod('foo', 'default', _request_timeout=(1, 2), body={})), '{}')
 
 
+@patch('socket.TCP_KEEPIDLE', 4, create=True)
+@patch('socket.TCP_KEEPINTVL', 5, create=True)
+@patch('socket.TCP_KEEPCNT', 6, create=True)
 @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_config_map', mock_config_map, create=True)
 @patch.object(k8s_client.CoreV1Api, 'create_namespaced_config_map', mock_config_map, create=True)
 @patch.object(Thread, 'start', Mock())
 class TestKubernetes(unittest.TestCase):
 
+    @patch('socket.TCP_KEEPIDLE', 4, create=True)
+    @patch('socket.TCP_KEEPINTVL', 5, create=True)
+    @patch('socket.TCP_KEEPCNT', 6, create=True)
     @patch.object(K8SConfig, 'load_incluster_config', mock_load_k8s_config)
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_config_map', mock_list_namespaced_config_map, create=True)
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_pod', mock_list_namespaced_pod, create=True)
@@ -223,6 +229,9 @@ class TestKubernetes(unittest.TestCase):
 
 class TestCacheBuilder(unittest.TestCase):
 
+    @patch('socket.TCP_KEEPIDLE', 4, create=True)
+    @patch('socket.TCP_KEEPINTVL', 5, create=True)
+    @patch('socket.TCP_KEEPCNT', 6, create=True)
     @patch.object(K8SConfig, 'load_incluster_config', mock_load_k8s_config)
     @patch.object(Thread, 'start', Mock())
     def setUp(self):

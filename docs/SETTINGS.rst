@@ -15,7 +15,9 @@ Dynamic configuration is stored in the DCS (Distributed Configuration Store) and
 -  **ttl**: the TTL to acquire the leader lock (in seconds). Think of it as the length of time before initiation of the automatic failover process. Default value: 30
 -  **retry\_timeout**: timeout for DCS and PostgreSQL operation retries (in seconds). DCS or network issues shorter than this will not cause Patroni to demote the leader. Default value: 10
 -  **maximum\_lag\_on\_failover**: the maximum bytes a follower may lag to be able to participate in leader election.
+-  **max\_timelines\_history**: maximum number of timeline history items kept in DCS.  Default value: 0. When set to 0, it keeps the full history in DCS.
 -  **master\_start\_timeout**: the amount of time a master is allowed to recover from failures before failover is triggered (in seconds). Default is 300 seconds. When set to 0 failover is done immediately after a crash is detected if possible. When using asynchronous replication a failover can cause lost transactions. Worst case failover time for master failure is: loop\_wait + master\_start\_timeout + loop\_wait, unless master\_start\_timeout is zero, in which case it's just loop\_wait. Set the value according to your durability/availability tradeoff.
+- **master\_stop\_timeout**: The number of seconds Patroni is allowed to wait when stopping Postgres and effective only when synchronous_mode is enabled. When set to > 0 and the synchronous_mode is enabled, Patroni sends SIGKILL to the postmaster if the stop operation is running for more than the value set by master_stop_timeout. Set the value according to your durability/availability tradeoff. If the parameter is not set or set <= 0, master_stop_timeout does not apply.
 -  **synchronous\_mode**: turns on synchronous replication mode. In this mode a replica will be chosen as synchronous and only the latest leader and synchronous replica are able to participate in leader election. Synchronous mode makes sure that successfully committed transactions will not be lost at failover, at the cost of losing availability for writes when Patroni cannot ensure transaction durability. See :ref:`replication modes documentation <replication_modes>` for details.
 -  **synchronous\_mode\_strict**: prevents disabling synchronous replication if no synchronous replicas are available, blocking all client writes to the master. See :ref:`replication modes documentation <replication_modes>` for details.
 -  **postgresql**:
@@ -87,20 +89,20 @@ Consul
 ------
 Most of the parameters are optional, but you have to specify one of the **host** or **url**
 
--  **host**: the host:port for the Consul endpoint, in format: http(s)://host:port
--  **url**: url for the Consul endpoint
--  **port**: (optional) Consul port
--  **scheme**: (optional) **http** or **https**, defaults to **http**
--  **token**: (optional) ACL token
--  **verify**: (optional) whether to verify the SSL certificate for HTTPS requests
+-  **host**: the host:port for the Consul local agent.
+-  **url**: url for the Consul local agent, in format: http(s)://host:port.
+-  **port**: (optional) Consul port.
+-  **scheme**: (optional) **http** or **https**, defaults to **http**.
+-  **token**: (optional) ACL token.
+-  **verify**: (optional) whether to verify the SSL certificate for HTTPS requests.
 -  **cacert**: (optional) The ca certificate. If present it will enable validation.
--  **cert**: (optional) file with the client certificate
+-  **cert**: (optional) file with the client certificate.
 -  **key**: (optional) file with the client key. Can be empty if the key is part of **cert**.
 -  **dc**: (optional) Datacenter to communicate with. By default the datacenter of the host is used.
 -  **consistency**: (optional) Select consul consistency mode. Possible values are ``default``, ``consistent``, or ``stale`` (more details in `consul API reference <https://www.consul.io/api/features/consistency.html/>`__)
 -  **checks**: (optional) list of Consul health checks used for the session. By default an empty list is used.
--  **register\_service**: (optional) whether or not to register a service with the name defined by the scope parameter and the tag master, replica or standby-leader depending on the node's role. Defaults to **false**
--  **service\_check\_interval**: (optional) how often to perform health check against registered url
+-  **register\_service**: (optional) whether or not to register a service with the name defined by the scope parameter and the tag master, replica or standby-leader depending on the node's role. Defaults to **false**.
+-  **service\_check\_interval**: (optional) how often to perform health check against registered url.
 
 Etcd
 ----
@@ -109,8 +111,8 @@ Most of the parameters are optional, but you have to specify one of the **host**
 -  **host**: the host:port for the etcd endpoint.
 -  **hosts**: list of etcd endpoint in format host1:port1,host2:port2,etc... Could be a comma separated string or an actual yaml list.
 -  **use\_proxies**: If this parameter is set to true, Patroni will consider **hosts** as a list of proxies and will not perform a topology discovery of etcd cluster.
--  **url**: url for the etcd
--  **proxy**: proxy url for the etcd. If you are connecting to the etcd using proxy, use this parameter instead of **url**
+-  **url**: url for the etcd.
+-  **proxy**: proxy url for the etcd. If you are connecting to the etcd using proxy, use this parameter instead of **url**.
 -  **srv**: Domain to search the SRV record(s) for cluster autodiscovery.
 -  **protocol**: (optional) http or https, if not specified http is used. If the **url** or **proxy** is specified - will take protocol from them.
 -  **username**: (optional) username for etcd authentication.
@@ -126,7 +128,7 @@ ZooKeeper
 Exhibitor
 ---------
 -  **hosts**: initial list of Exhibitor (ZooKeeper) nodes in format: 'host1,host2,etc...'. This list updates automatically whenever the Exhibitor (ZooKeeper) cluster topology changes.
--  **poll\_interval**: how often the list of ZooKeeper and Exhibitor nodes should be updated from Exhibitor
+-  **poll\_interval**: how often the list of ZooKeeper and Exhibitor nodes should be updated from Exhibitor.
 -  **port**: Exhibitor port.
 
 .. _kubernetes_settings:

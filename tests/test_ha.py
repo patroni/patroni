@@ -172,6 +172,7 @@ def run_async(self, func, args=()):
 @patch('patroni.postgresql.polling_loop', Mock(return_value=range(1)))
 @patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=False))
 @patch('patroni.async_executor.AsyncExecutor.run_async', run_async)
+@patch('patroni.postgresql.rewind.Thread', Mock())
 @patch('subprocess.call', Mock(return_value=0))
 @patch('time.sleep', Mock())
 class TestHa(PostgresInit):
@@ -816,6 +817,17 @@ class TestHa(PostgresInit):
         self.ha.fetch_node_status = get_node_status()  # accessible, in_recovery
         self.assertEqual(self.ha.run_cycle(), 'stopped PostgreSQL to fail over after a crash')
         demote.assert_called_once()
+
+    def test_master_stop_timeout(self):
+        self.assertEqual(self.ha.master_stop_timeout(), None)
+        self.ha.patroni.config.set_dynamic_configuration({'master_stop_timeout': 30})
+        with patch.object(Ha, 'is_synchronous_mode', Mock(return_value=True)):
+            self.assertEqual(self.ha.master_stop_timeout(), 30)
+        self.ha.patroni.config.set_dynamic_configuration({'master_stop_timeout': 30})
+        with patch.object(Ha, 'is_synchronous_mode', Mock(return_value=False)):
+            self.assertEqual(self.ha.master_stop_timeout(), None)
+            self.ha.patroni.config.set_dynamic_configuration({'master_stop_timeout': None})
+            self.assertEqual(self.ha.master_stop_timeout(), None)
 
     @patch('patroni.postgresql.Postgresql.follow')
     def test_demote_immediate(self, follow):

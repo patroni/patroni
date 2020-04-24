@@ -71,6 +71,7 @@ class MockPostmaster(object):
         self.wait_for_user_backends_to_close = Mock()
         self.signal_stop = Mock(return_value=None)
         self.wait = Mock()
+        self.signal_kill = Mock(return_value=False)
 
 
 class MockCursor(object):
@@ -80,6 +81,7 @@ class MockCursor(object):
         self.closed = False
         self.rowcount = 0
         self.results = []
+        self.description = [Mock()]
 
     def execute(self, sql, *params):
         if sql.startswith('blabla'):
