@@ -760,13 +760,13 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
     # Show Host as 'host:port' if somebody is running on non-standard port or two nodes are running on the same host
     members = [m for m in cluster['members'] if 'host' in m]
     append_port = any('port' in m and m['port'] != 5432 for m in members) or\
-        len(set(m['host'] for m in cluster['members'])) < len(members)
+        len(set(m['host'] for m in members)) < len(members)
 
     for m in cluster['members']:
         logging.debug(m)
 
         lag = m.get('lag', '')
-        m.update(cluster=name, member=m['name'], host=m.get('host'), tl=m.get('timeline', ''),
+        m.update(cluster=name, member=m['name'], host=m.get('host', ''), tl=m.get('timeline', ''),
                  role='' if m['role'] == 'replica' else m['role'].replace('_', ' ').title(),
                  lag_in_mb=round(lag/1024/1024) if isinstance(lag, six.integer_types) else lag,
                  pending_restart='*' if m.get('pending_restart') else '')
