@@ -250,6 +250,10 @@ class TestPostgresql(BaseTestPostgresql):
             self.p.config.write_recovery_conf({'standby_mode': 'on', 'primary_conninfo': conninfo.copy()})
             self.p.config.write_postgresql_conf()
             self.assertEqual(self.p.config.check_recovery_conf(None), (False, False))
+            with patch.object(Postgresql, 'primary_conninfo', Mock(return_value='host=1')):
+                mock_get_pg_settings.return_value['primary_slot_name'] = [
+                    'primary_slot_name', '', '', 'string', 'postmaster', self.p.config._postgresql_conf]
+                self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
 
     @patch.object(Postgresql, 'major_version', PropertyMock(return_value=120000))
     @patch.object(Postgresql, 'is_running', MockPostmaster)
@@ -267,6 +271,7 @@ class TestPostgresql(BaseTestPostgresql):
             self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
 
     @patch.object(Postgresql, 'major_version', PropertyMock(return_value=100000))
+    @patch.object(Postgresql, 'primary_conninfo', Mock(return_value='host=1'))
     def test__read_recovery_params_pre_v12(self):
         self.p.config.write_recovery_conf({'standby_mode': 'on', 'primary_conninfo': {'password': 'foo'}})
         self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
@@ -726,3 +731,9 @@ class TestPostgresql(BaseTestPostgresql):
     @patch('os.path.isfile', Mock(return_value=False))
     def test_pgpass_is_dir(self):
         self.assertRaises(PatroniException, self.setUp)
+
+    @patch.object(Postgresql, '_query', Mock(side_effect=RetryFailedError('')))
+    def test_received_timeline(self):
+        self.p.set_role('standby_leader')
+        self.p.reset_cluster_info_state()
+        self.assertRaises(PostgresConnectionException, self.p.received_timeline)

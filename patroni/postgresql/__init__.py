@@ -135,17 +135,25 @@ class Postgresql(object):
 
     @property
     def cluster_info_query(self):
-        pg_control_timeline = 'timeline_id FROM pg_catalog.pg_control_checkpoint()' \
-                if self._major_version >= 90600 and self.role == 'standby_leader' else '0'
+        if self._major_version >= 90600:
+            extra = (", CASE WHEN latest_end_lsn IS NULL THEN NULL ELSE received_tli END,"
+                     " slot_name, conninfo FROM pg_catalog.pg_stat_get_wal_receiver()")
+            if self.role == 'standby_leader':
+                extra = "timeline_id" + extra + ", pg_catalog.pg_control_checkpoint()"
+            else:
+                extra = "0" + extra
+        else:
+            extra = "0, NULL, NULL, NULL"
+
         return ("SELECT CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
                 "ELSE ('x' || pg_catalog.substr(pg_catalog.pg_{0}file_name("
                 "pg_catalog.pg_current_{0}_{1}()), 1, 8))::bit(32)::int END, "
                 "CASE WHEN pg_catalog.pg_is_in_recovery() THEN GREATEST("
                 " pg_catalog.pg_{0}_{1}_diff(COALESCE("
                 "pg_catalog.pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint,"
-                " pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint)"
+                " pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint) "
                 "ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), '0/0')::bigint "
-                "END, {2}").format(self.wal_name, self.lsn_name, pg_control_timeline)
+                "END, {2}").format(self.wal_name, self.lsn_name, extra)
 
     def _version_file_exists(self):
         return not self.data_directory_empty() and os.path.isfile(self._version_file)
@@ -290,7 +298,8 @@ class Postgresql(object):
         if not self._cluster_info_state:
             try:
                 result = self._is_leader_retry(self._query, self.cluster_info_query).fetchone()
-                self._cluster_info_state = dict(zip(['timeline', 'wal_position', 'pg_control_timeline'], result))
+                self._cluster_info_state = dict(zip(['timeline', 'wal_position', 'pg_control_timeline',
+                                                     'received_tli', 'slot_name', 'conninfo'], result))
             except RetryFailedError as e:  # SELECT failed two times
                 self._cluster_info_state = {'error': str(e)}
                 if not self.is_starting() and self.pg_isready() == STATE_REJECT:
@@ -300,6 +309,15 @@ class Postgresql(object):
             raise PostgresConnectionException(self._cluster_info_state['error'])
 
         return self._cluster_info_state.get(name)
+
+    def primary_slot_name(self):
+        return self._cluster_info_state_get('slot_name')
+
+    def primary_conninfo(self):
+        return self._cluster_info_state_get('conninfo')
+
+    def received_timeline(self):
+        return self._cluster_info_state_get('received_tli')
 
     def is_leader(self):
         return bool(self._cluster_info_state_get('timeline'))

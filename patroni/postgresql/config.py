@@ -645,6 +645,17 @@ class ConfigHandler(object):
         elif not primary_conninfo:
             return False
 
+        wal_receiver_primary_conninfo = self._postgresql.primary_conninfo()
+        if wal_receiver_primary_conninfo:
+            wal_receiver_primary_conninfo = parse_dsn(wal_receiver_primary_conninfo)
+            # when wal receiver is alive use primary_conninfo from pg_stat_wal_receiver for comparison
+            if wal_receiver_primary_conninfo:
+                primary_conninfo = wal_receiver_primary_conninfo
+                # There could be no password in the primary_conninfo or it is masked.
+                # Just copy the "desired" value in order to make comparison succeed.
+                if 'password' in wanted_primary_conninfo:
+                    primary_conninfo['password'] = wanted_primary_conninfo['password']
+
         if 'passfile' in primary_conninfo and 'password' not in primary_conninfo \
                 and 'password' in wanted_primary_conninfo:
             if self._check_passfile(primary_conninfo['passfile'], wanted_primary_conninfo):
@@ -687,6 +698,13 @@ class ConfigHandler(object):
                     return True, True
             else:  # empty string, primary_conninfo is not in the config
                 primary_conninfo[0] = {}
+
+        # when wal receiver is alive take primary_slot_name from pg_stat_wal_receiver
+        wal_receiver_primary_slot_name = self._postgresql.primary_slot_name()
+        if not wal_receiver_primary_slot_name and self._postgresql.primary_conninfo():
+            wal_receiver_primary_slot_name = ''
+        if wal_receiver_primary_slot_name is not None:
+            self._current_recovery_params['primary_slot_name'][0] = wal_receiver_primary_slot_name
 
         required = {'restart': 0, 'reload': 0}
 

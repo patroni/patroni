@@ -198,6 +198,8 @@ class Ha(object):
                 try:
                     timeline, wal_position, pg_control_timeline = self.state_handler.timeline_wal_position()
                     data['xlog_location'] = wal_position
+                    if not timeline:  # try pg_stat_wal_receiver to get the timeline
+                        timeline = self.state_handler.received_timeline()
                     if not timeline:
                         # So far the only way to get the current timeline on the standby is from
                         # the replication connection. In order to avoid opening the replication
