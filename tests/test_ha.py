@@ -254,7 +254,7 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.assertEqual(self.ha.run_cycle(), 'starting as readonly because i had the session lock')
 
-    @patch.object(Postgresql, 'fix_cluster_state', Mock())
+    @patch.object(Rewind, 'ensure_clean_shutdown', Mock())
     def test_crash_recovery(self):
         self.p.is_running = false
         self.p.controldata = lambda: {'Database cluster state': 'in production', 'Database system identifier': SYSID}

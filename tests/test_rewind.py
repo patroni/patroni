@@ -1,8 +1,9 @@
-from mock import Mock, PropertyMock, patch
+from mock import Mock, PropertyMock, patch, mock_open
 
 from patroni.postgresql import Postgresql
 from patroni.postgresql.cancellable import CancellableSubprocess
 from patroni.postgresql.rewind import Rewind
+from six.moves import builtins
 
 from . import BaseTestPostgresql, MockCursor, psycopg2_connect
 
@@ -111,6 +112,42 @@ class TestRewind(BaseTestPostgresql):
     def test_check_leader_is_not_in_recovery(self):
         self.r.check_leader_is_not_in_recovery()
         self.r.check_leader_is_not_in_recovery()
+
+    def test_read_postmaster_opts(self):
+        m = mock_open(read_data='/usr/lib/postgres/9.6/bin/postgres "-D" "data/postgresql0" \
+"--listen_addresses=127.0.0.1" "--port=5432" "--hot_standby=on" "--wal_level=hot_standby" \
+"--wal_log_hints=on" "--max_wal_senders=5" "--max_replication_slots=5"\n')
+        with patch.object(builtins, 'open', m):
+            data = self.r.read_postmaster_opts()
+            self.assertEqual(data['wal_level'], 'hot_standby')
+            self.assertEqual(int(data['max_replication_slots']), 5)
+            self.assertEqual(data.get('D'), None)
+
+            m.side_effect = IOError
+            data = self.r.read_postmaster_opts()
+            self.assertEqual(data, dict())
+
+    @patch('psutil.Popen')
+    def test_single_user_mode(self, subprocess_popen_mock):
+        subprocess_popen_mock.return_value.wait.return_value = 0
+        self.assertEqual(self.r.single_user_mode('CHECKPOINT', {'archive_mode': 'on'}), 0)
+
+    @patch('os.listdir', Mock(side_effect=[OSError, ['a', 'b']]))
+    @patch('os.unlink', Mock(side_effect=OSError))
+    @patch('os.remove', Mock())
+    @patch('os.path.islink', Mock(side_effect=[True, False]))
+    @patch('os.path.isfile', Mock(return_value=True))
+    def test_cleanup_archive_status(self):
+        self.r.cleanup_archive_status()
+        self.r.cleanup_archive_status()
+
+    @patch('os.unlink', Mock())
+    @patch('os.listdir', Mock(return_value=[]))
+    @patch('os.path.isfile', Mock(return_value=True))
+    @patch.object(Rewind, 'read_postmaster_opts', Mock(return_value={}))
+    @patch.object(Rewind, 'single_user_mode', Mock(return_value=0))
+    def test_ensure_clean_shutdown(self):
+        self.assertTrue(self.r.ensure_clean_shutdown())
 
     @patch('patroni.postgresql.rewind.Thread', MockThread)
     @patch.object(Postgresql, 'controldata')

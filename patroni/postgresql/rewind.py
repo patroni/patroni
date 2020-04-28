@@ -231,3 +231,50 @@ class Rewind(object):
     @property
     def failed(self):
         return self._state == REWIND_STATUS.FAILED
+
+    def read_postmaster_opts(self):
+        """returns the list of option names/values from postgres.opts, Empty dict if read failed or no file"""
+        result = {}
+        try:
+            with open(os.path.join(self._postgresql.data_dir, 'postmaster.opts')) as f:
+                data = f.read()
+                for opt in data.split('" "'):
+                    if '=' in opt and opt.startswith('--'):
+                        name, val = opt.split('=', 1)
+                        result[name.strip('-')] = val.rstrip('"\n')
+        except IOError:
+            logger.exception('Error when reading postmaster.opts')
+        return result
+
+    def single_user_mode(self, command=None, options=None):
+        """run a given command in a single-user mode. If the command is empty - then just start and stop"""
+        cmd = [self._postgresql.pgcommand('postgres'), '--single', '-D', self._postgresql.data_dir]
+        for opt, val in sorted((options or {}).items()):
+            cmd.extend(['-c', '{0}={1}'.format(opt, val)])
+        # need a database name to connect
+        cmd.append('template1')
+        return self._postgresql.cancellable.call(cmd, communicate_input=command)
+
+    def cleanup_archive_status(self):
+        status_dir = os.path.join(self._postgresql.data_dir, 'pg_' + self._postgresql.wal_name, 'archive_status')
+        try:
+            for f in os.listdir(status_dir):
+                path = os.path.join(status_dir, f)
+                try:
+                    if os.path.islink(path):
+                        os.unlink(path)
+                    elif os.path.isfile(path):
+                        os.remove(path)
+                except OSError:
+                    logger.exception('Unable to remove %s', path)
+        except OSError:
+            logger.exception('Unable to list %s', status_dir)
+
+    def ensure_clean_shutdown(self):
+        self.cleanup_archive_status()
+
+        # Start in a single user mode and stop to produce a clean shutdown
+        opts = self.read_postmaster_opts()
+        opts.update({'archive_mode': 'on', 'archive_command': 'false'})
+        self._postgresql.config.remove_recovery_conf()
+        return self.single_user_mode(options=opts) == 0 or None
