@@ -311,9 +311,6 @@ class Postgresql(object):
     def received_location(self):
         return self._cluster_info_state_get('received_location')
 
-    def replay_paused(self):
-        return self._cluster_info_state_get('replay_paused')
-
     def is_leader(self):
         return bool(self._cluster_info_state_get('timeline'))
 
