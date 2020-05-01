@@ -93,7 +93,7 @@ class TestPostgresql(BaseTestPostgresql):
     @patch('subprocess.call', Mock(return_value=0))
     @patch('os.rename', Mock())
     @patch('patroni.postgresql.CallbackExecutor', Mock())
-    @patch.object(Postgresql, 'get_major_version', Mock(return_value=120000))
+    @patch.object(Postgresql, 'get_major_version', Mock(return_value=130000))
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def setUp(self):
         super(TestPostgresql, self).setUp()
