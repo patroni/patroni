@@ -33,6 +33,7 @@ def mock_config_map(*args, **kwargs):
     mock.metadata.resource_version = '2'
     return mock
 
+
 @patch('socket.TCP_KEEPIDLE', 4, create=True)
 @patch('socket.TCP_KEEPINTVL', 5, create=True)
 @patch('socket.TCP_KEEPCNT', 6, create=True)

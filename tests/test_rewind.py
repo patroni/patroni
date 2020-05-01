@@ -7,6 +7,16 @@ from patroni.postgresql.rewind import Rewind
 from . import BaseTestPostgresql, MockCursor, psycopg2_connect
 
 
+class MockThread(object):
+
+    def __init__(self, target, args):
+        self._target = target
+        self._args = args
+
+    def start(self):
+        self._target(*self._args)
+
+
 @patch('subprocess.call', Mock(return_value=0))
 @patch('psycopg2.connect', psycopg2_connect)
 class TestRewind(BaseTestPostgresql):
@@ -102,6 +112,21 @@ class TestRewind(BaseTestPostgresql):
         self.r.check_leader_is_not_in_recovery()
         self.r.check_leader_is_not_in_recovery()
 
-    @patch.object(Postgresql, 'controldata', Mock(return_value={"Latest checkpoint's TimeLineID": 1}))
-    def test_check_for_checkpoint_after_promote(self):
-        self.r.check_for_checkpoint_after_promote()
+    @patch('patroni.postgresql.rewind.Thread', MockThread)
+    @patch.object(Postgresql, 'controldata')
+    @patch.object(Postgresql, 'checkpoint')
+    def test_ensure_checkpoint_after_promote(self, mock_checkpoint, mock_controldata):
+        mock_checkpoint.return_value = None
+        self.r.ensure_checkpoint_after_promote()
+        self.r.ensure_checkpoint_after_promote()
+
+        self.r.reset_state()
+        mock_controldata.return_value = {"Latest checkpoint's TimeLineID": 1}
+        mock_checkpoint.side_effect = Exception
+        self.r.ensure_checkpoint_after_promote()
+        self.r.ensure_checkpoint_after_promote()
+
+        self.r.reset_state()
+        mock_controldata.side_effect = TypeError
+        self.r.ensure_checkpoint_after_promote()
+        self.r.ensure_checkpoint_after_promote()

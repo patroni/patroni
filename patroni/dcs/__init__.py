@@ -341,6 +341,10 @@ class ClusterConfig(namedtuple('ClusterConfig', 'index,data,modify_index')):
                 self.data.get('permanent_slots') or self.data.get('slots')
         ) or {}
 
+    @property
+    def max_timelines_history(self):
+        return self.data.get('max_timelines_history', 0)
+
 
 class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
     """Immutable object (namedtuple) which represents last observed synhcronous replication state

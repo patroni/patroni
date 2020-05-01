@@ -1025,6 +1025,10 @@ class ConfigHandler(object):
 
         for name, cname in options_mapping.items():
             value = parse_int(effective_configuration[name])
+            if cname not in data:
+                logger.warning('%s is missing from pg_controldata output', cname)
+                continue
+
             cvalue = parse_int(data[cname])
             if cvalue > value:
                 effective_configuration[name] = cvalue
