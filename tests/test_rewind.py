@@ -82,6 +82,13 @@ class TestRewind(BaseTestPostgresql):
         with patch.object(Postgresql, 'is_running', Mock(return_value=True)):
             self.r.execute(self.leader)
 
+    @patch('patroni.postgresql.rewind.logger.info')
+    def test__log_master_history(self, mock_logger):
+        history = [[n, n, ''] for n in range(1, 10)]
+        self.r._log_master_history(history, 1)
+        expected = '\n'.join(['{0}\t0/{0}\t'.format(n) for n in range(1, 4)] + ['...', '9\t0/9\t'])
+        self.assertEqual(mock_logger.call_args[0][1], expected)
+
     @patch.object(Postgresql, 'start', Mock())
     @patch.object(Rewind, 'can_rewind', PropertyMock(return_value=True))
     @patch.object(Rewind, '_get_local_timeline_lsn', Mock(return_value=(2, '40159C1')))
@@ -98,7 +105,7 @@ class TestRewind(BaseTestPostgresql):
         with patch('psycopg2.connect', Mock(side_effect=Exception)):
             self.assertFalse(self.r.rewind_or_reinitialize_needed_and_possible(self.leader))
         self.r.trigger_check_diverged_lsn()
-        with patch.object(MockCursor, 'fetchone', Mock(side_effect=[('', 2, '0/0'), ('', b'3\t0/40159C0\tn\n')])):
+        with patch.object(MockCursor, 'fetchone', Mock(side_effect=[('', 3, '0/0'), ('', b'3\t0/40159C0\tn\n')])):
             self.assertFalse(self.r.rewind_or_reinitialize_needed_and_possible(self.leader))
         self.r.trigger_check_diverged_lsn()
         with patch.object(MockCursor, 'fetchone', Mock(return_value=('', 1, '0/0'))):

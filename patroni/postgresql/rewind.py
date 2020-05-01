@@ -15,6 +15,11 @@ REWIND_STATUS = type('Enum', (), {'INITIAL': 0, 'CHECKPOINT': 1, 'CHECK': 2, 'NE
                                   'NOT_NEED': 4, 'SUCCESS': 5, 'FAILED': 6})
 
 
+def format_lsn(lsn, full=False):
+    template = '{0:X}/{1:08X}' if full else '{0:X}/{1:X}'
+    return template.format(lsn >> 32, lsn & 0xFFFFFFFF)
+
+
 class Rewind(object):
 
     def __init__(self, postgresql):
@@ -88,6 +93,24 @@ class Rewind(object):
         logger.info('Local timeline=%s lsn=%s', timeline, lsn)
         return timeline, lsn
 
+    @staticmethod
+    def _log_master_history(history, i):
+        start = max(0, i - 3)
+        end = None if i + 4 >= len(history) else i + 2
+        history_show = []
+
+        def format_history_line(l):
+            return '{0}\t{1}\t{2}'.format(l[0], format_lsn(l[1]), l[2])
+
+        for line in history[start:end]:
+            history_show.append(format_history_line(line))
+
+        if line != history[-1]:
+            history_show.append('...')
+            history_show.append(format_history_line(history[-1]))
+
+        logger.info('master: history=%s', '\n'.join(history_show))
+
     def _check_timeline_and_lsn(self, leader):
         local_timeline, local_lsn = self._get_local_timeline_lsn()
         if local_timeline is None or local_lsn is None:
@@ -108,17 +131,18 @@ class Rewind(object):
                 logger.info('master_timeline=%s', master_timeline)
                 if local_timeline > master_timeline:  # Not always supported by pg_rewind
                     need_rewind = True
+                elif local_timeline == master_timeline:
+                    need_rewind = False
                 elif master_timeline > 1:
                     cur.execute('TIMELINE_HISTORY %s', (master_timeline,))
                     history = bytes(cur.fetchone()[1]).decode('utf-8')
-                    logger.info('master: history=%s', history)
-                else:  # local_timeline == master_timeline == 1
-                    need_rewind = False
+                    logger.debug('master: history=%s', history)
         except Exception:
             return logger.exception('Exception when working with master via replication connection')
 
         if history is not None:
-            for parent_timeline, switchpoint, _ in parse_history(history):
+            history = list(parse_history(history))
+            for i, (parent_timeline, switchpoint, _) in enumerate(history):
                 if parent_timeline == local_timeline:
                     try:
                         need_rewind = parse_lsn(local_lsn) >= switchpoint
@@ -127,6 +151,7 @@ class Rewind(object):
                     break
                 elif parent_timeline > local_timeline:
                     break
+            self._log_master_history(history, i)
 
         self._state = need_rewind and REWIND_STATUS.NEED or REWIND_STATUS.NOT_NEED
 
