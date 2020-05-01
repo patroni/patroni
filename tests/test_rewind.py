@@ -117,16 +117,16 @@ class TestRewind(BaseTestPostgresql):
     @patch.object(Postgresql, 'checkpoint')
     def test_ensure_checkpoint_after_promote(self, mock_checkpoint, mock_controldata):
         mock_checkpoint.return_value = None
-        self.r.ensure_checkpoint_after_promote()
-        self.r.ensure_checkpoint_after_promote()
+        self.r.ensure_checkpoint_after_promote(Mock())
+        self.r.ensure_checkpoint_after_promote(Mock())
 
         self.r.reset_state()
         mock_controldata.return_value = {"Latest checkpoint's TimeLineID": 1}
         mock_checkpoint.side_effect = Exception
-        self.r.ensure_checkpoint_after_promote()
-        self.r.ensure_checkpoint_after_promote()
+        self.r.ensure_checkpoint_after_promote(Mock())
+        self.r.ensure_checkpoint_after_promote(Mock())
 
         self.r.reset_state()
         mock_controldata.side_effect = TypeError
-        self.r.ensure_checkpoint_after_promote()
-        self.r.ensure_checkpoint_after_promote()
+        self.r.ensure_checkpoint_after_promote(Mock())
+        self.r.ensure_checkpoint_after_promote(Mock())
