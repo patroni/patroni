@@ -748,13 +748,13 @@ class Ha(object):
 
         return self._is_healthiest_node(members.values())
 
-    def _delete_leader(self):
+    def _delete_leader(self, last_operation=None):
         self.set_is_leader(False)
-        self.dcs.delete_leader()
+        self.dcs.delete_leader(last_operation)
         self.dcs.reset_cluster()
 
-    def release_leader_key_voluntarily(self):
-        self._delete_leader()
+    def release_leader_key_voluntarily(self, last_operation=None):
+        self._delete_leader(last_operation)
         self.touch_member()
         logger.info("Leader key released")
 
@@ -784,8 +784,9 @@ class Ha(object):
         self.set_is_leader(False)
 
         if mode_control['release']:
+            checkpoint_location = self.state_handler.latest_checkpoint_location() if mode == 'graceful' else None
             with self._async_executor:
-                self.release_leader_key_voluntarily()
+                self.release_leader_key_voluntarily(checkpoint_location)
             time.sleep(2)  # Give a time to somebody to take the leader lock
         if mode_control['offline']:
             node_to_follow, leader = None, None
@@ -1384,7 +1385,8 @@ class Ha(object):
                                                                         stop_timeout=self.master_stop_timeout()))
             if not self.state_handler.is_running():
                 if self.has_lock():
-                    self.dcs.delete_leader()
+                    checkpoint_location = self.state_handler.latest_checkpoint_location()
+                    self.dcs.delete_leader(checkpoint_location)
                 self.touch_member()
             else:
                 # XXX: what about when Patroni is started as the wrong user that has access to the watchdog device
