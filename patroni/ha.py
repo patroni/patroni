@@ -398,6 +398,10 @@ class Ha(object):
             self.demote('immediate-nolock')
             return demote_reason
 
+        if self.is_standby_cluster() and self._leader_timeline and \
+                self.state_handler.get_history(self._leader_timeline + 1):
+            self._rewind.trigger_check_diverged_lsn()
+
         msg = self._handle_rewind_or_reinitialize()
         if msg:
             return msg
