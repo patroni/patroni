@@ -11,7 +11,6 @@ from pysyncobj import SyncObjConf, FAIL_REASON
 class TestDynMemberSyncObj(unittest.TestCase):
 
     @patch('pysyncobj.tcp_server.TcpServer.bind', Mock())
-    @patch('pysyncobj.node.Node.isConnected', Mock(return_value=False))
     def setUp(self):
         self.conf = SyncObjConf(appendEntriesUseBatch=False, dynamicMembershipChange=True, autoTick=False)
         self.so = DynMemberSyncObj('127.0.0.1:1234', ['127.0.0.1:1235'], self.conf)
@@ -19,22 +18,26 @@ class TestDynMemberSyncObj(unittest.TestCase):
     @patch.object(SyncObjUtility, 'sendMessage')
     def test_add_member(self, mock_send_message):
         mock_send_message.return_value = [{'addr': '127.0.0.1:1235'}, {'addr': '127.0.0.1:1236'}]
+        mock_send_message.ver = 0
         DynMemberSyncObj('127.0.0.1:1234', ['127.0.0.1:1235'], self.conf)
         self.conf.dynamicMembershipChange = False
         DynMemberSyncObj('127.0.0.1:1234', ['127.0.0.1:1235'], self.conf)
 
     def test___onUtilityMessage(self):
-        self.so._SyncObj__onMessageReceived(Mock(), ['members'])
-        self.so._SyncObj__onMessageReceived(Mock(), ['status'])
+        self.so._SyncObj__encryptor = Mock()
+        mock_conn = Mock()
+        mock_conn.sendRandKey = None
+        self.so._SyncObj__transport._onIncomingMessageReceived(mock_conn, 'randkey')
+        self.so._SyncObj__transport._onIncomingMessageReceived(mock_conn, ['members'])
+        self.so._SyncObj__transport._onIncomingMessageReceived(mock_conn, ['status'])
 
     def test__SyncObj__doChangeCluster(self):
         self.so._SyncObj__doChangeCluster(['add', '127.0.0.1:1236'])
 
     def test_utility(self):
-        utility = SyncObjUtility(self.so)
-        utility.setPartnerAddress('127.0.0.1:1235')
+        utility = SyncObjUtility(['127.0.0.1:1235'], self.conf)
+        utility.setPartnerNode(list(utility._SyncObj__otherNodes)[0])
         utility.sendMessage(['members'])
-        self.assertEqual(utility._getSelfNodeAddr(), ['members'])
         utility._onMessageReceived(0, '')
 
 
