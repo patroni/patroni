@@ -317,7 +317,7 @@ class Postgresql(object):
         lsn = data.get('Latest checkpoint location')
         if data.get('Database cluster state') == 'shut down' and lsn:
             try:
-                return parse_lsn(lsn)
+                return str(parse_lsn(lsn))
             except (IndexError, ValueError) as e:
                 logger.error('Exception when parsing lsn %s: %r', lsn, e)
 
