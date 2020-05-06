@@ -653,6 +653,15 @@ class Postgresql(object):
             return False
         return True
 
+    def get_guc_value(self, name):
+        cmd = [self.pgcommand('postgres'), self._data_dir, '-C', name]
+        try:
+            data = subprocess.check_output(cmd)
+            if data:
+                return data.decode('utf-8').strip()
+        except Exception as e:
+            logger.error('Failed to execute %s: %r', cmd, e)
+
     def controldata(self):
         """ return the contents of pg_controldata, or non-True value if pg_controldata call failed """
         result = {}
