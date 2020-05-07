@@ -59,7 +59,7 @@ class BaseTestEtcd3(unittest.TestCase):
     @patch.object(urllib3.PoolManager, 'urlopen', mock_urlopen)
     def setUp(self):
         self.etcd3 = Etcd3({'namespace': '/patroni/', 'ttl': 30, 'retry_timeout': 10,
-                            'host': 'localhost:2379', 'scope': 'test', 'name': 'foo',
+                            'host': 'localhost:2378', 'scope': 'test', 'name': 'foo',
                             'username': 'etcduser', 'password': 'etcdpassword'})
         self.client = self.etcd3._client
         self.kv_cache = self.client._kv_cache
@@ -151,7 +151,6 @@ class TestPatroniEtcd3Client(BaseTestEtcd3):
         self.client._ensure_version_prefix('')
         self.assertEqual(self.client.version_prefix, '/v3alpha')
         mock_urlopen.return_value.content = '{"etcdserver": "3.4.4", "etcdcluster": "3.4.0"}'
-        self.client._prev_base_uri = None
         self.client._ensure_version_prefix('')
         self.assertEqual(self.client.version_prefix, '/v3')
 
@@ -180,6 +179,8 @@ class TestEtcd3(BaseTestEtcd3):
         self.etcd3.touch_member({})
         self.etcd3._lease = 'bla'
         self.etcd3.touch_member({})
+        with patch.object(PatroniEtcd3Client, 'lease_grant', Mock(side_effect=Etcd3ClientError)):
+            self.etcd3.touch_member({})
 
     def test__update_leader(self):
         self.etcd3._lease = None

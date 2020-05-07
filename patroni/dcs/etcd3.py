@@ -697,7 +697,10 @@ class Etcd3(AbstractEtcd):
     @catch_etcd_errors
     def touch_member(self, data, permanent=False):
         if not permanent:
-            self.refresh_lease()
+            try:
+                self.refresh_lease()
+            except Etcd3Error:
+                return False
 
         cluster = self.cluster
         member = cluster and cluster.get_member(self._name, fallback_to_leader=False)
