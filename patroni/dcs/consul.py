@@ -367,7 +367,11 @@ class Consul(AbstractDCS):
     def touch_member(self, data, permanent=False):
         cluster = self.cluster
         member = cluster and cluster.get_member(self._name, fallback_to_leader=False)
-        create_member = not permanent and self.refresh_session()
+
+        try:
+            create_member = not permanent and self.refresh_session()
+        except DCSError:
+            return False
 
         if member and (create_member or member.session != self._session):
             self._client.kv.delete(self.member_path)
