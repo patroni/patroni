@@ -526,7 +526,8 @@ class Ha(object):
             cluster_history = {l[0]: l for l in cluster_history or []}
             history = self.state_handler.get_history(master_timeline)
             if history:
-                history = history[-self.cluster.config.max_timelines_history:]
+                if self.cluster.config and hasattr(self.cluster.config, 'max_timelines_history'):
+                    history = history[-self.cluster.config.max_timelines_history:]
                 for line in history:
                     # enrich current history with promotion timestamps stored in DCS
                     if len(line) == 3 and line[0] in cluster_history \
