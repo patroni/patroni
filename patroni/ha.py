@@ -525,11 +525,8 @@ class Ha(object):
         elif not cluster_history or cluster_history[-1][0] != master_timeline - 1 or len(cluster_history[-1]) != 4:
             cluster_history = {l[0]: l for l in cluster_history or []}
             history = self.state_handler.get_history(master_timeline)
-            if history:
-                try:
-                    history = history[-self.cluster.config.max_timelines_history:]
-                except AttributeError:
-                    pass
+            if history and self.cluster.config:
+                history = history[-self.cluster.config.max_timelines_history:]
                 for line in history:
                     # enrich current history with promotion timestamps stored in DCS
                     if len(line) == 3 and line[0] in cluster_history \
