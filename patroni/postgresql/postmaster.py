@@ -7,7 +7,7 @@ import signal
 import subprocess
 import sys
 
-from patroni import PATRONI_ENV_PREFIX
+from patroni import PATRONI_ENV_PREFIX, KUBERNETES_ENV_PREFIX
 
 # avoid spawning the resource tracker process
 if sys.version_info >= (3, 8):  # pragma: no cover
@@ -105,6 +105,42 @@ class PostmasterProcess(psutil.Process):
         except psutil.NoSuchProcess:
             return None
 
+    def signal_kill(self):
+        """to suspend and kill postmaster and all children
+
+        :returns True if postmaster and children are killed, False if error
+        """
+        try:
+            self.suspend()
+        except psutil.NoSuchProcess:
+            return True
+        except psutil.Error as e:
+            logger.warning('Failed to suspend postmaster: %s', e)
+
+        try:
+            children = self.children(recursive=True)
+        except psutil.NoSuchProcess:
+            return True
+        except psutil.Error as e:
+            logger.warning('Failed to get a list of postmaster children: %s', e)
+            children = []
+
+        try:
+            self.kill()
+        except psutil.NoSuchProcess:
+            return True
+        except psutil.Error as e:
+            logger.warning('Could not kill postmaster: %s', e)
+            return False
+
+        for child in children:
+            try:
+                child.kill()
+            except psutil.Error:
+                pass
+        psutil.wait_procs(children + [self])
+        return True
+
     def signal_stop(self, mode, pg_ctl='pg_ctl'):
         """Signal postmaster process to stop
 
@@ -176,7 +212,8 @@ class PostmasterProcess(psutil.Process):
         # In order to make everything portable we can't use fork&exec approach here, so  we will call
         # ourselves and pass list of arguments which must be used to start postgres.
         # On Windows, in order to run a side-by-side assembly the specified env must include a valid SYSTEMROOT.
-        env = {p: os.environ[p] for p in os.environ if not p.startswith(PATRONI_ENV_PREFIX)}
+        env = {p: os.environ[p] for p in os.environ if not p.startswith(
+            PATRONI_ENV_PREFIX) and not p.startswith(KUBERNETES_ENV_PREFIX)}
         try:
             proc = PostmasterProcess._from_pidfile(data_dir)
             if proc and not proc._is_postmaster_process():

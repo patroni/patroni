@@ -30,7 +30,7 @@ RUN set -ex \
 \
     # Cleanup all locales but en_US.UTF-8
     && find /usr/share/i18n/charmaps/ -type f ! -name UTF-8.gz -delete \
-    && find /usr/share/i18n/locales/ -type f ! -name en_US ! -name en_GB ! -name i18n ! -name iso14651_t1 ! -name iso14651_t1_common ! -name 'translit_*' -delete \
+    && find /usr/share/i18n/locales/ -type f ! -name en_US ! -name en_GB ! -name i18n* ! -name iso14651_t1 ! -name iso14651_t1_common ! -name 'translit_*' -delete \
     && echo 'en_US.UTF-8 UTF-8' > /usr/share/i18n/SUPPORTED \
 \
     # Make sure we have a en_US.UTF-8 locale available
