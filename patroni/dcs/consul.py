@@ -162,8 +162,8 @@ def force_if_last_failed(func):
     return wrapper
 
 
-def service_name_from_scope_name(scope_name):
-    """Translate scope name to service name which can be used in dns.
+def dns_encode_service_name(name):
+    """Encode input string as a valid DNS service name.
 
     230 = 253 - len('replica.') - len('.service.consul')
     """
@@ -172,7 +172,7 @@ def service_name_from_scope_name(scope_name):
         c = match.group(0)
         return '-' if c in '. _' else "u{:04d}".format(ord(c))
 
-    service_name = re.sub(r'[^a-z0-9\-]', replace_char, scope_name.lower())
+    service_name = re.sub(r'[^a-z0-9\-]', replace_char, name.lower())
     return service_name[0:230]
 
 
@@ -219,10 +219,12 @@ class Consul(AbstractDCS):
         self.__session_checks = config.get('checks', [])
         self._register_service = config.get('register_service', False)
         if self._register_service:
-            self._service_name = service_name_from_scope_name(self._scope)
-            if self._scope != self._service_name:
-                logger.warning('Using %s as consul service name instead of scope name %s', self._service_name,
-                               self._scope)
+            self._service_prefix = config.get('service_prefix', '')
+            unencoded_service_name = self._service_prefix + self._scope
+            self._service_name = dns_encode_service_name(unencoded_service_name)
+            if unencoded_service_name != self._service_name:
+                logger.warning('Using %s as consul service name, as unencoded name %s contains invalid characters',
+                               self._service_name, unencoded_service_name)
         self._service_check_interval = config.get('service_check_interval', '5s')
         if not self._ctl:
             self.create_session()
