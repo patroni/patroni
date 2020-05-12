@@ -942,7 +942,7 @@ def toggle_pause(config, cluster_name, paused, wait):
         raise PatroniCtlException('Cluster is {0} paused'.format(paused and 'already' or 'not'))
 
     members = []
-    if cluster.leader:
+    if cluster.leader and cluster.leader.member.api_url:
         members.append(cluster.leader.member)
     members.extend([m for m in cluster.members if m.api_url and (not members or members[0].name != m.name)])
 
