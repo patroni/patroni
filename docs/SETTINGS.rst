@@ -101,7 +101,8 @@ Most of the parameters are optional, but you have to specify one of the **host**
 -  **dc**: (optional) Datacenter to communicate with. By default the datacenter of the host is used.
 -  **consistency**: (optional) Select consul consistency mode. Possible values are ``default``, ``consistent``, or ``stale`` (more details in `consul API reference <https://www.consul.io/api/features/consistency.html/>`__)
 -  **checks**: (optional) list of Consul health checks used for the session. By default an empty list is used.
--  **register\_service**: (optional) whether or not to register a service with the name defined by the scope parameter and the tag master, replica or standby-leader depending on the node's role. Defaults to **false**.
+-  **register\_service**: (optional) whether or not to register a service with the name defined by the scope parameter (optionally prefixed by **service_prefix**) and the tag master, replica or standby-leader depending on the node's role. Defaults to **false**.
+-  **service\_prefix**: (optional) Prefix for the name of the service to register. Separator to the scope parameter must be provided explicitly. Default is no prefix.
 -  **service\_check\_interval**: (optional) how often to perform health check against registered url.
 
 Etcd
