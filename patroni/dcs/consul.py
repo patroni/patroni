@@ -219,8 +219,7 @@ class Consul(AbstractDCS):
         self.__session_checks = config.get('checks', [])
         self._register_service = config.get('register_service', False)
         if self._register_service:
-            self._service_prefix = config.get('service_prefix', '')
-            unencoded_service_name = self._service_prefix + self._scope
+            unencoded_service_name = config.get('service_prefix', '') + self._scope
             self._service_name = dns_encode_service_name(unencoded_service_name)
             if unencoded_service_name != self._service_name:
                 logger.warning('Using %s as consul service name, as unencoded name %s contains invalid characters',
