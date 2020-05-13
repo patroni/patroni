@@ -1008,7 +1008,7 @@ def show_diff(before_editing, after_editing):
     If the output is to a tty the diff will be colored. Inputs are expected to be unicode strings.
     """
     def listify(string):
-        return [l+'\n' for l in string.rstrip('\n').split('\n')]
+        return [line + '\n' for line in string.rstrip('\n').split('\n')]
 
     unified_diff = difflib.unified_diff(listify(before_editing), listify(after_editing))
 

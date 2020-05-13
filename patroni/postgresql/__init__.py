@@ -655,7 +655,6 @@ class Postgresql(object):
 
     def controldata(self):
         """ return the contents of pg_controldata, or non-True value if pg_controldata call failed """
-        result = {}
         # Don't try to call pg_controldata during backup restore
         if self._version_file_exists() and self.state != 'creating replica':
             try:
@@ -663,13 +662,12 @@ class Postgresql(object):
                 env.update(LANG='C', LC_ALL='C')
                 data = subprocess.check_output([self.pgcommand('pg_controldata'), self._data_dir], env=env)
                 if data:
-                    data = data.decode('utf-8').splitlines()
+                    data = filter(lambda e: ':' in e, data.decode('utf-8').splitlines())
                     # pg_controldata output depends on major version. Some of parameters are prefixed by 'Current '
-                    result = {l.split(':')[0].replace('Current ', '', 1): l.split(':', 1)[1].strip() for l in data
-                              if l and ':' in l}
+                    return {k.replace('Current ', '', 1): v.strip() for k, v in map(lambda e: e.split(':', 1), data)}
             except subprocess.CalledProcessError:
                 logger.exception("Error when calling pg_controldata")
-        return result
+        return {}
 
     @contextmanager
     def get_replication_connection_cursor(self, host='localhost', port=5432, **kwargs):
