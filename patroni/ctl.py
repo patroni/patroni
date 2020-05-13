@@ -942,7 +942,7 @@ def toggle_pause(config, cluster_name, paused, wait):
         raise PatroniCtlException('Cluster is {0} paused'.format(paused and 'already' or 'not'))
 
     members = []
-    if cluster.leader:
+    if cluster.leader and cluster.leader.member.api_url:
         members.append(cluster.leader.member)
     members.extend([m for m in cluster.members if m.api_url and (not members or members[0].name != m.name)])
 
@@ -1008,7 +1008,7 @@ def show_diff(before_editing, after_editing):
     If the output is to a tty the diff will be colored. Inputs are expected to be unicode strings.
     """
     def listify(string):
-        return [l+'\n' for l in string.rstrip('\n').split('\n')]
+        return [line + '\n' for line in string.rstrip('\n').split('\n')]
 
     unified_diff = difflib.unified_diff(listify(before_editing), listify(after_editing))
 
