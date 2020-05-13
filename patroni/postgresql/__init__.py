@@ -8,7 +8,6 @@ import time
 
 from contextlib import contextmanager
 from copy import deepcopy
-from patroni.async_executor import CriticalTask
 from patroni.postgresql.callback_executor import CallbackExecutor
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.cancellable import CancellableSubprocess
@@ -106,9 +105,6 @@ class Postgresql(object):
         elif self.role == 'master':
             self.set_role('demoted')
 
-        self.pre_promote_task = None
-        self._running_pre_promote_script = None
-
     @property
     def create_replica_methods(self):
         return self.config.get('create_replica_methods', []) or self.config.get('create_replica_method', [])
@@ -150,10 +146,6 @@ class Postgresql(object):
                 " pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint)"
                 "ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), '0/0')::bigint "
                 "END, {2}").format(self.wal_name, self.lsn_name, pg_control_timeline)
-
-    @property
-    def pre_promote_script(self):
-        return self._running_pre_promote_script or self.config.get('pre_promote') or None
 
     def _version_file_exists(self):
         return not self.data_directory_empty() and os.path.isfile(self._version_file)
@@ -754,67 +746,46 @@ class Postgresql(object):
             if data.get('Database cluster state') == 'in production':
                 return True
 
-    def _call_pre_promote(self, cmd):
-        if cmd:
-            try:
-                ret = self.cancellable.call(shlex.split(cmd))
-            except Exception as e:
-                logger.error('pre_promote script %s failed: %s', cmd, e)
-                return False
-
-            if ret is None:
-                logger.error('subprocess running the pre_promote script returned None instead of a return code;'
-                             ' this abnormal behaviour is assumed to indicate pre promote failure')
-                return False
-
-            if ret != 0:
-                logger.error('pre_promote script %s returned non-zero code %d', cmd, ret)
-                return False
-
-        return True
-
     def _pre_promote(self):
         """
         Runs a fencing script after the leader lock is acquired but before the replica is promoted.
         If the script exits with a non-zero code, promotion does not happen and the leader key is removed from DCS.
         """
 
-        self.pre_promote_task = CriticalTask()
+        cmd = self.config.get('pre_promote')
+        if not cmd:
+            return True
 
-        # preserve the current script conf in case it changes while the script is running
-        self._running_pre_promote_script = self.pre_promote_script
+        ret = self.cancellable.call(shlex.split(cmd))
+        if ret is not None:
+            logger.info('pre_promote script `%s` exited with %s', cmd, ret)
+        return ret == 0
 
-        self.pre_promote_task.complete(self._call_pre_promote(self.pre_promote_script))
-
-        self._running_pre_promote_script = None
-
-        return self.pre_promote_task.result
-
-    def promote(self, wait_seconds, on_success=None, access_is_restricted=False):
+    def promote(self, wait_seconds, task, on_success=None, access_is_restricted=False):
         if self.role == 'master':
             return True
 
-        if self.pre_promote_script and not self._pre_promote():
+        ret = self._pre_promote()
+        with task:
+            if task.is_cancelled:
+                return False
+            task.complete(ret)
+
+        if ret is False:
             return False
 
         if self.cancellable.is_cancelled:
+            logger.info("PostgreSQL promote cancelled.")
             return False
 
-        ret = False
-        with self.pre_promote_task or null_context():
-
-            if self.pre_promote_task and self.pre_promote_task.is_cancelled:
-                logger.info("pre-promote script cancelled.")
-                return False
-
-            ret = self.pg_ctl('promote', '-W')
-            if ret:
-                self.set_role('master')
-                if on_success is not None:
-                    on_success()
-                if not access_is_restricted:
-                    self.call_nowait(ACTION_ON_ROLE_CHANGE)
-                ret = self._wait_promote(wait_seconds)
+        ret = self.pg_ctl('promote', '-W')
+        if ret:
+            self.set_role('master')
+            if on_success is not None:
+                on_success()
+            if not access_is_restricted:
+                self.call_nowait(ACTION_ON_ROLE_CHANGE)
+            ret = self._wait_promote(wait_seconds)
         return ret
 
     def timeline_wal_position(self):

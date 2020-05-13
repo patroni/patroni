@@ -123,6 +123,8 @@ class CancellableSubprocess(CancellableExecutor):
             self._is_cancelled = True
             if self._process is None or not self._process.is_running():
                 return
+
+            logger.info('Terminating %s', self._process_cmd)
             self._process.terminate()
 
         for _ in polling_loop(10):

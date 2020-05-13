@@ -348,10 +348,22 @@ class TestPostgresql(BaseTestPostgresql):
         mock_is_running.return_value = False
         self.assertFalse(self.p.is_healthy())
 
-    def test_promote(self):
+    @patch('psutil.Popen')
+    def test_promote(self, mock_popen):
+        mock_popen.return_value.wait.return_value = 0
+        task = CriticalTask()
+        self.assertTrue(self.p.promote(0, task))
+
         self.p.set_role('replica')
-        self.assertIsNone(self.p.promote(0))
-        self.assertTrue(self.p.promote(0))
+        self.p.config._config['pre_promote'] = 'test'
+        with patch('patroni.postgresql.cancellable.CancellableSubprocess.is_cancelled', PropertyMock(return_value=1)):
+            self.assertFalse(self.p.promote(0, task))
+
+        mock_popen.side_effect = Exception
+        self.assertFalse(self.p.promote(0, task))
+        task.reset()
+        task.cancel()
+        self.assertFalse(self.p.promote(0, task))
 
     def test_timeline_wal_position(self):
         self.assertEqual(self.p.timeline_wal_position(), (1, 2, 1))
