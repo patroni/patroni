@@ -395,7 +395,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     def setup(self):
         self.request = self.server.wrap_socket(self.request)
-        super(RestApiHandler, self).setup()
+        BaseHTTPRequestHandler.setup(self)
 
     def parse_request(self):
         """Override parse_request method to enrich basic functionality of `BaseHTTPRequestHandler` class
