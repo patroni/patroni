@@ -393,6 +393,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_POST_switchover(self):
         self.do_POST_failover(action='switchover')
 
+    def setup(self):
+        self.request = self.server.wrap_socket(self.request)
+        super().setup()
+
     def parse_request(self):
         """Override parse_request method to enrich basic functionality of `BaseHTTPRequestHandler` class
 
@@ -510,6 +514,11 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             flags = fcntl.fcntl(fd, fcntl.F_GETFD)
             fcntl.fcntl(fd, fcntl.F_SETFD, flags | fcntl.FD_CLOEXEC)
 
+    def wrap_socket(self, socket):
+        if self.__protocol == 'https':
+            return self.__ctx.wrap_socket(socket, server_side=True)
+        return socket
+
     def check_basic_auth_key(self, key):
         return self.__auth_key == key
 
@@ -581,7 +590,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         Thread.__init__(self, target=self.serve_forever)
         self._set_fd_cloexec(self.socket)
 
-        # wrap socket with ssl if 'certfile' is defined in a config.yaml
+        # construct ssl context if 'certfile' is defined in a config.yaml
         # Sometime it's also needed to pass reference to a 'keyfile'.
         self.__protocol = 'https' if ssl_options.get('certfile') else 'http'
         if self.__protocol == 'https':
@@ -595,7 +604,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
                     ctx.verify_mode = modes[verify_client]
                 else:
                     logger.error('Bad value in the "restapi.verify_client": %s', verify_client)
-            self.socket = ctx.wrap_socket(self.socket, server_side=True)
+            self.__ctx = ctx
         if reloading_config:
             self.start()
 
