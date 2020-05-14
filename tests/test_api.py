@@ -413,25 +413,27 @@ class TestRestApiHandler(unittest.TestCase):
         MockRestApiServer(RestApiHandler, post + '37\n\n{"candidate":"2","scheduled_at": "1"}')
 
 
-@patch('ssl.SSLContext.load_cert_chain', Mock())
-@patch('ssl.SSLContext.wrap_socket', Mock(return_value=0))
-@patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
 class TestRestApiServer(unittest.TestCase):
 
+    @patch('ssl.SSLContext.load_cert_chain', Mock())
+    @patch('ssl.SSLContext.wrap_socket', Mock(return_value=0))
+    @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
+    def setUp(self):
+        self.srv = MockRestApiServer(Mock(), '', {'listen': '*:8008', 'certfile': 'a', 'verify_client': 'required'})
+
+    @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
     def test_reload_config(self):
         bad_config = {'listen': 'foo'}
         self.assertRaises(ValueError, MockRestApiServer, None, '', bad_config)
-        srv = MockRestApiServer(Mock(), '', {'listen': '*:8008', 'certfile': 'a', 'verify_client': 'required'})
-        self.assertRaises(ValueError, srv.reload_config, bad_config)
-        self.assertRaises(ValueError, srv.reload_config, {})
+        self.assertRaises(ValueError, self.srv.reload_config, bad_config)
+        self.assertRaises(ValueError, self.srv.reload_config, {})
         with patch.object(socket.socket, 'setsockopt', Mock(side_effect=socket.error)):
-            srv.reload_config({'listen': ':8008'})
+            self.srv.reload_config({'listen': ':8008'})
 
     def test_check_auth(self):
-        srv = MockRestApiServer(Mock(), '', {'listen': '*:8008', 'certfile': 'a', 'verify_client': 'required'})
         mock_rh = Mock()
         mock_rh.request.getpeercert.return_value = None
-        self.assertIsNot(srv.check_auth(mock_rh), True)
+        self.assertIsNot(self.srv.check_auth(mock_rh), True)
 
     def test_handle_error(self):
         try:
@@ -439,6 +441,18 @@ class TestRestApiServer(unittest.TestCase):
         except Exception:
             self.assertIsNone(MockRestApiServer.handle_error(None, ('127.0.0.1', 55555)))
 
+    @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock(side_effect=socket.error))
     def test_socket_error(self):
-        with patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock(side_effect=socket.error)):
-            self.assertRaises(socket.error, MockRestApiServer, Mock(), '', {'listen': '*:8008'})
+        self.assertRaises(socket.error, MockRestApiServer, Mock(), '', {'listen': '*:8008'})
+
+    @patch.object(MockRestApiServer, 'finish_request', Mock())
+    def test_process_request_thread(self):
+        mock_socket = Mock()
+        self.srv.process_request_thread((mock_socket, 1), '2')
+        mock_socket.context.wrap_socket.side_effect = socket.error
+        self.srv.process_request_thread((mock_socket, 1), '2')
+
+    @patch.object(socket.socket, 'accept', Mock(return_value=(1, '2')))
+    def test_get_request(self):
+        self.srv.socket = Mock()
+        self.assertEqual(self.srv.get_request(), ((self.srv.socket, 1), '2'))

@@ -599,6 +599,23 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         if reloading_config:
             self.start()
 
+    def process_request_thread(self, request, client_address):
+        if isinstance(request, tuple):
+            sock, newsock = request
+            try:
+                request = sock.context.wrap_socket(newsock, do_handshake_on_connect=sock.do_handshake_on_connect,
+                                                   suppress_ragged_eofs=sock.suppress_ragged_eofs, server_side=True)
+            except socket.error:
+                return
+        super(RestApiServer, self).process_request_thread(request, client_address)
+
+    def get_request(self):
+        sock = self.socket
+        newsock, addr = socket.socket.accept(sock)
+        if hasattr(sock, 'context'):  # SSLSocket, we want to do the deferred handshake from a thread
+            newsock = (sock, newsock)
+        return newsock, addr
+
     def reload_config(self, config):
         if 'listen' not in config:  # changing config in runtime
             raise ValueError('Can not find "restapi.listen" config')
