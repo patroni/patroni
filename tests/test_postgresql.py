@@ -674,42 +674,6 @@ class TestPostgresql(BaseTestPostgresql):
         mock_postmaster.signal_stop.assert_called()
         mock_postmaster.wait.assert_called()
 
-    def test_read_postmaster_opts(self):
-        m = mock_open(read_data='/usr/lib/postgres/9.6/bin/postgres "-D" "data/postgresql0" \
-"--listen_addresses=127.0.0.1" "--port=5432" "--hot_standby=on" "--wal_level=hot_standby" \
-"--wal_log_hints=on" "--max_wal_senders=5" "--max_replication_slots=5"\n')
-        with patch.object(builtins, 'open', m):
-            data = self.p.read_postmaster_opts()
-            self.assertEqual(data['wal_level'], 'hot_standby')
-            self.assertEqual(int(data['max_replication_slots']), 5)
-            self.assertEqual(data.get('D'), None)
-
-            m.side_effect = IOError
-            data = self.p.read_postmaster_opts()
-            self.assertEqual(data, dict())
-
-    @patch('psutil.Popen')
-    def test_single_user_mode(self, subprocess_popen_mock):
-        subprocess_popen_mock.return_value.wait.return_value = 0
-        self.assertEqual(self.p.single_user_mode('CHECKPOINT', {'archive_mode': 'on'}), 0)
-
-    @patch('os.listdir', Mock(side_effect=[OSError, ['a', 'b']]))
-    @patch('os.unlink', Mock(side_effect=OSError))
-    @patch('os.remove', Mock())
-    @patch('os.path.islink', Mock(side_effect=[True, False]))
-    @patch('os.path.isfile', Mock(return_value=True))
-    def test_cleanup_archive_status(self):
-        self.p.cleanup_archive_status()
-        self.p.cleanup_archive_status()
-
-    @patch('os.unlink', Mock())
-    @patch('os.listdir', Mock(return_value=[]))
-    @patch('os.path.isfile', Mock(return_value=True))
-    @patch.object(Postgresql, 'read_postmaster_opts', Mock(return_value={}))
-    @patch.object(Postgresql, 'single_user_mode', Mock(return_value=0))
-    def test_fix_cluster_state(self):
-        self.assertTrue(self.p.fix_cluster_state())
-
     def test_replica_cached_timeline(self):
         self.assertEqual(self.p.replica_cached_timeline(2), 3)
 

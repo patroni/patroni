@@ -323,7 +323,7 @@ class Ha(object):
                 (self.cluster.is_unlocked() or self._rewind.can_rewind):
             self._crash_recovery_executed = True
             msg = 'doing crash recovery in a single user mode'
-            return self._async_executor.try_run_async(msg, self.state_handler.fix_cluster_state) or msg
+            return self._async_executor.try_run_async(msg, self._rewind.ensure_clean_shutdown) or msg
 
         self.load_cluster_from_dcs()
 
