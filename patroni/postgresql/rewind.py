@@ -99,8 +99,8 @@ class Rewind(object):
         end = None if i + 4 >= len(history) else i + 2
         history_show = []
 
-        def format_history_line(l):
-            return '{0}\t{1}\t{2}'.format(l[0], format_lsn(l[1]), l[2])
+        def format_history_line(line):
+            return '{0}\t{1}\t{2}'.format(line[0], format_lsn(line[1]), line[2])
 
         for line in history[start:end]:
             history_show.append(format_history_line(line))
