@@ -15,6 +15,11 @@ REWIND_STATUS = type('Enum', (), {'INITIAL': 0, 'CHECKPOINT': 1, 'CHECK': 2, 'NE
                                   'NOT_NEED': 4, 'SUCCESS': 5, 'FAILED': 6})
 
 
+def format_lsn(lsn, full=False):
+    template = '{0:X}/{1:08X}' if full else '{0:X}/{1:X}'
+    return template.format(lsn >> 32, lsn & 0xFFFFFFFF)
+
+
 class Rewind(object):
 
     def __init__(self, postgresql):
@@ -88,6 +93,24 @@ class Rewind(object):
         logger.info('Local timeline=%s lsn=%s', timeline, lsn)
         return timeline, lsn
 
+    @staticmethod
+    def _log_master_history(history, i):
+        start = max(0, i - 3)
+        end = None if i + 4 >= len(history) else i + 2
+        history_show = []
+
+        def format_history_line(l):
+            return '{0}\t{1}\t{2}'.format(l[0], format_lsn(l[1]), l[2])
+
+        for line in history[start:end]:
+            history_show.append(format_history_line(line))
+
+        if line != history[-1]:
+            history_show.append('...')
+            history_show.append(format_history_line(history[-1]))
+
+        logger.info('master: history=%s', '\n'.join(history_show))
+
     def _check_timeline_and_lsn(self, leader):
         local_timeline, local_lsn = self._get_local_timeline_lsn()
         if local_timeline is None or local_lsn is None:
@@ -108,17 +131,18 @@ class Rewind(object):
                 logger.info('master_timeline=%s', master_timeline)
                 if local_timeline > master_timeline:  # Not always supported by pg_rewind
                     need_rewind = True
+                elif local_timeline == master_timeline:
+                    need_rewind = False
                 elif master_timeline > 1:
                     cur.execute('TIMELINE_HISTORY %s', (master_timeline,))
                     history = bytes(cur.fetchone()[1]).decode('utf-8')
-                    logger.info('master: history=%s', history)
-                else:  # local_timeline == master_timeline == 1
-                    need_rewind = False
+                    logger.debug('master: history=%s', history)
         except Exception:
             return logger.exception('Exception when working with master via replication connection')
 
         if history is not None:
-            for parent_timeline, switchpoint, _ in parse_history(history):
+            history = list(parse_history(history))
+            for i, (parent_timeline, switchpoint, _) in enumerate(history):
                 if parent_timeline == local_timeline:
                     try:
                         need_rewind = parse_lsn(local_lsn) >= switchpoint
@@ -127,6 +151,7 @@ class Rewind(object):
                     break
                 elif parent_timeline > local_timeline:
                     break
+            self._log_master_history(history, i)
 
         self._state = need_rewind and REWIND_STATUS.NEED or REWIND_STATUS.NOT_NEED
 
@@ -135,15 +160,17 @@ class Rewind(object):
             self._check_timeline_and_lsn(leader)
         return leader and leader.conn_url and self._state == REWIND_STATUS.NEED
 
-    def __checkpoint(self, task):
+    def __checkpoint(self, task, wakeup):
         try:
             result = self._postgresql.checkpoint()
         except Exception as e:
             result = 'Exception: ' + str(e)
         with task:
             task.complete(not bool(result))
+            if task.result:
+                wakeup()
 
-    def ensure_checkpoint_after_promote(self):
+    def ensure_checkpoint_after_promote(self, wakeup):
         """After promote issue a CHECKPOINT from a new thread and asynchronously check the result.
         In case if CHECKPOINT failed, just check that timeline in pg_control was updated."""
 
@@ -157,7 +184,7 @@ class Rewind(object):
                             return
                 else:
                     self._checkpoint_task = CriticalTask()
-                    return Thread(target=self.__checkpoint, args=(self._checkpoint_task,)).start()
+                    return Thread(target=self.__checkpoint, args=(self._checkpoint_task, wakeup)).start()
 
             if self._postgresql.get_master_timeline() == self._postgresql.pg_control_timeline():
                 self._state = REWIND_STATUS.CHECKPOINT
@@ -171,9 +198,13 @@ class Rewind(object):
         env['PGOPTIONS'] = '-c statement_timeout=0'
         dsn = self._postgresql.config.format_dsn(r, True)
         logger.info('running pg_rewind from %s', dsn)
+
+        cmd = [self._postgresql.pgcommand('pg_rewind')]
+        if self._postgresql.major_version >= 130000 and self._postgresql.get_guc_value('restore_command'):
+            cmd.append('--restore-target-wal')
+        cmd.extend(['-D', self._postgresql.data_dir, '--source-server', dsn])
         try:
-            return self._postgresql.cancellable.call([self._postgresql.pgcommand('pg_rewind'), '-D',
-                                                      self._postgresql.data_dir, '--source-server', dsn], env=env) == 0
+            return self._postgresql.cancellable.call(cmd, env=env) == 0
         except OSError:
             return False
 
@@ -231,3 +262,50 @@ class Rewind(object):
     @property
     def failed(self):
         return self._state == REWIND_STATUS.FAILED
+
+    def read_postmaster_opts(self):
+        """returns the list of option names/values from postgres.opts, Empty dict if read failed or no file"""
+        result = {}
+        try:
+            with open(os.path.join(self._postgresql.data_dir, 'postmaster.opts')) as f:
+                data = f.read()
+                for opt in data.split('" "'):
+                    if '=' in opt and opt.startswith('--'):
+                        name, val = opt.split('=', 1)
+                        result[name.strip('-')] = val.rstrip('"\n')
+        except IOError:
+            logger.exception('Error when reading postmaster.opts')
+        return result
+
+    def single_user_mode(self, command=None, options=None):
+        """run a given command in a single-user mode. If the command is empty - then just start and stop"""
+        cmd = [self._postgresql.pgcommand('postgres'), '--single', '-D', self._postgresql.data_dir]
+        for opt, val in sorted((options or {}).items()):
+            cmd.extend(['-c', '{0}={1}'.format(opt, val)])
+        # need a database name to connect
+        cmd.append('template1')
+        return self._postgresql.cancellable.call(cmd, communicate_input=command)
+
+    def cleanup_archive_status(self):
+        status_dir = os.path.join(self._postgresql.data_dir, 'pg_' + self._postgresql.wal_name, 'archive_status')
+        try:
+            for f in os.listdir(status_dir):
+                path = os.path.join(status_dir, f)
+                try:
+                    if os.path.islink(path):
+                        os.unlink(path)
+                    elif os.path.isfile(path):
+                        os.remove(path)
+                except OSError:
+                    logger.exception('Unable to remove %s', path)
+        except OSError:
+            logger.exception('Unable to list %s', status_dir)
+
+    def ensure_clean_shutdown(self):
+        self.cleanup_archive_status()
+
+        # Start in a single user mode and stop to produce a clean shutdown
+        opts = self.read_postmaster_opts()
+        opts.update({'archive_mode': 'on', 'archive_command': 'false'})
+        self._postgresql.config.remove_recovery_conf()
+        return self.single_user_mode(options=opts) == 0 or None

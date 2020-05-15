@@ -113,7 +113,7 @@ class TestKubernetes(unittest.TestCase):
         self.k.initialize()
 
     def test_delete_leader(self):
-        self.k.delete_leader()
+        self.k.delete_leader(1)
 
     def test_cancel_initialization(self):
         self.k.cancel_initialization()

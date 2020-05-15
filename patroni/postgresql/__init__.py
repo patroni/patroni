@@ -13,7 +13,7 @@ from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.cancellable import CancellableSubprocess
 from patroni.postgresql.config import ConfigHandler
 from patroni.postgresql.connection import Connection, get_connection_cursor
-from patroni.postgresql.misc import parse_history, postgres_major_version_to_int
+from patroni.postgresql.misc import parse_history, parse_lsn, postgres_major_version_to_int
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.slots import SlotsHandler
 from patroni.exceptions import PostgresConnectionException
@@ -327,6 +327,17 @@ class Postgresql(object):
             return int(self.controldata().get("Latest checkpoint's TimeLineID"))
         except (TypeError, ValueError):
             logger.exception('Failed to parse timeline from pg_controldata output')
+
+    def latest_checkpoint_location(self):
+        """Returns checkpoint location for the cleanly shut down primary"""
+
+        data = self.controldata()
+        lsn = data.get('Latest checkpoint location')
+        if data.get('Database cluster state') == 'shut down' and lsn:
+            try:
+                return str(parse_lsn(lsn))
+            except (IndexError, ValueError) as e:
+                logger.error('Exception when parsing lsn %s: %r', lsn, e)
 
     def is_running(self):
         """Returns PostmasterProcess if one is running on the data directory or None. If most recently seen process
@@ -671,9 +682,17 @@ class Postgresql(object):
             return False
         return True
 
+    def get_guc_value(self, name):
+        cmd = [self.pgcommand('postgres'), self._data_dir, '-C', name]
+        try:
+            data = subprocess.check_output(cmd)
+            if data:
+                return data.decode('utf-8').strip()
+        except Exception as e:
+            logger.error('Failed to execute %s: %r', cmd, e)
+
     def controldata(self):
         """ return the contents of pg_controldata, or non-True value if pg_controldata call failed """
-        result = {}
         # Don't try to call pg_controldata during backup restore
         if self._version_file_exists() and self.state != 'creating replica':
             try:
@@ -681,13 +700,12 @@ class Postgresql(object):
                 env.update(LANG='C', LC_ALL='C')
                 data = subprocess.check_output([self.pgcommand('pg_controldata'), self._data_dir], env=env)
                 if data:
-                    data = data.decode('utf-8').splitlines()
+                    data = filter(lambda e: ':' in e, data.decode('utf-8').splitlines())
                     # pg_controldata output depends on major version. Some of parameters are prefixed by 'Current '
-                    result = {l.split(':')[0].replace('Current ', '', 1): l.split(':', 1)[1].strip() for l in data
-                              if l and ':' in l}
+                    return {k.replace('Current ', '', 1): v.strip() for k, v in map(lambda e: e.split(':', 1), data)}
             except subprocess.CalledProcessError:
                 logger.exception("Error when calling pg_controldata")
-        return result
+        return {}
 
     @contextmanager
     def get_replication_connection_cursor(self, host='localhost', port=5432, **kwargs):
@@ -886,53 +904,6 @@ class Postgresql(object):
         if candidates:
             return candidates[0], False
         return None, False
-
-    def read_postmaster_opts(self):
-        """returns the list of option names/values from postgres.opts, Empty dict if read failed or no file"""
-        result = {}
-        try:
-            with open(os.path.join(self._data_dir, 'postmaster.opts')) as f:
-                data = f.read()
-                for opt in data.split('" "'):
-                    if '=' in opt and opt.startswith('--'):
-                        name, val = opt.split('=', 1)
-                        result[name.strip('-')] = val.rstrip('"\n')
-        except IOError:
-            logger.exception('Error when reading postmaster.opts')
-        return result
-
-    def single_user_mode(self, command=None, options=None):
-        """run a given command in a single-user mode. If the command is empty - then just start and stop"""
-        cmd = [self.pgcommand('postgres'), '--single', '-D', self._data_dir]
-        for opt, val in sorted((options or {}).items()):
-            cmd.extend(['-c', '{0}={1}'.format(opt, val)])
-        # need a database name to connect
-        cmd.append(self._database)
-        return self.cancellable.call(cmd, communicate_input=command)
-
-    def cleanup_archive_status(self):
-        status_dir = os.path.join(self._data_dir, 'pg_' + self.wal_name, 'archive_status')
-        try:
-            for f in os.listdir(status_dir):
-                path = os.path.join(status_dir, f)
-                try:
-                    if os.path.islink(path):
-                        os.unlink(path)
-                    elif os.path.isfile(path):
-                        os.remove(path)
-                except OSError:
-                    logger.exception('Unable to remove %s', path)
-        except OSError:
-            logger.exception('Unable to list %s', status_dir)
-
-    def fix_cluster_state(self):
-        self.cleanup_archive_status()
-
-        # Start in a single user mode and stop to produce a clean shutdown
-        opts = self.read_postmaster_opts()
-        opts.update({'archive_mode': 'on', 'archive_command': 'false'})
-        self.config.remove_recovery_conf()
-        return self.single_user_mode(options=opts) == 0 or None
 
     def schedule_sanity_checks_after_pause(self):
         """

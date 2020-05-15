@@ -546,9 +546,15 @@ class Kubernetes(AbstractDCS):
         resource_version = cluster.config.index if cluster and cluster.config and cluster.config.index else None
         return self.patch_or_create_config({self._INITIALIZE: sysid}, resource_version)
 
-    def delete_leader(self):
+    def _delete_leader(self):
+        """Unused"""
+
+    def delete_leader(self, last_operation=None):
         if self.cluster and isinstance(self.cluster.leader, Leader) and self.cluster.leader.name == self._name:
-            self.patch_or_create(self.leader_path, {self._LEADER: None}, self._leader_resource_version, True, False, [])
+            annotations = {self._LEADER: None}
+            if last_operation:
+                annotations[self._OPTIME] = last_operation
+            self.patch_or_create(self.leader_path, annotations, self._leader_resource_version, True, False, [])
             self.reset_cluster()
 
     def cancel_initialization(self):
