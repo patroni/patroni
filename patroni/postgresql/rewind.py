@@ -173,9 +173,13 @@ class Rewind(object):
         env['PGOPTIONS'] = '-c statement_timeout=0'
         dsn = self._postgresql.config.format_dsn(r, True)
         logger.info('running pg_rewind from %s', dsn)
+
+        cmd = [self._postgresql.pgcommand('pg_rewind')]
+        if self._postgresql.major_version >= 130000 and self._postgresql.get_guc_value('restore_command'):
+            cmd.append('--restore-target-wal')
+        cmd.extend(['-D', self._postgresql.data_dir, '--source-server', dsn])
         try:
-            return self._postgresql.cancellable.call([self._postgresql.pgcommand('pg_rewind'), '-D',
-                                                      self._postgresql.data_dir, '--source-server', dsn], env=env) == 0
+            return self._postgresql.cancellable.call(cmd, env=env) == 0
         except OSError:
             return False
 

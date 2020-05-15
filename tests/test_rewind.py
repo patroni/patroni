@@ -35,13 +35,16 @@ class TestRewind(BaseTestPostgresql):
         self.p.config._config['use_pg_rewind'] = False
         self.assertFalse(self.r.can_rewind)
 
+    @patch.object(Postgresql, 'major_version', PropertyMock(return_value=130000))
     @patch.object(CancellableSubprocess, 'call')
     def test_pg_rewind(self, mock_cancellable_subprocess_call):
         r = {'user': '', 'host': '', 'port': '', 'database': '', 'password': ''}
         mock_cancellable_subprocess_call.return_value = 0
-        self.assertTrue(self.r.pg_rewind(r))
+        with patch('subprocess.check_output', Mock(return_value=b'foo')):
+            self.assertTrue(self.r.pg_rewind(r))
         mock_cancellable_subprocess_call.side_effect = OSError
-        self.assertFalse(self.r.pg_rewind(r))
+        with patch('subprocess.check_output', Mock(side_effect=Exception)):
+            self.assertFalse(self.r.pg_rewind(r))
 
     @patch.object(Rewind, 'can_rewind', PropertyMock(return_value=True))
     def test__get_local_timeline_lsn(self):
