@@ -711,7 +711,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertTrue(self.p.fix_cluster_state())
 
     def test_replica_cached_timeline(self):
-        self.assertEqual(self.p.replica_cached_timeline(1), 2)
+        self.assertEqual(self.p.replica_cached_timeline(2), 3)
 
     def test_get_master_timeline(self):
         self.assertEqual(self.p.get_master_timeline(), 1)
