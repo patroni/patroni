@@ -187,7 +187,7 @@ class ObjectCache(Thread):
                     if value_changed:
                         logger.debug('%s changed from %s to %s', name, old_value, new_value)
 
-                    # We don't want to wakeup HA loop if we run as leader and received leader object update event!
+                    # Do not wake up HA loop if we run as leader and received leader object update event
                     if value_changed or name == self._dcs.leader_path and self._name != new_value:
                         self._dcs.event.set()
         finally:
