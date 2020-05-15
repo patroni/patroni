@@ -202,6 +202,7 @@ class TestHa(PostgresInit):
         self.p.last_operation = Mock(side_effect=PostgresConnectionException(''))
         self.assertTrue(self.ha.update_lock(True))
 
+    @patch.object(Postgresql, 'received_timeline', Mock(return_value=None))
     def test_touch_member(self):
         self.p.timeline_wal_position = Mock(return_value=(0, 1, 0))
         self.p.replica_cached_timeline = Mock(side_effect=Exception)
