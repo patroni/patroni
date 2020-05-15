@@ -135,15 +135,17 @@ class Rewind(object):
             self._check_timeline_and_lsn(leader)
         return leader and leader.conn_url and self._state == REWIND_STATUS.NEED
 
-    def __checkpoint(self, task):
+    def __checkpoint(self, task, wakeup):
         try:
             result = self._postgresql.checkpoint()
         except Exception as e:
             result = 'Exception: ' + str(e)
         with task:
             task.complete(not bool(result))
+            if task.result:
+                wakeup()
 
-    def ensure_checkpoint_after_promote(self):
+    def ensure_checkpoint_after_promote(self, wakeup):
         """After promote issue a CHECKPOINT from a new thread and asynchronously check the result.
         In case if CHECKPOINT failed, just check that timeline in pg_control was updated."""
 
@@ -157,7 +159,7 @@ class Rewind(object):
                             return
                 else:
                     self._checkpoint_task = CriticalTask()
-                    return Thread(target=self.__checkpoint, args=(self._checkpoint_task,)).start()
+                    return Thread(target=self.__checkpoint, args=(self._checkpoint_task, wakeup)).start()
 
             if self._postgresql.get_master_timeline() == self._postgresql.pg_control_timeline():
                 self._state = REWIND_STATUS.CHECKPOINT
