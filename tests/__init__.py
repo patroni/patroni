@@ -105,7 +105,7 @@ class MockCursor(object):
                             ('autovacuum', 'on', None, 'bool', 'sighup'),
                             ('unix_socket_directories', '/tmp', None, 'string', 'postmaster')]
         elif sql.startswith('IDENTIFY_SYSTEM'):
-            self.results = [('1', 2, '0/402EEC0', '')]
+            self.results = [('1', 3, '0/402EEC0', '')]
         elif sql.startswith('TIMELINE_HISTORY '):
             self.results = [('', b'x\t0/40159C0\tno recovery target specified\n\n'
                                  b'1\t0/40159C0\tno recovery target specified\n\n'
