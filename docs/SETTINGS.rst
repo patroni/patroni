@@ -217,7 +217,7 @@ REST API
         -  **certfile**: Specifies the file with the certificate in the PEM format. If the certfile is not specified or is left empty, the API server will work without SSL.
         -  **keyfile**: Specifies the file with the secret key in the PEM format.
         -  **cafile**: Specifies the file with the CA_BUNDLE with certificates of trusted CAs to use while verifying client certs.
-        -  **verify\_client**: ``none``, ``optional`` or ``required``. When ``none`` REST API will not check client certificates. When ``required`` client certificates are required for all REST API calls. When ``optional`` client certificates are required for all unsafe REST API endpoints. If ``verify_client`` is set to ``optional`` or ``required`` basic-auth is not checked.
+        -  **verify\_client**: ``none``, ``optional`` or ``required``. When ``none`` REST API will not check client certificates. When ``required`` client certificates are required for all REST API calls. When ``optional`` client certificates are required for all unsafe REST API endpoints. If ``verify_client`` is set to ``optional`` or ``required`` basic-auth is not checked. When ``required`` is used, then client authentication succeeds, if the certificate signature verification succeeds.
 
 .. _patronictl_settings:
 
