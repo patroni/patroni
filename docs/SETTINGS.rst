@@ -212,26 +212,24 @@ REST API
         
         -  **listen**: IP address (or hostname) and port that Patroni will listen to for the REST API - to provide also the same health checks and cluster messaging between the participating nodes, as described above. to provide health-check information for HAProxy (or any other load balancer capable of doing a HTTP "OPTION" or "GET" checks).
         
-        -  **Optional**:
-                -  **authentication**:
-                    -  **username**: Basic-auth username to protect unsafe REST API endpoints.
-                    -  **password**: Basic-auth password to protect unsafe REST API endpoints.
+        -  **authentication**: (optional):
+            -  **username**: Basic-auth username to protect unsafe REST API endpoints.
+            -  **password**: Basic-auth password to protect unsafe REST API endpoints.
         
-                -  **certfile**: Specifies the file with the certificate in the PEM format. If the certfile is not specified or is left empty, the API server will work without SSL.
-                -  **keyfile**: Specifies the file with the secret key in the PEM format.
-                -  **cafile**: Specifies the file with the CA_BUNDLE with certificates of trusted CAs to use while verifying client certs.
-                -  **verify\_client**: ``none``, ``optional`` or ``required``. When ``none`` REST API will not check client certificates. When ``required`` client certificates are required for all REST API calls. When ``optional`` client certificates are required for all unsafe REST API endpoints. If ``verify_client`` is set to ``optional`` or ``required`` basic-auth is not checked.
+        -  **certfile**: (optional): Specifies the file with the certificate in the PEM format. If the certfile is not specified or is left empty, the API server will work without SSL.
+        -  **keyfile**: (optional): Specifies the file with the secret key in the PEM format.
+        -  **cafile**: (optional): Specifies the file with the CA_BUNDLE with certificates of trusted CAs to use while verifying client certs.
+        -  **verify\_client**: (optional): ``none``, ``optional`` or ``required``. When ``none`` REST API will not check client certificates. When ``required`` client certificates are required for all REST API calls. When ``optional`` client certificates are required for all unsafe REST API endpoints. If ``verify_client`` is set to ``optional`` or ``required`` basic-auth is not checked.
 
 .. _patronictl_settings:
 
 CTL
 ---
--  **Optional**
-        - **ctl**:
-            -  **insecure**: Allow connections to REST API without verifying SSL certs.
-            -  **cacert**: Specifies the file with the CA_BUNDLE file or directory with certificates of trusted CAs to use while verifying REST API SSL certs. If not provided patronictl will use the value provided for REST API "cafile" parameter.
-            -  **certfile**: Specifies the file with the client certificate in the PEM format. If not provided patronictl will use the value provided for REST API "certfile" parameter.
-            -  **keyfile**: Specifies the file with the client secret key in the PEM format. If not provided patronictl will use the value provided for REST API "keyfile" parameter.
+- **ctl**: (optional):
+    -  **insecure**: Allow connections to REST API without verifying SSL certs.
+    -  **cacert**: Specifies the file with the CA_BUNDLE file or directory with certificates of trusted CAs to use while verifying REST API SSL certs. If not provided patronictl will use the value provided for REST API "cafile" parameter.
+    -  **certfile**: Specifies the file with the client certificate in the PEM format. If not provided patronictl will use the value provided for REST API "certfile" parameter.
+    -  **keyfile**: Specifies the file with the client secret key in the PEM format. If not provided patronictl will use the value provided for REST API "keyfile" parameter.
 
 Watchdog
 --------
