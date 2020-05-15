@@ -13,7 +13,7 @@ from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.cancellable import CancellableSubprocess
 from patroni.postgresql.config import ConfigHandler
 from patroni.postgresql.connection import Connection, get_connection_cursor
-from patroni.postgresql.misc import parse_history, postgres_major_version_to_int
+from patroni.postgresql.misc import parse_history, parse_lsn, postgres_major_version_to_int
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.slots import SlotsHandler
 from patroni.exceptions import PostgresConnectionException
@@ -309,6 +309,17 @@ class Postgresql(object):
             return int(self.controldata().get("Latest checkpoint's TimeLineID"))
         except (TypeError, ValueError):
             logger.exception('Failed to parse timeline from pg_controldata output')
+
+    def latest_checkpoint_location(self):
+        """Returns checkpoint location for the cleanly shut down primary"""
+
+        data = self.controldata()
+        lsn = data.get('Latest checkpoint location')
+        if data.get('Database cluster state') == 'shut down' and lsn:
+            try:
+                return str(parse_lsn(lsn))
+            except (IndexError, ValueError) as e:
+                logger.error('Exception when parsing lsn %s: %r', lsn, e)
 
     def is_running(self):
         """Returns PostmasterProcess if one is running on the data directory or None. If most recently seen process

@@ -338,6 +338,11 @@ class TestPostgresql(BaseTestPostgresql):
         with patch.object(Postgresql, '_query', Mock(side_effect=RetryFailedError(''))):
             self.assertRaises(PostgresConnectionException, self.p.is_leader)
 
+    @patch.object(Postgresql, 'controldata',
+                  Mock(return_value={'Database cluster state': 'shut down', 'Latest checkpoint location': 'X/678'}))
+    def test_latest_checkpoint_location(self):
+        self.assertIsNone(self.p.latest_checkpoint_location())
+
     def test_reload(self):
         self.assertTrue(self.p.reload())
 
