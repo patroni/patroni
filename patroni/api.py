@@ -525,10 +525,10 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             if self.__protocol == 'https' and self.__ssl_options.get('verify_client') in ('required', 'optional'):
                 return rh._write_response(403, 'client certificate required')
 
-            reason = self.check_auth_header(rh.headers.get('Authorization'))
-            if reason:
-                headers = {'WWW-Authenticate': 'Basic realm="' + self.patroni.__class__.__name__ + '"'}
-                return rh._write_response(401, reason, headers=headers)
+        reason = self.check_auth_header(rh.headers.get('Authorization'))
+        if reason:
+            headers = {'WWW-Authenticate': 'Basic realm="' + self.patroni.__class__.__name__ + '"'}
+            return rh._write_response(401, reason, headers=headers)
         return True
 
     @staticmethod
