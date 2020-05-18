@@ -760,13 +760,13 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
     # Show Host as 'host:port' if somebody is running on non-standard port or two nodes are running on the same host
     members = [m for m in cluster['members'] if 'host' in m]
     append_port = any('port' in m and m['port'] != 5432 for m in members) or\
-        len(set(m['host'] for m in cluster['members'])) < len(members)
+        len(set(m['host'] for m in members)) < len(members)
 
     for m in cluster['members']:
         logging.debug(m)
 
         lag = m.get('lag', '')
-        m.update(cluster=name, member=m['name'], host=m.get('host'), tl=m.get('timeline', ''),
+        m.update(cluster=name, member=m['name'], host=m.get('host', ''), tl=m.get('timeline', ''),
                  role='' if m['role'] == 'replica' else m['role'].replace('_', ' ').title(),
                  lag_in_mb=round(lag/1024/1024) if isinstance(lag, six.integer_types) else lag,
                  pending_restart='*' if m.get('pending_restart') else '')
@@ -942,7 +942,7 @@ def toggle_pause(config, cluster_name, paused, wait):
         raise PatroniCtlException('Cluster is {0} paused'.format(paused and 'already' or 'not'))
 
     members = []
-    if cluster.leader:
+    if cluster.leader and cluster.leader.member.api_url:
         members.append(cluster.leader.member)
     members.extend([m for m in cluster.members if m.api_url and (not members or members[0].name != m.name)])
 
@@ -1008,7 +1008,7 @@ def show_diff(before_editing, after_editing):
     If the output is to a tty the diff will be colored. Inputs are expected to be unicode strings.
     """
     def listify(string):
-        return [l+'\n' for l in string.rstrip('\n').split('\n')]
+        return [line + '\n' for line in string.rstrip('\n').split('\n')]
 
     unified_diff = difflib.unified_diff(listify(before_editing), listify(after_editing))
 

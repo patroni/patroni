@@ -503,7 +503,7 @@ class Consul(AbstractDCS):
         return self._client.kv.put(self.history_path, value)
 
     @catch_consul_errors
-    def delete_leader(self):
+    def _delete_leader(self):
         cluster = self.cluster
         if cluster and isinstance(cluster.leader, Leader) and cluster.leader.name == self._name:
             return self._client.kv.delete(self.leader_path, cas=cluster.leader.index)
