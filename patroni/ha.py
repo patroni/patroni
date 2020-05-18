@@ -391,10 +391,13 @@ class Ha(object):
         if self.is_paused():
             if not (self._rewind.is_needed and self._rewind.can_rewind_or_reinitialize_allowed)\
                     or self.cluster.is_unlocked():
-                self.state_handler.set_role('master' if is_leader else 'replica')
                 if is_leader:
+                    self.state_handler.set_role('master')
                     return 'continue to run as master without lock'
-                elif not node_to_follow:
+                elif self.state_handler.role != 'standby_leader':
+                    self.state_handler.set_role('replica')
+
+                if not node_to_follow:
                     return 'no action'
         elif is_leader:
             self.demote('immediate-nolock')
