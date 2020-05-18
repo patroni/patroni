@@ -677,7 +677,7 @@ class Etcd(AbstractEtcd):
         return self.retry(self._client.write, self.initialize_path, sysid, prevExist=(not create_new))
 
     @catch_etcd_errors
-    def delete_leader(self):
+    def _delete_leader(self):
         return self._client.delete(self.leader_path, prevValue=self._name)
 
     @catch_etcd_errors

@@ -22,7 +22,9 @@ _AUTH_ALLOWED_PARAMETERS = (
     'sslcert',
     'sslkey',
     'sslrootcert',
-    'sslcrl'
+    'sslcrl',
+    'gssencmode',
+    'channel_binding'
 )
 
 

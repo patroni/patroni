@@ -315,7 +315,7 @@ class ZooKeeper(AbstractDCS):
     def _update_leader(self):
         return True
 
-    def delete_leader(self):
+    def _delete_leader(self):
         self._client.restart()
         return True
 
