@@ -382,7 +382,7 @@ class Raft(AbstractDCS):
     def initialize(self, create_new=True, sysid=''):
         return self._sync_obj.set(self.initialize_path, sysid, prevExist=(not create_new))
 
-    def delete_leader(self):
+    def _delete_leader(self):
         return self._sync_obj.delete(self.leader_path, prevValue=self._name, timeout=1)
 
     def cancel_initialization(self):
