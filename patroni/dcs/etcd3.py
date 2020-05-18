@@ -769,7 +769,7 @@ class Etcd3(AbstractEtcd):
         return self.retry(self._client.put, self.initialize_path, sysid, None, 0 if create_new else None)
 
     @catch_etcd_errors
-    def delete_leader(self):
+    def _delete_leader(self):
         cluster = self.cluster
         if cluster and isinstance(cluster.leader, Leader) and cluster.leader.name == self._name:
             return self._client.deleterange(self.leader_path, mod_revision=cluster.leader.index)
