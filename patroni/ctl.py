@@ -241,6 +241,15 @@ def get_any_member(cluster, role='master', member=None):
             return m
 
 
+def get_all_members_leader_first(cluster):
+    leader_name = cluster.leader.member.name if cluster.leader and cluster.leader.member.api_url else None
+    if leader_name:
+        yield cluster.leader.member
+    for member in cluster.members:
+        if member.api_url and member.name != leader_name:
+            yield member
+
+
 def get_cursor(cluster, connect_parameters, role='master', member=None):
     member = get_any_member(cluster, role=role, member=member)
     if member is None:
@@ -896,25 +905,45 @@ def scaffold(obj, cluster_name, sysid):
     click.echo("Cluster {0} has been created successfully".format(cluster_name))
 
 
-@ctl.command('flush', help='Discard scheduled events (restarts only currently)')
+@ctl.command('flush', help='Discard scheduled events')
 @click.argument('cluster_name')
 @click.argument('member_names', nargs=-1)
-@click.argument('target', type=click.Choice(['restart']))
+@click.argument('target', type=click.Choice(['restart', 'switchover']))
 @click.option('--role', '-r', help='Flush only members with this role', default='any',
               type=click.Choice(['master', 'replica', 'any']))
 @option_force
 @click.pass_obj
 def flush(obj, cluster_name, member_names, force, role, target):
-    cluster = get_dcs(obj, cluster_name).get_cluster()
+    dcs = get_dcs(obj, cluster_name)
+    cluster = dcs.get_cluster()
 
-    members = get_members(cluster, cluster_name, member_names, role, force, 'flush')
-    for member in members:
-        if target == 'restart':
+    if target == 'restart':
+        for member in get_members(cluster, cluster_name, member_names, role, force, 'flush'):
             if member.data.get('scheduled_restart'):
                 r = request_patroni(member, 'delete', 'restart')
                 check_response(r, member.name, 'flush scheduled restart')
             else:
                 click.echo('No scheduled restart for member {0}'.format(member.name))
+    elif target == 'switchover':
+        failover = cluster.failover
+        if not failover or not failover.scheduled_at:
+            return click.echo('No pending scheduled switchover')
+        for member in get_all_members_leader_first(cluster):
+            try:
+                r = request_patroni(member, 'delete', 'switchover')
+                if r.status in (200, 404):
+                    prefix = 'Success' if r.status == 200 else 'Failed'
+                    return click.echo('{0}: {1}'.format(prefix, r.data.decode('utf-8')))
+            except Exception as err:
+                logging.warning(str(err))
+                logging.warning('Member %s is not accessible', member.name)
+
+            click.echo('Failed: member={0}, status_code={1}, ({2})'.format(
+                member.name, r.status, r.data.decode('utf-8')))
+        else:
+            logging.warning('Failing over to DCS')
+            click.echo('{0} Could not find any accessible member of cluster {1}'.format(timestamp(), cluster_name))
+            dcs.manual_failover('', '', index=failover.index)
 
 
 def wait_until_pause_is_applied(dcs, paused, old_cluster):
@@ -941,12 +970,7 @@ def toggle_pause(config, cluster_name, paused, wait):
     if cluster.is_paused() == paused:
         raise PatroniCtlException('Cluster is {0} paused'.format(paused and 'already' or 'not'))
 
-    members = []
-    if cluster.leader and cluster.leader.member.api_url:
-        members.append(cluster.leader.member)
-    members.extend([m for m in cluster.members if m.api_url and (not members or members[0].name != m.name)])
-
-    for member in members:
+    for member in get_all_members_leader_first(cluster):
         try:
             r = request_patroni(member, 'patch', 'config', {'pause': paused or None})
         except Exception as err:

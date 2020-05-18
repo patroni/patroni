@@ -308,6 +308,15 @@ class TestRestApiHandler(unittest.TestCase):
                 self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
 
     @patch.object(MockPatroni, 'dcs')
+    def test_do_DELETE_switchover(self, mock_dcs):
+        request = 'DELETE /switchover HTTP/1.0' + self._authorization
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
+        mock_dcs.manual_failover.return_value = False
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
+        mock_dcs.get_cluster.return_value.failover = None
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
+
+    @patch.object(MockPatroni, 'dcs')
     def test_do_POST_reinitialize(self, mock_dcs):
         cluster = mock_dcs.get_cluster.return_value
         cluster.is_paused.return_value = False
