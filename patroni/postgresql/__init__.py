@@ -600,7 +600,7 @@ class Postgresql(object):
         except psycopg2.Error:
             pass
 
-    def reload(self):
+    def reload(self, block_callbacks=False):
         ret = self.pg_ctl('reload')
         if ret:
             self.call_nowait(ACTION_ON_RELOAD)
@@ -767,7 +767,8 @@ class Postgresql(object):
         if self.is_running():
             if do_reload:
                 self.config.write_postgresql_conf()
-                self.reload()
+                if self.reload(block_callbacks=change_role) and change_role:
+                    self.set_role(role)
             else:
                 self.restart(block_callbacks=change_role, role=role)
         else:
