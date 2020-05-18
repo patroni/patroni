@@ -154,7 +154,10 @@ def run_async(self, func, args=()):
 @patch.object(Postgresql, '_cluster_info_state_get', Mock(return_value=3))
 @patch.object(Postgresql, 'call_nowait', Mock(return_value=True))
 @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=False))
-@patch.object(Postgresql, 'controldata', Mock(return_value={'Database system identifier': SYSID}))
+@patch.object(Postgresql, 'controldata', Mock(return_value={
+    'Database system identifier': SYSID,
+    'Database cluster state': 'shut down',
+    'Latest checkpoint location': '0/12345678'}))
 @patch.object(SlotsHandler, 'sync_replication_slots', Mock())
 @patch.object(ConfigHandler, 'append_pg_hba', Mock())
 @patch.object(ConfigHandler, 'write_pgpass', Mock(return_value={}))
@@ -199,6 +202,7 @@ class TestHa(PostgresInit):
         self.p.last_operation = Mock(side_effect=PostgresConnectionException(''))
         self.assertTrue(self.ha.update_lock(True))
 
+    @patch.object(Postgresql, 'received_timeline', Mock(return_value=None))
     def test_touch_member(self):
         self.p.timeline_wal_position = Mock(return_value=(0, 1, 0))
         self.p.replica_cached_timeline = Mock(side_effect=Exception)
@@ -254,7 +258,7 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.assertEqual(self.ha.run_cycle(), 'starting as readonly because i had the session lock')
 
-    @patch.object(Postgresql, 'fix_cluster_state', Mock())
+    @patch.object(Rewind, 'ensure_clean_shutdown', Mock())
     def test_crash_recovery(self):
         self.p.is_running = false
         self.p.controldata = lambda: {'Database cluster state': 'in production', 'Database system identifier': SYSID}

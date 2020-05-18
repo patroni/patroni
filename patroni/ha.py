@@ -201,6 +201,8 @@ class Ha(object):
                 try:
                     timeline, wal_position, pg_control_timeline = self.state_handler.timeline_wal_position()
                     data['xlog_location'] = wal_position
+                    if not timeline:  # try pg_stat_wal_receiver to get the timeline
+                        timeline = self.state_handler.received_timeline()
                     if not timeline:
                         # So far the only way to get the current timeline on the standby is from
                         # the replication connection. In order to avoid opening the replication
@@ -328,7 +330,7 @@ class Ha(object):
                 (self.cluster.is_unlocked() or self._rewind.can_rewind):
             self._crash_recovery_executed = True
             msg = 'doing crash recovery in a single user mode'
-            return self._async_executor.try_run_async(msg, self.state_handler.fix_cluster_state) or msg
+            return self._async_executor.try_run_async(msg, self._rewind.ensure_clean_shutdown) or msg
 
         self.load_cluster_from_dcs()
 
@@ -773,13 +775,13 @@ class Ha(object):
 
         return self._is_healthiest_node(members.values())
 
-    def _delete_leader(self):
+    def _delete_leader(self, last_operation=None):
         self.set_is_leader(False)
-        self.dcs.delete_leader()
+        self.dcs.delete_leader(last_operation)
         self.dcs.reset_cluster()
 
-    def release_leader_key_voluntarily(self):
-        self._delete_leader()
+    def release_leader_key_voluntarily(self, last_operation=None):
+        self._delete_leader(last_operation)
         self.touch_member()
         logger.info("Leader key released")
 
@@ -809,8 +811,9 @@ class Ha(object):
         self.set_is_leader(False)
 
         if mode_control['release']:
+            checkpoint_location = self.state_handler.latest_checkpoint_location() if mode == 'graceful' else None
             with self._async_executor:
-                self.release_leader_key_voluntarily()
+                self.release_leader_key_voluntarily(checkpoint_location)
             time.sleep(2)  # Give a time to somebody to take the leader lock
         if mode_control['offline']:
             node_to_follow, leader = None, None
@@ -970,7 +973,7 @@ class Ha(object):
                     return msg
 
                 # check if the node is ready to be used by pg_rewind
-                self._rewind.ensure_checkpoint_after_promote()
+                self._rewind.ensure_checkpoint_after_promote(self.wakeup)
 
                 if self.is_standby_cluster():
                     # in case of standby cluster we don't really need to
@@ -1420,7 +1423,8 @@ class Ha(object):
                                                                         stop_timeout=self.master_stop_timeout()))
             if not self.state_handler.is_running():
                 if self.is_leader():
-                    self.dcs.delete_leader()
+                    checkpoint_location = self.state_handler.latest_checkpoint_location()
+                    self.dcs.delete_leader(checkpoint_location)
                 self.touch_member()
             else:
                 # XXX: what about when Patroni is started as the wrong user that has access to the watchdog device
