@@ -215,7 +215,6 @@ REST API
         -  **authentication**: (optional):
             -  **username**: Basic-auth username to protect unsafe REST API endpoints.
             -  **password**: Basic-auth password to protect unsafe REST API endpoints.
-        
         -  **certfile**: (optional): Specifies the file with the certificate in the PEM format. If the certfile is not specified or is left empty, the API server will work without SSL.
         -  **keyfile**: (optional): Specifies the file with the secret key in the PEM format.
         -  **cafile**: (optional): Specifies the file with the CA_BUNDLE with certificates of trusted CAs to use while verifying client certs.
