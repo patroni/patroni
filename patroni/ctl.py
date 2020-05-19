@@ -940,10 +940,10 @@ def flush(obj, cluster_name, member_names, force, role, target):
 
             click.echo('Failed: member={0}, status_code={1}, ({2})'.format(
                 member.name, r.status, r.data.decode('utf-8')))
-        else:
-            logging.warning('Failing over to DCS')
-            click.echo('{0} Could not find any accessible member of cluster {1}'.format(timestamp(), cluster_name))
-            dcs.manual_failover('', '', index=failover.index)
+
+        logging.warning('Failing over to DCS')
+        click.echo('{0} Could not find any accessible member of cluster {1}'.format(timestamp(), cluster_name))
+        dcs.manual_failover('', '', index=failover.index)
 
 
 def wait_until_pause_is_applied(dcs, paused, old_cluster):
