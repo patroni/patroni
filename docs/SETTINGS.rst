@@ -225,7 +225,7 @@ REST API
 
 CTL
 ---
-- **ctl**: (optional):
+- **ctl**: (optional)
     -  **insecure**: Allow connections to REST API without verifying SSL certs.
     -  **cacert**: Specifies the file with the CA_BUNDLE file or directory with certificates of trusted CAs to use while verifying REST API SSL certs. If not provided patronictl will use the value provided for REST API "cafile" parameter.
     -  **certfile**: Specifies the file with the client certificate in the PEM format. If not provided patronictl will use the value provided for REST API "certfile" parameter.
