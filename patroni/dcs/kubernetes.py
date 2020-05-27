@@ -98,7 +98,7 @@ def catch_kubernetes_errors(func):
 
 class ObjectCache(Thread):
 
-    def __init__(self, dcs, func, retry, condition):
+    def __init__(self, dcs, func, retry, condition, name=None):
         Thread.__init__(self)
         self.daemon = True
         self._api_client = k8s_client.ApiClient()
@@ -106,6 +106,7 @@ class ObjectCache(Thread):
         self._func = func
         self._retry = retry
         self._condition = condition
+        self._name = name  # name of this pod
         self._is_ready = False
         self._object_cache = {}
         self._object_cache_lock = Lock()
@@ -180,9 +181,14 @@ class ObjectCache(Thread):
                     if old_value:
                         old_value = (old_value.metadata.annotations or {}).get(self._annotations_map.get(name))
 
-                    if old_value != new_value and \
-                            (name != self._dcs.config_path or old_value is not None and new_value is not None):
+                    value_changed = old_value != new_value and \
+                        (name != self._dcs.config_path or old_value is not None and new_value is not None)
+
+                    if value_changed:
                         logger.debug('%s changed from %s to %s', name, old_value, new_value)
+
+                    # Do not wake up HA loop if we run as leader and received leader object update event
+                    if value_changed or name == self._dcs.leader_path and self._name != new_value:
                         self._dcs.event.set()
         finally:
             with self._condition:
@@ -251,7 +257,7 @@ class Kubernetes(AbstractDCS):
 
         kinds_func = functools.partial(self._api.list_namespaced_kind, self._namespace,
                                        label_selector=self._label_selector)
-        self._kinds = ObjectCache(self, kinds_func, self._retry, self._condition)
+        self._kinds = ObjectCache(self, kinds_func, self._retry, self._condition, self._name)
 
     def retry(self, *args, **kwargs):
         return self._retry.copy()(*args, **kwargs)
@@ -582,6 +588,6 @@ class Kubernetes(AbstractDCS):
             return True
 
         try:
-            return super(Kubernetes, self).watch(None, timeout)
+            return super(Kubernetes, self).watch(None, timeout + 0.5)
         finally:
             self.event.clear()
