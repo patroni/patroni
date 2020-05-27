@@ -192,21 +192,85 @@ class Rewind(object):
     def checkpoint_after_promote(self):
         return self._state == REWIND_STATUS.CHECKPOINT
 
+    def _wal_dir(self):
+        return os.path.join(self._postgresql.data_dir, 'pg_' + self._postgresql.wal_name)
+
+    def _fetch_missing_wal(self, restore_command, wal_filename):
+        cmd = ''
+        length = len(restore_command)
+        i = 0
+        while i < length:
+            if restore_command[i] == '%' and i + 1 < length:
+                i += 1
+                if restore_command[i] == 'p':
+                    cmd += os.path.join(self._wal_dir(), wal_filename)
+                elif restore_command[i] == 'f':
+                    cmd += wal_filename
+                elif restore_command[i] == 'r':
+                    cmd += '000000010000000000000001'
+                elif restore_command[i] == '%':
+                    cmd += '%'
+                else:
+                    cmd += '%'
+                    i -= 1
+            else:
+                cmd += restore_command[i]
+            i += 1
+
+        logger.info('Trying to fetch the missing wal: %s', cmd)
+        return self._postgresql.cancellable.call(cmd, shell=True) == 0
+
+    def _find_missing_wal(self, data):
+        # could not open file "$PGDATA/pg_wal/0000000A00006AA100000068": No such file or directory
+        pattern = 'could not open file "'
+        for line in data.decode('utf-8').split('\n'):
+            b = line.find(pattern)
+            if b > -1:
+                b += len(pattern)
+                e = line.find('": ', b)
+                if e > -1:
+                    waldir, wal_filename = os.path.split(line[b:e])
+                    if waldir.endswith(os.path.sep + 'pg_' + self._postgresql.wal_name) and len(wal_filename) == 24:
+                        return wal_filename
+
     def pg_rewind(self, r):
         # prepare pg_rewind connection
         env = self._postgresql.config.write_pgpass(r)
-        env['PGOPTIONS'] = '-c statement_timeout=0'
+        env.update(LANG='C', LC_ALL='C', PGOPTIONS='-c statement_timeout=0')
         dsn = self._postgresql.config.format_dsn(r, True)
         logger.info('running pg_rewind from %s', dsn)
 
+        restore_command = self._postgresql.config.get('recovery_conf', {}).get('restore_command') \
+            if self._postgresql.major_version < 120000 else self._postgresql.get_guc_value('restore_command')
+
         cmd = [self._postgresql.pgcommand('pg_rewind')]
-        if self._postgresql.major_version >= 130000 and self._postgresql.get_guc_value('restore_command'):
+        if self._postgresql.major_version >= 130000 and restore_command:
             cmd.append('--restore-target-wal')
         cmd.extend(['-D', self._postgresql.data_dir, '--source-server', dsn])
-        try:
-            return self._postgresql.cancellable.call(cmd, env=env) == 0
-        except OSError:
-            return False
+
+        while True:
+            results = {}
+            ret = self._postgresql.cancellable.call(cmd, env=env, communicate=results)
+
+            logger.info('pg_rewind exit code=%s', ret)
+            if ret is None:
+                return False
+
+            logger.info(' stdout=%s', results['stdout'].decode('utf-8'))
+            logger.info(' stderr=%s', results['stderr'].decode('utf-8'))
+            if ret == 0:
+                return True
+
+            if not restore_command or self._postgresql.major_version >= 130000:
+                return False
+
+            missing_wal = self._find_missing_wal(results['stderr']) or self._find_missing_wal(results['stdout'])
+            if not missing_wal:
+                return False
+
+            if not self._fetch_missing_wal(restore_command, missing_wal):
+                logger.info('Failed to fetch WAL segment %s required for pg_rewind', missing_wal)
+                return False
 
     def execute(self, leader):
         if self._postgresql.is_running() and not self._postgresql.stop(checkpoint=False):
@@ -277,17 +341,17 @@ class Rewind(object):
             logger.exception('Error when reading postmaster.opts')
         return result
 
-    def single_user_mode(self, command=None, options=None):
+    def single_user_mode(self, communicate=None, options=None):
         """run a given command in a single-user mode. If the command is empty - then just start and stop"""
         cmd = [self._postgresql.pgcommand('postgres'), '--single', '-D', self._postgresql.data_dir]
         for opt, val in sorted((options or {}).items()):
             cmd.extend(['-c', '{0}={1}'.format(opt, val)])
         # need a database name to connect
         cmd.append('template1')
-        return self._postgresql.cancellable.call(cmd, communicate_input=command)
+        return self._postgresql.cancellable.call(cmd, communicate=communicate)
 
     def cleanup_archive_status(self):
-        status_dir = os.path.join(self._postgresql.data_dir, 'pg_' + self._postgresql.wal_name, 'archive_status')
+        status_dir = os.path.join(self._wal_dir(), 'archive_status')
         try:
             for f in os.listdir(status_dir):
                 path = os.path.join(status_dir, f)
