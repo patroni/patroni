@@ -602,7 +602,7 @@ class Postgresql(object):
 
     def reload(self, block_callbacks=False):
         ret = self.pg_ctl('reload')
-        if ret:
+        if ret and not block_callbacks:
             self.call_nowait(ACTION_ON_RELOAD)
         return ret
 
