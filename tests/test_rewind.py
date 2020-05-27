@@ -53,11 +53,12 @@ class TestRewind(BaseTestPostgresql):
         with patch.object(Postgresql, 'controldata',
                           Mock(return_value={'Database cluster state': 'shut down in recovery',
                                              'Minimum recovery ending location': '0/0',
-                                             "Min recovery ending loc's timeline": '0'})):
+                                             "Min recovery ending loc's timeline": '0',
+                                             'Latest checkpoint location': '0/'})):
             self.r.rewind_or_reinitialize_needed_and_possible(self.leader)
 
         with patch.object(Postgresql, 'is_running', Mock(return_value=True)):
-            with patch.object(MockCursor, 'fetchone', Mock(side_effect=[(False, ), Exception])):
+            with patch.object(MockCursor, 'fetchone', Mock(side_effect=[(0, 0, 1, 1,), Exception])):
                 self.r.rewind_or_reinitialize_needed_and_possible(self.leader)
 
     @patch.object(CancellableSubprocess, 'call', Mock(return_value=0))
@@ -95,9 +96,10 @@ class TestRewind(BaseTestPostgresql):
 
     @patch.object(Postgresql, 'start', Mock())
     @patch.object(Rewind, 'can_rewind', PropertyMock(return_value=True))
-    @patch.object(Rewind, '_get_local_timeline_lsn', Mock(return_value=(2, '40159C1')))
+    @patch.object(Rewind, '_get_local_timeline_lsn')
     @patch.object(Rewind, 'check_leader_is_not_in_recovery')
-    def test__check_timeline_and_lsn(self, mock_check_leader_is_not_in_recovery):
+    def test__check_timeline_and_lsn(self, mock_check_leader_is_not_in_recovery, mock_get_local_timeline_lsn):
+        mock_get_local_timeline_lsn.return_value = (True, 2, 67197377)
         mock_check_leader_is_not_in_recovery.return_value = False
         self.r.trigger_check_diverged_lsn()
         self.assertFalse(self.r.rewind_or_reinitialize_needed_and_possible(self.leader))
@@ -113,9 +115,28 @@ class TestRewind(BaseTestPostgresql):
             self.assertFalse(self.r.rewind_or_reinitialize_needed_and_possible(self.leader))
         self.r.trigger_check_diverged_lsn()
         with patch.object(MockCursor, 'fetchone', Mock(return_value=('', 1, '0/0'))):
-            with patch.object(Rewind, '_get_local_timeline_lsn', Mock(return_value=(1, '0/0'))):
+            with patch.object(Rewind, '_get_local_timeline_lsn', Mock(return_value=(True, 1, '0/0'))):
                 self.assertFalse(self.r.rewind_or_reinitialize_needed_and_possible(self.leader))
             self.r.trigger_check_diverged_lsn()
+            self.assertTrue(self.r.rewind_or_reinitialize_needed_and_possible(self.leader))
+
+        self.r.reset_state()
+        self.r.trigger_check_diverged_lsn()
+        mock_get_local_timeline_lsn.return_value = (False, 2, 67296664)
+        self.assertTrue(self.r.rewind_or_reinitialize_needed_and_possible(self.leader))
+
+        with patch('subprocess.Popen') as mock_popen:
+            mock_popen.return_value.communicate.return_value = (
+                b'0, lsn: 0/040159C1, prev 0/\n',
+                b'pg_waldump: fatal: error in WAL record at 0/40159C1: invalid record length at /: wanted 24, got 0\n'
+            )
+            self.r.reset_state()
+            self.r.trigger_check_diverged_lsn()
+            mock_get_local_timeline_lsn.return_value = (False, 2, 67197377)
+            self.assertTrue(self.r.rewind_or_reinitialize_needed_and_possible(self.leader))
+            self.r.reset_state()
+            self.r.trigger_check_diverged_lsn()
+            mock_popen.side_effect = Exception
             self.assertTrue(self.r.rewind_or_reinitialize_needed_and_possible(self.leader))
 
     @patch.object(MockCursor, 'fetchone', Mock(side_effect=[(True,), Exception]))

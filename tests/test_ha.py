@@ -166,7 +166,7 @@ def run_async(self, func, args=()):
 @patch.object(Postgresql, 'query', Mock())
 @patch.object(Postgresql, 'checkpoint', Mock())
 @patch.object(CancellableSubprocess, 'call', Mock(return_value=0))
-@patch.object(Postgresql, 'get_local_timeline_lsn_from_replication_connection', Mock(return_value=[2, 10]))
+@patch.object(Postgresql, 'get_replica_timeline', Mock(return_value=2))
 @patch.object(Postgresql, 'get_master_timeline', Mock(return_value=2))
 @patch.object(ConfigHandler, 'restore_configuration_files', Mock())
 @patch.object(etcd.Client, 'write', etcd_write)

@@ -417,6 +417,7 @@ class Ha(object):
                                                        self.state_handler.follow, args=(node_to_follow, role))
                 else:
                     self.state_handler.follow(node_to_follow, role, do_reload=True)
+                self._rewind.trigger_check_diverged_lsn()
             elif role == 'standby_leader' and self.state_handler.role != role:
                 self.state_handler.set_role(role)
                 self.state_handler.call_nowait(ACTION_ON_ROLE_CHANGE)

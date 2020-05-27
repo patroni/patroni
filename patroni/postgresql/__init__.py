@@ -724,18 +724,13 @@ class Postgresql(object):
         with get_connection_cursor(**conn_kwargs) as cur:
             yield cur
 
-    def get_local_timeline_lsn_from_replication_connection(self):
-        timeline = lsn = None
+    def get_replica_timeline(self):
         try:
             with self.get_replication_connection_cursor(**self.config.local_replication_address) as cur:
                 cur.execute('IDENTIFY_SYSTEM')
-                timeline, lsn = cur.fetchone()[1:3]
+                return cur.fetchone()[1]
         except Exception:
             logger.exception('Can not fetch local timeline and lsn from replication connection')
-        return timeline, lsn
-
-    def get_replica_timeline(self):
-        return self.get_local_timeline_lsn_from_replication_connection()[0]
 
     def replica_cached_timeline(self, master_timeline):
         if not self._cached_replica_timeline or not master_timeline or self._cached_replica_timeline != master_timeline:
