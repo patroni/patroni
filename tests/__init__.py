@@ -1,4 +1,3 @@
-import datetime
 import os
 import shutil
 import unittest
@@ -107,11 +106,6 @@ class MockCursor(object):
                             ('unix_socket_directories', '/tmp', None, 'string', 'postmaster')]
         elif sql.startswith('IDENTIFY_SYSTEM'):
             self.results = [('1', 3, '0/402EEC0', '')]
-        elif sql.startswith('SELECT isdir, modification'):
-            self.results = [(False, datetime.datetime.now())]
-        elif sql.startswith('SELECT pg_catalog.pg_read_file'):
-            self.results = [('1\t0/40159C0\tno recovery target specified\n\n'
-                             '2\t1/40159C0\tno recovery target specified\n',)]
         elif sql.startswith('TIMELINE_HISTORY '):
             self.results = [('', b'x\t0/40159C0\tno recovery target specified\n\n'
                                  b'1\t0/40159C0\tno recovery target specified\n\n'

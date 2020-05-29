@@ -8,10 +8,12 @@ import time
 
 from contextlib import contextmanager
 from copy import deepcopy
+from dateutil import tz
+from datetime import datetime
 from patroni.postgresql.callback_executor import CallbackExecutor
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.cancellable import CancellableSubprocess
-from patroni.postgresql.config import ConfigHandler
+from patroni.postgresql.config import ConfigHandler, mtime
 from patroni.postgresql.connection import Connection, get_connection_cursor
 from patroni.postgresql.misc import parse_history, parse_lsn, postgres_major_version_to_int
 from patroni.postgresql.postmaster import PostmasterProcess
@@ -746,19 +748,19 @@ class Postgresql(object):
         return self._cluster_info_state_get('timeline')
 
     def get_history(self, timeline):
-        history_path = 'pg_{0}/{1:08X}.history'.format(self.wal_name, timeline)
-        try:
-            cursor = self._connection.cursor()
-            cursor.execute('SELECT isdir, modification FROM pg_catalog.pg_stat_file(%s)', (history_path,))
-            isdir, modification = cursor.fetchone()
-            if not isdir:
-                cursor.execute('SELECT pg_catalog.pg_read_file(%s)', (history_path,))
-                history = list(parse_history(cursor.fetchone()[0]))
+        history_path = os.path.join(self._data_dir, 'pg_' + self.wal_name, '{0:08X}.history'.format(timeline))
+        history_mtime = mtime(history_path)
+        if history_mtime:
+            try:
+                with open(history_path, 'r') as f:
+                    history = f.read()
+                history = list(parse_history(history))
                 if history[-1][0] == timeline - 1:
-                    history[-1].append(modification.isoformat())
+                    history_mtime = datetime.fromtimestamp(history_mtime).replace(tzinfo=tz.tzlocal())
+                    history[-1].append(history_mtime.isoformat())
                 return history
-        except Exception:
-            logger.exception('Failed to read and parse %s', (history_path,))
+            except Exception:
+                logger.exception('Failed to read and parse %s', (history_path,))
 
     def follow(self, member, role='replica', timeout=None, do_reload=False):
         recovery_params = self.config.build_recovery_params(member)
