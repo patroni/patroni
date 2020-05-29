@@ -1370,8 +1370,12 @@ class Ha(object):
 
     def run_cycle(self):
         with self._async_executor:
-            info = self._run_cycle()
-            return (self.is_paused() and 'PAUSE: ' or '') + info
+            try:
+                info = self._run_cycle()
+                return (self.is_paused() and 'PAUSE: ' or '') + info
+            except Exception:
+                logger.exception('Unexpected exception')
+                return 'Unexpected exception raised, please report it as a BUG'
 
     def shutdown(self):
         if self.is_paused():

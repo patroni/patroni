@@ -1073,3 +1073,8 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_initialized_without_leader(leader=True, cluster_config=config)
         self.ha.has_lock = true
         self.assertEqual(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
+
+    @patch.object(Cluster, 'has_member', true)
+    def test_run_cycle(self):
+        self.ha.dcs.touch_member = Mock(side_effect=DCSError('foo'))
+        self.assertEqual(self.ha.run_cycle(), 'Unexpected exception raised, please report it as a BUG')
