@@ -138,6 +138,10 @@ class Postgresql(object):
         return self.config.get('callbacks') or {}
 
     @property
+    def wal_dir(self):
+        return os.path.join(self._data_dir, 'pg_' + self.wal_name)
+
+    @property
     def wal_name(self):
         return 'wal' if self._major_version >= 100000 else 'xlog'
 
@@ -743,7 +747,7 @@ class Postgresql(object):
         return self._cluster_info_state_get('timeline')
 
     def get_history(self, timeline):
-        history_path = os.path.join(self._data_dir, 'pg_' + self.wal_name, '{0:08X}.history'.format(timeline))
+        history_path = os.path.join(self.wal_dir, '{0:08X}.history'.format(timeline))
         history_mtime = mtime(history_path)
         if history_mtime:
             try:

@@ -250,9 +250,6 @@ class Rewind(object):
     def checkpoint_after_promote(self):
         return self._state == REWIND_STATUS.CHECKPOINT
 
-    def _wal_dir(self):
-        return os.path.join(self._postgresql.data_dir, 'pg_' + self._postgresql.wal_name)
-
     def _fetch_missing_wal(self, restore_command, wal_filename):
         cmd = ''
         length = len(restore_command)
@@ -261,7 +258,7 @@ class Rewind(object):
             if restore_command[i] == '%' and i + 1 < length:
                 i += 1
                 if restore_command[i] == 'p':
-                    cmd += os.path.join(self._wal_dir(), wal_filename)
+                    cmd += os.path.join(self._postgresql.wal_dir, wal_filename)
                 elif restore_command[i] == 'f':
                     cmd += wal_filename
                 elif restore_command[i] == 'r':
@@ -409,7 +406,7 @@ class Rewind(object):
         return self._postgresql.cancellable.call(cmd, communicate=communicate)
 
     def cleanup_archive_status(self):
-        status_dir = os.path.join(self._wal_dir(), 'archive_status')
+        status_dir = os.path.join(self._postgresql.wal_dir, 'archive_status')
         try:
             for f in os.listdir(status_dir):
                 path = os.path.join(status_dir, f)
