@@ -134,7 +134,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self._write_status_response(200, response)
 
     def do_GET_cluster(self):
-        cluster = self.server.patroni.dcs.cluster or self.server.patroni.dcs.get_cluster()
+        cluster = self.server.patroni.dcs.get_cluster(True)
         self._write_json_response(200, cluster_as_json(cluster))
 
     def do_GET_history(self):
