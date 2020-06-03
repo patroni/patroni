@@ -122,6 +122,8 @@ class TestConsul(unittest.TestCase):
         self.c.refresh_session = Mock(return_value=True)
         for _ in range(0, 4):
             self.c.touch_member({'balbla': 'blabla'})
+        self.c.refresh_session = Mock(side_effect=ConsulError('foo'))
+        self.assertFalse(self.c.touch_member({'balbla': 'blabla'}))
 
     @patch.object(consul.Consul.KV, 'put', Mock(side_effect=InvalidSession))
     def test_take_leader(self):
