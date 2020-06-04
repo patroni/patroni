@@ -175,12 +175,14 @@ class Ha(object):
 
     def touch_member(self):
         with self._member_state_lock:
+            primary_conninfo = self.state_handler.config._current_recovery_params.get('primary_conninfo', {})[0] if self.state_handler.config._current_recovery_params is not None and self.state_handler.role != 'master' else None
             data = {
                 'conn_url': self.state_handler.connection_string,
                 'api_url': self.patroni.api.connection_string,
                 'state': self.state_handler.state,
                 'role': self.state_handler.role,
-                'version': self.patroni.version
+                'version': self.patroni.version,
+                'master_host': primary_conninfo.get('host', None) if primary_conninfo is not None else None
             }
 
             # following two lines are mainly necessary for consul, to avoid creation of master service

@@ -828,6 +828,80 @@ def members(obj, cluster_names, fmt, watch, w, extended, ts):
             cluster = dcs.get_cluster()
             output_members(cluster, cluster_name, extended, fmt)
 
+def output_topology(cluster, name):
+    res = []
+    masters=[]
+    topology = {}
+    filler = ' '
+    initialize = {None: 'uninitialized', '': 'initializing'}.get(cluster.initialize, cluster.initialize)
+    cluster = cluster_as_json(cluster)
+    members = {member['host']:member for member in [m for m in cluster['members'] if 'host' in m]}
+    for _, data in members.items():
+        if data['master_host'] is None:
+            masters.append(data)
+        else:
+            if data['master_host'] not in topology:
+                topology[data['master_host']] = []
+            topology[data['master_host']].append(data)
+    for master in masters:
+        res += generate_topology(0,master,topology,filler)
+    ident,addr_ident,state_ident,role_ident,timeline_ident,lag_ident = 0,0,0,0,0,0
+    for entry in res:
+        indent = max(ident, entry.find("|"))
+        addr_ident = max(addr_ident, len(entry.split("|")[1]))
+        state_ident = max(state_ident, len(entry.split("|")[2]))
+        role_ident = max(role_ident, len(entry.split("|")[3]))
+        timeline_ident = max(timeline_ident, len(entry.split("|")[4]))
+        lag_ident = max(lag_ident, len(entry.split("|")[5]) if len(entry.split("|"))==6 else 0)
+    info_idents = [addr_ident,state_ident,role_ident,timeline_ident,lag_ident]
+    for index, entry in enumerate(res):
+        entry_indent = entry.find("|")
+        records = entry.split("|",1)
+        formatted_info = "|".join(["{}{}".format(rec,filler * (info_idents[idx]-len(rec))) for idx,rec in enumerate(records[1].split("|"))])
+        formatted_entry = "{}{}\t|{}|".format(records[0], filler * (indent-entry_indent), formatted_info) if indent > entry_indent else  "{}\t|{}|".format(records[0], formatted_info)
+        res[index] = formatted_entry
+    click.echo('Cluster: {0} ({1})'.format(name, initialize))
+    click.echo("\n".join(res))
+
+
+def generate_topology(level, member, topology, filler):
+    ret = []
+    prefix = ''
+    if level > 0:
+        prefix = (filler * (level-1)*2) + '+' + filler
+    item = '{}{}|{}:{}|{}|{}|tl:{}'.format(prefix,member["name"],member["host"],member["port"],member['role'],member["state"],member.get("timeline","-"))
+    if level > 0 and 'lag' in member:
+        item += '|lag:{} MB'.format(round(member['lag']/1024/1024) if isinstance(member['lag'], six.integer_types) else member['lag'])
+    ret.append(item)
+    if member['host'] not in topology:
+        return ret
+    for replica in topology[member['host']]:
+        replicas = generate_topology(level+1,replica,topology,filler)
+        if type(replicas) is list:
+            ret.extend(replicas)
+        else:
+            ret.append(replicas)
+    return ret
+
+@ctl.command('topology', help='Prints ASCII topology for given cluster')
+@click.argument('cluster_names', nargs=-1)
+@option_watch
+@option_watchrefresh
+@click.pass_obj
+def topology(obj, cluster_names, watch, w):
+    if not cluster_names:
+        if 'scope' in obj:
+            cluster_names = [obj['scope']]
+        if not cluster_names:
+            return logging.warning('Printing topology: No cluster names were provided')
+
+    for cluster_name in cluster_names:
+        dcs = get_dcs(obj, cluster_name)
+
+        for _ in watching(w, watch):
+            cluster = dcs.get_cluster()
+            output_topology(cluster,cluster_name)
+
 
 def timestamp(precision=6):
     return datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:precision - 7]
