@@ -118,7 +118,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         if write_status_code_only:  # when haproxy sends OPTIONS request it reads only status code and nothing more
             message = self.responses[status_code][0]
-            self.wfile.write('{0} {1} {2}\r\n'.format(self.protocol_version, status_code, message).encode('utf-8'))
+            self.wfile.write('{0} {1} {2}\r\n\r\n'.format(self.protocol_version, status_code, message).encode('utf-8'))
         else:
             self._write_status_response(status_code, response)
 
@@ -418,64 +418,55 @@ class RestApiHandler(BaseHTTPRequestHandler):
         return retry(self.server.query, sql, *params)
 
     def get_postgresql_status(self, retry=False):
+        postgresql = self.server.patroni.postgresql
         try:
             cluster = self.server.patroni.dcs.cluster
 
-            if self.server.patroni.postgresql.state not in ('running', 'restarting', 'starting'):
+            if postgresql.state not in ('running', 'restarting', 'starting'):
                 raise RetryFailedError('')
-            stmt = ("SELECT pg_catalog.to_char(pg_catalog.pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),"
-                    " CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0"
-                    " ELSE ('x' || pg_catalog.substr(pg_catalog.pg_{0}file_name("
-                    "pg_catalog.pg_current_{0}_{1}()), 1, 8))::bit(32)::int END,"
-                    " CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0"
-                    " ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), '0/0')::bigint END,"
-                    " pg_catalog.pg_{0}_{1}_diff(COALESCE(pg_catalog.pg_last_{0}_receive_{1}(),"
-                    " pg_catalog.pg_last_{0}_replay_{1}()), '0/0')::bigint,"
-                    " pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint,"
+            stmt = ("SELECT " + postgresql.POSTMASTER_START_TIME + ", " + postgresql.TL_LSN + ","
                     " pg_catalog.to_char(pg_catalog.pg_last_xact_replay_timestamp(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),"
-                    " pg_catalog.pg_is_in_recovery() AND pg_catalog.pg_is_{0}_replay_paused(), "
                     " pg_catalog.array_to_json(pg_catalog.array_agg(pg_catalog.row_to_json(ri))) "
                     "FROM (SELECT (SELECT rolname FROM pg_authid WHERE oid = usesysid) AS usename,"
                     " application_name, client_addr, w.state, sync_state, sync_priority"
                     " FROM pg_catalog.pg_stat_get_wal_senders() w, pg_catalog.pg_stat_get_activity(pid)) AS ri")
 
-            row = self.query(stmt.format(self.server.patroni.postgresql.wal_name,
-                                         self.server.patroni.postgresql.lsn_name), retry=retry)[0]
+            row = self.query(stmt.format(postgresql.wal_name, postgresql.lsn_name), retry=retry)[0]
 
             result = {
-                'state': self.server.patroni.postgresql.state,
+                'state': postgresql.state,
                 'postmaster_start_time': row[0],
                 'role': 'replica' if row[1] == 0 else 'master',
-                'server_version': self.server.patroni.postgresql.server_version,
+                'server_version': postgresql.server_version,
                 'cluster_unlocked': bool(not cluster or cluster.is_unlocked()),
                 'xlog': ({
-                    'received_location': row[3],
-                    'replayed_location': row[4],
-                    'replayed_timestamp': row[5],
-                    'paused': row[6]} if row[1] == 0 else {
+                    'received_location': row[4] or row[3],
+                    'replayed_location': row[3],
+                    'replayed_timestamp': row[6],
+                    'paused': row[5]} if row[1] == 0 else {
                     'location': row[2]
                 })
             }
 
             if result['role'] == 'replica' and self.server.patroni.ha.is_standby_cluster():
-                result['role'] = self.server.patroni.postgresql.role
+                result['role'] = postgresql.role
 
             if row[1] > 0:
                 result['timeline'] = row[1]
             else:
                 leader_timeline = None if not cluster or cluster.is_unlocked() else cluster.leader.timeline
-                result['timeline'] = self.server.patroni.postgresql.replica_cached_timeline(leader_timeline)
+                result['timeline'] = postgresql.replica_cached_timeline(leader_timeline)
 
             if row[7]:
                 result['replication'] = row[7]
 
             return result
         except (psycopg2.Error, RetryFailedError, PostgresConnectionException):
-            state = self.server.patroni.postgresql.state
+            state = postgresql.state
             if state == 'running':
                 logger.exception('get_postgresql_status')
                 state = 'unknown'
-            return {'state': state, 'role': self.server.patroni.postgresql.role}
+            return {'state': state, 'role': postgresql.role}
 
     def log_message(self, fmt, *args):
         logger.debug("API thread: %s - - [%s] %s", self.client_address[0], self.log_date_time_string(), fmt % args)

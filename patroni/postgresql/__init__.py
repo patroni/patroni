@@ -8,10 +8,12 @@ import time
 
 from contextlib import contextmanager
 from copy import deepcopy
+from dateutil import tz
+from datetime import datetime
 from patroni.postgresql.callback_executor import CallbackExecutor
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.cancellable import CancellableSubprocess
-from patroni.postgresql.config import ConfigHandler
+from patroni.postgresql.config import ConfigHandler, mtime
 from patroni.postgresql.connection import Connection, get_connection_cursor
 from patroni.postgresql.misc import parse_history, parse_lsn, postgres_major_version_to_int
 from patroni.postgresql.postmaster import PostmasterProcess
@@ -45,6 +47,16 @@ def null_context():
 
 
 class Postgresql(object):
+
+    POSTMASTER_START_TIME = "pg_catalog.to_char(pg_catalog.pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ')"
+    TL_LSN = ("CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
+              "ELSE ('x' || pg_catalog.substr(pg_catalog.pg_{0}file_name("
+              "pg_catalog.pg_current_{0}_{1}()), 1, 8))::bit(32)::int END, "  # master timeline
+              "CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
+              "ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), '0/0')::bigint END, "  # write_lsn
+              "pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint,  "
+              "pg_catalog.pg_{0}_{1}_diff(COALESCE(pg_catalog.pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint, "
+              "pg_catalog.pg_is_in_recovery() AND pg_catalog.pg_is_{0}_replay_paused()")
 
     def __init__(self, config):
         self.name = config['name']
@@ -145,15 +157,7 @@ class Postgresql(object):
         else:
             extra = "0, NULL, NULL, NULL"
 
-        return ("SELECT CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
-                "ELSE ('x' || pg_catalog.substr(pg_catalog.pg_{0}file_name("
-                "pg_catalog.pg_current_{0}_{1}()), 1, 8))::bit(32)::int END, "
-                "CASE WHEN pg_catalog.pg_is_in_recovery() THEN GREATEST("
-                " pg_catalog.pg_{0}_{1}_diff(COALESCE("
-                "pg_catalog.pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint,"
-                " pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint) "
-                "ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), '0/0')::bigint "
-                "END, {2}").format(self.wal_name, self.lsn_name, extra)
+        return ("SELECT " + self.TL_LSN + ", {2}").format(self.wal_name, self.lsn_name, extra)
 
     def _version_file_exists(self):
         return not self.data_directory_empty() and os.path.isfile(self._version_file)
@@ -298,7 +302,8 @@ class Postgresql(object):
         if not self._cluster_info_state:
             try:
                 result = self._is_leader_retry(self._query, self.cluster_info_query).fetchone()
-                self._cluster_info_state = dict(zip(['timeline', 'wal_position', 'pg_control_timeline',
+                self._cluster_info_state = dict(zip(['timeline', 'wal_position', 'replayed_location',
+                                                     'received_location', 'replay_paused', 'pg_control_timeline',
                                                      'received_tli', 'slot_name', 'conninfo'], result))
             except RetryFailedError as e:  # SELECT failed two times
                 self._cluster_info_state = {'error': str(e)}
@@ -309,6 +314,12 @@ class Postgresql(object):
             raise PostgresConnectionException(self._cluster_info_state['error'])
 
         return self._cluster_info_state.get(name)
+
+    def replayed_location(self):
+        return self._cluster_info_state_get('replayed_location')
+
+    def received_location(self):
+        return self._cluster_info_state_get('received_location')
 
     def primary_slot_name(self):
         return self._cluster_info_state_get('slot_name')
@@ -715,18 +726,13 @@ class Postgresql(object):
         with get_connection_cursor(**conn_kwargs) as cur:
             yield cur
 
-    def get_local_timeline_lsn_from_replication_connection(self):
-        timeline = lsn = None
+    def get_replica_timeline(self):
         try:
             with self.get_replication_connection_cursor(**self.config.local_replication_address) as cur:
                 cur.execute('IDENTIFY_SYSTEM')
-                timeline, lsn = cur.fetchone()[1:3]
+                return cur.fetchone()[1]
         except Exception:
             logger.exception('Can not fetch local timeline and lsn from replication connection')
-        return timeline, lsn
-
-    def get_replica_timeline(self):
-        return self.get_local_timeline_lsn_from_replication_connection()[0]
 
     def replica_cached_timeline(self, master_timeline):
         if not self._cached_replica_timeline or not master_timeline or self._cached_replica_timeline != master_timeline:
@@ -737,19 +743,19 @@ class Postgresql(object):
         return self._cluster_info_state_get('timeline')
 
     def get_history(self, timeline):
-        history_path = 'pg_{0}/{1:08X}.history'.format(self.wal_name, timeline)
-        try:
-            cursor = self._connection.cursor()
-            cursor.execute('SELECT isdir, modification FROM pg_catalog.pg_stat_file(%s)', (history_path,))
-            isdir, modification = cursor.fetchone()
-            if not isdir:
-                cursor.execute('SELECT pg_catalog.pg_read_file(%s)', (history_path,))
-                history = list(parse_history(cursor.fetchone()[0]))
+        history_path = os.path.join(self._data_dir, 'pg_' + self.wal_name, '{0:08X}.history'.format(timeline))
+        history_mtime = mtime(history_path)
+        if history_mtime:
+            try:
+                with open(history_path, 'r') as f:
+                    history = f.read()
+                history = list(parse_history(history))
                 if history[-1][0] == timeline - 1:
-                    history[-1].append(modification.isoformat())
+                    history_mtime = datetime.fromtimestamp(history_mtime).replace(tzinfo=tz.tzlocal())
+                    history[-1].append(history_mtime.isoformat())
                 return history
-        except Exception:
-            logger.exception('Failed to read and parse %s', (history_path,))
+            except Exception:
+                logger.exception('Failed to read and parse %s', (history_path,))
 
     def follow(self, member, role='replica', timeout=None, do_reload=False):
         recovery_params = self.config.build_recovery_params(member)
@@ -797,21 +803,31 @@ class Postgresql(object):
             ret = self._wait_promote(wait_seconds)
         return ret
 
+    @staticmethod
+    def _wal_position(is_leader, wal_position, received_location, replayed_location):
+        return wal_position if is_leader else max(received_location or 0, replayed_location or 0)
+
     def timeline_wal_position(self):
         # This method could be called from different threads (simultaneously with some other `_query` calls).
         # If it is called not from main thread we will create a new cursor to execute statement.
         if current_thread().ident == self.__thread_ident:
-            return (self._cluster_info_state_get('timeline'),
-                    self._cluster_info_state_get('wal_position'),
-                    self._cluster_info_state_get('pg_control_timeline'))
+            timeline = self._cluster_info_state_get('timeline')
+            wal_position = self._cluster_info_state_get('wal_position')
+            replayed_location = self.replayed_location()
+            received_location = self.received_location()
+            pg_control_timeline = self._cluster_info_state_get('pg_control_timeline')
+        else:
+            with self.connection().cursor() as cursor:
+                cursor.execute(self.cluster_info_query)
+                (timeline, wal_position, replayed_location,
+                 received_location, _, pg_control_timeline) = cursor.fetchone()[:6]
 
-        with self.connection().cursor() as cursor:
-            cursor.execute(self.cluster_info_query)
-            return cursor.fetchone()[:3]
+        wal_position = self._wal_position(timeline, wal_position, received_location, replayed_location)
+        return (timeline, wal_position, pg_control_timeline)
 
     def postmaster_start_time(self):
         try:
-            query = "SELECT pg_catalog.to_char(pg_catalog.pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ')"
+            query = "SELECT " + self.POSTMASTER_START_TIME
             if current_thread().ident == self.__thread_ident:
                 return self.query(query).fetchone()[0]
             with self.connection().cursor() as cursor:
@@ -821,7 +837,8 @@ class Postgresql(object):
             return None
 
     def last_operation(self):
-        return str(self._cluster_info_state_get('wal_position'))
+        return str(self._wal_position(self.is_leader(), self._cluster_info_state_get('wal_position'),
+                                      self.received_location(), self.replayed_location()))
 
     def configure_server_parameters(self):
         self._major_version = self.get_major_version()
