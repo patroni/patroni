@@ -175,7 +175,9 @@ class Ha(object):
 
     def touch_member(self):
         with self._member_state_lock:
-            primary_conninfo = self.state_handler.config._current_recovery_params.get('primary_conninfo', {})[0] if self.state_handler.config._current_recovery_params is not None and self.state_handler.role != 'master' else None
+            primary_conninfo = None
+            if self.state_handler.config._current_recovery_params is not None and self.state_handler.role != 'master':
+                primary_conninfo = self.state_handler.config._current_recovery_params.get('primary_conninfo', {})[0]
             data = {
                 'conn_url': self.state_handler.connection_string,
                 'api_url': self.patroni.api.connection_string,
