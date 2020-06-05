@@ -179,6 +179,8 @@ class TestRestApiHandler(unittest.TestCase):
             MockRestApiServer(RestApiHandler, 'GET /asynchronous')
         MockPatroni.ha.is_leader = Mock(return_value=True)
         MockRestApiServer(RestApiHandler, 'GET /replica')
+        with patch.object(MockHa, 'is_standby_cluster', Mock(return_value=True)):
+            MockRestApiServer(RestApiHandler, 'GET /standby_leader')
         MockPatroni.dcs.cluster = None
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'master'})):
             MockRestApiServer(RestApiHandler, 'GET /master')

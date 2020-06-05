@@ -89,23 +89,32 @@ class RestApiHandler(BaseHTTPRequestHandler):
         patroni = self.server.patroni
         cluster = patroni.dcs.cluster
 
-        if not cluster and patroni.ha.is_paused():
-            primary_status_code = 200 if response['role'] == 'master' else 503
-        else:
-            primary_status_code = 200 if patroni.ha.is_leader() else 503
-
         replica_status_code = 200 if not patroni.noloadbalance and \
             response.get('role') == 'replica' and response.get('state') == 'running' else 503
+
+        if not cluster and patroni.ha.is_paused():
+            primary_status_code = 200 if response.get('role') == 'master' else 503
+            standby_leader_status_code = 200 if response.get('role') == 'standby_leader' else 503
+        elif patroni.ha.is_leader():
+            if patroni.ha.is_standby_cluster():
+                primary_status_code = replica_status_code = 503
+                standby_leader_status_code = 200 if response.get('role') in ('replica', 'standby_leader') else 503
+            else:
+                primary_status_code = 200
+                standby_leader_status_code = 503
+        else:
+            primary_status_code = standby_leader_status_code = 503
+
         status_code = 503
 
-        if patroni.ha.is_standby_cluster() and ('standby_leader' in path or 'standby-leader' in path):
-            status_code = 200 if patroni.ha.is_leader() else 503
+        if 'standby_leader' in path or 'standby-leader' in path:
+            status_code = standby_leader_status_code
         elif 'master' in path or 'leader' in path or 'primary' in path or 'read-write' in path:
             status_code = primary_status_code
         elif 'replica' in path:
             status_code = replica_status_code
         elif 'read-only' in path:
-            status_code = 200 if primary_status_code == 200 else replica_status_code
+            status_code = 200 if 200 in (primary_status_code, standby_leader_status_code) else replica_status_code
         elif 'health' in path:
             status_code = 200 if response.get('state') == 'running' else 503
         elif cluster:  # dcs is available
