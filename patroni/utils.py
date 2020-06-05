@@ -396,7 +396,6 @@ def cluster_as_json(cluster):
                   'role': role,
                   'state': m.data.get('state', ''),
                   'api_url': m.api_url,
-                  'master_host': m.data.get('master_host', None)
                   }
         conn_kwargs = m.conn_kwargs()
         if conn_kwargs.get('host'):
