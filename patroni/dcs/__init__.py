@@ -642,7 +642,12 @@ class AbstractDCS(object):
            If the current node was running as a master and exception raised,
            instance would be demoted."""
 
-    def get_cluster(self):
+    def _bypass_caches(self):
+        """Used only in zookeeper"""
+
+    def get_cluster(self, force=False):
+        if force:
+            self._bypass_caches()
         try:
             cluster = self._load_cluster()
         except Exception:

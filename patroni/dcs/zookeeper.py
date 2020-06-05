@@ -223,6 +223,9 @@ class ZooKeeper(AbstractDCS):
                 raise ZooKeeperError('ZooKeeper in not responding properly')
         return cluster
 
+    def _bypass_caches(self):
+        self._fetch_cluster = True
+
     def _create(self, path, value, retry=False, ephemeral=False):
         try:
             if retry:

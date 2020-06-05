@@ -203,8 +203,8 @@ class TestRestApiHandler(unittest.TestCase):
 
     @patch.object(MockPatroni, 'dcs')
     def test_do_GET_cluster(self, mock_dcs):
-        mock_dcs.cluster = get_cluster_initialized_without_leader()
-        mock_dcs.cluster.members[1].data['xlog_location'] = 11
+        mock_dcs.get_cluster.return_value = get_cluster_initialized_without_leader()
+        mock_dcs.get_cluster.return_value.members[1].data['xlog_location'] = 11
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /cluster'))
 
     @patch.object(MockPatroni, 'dcs')
