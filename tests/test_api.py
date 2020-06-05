@@ -456,7 +456,9 @@ class TestRestApiServer(unittest.TestCase):
         mock_socket.context.wrap_socket.side_effect = socket.error
         self.srv.process_request_thread((mock_socket, 1), '2')
 
-    @patch.object(socket.socket, 'accept', Mock(return_value=(1, '2')))
-    def test_get_request(self):
+    @patch.object(socket.socket, 'accept')
+    def test_get_request(self, mock_accept):
+        newsock = Mock()
+        mock_accept.return_value = (newsock, '2')
         self.srv.socket = Mock()
-        self.assertEqual(self.srv.get_request(), ((self.srv.socket, 1), '2'))
+        self.assertEqual(self.srv.get_request(), ((self.srv.socket, newsock), '2'))

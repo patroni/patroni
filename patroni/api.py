@@ -10,13 +10,14 @@ import os
 import six
 import socket
 
-from patroni.exceptions import PostgresConnectionException, PostgresException
-from patroni.postgresql.misc import postgres_version_to_int
-from patroni.utils import deep_compare, parse_bool, patch_config, Retry, \
-    RetryFailedError, parse_int, split_host_port, tzutc, uri, cluster_as_json
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from six.moves.socketserver import ThreadingMixIn
 from threading import Thread
+
+from .exceptions import PostgresConnectionException, PostgresException
+from .postgresql.misc import postgres_version_to_int
+from .utils import deep_compare, enable_keepalive, parse_bool, patch_config, Retry, \
+    RetryFailedError, parse_int, split_host_port, tzutc, uri, cluster_as_json
 
 logger = logging.getLogger(__name__)
 
@@ -612,6 +613,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
     def get_request(self):
         sock = self.socket
         newsock, addr = socket.socket.accept(sock)
+        enable_keepalive(newsock, 10, 3)
         if hasattr(sock, 'context'):  # SSLSocket, we want to do the deferred handshake from a thread
             newsock = (sock, newsock)
         return newsock, addr
