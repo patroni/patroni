@@ -73,7 +73,7 @@ class TestCtl(unittest.TestCase):
         scheduled_at = datetime.now(tzutc) + timedelta(seconds=600)
         cluster = get_cluster_initialized_with_leader(Failover(1, 'foo', 'bar', scheduled_at))
         del cluster.members[1].data['conn_url']
-        for fmt in ('pretty', 'json', 'yaml', 'tsv'):
+        for fmt in ('pretty', 'json', 'yaml', 'tsv', 'topology'):
             self.assertIsNone(output_members(cluster, name='abc', fmt=fmt))
 
     @patch('patroni.ctl.get_dcs')

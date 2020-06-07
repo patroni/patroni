@@ -23,6 +23,7 @@ import time
 import yaml
 
 from click import ClickException
+from collections import defaultdict
 from contextlib import contextmanager
 from patroni.dcs import get_dcs as _get_dcs
 from patroni.exceptions import PatroniException
@@ -176,8 +177,8 @@ def print_output(columns, rows, alignment=None, fmt='pretty', header=None, delim
             i = columns.index('Tags')
             for row in rows:
                 if row[i]:
-                    row[i] = format_config_for_editing(row[i], fmt == 'tsv').strip()
-        if list_cluster and fmt == 'pretty':  # skip cluster name if pretty-printing
+                    row[i] = format_config_for_editing(row[i], fmt != 'pretty').strip()
+        if list_cluster and fmt != 'tsv':  # skip cluster name if pretty-printing
             columns = columns[1:] if columns else []
             rows = [row[1:] for row in rows]
 
@@ -187,20 +188,11 @@ def print_output(columns, rows, alignment=None, fmt='pretty', header=None, delim
         else:
             hrules = ALL if any(any(isinstance(c, six.string_types) and '\n' in c for c in r) for r in rows) else FRAME
             table = PatronictlPrettyTable(header, columns, hrules=hrules)
-            if fmt == 'topology':
-                table.header = False
-                table.horizontal_char = table.junction_char = table.vertical_char = " "
-                table.vrules = table.hrules = table.padding_width = 0
-            else:
-                table = PatronictlPrettyTable(header, columns, hrules=hrules)
             for k, v in (alignment or {}).items():
                 table.align[k] = v
             for r in rows:
                 table.add_row(r)
-            if fmt == 'topology':
-                click.echo(table.__str__().strip().replace(" |", "|"))
-            else:
-                click.echo(table)
+            click.echo(table)
 
 
 def watching(w, watch, max_count=None, clear=True):
@@ -755,14 +747,51 @@ def switchover(obj, cluster_name, master, candidate, force, scheduled):
     _do_failover_or_switchover(obj, 'switchover', cluster_name, master, candidate, force, scheduled)
 
 
-def _prepare_cluster_info(cluster, name):
+def generate_topology(level, member, topology):
+    members = topology.get(member['name'], [])
+
+    if level > 0:
+        member['name'] = '{0}+ {1}'.format((' ' * (level - 1) * 2), member['name'])
+
+    if member['name']:
+        yield member
+
+    for member in members:
+        for member in generate_topology(level + 1, member, topology):
+            yield member
+
+
+def topology_sort(members):
+    topology = defaultdict(list)
+    leader = next((m for m in members if m['role'].endswith('leader')), {'name': None})
+    replicas = set(member['name'] for member in members if not member['role'].endswith('leader'))
+    for member in members:
+        if not member['role'].endswith('leader'):
+            parent = member.get('tags', {}).get('replicatefrom')
+            parent = parent if parent and parent != member['name'] and parent in replicas else leader['name']
+            topology[parent].append(member)
+    for member in generate_topology(0, leader, topology):
+        yield member
+
+
+def output_members(cluster, name, extended=False, fmt='pretty'):
+    rows = []
+    logging.debug(cluster)
+    initialize = {None: 'uninitialized', '': 'initializing'}.get(cluster.initialize, cluster.initialize)
     cluster = cluster_as_json(cluster)
-    members = [m for m in cluster['members'] if 'host' in m]
+
+    columns = ['Cluster', 'Member', 'Host', 'Role', 'State', 'TL', 'Lag in MB']
+    for c in ('Pending restart', 'Scheduled restart', 'Tags'):
+        if extended or any(m.get(c.lower().replace(' ', '_')) for m in cluster['members']):
+            columns.append(c)
+
     # Show Host as 'host:port' if somebody is running on non-standard port or two nodes are running on the same host
+    members = [m for m in cluster['members'] if 'host' in m]
     append_port = any('port' in m and m['port'] != 5432 for m in members) or\
         len(set(m['host'] for m in members)) < len(members)
 
-    for m in cluster['members']:
+    sort = topology_sort if fmt == 'topology' else iter
+    for m in sort(cluster['members']):
         logging.debug(m)
 
         lag = m.get('lag', '')
@@ -779,27 +808,13 @@ def _prepare_cluster_info(cluster, name):
             if 'postgres_version' in m['scheduled_restart']:
                 value += ' if version < {0}'.format(m['scheduled_restart']['postgres_version'])
             m['scheduled_restart'] = value
-    return cluster
 
-
-def output_members(cluster, name, extended=False, fmt='pretty'):
-    rows = []
-    logging.debug(cluster)
-    initialize = {None: 'uninitialized', '': 'initializing'}.get(cluster.initialize, cluster.initialize)
-    cluster = _prepare_cluster_info(cluster, name)
-
-    columns = ['Cluster', 'Member', 'Host', 'Role', 'State', 'TL', 'Lag in MB']
-    for c in ('Pending restart', 'Scheduled restart', 'Tags'):
-        if extended or any(m.get(c.lower().replace(' ', '_')) for m in cluster['members']):
-            columns.append(c)
-
-    for m in cluster['members']:
         rows.append([m.get(n.lower().replace(' ', '_'), '') for n in columns])
 
-    print_output(columns, rows, {'Lag in MB': 'r', 'TL': 'r', 'Tags': 'l'},
+    print_output(columns, rows, {'Member': 'l', 'Lag in MB': 'r', 'TL': 'r', 'Tags': 'l'},
                  fmt, ' Cluster: {0} ({1}) '.format(name, initialize))
 
-    if fmt != 'pretty':  # Omit service info when using machine-readable formats
+    if fmt not in ('pretty', 'topology'):  # Omit service info when using machine-readable formats
         return
 
     service_info = []
@@ -843,85 +858,14 @@ def members(obj, cluster_names, fmt, watch, w, extended, ts):
             output_members(cluster, cluster_name, extended, fmt)
 
 
-def output_topology(cluster, name):
-    res = []
-    topology = {}
-    filler = ' '
-    columns = ['Member', 'Host', 'Role', 'State', 'TL', 'Lag']
-    fmt = 'topology'
-    initialize = {None: 'uninitialized', '': 'initializing'}.get(cluster.initialize, cluster.initialize)
-    cluster = _prepare_cluster_info(cluster, name)
-    leader = next((m for m in cluster['members'] if m['role'] == 'Leader'), {"name": None})
-    for m in cluster['members']:
-        if m['role'] != 'Leader':
-            replicatefrom = m.get('tags', {}).get("replicatefrom", None)
-            if replicatefrom:
-                m['leader'] = next(
-                    (m['name'] for m in cluster['members'] if m['name'] == replicatefrom),
-                    leader['name']
-                )
-            else:
-                m['leader'] = leader['name']
-
-    members = {member['name']: member for member in cluster['members'] if member['role'] != 'Leader'}
-
-    for _, data in members.items():
-        if data['leader'] not in topology:
-            topology.setdefault(data['leader'], [])
-        topology[data['leader']].append(data)
-    res += generate_topology(0, leader, topology, filler)
-    print_output(columns, res, {'Member': 'l', 'Host': 'l', 'Role': 'l', 'State': 'l', 'TL': 'l', 'Lag': 'l'},
-                 fmt, ' Cluster: {0} ({1}) '.format(name, initialize), '|')
-
-
-def generate_topology(level, member, topology, filler):
-    ret = []
-    prefix = ''
-    if level > 0:
-        prefix = (filler * (level-1)*2) + '+' + filler
-    if level > 0 and 'lag_in_mb' in member:
-        lag = '|lag:{} MB|'.format(member['lag_in_mb'])
-    else:
-        lag = '|'
-    if member['name']:
-        item = [
-            '{}{}'.format(prefix, member["name"]),
-            '\t|{}'.format(member["host"]),
-            '|{}'.format(member['role']),
-            '|{}'.format(member["state"]),
-            '|tl:{}'.format(member.get("timeline", "-")),
-            lag
-            ]
-        ret.append(item)
-    if member['name'] not in topology:
-        return ret
-    for replica in topology[member['name']]:
-        replicas = generate_topology(level+1, replica, topology, filler)
-        if type(replicas) is list:
-            ret.extend(replicas)
-        else:
-            ret.append(replicas)
-    return ret
-
-
 @ctl.command('topology', help='Prints ASCII topology for given cluster')
 @click.argument('cluster_names', nargs=-1)
 @option_watch
 @option_watchrefresh
 @click.pass_obj
-def topology(obj, cluster_names, watch, w):
-    if not cluster_names:
-        if 'scope' in obj:
-            cluster_names = [obj['scope']]
-        if not cluster_names:
-            return logging.warning('Printing topology: No cluster names were provided')
-
-    for cluster_name in cluster_names:
-        dcs = get_dcs(obj, cluster_name)
-
-        for _ in watching(w, watch):
-            cluster = dcs.get_cluster()
-            output_topology(cluster, cluster_name)
+@click.pass_context
+def topology(ctx, obj, cluster_names, watch, w):
+    ctx.forward(members, fmt='topology')
 
 
 def timestamp(precision=6):
