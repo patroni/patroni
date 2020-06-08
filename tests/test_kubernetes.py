@@ -3,7 +3,7 @@ import time
 import unittest
 
 from mock import Mock, mock_open, patch
-from patroni.dcs.kubernetes import Kubernetes, KubernetesError, K8SConfig, K8SObject, RetryFailedError,\
+from patroni.dcs.kubernetes import Kubernetes, KubernetesError, K8sConfig, K8sObject, RetryFailedError,\
         k8s_client, k8s_config, SERVICE_HOST_ENV_NAME, SERVICE_PORT_ENV_NAME
 from six.moves import builtins
 from threading import Thread
@@ -40,7 +40,7 @@ def mock_load_k8s_config(self, *args, **kwargs):
     self._server = ''
 
 
-class TestK8SConfig(unittest.TestCase):
+class TestK8sConfig(unittest.TestCase):
 
     def test_load_incluster_config(self):
         for env in ({}, {SERVICE_HOST_ENV_NAME: '', SERVICE_PORT_ENV_NAME: ''}):
@@ -78,7 +78,7 @@ class TestK8SConfig(unittest.TestCase):
 
 class TestCoreV1Api(unittest.TestCase):
 
-    @patch.object(K8SConfig, '_server', '', create=True)
+    @patch.object(K8sConfig, '_server', '', create=True)
     def setUp(self):
         self.a = k8s_client.CoreV1Api()
         self.a.pool_manager.request = Mock(return_value=MockResponse())
@@ -88,7 +88,7 @@ class TestCoreV1Api(unittest.TestCase):
 
     def test_list_namespaced_endpoints(self):
         self.a.pool_manager.request.return_value.content = '{"items": [1,2,3]}'
-        self.assertIsInstance(self.a.list_namespaced_endpoints('default'), K8SObject)
+        self.assertIsInstance(self.a.list_namespaced_endpoints('default'), K8sObject)
 
     def test_patch_namespaced_config_map(self):
         self.assertEqual(str(self.a.patch_namespaced_config_map('foo', 'default', {}, _request_timeout=(1, 2))), '{}')
@@ -117,7 +117,7 @@ class TestKubernetes(unittest.TestCase):
     @patch('socket.TCP_KEEPIDLE', 4, create=True)
     @patch('socket.TCP_KEEPINTVL', 5, create=True)
     @patch('socket.TCP_KEEPCNT', 6, create=True)
-    @patch.object(K8SConfig, 'load_incluster_config', mock_load_k8s_config)
+    @patch.object(K8sConfig, 'load_incluster_config', mock_load_k8s_config)
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_config_map', mock_list_namespaced_config_map, create=True)
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_pod', mock_list_namespaced_pod, create=True)
     @patch.object(Thread, 'start', Mock())
@@ -146,15 +146,15 @@ class TestKubernetes(unittest.TestCase):
         with patch.object(Kubernetes, '_wait_caches', Mock(side_effect=Exception)):
             self.assertRaises(KubernetesError, self.k.get_cluster)
 
-    @patch.object(K8SConfig, 'load_incluster_config', mock_load_k8s_config)
+    @patch.object(K8sConfig, 'load_incluster_config', mock_load_k8s_config)
     @patch.object(k8s_client.CoreV1Api, 'create_namespaced_endpoints', Mock(), create=True)
     def test_update_leader(self):
         k = Kubernetes({'ttl': 30, 'scope': 'test', 'name': 'p-0', 'loop_wait': 10, 'retry_timeout': 10,
                         'labels': {'f': 'b'}, 'use_endpoints': True, 'pod_ip': '10.0.0.0'})
         self.assertIsNotNone(k.update_leader('123'))
 
-    @patch.object(K8SConfig, 'load_incluster_config', Mock(side_effect=k8s_config.ConfigException))
-    @patch.object(K8SConfig, 'load_kube_config', mock_load_k8s_config)
+    @patch.object(K8sConfig, 'load_incluster_config', Mock(side_effect=k8s_config.ConfigException))
+    @patch.object(K8sConfig, 'load_kube_config', mock_load_k8s_config)
     @patch.object(k8s_client.CoreV1Api, 'create_namespaced_endpoints', Mock(), create=True)
     def test_update_leader_with_restricted_access(self):
         k = Kubernetes({'ttl': 30, 'scope': 'test', 'name': 'p-0', 'loop_wait': 10, 'retry_timeout': 10,
@@ -196,7 +196,7 @@ class TestKubernetes(unittest.TestCase):
     def test_delete_cluster(self):
         self.k.delete_cluster()
 
-    @patch.object(K8SConfig, 'load_incluster_config', mock_load_k8s_config)
+    @patch.object(K8sConfig, 'load_incluster_config', mock_load_k8s_config)
     def test_delete_sync_state(self):
         k = Kubernetes({'ttl': 30, 'scope': 'test', 'name': 'p-0', 'loop_wait': 10, 'retry_timeout': 10,
                         'labels': {'f': 'b'}, 'use_endpoints': True, 'pod_ip': '10.0.0.0'})
@@ -213,7 +213,7 @@ class TestKubernetes(unittest.TestCase):
     def test_set_history_value(self):
         self.k.set_history_value('{}')
 
-    @patch.object(K8SConfig, 'load_incluster_config', mock_load_k8s_config)
+    @patch.object(K8sConfig, 'load_incluster_config', mock_load_k8s_config)
     @patch('patroni.dcs.kubernetes.ObjectCache', Mock())
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_pod', Mock(return_value=True), create=True)
     @patch.object(k8s_client.CoreV1Api, 'create_namespaced_endpoints', Mock(), create=True)
@@ -232,7 +232,7 @@ class TestCacheBuilder(unittest.TestCase):
     @patch('socket.TCP_KEEPIDLE', 4, create=True)
     @patch('socket.TCP_KEEPINTVL', 5, create=True)
     @patch('socket.TCP_KEEPCNT', 6, create=True)
-    @patch.object(K8SConfig, 'load_incluster_config', mock_load_k8s_config)
+    @patch.object(K8sConfig, 'load_incluster_config', mock_load_k8s_config)
     @patch.object(Thread, 'start', Mock())
     def setUp(self):
         self.k = Kubernetes({'ttl': 30, 'scope': 'test', 'name': 'p-0',

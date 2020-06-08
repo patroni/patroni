@@ -39,7 +39,7 @@ def to_camel_case(value):
     return words[0] + ''.join(w.upper() if w in reserved else w.title() for w in words[1:])
 
 
-class K8SConfig(object):
+class K8sConfig(object):
 
     class ConfigException(Exception):
         pass
@@ -108,7 +108,7 @@ class K8SConfig(object):
         return self._headers.copy()
 
 
-class K8SObject(object):
+class K8sObject(object):
 
     def __init__(self, kwargs):
         self._dict = {k: self._wrap(k, v) for k, v in kwargs.items()}
@@ -122,7 +122,7 @@ class K8SObject(object):
     @classmethod
     def _wrap(cls, parent, value):
         if isinstance(value, dict):
-            # we know that `annotations` and `labels` are dicts and therefore don't want to convert them into K8SObject
+            # we know that `annotations` and `labels` are dicts and therefore don't want to convert them into K8sObject
             return value if parent in {'annotations', 'labels'} and \
                     all(isinstance(v, six.string_types) for v in value.values()) else cls(value)
         elif isinstance(value, list):
@@ -137,7 +137,7 @@ class K8SObject(object):
         return json.dumps(self, indent=4, default=lambda o: o.to_dict())
 
 
-class K8SClient(object):
+class K8sClient(object):
 
     class rest(object):
 
@@ -203,11 +203,11 @@ class K8SClient(object):
                     raise k8s_client.rest.ApiException(http_resp=response)
 
                 if _preload_content:
-                    response = K8SObject(json.loads(response.data.decode('utf-8')))
+                    response = K8sObject(json.loads(response.data.decode('utf-8')))
                 return response
             return wrapper
 
-    class _K8SObjectTemplate(K8SObject):
+    class _K8sObjectTemplate(K8sObject):
         """The template for objects which we create locally, e.g. k8s_client.V1ObjectMeta & co"""
         def __init__(self, **kwargs):
             self._dict = {to_camel_case(k): v for k, v in kwargs.items()}
@@ -219,12 +219,12 @@ class K8SClient(object):
     def __getattr__(self, name):
         with self.__cls_lock:
             if name not in self.__cls_cache:
-                self.__cls_cache[name] = type(name, (self._K8SObjectTemplate,), {})
+                self.__cls_cache[name] = type(name, (self._K8sObjectTemplate,), {})
         return self.__cls_cache[name]
 
 
-k8s_client = K8SClient()
-k8s_config = K8SConfig()
+k8s_client = K8sClient()
+k8s_config = K8sConfig()
 
 
 class KubernetesRetriableException(k8s_client.rest.ApiException):
@@ -363,7 +363,7 @@ class ObjectCache(Thread):
                 name = obj['metadata']['name']
 
                 if ev_type in ('ADDED', 'MODIFIED'):
-                    obj = K8SObject(obj)
+                    obj = K8sObject(obj)
                     success, old_value = self.set(name, obj)
                     if success:
                         new_value = (obj.metadata.annotations or {}).get(self._annotations_map.get(name))
