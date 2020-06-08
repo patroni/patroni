@@ -81,21 +81,22 @@ class TestCoreV1Api(unittest.TestCase):
     @patch.object(K8sConfig, '_server', '', create=True)
     def setUp(self):
         self.a = k8s_client.CoreV1Api()
-        self.a.pool_manager.request = Mock(return_value=MockResponse())
+        self.a._api_client.set_read_timeout(10)
+        self.a._api_client.pool_manager.request = Mock(return_value=MockResponse())
 
     def test_create_namespaced_service(self):
-        self.assertEqual(str(self.a.create_namespaced_service('default', {}, _request_timeout=(1, 2))), '{}')
+        self.assertEqual(str(self.a.create_namespaced_service('default', {}, _request_timeout=2)), '{}')
 
     def test_list_namespaced_endpoints(self):
-        self.a.pool_manager.request.return_value.content = '{"items": [1,2,3]}'
+        self.a._api_client.pool_manager.request.return_value.content = '{"items": [1,2,3]}'
         self.assertIsInstance(self.a.list_namespaced_endpoints('default'), K8sObject)
 
     def test_patch_namespaced_config_map(self):
         self.assertEqual(str(self.a.patch_namespaced_config_map('foo', 'default', {}, _request_timeout=(1, 2))), '{}')
 
     def test_list_namespaced_pod(self):
-        self.a.pool_manager.request.return_value.status_code = 409
-        self.a.pool_manager.request.return_value.content = 'foo'
+        self.a._api_client.pool_manager.request.return_value.status_code = 409
+        self.a._api_client.pool_manager.request.return_value.content = 'foo'
         try:
             self.a.list_namespaced_pod('default', label_selector='foo=bar')
             self.assertFail()

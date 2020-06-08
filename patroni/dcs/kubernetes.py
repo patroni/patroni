@@ -156,11 +156,56 @@ class K8sClient(object):
                     error_message += "HTTP response body: {0}\n".format(self.body)
                 return error_message
 
-    class CoreV1Api(object):
+    class ApiClient(object):
+
+        _API_URL_PREFIX = '/api/v1/namespaces/'
 
         def __init__(self):
             self.pool_manager = urllib3.PoolManager(**k8s_config.pool_config)
-            self._api_url = k8s_config.server + '/api/v1/namespaces'
+            self.set_read_timeout(10)
+
+        def set_read_timeout(self, timeout):
+            self._read_timeout = timeout
+
+        @staticmethod
+        def _handle_server_response(response, _preload_content):
+            if response.status not in range(200, 206):
+                raise k8s_client.rest.ApiException(http_resp=response)
+            return K8sObject(json.loads(response.data.decode('utf-8'))) if _preload_content else response
+
+        def _make_headers(self, headers):
+            ret = k8s_config.headers
+            ret.update(headers or {})
+            return ret
+
+        def request(self, method, path, timeout=None, **kwargs):
+            retries = 0 if timeout else 1
+            if timeout:
+                if isinstance(timeout, six.integer_types + (float,)):
+                    timeout = urllib3.Timeout(total=timeout)
+                elif isinstance(timeout, tuple) and len(timeout) == 2:
+                    timeout = urllib3.Timeout(connect=timeout[0], read=timeout[1])
+            else:
+                timeout = self._read_timeout / 2.0
+                timeout = urllib3.Timeout(connect=max(1, timeout/2.0), total=timeout)
+            kwargs.update(retries=retries, timeout=timeout)
+            return self.pool_manager.request(method, k8s_config.server + path, **kwargs)
+
+        def call_api(self, method, path, headers=None, body=None,
+                     _preload_content=True, _request_timeout=None, **kwargs):
+            headers = self._make_headers(headers)
+            fields = {to_camel_case(k): v for k, v in kwargs.items()}  # resource_version => resourceVersion
+            body = json.dumps(body, default=lambda o: o.to_dict()) if body is not None else None
+
+            response = self.request(method, self._API_URL_PREFIX + path, headers=headers, fields=fields,
+                                    body=body, preload_content=_preload_content, timeout=_request_timeout)
+
+            return self._handle_server_response(response, _preload_content)
+
+    class CoreV1Api(object):
+
+        def __init__(self, api_client=None):
+            self._api_client = api_client or k8s_client.ApiClient()
 
         def __getattr__(self, func):  # `func` name pattern: (action)_namespaced_(kind)
             action, kind = func.split('_namespaced_')  # (read|list|create|patch|replace|delete|delete_collection)
@@ -171,13 +216,11 @@ class K8sClient(object):
                           'replace': 'PUT'}.get(action, action.split('_')[0]).upper()
 
                 if action == 'create' or len(args) == 1:  # namespace is a first argument and name in not in arguments
-                    url = '/'.join([self._api_url, args[0], kind])
+                    path = '/'.join([args[0], kind])
                 else:  # name, namespace followed by optional body
-                    url = '/'.join([self._api_url, args[1], kind, args[0]])
+                    path = '/'.join([args[1], kind, args[0]])
 
-                headers = k8s_config.headers
-                if action == 'patch':
-                    headers['Content-Type'] = 'application/strategic-merge-patch+json'
+                headers = {'Content-Type': 'application/strategic-merge-patch+json'} if action == 'patch' else {}
 
                 if len(args) == 3:  # name, namespace, body
                     body = args[2]
@@ -188,23 +231,7 @@ class K8sClient(object):
                 else:
                     body = None
 
-                _preload_content = kwargs.pop('_preload_content', True)
-                _request_timeout = kwargs.pop('_request_timeout', None)
-                if _request_timeout:
-                    _request_timeout = urllib3.Timeout(connect=_request_timeout[0], read=_request_timeout[1])
-
-                kwargs = {to_camel_case(k): v for k, v in kwargs.items()}  # resource_version => resourceVersion
-                body = json.dumps(body, default=lambda o: o.to_dict()) if body is not None else None
-
-                response = self.pool_manager.request(method, url, headers=headers, fields=kwargs, body=body,
-                                                     preload_content=_preload_content, timeout=_request_timeout)
-
-                if response.status not in range(200, 206):
-                    raise k8s_client.rest.ApiException(http_resp=response)
-
-                if _preload_content:
-                    response = K8sObject(json.loads(response.data.decode('utf-8')))
-                return response
+                return self._api_client.call_api(method, path, headers, body, **kwargs)
             return wrapper
 
     class _K8sObjectTemplate(K8sObject):
@@ -245,8 +272,8 @@ class KubernetesRetriableException(k8s_client.rest.ApiException):
 class CoreV1ApiProxy(object):
 
     def __init__(self, use_endpoints=False):
-        self._api = k8s_client.CoreV1Api()
-        self._request_timeout = None
+        self._api_client = k8s_client.ApiClient()
+        self._core_v1_api = k8s_client.CoreV1Api(self._api_client)
         self._use_endpoints = use_endpoints
 
     def configure_timeouts(self, loop_wait, retry_timeout, ttl):
@@ -257,24 +284,22 @@ class CoreV1ApiProxy(object):
         cnt = 3
         idle = int(loop_wait + retry_timeout)
         intvl = max(1, int(float(ttl - idle) / cnt))
-        self._api.pool_manager.connection_pool_kw['socket_options'] = [
+        self._api_client.pool_manager.connection_pool_kw['socket_options'] = [
             (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1),
             (socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, idle),
             (socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, intvl),
             (socket.IPPROTO_TCP, socket.TCP_KEEPCNT, cnt),
             (socket.IPPROTO_TCP, 18, int(ttl * 1000))  # TCP_USER_TIMEOUT
         ]
-        self._request_timeout = (1, retry_timeout / 3.0)
+        self._api_client.set_read_timeout(retry_timeout)
 
     def __getattr__(self, func):
         if func.endswith('_kind'):
             func = func[:-4] + ('endpoints' if self._use_endpoints else 'config_map')
 
         def wrapper(*args, **kwargs):
-            if '_request_timeout' not in kwargs:
-                kwargs['_request_timeout'] = self._request_timeout
             try:
-                return getattr(self._api, func)(*args, **kwargs)
+                return getattr(self._core_v1_api, func)(*args, **kwargs)
             except k8s_client.rest.ApiException as e:
                 if e.status in (502, 503, 504) or e.headers and 'retry-after' in e.headers:  # XXX
                     raise KubernetesRetriableException(e)
