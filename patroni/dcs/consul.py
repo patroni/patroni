@@ -54,7 +54,7 @@ class HTTPClient(object):
         if ca_cert:
             kwargs['ca_certs'] = ca_cert
         kwargs['cert_reqs'] = ssl.CERT_REQUIRED if verify or ca_cert else ssl.CERT_NONE
-        self.http = urllib3.PoolManager(num_pools=10, **kwargs)
+        self.http = urllib3.PoolManager(num_pools=10, maxsize=10, **kwargs)
         self._ttl = None
 
     def set_read_timeout(self, timeout):
