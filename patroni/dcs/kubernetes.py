@@ -173,7 +173,8 @@ class K8sClient(object):
                 raise k8s_client.rest.ApiException(http_resp=response)
             return K8sObject(json.loads(response.data.decode('utf-8'))) if _preload_content else response
 
-        def _make_headers(self, headers):
+        @staticmethod
+        def _make_headers(headers):
             ret = k8s_config.headers
             ret.update(headers or {})
             return ret
