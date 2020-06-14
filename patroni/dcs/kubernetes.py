@@ -46,7 +46,7 @@ class CoreV1ApiProxy(object):
         self._api.api_client.user_agent = USER_AGENT
         self._api.api_client.rest_client.pool_manager.connection_pool_kw['maxsize'] = 10
         self._request_timeout = None
-        self._use_endpoints = use_endpoints
+        self._use_endpoints = bool(use_endpoints)
 
     def configure_timeouts(self, loop_wait, retry_timeout, ttl):
         # Normally every loop_wait seconds we should have receive something from the socket.
@@ -79,6 +79,10 @@ class CoreV1ApiProxy(object):
                     raise KubernetesRetriableException(e)
                 raise
         return wrapper
+
+    @property
+    def use_endpoints(self):
+        return self._use_endpoints
 
 
 def catch_kubernetes_errors(func):
@@ -229,18 +233,15 @@ class Kubernetes(AbstractDCS):
         except k8s_config.ConfigException:
             k8s_config.load_kube_config(context=config.get('context', 'local'))
 
-        self.__subsets = None
-        use_endpoints = config.get('use_endpoints') and (config.get('patronictl') or 'pod_ip' in config)
-        if use_endpoints:
-            addresses = [k8s_client.V1EndpointAddress(ip='127.0.0.1' if config.get('patronictl') else config['pod_ip'])]
-            ports = []
-            for p in config.get('ports', [{}]):
-                port = {'port': int(p.get('port', '5432'))}
-                port.update({n: p[n] for n in ('name', 'protocol') if p.get(n)})
-                ports.append(k8s_client.V1EndpointPort(**port))
-            self.__subsets = [k8s_client.V1EndpointSubset(addresses=addresses, ports=ports)]
-            self._should_create_config_service = True
-        self._api = CoreV1ApiProxy(use_endpoints)
+        self.__ips = [] if config.get('patronictl') else [config.get('pod_ip')]
+        self.__ports = []
+        for p in config.get('ports', [{}]):
+            port = {'port': int(p.get('port', '5432'))}
+            port.update({n: p[n] for n in ('name', 'protocol') if p.get(n)})
+            self.__ports.append(k8s_client.V1EndpointPort(**port))
+
+        self._api = CoreV1ApiProxy(config.get('use_endpoints'))
+        self._should_create_config_service = self._api.use_endpoints
         self.reload_config(config)
         self._leader_observed_record = {}
         self._leader_observed_time = None
@@ -267,7 +268,7 @@ class Kubernetes(AbstractDCS):
 
     @property
     def leader_path(self):
-        return self._base_path[1:] if self.__subsets else super(Kubernetes, self).leader_path
+        return self._base_path[1:] if self._api.use_endpoints else super(Kubernetes, self).leader_path
 
     def set_ttl(self, ttl):
         ttl = int(ttl)
@@ -305,7 +306,10 @@ class Kubernetes(AbstractDCS):
             with self._condition:
                 self._wait_caches()
 
-                members = [self.member(pod) for pod in self._pods.copy().values()]
+                pods = self._pods.copy()
+                if self._name in pods:
+                    self.__my_pod = pods[self._name]
+                members = [self.member(pod) for pod in pods.values()]
                 nodes = self._kinds.copy()
 
             config = nodes.get(self.config_path)
@@ -328,7 +332,8 @@ class Kubernetes(AbstractDCS):
             leader = nodes.get(self.leader_path)
             metadata = leader and leader.metadata
             self._leader_resource_version = metadata.resource_version if metadata else None
-            self._leader_observed_subsets = leader.subsets if self.__subsets and leader and leader.subsets else []
+            self._leader_observed_subsets = leader.subsets \
+                if self._api.use_endpoints and leader and leader.subsets else []
             annotations = metadata and metadata.annotations or {}
 
             # get last leader operation
@@ -377,50 +382,68 @@ class Kubernetes(AbstractDCS):
         return p1.name == p2.name and p1.port == p2.port and (p1.protocol or 'TCP') == (p2.protocol or 'TCP')
 
     @staticmethod
-    def subsets_changed(last_observed_subsets, subsets):
+    def subsets_changed(last_observed_subsets, ip, ports):
         """
-        >>> Kubernetes.subsets_changed([], [])
-        False
-        >>> Kubernetes.subsets_changed([], [k8s_client.V1EndpointSubset()])
+        >>> Kubernetes.subsets_changed([], None, [])
         True
-        >>> s1 = [k8s_client.V1EndpointSubset(addresses=[k8s_client.V1EndpointAddress(ip='1.2.3.4')])]
-        >>> s2 = [k8s_client.V1EndpointSubset(addresses=[k8s_client.V1EndpointAddress(ip='1.2.3.5')])]
-        >>> Kubernetes.subsets_changed(s1, s2)
+        >>> ip = '1.2.3.4'
+        >>> a = [k8s_client.V1EndpointAddress(ip=ip)]
+        >>> s = [k8s_client.V1EndpointSubset(addresses=a)]
+        >>> Kubernetes.subsets_changed(s, '1.2.3.5', [])
         True
-        >>> a = [k8s_client.V1EndpointAddress(ip='1.2.3.4')]
-        >>> s1 = [k8s_client.V1EndpointSubset(addresses=a, ports=[k8s_client.V1EndpointPort(protocol='TCP', port=1)])]
-        >>> s2 = [k8s_client.V1EndpointSubset(addresses=a, ports=[k8s_client.V1EndpointPort(port=5432)])]
-        >>> Kubernetes.subsets_changed(s1, s2)
+        >>> s = [k8s_client.V1EndpointSubset(addresses=a, ports=[k8s_client.V1EndpointPort(protocol='TCP', port=1)])]
+        >>> Kubernetes.subsets_changed(s, '1.2.3.4', [k8s_client.V1EndpointPort(port=5432)])
         True
         >>> p1 = k8s_client.V1EndpointPort(name='port1', port=1)
         >>> p2 = k8s_client.V1EndpointPort(name='port2', port=2)
         >>> p3 = k8s_client.V1EndpointPort(name='port3', port=3)
-        >>> s1 = [k8s_client.V1EndpointSubset(addresses=a, ports=[p1, p2])]
-        >>> s2 = [k8s_client.V1EndpointSubset(addresses=a, ports=[p2, p3])]
-        >>> Kubernetes.subsets_changed(s1, s2)
+        >>> s = [k8s_client.V1EndpointSubset(addresses=a, ports=[p1, p2])]
+        >>> Kubernetes.subsets_changed(s, ip, [p2, p3])
         True
         >>> s2 = [k8s_client.V1EndpointSubset(addresses=a, ports=[p2, p1])]
-        >>> Kubernetes.subsets_changed(s1, s2)
+        >>> Kubernetes.subsets_changed(s, ip, [p2, p1])
         False
         """
-        if len(last_observed_subsets) != len(subsets):
+
+        if len(last_observed_subsets) != 1:
             return True
-        if subsets == []:
-            return False
         if len(last_observed_subsets[0].addresses or []) != 1 or \
-                last_observed_subsets[0].addresses[0].ip != subsets[0].addresses[0].ip or \
-                len(last_observed_subsets[0].ports) != len(subsets[0].ports):
+                last_observed_subsets[0].addresses[0].ip != ip or \
+                len(last_observed_subsets[0].ports) != len(ports):
             return True
-        if len(subsets[0].ports) == 1:
-            return not Kubernetes.compare_ports(last_observed_subsets[0].ports[0], subsets[0].ports[0])
+        if len(ports) == 1:
+            return not Kubernetes.compare_ports(last_observed_subsets[0].ports[0], ports[0])
         observed_ports = {p.name: p for p in last_observed_subsets[0].ports}
-        for p in subsets[0].ports:
+        for p in ports:
             if p.name not in observed_ports or not Kubernetes.compare_ports(p, observed_ports.pop(p.name)):
                 return True
         return False
 
+    def _map_subsets(self, endpoints, ips):
+        if ips:
+            pod = self.__my_pod
+            leader_ip = ips[0] or pod.status.pod_ip
+            if self.subsets_changed(self._leader_observed_subsets, leader_ip, self.__ports):
+                target_ref = None  # we want to re-use existing target_ref
+                for subset in self._leader_observed_subsets:
+                    for address in subset.addresses or []:
+                        if address.ip == leader_ip and address.target_ref and address.target_ref.name == self._name:
+                            target_ref = address.target_ref
+                            break
+                    if target_ref:
+                        break
+                if not target_ref:
+                    target_ref = k8s_client.V1ObjectReference(
+                        kind='Pod', uid=pod.metadata.uid, namespace=self._namespace,
+                        name=self._name, resource_version=pod.metadata.resource_version)
+                address = k8s_client.V1EndpointAddress(ip=leader_ip, hostname=pod.spec.hostname,
+                                                       node_name=pod.spec.node_name, target_ref=target_ref)
+                endpoints['subsets'] = [k8s_client.V1EndpointSubset(addresses=[address], ports=self.__ports)]
+        elif self._leader_observed_subsets:
+            endpoints['subsets'] = []
+
     @catch_kubernetes_errors
-    def patch_or_create(self, name, annotations, resource_version=None, patch=False, retry=True, subsets=None):
+    def patch_or_create(self, name, annotations, resource_version=None, patch=False, retry=True, ips=None):
         metadata = {'namespace': self._namespace, 'name': name, 'labels': self._labels, 'annotations': annotations}
         if patch or resource_version:
             if resource_version is not None:
@@ -432,10 +455,9 @@ class Kubernetes(AbstractDCS):
             metadata['annotations'] = {k: v for k, v in metadata['annotations'].items() if v is not None}
 
         metadata = k8s_client.V1ObjectMeta(**metadata)
-        if subsets is not None and self.__subsets:
+        if ips is not None and self._api.use_endpoints:
             endpoints = {'metadata': metadata}
-            if self.subsets_changed(self._leader_observed_subsets, subsets):
-                endpoints['subsets'] = subsets
+            self._map_subsets(endpoints, ips)
             body = k8s_client.V1Endpoints(**endpoints)
         else:
             body = k8s_client.V1ConfigMap(metadata=metadata)
@@ -446,7 +468,7 @@ class Kubernetes(AbstractDCS):
 
     def patch_or_create_config(self, annotations, resource_version=None, patch=False, retry=True):
         # SCOPE-config endpoint requires corresponding service otherwise it might be "cleaned" by k8s master
-        if self.__subsets and not patch and not resource_version:
+        if self._api.use_endpoints and not patch and not resource_version:
             self._should_create_config_service = True
             self._create_config_service()
         ret = self.patch_or_create(self.config_path, annotations, resource_version, patch, retry)
@@ -479,9 +501,9 @@ class Kubernetes(AbstractDCS):
         if last_operation:
             annotations[self._OPTIME] = last_operation
 
-        subsets = [] if access_is_restricted else self.__subsets
+        ips = [] if access_is_restricted else self.__ips
 
-        ret = self.patch_or_create(self.leader_path, annotations, self._leader_resource_version, subsets=subsets)
+        ret = self.patch_or_create(self.leader_path, annotations, self._leader_resource_version, ips=ips)
         if ret:
             self._leader_resource_version = ret.metadata.resource_version
         return ret
@@ -501,8 +523,8 @@ class Kubernetes(AbstractDCS):
             else:
                 annotations['acquireTime'] = self._leader_observed_record.get('acquireTime') or now
             annotations['transitions'] = str(transitions)
-        subsets = [] if self.__subsets else None
-        ret = self.patch_or_create(self.leader_path, annotations, self._leader_resource_version, subsets=subsets)
+        ips = [] if self._api.use_endpoints else None
+        ret = self.patch_or_create(self.leader_path, annotations, self._leader_resource_version, ips=ips)
         if ret:
             self._leader_resource_version = ret.metadata.resource_version
         else:
@@ -543,7 +565,7 @@ class Kubernetes(AbstractDCS):
                         'annotations': {'status': json.dumps(data, separators=(',', ':'))}}
             body = k8s_client.V1Pod(metadata=k8s_client.V1ObjectMeta(**metadata))
             ret = self._api.patch_namespaced_pod(self._name, self._namespace, body)
-        if self.__subsets and self._should_create_config_service:
+        if self._should_create_config_service:
             self._create_config_service()
         return ret
 
