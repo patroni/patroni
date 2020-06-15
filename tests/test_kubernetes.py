@@ -134,7 +134,7 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
 class TestKubernetesEndpoints(BaseTestKubernetes):
 
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_endpoints', mock_list_namespaced_endpoints)
-    def setUp(self):
+    def setUp(self, config=None):
         super(TestKubernetesEndpoints, self).setUp({'use_endpoints': True, 'pod_ip': '10.0.0.0'})
 
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints')

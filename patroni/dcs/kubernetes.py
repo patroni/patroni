@@ -433,9 +433,9 @@ class Kubernetes(AbstractDCS):
                     if target_ref:
                         break
                 if not target_ref:
-                    target_ref = k8s_client.V1ObjectReference(
-                        kind='Pod', uid=pod.metadata.uid, namespace=self._namespace,
-                        name=self._name, resource_version=pod.metadata.resource_version)
+                    target_ref = k8s_client.V1ObjectReference(kind='Pod', namespace=self._namespace,
+                                                              name=self._name, uid=pod.metadata.uid,
+                                                              resource_version=pod.metadata.resource_version)
                 address = k8s_client.V1EndpointAddress(ip=leader_ip, hostname=pod.spec.hostname,
                                                        node_name=pod.spec.node_name, target_ref=target_ref)
                 endpoints['subsets'] = [k8s_client.V1EndpointSubset(addresses=[address], ports=self.__ports)]
