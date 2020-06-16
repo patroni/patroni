@@ -439,8 +439,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     "FROM (SELECT (SELECT rolname FROM pg_authid WHERE oid = usesysid) AS usename,"
                     " application_name, client_addr, w.state, sync_state, sync_priority"
                     " FROM pg_catalog.pg_stat_get_wal_senders() w, pg_catalog.pg_stat_get_activity(pid)"
-                    " INNER JOIN pg_replication_slots AS rs ON rs.active_pid = pid"
-                    " WHERE application_name slot_type = 'physical') AS ri")
+                    " LEFT JOIN pg_replication_slots AS rs ON rs.active_pid = pid"
+                    " WHERE slot_type IS NULL OR slot_type = 'physical') AS ri")
 
             row = self.query(stmt.format(postgresql.wal_name, postgresql.lsn_name), retry=retry)[0]
 
