@@ -40,7 +40,7 @@ def mock_list_namespaced_pod(*args, **kwargs):
     metadata = k8s_client.V1ObjectMeta(resource_version='1', name='p-0', annotations={'status': '{}'},
                                        uid='964dfeae-e79b-4476-8a5a-1920b5c2a69d')
     status = k8s_client.V1PodStatus(pod_ip='10.0.0.0')
-    spec = k8s_client.V1PodSpec(hostname='p-0', node_name='kind-control-plane')
+    spec = k8s_client.V1PodSpec(hostname='p-0', node_name='kind-control-plane', containers=[])
     items = [k8s_client.V1Pod(metadata=metadata, status=status, spec=spec)]
     return k8s_client.V1PodList(items=items, kind='PodList')
 
