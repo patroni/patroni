@@ -419,6 +419,15 @@ class Kubernetes(AbstractDCS):
                 return True
         return False
 
+    def __target_ref(self, leader_ip):
+        # we want to re-use existing target_ref if possible
+        for subset in self._leader_observed_subsets:
+            for address in subset.addresses or []:
+                if address.ip == leader_ip and address.target_ref and address.target_ref.name == self._name:
+                    return address.target_ref
+        return k8s_client.V1ObjectReference(kind='Pod', uid=self.__my_pod.metadata.uid, namespace=self._namespace,
+                                            name=self._name, resource_version=self.__my_pod.metadata.resource_version)
+
     def _map_subsets(self, endpoints, ips):
         if not ips:
             # We want to have subsets empty
@@ -429,25 +438,10 @@ class Kubernetes(AbstractDCS):
         leader_ip = ips[0] or self.__my_pod and self.__my_pod.status.pod_ip
         # don't touch subsets if our (leader) ip is unknown or subsets is valid
         if leader_ip and self.subsets_changed(self._leader_observed_subsets, leader_ip, self.__ports):
-            kwargs = {'ip': leader_ip}
-            if self.__my_pod:
-                target_ref = None  # we want to re-use existing target_ref
-                for subset in self._leader_observed_subsets:
-                    for address in subset.addresses or []:
-                        if address.ip == leader_ip and address.target_ref and address.target_ref.name == self._name:
-                            target_ref = address.target_ref
-                            break
-                    if target_ref:
-                        break
-
-                if not target_ref:
-                    target_ref = k8s_client.V1ObjectReference(kind='Pod', namespace=self._namespace,
-                                                              name=self._name, uid=self.__my_pod.metadata.uid,
-                                                              resource_version=self.__my_pod.metadata.resource_version)
-                kwargs.update(hostname=self.__my_pod.spec.hostname,
-                              node_name=self.__my_pod.spec.node_name, target_ref=target_ref)
-
-            address = k8s_client.V1EndpointAddress(**kwargs)
+            kwargs = {'hostname': self.__my_pod.spec.hostname,
+                      'node_name': self.__my_pod.spec.node_name,
+                      'target_ref': self.__target_ref(leader_ip)} if self.__my_pod else {}
+            address = k8s_client.V1EndpointAddress(ip=leader_ip, **kwargs)
             endpoints['subsets'] = [k8s_client.V1EndpointSubset(addresses=[address], ports=self.__ports)]
 
     @catch_kubernetes_errors
