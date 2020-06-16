@@ -119,7 +119,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             status_code = 200 if response.get('state') == 'running' else 503
         elif cluster:  # dcs is available
             is_synchronous = cluster.is_synchronous_mode() and cluster.sync \
-                    and cluster.sync.sync_standby == patroni.postgresql.name
+                    and cluster.sync.matches(patroni.postgresql.name)
             if path in ('/sync', '/synchronous') and is_synchronous:
                 status_code = replica_status_code
             elif path in ('/async', '/asynchronous') and not is_synchronous:
@@ -331,13 +331,13 @@ class RestApiHandler(BaseHTTPRequestHandler):
         if leader and (not cluster.leader or cluster.leader.name != leader):
             return 'leader name does not match'
         if candidate:
-            if action == 'switchover' and cluster.is_synchronous_mode() and cluster.sync.sync_standby != candidate:
+            if action == 'switchover' and cluster.is_synchronous_mode() and not cluster.sync.matches(candidate):
                 return 'candidate name does not match with sync_standby'
             members = [m for m in cluster.members if m.name == candidate]
             if not members:
                 return 'candidate does not exists'
         elif cluster.is_synchronous_mode():
-            members = [m for m in cluster.members if m.name == cluster.sync.sync_standby]
+            members = [m for m in cluster.members if cluster.sync.matches(m.name)]
             if not members:
                 return action + ' is not possible: can not find sync_standby'
         else:

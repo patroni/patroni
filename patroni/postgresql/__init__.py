@@ -889,7 +889,7 @@ class Postgresql(object):
             logger.exception('Could not remove data directory %s', self._data_dir)
             self.move_data_directory()
 
-    def pick_synchronous_standby(self, cluster):
+    def pick_synchronous_standby(self, cluster, sync_node_count=1):
         """Finds the best candidate to be the synchronous standby.
 
         Current synchronous standby is always preferred, unless it has disconnected or does not want to be a
@@ -897,30 +897,41 @@ class Postgresql(object):
 
         :returns tuple of candidate name or None, and bool showing if the member is the active synchronous standby.
         """
-        current = cluster.sync.sync_standby
-        current = current.lower() if current else current
+        current = [x.lower() for x in cluster.sync.sync_standby] if cluster.sync.sync_standby else []
         members = {m.name.lower(): m for m in cluster.members}
         candidates = []
         # Pick candidates based on who has flushed WAL farthest.
         # TODO: for synchronous_commit = remote_write we actually want to order on write_location
+        try:
+            query = "SELECT setting from pg_settings where name = 'synchronous_commit'"
+            sync_commit_par = self.query(query).fetchone()[0]
+        except AttributeError:
+            sync_commit_par = None
+        sort_lsn_col = "flush_{}".format(self.lsn_name)
+        if sync_commit_par == 'remote_apply':
+            sort_lsn_col = "replay_{}".format(self.lsn_name)
+        elif sync_commit_par == 'remote_write':
+            sort_lsn_col = "write_{}".format(self.lsn_name)
         for app_name, state, sync_state in self.query(
                 "SELECT pg_catalog.lower(application_name), state, sync_state"
                 " FROM pg_catalog.pg_stat_replication"
-                " ORDER BY flush_{0} DESC".format(self.lsn_name)):
+                " WHERE state = 'streaming'"
+                " ORDER BY (case when sync_state='sync' then 1 "
+                "  when sync_state='potential' then 2 else 3 end), {0} DESC".format(sort_lsn_col)):
             member = members.get(app_name)
-            if state != 'streaming' or not member or member.tags.get('nosync', False):
+            if not member or member.tags.get('nosync', False):
                 continue
-            if sync_state == 'sync':
-                return member.name, True
-            if sync_state == 'potential' and app_name == current:
-                # Prefer current even if not the best one any more to avoid indecisivness and spurious swaps.
-                return cluster.sync.sync_standby, False
-            if sync_state in ('async', 'potential'):
-                candidates.append(member.name)
+            candidates.append(member.name)
+            if len(candidates) >= sync_node_count:
+                break
 
-        if candidates:
-            return candidates[0], False
-        return None, False
+        if self._major_version < 96000 and candidates:
+            candidates = [candidates[0]]
+
+        if current and candidates and set(current) == set(candidates):
+            return candidates, True
+
+        return candidates, False
 
     def schedule_sanity_checks_after_pause(self):
         """

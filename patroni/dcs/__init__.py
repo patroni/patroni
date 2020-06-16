@@ -381,7 +381,7 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
                 data = {}
         else:
             data = {}
-        return SyncState(index, data.get('leader'), data.get('sync_standby'))
+        return SyncState(index, data.get('leader'), data.get('sync_standby', []))
 
     def matches(self, name):
         """
@@ -399,7 +399,10 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
         >>> SyncState(1, None, None).matches('foo')
         False
         """
-        return name is not None and name in (self.leader, self.sync_standby)
+        member_list = [self.leader]
+        if self.sync_standby:
+            member_list += self.sync_standby
+        return name is not None and name in member_list
 
 
 class TimelineHistory(namedtuple('TimelineHistory', 'index,value,lines')):

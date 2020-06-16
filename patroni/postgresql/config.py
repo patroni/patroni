@@ -824,12 +824,19 @@ class ConfigHandler(object):
         parameters.update(cluster_name=self._postgresql.scope, listen_addresses=listen_addresses, port=str(port))
         if config.get('synchronous_mode', False):
             if self._synchronous_standby_names is None:
-                if config.get('synchronous_mode_strict', False):
+                if config.get('synchronous_mode_strict', False) and \
+                   hasattr(self._postgresql, 'role') and \
+                   self._postgresql.role == 'master':
                     parameters['synchronous_standby_names'] = '*'
                 else:
                     parameters.pop('synchronous_standby_names', None)
             else:
+                # TODO identify change in synchronous_node_count and compare it with current num_sync,
+                # adjust synchronous_standby_names accordingly. Leaving to existing value for now for
+                # Patroni to reset the value during next run cycle
                 parameters['synchronous_standby_names'] = self._synchronous_standby_names
+        else:
+            parameters.pop('synchronous_standby_names', None)
         if self._postgresql.major_version >= 90600 and parameters['wal_level'] == 'hot_standby':
             parameters['wal_level'] = 'replica'
         ret = CaseInsensitiveDict({k: v for k, v in parameters.items() if not self._postgresql.major_version or
@@ -920,7 +927,6 @@ class ConfigHandler(object):
     def reload_config(self, config, sighup=False):
         self._superuser = config['authentication'].get('superuser', {})
         server_parameters = self.get_server_parameters(config)
-
         conf_changed = hba_changed = ident_changed = local_connection_address_changed = pending_restart = False
         if self._postgresql.state == 'running':
             changes = CaseInsensitiveDict({p: v for p, v in server_parameters.items()
@@ -1007,16 +1013,20 @@ class ConfigHandler(object):
         else:
             logger.info('No PostgreSQL configuration items changed, nothing to reload.')
 
-    def set_synchronous_standby(self, name):
+    def set_synchronous_standby(self, sync_members):
         """Sets a node to be synchronous standby and if changed does a reload for PostgreSQL."""
-        if name and name != '*':
-            name = quote_ident(name)
-        if name != self._synchronous_standby_names:
-            if name is None:
+        if sync_members and set(sync_members) != set(['*']):
+            sync_members = [quote_ident(x) for x in sync_members]
+        if self._postgresql.major_version >= 96000:
+            sync_param = sync_members and '{} ({})'.format(len(sync_members), ','.join(sync_members)) or None
+        else:
+            sync_param = sync_members and sync_members[0] or None
+        if sync_param != self._synchronous_standby_names:
+            if not sync_members:
                 self._server_parameters.pop('synchronous_standby_names', None)
             else:
-                self._server_parameters['synchronous_standby_names'] = name
-            self._synchronous_standby_names = name
+                self._server_parameters['synchronous_standby_names'] = sync_param
+            self._synchronous_standby_names = sync_param
             if self._postgresql.state == 'running':
                 self.write_postgresql_conf()
                 self._postgresql.reload()

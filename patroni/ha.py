@@ -437,7 +437,7 @@ class Ha(object):
     def is_synchronous_mode_strict(self):
         return self.check_mode('synchronous_mode_strict')
 
-    def process_sync_replication(self):
+    def process_sync_replication(self, sync_node_count=1):
         """Process synchronous standby beahvior.
 
         Synchronous standbys are registered in two places postgresql.conf and DCS. The order of updating them must
@@ -447,27 +447,33 @@ class Ha(object):
         promoting standbys that were guaranteed to be replicating synchronously.
         """
         if self.is_synchronous_mode():
-            current = self.cluster.sync.leader and self.cluster.sync.sync_standby
-            picked, allow_promote = self.state_handler.pick_synchronous_standby(self.cluster)
-            if picked != current:
-                # We need to revoke privilege from current before replacing it in the config
-                if current:
-                    logger.info("Removing synchronous privilege from %s", current)
-                    if not self.dcs.write_sync_state(self.state_handler.name, None, index=self.cluster.sync.index):
+            current = self.cluster.sync.leader and self.cluster.sync.sync_standby or []
+            picked, allow_promote = self.state_handler.pick_synchronous_standby(self.cluster, sync_node_count)
+            if set(picked) != set(current):
+                if picked:
+                    logger.info("Updating synchronous privilege from {} to {}".format(','.join(current),
+                                                                                      ','.join(picked)))
+                    if not self.dcs.write_sync_state(self.state_handler.name, picked, index=self.cluster.sync.index):
                         logger.info('Synchronous replication key updated by someone else.')
                         return
 
-                if self.is_synchronous_mode_strict() and picked is None:
-                    picked = '*'
+                if current and not picked:
+                    logger.info("Removing synchronous privilege from {}".format(','.join(current)))
+                    if not self.dcs.write_sync_state(self.state_handler.name, [], index=self.cluster.sync.index):
+                        logger.info('Synchronous replication key updated by someone else.')
+                        return
+
+                if self.is_synchronous_mode_strict() and not picked:
+                    picked = ['*']
                     logger.warning("No standbys available!")
 
                 logger.info("Assigning synchronous standby status to %s", picked)
                 self.state_handler.config.set_synchronous_standby(picked)
 
-                if picked and picked != '*' and not allow_promote:
+                if picked and picked[0] != '*' and not allow_promote:
                     # Wait for PostgreSQL to enable synchronous mode and see if we can immediately set sync_standby
                     time.sleep(2)
-                    picked, allow_promote = self.state_handler.pick_synchronous_standby(self.cluster)
+                    picked, allow_promote = self.state_handler.pick_synchronous_standby(self.cluster, sync_node_count)
                 if allow_promote:
                     try:
                         cluster = self.dcs.get_cluster()
@@ -483,11 +489,11 @@ class Ha(object):
         else:
             if self.cluster.sync.leader and self.dcs.delete_sync_state(index=self.cluster.sync.index):
                 logger.info("Disabled synchronous replication")
-            self.state_handler.config.set_synchronous_standby(None)
+            self.state_handler.config.set_synchronous_standby([])
 
     def is_sync_standby(self, cluster):
         return cluster.leader and cluster.sync.leader == cluster.leader.name \
-            and cluster.sync.sync_standby == self.state_handler.name
+            and cluster.sync.matches(self.state_handler.name)
 
     def while_not_sync_standby(self, func):
         """Runs specified action while trying to make sure that the node is not assigned synchronous standby status.
@@ -562,21 +568,21 @@ class Ha(object):
             # Inform the state handler about its master role.
             # It may be unaware of it if postgres is promoted manually.
             self.state_handler.set_role('master')
-            self.process_sync_replication()
+            self.process_sync_replication(self.patroni.config['synchronous_node_count'])
             self.update_cluster_history()
             return message
         elif self.state_handler.role == 'master':
-            self.process_sync_replication()
+            self.process_sync_replication(self.patroni.config['synchronous_node_count'])
             return message
         else:
             if self.is_synchronous_mode():
                 # Just set ourselves as the authoritative source of truth for now. We don't want to wait for standbys
                 # to connect. We will try finding a synchronous standby in the next cycle.
-                if not self.dcs.write_sync_state(self.state_handler.name, None, index=self.cluster.sync.index):
+                if not self.dcs.write_sync_state(self.state_handler.name, [], index=self.cluster.sync.index):
                     # Somebody else updated sync state, it may be due to us losing the lock. To be safe, postpone
                     # promotion until next cycle. TODO: trigger immediate retry of run_cycle
                     return 'Postponing promotion because synchronous replication state was updated by somebody else'
-                self.state_handler.config.set_synchronous_standby('*' if self.is_synchronous_mode_strict() else None)
+                self.state_handler.config.set_synchronous_standby(['*'] if self.is_synchronous_mode_strict() else [])
             if self.state_handler.role != 'master':
                 self.set_leader_access_is_restricted(self.cluster.has_permanent_logical_slots(self.state_handler.name))
 
@@ -811,7 +817,7 @@ class Ha(object):
             self._async_executor.try_run_async('starting after demotion', self.state_handler.follow, (node_to_follow,))
         else:
             if self.is_synchronous_mode():
-                self.state_handler.config.set_synchronous_standby(None)
+                self.state_handler.config.set_synchronous_standby([])
             if self._rewind.rewind_or_reinitialize_needed_and_possible(leader):
                 return False  # do not start postgres, but run pg_rewind on the next iteration
             self.state_handler.follow(node_to_follow)
@@ -872,8 +878,8 @@ class Ha(object):
                 else:
                     if self.is_synchronous_mode():
                         if failover.candidate and not self.cluster.sync.matches(failover.candidate):
-                            logger.warning('Failover candidate=%s does not match with sync_standby=%s',
-                                           failover.candidate, self.cluster.sync.sync_standby)
+                            logger.warning('Failover candidate=%s does not match with sync_standbys=%s',
+                                           failover.candidate, ','.join(self.cluster.sync.sync_standby))
                             members = []
                         else:
                             members = [m for m in self.cluster.members if self.cluster.sync.matches(m.name)]
