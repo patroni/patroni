@@ -73,7 +73,7 @@ class TestCtl(unittest.TestCase):
         scheduled_at = datetime.now(tzutc) + timedelta(seconds=600)
         cluster = get_cluster_initialized_with_leader(Failover(1, 'foo', 'bar', scheduled_at))
         del cluster.members[1].data['conn_url']
-        for fmt in ('pretty', 'json', 'yaml', 'tsv'):
+        for fmt in ('pretty', 'json', 'yaml', 'tsv', 'topology'):
             self.assertIsNone(output_members(cluster, name='abc', fmt=fmt))
 
     @patch('patroni.ctl.get_dcs')
@@ -416,6 +416,36 @@ class TestCtl(unittest.TestCase):
         result = self.runner.invoke(ctl, ['list', 'dummy', '--extended', '--timestamp'])
         assert '2100' in result.output
         assert 'Scheduled restart' in result.output
+
+    @patch('patroni.ctl.get_dcs')
+    def test_topology(self, mock_get_dcs):
+        mock_get_dcs.return_value = self.e
+        cluster = get_cluster_initialized_with_leader()
+        cascade_member = Member(0, 'cascade', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5437/postgres',
+                                                   'api_url': 'http://127.0.0.1:8012/patroni',
+                                                   'state': 'running',
+                                                   'tags': {'replicatefrom': 'other'},
+                                                   })
+        cascade_member_wrong_tags = Member(0, 'wrong_cascade', 28,
+                                           {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5438/postgres',
+                                            'api_url': 'http://127.0.0.1:8013/patroni',
+                                            'state': 'running',
+                                            'tags': {'replicatefrom': 'nonexistinghost'},
+                                            })
+        cluster.members.append(cascade_member)
+        cluster.members.append(cascade_member_wrong_tags)
+        mock_get_dcs.return_value.get_cluster = Mock(return_value=cluster)
+        result = self.runner.invoke(ctl, ['topology', 'dummy'])
+        assert '+\n| leader          | 127.0.0.1:5435 |  Leader |' in result.output
+        assert '|\n| + other         | 127.0.0.1:5436 | Replica |' in result.output
+        assert '|\n|   + cascade     | 127.0.0.1:5437 | Replica |' in result.output
+        assert '|\n| + wrong_cascade | 127.0.0.1:5438 | Replica |' in result.output
+
+        cluster = get_cluster_initialized_without_leader()
+        mock_get_dcs.return_value.get_cluster = Mock(return_value=cluster)
+        result = self.runner.invoke(ctl, ['topology', 'dummy'])
+        assert '+\n| + leader | 127.0.0.1:5435 | Replica |' in result.output
+        assert '|\n| + other  | 127.0.0.1:5436 | Replica |' in result.output
 
     @patch('patroni.ctl.get_dcs')
     @patch.object(PoolManager, 'request', Mock(return_value=MockResponse()))

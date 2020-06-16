@@ -358,6 +358,8 @@ def polling_loop(timeout, interval=1):
 
 def split_host_port(value, default_port):
     t = value.rsplit(':', 1)
+    if ':' in t[0]:
+        t[0] = t[0].strip('[]')
     t.append(default_port)
     return t[0], int(t[1])
 
