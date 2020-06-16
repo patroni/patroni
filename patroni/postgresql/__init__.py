@@ -912,6 +912,7 @@ class Postgresql(object):
             sort_lsn_col = "replay_{}".format(self.lsn_name)
         elif sync_commit_par == 'remote_write':
             sort_lsn_col = "write_{}".format(self.lsn_name)
+        last_sync_state = None
         for app_name, state, sync_state in self.query(
                 "SELECT pg_catalog.lower(application_name), state, sync_state"
                 " FROM pg_catalog.pg_stat_replication"
@@ -921,6 +922,7 @@ class Postgresql(object):
             member = members.get(app_name)
             if not member or member.tags.get('nosync', False):
                 continue
+            last_sync_state = sync_state
             candidates.append(member.name)
             if len(candidates) >= sync_node_count:
                 break
@@ -928,7 +930,7 @@ class Postgresql(object):
         if self._major_version < 96000 and candidates:
             candidates = [candidates[0]]
 
-        if current and candidates and set(current) == set(candidates):
+        if current and candidates and set(current) == set(candidates) and last_sync_state == 'sync':
             return candidates, True
 
         return candidates, False

@@ -879,7 +879,7 @@ class Ha(object):
                     if self.is_synchronous_mode():
                         if failover.candidate and not self.cluster.sync.matches(failover.candidate):
                             logger.warning('Failover candidate=%s does not match with sync_standbys=%s',
-                                           failover.candidate, ','.join(self.cluster.sync.sync_standby))
+                                           failover.candidate, self.cluster.sync.sync_standby)
                             members = []
                         else:
                             members = [m for m in self.cluster.members if self.cluster.sync.matches(m.name)]

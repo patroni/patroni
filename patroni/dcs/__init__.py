@@ -387,7 +387,7 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
         """
         Returns if a node name matches one of the nodes in the sync state
 
-        >>> s = SyncState(1, 'foo', 'bar')
+        >>> s = SyncState(1, 'foo', ['bar'])
         >>> s.matches('foo')
         True
         >>> s.matches('bar')
