@@ -101,8 +101,9 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
     def test_set_config_value(self):
         self.k.set_config_value('{}')
 
-    @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_pod', Mock(return_value=True))
-    def test_touch_member(self):
+    @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_pod')
+    def test_touch_member(self, mock_patch_namespaced_pod):
+        mock_patch_namespaced_pod.return_value.metadata.resource_version = '10'
         self.k.touch_member({'role': 'replica'})
         self.k._name = 'p-1'
         self.k.touch_member({'state': 'running', 'role': 'replica'})
@@ -142,12 +143,29 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
         self.assertIsNotNone(self.k.update_leader('123'))
         args = mock_patch_namespaced_endpoints.call_args[0]
         self.assertEqual(args[2].subsets[0].addresses[0].target_ref.resource_version, '10')
-        self.k._leader_observed_subsets = []
+        self.k._kinds._object_cache['test'].subsets[:] = []
         self.assertIsNotNone(self.k.update_leader('123'))
+        self.k._kinds._object_cache['test'].metadata.annotations['leader'] = 'p-1'
+        self.assertFalse(self.k.update_leader('123'))
 
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints', mock_namespaced_kind)
     def test_update_leader_with_restricted_access(self):
         self.assertIsNotNone(self.k.update_leader('123', True))
+
+    @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints')
+    def test__update_leader_with_retry(self, mock_patch):
+        mock_patch.side_effect = k8s_client.rest.ApiException(500, '')
+        self.assertFalse(self.k.update_leader('123'))
+        mock_patch.side_effect = RetryFailedError('')
+        self.assertFalse(self.k.update_leader('123'))
+        mock_patch.side_effect = k8s_client.rest.ApiException(409, '')
+        with patch('time.time', Mock(side_effect=[0, 100, 200])):
+            self.assertFalse(self.k.update_leader('123'))
+        with patch('time.sleep', Mock()):
+            self.assertFalse(self.k.update_leader('123'))
+            mock_patch.side_effect = [k8s_client.rest.ApiException(409, ''), mock_namespaced_kind()]
+            self.k._kinds._object_cache['test'].metadata.resource_version = '2'
+            self.assertIsNotNone(self.k._update_leader_with_retry({}, '1', []))
 
     @patch.object(k8s_client.CoreV1Api, 'create_namespaced_endpoints',
                   Mock(side_effect=[k8s_client.rest.ApiException(502, ''), k8s_client.rest.ApiException(500, '')]))
