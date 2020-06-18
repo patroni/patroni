@@ -897,7 +897,7 @@ class Postgresql(object):
 
         :returns tuple of candidate name or None, and bool showing if the member is the active synchronous standby.
         """
-        current = [x.lower() for x in cluster.sync.sync_standby] if cluster.sync.sync_standby else []
+        current = [x.lower() for x in cluster.sync.sync_standby_list] if cluster.sync.sync_standby_list else []
         members = {m.name.lower(): m for m in cluster.members}
         candidates = []
         # Pick candidates based on who has flushed WAL farthest.

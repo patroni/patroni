@@ -332,14 +332,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
             return 'leader name does not match'
         if candidate:
             if action == 'switchover' and cluster.is_synchronous_mode() and not cluster.sync.matches(candidate):
-                return 'candidate name does not match with sync_standby'
+                return 'candidate name does not match with sync_standby_list'
             members = [m for m in cluster.members if m.name == candidate]
             if not members:
                 return 'candidate does not exists'
         elif cluster.is_synchronous_mode():
             members = [m for m in cluster.members if cluster.sync.matches(m.name)]
             if not members:
-                return action + ' is not possible: can not find sync_standby'
+                return action + ' is not possible: can not find sync standby in sync_standby_list'
         else:
             members = [m for m in cluster.members if m.name != cluster.leader.name and m.api_url]
             if not members:

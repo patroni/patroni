@@ -346,12 +346,12 @@ class ClusterConfig(namedtuple('ClusterConfig', 'index,data,modify_index')):
         return self.data.get('max_timelines_history', 0)
 
 
-class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
+class SyncState(namedtuple('SyncState', 'index,leader,sync_standby_list')):
     """Immutable object (namedtuple) which represents last observed synhcronous replication state
 
     :param index: modification index of a synchronization key in a Configuration Store
     :param leader: reference to member that was leader
-    :param sync_standby: standby that was last synchronized to leader
+    :param sync_standby_list: synchronous standby list which are last synchronized to leader
     """
 
     @staticmethod
@@ -381,7 +381,13 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
                 data = {}
         else:
             data = {}
-        return SyncState(index, data.get('leader'), data.get('sync_standby', []))
+        if 'sync_standby_list' in data.keys():
+            sync_list = data.get('sync_standby_list')
+        elif 'sync_standby' in data.keys():
+            sync_list = [data.get('sync_standby')]
+        else:
+            sync_list = []
+        return SyncState(index, data.get('leader'), sync_list)
 
     def matches(self, name):
         """
@@ -400,8 +406,8 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
         False
         """
         member_list = [self.leader]
-        if self.sync_standby:
-            member_list += self.sync_standby
+        if self.sync_standby_list:
+            member_list += self.sync_standby_list
         return name is not None and name in member_list
 
 
@@ -789,8 +795,11 @@ class AbstractDCS(object):
 
     @staticmethod
     def sync_state(leader, sync_standby):
-        """Build sync_state dict"""
-        return {'leader': leader, 'sync_standby': sync_standby}
+        """Build sync_state dict
+           sync_standby dictionary key being kept for backward compatibility
+        """
+        return {'leader': leader, 'sync_standby': sync_standby and sync_standby[0] or None,
+                'sync_standby_list': sync_standby}
 
     def write_sync_state(self, leader, sync_standby, index=None):
         sync_value = self.sync_state(leader, sync_standby)
