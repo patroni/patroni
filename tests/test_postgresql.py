@@ -595,7 +595,7 @@ class TestPostgresql(BaseTestPostgresql):
 
     def test_pick_sync_standby(self):
         cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None,
-                          SyncState(0, self.me.name, [self.leadermem.name]), None)
+                          SyncState(0, self.me.name, self.leadermem.name), None)
 
         with patch.object(Postgresql, "query", return_value=[
                     (self.leadermem.name, 'streaming', 'sync'),
@@ -648,12 +648,8 @@ class TestPostgresql(BaseTestPostgresql):
         mock_reload.assert_called()
         self.assertEqual(value_in_conf(), "synchronous_standby_names = '1 (n2)'")
 
-        self.p.config.set_synchronous_standby(['n2', 'n3'])
-        mock_reload.assert_called()
-        self.assertEqual(value_in_conf(), "synchronous_standby_names = '2 (n2,n3)'")
-
         mock_reload.reset_mock()
-        self.p.config.set_synchronous_standby([])
+        self.p.config.set_synchronous_standby(None)
         mock_reload.assert_called()
         self.assertEqual(value_in_conf(), None)
 

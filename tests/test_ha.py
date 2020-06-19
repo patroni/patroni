@@ -3,7 +3,7 @@ import etcd
 import os
 import sys
 
-from mock import Mock, MagicMock, PropertyMock, patch, mock_open
+from mock import call, Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.config import Config
 from patroni.dcs import Cluster, ClusterConfig, Failover, Leader, Member, get_dcs, SyncState, TimelineHistory
 from patroni.dcs.etcd import Client
@@ -56,7 +56,7 @@ def get_cluster_initialized_without_leader(leader=False, failover=None, sync=Non
                                  'tags': {'clonefrom': True},
                                  'scheduled_restart': {'schedule': "2100-01-01 10:53:07.560445+00:00",
                                                        'postgres_version': '99.0.0'}})
-    syncstate = SyncState(0 if sync else None, sync and sync[0], sync and [sync[1]])
+    syncstate = SyncState(0 if sync else None, sync and sync[0], sync and sync[1])
     return get_cluster(SYSID, leader, [m1, m2], failover, syncstate, cluster_config)
 
 
@@ -869,7 +869,7 @@ class TestHa(PostgresInit):
         self.ha.is_synchronous_mode = true
 
         # Test sync standby not touched when picking the same node
-        self.p.pick_synchronous_standby = Mock(return_value=('other', True))
+        self.p.pick_synchronous_standby = Mock(return_value=(['other'], True))
         self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
         self.ha.run_cycle()
         mock_set_sync.assert_not_called()
@@ -882,6 +882,14 @@ class TestHa(PostgresInit):
         self.ha.run_cycle()
         mock_set_sync.assert_called_once_with(['other2'])
 
+        # Test sync standby is replaced when new standby is joined
+        self.p.pick_synchronous_standby = Mock(return_value=(['other2', 'other3'], False))
+        self.ha.dcs.write_sync_state = Mock(return_value=True)
+        self.ha.run_cycle()
+        # mock_set_sync.assert_called_once_with(['other2'])
+        calls = [call(['other2']), call(['other2', 'other3'])]
+        mock_set_sync.assert_has_calls(calls)
+
         mock_set_sync.reset_mock()
         # Test sync standby is not disabled when updating dcs fails
         self.ha.dcs.write_sync_state = Mock(return_value=False)
@@ -891,7 +899,7 @@ class TestHa(PostgresInit):
         mock_set_sync.reset_mock()
         # Test changing sync standby
         self.ha.dcs.write_sync_state = Mock(return_value=True)
-        self.ha.dcs.get_cluster = Mock(return_value=get_cluster_initialized_with_leader(sync=('leader', ['other'])))
+        self.ha.dcs.get_cluster = Mock(return_value=get_cluster_initialized_with_leader(sync=('leader', 'other')))
         # self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
         self.p.pick_synchronous_standby = Mock(return_value=(['other2'], False))
         self.ha.run_cycle()
@@ -934,7 +942,7 @@ class TestHa(PostgresInit):
         # When we just became master nobody is sync
         self.assertEqual(self.ha.enforce_master_role('msg', 'promote msg'), 'promote msg')
         mock_set_sync.assert_called_once_with([])
-        mock_write_sync.assert_called_once_with('leader', [], index=0)
+        mock_write_sync.assert_called_once_with('leader', None, index=0)
 
         mock_set_sync.reset_mock()
 
@@ -972,7 +980,7 @@ class TestHa(PostgresInit):
         mock_acquire.assert_called_once()
         mock_follow.assert_not_called()
         mock_promote.assert_called_once()
-        mock_write_sync.assert_called_once_with('other', [], index=0)
+        mock_write_sync.assert_called_once_with('other', None, index=0)
 
     def test_disable_sync_when_restarting(self):
         self.ha.is_synchronous_mode = true

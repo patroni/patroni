@@ -384,10 +384,15 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby_list')):
         if 'sync_standby_list' in data.keys():
             sync_list = data.get('sync_standby_list')
         elif 'sync_standby' in data.keys():
-            sync_list = [data.get('sync_standby')]
+            sync_list = data.get('sync_standby')
         else:
-            sync_list = []
+            sync_list = None
         return SyncState(index, data.get('leader'), sync_list)
+
+    @property
+    def members(self):
+        """ Returns sync_standby_list in list """
+        return self.sync_standby_list and self.sync_standby_list.split(',') or []
 
     def matches(self, name):
         """
@@ -405,10 +410,7 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby_list')):
         >>> SyncState(1, None, None).matches('foo')
         False
         """
-        member_list = [self.leader]
-        if self.sync_standby_list:
-            member_list += self.sync_standby_list
-        return name is not None and name in member_list
+        return name is not None and name in [self.leader] + self.members
 
 
 class TimelineHistory(namedtuple('TimelineHistory', 'index,value,lines')):
@@ -798,7 +800,7 @@ class AbstractDCS(object):
         """Build sync_state dict
            sync_standby dictionary key being kept for backward compatibility
         """
-        return {'leader': leader, 'sync_standby': sync_standby and sync_standby[0] or None,
+        return {'leader': leader, 'sync_standby': sync_standby and sync_standby.split(',')[0] or None,
                 'sync_standby_list': sync_standby}
 
     def write_sync_state(self, leader, sync_standby, index=None):

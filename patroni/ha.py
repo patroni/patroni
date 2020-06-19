@@ -447,7 +447,7 @@ class Ha(object):
         promoting standbys that were guaranteed to be replicating synchronously.
         """
         if self.is_synchronous_mode():
-            current = self.cluster.sync.leader and self.cluster.sync.sync_standby_list or []
+            current = self.cluster.sync.leader and self.cluster.sync.members or []
             picked, allow_promote = self.state_handler.pick_synchronous_standby(self.cluster, sync_node_count)
             if set(picked) != set(current):
                 # update synchronous standby list in dcs temporarily to point to common nodes in current and picked
@@ -455,7 +455,7 @@ class Ha(object):
                 if set(sync_common) != set(current):
                     logger.info("Updating synchronous state temporarily in dcs from {} to {}".format(current,
                                                                                                      sync_common))
-                    if not self.dcs.write_sync_state(self.state_handler.name, sync_common,
+                    if not self.dcs.write_sync_state(self.state_handler.name, ','.join(sync_common),
                                                      index=self.cluster.sync.index):
                         logger.info('Synchronous replication key updated by someone else.')
                         return
@@ -483,7 +483,8 @@ class Ha(object):
                     if cluster.sync.leader and cluster.sync.leader != self.state_handler.name:
                         logger.info("Synchronous replication key updated by someone else")
                         return
-                    if not self.dcs.write_sync_state(self.state_handler.name, picked, index=cluster.sync.index):
+                    if not self.dcs.write_sync_state(self.state_handler.name, ','.join(picked),
+                                                     index=cluster.sync.index):
                         logger.info("Synchronous replication key updated by someone else")
                         return
                     logger.info("Synchronous standby status assigned to %s", picked)
@@ -579,7 +580,7 @@ class Ha(object):
             if self.is_synchronous_mode():
                 # Just set ourselves as the authoritative source of truth for now. We don't want to wait for standbys
                 # to connect. We will try finding a synchronous standby in the next cycle.
-                if not self.dcs.write_sync_state(self.state_handler.name, [], index=self.cluster.sync.index):
+                if not self.dcs.write_sync_state(self.state_handler.name, None, index=self.cluster.sync.index):
                     # Somebody else updated sync state, it may be due to us losing the lock. To be safe, postpone
                     # promotion until next cycle. TODO: trigger immediate retry of run_cycle
                     return 'Postponing promotion because synchronous replication state was updated by somebody else'
