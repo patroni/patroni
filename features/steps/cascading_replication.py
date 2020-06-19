@@ -25,15 +25,21 @@ def write_label(context, content, name):
 def check_sync_member(context, name, key, value, time_limit):
     time_limit *= context.timeout_multiplier
     max_time = time.time() + int(time_limit)
+    response = None
     while time.time() < max_time:
         try:
             response = json.loads(context.dcs_ctl.query(name))
-            if value in response.get(key):
+            if value in response.get(key, '').split(','):
                 return
         except Exception:
             pass
         time.sleep(1)
-    assert False, "{0} does not have {1}={2} in dcs after {3} seconds. It has {4}".format(name, key, value, time_limit, response.get(key))
+    assert False, "{0} does not have {1}={2} in dcs after {3} seconds. It has {4}".format(name,
+                                                                                          key,
+                                                                                          value,
+                                                                                          time_limit,
+                                                                                          response and response.get(key)
+                                                                                          )
 
 
 @step('"{name}" key in DCS has {key:w}={value:w} after {time_limit:d} seconds')

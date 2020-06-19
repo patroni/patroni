@@ -927,7 +927,7 @@ class Postgresql(object):
             if len(candidates) >= sync_node_count:
                 break
 
-        if self._major_version < 96000 and candidates:
+        if self._major_version < 90600 and candidates:
             candidates = [candidates[0]]
 
         if current and candidates and set(current) == set(candidates) and last_sync_state == 'sync':

@@ -1017,7 +1017,7 @@ class ConfigHandler(object):
         """Sets a node to be synchronous standby and if changed does a reload for PostgreSQL."""
         if sync_members and set(sync_members) != set(['*']):
             sync_members = [quote_ident(x) for x in sync_members]
-        if self._postgresql.major_version >= 96000:
+        if self._postgresql.major_version >= 90600:
             sync_param = sync_members and '{} ({})'.format(len(sync_members), ','.join(sync_members)) or None
         else:
             sync_param = sync_members and sync_members[0] or None
