@@ -154,7 +154,7 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
 
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints')
     def test__update_leader_with_retry(self, mock_patch):
-        mock_patch.side_effect = k8s_client.rest.ApiException(500, '')
+        mock_patch.side_effect = k8s_client.rest.ApiException(502, '')
         self.assertFalse(self.k.update_leader('123'))
         mock_patch.side_effect = RetryFailedError('')
         self.assertFalse(self.k.update_leader('123'))
@@ -168,7 +168,7 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
             self.assertIsNotNone(self.k._update_leader_with_retry({}, '1', []))
 
     @patch.object(k8s_client.CoreV1Api, 'create_namespaced_endpoints',
-                  Mock(side_effect=[k8s_client.rest.ApiException(502, ''), k8s_client.rest.ApiException(500, '')]))
+                  Mock(side_effect=[k8s_client.rest.ApiException(500, ''), k8s_client.rest.ApiException(502, '')]))
     def test_delete_sync_state(self):
         self.assertFalse(self.k.delete_sync_state())
 

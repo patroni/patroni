@@ -75,7 +75,7 @@ class CoreV1ApiProxy(object):
             try:
                 return getattr(self._api, func)(*args, **kwargs)
             except k8s_client.rest.ApiException as e:
-                if e.status in (502, 503, 504) or e.headers and 'retry-after' in e.headers:  # XXX
+                if e.status in (500, 503, 504) or e.headers and 'retry-after' in e.headers:  # XXX
                     raise KubernetesRetriableException(e)
                 raise
         return wrapper
