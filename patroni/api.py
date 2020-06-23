@@ -17,6 +17,7 @@ from patroni.utils import deep_compare, parse_bool, patch_config, Retry, \
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from six.moves.socketserver import ThreadingMixIn
 from threading import Thread
+from six.moves.urllib_parse import urlparse, parse_qs
 
 logger = logging.getLogger(__name__)
 
@@ -89,8 +90,17 @@ class RestApiHandler(BaseHTTPRequestHandler):
         patroni = self.server.patroni
         cluster = patroni.dcs.cluster
 
-        replica_status_code = 200 if not patroni.noloadbalance and \
-            response.get('role') == 'replica' and response.get('state') == 'running' else 503
+        replica_status_code = 503
+        if response.get('role') == 'replica' and response.get('state') == 'running' \
+           and not patroni.noloadbalance:
+            max_replica_lag = self.path_query.get('lag') and parse_int(self.path_query.get('lag')[0])
+            leader_optime = parse_int(patroni.dcs.leader_optime)
+            if max_replica_lag and leader_optime:
+                replica_status_code = 200 \
+                                      if max_replica_lag > leader_optime - \
+                                      response.get('xlog').get('replayed_location') else 503
+            else:
+                replica_status_code = 200
 
         if not cluster and patroni.ha.is_paused():
             primary_status_code = 200 if response.get('role') == 'master' else 503
@@ -414,6 +424,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         ret = BaseHTTPRequestHandler.parse_request(self)
         if ret:
+            urlpath = urlparse(self.path)
+            self.path = urlpath.path
+            self.path_query = parse_qs(urlpath.query) or {}
             mname = self.path.lstrip('/').split('/')[0]
             mname = self.command + ('_' + mname if mname else '')
             if hasattr(self, 'do_' + mname):

@@ -19,6 +19,8 @@ For all health check ``GET`` requests Patroni returns a JSON document with the s
 
 - ``GET /replica``: replica health check endpoint. It returns HTTP status code **200** only when the Patroni node is in the state ``running``, the role is ``replica`` and ``noloadbalance`` tag is not set.
 
+- ``GET /replica&lag=<bytes>``: replica check endpoint. In addition to checks from ``replica``, it also checks replication latency and returns status code **200** only when it is below specified value. The key leader_optime from DCS is used for Leader wal position and compute latency on replica for performance reasons. Please note that the value in leader_optime might be couple of seconds old (based on loop_wait).
+
 - ``GET /read-only``: like the above endpoint, but also includes the primary.
 
 - ``GET /standby-leader``: returns HTTP status code **200** only when the Patroni node is running as the leader in a :ref:`standby cluster <standby_cluster>`.
@@ -26,6 +28,8 @@ For all health check ``GET`` requests Patroni returns a JSON document with the s
 - ``GET /synchronous`` or ``GET /sync``: returns HTTP status code **200** only when the Patroni node is running as a synchronous standby.
 
 - ``GET /asynchronous`` or ``GET /async``: returns HTTP status code **200** only when the Patroni node is running as an asynchronous standby.
+
+- ``GET /asynchronous&lag=<bytes>`` or ``GET /async&lag=<bytes>``: asynchronous standby check endpoint. In addition to checks from ``asynchronous`` or ``async``, it also checks replication latency and returns status code **200** only when it is below specified value. The key leader_optime from DCS is used for Leader wal position and compute latency on replica for performance reasons. Please note that the value in leader_optime might be couple of seconds old (based on loop_wait).
 
 - ``GET /health``: returns HTTP status code **200** only when PostgreSQL is up and running.
 
