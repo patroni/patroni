@@ -18,6 +18,28 @@ class MockThread(object):
         self._target(*self._args)
 
 
+def mock_cancellable_call(*args, **kwargs):
+    communicate = kwargs.pop('communicate', None)
+    if isinstance(communicate, dict):
+        communicate.update(stdout=b'', stderr=b'pg_rewind: error: could not open file ' +
+                                              b'"data/postgresql0/pg_xlog/000000010000000000000003": No such file')
+    return 1
+
+
+def mock_cancellable_call0(*args, **kwargs):
+    communicate = kwargs.pop('communicate', None)
+    if isinstance(communicate, dict):
+        communicate.update(stdout=b'', stderr=b'')
+    return 0
+
+
+def mock_cancellable_call1(*args, **kwargs):
+    communicate = kwargs.pop('communicate', None)
+    if isinstance(communicate, dict):
+        communicate.update(stdout=b'', stderr=b'')
+    return 1
+
+
 @patch('subprocess.call', Mock(return_value=0))
 @patch('psycopg2.connect', psycopg2_connect)
 class TestRewind(BaseTestPostgresql):
@@ -36,16 +58,23 @@ class TestRewind(BaseTestPostgresql):
         self.p.config._config['use_pg_rewind'] = False
         self.assertFalse(self.r.can_rewind)
 
-    @patch.object(Postgresql, 'major_version', PropertyMock(return_value=130000))
-    @patch.object(CancellableSubprocess, 'call')
-    def test_pg_rewind(self, mock_cancellable_subprocess_call):
+    def test_pg_rewind(self):
         r = {'user': '', 'host': '', 'port': '', 'database': '', 'password': ''}
-        mock_cancellable_subprocess_call.return_value = 0
-        with patch('subprocess.check_output', Mock(return_value=b'foo')):
-            self.assertTrue(self.r.pg_rewind(r))
-        mock_cancellable_subprocess_call.side_effect = OSError
-        with patch('subprocess.check_output', Mock(side_effect=Exception)):
-            self.assertFalse(self.r.pg_rewind(r))
+        with patch.object(Postgresql, 'major_version', PropertyMock(return_value=130000)),\
+                patch.object(CancellableSubprocess, 'call', Mock(return_value=None)):
+            with patch('subprocess.check_output', Mock(return_value=b'boo')):
+                self.assertFalse(self.r.pg_rewind(r))
+            with patch('subprocess.check_output', Mock(side_effect=Exception)):
+                self.assertFalse(self.r.pg_rewind(r))
+
+        with patch.object(Postgresql, 'major_version', PropertyMock(return_value=120000)),\
+                patch('subprocess.check_output', Mock(return_value=b'foo %f %p %r %% % %')):
+            with patch.object(CancellableSubprocess, 'call', mock_cancellable_call):
+                self.assertFalse(self.r.pg_rewind(r))
+            with patch.object(CancellableSubprocess, 'call', mock_cancellable_call0):
+                self.assertTrue(self.r.pg_rewind(r))
+            with patch.object(CancellableSubprocess, 'call', mock_cancellable_call1):
+                self.assertFalse(self.r.pg_rewind(r))
 
     @patch.object(Rewind, 'can_rewind', PropertyMock(return_value=True))
     def test__get_local_timeline_lsn(self):
@@ -61,7 +90,7 @@ class TestRewind(BaseTestPostgresql):
             with patch.object(MockCursor, 'fetchone', Mock(side_effect=[(0, 0, 1, 1,), Exception])):
                 self.r.rewind_or_reinitialize_needed_and_possible(self.leader)
 
-    @patch.object(CancellableSubprocess, 'call', Mock(return_value=0))
+    @patch.object(CancellableSubprocess, 'call', mock_cancellable_call)
     @patch.object(Postgresql, 'checkpoint', side_effect=['', '1'],)
     @patch.object(Postgresql, 'stop', Mock(return_value=False))
     @patch.object(Postgresql, 'start', Mock())
@@ -161,7 +190,8 @@ class TestRewind(BaseTestPostgresql):
     @patch('psutil.Popen')
     def test_single_user_mode(self, subprocess_popen_mock):
         subprocess_popen_mock.return_value.wait.return_value = 0
-        self.assertEqual(self.r.single_user_mode('CHECKPOINT', {'archive_mode': 'on'}), 0)
+        subprocess_popen_mock.return_value.communicate.return_value = ('', '')
+        self.assertEqual(self.r.single_user_mode({'input': 'CHECKPOINT'}, {'archive_mode': 'on'}), 0)
 
     @patch('os.listdir', Mock(side_effect=[OSError, ['a', 'b']]))
     @patch('os.unlink', Mock(side_effect=OSError))
