@@ -293,6 +293,20 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self._write_response(code, data)
 
     @check_auth
+    def do_DELETE_switchover(self):
+        failover = self.server.patroni.dcs.get_cluster().failover
+        if failover and failover.scheduled_at:
+            if not self.server.patroni.dcs.manual_failover('', '', index=failover.index):
+                return self.send_error(409)
+            else:
+                data = "scheduled switchover deleted"
+                code = 200
+        else:
+            data = "no switchover is scheduled"
+            code = 404
+        self._write_response(code, data)
+
+    @check_auth
     def do_POST_reinitialize(self):
         request = self._read_json_content(body_is_optional=True)
 

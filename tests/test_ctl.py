@@ -449,7 +449,7 @@ class TestCtl(unittest.TestCase):
 
     @patch('patroni.ctl.get_dcs')
     @patch.object(PoolManager, 'request', Mock(return_value=MockResponse()))
-    def test_flush(self, mock_get_dcs):
+    def test_flush_restart(self, mock_get_dcs):
         mock_get_dcs.return_value = self.e
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
 
@@ -461,6 +461,26 @@ class TestCtl(unittest.TestCase):
         with patch.object(PoolManager, 'request', return_value=MockResponse(404)):
             result = self.runner.invoke(ctl, ['flush', 'dummy', 'restart', '--force'])
             assert 'Failed: flush scheduled restart' in result.output
+
+    @patch('patroni.ctl.get_dcs')
+    @patch.object(PoolManager, 'request', Mock(return_value=MockResponse()))
+    def test_flush_switchover(self, mock_get_dcs):
+        mock_get_dcs.return_value = self.e
+
+        mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
+        result = self.runner.invoke(ctl, ['flush', 'dummy', 'switchover'])
+        assert 'No pending scheduled switchover' in result.output
+
+        scheduled_at = datetime.now(tzutc) + timedelta(seconds=600)
+        mock_get_dcs.return_value.get_cluster = Mock(
+                return_value=get_cluster_initialized_with_leader(Failover(1, 'a', 'b', scheduled_at)))
+        result = self.runner.invoke(ctl, ['flush', 'dummy', 'switchover'])
+        assert result.output.startswith('Success: ')
+
+        mock_get_dcs.return_value.manual_failover = Mock()
+        with patch.object(PoolManager, 'request', side_effect=[MockResponse(409), Exception]):
+            result = self.runner.invoke(ctl, ['flush', 'dummy', 'switchover'])
+            assert 'Could not find any accessible member of cluster' in result.output
 
     @patch.object(PoolManager, 'request')
     @patch('patroni.ctl.get_dcs')
