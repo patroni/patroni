@@ -299,7 +299,10 @@ Example: schedule a switchover from the leader to any other healthy replica in t
 
 Depending on the situation the request might finish with a different HTTP status code and body. The status code **200** is returned when the switchover or failover successfully completed. If the switchover was successfully scheduled, Patroni will return HTTP status code **202**. In case something went wrong, the error status code (one of **400**, **412** or **503**) will be returned with some details in the response body. For more information please check the source code of ``patroni/api.py:do_POST_failover()`` method.
 
-The switchover and failover endpoints are used by ``patronictl switchover`` and ``patronictl failover``, respectively.
+- ``DELETE /switchover``: delete the scheduled switchover
+
+The ``POST /switchover`` and ``POST failover`` endpoints are used by ``patronictl switchover`` and ``patronictl failover``, respectively.
+The ``DELETE /switchover`` is used by ``patronictl flush <cluster-name> switchover``.
 
 
 Restart endpoint
@@ -315,7 +318,7 @@ Restart endpoint
 
 - ``DELETE /restart``: delete the scheduled restart
 
-``POST /restart`` and ``DELETE /restart`` endpoints are used by ``patronictl restart`` and ``patronictl flush`` respectively.
+``POST /restart`` and ``DELETE /restart`` endpoints are used by ``patronictl restart`` and ``patronictl flush <cluster-name> restart`` respectively.
 
 
 Reload endpoint

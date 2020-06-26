@@ -13,7 +13,7 @@ class TestCancellableSubprocess(unittest.TestCase):
 
     def test_call(self):
         self.c.cancel()
-        self.assertRaises(PostgresException, self.c.call, communicate_input=None)
+        self.assertRaises(PostgresException, self.c.call)
 
     def test__kill_children(self):
         self.c._process_children = [Mock()]
