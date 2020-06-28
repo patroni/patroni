@@ -42,7 +42,9 @@ def mock_urlopen(self, method, url, **kwargs):
             'result': {'events': [
                 {'kv': {'key': key, 'value': base64_encode('bar'), 'mod_revision': '2'}},
                 {'kv': {'key': key, 'value': base64_encode('buzz'), 'mod_revision': '3'}},
-                {'type': 'DELETE', 'kv': {'key': key, 'mod_revision': '4'}}
+                {'type': 'DELETE', 'kv': {'key': key, 'mod_revision': '4'}},
+                {'kv': {'key': base64_encode('/patroni/test/optime/leader'),
+                        'value': base64_encode('1234567'), 'mod_revision': '5'}},
             ]}
         })[:-1].encode('utf-8'), b'}{"error":{"grpc_code":14,"message":"","http_code":503}}'])
     elif url.endswith('/kv/put') or url.endswith('/kv/txn'):

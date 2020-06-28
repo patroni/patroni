@@ -136,9 +136,12 @@ def to_bytes(v):
     return v if isinstance(v, bytes) else v.encode('utf-8')
 
 
-def increment_last_byte(v):
+def prefix_range_end(v):
     v = bytearray(to_bytes(v))
-    v[-1] += 1
+    for i in range(1 - len(v), 1):
+        if v[i] < 0xff:
+            v[i] += 1
+            break
     return bytes(v)
 
 
@@ -303,7 +306,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         return self.call_rpc('/kv/range', params, retry)
 
     def prefix(self, key, retry=None):
-        return self.range(key, increment_last_byte(key), retry)
+        return self.range(key, prefix_range_end(key), retry)
 
     def lease_grant(self, ttl, retry=None):
         return self.call_rpc('/lease/grant', {'TTL': ttl}, retry)['ID']
@@ -337,7 +340,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         return self.txn(compare, {'request_delete_range': fields}, retry)
 
     def deleteprefix(self, key, retry=None):
-        return self.deleterange(key, increment_last_byte(key), retry=retry)
+        return self.deleterange(key, prefix_range_end(key), retry=retry)
 
     def watchrange(self, key, range_end=None, start_revision=None, filters=None):
         """returns: response object"""
@@ -351,7 +354,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         return request_executor(self._MPOST, self._base_uri + self.version_prefix + '/watch', **kwargs)
 
     def watchprefix(self, key, start_revision=None, filters=None):
-        return self.watchrange(key, increment_last_byte(key), start_revision, filters)
+        return self.watchrange(key, prefix_range_end(key), start_revision, filters)
 
 
 class KVCache(Thread):
@@ -364,6 +367,8 @@ class KVCache(Thread):
         self.condition = Condition()
         self._config_key = base64_encode(dcs.config_path)
         self._leader_key = base64_encode(dcs.leader_path)
+        self._optime_key = base64_encode(dcs.leader_optime_path)
+        self._name = base64_encode(dcs._name)
         self._is_ready = False
         self._response = None
         self._response_lock = Lock()
@@ -392,6 +397,10 @@ class KVCache(Thread):
         with self._object_cache_lock:
             return [v.copy() for v in self._object_cache.values()]
 
+    def get(self, name):
+        with self._object_cache_lock:
+            return self._object_cache.get(name)
+
     def _process_event(self, event):
         kv = event['kv']
         key = kv['key']
@@ -404,9 +413,15 @@ class KVCache(Thread):
             old_value = old_value and old_value.get('value')
             new_value = kv.get('value')
 
-            if old_value != new_value and (key == self._leader_key or key == self._config_key
-                                           and old_value is not None and new_value is not None):
+            value_changed = old_value != new_value and \
+                (key == self._leader_key or key == self._optime_key and new_value is not None or
+                 key == self._config_key and old_value is not None and new_value is not None)
+
+            if value_changed:
                 logger.debug('%s changed from %s to %s', key, old_value, new_value)
+
+            # We also want to wake up HA loop on replicas if leader optime was updated
+            if value_changed and (key != self._optime_key or self.get(self._leader_key) != self._name):
                 self._dcs.event.set()
 
     def _process_message(self, message):
