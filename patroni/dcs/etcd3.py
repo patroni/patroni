@@ -138,7 +138,7 @@ def to_bytes(v):
 
 def prefix_range_end(v):
     v = bytearray(to_bytes(v))
-    for i in range(1 - len(v), 1):
+    for i in range(len(v) - 1, -1, -1):
         if v[i] < 0xff:
             v[i] += 1
             break
