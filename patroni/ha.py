@@ -391,14 +391,21 @@ class Ha(object):
         if self.is_paused():
             if not (self._rewind.is_needed and self._rewind.can_rewind_or_reinitialize_allowed)\
                     or self.cluster.is_unlocked():
-                self.state_handler.set_role('master' if is_leader else 'replica')
                 if is_leader:
+                    self.state_handler.set_role('master')
                     return 'continue to run as master without lock'
-                elif not node_to_follow:
+                elif self.state_handler.role != 'standby_leader':
+                    self.state_handler.set_role('replica')
+
+                if not node_to_follow:
                     return 'no action'
         elif is_leader:
             self.demote('immediate-nolock')
             return demote_reason
+
+        if self.is_standby_cluster() and self._leader_timeline and \
+                self.state_handler.get_history(self._leader_timeline + 1):
+            self._rewind.trigger_check_diverged_lsn()
 
         msg = self._handle_rewind_or_reinitialize()
         if msg:
@@ -417,6 +424,7 @@ class Ha(object):
                                                        self.state_handler.follow, args=(node_to_follow, role))
                 else:
                     self.state_handler.follow(node_to_follow, role, do_reload=True)
+                self._rewind.trigger_check_diverged_lsn()
             elif role == 'standby_leader' and self.state_handler.role != role:
                 self.state_handler.set_role(role)
                 self.state_handler.call_nowait(ACTION_ON_ROLE_CHANGE)
@@ -1370,8 +1378,12 @@ class Ha(object):
 
     def run_cycle(self):
         with self._async_executor:
-            info = self._run_cycle()
-            return (self.is_paused() and 'PAUSE: ' or '') + info
+            try:
+                info = self._run_cycle()
+                return (self.is_paused() and 'PAUSE: ' or '') + info
+            except Exception:
+                logger.exception('Unexpected exception')
+                return 'Unexpected exception raised, please report it as a BUG'
 
     def shutdown(self):
         if self.is_paused():

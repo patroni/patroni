@@ -56,6 +56,55 @@ CONSOLE_SCRIPTS = ['patroni = patroni:main',
                    "patroni_aws = patroni.scripts.aws:main"]
 
 
+class Flake8(Command):
+
+    user_options = []
+
+    def initialize_options(self):
+        from flake8.main import application
+
+        self.flake8 = application.Application()
+        self.flake8.initialize([])
+
+    def finalize_options(self):
+        pass
+
+    def package_files(self):
+        seen_package_directories = ()
+        directories = self.distribution.package_dir or {}
+        empty_directory_exists = "" in directories
+        packages = self.distribution.packages or []
+        for package in packages:
+            if package in directories:
+                package_directory = directories[package]
+            elif empty_directory_exists:
+                package_directory = os.path.join(directories[""], package)
+            else:
+                package_directory = package
+
+            if not package_directory.startswith(seen_package_directories):
+                seen_package_directories += (package_directory + ".",)
+                yield package_directory
+
+    def targets(self):
+        return [package for package in self.package_files()] + ['tests', 'setup.py']
+
+    def run(self):
+        self.flake8.run_checks(self.targets())
+        self.flake8.formatter.start()
+        self.flake8.report_errors()
+        self.flake8.report_statistics()
+        self.flake8.report_benchmarks()
+        self.flake8.formatter.stop()
+        try:
+            self.flake8.exit()
+        except SystemExit as e:
+            # Cause system exit only if exit code is not zero (terminates
+            # other possibly remaining/pending setuptools commands).
+            if e.code:
+                raise
+
+
 class PyTest(Command):
 
     user_options = [('cov=', None, 'Run coverage'), ('cov-xml=', None, 'Generate junit xml report'),
@@ -107,7 +156,7 @@ def read(fname):
 
 def setup_package(version):
     # Assemble additional setup commands
-    cmdclass = {'test': PyTest}
+    cmdclass = {'test': PyTest, 'flake8': Flake8}
 
     install_requires = []
 
