@@ -376,7 +376,7 @@ class ConfigHandler(object):
             configuration.append(os.path.basename(self._postgresql_base_conf_name))
         if not self.hba_file:
             configuration.append('pg_hba.conf')
-        if not self._server_parameters.get('ident_file'):
+        if not self.ident_file:
             configuration.append('pg_ident.conf')
         return configuration
 
@@ -483,7 +483,7 @@ class ConfigHandler(object):
         :returns: True if pg_ident.conf was rewritten.
         """
 
-        if not self._server_parameters.get('ident_file') and self._config.get('pg_ident'):
+        if not self.ident_file and self._config.get('pg_ident'):
             with ConfigWriter(self._pg_ident_conf) as f:
                 f.writelines(self._config['pg_ident'])
             return True
@@ -963,10 +963,12 @@ class ConfigHandler(object):
                         logger.warning('Removing invalid parameter `%s` from postgresql.parameters', param)
                         server_parameters.pop(param)
 
-            if not server_parameters.get('hba_file') and config.get('pg_hba'):
+            if (not server_parameters.get('hba_file') or server_parameters['hba_file'] == self._pg_hba_conf) \
+                    and config.get('pg_hba'):
                 hba_changed = self._config.get('pg_hba', []) != config['pg_hba']
 
-            if not server_parameters.get('ident_file') and config.get('pg_ident'):
+            if (not server_parameters.get('ident_file') or server_parameters['ident_file'] == self._pg_hba_conf) \
+                    and config.get('pg_ident'):
                 ident_changed = self._config.get('pg_ident', []) != config['pg_ident']
 
         self._config = config
@@ -1074,8 +1076,14 @@ class ConfigHandler(object):
                 if self._postgresql.major_version >= 110000 else self._superuser
 
     @property
+    def ident_file(self):
+        ident_file = self._server_parameters.get('ident_file')
+        return None if ident_file == self._pg_ident_conf else ident_file
+
+    @property
     def hba_file(self):
-        return self._server_parameters.get('hba_file')
+        hba_file = self._server_parameters.get('hba_file')
+        return None if hba_file == self._pg_hba_conf else hba_file
 
     @property
     def pg_hba_conf(self):
