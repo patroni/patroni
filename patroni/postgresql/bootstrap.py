@@ -130,6 +130,7 @@ class Bootstrap(object):
                 r['host'] = 'localhost'  # set it to localhost to write into pgpass
 
             env = self._postgresql.config.write_pgpass(r) if 'password' in r else None
+            env['PGOPTIONS'] = '-c synchronous_commit=local'
 
             try:
                 ret = self._postgresql.cancellable.call(shlex.split(cmd) + [connstring], env=env)
@@ -362,7 +363,7 @@ END;$$""".format(f, rewind['username'])
                     # at this point there should be no recovery.conf
                     postgresql.config.remove_recovery_conf()
 
-                    if postgresql.config.hba_file and postgresql.config.hba_file != postgresql.config.pg_hba_conf:
+                    if postgresql.config.hba_file:
                         postgresql.restart()
                     else:
                         postgresql.config.replace_pg_hba()

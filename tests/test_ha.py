@@ -3,7 +3,7 @@ import etcd
 import os
 import sys
 
-from mock import Mock, MagicMock, PropertyMock, patch
+from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.config import Config
 from patroni.dcs import Cluster, ClusterConfig, Failover, Leader, Member, get_dcs, SyncState, TimelineHistory
 from patroni.dcs.etcd import Client
@@ -17,6 +17,7 @@ from patroni.postgresql.rewind import Rewind
 from patroni.postgresql.slots import SlotsHandler
 from patroni.utils import tzutc
 from patroni.watchdog import Watchdog
+from six.moves import builtins
 
 from . import PostgresInit, MockPostmaster, psycopg2_connect, requests_get
 from .test_etcd import socket_getaddrinfo, etcd_read, etcd_write
@@ -152,9 +153,11 @@ def run_async(self, func, args=()):
 @patch.object(Postgresql, 'is_leader', Mock(return_value=True))
 @patch.object(Postgresql, 'timeline_wal_position', Mock(return_value=(1, 10, 1)))
 @patch.object(Postgresql, '_cluster_info_state_get', Mock(return_value=3))
-@patch.object(Postgresql, 'call_nowait', Mock(return_value=True))
 @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=False))
-@patch.object(Postgresql, 'controldata', Mock(return_value={'Database system identifier': SYSID}))
+@patch.object(Postgresql, 'controldata', Mock(return_value={
+    'Database system identifier': SYSID,
+    'Database cluster state': 'shut down',
+    'Latest checkpoint location': '0/12345678'}))
 @patch.object(SlotsHandler, 'sync_replication_slots', Mock())
 @patch.object(ConfigHandler, 'append_pg_hba', Mock())
 @patch.object(ConfigHandler, 'write_pgpass', Mock(return_value={}))
@@ -163,7 +166,7 @@ def run_async(self, func, args=()):
 @patch.object(Postgresql, 'query', Mock())
 @patch.object(Postgresql, 'checkpoint', Mock())
 @patch.object(CancellableSubprocess, 'call', Mock(return_value=0))
-@patch.object(Postgresql, 'get_local_timeline_lsn_from_replication_connection', Mock(return_value=[2, 10]))
+@patch.object(Postgresql, 'get_replica_timeline', Mock(return_value=2))
 @patch.object(Postgresql, 'get_master_timeline', Mock(return_value=2))
 @patch.object(ConfigHandler, 'restore_configuration_files', Mock())
 @patch.object(etcd.Client, 'write', etcd_write)
@@ -172,6 +175,7 @@ def run_async(self, func, args=()):
 @patch('patroni.postgresql.polling_loop', Mock(return_value=range(1)))
 @patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=False))
 @patch('patroni.async_executor.AsyncExecutor.run_async', run_async)
+@patch('patroni.postgresql.rewind.Thread', Mock())
 @patch('subprocess.call', Mock(return_value=0))
 @patch('time.sleep', Mock())
 class TestHa(PostgresInit):
@@ -198,6 +202,7 @@ class TestHa(PostgresInit):
         self.p.last_operation = Mock(side_effect=PostgresConnectionException(''))
         self.assertTrue(self.ha.update_lock(True))
 
+    @patch.object(Postgresql, 'received_timeline', Mock(return_value=None))
     def test_touch_member(self):
         self.p.timeline_wal_position = Mock(return_value=(0, 1, 0))
         self.p.replica_cached_timeline = Mock(side_effect=Exception)
@@ -253,7 +258,7 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.assertEqual(self.ha.run_cycle(), 'starting as readonly because i had the session lock')
 
-    @patch.object(Postgresql, 'fix_cluster_state', Mock())
+    @patch.object(Rewind, 'ensure_clean_shutdown', Mock())
     def test_crash_recovery(self):
         self.p.is_running = false
         self.p.controldata = lambda: {'Database cluster state': 'in production', 'Database system identifier': SYSID}
@@ -689,13 +694,19 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, '', self.p.name, None))
         self.assertEqual(self.ha.run_cycle(), 'PAUSE: waiting to become master after promote...')
 
+    @patch('patroni.postgresql.mtime', Mock(return_value=1588316884))
+    @patch.object(builtins, 'open', mock_open(read_data='1\t0/40159C0\tno recovery target specified\n'))
     def test_process_healthy_standby_cluster_as_standby_leader(self):
         self.p.is_leader = false
         self.p.name = 'leader'
         self.ha.cluster = get_standby_cluster_initialized_with_only_leader()
         self.p.config.check_recovery_conf = Mock(return_value=(False, False))
+        self.ha._leader_timeline = 1
         self.assertEqual(self.ha.run_cycle(), 'promoted self to a standby leader because i had the session lock')
         self.assertEqual(self.ha.run_cycle(), 'no action.  i am the standby leader with the lock')
+        self.p.set_role('replica')
+        self.p.config.check_recovery_conf = Mock(return_value=(True, False))
+        self.assertEqual(self.ha.run_cycle(), 'promoted self to a standby leader because i had the session lock')
 
     def test_process_healthy_standby_cluster_as_cascade_replica(self):
         self.p.is_leader = false
@@ -1006,6 +1017,8 @@ class TestHa(PostgresInit):
         self.ha._disable_sync = False
         self.assertEqual(self.ha.get_effective_tags(), {'foo': 'bar'})
 
+    @patch('patroni.postgresql.mtime', Mock(return_value=1588316884))
+    @patch.object(builtins, 'open', Mock(side_effect=Exception))
     def test_restore_cluster_config(self):
         self.ha.cluster.config.data.clear()
         self.ha.has_lock = true
@@ -1037,7 +1050,9 @@ class TestHa(PostgresInit):
         # will not say bootstrap from leader as replica can't self elect
         self.assertEqual(self.ha.run_cycle(), "trying to bootstrap from replica 'other'")
 
-    @patch('psycopg2.connect', psycopg2_connect)
+    @patch('patroni.postgresql.mtime', Mock(return_value=1588316884))
+    @patch.object(builtins, 'open', mock_open(read_data=('1\t0/40159C0\tno recovery target specified\n\n'
+                                                         '2\t1/40159C0\tno recovery target specified\n')))
     def test_update_cluster_history(self):
         self.ha.has_lock = true
         self.ha.cluster.is_unlocked = false
@@ -1068,3 +1083,8 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_initialized_without_leader(leader=True, cluster_config=config)
         self.ha.has_lock = true
         self.assertEqual(self.ha.run_cycle(), 'no action.  i am the leader with the lock')
+
+    @patch.object(Cluster, 'has_member', true)
+    def test_run_cycle(self):
+        self.ha.dcs.touch_member = Mock(side_effect=DCSError('foo'))
+        self.assertEqual(self.ha.run_cycle(), 'Unexpected exception raised, please report it as a BUG')

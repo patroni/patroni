@@ -24,6 +24,7 @@ import time
 import yaml
 
 from click import ClickException
+from collections import defaultdict
 from contextlib import contextmanager
 from patroni.dcs import get_dcs as _get_dcs
 from patroni.exceptions import PatroniException
@@ -181,14 +182,14 @@ def print_output(columns, rows, alignment=None, fmt='pretty', header=None, delim
         elements = [{k: v for k, v in zip(columns, r) if not header or str(v)} for r in rows]
         func = json.dumps if fmt == 'json' else format_config_for_editing
         click.echo(func(elements))
-    elif fmt in {'pretty', 'tsv'}:
+    elif fmt in {'pretty', 'tsv', 'topology'}:
         list_cluster = bool(header and columns and columns[0] == 'Cluster')
         if list_cluster and 'Tags' in columns:  # we want to format member tags as YAML
             i = columns.index('Tags')
             for row in rows:
                 if row[i]:
-                    row[i] = format_config_for_editing(row[i], fmt == 'tsv').strip()
-        if list_cluster and fmt == 'pretty':  # skip cluster name if pretty-printing
+                    row[i] = format_config_for_editing(row[i], fmt != 'pretty').strip()
+        if list_cluster and fmt != 'tsv':  # skip cluster name if pretty-printing
             columns = columns[1:] if columns else []
             rows = [row[1:] for row in rows]
 
@@ -254,6 +255,15 @@ def get_any_member(cluster, role='master', member=None):
     for m in members:
         if member is None or m.name == member:
             return m
+
+
+def get_all_members_leader_first(cluster):
+    leader_name = cluster.leader.member.name if cluster.leader and cluster.leader.member.api_url else None
+    if leader_name:
+        yield cluster.leader.member
+    for member in cluster.members:
+        if member.api_url and member.name != leader_name:
+            yield member
 
 
 def get_cursor(cluster, connect_parameters, role='master', member=None):
@@ -761,6 +771,33 @@ def switchover(obj, cluster_name, master, candidate, force, scheduled):
     _do_failover_or_switchover(obj, 'switchover', cluster_name, master, candidate, force, scheduled)
 
 
+def generate_topology(level, member, topology):
+    members = topology.get(member['name'], [])
+
+    if level > 0:
+        member['name'] = '{0}+ {1}'.format((' ' * (level - 1) * 2), member['name'])
+
+    if member['name']:
+        yield member
+
+    for member in members:
+        for member in generate_topology(level + 1, member, topology):
+            yield member
+
+
+def topology_sort(members):
+    topology = defaultdict(list)
+    leader = next((m for m in members if m['role'].endswith('leader')), {'name': None})
+    replicas = set(member['name'] for member in members if not member['role'].endswith('leader'))
+    for member in members:
+        if not member['role'].endswith('leader'):
+            parent = member.get('tags', {}).get('replicatefrom')
+            parent = parent if parent and parent != member['name'] and parent in replicas else leader['name']
+            topology[parent].append(member)
+    for member in generate_topology(0, leader, topology):
+        yield member
+
+
 def output_members(cluster, name, extended=False, fmt='pretty'):
     rows = []
     logging.debug(cluster)
@@ -775,14 +812,15 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
     # Show Host as 'host:port' if somebody is running on non-standard port or two nodes are running on the same host
     members = [m for m in cluster['members'] if 'host' in m]
     append_port = any('port' in m and m['port'] != 5432 for m in members) or\
-        len(set(m['host'] for m in cluster['members'])) < len(members)
+        len(set(m['host'] for m in members)) < len(members)
 
-    for m in cluster['members']:
+    sort = topology_sort if fmt == 'topology' else iter
+    for m in sort(cluster['members']):
         logging.debug(m)
 
         lag = m.get('lag', '')
-        m.update(cluster=name, member=m['name'], host=m.get('host'), tl=m.get('timeline', ''),
-                 role='' if m['role'] == 'replica' else m['role'].replace('_', ' ').title(),
+        m.update(cluster=name, member=m['name'], host=m.get('host', ''), tl=m.get('timeline', ''),
+                 role=m['role'].replace('_', ' ').title(),
                  lag_in_mb=round(lag/1024/1024) if isinstance(lag, six.integer_types) else lag,
                  pending_restart='*' if m.get('pending_restart') else '')
 
@@ -797,10 +835,10 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
 
         rows.append([m.get(n.lower().replace(' ', '_'), '') for n in columns])
 
-    print_output(columns, rows, {'Lag in MB': 'r', 'TL': 'r', 'Tags': 'l'},
+    print_output(columns, rows, {'Member': 'l', 'Lag in MB': 'r', 'TL': 'r', 'Tags': 'l'},
                  fmt, ' Cluster: {0} ({1}) '.format(name, initialize))
 
-    if fmt != 'pretty':  # Omit service info when using machine-readable formats
+    if fmt not in ('pretty', 'topology'):  # Omit service info when using machine-readable formats
         return
 
     service_info = []
@@ -842,6 +880,16 @@ def members(obj, cluster_names, fmt, watch, w, extended, ts):
 
             cluster = dcs.get_cluster()
             output_members(cluster, cluster_name, extended, fmt)
+
+
+@ctl.command('topology', help='Prints ASCII topology for given cluster')
+@click.argument('cluster_names', nargs=-1)
+@option_watch
+@option_watchrefresh
+@click.pass_obj
+@click.pass_context
+def topology(ctx, obj, cluster_names, watch, w):
+    ctx.forward(members, fmt='topology')
 
 
 def timestamp(precision=6):
@@ -911,25 +959,45 @@ def scaffold(obj, cluster_name, sysid):
     click.echo("Cluster {0} has been created successfully".format(cluster_name))
 
 
-@ctl.command('flush', help='Discard scheduled events (restarts only currently)')
+@ctl.command('flush', help='Discard scheduled events')
 @click.argument('cluster_name')
 @click.argument('member_names', nargs=-1)
-@click.argument('target', type=click.Choice(['restart']))
+@click.argument('target', type=click.Choice(['restart', 'switchover']))
 @click.option('--role', '-r', help='Flush only members with this role', default='any',
               type=click.Choice(['master', 'replica', 'any']))
 @option_force
 @click.pass_obj
 def flush(obj, cluster_name, member_names, force, role, target):
-    cluster = get_dcs(obj, cluster_name).get_cluster()
+    dcs = get_dcs(obj, cluster_name)
+    cluster = dcs.get_cluster()
 
-    members = get_members(cluster, cluster_name, member_names, role, force, 'flush')
-    for member in members:
-        if target == 'restart':
+    if target == 'restart':
+        for member in get_members(cluster, cluster_name, member_names, role, force, 'flush'):
             if member.data.get('scheduled_restart'):
                 r = request_patroni(member, 'delete', 'restart')
                 check_response(r, member.name, 'flush scheduled restart')
             else:
                 click.echo('No scheduled restart for member {0}'.format(member.name))
+    elif target == 'switchover':
+        failover = cluster.failover
+        if not failover or not failover.scheduled_at:
+            return click.echo('No pending scheduled switchover')
+        for member in get_all_members_leader_first(cluster):
+            try:
+                r = request_patroni(member, 'delete', 'switchover')
+                if r.status in (200, 404):
+                    prefix = 'Success' if r.status == 200 else 'Failed'
+                    return click.echo('{0}: {1}'.format(prefix, r.data.decode('utf-8')))
+            except Exception as err:
+                logging.warning(str(err))
+                logging.warning('Member %s is not accessible', member.name)
+
+            click.echo('Failed: member={0}, status_code={1}, ({2})'.format(
+                member.name, r.status, r.data.decode('utf-8')))
+
+        logging.warning('Failing over to DCS')
+        click.echo('{0} Could not find any accessible member of cluster {1}'.format(timestamp(), cluster_name))
+        dcs.manual_failover('', '', index=failover.index)
 
 
 def wait_until_pause_is_applied(dcs, paused, old_cluster):
@@ -956,12 +1024,7 @@ def toggle_pause(config, cluster_name, paused, wait):
     if cluster.is_paused() == paused:
         raise PatroniCtlException('Cluster is {0} paused'.format(paused and 'already' or 'not'))
 
-    members = []
-    if cluster.leader:
-        members.append(cluster.leader.member)
-    members.extend([m for m in cluster.members if m.api_url and (not members or members[0].name != m.name)])
-
-    for member in members:
+    for member in get_all_members_leader_first(cluster):
         try:
             r = request_patroni(member, 'patch', 'config', {'pause': paused or None})
         except Exception as err:
@@ -1023,7 +1086,7 @@ def show_diff(before_editing, after_editing):
     If the output is to a tty the diff will be colored. Inputs are expected to be unicode strings.
     """
     def listify(string):
-        return [l+'\n' for l in string.rstrip('\n').split('\n')]
+        return [line + '\n' for line in string.rstrip('\n').split('\n')]
 
     unified_diff = difflib.unified_diff(listify(before_editing), listify(after_editing))
 

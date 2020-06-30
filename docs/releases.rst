@@ -3,6 +3,122 @@
 Release notes
 =============
 
+Version 1.6.5
+-------------
+
+**New features**
+
+- Master stop timeout (Krishna Sarabu)
+
+  The number of seconds Patroni is allowed to wait when stopping Postgres. Effective only when ``synchronous_mode`` is enabled. When set to value greater than 0 and the ``synchronous_mode`` is enabled, Patroni sends ``SIGKILL`` to the postmaster if the stop operation is running for more than the value set by ``master_stop_timeout``. Set the value according to your durability/availability tradeoff. If the parameter is not set or set to non-positive value, ``master_stop_timeout`` does not have an effect.
+
+- Don't create permanent physical slot with name of the primary (Alexander Kukushkin)
+
+  It is a common problem that the primary recycles WAL segments while the replica is down. Now we have a good solution for static clusters, with a fixed number of nodes and names that never change. You just need to list the names of all nodes in the ``slots`` so the primary will not remove the slot when the node is down (not registered in DCS).
+
+- First draft of Config Validator (Igor Yanchenko)
+
+  Use ``patroni --validate-config patroni.yaml`` in order to validate Patroni configuration.
+
+- Possibility to configure max length of timelines history (Krishna)
+
+  Patroni writes the history of failovers/switchovers into the ``/history`` key in DCS. Over time the size of this key becomes big, but in most cases only the last few lines are interesting. The ``max_timelines_history`` parameter allows to specify the maximum number of timeline history items to be kept in DCS.
+
+- Kazoo 2.7.0 compatibility (Danyal Prout)
+
+  Some non-public methods in Kazoo changed their signatures, but Patroni was relying on them.
+
+
+**Improvements in patronictl**
+
+- Show member tags (Kostiantyn Nemchenko, Alexander)
+
+  Tags are configured individually for every node and there was no easy way to get an overview of them
+
+- Improve members output (Alexander)
+
+  The redundant cluster name won't be shown anymore on every line, only in the table header.
+
+.. code-block:: bash
+
+    $ patronictl list
+    + Cluster: batman (6813309862653668387) +---------+----+-----------+---------------------+
+    |    Member   |      Host      |  Role  |  State  | TL | Lag in MB | Tags                |
+    +-------------+----------------+--------+---------+----+-----------+---------------------+
+    | postgresql0 | 127.0.0.1:5432 | Leader | running |  3 |           | clonefrom: true     |
+    |             |                |        |         |    |           | noloadbalance: true |
+    |             |                |        |         |    |           | nosync: true        |
+    +-------------+----------------+--------+---------+----+-----------+---------------------+
+    | postgresql1 | 127.0.0.1:5433 |        | running |  3 |       0.0 |                     |
+    +-------------+----------------+--------+---------+----+-----------+---------------------+
+
+- Fail if a config file is specified explicitly but not found (Kaarel Moppel)
+
+  Previously ``patronictl`` was only reporting a ``DEBUG`` message.
+
+- Solved the problem of not initialized K8s pod breaking patronictl (Alexander)
+
+  Patroni is relying on certain pod annotations on K8s. When one of the Patroni pods is stopping or starting there is no valid annotation yet and ``patronictl`` was failing with an exception.
+
+
+**Stability improvements**
+
+- Apply 1 second backoff if LIST call to K8s API server failed (Alexander)
+
+  It is mostly necessary to avoid flooding logs, but also helps to prevent starvation of the main thread.
+
+- Retry if the ``retry-after`` HTTP header is returned by K8s API (Alexander)
+
+  If the K8s API server is overwhelmed with requests it might ask to retry.
+
+- Scrub ``KUBERNETES_`` environment from the postmaster (Feike Steenbergen)
+
+  The ``KUBERNETES_`` environment variables are not required for PostgreSQL, yet having them exposed to the postmaster will also expose them to backends and to regular database users (using pl/perl for example).
+
+- Clean up tablespaces on reinitialize (Krishna)
+
+  During reinit, Patroni was removing only ``PGDATA`` and leaving user-defined tablespace directories. This is causing Patroni to loop in reinit. The previous workarond for the problem was implementing the :ref:`custom bootstrap <custom_bootstrap>` script.
+
+- Explicitly execute ``CHECKPOINT`` after promote happened (Alexander)
+
+  It helps to reduce the time before the new primary is usable for ``pg_rewind``.
+
+- Smart refresh of Etcd members (Alexander)
+
+  In case Patroni failed to execute a request on all members of the Etcd cluster, Patroni will re-check ``A`` or ``SRV`` records for changes of IPs/hosts before retrying the next time.
+
+- Skip missing values from ``pg_controldata`` (Feike)
+
+  Values are missing when trying to use binaries of a version that doesn't match PGDATA. Patroni will try to start Postgres anyway, and Postgres will complain that the major version doesn't match and abort with an error.
+
+
+**Bugfixes**
+
+- Disable SSL verification for Consul when required (Julien Riou)
+
+  Starting from a certain version of ``urllib3``, the ``cert_reqs`` must be explicitly set to ``ssl.CERT_NONE`` in order to effectively disable SSL verification.
+
+- Avoid opening replication connection on every cycle of HA loop (Alexander)
+
+  Regression was introduced in 1.6.4.
+
+- Call ``on_role_change`` callback on failed primary (Alexander)
+
+  In certain cases it could lead to the virtual IP remaining attached to the old primary. Regression was introduced in 1.4.5.
+
+- Reset rewind state if postgres started after successful pg_rewind (Alexander)
+
+  As a result of this bug Patroni was starting up manually shut down postgres in the pause mode.
+
+- Convert ``recovery_min_apply_delay`` to ``ms`` when checking ``recovery.conf``
+
+  Patroni was indefinitely restarting replica if ``recovery_min_apply_delay`` was configured on PostgreSQL older than 12.
+
+- PyInstaller compatibility (Alexander)
+
+  PyInstaller freezes (packages) Python applications into stand-alone executables. The compatibility was broken when we switched to the ``spawn`` method instead of ``fork`` for ``multiprocessing``.
+
+
 Version 1.6.4
 -------------
 
