@@ -8,6 +8,8 @@ Scenario: check API requests on a stand-alone server
 	Then I receive a response code 200
 	And I receive a response state running
 	And I receive a response role master
+	When I issue a GET request to http://127.0.0.1:8008/standby_leader
+	Then I receive a response code 503
 	When I issue a GET request to http://127.0.0.1:8008/health
 	Then I receive a response code 200
 	When I issue a GET request to http://127.0.0.1:8008/replica
