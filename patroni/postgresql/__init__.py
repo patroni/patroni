@@ -907,11 +907,8 @@ class Postgresql(object):
             sync_commit_par = self.query(query).fetchone()[0]
         except AttributeError:
             sync_commit_par = None
-        sort_lsn_col = "flush_{}".format(self.lsn_name)
-        if sync_commit_par == 'remote_apply':
-            sort_lsn_col = "replay_{}".format(self.lsn_name)
-        elif sync_commit_par == 'remote_write':
-            sort_lsn_col = "write_{}".format(self.lsn_name)
+        sort_lsn_col = {'remote_apply': 'replay', 'remote_write': 'write'}.get(sync_commit_par, 'flush')
+        sort_lsn_col = '{0}_{1}'.format(sort_lsn_col, self.lsn_name)
         last_sync_state = None
         for app_name, state, sync_state in self.query(
                 "SELECT pg_catalog.lower(application_name), state, sync_state"
