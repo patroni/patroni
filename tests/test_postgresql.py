@@ -593,6 +593,7 @@ class TestPostgresql(BaseTestPostgresql):
             self.p._state = 'starting'
             self.assertIsNone(self.p.wait_for_startup())
 
+    @patch.object(Postgresql, '_get_synchronous_commit_param', Mock(return_value='remote_apply'))
     def test_pick_sync_standby(self):
         cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None,
                           SyncState(0, self.me.name, self.leadermem.name), None)
@@ -602,30 +603,30 @@ class TestPostgresql(BaseTestPostgresql):
                     (self.me.name, 'streaming', 'async'),
                     (self.other.name, 'streaming', 'async'),
                 ]):
-            self.assertEqual(self.p.pick_synchronous_standby(cluster), ([self.leadermem.name], True))
+            self.assertEqual(self.p.pick_synchronous_standby(cluster), ([self.leadermem.name], [self.leadermem.name]))
 
         with patch.object(Postgresql, "query", return_value=[
                     (self.leadermem.name, 'streaming', 'potential'),
                     (self.me.name, 'streaming', 'async'),
                     (self.other.name, 'streaming', 'async'),
                 ]):
-            self.assertEqual(self.p.pick_synchronous_standby(cluster), ([self.leadermem.name], False))
+            self.assertEqual(self.p.pick_synchronous_standby(cluster), ([self.leadermem.name], []))
 
         with patch.object(Postgresql, "query", return_value=[
                     (self.me.name, 'streaming', 'async'),
                     (self.other.name, 'streaming', 'async'),
                 ]):
-            self.assertEqual(self.p.pick_synchronous_standby(cluster), ([self.me.name], False))
+            self.assertEqual(self.p.pick_synchronous_standby(cluster), ([self.me.name], []))
 
         with patch.object(Postgresql, "query", return_value=[
                     ('missing', 'streaming', 'sync'),
                     (self.me.name, 'streaming', 'async'),
                     (self.other.name, 'streaming', 'async'),
                 ]):
-            self.assertEqual(self.p.pick_synchronous_standby(cluster), ([self.me.name], False))
+            self.assertEqual(self.p.pick_synchronous_standby(cluster), ([self.me.name], []))
 
         with patch.object(Postgresql, "query", return_value=[]):
-            self.assertEqual(self.p.pick_synchronous_standby(cluster), ([], False))
+            self.assertEqual(self.p.pick_synchronous_standby(cluster), ([], []))
 
     def test_set_sync_standby(self):
         def value_in_conf():

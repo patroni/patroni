@@ -889,6 +889,10 @@ class Postgresql(object):
             logger.exception('Could not remove data directory %s', self._data_dir)
             self.move_data_directory()
 
+    def _get_synchronous_commit_param(self):
+        query = "SELECT setting from pg_settings where name = 'synchronous_commit'"
+        return self.query(query).fetchone()[0]
+
     def pick_synchronous_standby(self, cluster, sync_node_count=1):
         """Finds the best candidate to be the synchronous standby.
 
@@ -901,8 +905,7 @@ class Postgresql(object):
         candidates = []
         sync_nodes = []
         # Pick candidates based on who has higher replay/remote_write/flush lsn.
-        query = "SELECT setting from pg_settings where name = 'synchronous_commit'"
-        sync_commit_par = self.query(query).fetchone()[0]
+        sync_commit_par = self._get_synchronous_commit_param()
         sort_lsn_col = {'remote_apply': 'replay', 'remote_write': 'write'}.get(sync_commit_par, 'flush')
         sort_lsn_col = '{0}_{1}'.format(sort_lsn_col, self.lsn_name)
         for app_name, state, sync_state in self.query(
