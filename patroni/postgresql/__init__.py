@@ -897,6 +897,7 @@ class Postgresql(object):
 
         :returns tuple of candidate name or None, and bool showing if the member is the active synchronous standby.
         """
+<<<<<<< HEAD
         members = {m.name.lower(): m for m in cluster.members}
         candidates = []
         sync_nodes = []
@@ -905,6 +906,21 @@ class Postgresql(object):
         sync_commit_par = self.query(query).fetchone()[0]
         sort_lsn_col = {'remote_apply': 'replay', 'remote_write': 'write'}.get(sync_commit_par, 'flush')
         sort_lsn_col = '{0}_{1}'.format(sort_lsn_col, self.lsn_name)
+=======
+        current = [x.lower() for x in cluster.sync.members or []]
+        members = {m.name.lower(): m for m in cluster.members}
+        candidates = []
+        # Pick candidates based on who has flushed WAL farthest.
+        # TODO: for synchronous_commit = remote_write we actually want to order on write_location
+        try:
+            query = "SELECT setting from pg_settings where name = 'synchronous_commit'"
+            sync_commit_par = self.query(query).fetchone()[0]
+        except AttributeError:
+            sync_commit_par = None
+        sort_lsn_col = {'remote_apply': 'replay', 'remote_write': 'write'}.get(sync_commit_par, 'flush')
+        sort_lsn_col = '{0}_{1}'.format(sort_lsn_col, self.lsn_name)
+        last_sync_state = None
+>>>>>>> f94d636285896e2c201d0c03ba7b05c1ebe82f99
         for app_name, state, sync_state in self.query(
                 "SELECT pg_catalog.lower(application_name), state, sync_state"
                 " FROM pg_catalog.pg_stat_replication"
