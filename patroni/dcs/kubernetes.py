@@ -492,10 +492,6 @@ class Kubernetes(AbstractDCS):
     def _write_leader_optime(self, last_operation):
         """Unused"""
 
-    @property
-    def leader_optime(self):
-        """Unused"""
-
     def _update_leader(self):
         """Unused"""
 

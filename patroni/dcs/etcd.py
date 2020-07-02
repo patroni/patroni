@@ -616,10 +616,6 @@ class Etcd(AbstractDCS):
     def _write_leader_optime(self, last_operation):
         return self._client.set(self.leader_optime_path, last_operation)
 
-    @property
-    def leader_optime(self):
-        return self._client.read(self.leader_optime_path).value
-
     @catch_etcd_errors
     def _update_leader(self):
         return self.retry(self._client.write, self.leader_path, self._name, prevValue=self._name, ttl=self._ttl)

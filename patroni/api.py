@@ -94,7 +94,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         if response.get('role') == 'replica' and response.get('state') == 'running' \
            and not patroni.noloadbalance:
             max_replica_lag = self.path_query.get('lag') and parse_int(self.path_query.get('lag')[0])
-            leader_optime = parse_int(patroni.dcs.leader_optime)
+            leader_optime = parse_int(cluster.last_leader_operation)
             if max_replica_lag and leader_optime:
                 replica_status_code = 200 \
                                       if max_replica_lag > leader_optime - \

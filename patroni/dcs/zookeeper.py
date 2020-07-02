@@ -315,11 +315,6 @@ class ZooKeeper(AbstractDCS):
     def _write_leader_optime(self, last_operation):
         return self._set_or_create(self.leader_optime_path, last_operation)
 
-    @property
-    def leader_optime(self):
-        leader_optime, _ = self.get_node(self.leader_optime_path)
-        return leader_optime
-
     def _update_leader(self):
         return True
 

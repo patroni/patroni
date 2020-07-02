@@ -815,7 +815,3 @@ class AbstractDCS(object):
 
         self.event.wait(timeout)
         return self.event.isSet()
-
-    @abc.abstractmethod
-    def leader_optime(self):
-        """Get leader optime from DCS."""

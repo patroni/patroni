@@ -482,12 +482,6 @@ class Consul(AbstractDCS):
     def _write_leader_optime(self, last_operation):
         return self._client.kv.put(self.leader_optime_path, last_operation)
 
-    @property
-    @catch_consul_errors
-    def leader_optime(self):
-        _, result = self._client.kv.get(self.leader_optime_path)
-        return result and result.get('Value').decode('utf-8')
-
     @catch_consul_errors
     def _update_leader(self):
         if self._session:
