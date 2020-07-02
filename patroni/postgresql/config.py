@@ -831,12 +831,10 @@ class ConfigHandler(object):
                 else:
                     parameters.pop('synchronous_standby_names', None)
             else:
-                # TODO identify change in synchronous_node_count and compare it with current num_sync,
-                # adjust synchronous_standby_names accordingly. Leaving to existing value for now for
-                # Patroni to reset the value during next run cycle
                 parameters['synchronous_standby_names'] = self._synchronous_standby_names
         else:
-            parameters.pop('synchronous_standby_names', None)
+            if 'synchronous_standby_names' in parameters.keys():
+                parameters.pop('synchronous_standby_names', None)
         if self._postgresql.major_version >= 90600 and parameters['wal_level'] == 'hot_standby':
             parameters['wal_level'] = 'replica'
         ret = CaseInsensitiveDict({k: v for k, v in parameters.items() if not self._postgresql.major_version or
@@ -927,6 +925,7 @@ class ConfigHandler(object):
     def reload_config(self, config, sighup=False):
         self._superuser = config['authentication'].get('superuser', {})
         server_parameters = self.get_server_parameters(config)
+
         conf_changed = hba_changed = ident_changed = local_connection_address_changed = pending_restart = False
         if self._postgresql.state == 'running':
             changes = CaseInsensitiveDict({p: v for p, v in server_parameters.items()

@@ -897,43 +897,33 @@ class Postgresql(object):
 
         :returns tuple of candidate name or None, and bool showing if the member is the active synchronous standby.
         """
-        current = [x.lower() for x in cluster.sync.members] if cluster.sync.members else []
         members = {m.name.lower(): m for m in cluster.members}
         candidates = []
-        # Pick candidates based on who has flushed WAL farthest.
-        # TODO: for synchronous_commit = remote_write we actually want to order on write_location
-        try:
-            query = "SELECT setting from pg_settings where name = 'synchronous_commit'"
-            sync_commit_par = self.query(query).fetchone()[0]
-        except AttributeError:
-            sync_commit_par = None
-        sort_lsn_col = "flush_{}".format(self.lsn_name)
-        if sync_commit_par == 'remote_apply':
-            sort_lsn_col = "replay_{}".format(self.lsn_name)
-        elif sync_commit_par == 'remote_write':
-            sort_lsn_col = "write_{}".format(self.lsn_name)
-        last_sync_state = None
+        sync_nodes = []
+        # Pick candidates based on who has higher replay/remote_write/flush lsn.
+        query = "SELECT setting from pg_settings where name = 'synchronous_commit'"
+        sync_commit_par = self.query(query).fetchone()[0]
+        sort_lsn_col = {'remote_apply': 'replay', 'remote_write': 'write'}.get(sync_commit_par, 'flush')
+        sort_lsn_col = '{0}_{1}'.format(sort_lsn_col, self.lsn_name)
         for app_name, state, sync_state in self.query(
                 "SELECT pg_catalog.lower(application_name), state, sync_state"
                 " FROM pg_catalog.pg_stat_replication"
                 " WHERE state = 'streaming'"
-                " ORDER BY (case when sync_state='sync' then 1 "
-                "  when sync_state='potential' then 2 else 3 end), {0} DESC".format(sort_lsn_col)):
+                " ORDER BY sync_state DESC, {0} DESC".format(sort_lsn_col)):
             member = members.get(app_name)
             if not member or member.tags.get('nosync', False):
                 continue
-            last_sync_state = sync_state
             candidates.append(member.name)
+            if sync_state == 'sync':
+                sync_nodes.append(member.name)
             if len(candidates) >= sync_node_count:
                 break
 
-        if self._major_version < 90600 and candidates:
-            candidates = [candidates[0]]
+        if self._major_version < 90600:
+            candidates = candidates and [candidates[0]] or []
+            sync_nodes = sync_nodes and [sync_nodes[0]] or []
 
-        if current and candidates and set(current) == set(candidates) and last_sync_state == 'sync':
-            return candidates, True
-
-        return candidates, False
+        return candidates, sync_nodes
 
     def schedule_sanity_checks_after_pause(self):
         """

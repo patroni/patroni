@@ -441,7 +441,7 @@ class Ha(object):
         """Process synchronous standby beahvior.
 
         Synchronous standbys are registered in two places postgresql.conf and DCS. The order of updating them must
-        be right. The invariant that should be kept is that if a node is master and sync_standby_list is set in DCS,
+        be right. The invariant that should be kept is that if a node is master and sync_standby is set in DCS,
         then that node must have synchronous_standby set to that value. Or more simple, first set in postgresql.conf
         and then in DCS. When removing, first remove in DCS, then in postgresql.conf. This is so we only consider
         promoting standbys that were guaranteed to be replicating synchronously.
@@ -451,11 +451,11 @@ class Ha(object):
             picked, allow_promote = self.state_handler.pick_synchronous_standby(self.cluster, sync_node_count)
             if set(picked) != set(current):
                 # update synchronous standby list in dcs temporarily to point to common nodes in current and picked
-                sync_common = list(set(current).intersection(set(picked)))
+                sync_common = list(set(current).intersection(set(allow_promote)))
                 if set(sync_common) != set(current):
-                    logger.info("Updating synchronous state temporarily in dcs from {} to {}".format(current,
-                                                                                                     sync_common))
-                    if not self.dcs.write_sync_state(self.state_handler.name, ','.join(sync_common),
+                    logger.info("Updating synchronous privilege temporarily from %s to %s", current, sync_common)
+                    if not self.dcs.write_sync_state(self.state_handler.name,
+                                                     sync_common or None,
                                                      index=self.cluster.sync.index):
                         logger.info('Synchronous replication key updated by someone else.')
                         return
@@ -468,14 +468,13 @@ class Ha(object):
                 logger.info("Assigning synchronous standby status to %s", picked)
                 self.state_handler.config.set_synchronous_standby(picked)
 
-                picked_new = []
-                if picked and picked[0] != '*' and not allow_promote:
+                if picked and picked[0] != '*' and set(allow_promote) != set(picked):
                     # Wait for PostgreSQL to enable synchronous mode and see if we can immediately
-                    # set sync_standby_list
+                    # set sync_standby
                     time.sleep(2)
-                    picked_new, allow_promote = self.state_handler.pick_synchronous_standby(self.cluster,
-                                                                                            sync_node_count)
-                if set(picked_new) == set(picked) and not allow_promote:
+                    _, allow_promote = self.state_handler.pick_synchronous_standby(self.cluster,
+                                                                                   sync_node_count)
+                if allow_promote:
                     try:
                         cluster = self.dcs.get_cluster()
                     except DCSError:
@@ -483,8 +482,7 @@ class Ha(object):
                     if cluster.sync.leader and cluster.sync.leader != self.state_handler.name:
                         logger.info("Synchronous replication key updated by someone else")
                         return
-                    if not self.dcs.write_sync_state(self.state_handler.name, ','.join(picked),
-                                                     index=cluster.sync.index):
+                    if not self.dcs.write_sync_state(self.state_handler.name, allow_promote, index=cluster.sync.index):
                         logger.info("Synchronous replication key updated by someone else")
                         return
                     logger.info("Synchronous standby status assigned to %s", picked)
@@ -881,7 +879,7 @@ class Ha(object):
                     if self.is_synchronous_mode():
                         if failover.candidate and not self.cluster.sync.matches(failover.candidate):
                             logger.warning('Failover candidate=%s does not match with sync_standbys=%s',
-                                           failover.candidate, self.cluster.sync.sync_standby_list)
+                                           failover.candidate, self.cluster.sync.sync_standby)
                             members = []
                         else:
                             members = [m for m in self.cluster.members if self.cluster.sync.matches(m.name)]

@@ -869,7 +869,7 @@ class TestHa(PostgresInit):
         self.ha.is_synchronous_mode = true
 
         # Test sync standby not touched when picking the same node
-        self.p.pick_synchronous_standby = Mock(return_value=(['other'], True))
+        self.p.pick_synchronous_standby = Mock(return_value=(['other'], ['other']))
         self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
         self.ha.run_cycle()
         mock_set_sync.assert_not_called()
@@ -877,13 +877,13 @@ class TestHa(PostgresInit):
         mock_set_sync.reset_mock()
 
         # Test sync standby is replaced when switching standbys
-        self.p.pick_synchronous_standby = Mock(return_value=(['other2'], False))
+        self.p.pick_synchronous_standby = Mock(return_value=(['other2'], []))
         self.ha.dcs.write_sync_state = Mock(return_value=True)
         self.ha.run_cycle()
         mock_set_sync.assert_called_once_with(['other2'])
 
         # Test sync standby is replaced when new standby is joined
-        self.p.pick_synchronous_standby = Mock(return_value=(['other2', 'other3'], False))
+        self.p.pick_synchronous_standby = Mock(return_value=(['other2', 'other3'], ['other2']))
         self.ha.dcs.write_sync_state = Mock(return_value=True)
         self.ha.run_cycle()
         # mock_set_sync.assert_called_once_with(['other2'])
@@ -901,7 +901,7 @@ class TestHa(PostgresInit):
         self.ha.dcs.write_sync_state = Mock(return_value=True)
         self.ha.dcs.get_cluster = Mock(return_value=get_cluster_initialized_with_leader(sync=('leader', 'other')))
         # self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
-        self.p.pick_synchronous_standby = Mock(return_value=(['other2'], False))
+        self.p.pick_synchronous_standby = Mock(return_value=(['other2'], ['other2']))
         self.ha.run_cycle()
         self.ha.dcs.get_cluster.assert_called_once()
         self.assertEqual(self.ha.dcs.write_sync_state.call_count, 2)
@@ -924,7 +924,7 @@ class TestHa(PostgresInit):
         # Test sync set to '*' when synchronous_mode_strict is enabled
         mock_set_sync.reset_mock()
         self.ha.is_synchronous_mode_strict = true
-        self.p.pick_synchronous_standby = Mock(return_value=([], False))
+        self.p.pick_synchronous_standby = Mock(return_value=([], []))
         self.ha.run_cycle()
         mock_set_sync.assert_called_once_with(['*'])
 
