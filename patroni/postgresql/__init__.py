@@ -906,8 +906,7 @@ class Postgresql(object):
         sync_nodes = []
         # Pick candidates based on who has higher replay/remote_write/flush lsn.
         sync_commit_par = self._get_synchronous_commit_param()
-        sort_lsn_col = {'remote_apply': 'replay', 'remote_write': 'write'}.get(sync_commit_par, 'flush')
-        sort_lsn_col = '{0}_{1}'.format(sort_lsn_col, self.lsn_name)
+        sort_col = {'remote_apply': 'replay', 'remote_write': 'write'}.get(sync_commit_par, 'flush')
         for app_name, state, sync_state in self.query(
                 "SELECT pg_catalog.lower(application_name), state, sync_state"
                 " FROM pg_catalog.pg_stat_replication"
