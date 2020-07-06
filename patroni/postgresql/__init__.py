@@ -911,7 +911,7 @@ class Postgresql(object):
                 "SELECT pg_catalog.lower(application_name), state, sync_state"
                 " FROM pg_catalog.pg_stat_replication"
                 " WHERE state = 'streaming'"
-                " ORDER BY sync_state DESC, {0} DESC".format(sort_lsn_col)):
+                " ORDER BY sync_state DESC, {0}_{1} DESC".format(sort_col, self.lsn_name)):
             member = members.get(app_name)
             if not member or member.tags.get('nosync', False):
                 continue
