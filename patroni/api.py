@@ -9,6 +9,7 @@ import datetime
 import os
 import six
 import socket
+import sys
 
 from patroni.exceptions import PostgresConnectionException, PostgresException
 from patroni.postgresql.misc import postgres_version_to_int
@@ -93,9 +94,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
         replica_status_code = 503
         if response.get('role') == 'replica' and response.get('state') == 'running' \
            and not patroni.noloadbalance:
-            max_replica_lag = self.path_query.get('lag') and parse_int(self.path_query.get('lag')[0]) or 0
-            leader_optime = cluster and cluster.last_leader_operation and parse_int(cluster.last_leader_operation) or 0
-            if max_replica_lag and leader_optime:
+            max_replica_lag = self.path_query.get('lag') and parse_int(self.path_query.get('lag')[0], 'B') or sys.maxsize
+            leader_optime = cluster and cluster.last_leader_operation or 0
+            if leader_optime:
                 replica_status_code = 200 \
                                       if max_replica_lag > leader_optime - \
                                       response.get('xlog').get('replayed_location') else 503
