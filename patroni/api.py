@@ -100,7 +100,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             replayed_location = response.get('xlog').get('replayed_location') or 0
             current_lag = leader_optime - replayed_location
             if current_lag >= 0:
-                max_replica_lag = max(max_replica_lag, 0) 
+                max_replica_lag = max(max_replica_lag, 0)
             if leader_optime:
                 replica_status_code = 200 if max_replica_lag >= current_lag else 503
             else:
