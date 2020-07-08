@@ -824,17 +824,12 @@ class ConfigHandler(object):
         parameters.update(cluster_name=self._postgresql.scope, listen_addresses=listen_addresses, port=str(port))
         if config.get('synchronous_mode', False):
             if self._synchronous_standby_names is None:
-                if config.get('synchronous_mode_strict', False) and \
-                   hasattr(self._postgresql, 'role') and \
-                   self._postgresql.role == 'master':
+                if config.get('synchronous_mode_strict', False):
                     parameters['synchronous_standby_names'] = '*'
                 else:
                     parameters.pop('synchronous_standby_names', None)
             else:
                 parameters['synchronous_standby_names'] = self._synchronous_standby_names
-        else:
-            if 'synchronous_standby_names' in parameters.keys():
-                parameters.pop('synchronous_standby_names', None)
         if self._postgresql.major_version >= 90600 and parameters['wal_level'] == 'hot_standby':
             parameters['wal_level'] = 'replica'
         ret = CaseInsensitiveDict({k: v for k, v in parameters.items() if not self._postgresql.major_version or

@@ -890,8 +890,7 @@ class Postgresql(object):
             self.move_data_directory()
 
     def _get_synchronous_commit_param(self):
-        query = "SELECT setting from pg_settings where name = 'synchronous_commit'"
-        return self.query(query).fetchone()[0]
+        return self.query("SHOW synchronous_commit").fetchone()[0]
 
     def pick_synchronous_standby(self, cluster, sync_node_count=1):
         """Finds the best candidate to be the synchronous standby.
@@ -899,7 +898,7 @@ class Postgresql(object):
         Current synchronous standby is always preferred, unless it has disconnected or does not want to be a
         synchronous standby any longer.
 
-        :returns tuple of candidate name or None, and bool showing if the member is the active synchronous standby.
+        :returns tuple of candidates list and synchronous standby list.
         """
         members = {m.name.lower(): m for m in cluster.members}
         candidates = []
