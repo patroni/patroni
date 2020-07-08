@@ -15,7 +15,7 @@ from threading import Condition, Lock, Thread
 from . import ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
 from .etcd import AbstractEtcdClientWithFailover, AbstractEtcd, catch_etcd_errors
 from ..exceptions import DCSError, PatroniException
-from ..utils import deep_compare, iter_response_objects, RetryFailedError, USER_AGENT
+from ..utils import deep_compare, enable_keepalive, iter_response_objects, RetryFailedError, USER_AGENT
 
 logger = logging.getLogger(__name__)
 
@@ -582,32 +582,7 @@ class Etcd3(AbstractEtcd):
             self.create_lease()
 
     def set_socket_options(self, sock, socket_options):
-        cnt = 3
-        timeout = self.ttl
-        idle = int(self.loop_wait + self._retry.deadline)
-        intvl = max(1, int(float(timeout - idle) / cnt))
-
-        SIO_KEEPALIVE_VALS = getattr(socket, 'SIO_KEEPALIVE_VALS', None)
-        if SIO_KEEPALIVE_VALS is not None:  # Windows
-            return sock.ioctl(SIO_KEEPALIVE_VALS, (1, idle * 1000, intvl * 1000))
-
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-
-        if sys.platform.startswith('linux'):
-            sock.setsockopt(socket.SOL_TCP, 18, int(timeout * 1000))  # TCP_USER_TIMEOUT
-            TCP_KEEPIDLE = socket.TCP_KEEPIDLE
-            TCP_KEEPINTVL = socket.TCP_KEEPINTVL
-            TCP_KEEPCNT = socket.TCP_KEEPCNT
-        elif sys.platform.startswith('darwin'):
-            TCP_KEEPIDLE = 0x10  # (named "TCP_KEEPALIVE" in C)
-            TCP_KEEPINTVL = 0x101
-            TCP_KEEPCNT = 0x102
-        else:
-            return
-
-        sock.setsockopt(socket.IPPROTO_TCP, TCP_KEEPIDLE, idle)
-        sock.setsockopt(socket.IPPROTO_TCP, TCP_KEEPINTVL, intvl)
-        sock.setsockopt(socket.IPPROTO_TCP, TCP_KEEPCNT, cnt)
+        enable_keepalive(sock, self.ttl, int(self.loop_wait + self._retry.deadline))
 
     def set_ttl(self, ttl):
         self.__do_not_watch = super(Etcd3, self).set_ttl(ttl)
