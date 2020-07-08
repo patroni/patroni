@@ -40,6 +40,7 @@ bootstrap:
     maximum_lag_on_failover: 1048576
 #    master_start_timeout: 300
 #    synchronous_mode: false
+#        hot_standby: "on"
     #standby_cluster:
       #host: 127.0.0.1
       #port: 1111
@@ -49,7 +50,6 @@ bootstrap:
 #      use_slots: true
       parameters:
 #        wal_level: hot_standby
-#        hot_standby: "on"
 #        wal_keep_segments: 8
 #        max_wal_senders: 10
 #        max_replication_slots: 10
