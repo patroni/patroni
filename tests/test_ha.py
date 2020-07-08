@@ -153,7 +153,6 @@ def run_async(self, func, args=()):
 @patch.object(Postgresql, 'is_leader', Mock(return_value=True))
 @patch.object(Postgresql, 'timeline_wal_position', Mock(return_value=(1, 10, 1)))
 @patch.object(Postgresql, '_cluster_info_state_get', Mock(return_value=3))
-@patch.object(Postgresql, 'call_nowait', Mock(return_value=True))
 @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=False))
 @patch.object(Postgresql, 'controldata', Mock(return_value={
     'Database system identifier': SYSID,
@@ -705,6 +704,9 @@ class TestHa(PostgresInit):
         self.ha._leader_timeline = 1
         self.assertEqual(self.ha.run_cycle(), 'promoted self to a standby leader because i had the session lock')
         self.assertEqual(self.ha.run_cycle(), 'no action.  i am the standby leader with the lock')
+        self.p.set_role('replica')
+        self.p.config.check_recovery_conf = Mock(return_value=(True, False))
+        self.assertEqual(self.ha.run_cycle(), 'promoted self to a standby leader because i had the session lock')
 
     def test_process_healthy_standby_cluster_as_cascade_replica(self):
         self.p.is_leader = false
