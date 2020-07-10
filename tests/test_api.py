@@ -163,6 +163,7 @@ class TestRestApiHandler(unittest.TestCase):
     def test_do_GET(self):
         MockPatroni.dcs.cluster.last_leader_operation = 20
         MockRestApiServer(RestApiHandler, 'GET /replica')
+        MockRestApiServer(RestApiHandler, 'GET /replica?lag=1M')
         MockRestApiServer(RestApiHandler, 'GET /replica?lag=10MB')
         MockRestApiServer(RestApiHandler, 'GET /replica?lag=10485760')
         MockRestApiServer(RestApiHandler, 'GET /read-only')
