@@ -19,12 +19,12 @@ For all health check ``GET`` requests Patroni returns a JSON document with the s
 
 - ``GET /replica``: replica health check endpoint. It returns HTTP status code **200** only when the Patroni node is in the state ``running``, the role is ``replica`` and ``noloadbalance`` tag is not set.
 
-- ``GET /replica&lag=<max-lag>``: replica check endpoint. In addition to checks from ``replica``, it also checks replication latency and returns status code **200** only when it is below specified value. The key cluster.last_leader_operation from DCS is used for Leader wal position and compute latency on replica for performance reasons. max-lag can be specified in bytes (integer) or in human readable values, for e.g. 16kB, 64MB, 1GB.
+- ``GET /replica?lag=<max-lag>``: replica check endpoint. In addition to checks from ``replica``, it also checks replication latency and returns status code **200** only when it is below specified value. The key cluster.last_leader_operation from DCS is used for Leader wal position and compute latency on replica for performance reasons. max-lag can be specified in bytes (integer) or in human readable values, for e.g. 16kB, 64MB, 1GB.
 
-  - ``GET /replica&lag=1048576``
-  - ``GET /replica&lag=1024kB``
-  - ``GET /replica&lag=10MB``
-  - ``GET /replica&lag=1GB``
+  - ``GET /replica?lag=1048576``
+  - ``GET /replica?lag=1024kB``
+  - ``GET /replica?lag=10MB``
+  - ``GET /replica?lag=1GB``
 
 - ``GET /read-only``: like the above endpoint, but also includes the primary.
 
@@ -34,12 +34,12 @@ For all health check ``GET`` requests Patroni returns a JSON document with the s
 
 - ``GET /asynchronous`` or ``GET /async``: returns HTTP status code **200** only when the Patroni node is running as an asynchronous standby.
 
-- ``GET /asynchronous&lag=<max-lag>`` or ``GET /async&lag=<max-lag>``: asynchronous standby check endpoint. In addition to checks from ``asynchronous`` or ``async``, it also checks replication latency and returns status code **200** only when it is below specified value. The key cluster.last_leader_operation from DCS is used for Leader wal position and compute latency on replica for performance reasons. max-lag can be specified in bytes (integer) or in human readable values, for e.g. 16kB, 64MB, 1GB.
+- ``GET /asynchronous?lag=<max-lag>`` or ``GET /async?lag=<max-lag>``: asynchronous standby check endpoint. In addition to checks from ``asynchronous`` or ``async``, it also checks replication latency and returns status code **200** only when it is below specified value. The key cluster.last_leader_operation from DCS is used for Leader wal position and compute latency on replica for performance reasons. max-lag can be specified in bytes (integer) or in human readable values, for e.g. 16kB, 64MB, 1GB.
 
-  - ``GET /async&lag=1048576``
-  - ``GET /async&lag=1024kB``
-  - ``GET /async&lag=10MB``
-  - ``GET /async&lag=1GB``
+  - ``GET /async?lag=1048576``
+  - ``GET /async?lag=1024kB``
+  - ``GET /async?lag=10MB``
+  - ``GET /async?lag=1GB``
 
 - ``GET /health``: returns HTTP status code **200** only when PostgreSQL is up and running.
 
