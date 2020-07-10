@@ -29,6 +29,36 @@ For all health check ``GET`` requests Patroni returns a JSON document with the s
 
 - ``GET /health``: returns HTTP status code **200** only when PostgreSQL is up and running.
 
+- ``GET /liveness``: always returns HTTP status code **200** what only indicates that Patroni is running. Could be used for ``livenessProbe``.
+
+- ``GET /readiness``: returns HTTP status code **200** when the Patroni node is running as the leader or when PostgreSQL is up and running. The endpoint could be used for ``readinessProbe`` when it is not possible to use Kubenetes endpoints for leader elections (OpenShift).
+
+Both, ``readiness`` and ``liveness`` endpoints are very light-weight and not executing any SQL. Probes should be configured in such a way that they start failing about time when the leader key is expiring. With the default value of ``ttl``, which is ``30s`` example probes would look like:
+
+.. code-block:: yaml
+
+    readinessProbe:
+      httpGet:
+        scheme: HTTP
+        path: /readiness
+        port: 8008
+      initialDelaySeconds: 3
+      periodSeconds: 10
+      timeoutSeconds: 5
+      successThreshold: 1
+      failureThreshold: 3
+    livenessProbe:
+      httpGet:
+        scheme: HTTP
+        path: /liveness
+        port: 8008
+      initialDelaySeconds: 3
+      periodSeconds: 10
+      timeoutSeconds: 5
+      successThreshold: 1
+      failureThreshold: 3
+
+
 Monitoring endpoint
 -------------------
 

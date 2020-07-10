@@ -33,7 +33,5 @@ postgresql:
 __EOF__
 
 unset PATRONI_SUPERUSER_PASSWORD PATRONI_REPLICATION_PASSWORD
-export KUBERNETES_NAMESPACE=$PATRONI_KUBERNETES_NAMESPACE
-export POD_NAME=$PATRONI_NAME
 
 exec /usr/bin/python3 /usr/local/bin/patroni /home/postgres/patroni.yml

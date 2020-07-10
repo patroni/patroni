@@ -24,6 +24,11 @@ logger = logging.getLogger(__name__)
 
 class RestApiHandler(BaseHTTPRequestHandler):
 
+    def _write_status_code_only(self, status_code):
+        message = self.responses[status_code][0]
+        self.wfile.write('{0} {1} {2}\r\n\r\n'.format(self.protocol_version, status_code, message).encode('utf-8'))
+        self.log_request(status_code)
+
     def _write_response(self, status_code, body, content_type='text/html', headers=None):
         self.send_response(status_code)
         headers = headers or {}
@@ -81,9 +86,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_GET(self, write_status_code_only=False):
         """Default method for processing all GET requests which can not be routed to other methods"""
 
-        time_start = time.time()
-        request_type = 'OPTIONS' if write_status_code_only else 'GET'
-
         path = '/master' if self.path == '/' else self.path
         response = self.get_postgresql_status()
 
@@ -127,17 +129,25 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 status_code = replica_status_code
 
         if write_status_code_only:  # when haproxy sends OPTIONS request it reads only status code and nothing more
-            message = self.responses[status_code][0]
-            self.wfile.write('{0} {1} {2}\r\n\r\n'.format(self.protocol_version, status_code, message).encode('utf-8'))
+            self._write_status_code_only(status_code)
         else:
             self._write_status_response(status_code, response)
 
-        time_end = time.time()
-        self.log_message('%s %s %s latency: %s ms', request_type, path,
-                         status_code, (time_end - time_start) * 1000)
-
     def do_OPTIONS(self):
         self.do_GET(write_status_code_only=True)
+
+    def do_GET_liveness(self):
+        self._write_status_code_only(200)
+
+    def do_GET_readiness(self):
+        patroni = self.server.patroni
+        if patroni.ha.is_leader():
+            status_code = 200
+        elif patroni.postgresql.state == 'running':
+            status_code = 200 if patroni.dcs.cluster else 503
+        else:
+            status_code = 503
+        self._write_status_code_only(status_code)
 
     def do_GET_patroni(self):
         response = self.get_postgresql_status(True)
@@ -492,8 +502,13 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 state = 'unknown'
             return {'state': state, 'role': postgresql.role}
 
+    def handle_one_request(self):
+        self.__start_time = time.time()
+        BaseHTTPRequestHandler.handle_one_request(self)
+
     def log_message(self, fmt, *args):
-        logger.debug("API thread: %s - - [%s] %s", self.client_address[0], self.log_date_time_string(), fmt % args)
+        latency = 1000.0 * (time.time() - self.__start_time)
+        logger.debug("API thread: %s - - %s latency: %0.3f ms", self.client_address[0], fmt % args, latency)
 
 
 class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
