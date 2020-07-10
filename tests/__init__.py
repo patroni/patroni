@@ -93,7 +93,7 @@ class MockCursor(object):
         elif sql.startswith('SELECT pg_catalog.to_char'):
             replication_info = '[{"application_name":"walreceiver","client_addr":"1.2.3.4",' +\
                                '"state":"streaming","sync_state":"async","sync_priority":0}]'
-            self.results = [('', 0, '', '', '', '', False, replication_info)]
+            self.results = [('', 0, '', 0, '', '', False, replication_info)]
         elif sql.startswith('SELECT name, setting'):
             self.results = [('wal_segment_size', '2048', '8kB', 'integer', 'internal'),
                             ('wal_block_size', '8192', None, 'integer', 'internal'),
