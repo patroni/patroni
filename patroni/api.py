@@ -91,20 +91,15 @@ class RestApiHandler(BaseHTTPRequestHandler):
         patroni = self.server.patroni
         cluster = patroni.dcs.cluster
 
-        replica_status_code = 503
-        if response.get('role') == 'replica' and response.get('state') == 'running' \
-           and not patroni.noloadbalance:
-            max_replica_lag = self.path_query.get('lag') and parse_int(self.path_query.get('lag')[0], 'B') \
-                                                         or sys.maxsize
-            leader_optime = cluster and cluster.last_leader_operation or 0
-            replayed_location = response.get('xlog').get('replayed_location') or 0
-            current_lag = leader_optime - replayed_location
-            if current_lag >= 0:
-                max_replica_lag = max(max_replica_lag, 0)
-            if leader_optime:
-                replica_status_code = 200 if max_replica_lag >= current_lag else 503
-            else:
-                replica_status_code = 200
+        leader_optime = cluster and cluster.last_leader_operation or 0                                                                  
+        replayed_location = response.get('xlog', {}).get('replayed_location', 0)                                                        
+        max_replica_lag = parse_int(self.path_query.get('lag', [sys.maxsize])[0], 'B')                                                  
+        if max_replica_lag is None:
+            max_replica_lag = sys.maxsize 
+        is_lagging = leader_optime and leader_optime > replayed_location + max_replica_lag                                              
+        
+        replica_status_code = 200 if not patroni.noloadbalance and not is_lagging and \
+            response.get('role') == 'replica' and response.get('state') == 'running' else 503                                           
 
         if not cluster and patroni.ha.is_paused():
             primary_status_code = 200 if response.get('role') == 'master' else 503
