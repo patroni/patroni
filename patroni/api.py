@@ -91,15 +91,15 @@ class RestApiHandler(BaseHTTPRequestHandler):
         patroni = self.server.patroni
         cluster = patroni.dcs.cluster
 
-        leader_optime = cluster and cluster.last_leader_operation or 0                                                                  
-        replayed_location = response.get('xlog', {}).get('replayed_location', 0)                                                        
-        max_replica_lag = parse_int(self.path_query.get('lag', [sys.maxsize])[0], 'B')                                                  
+        leader_optime = cluster and cluster.last_leader_operation or 0
+        replayed_location = response.get('xlog', {}).get('replayed_location', 0)
+        max_replica_lag = parse_int(self.path_query.get('lag', [sys.maxsize])[0], 'B')
         if max_replica_lag is None:
-            max_replica_lag = sys.maxsize 
-        is_lagging = leader_optime and leader_optime > replayed_location + max_replica_lag                                              
-        
+            max_replica_lag = sys.maxsize
+        is_lagging = leader_optime and leader_optime > replayed_location + max_replica_lag
+
         replica_status_code = 200 if not patroni.noloadbalance and not is_lagging and \
-            response.get('role') == 'replica' and response.get('state') == 'running' else 503                                           
+            response.get('role') == 'replica' and response.get('state') == 'running' else 503
 
         if not cluster and patroni.ha.is_paused():
             primary_status_code = 200 if response.get('role') == 'master' else 503
