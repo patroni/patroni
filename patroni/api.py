@@ -337,7 +337,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             if not members:
                 return 'candidate does not exists'
         elif cluster.is_synchronous_mode():
-            members = [m for m in cluster.members if cluster.sync.matches(m.name)]
+            members = [m for m in cluster.members if m.name in cluster.sync.members]
             if not members:
                 return action + ' is not possible: can not find sync_standby'
         else:
