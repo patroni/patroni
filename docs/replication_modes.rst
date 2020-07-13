@@ -27,7 +27,7 @@ To enable a simple synchronous replication test, add the following lines to the 
 .. code:: YAML
 
         synchronous_commit: "on"
-        synchronous_node_count: 1
+        synchronous_standby_names: "*"
 
 When using PostgreSQL synchronous replication, use at least three Postgres data nodes to ensure write availability if one host fails.
 

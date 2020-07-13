@@ -900,12 +900,20 @@ class Postgresql(object):
 
         :returns tuple of candidates list and synchronous standby list.
         """
+        if self._major_version < 90600:
+            sync_node_count = 1
         members = {m.name.lower(): m for m in cluster.members}
         candidates = []
         sync_nodes = []
         # Pick candidates based on who has higher replay/remote_write/flush lsn.
         sync_commit_par = self._get_synchronous_commit_param()
         sort_col = {'remote_apply': 'replay', 'remote_write': 'write'}.get(sync_commit_par, 'flush')
+        # pg_stat_replication.sync_state has 4 possible states - async, potential, quorum, sync.
+        # Sort clause "ORDER BY sync_state DESC" is to get the result in required order and to keep
+        # the result consistent in case if a synchronous standby member is slowed down OR async node
+        # receiving changes faster than the sync member (very rare but possible). Such cases would
+        # trigger sync standby member swapping frequently and the sort on sync_state desc should
+        # help in keeping the query result consistent.
         for app_name, state, sync_state in self.query(
                 "SELECT pg_catalog.lower(application_name), state, sync_state"
                 " FROM pg_catalog.pg_stat_replication"
@@ -919,10 +927,6 @@ class Postgresql(object):
                 sync_nodes.append(member.name)
             if len(candidates) >= sync_node_count:
                 break
-
-        if self._major_version < 90600:
-            candidates = candidates and [candidates[0]] or []
-            sync_nodes = sync_nodes and [sync_nodes[0]] or []
 
         return candidates, sync_nodes
 

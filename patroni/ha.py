@@ -437,7 +437,7 @@ class Ha(object):
     def is_synchronous_mode_strict(self):
         return self.check_mode('synchronous_mode_strict')
 
-    def process_sync_replication(self, sync_node_count=1):
+    def process_sync_replication(self):
         """Process synchronous standby beahvior.
 
         Synchronous standbys are registered in two places postgresql.conf and DCS. The order of updating them must
@@ -447,6 +447,7 @@ class Ha(object):
         promoting standbys that were guaranteed to be replicating synchronously.
         """
         if self.is_synchronous_mode():
+            sync_node_count = self.patroni.config['synchronous_node_count']
             current = self.cluster.sync.leader and self.cluster.sync.members or []
             picked, allow_promote = self.state_handler.pick_synchronous_standby(self.cluster, sync_node_count)
             if set(picked) != set(current):
@@ -468,7 +469,7 @@ class Ha(object):
                 logger.info("Assigning synchronous standby status to %s", picked)
                 self.state_handler.config.set_synchronous_standby(picked)
 
-                if picked and picked[0] != '*' and set(allow_promote) != set(picked):
+                if picked and not allow_promote and picked[0] != '*' and set(allow_promote) != set(picked):
                     # Wait for PostgreSQL to enable synchronous mode and see if we can immediately
                     # set sync_standby
                     time.sleep(2)
@@ -568,11 +569,11 @@ class Ha(object):
             # Inform the state handler about its master role.
             # It may be unaware of it if postgres is promoted manually.
             self.state_handler.set_role('master')
-            self.process_sync_replication(self.patroni.config['synchronous_node_count'])
+            self.process_sync_replication()
             self.update_cluster_history()
             return message
         elif self.state_handler.role == 'master':
-            self.process_sync_replication(self.patroni.config['synchronous_node_count'])
+            self.process_sync_replication()
             return message
         else:
             if self.is_synchronous_mode():
