@@ -119,7 +119,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             status_code = 200 if response.get('state') == 'running' else 503
         elif cluster:  # dcs is available
             is_synchronous = cluster.is_synchronous_mode() and cluster.sync \
-                    and cluster.sync.matches(patroni.postgresql.name)
+                    and patroni.postgresql.name in cluster.sync.members
             if path in ('/sync', '/synchronous') and is_synchronous:
                 status_code = replica_status_code
             elif path in ('/async', '/asynchronous') and not is_synchronous:
