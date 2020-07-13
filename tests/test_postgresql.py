@@ -650,7 +650,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertEqual(value_in_conf(), "synchronous_standby_names = '1 (n1,n2)'")
 
         mock_reload.reset_mock()
-        self.p.config.set_synchronous_standby(None)
+        self.p.config.set_synchronous_standby([])
         mock_reload.assert_called()
         self.assertEqual(value_in_conf(), None)
 
