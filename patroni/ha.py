@@ -493,7 +493,7 @@ class Ha(object):
 
     def is_sync_standby(self, cluster):
         return cluster.leader and cluster.sync.leader == cluster.leader.name \
-            and cluster.sync.matches(self.state_handler.name)
+            and self.state_handler.name in cluster.sync.members
 
     def while_not_sync_standby(self, func):
         """Runs specified action while trying to make sure that the node is not assigned synchronous standby status.
