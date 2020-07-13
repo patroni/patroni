@@ -17,8 +17,8 @@ from patroni.utils import deep_compare, parse_bool, patch_config, Retry, \
     RetryFailedError, parse_int, split_host_port, tzutc, uri, cluster_as_json
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from six.moves.socketserver import ThreadingMixIn
-from threading import Thread
 from six.moves.urllib_parse import urlparse, parse_qs
+from threading import Thread
 
 logger = logging.getLogger(__name__)
 
