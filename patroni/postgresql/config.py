@@ -1009,14 +1009,14 @@ class ConfigHandler(object):
 
     def set_synchronous_standby(self, sync_members):
         """Sets a node to be synchronous standby and if changed does a reload for PostgreSQL."""
-        if sync_members and set(sync_members) != set(['*']):
+        if sync_members and sync_members != ['*']:
             sync_members = [quote_ident(x) for x in sync_members]
-        if self._postgresql.major_version >= 90600:
-            sync_param = sync_members and '{} ({})'.format(len(sync_members), ','.join(sync_members)) or None
+        if self._postgresql.major_version >= 90600 and len(sync_members) > 1:
+            sync_param = '{0} ({1})'.format(len(sync_members), ','.join(sync_members))
         else:
-            sync_param = sync_members and sync_members[0] or None
+            sync_param = next(iter(sync_members), None)
         if sync_param != self._synchronous_standby_names:
-            if not sync_members:
+            if sync_param is None:
                 self._server_parameters.pop('synchronous_standby_names', None)
             else:
                 self._server_parameters['synchronous_standby_names'] = sync_param
