@@ -331,7 +331,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         if leader and (not cluster.leader or cluster.leader.name != leader):
             return 'leader name does not match'
         if candidate:
-            if action == 'switchover' and cluster.is_synchronous_mode() and not cluster.sync.matches(candidate):
+            if action == 'switchover' and cluster.is_synchronous_mode() and candidate not in cluster.sync.members:
                 return 'candidate name does not match with sync_standby'
             members = [m for m in cluster.members if m.name == candidate]
             if not members:
