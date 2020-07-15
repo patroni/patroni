@@ -17,7 +17,7 @@ def etcd_watch(self, key, index=None, timeout=None, recursive=None):
     if timeout == 2.0:
         raise etcd.EtcdWatchTimedOut
     elif timeout == 5.0:
-        return etcd.EtcdResult('delete', {})
+        return etcd.EtcdResult('compareAndSwap', {})
     elif 5 < timeout <= 10.0:
         raise etcd.EtcdException
     elif timeout == 20.0:
@@ -285,7 +285,8 @@ class TestEtcd(unittest.TestCase):
         self.etcd.watch(None, 0)
         self.etcd.get_cluster()
         self.etcd.watch(20729, 1.5)
-        self.etcd.watch(20729, 4.5)
+        with patch('time.sleep', Mock()):
+            self.etcd.watch(20729, 4.5)
         with patch.object(AbstractDCS, 'watch', Mock()):
             self.assertTrue(self.etcd.watch(20729, 19.5))
             self.assertRaises(SleepException, self.etcd.watch, 20729, 9.5)

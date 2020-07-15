@@ -1411,7 +1411,7 @@ class Ha(object):
 
     def watch(self, timeout):
         # watch on leader key changes if the postgres is running and leader is known and current node is not lock owner
-        if self._async_executor.busy or self.cluster.is_unlocked() or self.has_lock(False):
+        if self._async_executor.busy or not self.cluster or self.cluster.is_unlocked() or self.has_lock(False):
             leader_index = None
         else:
             leader_index = self.cluster.leader.index
