@@ -161,7 +161,11 @@ class TestRestApiHandler(unittest.TestCase):
     _authorization = '\nAuthorization: Basic dGVzdDp0ZXN0'
 
     def test_do_GET(self):
+        MockPatroni.dcs.cluster.last_leader_operation = 20
         MockRestApiServer(RestApiHandler, 'GET /replica')
+        MockRestApiServer(RestApiHandler, 'GET /replica?lag=1M')
+        MockRestApiServer(RestApiHandler, 'GET /replica?lag=10MB')
+        MockRestApiServer(RestApiHandler, 'GET /replica?lag=10485760')
         MockRestApiServer(RestApiHandler, 'GET /read-only')
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={})):
             MockRestApiServer(RestApiHandler, 'GET /replica')
