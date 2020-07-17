@@ -422,7 +422,7 @@ class KubernetesController(AbstractDcsController):
         os.environ['PATRONI_KUBERNETES_LABELS'] = json.dumps(self._labels)
         os.environ['PATRONI_KUBERNETES_USE_ENDPOINTS'] = 'true'
 
-        from kubernetes import client as k8s_client, config as k8s_config
+        from patroni.dcs.kubernetes import k8s_client, k8s_config
         k8s_config.load_kube_config(context='local')
         self._client = k8s_client
         self._api = self._client.CoreV1Api()
