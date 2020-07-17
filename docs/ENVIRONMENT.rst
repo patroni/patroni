@@ -79,6 +79,7 @@ Exhibitor
 
 Kubernetes
 ----------
+-  **PATRONI\_KUBERNETES\_BYPASS\_API\_SERVICE**: (optional) When communicating with Kubernetes API Patroni is usually relying on `kubernetes` service, which address is exposed via the `KUBERNETES_SERVICE_HOST` environment variable. If the `PATRONI_KUBERNETES_BYPASS_API_SERVICE` parameter is set to ``true``, Patroni will resolve the list of API nodes behind the service and connect directly to them.
 -  **PATRONI\_KUBERNETES\_NAMESPACE**: (optional) Kubernetes namespace where the Patroni pod is running. Default value is `default`.
 -  **PATRONI\_KUBERNETES\_LABELS**: Labels in format ``{label1: value1, label2: value2}``. These labels will be used to find existing objects (Pods and either Endpoints or ConfigMaps) associated with the current cluster. Also Patroni will set them on every object (Endpoint or ConfigMap) it creates.
 -  **PATRONI\_KUBERNETES\_SCOPE\_LABEL**: (optional) name of the label containing cluster name. Default value is `cluster-name`.
