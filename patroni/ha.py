@@ -469,13 +469,13 @@ class Ha(object):
                 logger.info("Assigning synchronous standby status to %s", picked)
                 self.state_handler.config.set_synchronous_standby(picked)
 
-                if picked and not allow_promote and picked[0] != '*' and set(allow_promote) != set(picked):
+                if picked and picked[0] != '*' and set(allow_promote) != set(picked):
                     # Wait for PostgreSQL to enable synchronous mode and see if we can immediately
                     # set sync_standby
                     time.sleep(2)
                     _, allow_promote = self.state_handler.pick_synchronous_standby(self.cluster,
                                                                                    sync_node_count)
-                if allow_promote:
+                if allow_promote and set(allow_promote) != set(sync_common):
                     try:
                         cluster = self.dcs.get_cluster()
                     except DCSError:
@@ -486,7 +486,7 @@ class Ha(object):
                     if not self.dcs.write_sync_state(self.state_handler.name, allow_promote, index=cluster.sync.index):
                         logger.info("Synchronous replication key updated by someone else")
                         return
-                    logger.info("Synchronous standby status assigned to %s", picked)
+                    logger.info("Synchronous standby status assigned to %s", allow_promote)
         else:
             if self.cluster.sync.leader and self.dcs.delete_sync_state(index=self.cluster.sync.index):
                 logger.info("Disabled synchronous replication")
