@@ -469,9 +469,8 @@ class Ha(object):
                 logger.info("Assigning synchronous standby status to %s", picked)
                 self.state_handler.config.set_synchronous_standby(picked)
 
-                if picked and picked[0] != '*' and set(allow_promote) != set(picked):
-                    # Wait for PostgreSQL to enable synchronous mode and see if we can immediately
-                    # set sync_standby
+                if picked and picked[0] != '*' and set(allow_promote) != set(picked) and not allow_promote:
+                    # Wait for PostgreSQL to enable synchronous mode and see if we can immediately set sync_standby
                     time.sleep(2)
                     _, allow_promote = self.state_handler.pick_synchronous_standby(self.cluster,
                                                                                    sync_node_count)
