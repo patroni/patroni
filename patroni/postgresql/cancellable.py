@@ -1,11 +1,9 @@
 import logging
-import os
 import psutil
 import subprocess
 
 from patroni.exceptions import PostgresException
 from patroni.utils import polling_loop
-from six import string_types
 from threading import Lock
 
 logger = logging.getLogger(__name__)
@@ -75,16 +73,16 @@ class CancellableSubprocess(CancellableExecutor):
         for s in ('stdin', 'stdout', 'stderr'):
             kwargs.pop(s, None)
 
-        communicate_input = 'communicate_input' in kwargs
-        if communicate_input:
-            input_data = kwargs.pop('communicate_input', None)
-            if not isinstance(input_data, string_types):
-                input_data = ''
-            if input_data and input_data[-1] != '\n':
-                input_data += '\n'
+        communicate = kwargs.pop('communicate', None)
+        if isinstance(communicate, dict):
+            input_data = communicate.get('input')
+            if input_data:
+                if input_data[-1] != '\n':
+                    input_data += '\n'
+                input_data = input_data.encode('utf-8')
             kwargs['stdin'] = subprocess.PIPE
-            kwargs['stdout'] = open(os.devnull, 'w')
-            kwargs['stderr'] = subprocess.STDOUT
+            kwargs['stdout'] = subprocess.PIPE
+            kwargs['stderr'] = subprocess.PIPE
 
         try:
             with self._lock:
@@ -95,10 +93,8 @@ class CancellableSubprocess(CancellableExecutor):
                 started = self._start_process(*args, **kwargs)
 
             if started:
-                if communicate_input:
-                    if input_data:
-                        self._process.communicate(input_data)
-                    self._process.stdin.close()
+                if isinstance(communicate, dict):
+                    communicate['stdout'], communicate['stderr'] = self._process.communicate(input_data)
                 return self._process.wait()
         finally:
             with self._lock:

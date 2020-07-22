@@ -54,7 +54,7 @@ class HTTPClient(object):
         if ca_cert:
             kwargs['ca_certs'] = ca_cert
         kwargs['cert_reqs'] = ssl.CERT_REQUIRED if verify or ca_cert else ssl.CERT_NONE
-        self.http = urllib3.PoolManager(num_pools=10, **kwargs)
+        self.http = urllib3.PoolManager(num_pools=10, maxsize=10, **kwargs)
         self._ttl = None
 
     def set_read_timeout(self, timeout):
@@ -367,7 +367,11 @@ class Consul(AbstractDCS):
     def touch_member(self, data, permanent=False):
         cluster = self.cluster
         member = cluster and cluster.get_member(self._name, fallback_to_leader=False)
-        create_member = not permanent and self.refresh_session()
+
+        try:
+            create_member = not permanent and self.refresh_session()
+        except DCSError:
+            return False
 
         if member and (create_member or member.session != self._session):
             self._client.kv.delete(self.member_path)
@@ -503,7 +507,7 @@ class Consul(AbstractDCS):
         return self._client.kv.put(self.history_path, value)
 
     @catch_consul_errors
-    def delete_leader(self):
+    def _delete_leader(self):
         cluster = self.cluster
         if cluster and isinstance(cluster.leader, Leader) and cluster.leader.name == self._name:
             return self._client.kv.delete(self.leader_path, cas=cluster.leader.index)

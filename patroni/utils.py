@@ -4,6 +4,8 @@ import os
 import platform
 import random
 import re
+import socket
+import sys
 import tempfile
 import time
 
@@ -358,6 +360,8 @@ def polling_loop(timeout, interval=1):
 
 def split_host_port(value, default_port):
     t = value.rsplit(':', 1)
+    if ':' in t[0]:
+        t[0] = t[0].strip('[]')
     t.append(default_port)
     return t[0], int(t[1])
 
@@ -473,3 +477,38 @@ def data_directory_is_empty(data_dir):
     if not os.path.exists(data_dir):
         return True
     return all(os.name != 'nt' and (n.startswith('.') or n == 'lost+found') for n in os.listdir(data_dir))
+
+
+def keepalive_intvl(timeout, idle, cnt=3):
+    return max(1, int(float(timeout - idle) / cnt))
+
+
+def keepalive_socket_options(timeout, idle, cnt=3):
+    yield (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+
+    if sys.platform.startswith('linux'):
+        yield (socket.SOL_TCP, 18, int(timeout * 1000))  # TCP_USER_TIMEOUT
+        TCP_KEEPIDLE = socket.TCP_KEEPIDLE
+        TCP_KEEPINTVL = socket.TCP_KEEPINTVL
+        TCP_KEEPCNT = socket.TCP_KEEPCNT
+    elif sys.platform.startswith('darwin'):
+        TCP_KEEPIDLE = 0x10  # (named "TCP_KEEPALIVE" in C)
+        TCP_KEEPINTVL = 0x101
+        TCP_KEEPCNT = 0x102
+    else:
+        return
+
+    intvl = keepalive_intvl(timeout, idle, cnt)
+    yield (socket.IPPROTO_TCP, TCP_KEEPIDLE, idle)
+    yield (socket.IPPROTO_TCP, TCP_KEEPINTVL, intvl)
+    yield (socket.IPPROTO_TCP, TCP_KEEPCNT, cnt)
+
+
+def enable_keepalive(sock, timeout, idle, cnt=3):
+    SIO_KEEPALIVE_VALS = getattr(socket, 'SIO_KEEPALIVE_VALS', None)
+    if SIO_KEEPALIVE_VALS is not None:  # Windows
+        intvl = keepalive_intvl(timeout, idle, cnt)
+        return sock.ioctl(SIO_KEEPALIVE_VALS, (1, idle * 1000, intvl * 1000))
+
+    for opt in keepalive_socket_options(timeout, idle, cnt):
+        sock.setsockopt(*opt)

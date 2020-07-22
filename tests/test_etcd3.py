@@ -42,7 +42,9 @@ def mock_urlopen(self, method, url, **kwargs):
             'result': {'events': [
                 {'kv': {'key': key, 'value': base64_encode('bar'), 'mod_revision': '2'}},
                 {'kv': {'key': key, 'value': base64_encode('buzz'), 'mod_revision': '3'}},
-                {'type': 'DELETE', 'kv': {'key': key, 'mod_revision': '4'}}
+                {'type': 'DELETE', 'kv': {'key': key, 'mod_revision': '4'}},
+                {'kv': {'key': base64_encode('/patroni/test/optime/leader'),
+                        'value': base64_encode('1234567'), 'mod_revision': '5'}},
             ]}
         })[:-1].encode('utf-8'), b'}{"error":{"grpc_code":14,"message":"","http_code":503}}'])
     elif url.endswith('/kv/put') or url.endswith('/kv/txn'):
@@ -59,7 +61,7 @@ class BaseTestEtcd3(unittest.TestCase):
     @patch.object(urllib3.PoolManager, 'urlopen', mock_urlopen)
     def setUp(self):
         self.etcd3 = Etcd3({'namespace': '/patroni/', 'ttl': 30, 'retry_timeout': 10,
-                            'host': 'localhost:2379', 'scope': 'test', 'name': 'foo',
+                            'host': 'localhost:2378', 'scope': 'test', 'name': 'foo',
                             'username': 'etcduser', 'password': 'etcdpassword'})
         self.client = self.etcd3._client
         self.kv_cache = self.client._kv_cache
@@ -151,7 +153,6 @@ class TestPatroniEtcd3Client(BaseTestEtcd3):
         self.client._ensure_version_prefix('')
         self.assertEqual(self.client.version_prefix, '/v3alpha')
         mock_urlopen.return_value.content = '{"etcdserver": "3.4.4", "etcdcluster": "3.4.0"}'
-        self.client._prev_base_uri = None
         self.client._ensure_version_prefix('')
         self.assertEqual(self.client.version_prefix, '/v3')
 
@@ -180,6 +181,8 @@ class TestEtcd3(BaseTestEtcd3):
         self.etcd3.touch_member({})
         self.etcd3._lease = 'bla'
         self.etcd3.touch_member({})
+        with patch.object(PatroniEtcd3Client, 'lease_grant', Mock(side_effect=Etcd3ClientError)):
+            self.etcd3.touch_member({})
 
     def test__update_leader(self):
         self.etcd3._lease = None
@@ -241,6 +244,3 @@ class TestEtcd3(BaseTestEtcd3):
     def test_set_socket_options(self):
         with patch('socket.SIO_KEEPALIVE_VALS', 1, create=True):
             self.etcd3.set_socket_options(Mock(), None)
-        for platform in ('linux2', 'darwin', 'other'):
-            with patch('sys.platform', platform):
-                self.etcd3.set_socket_options(Mock(), None)
