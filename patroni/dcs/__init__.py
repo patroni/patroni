@@ -13,7 +13,7 @@ import time
 
 from collections import defaultdict, namedtuple
 from copy import deepcopy
-from patroni.exceptions import PatroniException
+from patroni.exceptions import PatroniFatalException
 from patroni.utils import parse_bool, uri
 from random import randint
 from six.moves.urllib_parse import urlparse, urlunparse, parse_qsl
@@ -102,7 +102,7 @@ def get_dcs(config):
                                              and inspect.isclass(item) and issubclass(item, AbstractDCS))
         except ImportError:
             logger.info('Failed to import %s', module_name)
-    raise PatroniException("""Can not find suitable configuration of distributed configuration store
+    raise PatroniFatalException("""Can not find suitable configuration of distributed configuration store
 Available implementations: """ + ', '.join(sorted(set(available_implementations))))
 
 

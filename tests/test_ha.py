@@ -7,7 +7,7 @@ from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.config import Config
 from patroni.dcs import Cluster, ClusterConfig, Failover, Leader, Member, get_dcs, SyncState, TimelineHistory
 from patroni.dcs.etcd import Client
-from patroni.exceptions import DCSError, PostgresConnectionException, PatroniException
+from patroni.exceptions import DCSError, PostgresConnectionException, PatroniFatalException
 from patroni.ha import Ha, _MemberStatus
 from patroni.postgresql import Postgresql
 from patroni.postgresql.bootstrap import Bootstrap
@@ -422,7 +422,7 @@ class TestHa(PostgresInit):
         self.e.initialize = true
         self.ha.bootstrap()
         self.p.is_running = false
-        self.assertRaises(PatroniException, self.ha.post_bootstrap)
+        self.assertRaises(PatroniFatalException, self.ha.post_bootstrap)
 
     def test_bootstrap_release_initialize_key_on_watchdog_failure(self):
         self.ha.cluster = get_cluster_not_initialized_without_leader()
@@ -432,7 +432,7 @@ class TestHa(PostgresInit):
         self.p.is_leader = true
         with patch.object(Watchdog, 'activate', Mock(return_value=False)):
             self.assertEqual(self.ha.post_bootstrap(), 'running post_bootstrap')
-            self.assertRaises(PatroniException, self.ha.post_bootstrap)
+            self.assertRaises(PatroniFatalException, self.ha.post_bootstrap)
 
     @patch('psycopg2.connect', psycopg2_connect)
     def test_reinitialize(self):
@@ -1088,3 +1088,5 @@ class TestHa(PostgresInit):
     def test_run_cycle(self):
         self.ha.dcs.touch_member = Mock(side_effect=DCSError('foo'))
         self.assertEqual(self.ha.run_cycle(), 'Unexpected exception raised, please report it as a BUG')
+        self.ha.dcs.touch_member = Mock(side_effect=PatroniFatalException('foo'))
+        self.assertRaises(PatroniFatalException, self.ha.run_cycle)

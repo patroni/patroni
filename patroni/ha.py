@@ -10,7 +10,7 @@ import uuid
 from collections import namedtuple
 from multiprocessing.pool import ThreadPool
 from patroni.async_executor import AsyncExecutor, CriticalTask
-from patroni.exceptions import DCSError, PostgresConnectionException, PatroniException
+from patroni.exceptions import DCSError, PostgresConnectionException, PatroniFatalException
 from patroni.postgresql import ACTION_ON_START, ACTION_ON_ROLE_CHANGE
 from patroni.postgresql.misc import postgres_version_to_int
 from patroni.postgresql.rewind import Rewind
@@ -1176,7 +1176,7 @@ class Ha(object):
         self.dcs.cancel_initialization()
         self.state_handler.stop('immediate', stop_timeout=self.patroni.config['retry_timeout'])
         self.state_handler.move_data_directory()
-        raise PatroniException('Failed to bootstrap cluster')
+        raise PatroniFatalException('Failed to bootstrap cluster')
 
     def post_bootstrap(self):
         # bootstrap has failed if postgres is not running
@@ -1384,6 +1384,8 @@ class Ha(object):
             try:
                 info = self._run_cycle()
                 return (self.is_paused() and 'PAUSE: ' or '') + info
+            except PatroniFatalException:
+                raise
             except Exception:
                 logger.exception('Unexpected exception')
                 return 'Unexpected exception raised, please report it as a BUG'
