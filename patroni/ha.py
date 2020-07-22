@@ -1332,6 +1332,7 @@ class Ha(object):
 
             if not self.state_handler.is_healthy():
                 if self.is_paused():
+                    self.state_handler.set_state('stopped')
                     if self.has_lock():
                         self._delete_leader()
                         return 'removed leader lock because postgres is not running'
@@ -1344,6 +1345,8 @@ class Ha(object):
                             (self._rewind.is_needed and self._rewind.can_rewind_or_reinitialize_allowed):
                         return 'postgres is not running'
 
+                if self.state_handler.state in ('running', 'starting'):
+                    self.state_handler.set_state('crashed')
                 # try to start dead postgres
                 return self.recover()
 
@@ -1411,7 +1414,7 @@ class Ha(object):
 
     def watch(self, timeout):
         # watch on leader key changes if the postgres is running and leader is known and current node is not lock owner
-        if self._async_executor.busy or self.cluster.is_unlocked() or self.has_lock(False):
+        if self._async_executor.busy or not self.cluster or self.cluster.is_unlocked() or self.has_lock(False):
             leader_index = None
         else:
             leader_index = self.cluster.leader.index

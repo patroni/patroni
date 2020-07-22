@@ -9,9 +9,11 @@ import datetime
 import os
 import six
 import socket
+import sys
 
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from six.moves.socketserver import ThreadingMixIn
+from six.moves.urllib_parse import urlparse, parse_qs
 from threading import Thread
 
 from .exceptions import PostgresConnectionException, PostgresException
@@ -23,6 +25,11 @@ logger = logging.getLogger(__name__)
 
 
 class RestApiHandler(BaseHTTPRequestHandler):
+
+    def _write_status_code_only(self, status_code):
+        message = self.responses[status_code][0]
+        self.wfile.write('{0} {1} {2}\r\n\r\n'.format(self.protocol_version, status_code, message).encode('utf-8'))
+        self.log_request(status_code)
 
     def _write_response(self, status_code, body, content_type='text/html', headers=None):
         self.send_response(status_code)
@@ -81,16 +88,20 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_GET(self, write_status_code_only=False):
         """Default method for processing all GET requests which can not be routed to other methods"""
 
-        time_start = time.time()
-        request_type = 'OPTIONS' if write_status_code_only else 'GET'
-
         path = '/master' if self.path == '/' else self.path
         response = self.get_postgresql_status()
 
         patroni = self.server.patroni
         cluster = patroni.dcs.cluster
 
-        replica_status_code = 200 if not patroni.noloadbalance and \
+        leader_optime = cluster and cluster.last_leader_operation or 0
+        replayed_location = response.get('xlog', {}).get('replayed_location', 0)
+        max_replica_lag = parse_int(self.path_query.get('lag', [sys.maxsize])[0], 'B')
+        if max_replica_lag is None:
+            max_replica_lag = sys.maxsize
+        is_lagging = leader_optime and leader_optime > replayed_location + max_replica_lag
+
+        replica_status_code = 200 if not patroni.noloadbalance and not is_lagging and \
             response.get('role') == 'replica' and response.get('state') == 'running' else 503
 
         if not cluster and patroni.ha.is_paused():
@@ -127,17 +138,25 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 status_code = replica_status_code
 
         if write_status_code_only:  # when haproxy sends OPTIONS request it reads only status code and nothing more
-            message = self.responses[status_code][0]
-            self.wfile.write('{0} {1} {2}\r\n\r\n'.format(self.protocol_version, status_code, message).encode('utf-8'))
+            self._write_status_code_only(status_code)
         else:
             self._write_status_response(status_code, response)
 
-        time_end = time.time()
-        self.log_message('%s %s %s latency: %s ms', request_type, path,
-                         status_code, (time_end - time_start) * 1000)
-
     def do_OPTIONS(self):
         self.do_GET(write_status_code_only=True)
+
+    def do_GET_liveness(self):
+        self._write_status_code_only(200)
+
+    def do_GET_readiness(self):
+        patroni = self.server.patroni
+        if patroni.ha.is_leader():
+            status_code = 200
+        elif patroni.postgresql.state == 'running':
+            status_code = 200 if patroni.dcs.cluster else 503
+        else:
+            status_code = 503
+        self._write_status_code_only(status_code)
 
     def do_GET_patroni(self):
         response = self.get_postgresql_status(True)
@@ -429,6 +448,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         ret = BaseHTTPRequestHandler.parse_request(self)
         if ret:
+            urlpath = urlparse(self.path)
+            self.path = urlpath.path
+            self.path_query = parse_qs(urlpath.query) or {}
             mname = self.path.lstrip('/').split('/')[0]
             mname = self.command + ('_' + mname if mname else '')
             if hasattr(self, 'do_' + mname):
@@ -492,8 +514,13 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 state = 'unknown'
             return {'state': state, 'role': postgresql.role}
 
+    def handle_one_request(self):
+        self.__start_time = time.time()
+        BaseHTTPRequestHandler.handle_one_request(self)
+
     def log_message(self, fmt, *args):
-        logger.debug("API thread: %s - - [%s] %s", self.client_address[0], self.log_date_time_string(), fmt % args)
+        latency = 1000.0 * (time.time() - self.__start_time)
+        logger.debug("API thread: %s - - %s latency: %0.3f ms", self.client_address[0], fmt % args, latency)
 
 
 class RestApiServer(ThreadingMixIn, HTTPServer, Thread):

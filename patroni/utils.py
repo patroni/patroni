@@ -488,9 +488,9 @@ def keepalive_socket_options(timeout, idle, cnt=3):
 
     if sys.platform.startswith('linux'):
         yield (socket.SOL_TCP, 18, int(timeout * 1000))  # TCP_USER_TIMEOUT
-        TCP_KEEPIDLE = socket.TCP_KEEPIDLE
-        TCP_KEEPINTVL = socket.TCP_KEEPINTVL
-        TCP_KEEPCNT = socket.TCP_KEEPCNT
+        TCP_KEEPIDLE = getattr(socket, 'TCP_KEEPIDLE', None)
+        TCP_KEEPINTVL = getattr(socket, 'TCP_KEEPINTVL', None)
+        TCP_KEEPCNT = getattr(socket, 'TCP_KEEPCNT', None)
     elif sys.platform.startswith('darwin'):
         TCP_KEEPIDLE = 0x10  # (named "TCP_KEEPALIVE" in C)
         TCP_KEEPINTVL = 0x101

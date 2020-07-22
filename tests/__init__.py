@@ -22,6 +22,7 @@ class MockResponse(object):
     def __init__(self, status_code=200):
         self.status_code = status_code
         self.content = '{}'
+        self.reason = 'Not Found'
 
     @property
     def data(self):
@@ -34,6 +35,10 @@ class MockResponse(object):
     @staticmethod
     def getheader(*args):
         return ''
+
+    @staticmethod
+    def getheaders():
+        return {'content-type': 'json'}
 
 
 def requests_get(url, **kwargs):
@@ -93,7 +98,7 @@ class MockCursor(object):
         elif sql.startswith('SELECT pg_catalog.to_char'):
             replication_info = '[{"application_name":"walreceiver","client_addr":"1.2.3.4",' +\
                                '"state":"streaming","sync_state":"async","sync_priority":0}]'
-            self.results = [('', 0, '', '', '', '', False, replication_info)]
+            self.results = [('', 0, '', 0, '', '', False, replication_info)]
         elif sql.startswith('SELECT name, setting'):
             self.results = [('wal_segment_size', '2048', '8kB', 'integer', 'internal'),
                             ('wal_block_size', '8192', None, 'integer', 'internal'),

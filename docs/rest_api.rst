@@ -19,6 +19,13 @@ For all health check ``GET`` requests Patroni returns a JSON document with the s
 
 - ``GET /replica``: replica health check endpoint. It returns HTTP status code **200** only when the Patroni node is in the state ``running``, the role is ``replica`` and ``noloadbalance`` tag is not set.
 
+- ``GET /replica?lag=<max-lag>``: replica check endpoint. In addition to checks from ``replica``, it also checks replication latency and returns status code **200** only when it is below specified value. The key cluster.last_leader_operation from DCS is used for Leader wal position and compute latency on replica for performance reasons. max-lag can be specified in bytes (integer) or in human readable values, for e.g. 16kB, 64MB, 1GB.
+
+  - ``GET /replica?lag=1048576``
+  - ``GET /replica?lag=1024kB``
+  - ``GET /replica?lag=10MB``
+  - ``GET /replica?lag=1GB``
+
 - ``GET /read-only``: like the above endpoint, but also includes the primary.
 
 - ``GET /standby-leader``: returns HTTP status code **200** only when the Patroni node is running as the leader in a :ref:`standby cluster <standby_cluster>`.
@@ -27,7 +34,44 @@ For all health check ``GET`` requests Patroni returns a JSON document with the s
 
 - ``GET /asynchronous`` or ``GET /async``: returns HTTP status code **200** only when the Patroni node is running as an asynchronous standby.
 
+- ``GET /asynchronous?lag=<max-lag>`` or ``GET /async?lag=<max-lag>``: asynchronous standby check endpoint. In addition to checks from ``asynchronous`` or ``async``, it also checks replication latency and returns status code **200** only when it is below specified value. The key cluster.last_leader_operation from DCS is used for Leader wal position and compute latency on replica for performance reasons. max-lag can be specified in bytes (integer) or in human readable values, for e.g. 16kB, 64MB, 1GB.
+
+  - ``GET /async?lag=1048576``
+  - ``GET /async?lag=1024kB``
+  - ``GET /async?lag=10MB``
+  - ``GET /async?lag=1GB``
+
 - ``GET /health``: returns HTTP status code **200** only when PostgreSQL is up and running.
+
+- ``GET /liveness``: always returns HTTP status code **200** what only indicates that Patroni is running. Could be used for ``livenessProbe``.
+
+- ``GET /readiness``: returns HTTP status code **200** when the Patroni node is running as the leader or when PostgreSQL is up and running. The endpoint could be used for ``readinessProbe`` when it is not possible to use Kubenetes endpoints for leader elections (OpenShift).
+
+Both, ``readiness`` and ``liveness`` endpoints are very light-weight and not executing any SQL. Probes should be configured in such a way that they start failing about time when the leader key is expiring. With the default value of ``ttl``, which is ``30s`` example probes would look like:
+
+.. code-block:: yaml
+
+    readinessProbe:
+      httpGet:
+        scheme: HTTP
+        path: /readiness
+        port: 8008
+      initialDelaySeconds: 3
+      periodSeconds: 10
+      timeoutSeconds: 5
+      successThreshold: 1
+      failureThreshold: 3
+    livenessProbe:
+      httpGet:
+        scheme: HTTP
+        path: /liveness
+        port: 8008
+      initialDelaySeconds: 3
+      periodSeconds: 10
+      timeoutSeconds: 5
+      successThreshold: 1
+      failureThreshold: 3
+
 
 Monitoring endpoint
 -------------------

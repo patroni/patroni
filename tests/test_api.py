@@ -161,7 +161,11 @@ class TestRestApiHandler(unittest.TestCase):
     _authorization = '\nAuthorization: Basic dGVzdDp0ZXN0'
 
     def test_do_GET(self):
+        MockPatroni.dcs.cluster.last_leader_operation = 20
         MockRestApiServer(RestApiHandler, 'GET /replica')
+        MockRestApiServer(RestApiHandler, 'GET /replica?lag=1M')
+        MockRestApiServer(RestApiHandler, 'GET /replica?lag=10MB')
+        MockRestApiServer(RestApiHandler, 'GET /replica?lag=10485760')
         MockRestApiServer(RestApiHandler, 'GET /read-only')
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={})):
             MockRestApiServer(RestApiHandler, 'GET /replica')
@@ -177,10 +181,10 @@ class TestRestApiHandler(unittest.TestCase):
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'replica'})):
             MockPatroni.dcs.cluster.sync.sync_standby = ''
             MockRestApiServer(RestApiHandler, 'GET /asynchronous')
-        MockPatroni.ha.is_leader = Mock(return_value=True)
-        MockRestApiServer(RestApiHandler, 'GET /replica')
-        with patch.object(MockHa, 'is_standby_cluster', Mock(return_value=True)):
-            MockRestApiServer(RestApiHandler, 'GET /standby_leader')
+        with patch.object(MockHa, 'is_leader', Mock(return_value=True)):
+            MockRestApiServer(RestApiHandler, 'GET /replica')
+            with patch.object(MockHa, 'is_standby_cluster', Mock(return_value=True)):
+                MockRestApiServer(RestApiHandler, 'GET /standby_leader')
         MockPatroni.dcs.cluster = None
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'master'})):
             MockRestApiServer(RestApiHandler, 'GET /master')
@@ -194,6 +198,16 @@ class TestRestApiHandler(unittest.TestCase):
 
     def test_do_OPTIONS(self):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'OPTIONS / HTTP/1.0'))
+
+    def test_do_GET_liveness(self):
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /liveness HTTP/1.0'))
+
+    def test_do_GET_readiness(self):
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /readiness HTTP/1.0'))
+        with patch.object(MockHa, 'is_leader', Mock(return_value=True)):
+            self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /readiness HTTP/1.0'))
+        with patch.object(MockPostgresql, 'state', PropertyMock(return_value='stopped')):
+            self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /readiness HTTP/1.0'))
 
     @patch.object(MockPostgresql, 'state', PropertyMock(return_value='stopped'))
     def test_do_GET_patroni(self):
