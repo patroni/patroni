@@ -97,7 +97,7 @@ independently of Patroni.
 
 .. _running_configuring:
 
-Planning the Number of PostgreSQL nodes
+Planning the Number of PostgreSQL Nodes
 ---------------------------------------
 
 Patroni/PostgreSQL nodes are decoupled from DCS nodes (except when Patroni implements RAFT on its own) and therefore
