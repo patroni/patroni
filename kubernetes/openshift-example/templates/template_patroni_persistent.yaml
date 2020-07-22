@@ -5,11 +5,9 @@ metadata:
   annotations:
     description: |-
       Patroni Postgresql database cluster, with persistent storage.
-
-      WARNING: Any data stored will be lost upon pod destruction. Only use this template for testing.
     iconClass: icon-postgresql
     openshift.io/display-name: Patroni Postgresql (Persistent)
-    openshift.io/long-description: This template deploys a a patroni postgresql HA cluster without persistent storage.
+    openshift.io/long-description: This template deploys a a patroni postgresql HA cluster with persistent storage.
     tags: postgresql
 objects:
 - apiVersion: v1
@@ -166,6 +164,16 @@ objects:
           image: docker-registry.default.svc:5000/${NAMESPACE}/patroni:latest
           imagePullPolicy: IfNotPresent
           name: ${APPLICATION_NAME}
+          readinessProbe:
+            httpGet:
+              scheme: HTTP
+              path: /readiness
+              port: 8008
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
           ports:
           - containerPort: 8008
             protocol: TCP

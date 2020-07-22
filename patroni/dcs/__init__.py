@@ -341,6 +341,10 @@ class ClusterConfig(namedtuple('ClusterConfig', 'index,data,modify_index')):
                 self.data.get('permanent_slots') or self.data.get('slots')
         ) or {}
 
+    @property
+    def max_timelines_history(self):
+        return self.data.get('max_timelines_history', 0)
+
 
 class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
     """Immutable object (namedtuple) which represents last observed synhcronous replication state
@@ -638,7 +642,12 @@ class AbstractDCS(object):
            If the current node was running as a master and exception raised,
            instance would be demoted."""
 
-    def get_cluster(self):
+    def _bypass_caches(self):
+        """Used only in zookeeper"""
+
+    def get_cluster(self, force=False):
+        if force:
+            self._bypass_caches()
         try:
             cluster = self._load_cluster()
         except Exception:
@@ -754,9 +763,18 @@ class AbstractDCS(object):
         otherwise it should return `!False`"""
 
     @abc.abstractmethod
-    def delete_leader(self):
-        """Voluntarily remove leader key from DCS
+    def _delete_leader(self):
+        """Remove leader key from DCS.
         This method should remove leader key if current instance is the leader"""
+
+    def delete_leader(self, last_operation=None):
+        """Update optime/leader and voluntarily remove leader key from DCS.
+        This method should remove leader key if current instance is the leader.
+        :param last_operation: latest checkpoint location in bytes"""
+
+        if last_operation:
+            self.write_leader_optime(last_operation)
+        return self._delete_leader()
 
     @abc.abstractmethod
     def cancel_initialization(self):

@@ -2,7 +2,7 @@ import unittest
 
 from mock import Mock, patch
 from patroni.exceptions import PatroniException
-from patroni.utils import Retry, RetryFailedError, polling_loop, validate_directory
+from patroni.utils import Retry, RetryFailedError, enable_keepalive, polling_loop, validate_directory
 
 
 class TestUtils(unittest.TestCase):
@@ -32,6 +32,13 @@ class TestUtils(unittest.TestCase):
     @patch('os.path.isdir', Mock(return_value=False))
     def test_validate_directory_is_not_a_directory(self):
         self.assertRaises(PatroniException, validate_directory, "/tmp")
+
+    def test_enable_keepalive(self):
+        with patch('socket.SIO_KEEPALIVE_VALS', 1, create=True):
+            self.assertIsNotNone(enable_keepalive(Mock(), 10, 5))
+        for platform in ('linux2', 'darwin', 'other'):
+            with patch('sys.platform', platform):
+                self.assertIsNone(enable_keepalive(Mock(), 10, 5))
 
 
 @patch('time.sleep', Mock())

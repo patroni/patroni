@@ -9,19 +9,27 @@ import datetime
 import os
 import six
 import socket
+import sys
 
-from patroni.exceptions import PostgresConnectionException, PostgresException
-from patroni.postgresql.misc import postgres_version_to_int
-from patroni.utils import deep_compare, parse_bool, patch_config, Retry, \
-    RetryFailedError, parse_int, split_host_port, tzutc, uri, cluster_as_json
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from six.moves.socketserver import ThreadingMixIn
+from six.moves.urllib_parse import urlparse, parse_qs
 from threading import Thread
+
+from .exceptions import PostgresConnectionException, PostgresException
+from .postgresql.misc import postgres_version_to_int
+from .utils import deep_compare, enable_keepalive, parse_bool, patch_config, Retry, \
+    RetryFailedError, parse_int, split_host_port, tzutc, uri, cluster_as_json
 
 logger = logging.getLogger(__name__)
 
 
 class RestApiHandler(BaseHTTPRequestHandler):
+
+    def _write_status_code_only(self, status_code):
+        message = self.responses[status_code][0]
+        self.wfile.write('{0} {1} {2}\r\n\r\n'.format(self.protocol_version, status_code, message).encode('utf-8'))
+        self.log_request(status_code)
 
     def _write_response(self, status_code, body, content_type='text/html', headers=None):
         self.send_response(status_code)
@@ -80,32 +88,45 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_GET(self, write_status_code_only=False):
         """Default method for processing all GET requests which can not be routed to other methods"""
 
-        time_start = time.time()
-        request_type = 'OPTIONS' if write_status_code_only else 'GET'
-
         path = '/master' if self.path == '/' else self.path
         response = self.get_postgresql_status()
 
         patroni = self.server.patroni
         cluster = patroni.dcs.cluster
 
-        if not cluster and patroni.ha.is_paused():
-            primary_status_code = 200 if response['role'] == 'master' else 503
-        else:
-            primary_status_code = 200 if patroni.ha.is_leader() else 503
+        leader_optime = cluster and cluster.last_leader_operation or 0
+        replayed_location = response.get('xlog', {}).get('replayed_location', 0)
+        max_replica_lag = parse_int(self.path_query.get('lag', [sys.maxsize])[0], 'B')
+        if max_replica_lag is None:
+            max_replica_lag = sys.maxsize
+        is_lagging = leader_optime and leader_optime > replayed_location + max_replica_lag
 
-        replica_status_code = 200 if not patroni.noloadbalance and \
+        replica_status_code = 200 if not patroni.noloadbalance and not is_lagging and \
             response.get('role') == 'replica' and response.get('state') == 'running' else 503
+
+        if not cluster and patroni.ha.is_paused():
+            primary_status_code = 200 if response.get('role') == 'master' else 503
+            standby_leader_status_code = 200 if response.get('role') == 'standby_leader' else 503
+        elif patroni.ha.is_leader():
+            if patroni.ha.is_standby_cluster():
+                primary_status_code = replica_status_code = 503
+                standby_leader_status_code = 200 if response.get('role') in ('replica', 'standby_leader') else 503
+            else:
+                primary_status_code = 200
+                standby_leader_status_code = 503
+        else:
+            primary_status_code = standby_leader_status_code = 503
+
         status_code = 503
 
-        if patroni.ha.is_standby_cluster() and ('standby_leader' in path or 'standby-leader' in path):
-            status_code = 200 if patroni.ha.is_leader() else 503
+        if 'standby_leader' in path or 'standby-leader' in path:
+            status_code = standby_leader_status_code
         elif 'master' in path or 'leader' in path or 'primary' in path or 'read-write' in path:
             status_code = primary_status_code
         elif 'replica' in path:
             status_code = replica_status_code
         elif 'read-only' in path:
-            status_code = 200 if primary_status_code == 200 else replica_status_code
+            status_code = 200 if 200 in (primary_status_code, standby_leader_status_code) else replica_status_code
         elif 'health' in path:
             status_code = 200 if response.get('state') == 'running' else 503
         elif cluster:  # dcs is available
@@ -117,24 +138,32 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 status_code = replica_status_code
 
         if write_status_code_only:  # when haproxy sends OPTIONS request it reads only status code and nothing more
-            message = self.responses[status_code][0]
-            self.wfile.write('{0} {1} {2}\r\n'.format(self.protocol_version, status_code, message).encode('utf-8'))
+            self._write_status_code_only(status_code)
         else:
             self._write_status_response(status_code, response)
 
-        time_end = time.time()
-        self.log_message('%s %s %s latency: %s ms', request_type, path,
-                         status_code, (time_end - time_start) * 1000)
-
     def do_OPTIONS(self):
         self.do_GET(write_status_code_only=True)
+
+    def do_GET_liveness(self):
+        self._write_status_code_only(200)
+
+    def do_GET_readiness(self):
+        patroni = self.server.patroni
+        if patroni.ha.is_leader():
+            status_code = 200
+        elif patroni.postgresql.state == 'running':
+            status_code = 200 if patroni.dcs.cluster else 503
+        else:
+            status_code = 503
+        self._write_status_code_only(status_code)
 
     def do_GET_patroni(self):
         response = self.get_postgresql_status(True)
         self._write_status_response(200, response)
 
     def do_GET_cluster(self):
-        cluster = self.server.patroni.dcs.cluster or self.server.patroni.dcs.get_cluster()
+        cluster = self.server.patroni.dcs.get_cluster(True)
         self._write_json_response(200, cluster_as_json(cluster))
 
     def do_GET_history(self):
@@ -284,6 +313,20 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self._write_response(code, data)
 
     @check_auth
+    def do_DELETE_switchover(self):
+        failover = self.server.patroni.dcs.get_cluster().failover
+        if failover and failover.scheduled_at:
+            if not self.server.patroni.dcs.manual_failover('', '', index=failover.index):
+                return self.send_error(409)
+            else:
+                data = "scheduled switchover deleted"
+                code = 200
+        else:
+            data = "no switchover is scheduled"
+            code = 404
+        self._write_response(code, data)
+
+    @check_auth
     def do_POST_reinitialize(self):
         request = self._read_json_content(body_is_optional=True)
 
@@ -405,6 +448,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         ret = BaseHTTPRequestHandler.parse_request(self)
         if ret:
+            urlpath = urlparse(self.path)
+            self.path = urlpath.path
+            self.path_query = parse_qs(urlpath.query) or {}
             mname = self.path.lstrip('/').split('/')[0]
             mname = self.command + ('_' + mname if mname else '')
             if hasattr(self, 'do_' + mname):
@@ -418,67 +464,63 @@ class RestApiHandler(BaseHTTPRequestHandler):
         return retry(self.server.query, sql, *params)
 
     def get_postgresql_status(self, retry=False):
+        postgresql = self.server.patroni.postgresql
         try:
             cluster = self.server.patroni.dcs.cluster
 
-            if self.server.patroni.postgresql.state not in ('running', 'restarting', 'starting'):
+            if postgresql.state not in ('running', 'restarting', 'starting'):
                 raise RetryFailedError('')
-            stmt = ("SELECT pg_catalog.to_char(pg_catalog.pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),"
-                    " CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0"
-                    " ELSE ('x' || pg_catalog.substr(pg_catalog.pg_{0}file_name("
-                    "pg_catalog.pg_current_{0}_{1}()), 1, 8))::bit(32)::int END,"
-                    " CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0"
-                    " ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), '0/0')::bigint END,"
-                    " pg_catalog.pg_{0}_{1}_diff(COALESCE(pg_catalog.pg_last_{0}_receive_{1}(),"
-                    " pg_catalog.pg_last_{0}_replay_{1}()), '0/0')::bigint,"
-                    " pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint,"
+            stmt = ("SELECT " + postgresql.POSTMASTER_START_TIME + ", " + postgresql.TL_LSN + ","
                     " pg_catalog.to_char(pg_catalog.pg_last_xact_replay_timestamp(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),"
-                    " pg_catalog.pg_is_in_recovery() AND pg_catalog.pg_is_{0}_replay_paused(), "
                     " pg_catalog.array_to_json(pg_catalog.array_agg(pg_catalog.row_to_json(ri))) "
                     "FROM (SELECT (SELECT rolname FROM pg_authid WHERE oid = usesysid) AS usename,"
                     " application_name, client_addr, w.state, sync_state, sync_priority"
                     " FROM pg_catalog.pg_stat_get_wal_senders() w, pg_catalog.pg_stat_get_activity(pid)) AS ri")
 
-            row = self.query(stmt.format(self.server.patroni.postgresql.wal_name,
-                                         self.server.patroni.postgresql.lsn_name), retry=retry)[0]
+            row = self.query(stmt.format(postgresql.wal_name, postgresql.lsn_name), retry=retry)[0]
 
             result = {
-                'state': self.server.patroni.postgresql.state,
+                'state': postgresql.state,
                 'postmaster_start_time': row[0],
                 'role': 'replica' if row[1] == 0 else 'master',
-                'server_version': self.server.patroni.postgresql.server_version,
+                'server_version': postgresql.server_version,
                 'cluster_unlocked': bool(not cluster or cluster.is_unlocked()),
                 'xlog': ({
-                    'received_location': row[3],
-                    'replayed_location': row[4],
-                    'replayed_timestamp': row[5],
-                    'paused': row[6]} if row[1] == 0 else {
+                    'received_location': row[4] or row[3],
+                    'replayed_location': row[3],
+                    'replayed_timestamp': row[6],
+                    'paused': row[5]} if row[1] == 0 else {
                     'location': row[2]
                 })
             }
 
             if result['role'] == 'replica' and self.server.patroni.ha.is_standby_cluster():
-                result['role'] = self.server.patroni.postgresql.role
+                result['role'] = postgresql.role
 
             if row[1] > 0:
                 result['timeline'] = row[1]
             else:
                 leader_timeline = None if not cluster or cluster.is_unlocked() else cluster.leader.timeline
-                result['timeline'] = self.server.patroni.postgresql.replica_cached_timeline(leader_timeline)
+                result['timeline'] = postgresql.replica_cached_timeline(leader_timeline)
 
             if row[7]:
                 result['replication'] = row[7]
 
             return result
         except (psycopg2.Error, RetryFailedError, PostgresConnectionException):
-            state = self.server.patroni.postgresql.state
+            state = postgresql.state
             if state == 'running':
                 logger.exception('get_postgresql_status')
                 state = 'unknown'
-            return {'state': state, 'role': self.server.patroni.postgresql.role}
+            return {'state': state, 'role': postgresql.role}
+
+    def handle_one_request(self):
+        self.__start_time = time.time()
+        BaseHTTPRequestHandler.handle_one_request(self)
 
     def log_message(self, fmt, *args):
-        logger.debug("API thread: %s - - [%s] %s", self.client_address[0], self.log_date_time_string(), fmt % args)
+        latency = 1000.0 * (time.time() - self.__start_time)
+        logger.debug("API thread: %s - - %s latency: %0.3f ms", self.client_address[0], fmt % args, latency)
 
 
 class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
@@ -525,10 +567,10 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             if self.__protocol == 'https' and self.__ssl_options.get('verify_client') in ('required', 'optional'):
                 return rh._write_response(403, 'client certificate required')
 
-            reason = self.check_auth_header(rh.headers.get('Authorization'))
-            if reason:
-                headers = {'WWW-Authenticate': 'Basic realm="' + self.patroni.__class__.__name__ + '"'}
-                return rh._write_response(401, reason, headers=headers)
+        reason = self.check_auth_header(rh.headers.get('Authorization'))
+        if reason:
+            headers = {'WWW-Authenticate': 'Basic realm="' + self.patroni.__class__.__name__ + '"'}
+            return rh._write_response(401, reason, headers=headers)
         return True
 
     @staticmethod
@@ -598,6 +640,24 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             self.socket = ctx.wrap_socket(self.socket, server_side=True)
         if reloading_config:
             self.start()
+
+    def process_request_thread(self, request, client_address):
+        if isinstance(request, tuple):
+            sock, newsock = request
+            try:
+                request = sock.context.wrap_socket(newsock, do_handshake_on_connect=sock.do_handshake_on_connect,
+                                                   suppress_ragged_eofs=sock.suppress_ragged_eofs, server_side=True)
+            except socket.error:
+                return
+        super(RestApiServer, self).process_request_thread(request, client_address)
+
+    def get_request(self):
+        sock = self.socket
+        newsock, addr = socket.socket.accept(sock)
+        enable_keepalive(newsock, 10, 3)
+        if hasattr(sock, 'context'):  # SSLSocket, we want to do the deferred handshake from a thread
+            newsock = (sock, newsock)
+        return newsock, addr
 
     def reload_config(self, config):
         if 'listen' not in config:  # changing config in runtime

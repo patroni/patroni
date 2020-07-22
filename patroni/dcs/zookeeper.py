@@ -70,6 +70,7 @@ class ZooKeeper(AbstractDCS):
         self._client.add_listener(self.session_listener)
 
         self._fetch_cluster = True
+        self._fetch_optime = True
 
         self._orig_kazoo_connect = self._client._connection._connect
         self._client._connection._connect = self._kazoo_connect
@@ -95,9 +96,13 @@ class ZooKeeper(AbstractDCS):
         if state in [KazooState.SUSPENDED, KazooState.LOST]:
             self.cluster_watcher(None)
 
+    def optime_watcher(self, event):
+        self._fetch_optime = True
+        self.event.set()
+
     def cluster_watcher(self, event):
         self._fetch_cluster = True
-        self.event.set()
+        self.optime_watcher(event)
 
     def reload_config(self, config):
         self.set_retry_timeout(config['retry_timeout'])
@@ -141,6 +146,12 @@ class ZooKeeper(AbstractDCS):
         except NoNodeError:
             return None
 
+    def get_leader_optime(self, leader):
+        watch = self.optime_watcher if not leader or leader.name != self._name else None
+        optime = self.get_node(self.leader_optime_path, watch)
+        self._fetch_optime = False
+        return optime and int(optime[0]) or 0
+
     @staticmethod
     def member(name, value, znode):
         return Member.from_node(znode.version, name, znode.ephemeralOwner, value)
@@ -178,10 +189,6 @@ class ZooKeeper(AbstractDCS):
         history = self.get_node(self.history_path, watch=self.cluster_watcher) if self._HISTORY in nodes else None
         history = history and TimelineHistory.from_node(history[1].mzxid, history[0])
 
-        # get last leader operation
-        last_leader_operation = self._OPTIME in nodes and self._fetch_cluster and self.get_node(self.leader_optime_path)
-        last_leader_operation = last_leader_operation and int(last_leader_operation[0]) or 0
-
         # get synchronization state
         sync = self.get_node(self.sync_path, watch=self.cluster_watcher) if self._SYNC in nodes else None
         sync = SyncState.from_node(sync and sync[1].version, sync and sync[0])
@@ -206,6 +213,9 @@ class ZooKeeper(AbstractDCS):
                 leader = Leader(leader[1].version, leader[1].ephemeralOwner, member)
                 self._fetch_cluster = member.index == -1
 
+        # get last leader operation
+        last_leader_operation = self._OPTIME in nodes and self.get_leader_optime(leader)
+
         # failover key
         failover = self.get_node(self.failover_path, watch=self.cluster_watcher) if self._FAILOVER in nodes else None
         failover = failover and Failover.from_node(failover[1].version, failover[0])
@@ -221,7 +231,19 @@ class ZooKeeper(AbstractDCS):
                 logger.exception('get_cluster')
                 self.cluster_watcher(None)
                 raise ZooKeeperError('ZooKeeper in not responding properly')
+        # Optime ZNode was updated or doesn't exist and we are not leader
+        elif (self._fetch_optime and not self._fetch_cluster or not cluster.last_leader_operation) and\
+                not (cluster.leader and cluster.leader.name == self._name):
+            try:
+                optime = self.get_leader_optime(cluster.leader)
+                cluster = Cluster(cluster.initialize, cluster.config, cluster.leader, optime,
+                                  cluster.members, cluster.failover, cluster.sync, cluster.history)
+            except Exception:
+                pass
         return cluster
+
+    def _bypass_caches(self):
+        self._fetch_cluster = True
 
     def _create(self, path, value, retry=False, ephemeral=False):
         try:
@@ -315,7 +337,7 @@ class ZooKeeper(AbstractDCS):
     def _update_leader(self):
         return True
 
-    def delete_leader(self):
+    def _delete_leader(self):
         self._client.restart()
         return True
 
@@ -346,6 +368,6 @@ class ZooKeeper(AbstractDCS):
         return self.set_sync_state_value("{}", index)
 
     def watch(self, leader_index, timeout):
-        if super(ZooKeeper, self).watch(leader_index, timeout):
+        if super(ZooKeeper, self).watch(leader_index, timeout) and not self._fetch_optime:
             self._fetch_cluster = True
         return self._fetch_cluster

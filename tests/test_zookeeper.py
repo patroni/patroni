@@ -37,6 +37,8 @@ class MockKazooClient(Mock):
                 b'postgres://repuser:rep-pass@localhost:5434/postgres?application_name=http://127.0.0.1:8009/patroni',
                 ZnodeStat(0, 0, 0, 0, 0, 0, 0, 0 if self.exists else -1, 0, 0, 0)
             )
+        elif path.endswith('/optime/leader'):
+            return (b'500', ZnodeStat(0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0))
         elif path.endswith('/leader'):
             if self.leader:
                 return (b'foo', ZnodeStat(0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0))
@@ -150,9 +152,15 @@ class TestZooKeeper(unittest.TestCase):
 
     def test_get_cluster(self):
         self.assertRaises(ZooKeeperError, self.zk.get_cluster)
-        cluster = self.zk.get_cluster()
+        cluster = self.zk.get_cluster(True)
         self.assertIsInstance(cluster.leader, Leader)
         self.zk.touch_member({'foo': 'foo'})
+        self.zk._name = 'bar'
+        self.zk.optime_watcher(None)
+        with patch.object(ZooKeeper, 'get_node', Mock(side_effect=Exception)):
+            self.zk.get_cluster()
+        cluster = self.zk.get_cluster()
+        self.assertEqual(cluster.last_leader_operation, 500)
 
     def test_delete_leader(self):
         self.assertTrue(self.zk.delete_leader())
@@ -213,6 +221,7 @@ class TestZooKeeper(unittest.TestCase):
     def test_watch(self):
         self.zk.watch(None, 0)
         self.zk.event.isSet = Mock(return_value=True)
+        self.zk._fetch_optime = False
         self.zk.watch(None, 0)
 
     def test__kazoo_connect(self):

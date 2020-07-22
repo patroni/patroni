@@ -113,17 +113,17 @@ def parse_dsn(value):
     Very simple equivalent of `psycopg2.extensions.parse_dsn` introduced in 2.7.0.
     We are not using psycopg2 function in order to remain compatible with 2.5.4+.
     There is one minor difference though, this function removes `dbname` from the result
-    and sets the sslmode` to `prefer` if it is not present in the connection string.
-    This is necessary to simplify comparison of the old and the new values.
+    and sets the `sslmode`, 'gssencmode', and `channel_binding` to `prefer` if it is not present in
+    the connection string. This is necessary to simplify comparison of the old and the new values.
 
     >>> r = parse_dsn('postgresql://u%2Fse:pass@:%2f123,[%2Fhost2]/db%2Fsdf?application_name=mya%2Fpp&ssl=true')
     >>> r == {'application_name': 'mya/pp', 'host': ',/host2', 'sslmode': 'require',\
-              'password': 'pass', 'port': '/123', 'user': 'u/se'}
+              'password': 'pass', 'port': '/123', 'user': 'u/se', 'gssencmode': 'prefer', 'channel_binding': 'prefer'}
     True
     >>> r = parse_dsn(" host = 'host' dbname = db\\\\ name requiressl=1 ")
-    >>> r == {'host': 'host', 'sslmode': 'require'}
+    >>> r == {'host': 'host', 'sslmode': 'require', 'gssencmode': 'prefer', 'channel_binding': 'prefer'}
     True
-    >>> parse_dsn('requiressl = 0\\\\') == {'sslmode': 'prefer'}
+    >>> parse_dsn('requiressl = 0\\\\') == {'sslmode': 'prefer', 'gssencmode': 'prefer', 'channel_binding': 'prefer'}
     True
     >>> parse_dsn("host=a foo = '") is None
     True
@@ -147,6 +147,8 @@ def parse_dsn(value):
             ret.setdefault('sslmode', 'prefer')
         if 'dbname' in ret:
             del ret['dbname']
+        ret.setdefault('gssencmode', 'prefer')
+        ret.setdefault('channel_binding', 'prefer')
     return ret
 
 
@@ -374,7 +376,7 @@ class ConfigHandler(object):
             configuration.append(os.path.basename(self._postgresql_base_conf_name))
         if not self.hba_file:
             configuration.append('pg_hba.conf')
-        if not self._server_parameters.get('ident_file'):
+        if not self.ident_file:
             configuration.append('pg_ident.conf')
         return configuration
 
@@ -481,7 +483,7 @@ class ConfigHandler(object):
         :returns: True if pg_ident.conf was rewritten.
         """
 
-        if not self._server_parameters.get('ident_file') and self._config.get('pg_ident'):
+        if not self.ident_file and self._config.get('pg_ident'):
             with ConfigWriter(self._pg_ident_conf) as f:
                 f.writelines(self._config['pg_ident'])
             return True
@@ -492,6 +494,10 @@ class ConfigHandler(object):
         ret = member.conn_kwargs(self.replication)
         ret['application_name'] = self._postgresql.name
         ret.setdefault('sslmode', 'prefer')
+        if self._postgresql.major_version >= 120000:
+            ret.setdefault('gssencmode', 'prefer')
+        if self._postgresql.major_version >= 130000:
+            ret.setdefault('channel_binding', 'prefer')
         if self._krbsrvname:
             ret['krbsrvname'] = self._krbsrvname
         if 'database' in ret:
@@ -500,8 +506,9 @@ class ConfigHandler(object):
 
     def format_dsn(self, params, include_dbname=False):
         # A list of keywords that can be found in a conninfo string. Follows what is acceptable by libpq
-        keywords = ('dbname', 'user', 'passfile' if params.get('passfile') else 'password', 'host', 'port', 'sslmode',
-                    'sslcompression', 'sslcert', 'sslkey', 'sslrootcert', 'sslcrl', 'application_name', 'krbsrvname')
+        keywords = ('dbname', 'user', 'passfile' if params.get('passfile') else 'password', 'host', 'port',
+                    'sslmode', 'sslcompression', 'sslcert', 'sslkey', 'sslrootcert', 'sslcrl',
+                    'application_name', 'krbsrvname', 'gssencmode', 'channel_binding')
         if include_dbname:
             params = params.copy()
             params['dbname'] = params.get('database') or self._postgresql.database
@@ -645,6 +652,17 @@ class ConfigHandler(object):
         elif not primary_conninfo:
             return False
 
+        wal_receiver_primary_conninfo = self._postgresql.primary_conninfo()
+        if wal_receiver_primary_conninfo:
+            wal_receiver_primary_conninfo = parse_dsn(wal_receiver_primary_conninfo)
+            # when wal receiver is alive use primary_conninfo from pg_stat_wal_receiver for comparison
+            if wal_receiver_primary_conninfo:
+                primary_conninfo = wal_receiver_primary_conninfo
+                # There could be no password in the primary_conninfo or it is masked.
+                # Just copy the "desired" value in order to make comparison succeed.
+                if 'password' in wanted_primary_conninfo:
+                    primary_conninfo['password'] = wanted_primary_conninfo['password']
+
         if 'passfile' in primary_conninfo and 'password' not in primary_conninfo \
                 and 'password' in wanted_primary_conninfo:
             if self._check_passfile(primary_conninfo['passfile'], wanted_primary_conninfo):
@@ -687,6 +705,13 @@ class ConfigHandler(object):
                     return True, True
             else:  # empty string, primary_conninfo is not in the config
                 primary_conninfo[0] = {}
+
+        # when wal receiver is alive take primary_slot_name from pg_stat_wal_receiver
+        wal_receiver_primary_slot_name = self._postgresql.primary_slot_name()
+        if not wal_receiver_primary_slot_name and self._postgresql.primary_conninfo():
+            wal_receiver_primary_slot_name = ''
+        if wal_receiver_primary_slot_name is not None:
+            self._current_recovery_params['primary_slot_name'][0] = wal_receiver_primary_slot_name
 
         required = {'restart': 0, 'reload': 0}
 
@@ -938,10 +963,12 @@ class ConfigHandler(object):
                         logger.warning('Removing invalid parameter `%s` from postgresql.parameters', param)
                         server_parameters.pop(param)
 
-            if not server_parameters.get('hba_file') and config.get('pg_hba'):
+            if (not server_parameters.get('hba_file') or server_parameters['hba_file'] == self._pg_hba_conf) \
+                    and config.get('pg_hba'):
                 hba_changed = self._config.get('pg_hba', []) != config['pg_hba']
 
-            if not server_parameters.get('ident_file') and config.get('pg_ident'):
+            if (not server_parameters.get('ident_file') or server_parameters['ident_file'] == self._pg_hba_conf) \
+                    and config.get('pg_ident'):
                 ident_changed = self._config.get('pg_ident', []) != config['pg_ident']
 
         self._config = config
@@ -1025,6 +1052,10 @@ class ConfigHandler(object):
 
         for name, cname in options_mapping.items():
             value = parse_int(effective_configuration[name])
+            if cname not in data:
+                logger.warning('%s is missing from pg_controldata output', cname)
+                continue
+
             cvalue = parse_int(data[cname])
             if cvalue > value:
                 effective_configuration[name] = cvalue
@@ -1045,8 +1076,14 @@ class ConfigHandler(object):
                 if self._postgresql.major_version >= 110000 else self._superuser
 
     @property
+    def ident_file(self):
+        ident_file = self._server_parameters.get('ident_file')
+        return None if ident_file == self._pg_ident_conf else ident_file
+
+    @property
     def hba_file(self):
-        return self._server_parameters.get('hba_file')
+        hba_file = self._server_parameters.get('hba_file')
+        return None if hba_file == self._pg_hba_conf else hba_file
 
     @property
     def pg_hba_conf(self):

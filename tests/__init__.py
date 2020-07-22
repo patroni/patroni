@@ -1,4 +1,3 @@
-import datetime
 import os
 import shutil
 import unittest
@@ -23,6 +22,7 @@ class MockResponse(object):
     def __init__(self, status_code=200):
         self.status_code = status_code
         self.content = '{}'
+        self.reason = 'Not Found'
 
     @property
     def data(self):
@@ -35,6 +35,10 @@ class MockResponse(object):
     @staticmethod
     def getheader(*args):
         return ''
+
+    @staticmethod
+    def getheaders():
+        return {'content-type': 'json'}
 
 
 def requests_get(url, **kwargs):
@@ -88,13 +92,13 @@ class MockCursor(object):
         elif sql.startswith('SELECT slot_name'):
             self.results = [('blabla', 'physical'), ('foobar', 'physical'), ('ls', 'logical', 'a', 'b')]
         elif sql.startswith('SELECT CASE WHEN pg_catalog.pg_is_in_recovery()'):
-            self.results = [(1, 2, 1)]
+            self.results = [(1, 2, 1, 0, False, 1, 1, None, None)]
         elif sql.startswith('SELECT pg_catalog.pg_is_in_recovery()'):
             self.results = [(False, 2)]
         elif sql.startswith('SELECT pg_catalog.to_char'):
             replication_info = '[{"application_name":"walreceiver","client_addr":"1.2.3.4",' +\
                                '"state":"streaming","sync_state":"async","sync_priority":0}]'
-            self.results = [('', 0, '', '', '', '', False, replication_info)]
+            self.results = [('', 0, '', 0, '', '', False, replication_info)]
         elif sql.startswith('SELECT name, setting'):
             self.results = [('wal_segment_size', '2048', '8kB', 'integer', 'internal'),
                             ('wal_block_size', '8192', None, 'integer', 'internal'),
@@ -106,12 +110,7 @@ class MockCursor(object):
                             ('autovacuum', 'on', None, 'bool', 'sighup'),
                             ('unix_socket_directories', '/tmp', None, 'string', 'postmaster')]
         elif sql.startswith('IDENTIFY_SYSTEM'):
-            self.results = [('1', 2, '0/402EEC0', '')]
-        elif sql.startswith('SELECT isdir, modification'):
-            self.results = [(False, datetime.datetime.now())]
-        elif sql.startswith('SELECT pg_catalog.pg_read_file'):
-            self.results = [('1\t0/40159C0\tno recovery target specified\n\n'
-                             '2\t1/40159C0\tno recovery target specified\n',)]
+            self.results = [('1', 3, '0/402EEC0', '')]
         elif sql.startswith('TIMELINE_HISTORY '):
             self.results = [('', b'x\t0/40159C0\tno recovery target specified\n\n'
                                  b'1\t0/40159C0\tno recovery target specified\n\n'
