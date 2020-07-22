@@ -68,10 +68,10 @@ Etcd
 
 Etcdv3
 ------
-Environment names for Etcdv3 are similar as for Etcd, you just need to use `ETCD3` instead of `ETCD` in the variable name. Example: `PATRONI_ETCD3_HOST`, `PATRONI_ETCD3_CACERT`, and so on.
+Environment names for Etcdv3 are similar as for Etcd, you just need to use ``ETCD3`` instead of ``ETCD`` in the variable name. Example: ``PATRONI_ETCD3_HOST``, ``PATRONI_ETCD3_CACERT``, and so on.
 
 .. warning::
-    Keys created with protocol version 2 are not visible with protocol version 3 and the other way around, therefore it is not possible to switch from etcd to etcd3 just by updating Patroni configuration.
+    Keys created with protocol version 2 are not visible with protocol version 3 and the other way around, therefore it is not possible to switch from Etcd to Etcdv3 just by updating Patroni configuration.
 
 
 ZooKeeper
