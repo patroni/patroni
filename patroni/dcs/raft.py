@@ -6,88 +6,115 @@ import time
 
 from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
 from pysyncobj import SyncObj, SyncObjConf, replicated, FAIL_REASON
-from pysyncobj.poller import createPoller
-from pysyncobj.node import Node, NODE_STATUS
-
+from pysyncobj.transport import Node, TCPTransport, CONNECTION_STATE
 
 logger = logging.getLogger(__name__)
 
 
-class SyncObjUtility(object):
+class MessageNode(Node):
 
-    def __init__(self, syncObj):
-        self.syncObj = syncObj
-        self._poller = createPoller('auto')
+    def __init__(self, address):
+        self.address = address
+
+
+class UtilityTransport(TCPTransport):
+
+    def __init__(self, syncObj, selfNode, otherNodes):
+        super(UtilityTransport, self).__init__(syncObj, selfNode, otherNodes)
+        self._selfIsReadonlyNode = False
+
+    def _connectIfNecessarySingle(self, node):
+        pass
+
+    def connectionState(self, node):
+        return self._connections[node].state
+
+    def isDisconnected(self, node):
+        return self.connectionState(node) == CONNECTION_STATE.DISCONNECTED
+
+    def connectIfRequiredSingle(self, node):
+        if self.isDisconnected(node):
+            return self._connections[node].connect(node.ip, node.port)
+
+    def disconnectSingle(self, node):
+        self._connections[node].disconnect()
+
+
+class SyncObjUtility(SyncObj):
+
+    def __init__(self, otherNodes, conf):
+        autoTick = conf.autoTick
+        conf.autoTick = False
+        super(SyncObjUtility, self).__init__(None, otherNodes, conf, transportClass=UtilityTransport)
+        conf.autoTick = autoTick
+        self._SyncObj__transport.setOnMessageReceivedCallback(self._onMessageReceived)
         self.__result = None
 
-    def setPartnerAddress(self, partner):
-        self.__node = Node(self, partner, True)
+    def setPartnerNode(self, partner):
+        self.__node = partner
 
     def sendMessage(self, message):
-        self.__message = message
-        self.__node.connectIfRequired()
-        while self.__node.getStatus() != NODE_STATUS.DISCONNECTED:
+        # Abuse the fact that node address is send as a first message
+        self._SyncObj__transport._selfNode = MessageNode(message)
+        self._SyncObj__transport.connectIfRequiredSingle(self.__node)
+        while not self._SyncObj__transport.isDisconnected(self.__node):
             self._poller.poll(0.5)
         return self.__result
 
-    # selfAddress is send as a first message, we will abuse that fact
-    def _getSelfNodeAddr(self):
-        return self.__message
-
     def _onMessageReceived(self, _, message):
         self.__result = message
-        self.__node._Node__conn.disconnect()
-        self.__node._Node__lastConnectAttemptTime = 0
+        self._SyncObj__transport.disconnectSingle(self.__node)
 
-    def __getattr__(self, name):
-        return getattr(self.syncObj, name)
+
+class MyTCPTransport(TCPTransport):
+
+    def _onIncomingMessageReceived(self, conn, message):
+        if self._syncObj.encryptor and not conn.sendRandKey:
+            conn.sendRandKey = message
+            conn.recvRandKey = os.urandom(32)
+            conn.send(conn.recvRandKey)
+            return
+
+        # Utility messages
+        if isinstance(message, list) and message[0] == 'members':
+            conn.send(self._syncObj._get_members())
+            return True
+
+        return super(MyTCPTransport, self)._onIncomingMessageReceived(conn, message)
 
 
 class DynMemberSyncObj(SyncObj):
 
     def __init__(self, selfAddress, partnerAddrs, conf):
-        autoTick = conf.autoTick
-        conf.autoTick = False
-        super(DynMemberSyncObj, self).__init__(None, partnerAddrs, conf)
-
-        utility = SyncObjUtility(self)
-
         add_self = False
-        nodes = partnerAddrs[:]
-        nodes.extend([n.getAddress() for n in self._SyncObj__nodes if n.getAddress() not in partnerAddrs])
-        for node in nodes:
-            utility.setPartnerAddress(node)
-            response = utility.sendMessage(['members'])
-            if response:
-                partnerAddrs = [member['addr'] for member in response if member['addr'] != selfAddress]
-                if len(partnerAddrs) == len(response):
-                    if not conf.dynamicMembershipChange:
-                        selfAddress = None
-                    elif selfAddress:
-                        add_self = True
+        if selfAddress:
+            utility = SyncObjUtility(partnerAddrs, conf)
+            for node in utility._SyncObj__otherNodes:
+                utility.setPartnerNode(node)
+                response = utility.sendMessage(['members'])
+                if response:
+                    partnerAddrs = [member['addr'] for member in response if member['addr'] != selfAddress]
+                    add_self = len(partnerAddrs) == len(response)
+                    break
 
-        conf.autoTick = autoTick
-        super(DynMemberSyncObj, self).__init__(selfAddress, partnerAddrs, conf)
+        super(DynMemberSyncObj, self).__init__(selfAddress, partnerAddrs, conf, transportClass=MyTCPTransport)
         if add_self:
-            utility.sendMessage(['add', selfAddress])
+            threading.Thread(target=utility.sendMessage, args=(['add', selfAddress],)).start()
 
-    def __get_members(self):
-        ret = [{'addr': n.getAddress(), 'status': n.getStatus(),
-                'leader': n.getAddress() == self._getLeader()} for n in self._SyncObj__nodes]
-        ret.append({'addr': self._getSelfNodeAddr(), 'status': NODE_STATUS.CONNECTED, 'leader': self._isLeader()})
+    def _get_members(self):
+        ret = [{'addr': node.id, 'leader': node == self._getLeader(),
+                'status': CONNECTION_STATE.CONNECTED if node in self._SyncObj__connectedNodes
+                else CONNECTION_STATE.DISCONNECTED} for node in self._SyncObj__otherNodes]
+        ret.append({'addr': self._SyncObj__selfNode.id, 'leader': self._isLeader(),
+                    'status': CONNECTION_STATE.CONNECTED})
         return ret
 
-    # original __onUtilityMessage returns data in a strange format...
-    def _SyncObj__onUtilityMessage(self, conn, message):
-        if message[0] == 'members':
-            conn.send(self.__get_members())
-            return True
-        return super(DynMemberSyncObj, self)._SyncObj__onUtilityMessage(conn, message)
-
     def _SyncObj__doChangeCluster(self, request, reverse=False):
-        ret = super(DynMemberSyncObj, self)._SyncObj__doChangeCluster(request, reverse)
-        if ret:
-            self.forceLogCompaction()
+        ret = False
+        if not self._SyncObj__selfNode or request[0] != 'add' or reverse or request[1] != self._SyncObj__selfNode.id:
+            ret = super(DynMemberSyncObj, self)._SyncObj__doChangeCluster(request, reverse)
+            if ret:
+                self.forceLogCompaction()
         return ret
 
 
@@ -260,8 +287,10 @@ class Raft(AbstractDCS):
         self.set_retry_timeout(int(config.get('retry_timeout') or 10))
 
     def _on_set(self, key, value):
-        if value['created'] == value['updated'] and (key.startswith(self.members_path) or key == self.leader_path) \
-                or key in (self.config_path, self.sync_path):
+        leader = (self._sync_obj.get(self.leader_path) or {}).get('value')
+        if key == value['created'] == value['updated'] and \
+                (key.startswith(self.members_path) or key == self.leader_path and leader != self._name) or \
+                key == self.leader_optime_path and leader != self._name or key in (self.config_path, self.sync_path):
             self.event.set()
 
     def _on_delete(self, key):
@@ -355,7 +384,7 @@ class Raft(AbstractDCS):
     def initialize(self, create_new=True, sysid=''):
         return self._sync_obj.set(self.initialize_path, sysid, prevExist=(not create_new))
 
-    def delete_leader(self):
+    def _delete_leader(self):
         return self._sync_obj.delete(self.leader_path, prevValue=self._name, timeout=1)
 
     def cancel_initialization(self):
