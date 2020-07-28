@@ -97,6 +97,13 @@ independently of Patroni.
 
 .. _running_configuring:
 
+Planning the Number of PostgreSQL Nodes
+---------------------------------------
+
+Patroni/PostgreSQL nodes are decoupled from DCS nodes (except when Patroni implements RAFT on its own) and therefore
+there is no requirement on the minimal number of nodes. Running a cluster consisting of one master and one standby is 
+perfectly fine. You can add more standby nodes later.
+
 Running and Configuring
 -----------------------
 
