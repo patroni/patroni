@@ -6,7 +6,7 @@ import socket
 import stat
 import time
 
-from patroni.exceptions import PatroniException
+from patroni.exceptions import PatroniFatalException
 from six.moves.urllib_parse import urlparse, parse_qsl, unquote
 from urllib3.response import HTTPHeaderDict
 
@@ -339,8 +339,8 @@ class ConfigHandler(object):
         self._auto_conf_mtime = None
         self._pgpass = os.path.abspath(config.get('pgpass') or os.path.join(os.path.expanduser('~'), 'pgpass'))
         if os.path.exists(self._pgpass) and not os.path.isfile(self._pgpass):
-            raise PatroniException("'{}' exists and it's not a file, check your `postgresql.pgpass` configuration"
-                                   .format(self._pgpass))
+            raise PatroniFatalException("'{0}' exists and it's not a file, check your `postgresql.pgpass` configuration"
+                                        .format(self._pgpass))
         self._passfile = None
         self._passfile_mtime = None
         self._synchronous_standby_names = None
@@ -748,7 +748,7 @@ class ConfigHandler(object):
             def escape(value):
                 return re.sub(r'([:\\])', r'\\\1', str(value))
 
-            record = {n: escape(record.get(n, '*')) for n in ('host', 'port', 'user', 'password')}
+            record = {n: escape(record.get(n) or '*') for n in ('host', 'port', 'user', 'password')}
             return '{host}:{port}:*:{user}:{password}'.format(**record)
 
     def write_pgpass(self, record):
