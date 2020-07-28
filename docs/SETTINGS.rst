@@ -105,6 +105,20 @@ Most of the parameters are optional, but you have to specify one of the **host**
 -  **register\_service**: (optional) whether or not to register a service with the name defined by the scope parameter and the tag master, replica or standby-leader depending on the node's role. Defaults to **false**.
 -  **service\_check\_interval**: (optional) how often to perform health check against registered url.
 
+The ``token`` needs to have the following ACL permissions:
+
+::
+
+    service_prefix "${scope}" {
+        policy = "write"
+    }
+    key_prefix "${namespace}/${scope}" {
+        policy = "write"
+    }
+    session_prefix "" {
+        policy = "write"
+    }
+
 Etcd
 ----
 Most of the parameters are optional, but you have to specify one of the **host**, **hosts**, **url**, **proxy** or **srv**
