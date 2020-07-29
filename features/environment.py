@@ -165,6 +165,11 @@ class PatroniController(AbstractController):
             config = yaml.safe_load(f)
             config.pop('etcd', None)
 
+        raft_port = os.environ.get('RAFT_PORT')
+        if raft_port:
+            os.environ['RAFT_PORT'] = str(int(raft_port) + 1)
+            config['raft'] = {'data_dir': self._output_dir, 'self_addr': 'localhost:' + os.environ['RAFT_PORT']}
+
         host = config['postgresql']['listen'].split(':')[0]
 
         config['postgresql']['listen'] = config['postgresql']['connect_address'] = '{0}:{1}'.format(host, self.__PORT)
@@ -529,6 +534,48 @@ class ExhibitorController(ZooKeeperController):
     def __init__(self, context):
         super(ExhibitorController, self).__init__(context, False)
         os.environ.update({'PATRONI_EXHIBITOR_HOSTS': 'localhost', 'PATRONI_EXHIBITOR_PORT': '8181'})
+
+
+class RaftController(AbstractDcsController):
+
+    CONTROLLER_ADDR = 'localhost:1234'
+
+    def __init__(self, context):
+        super(RaftController, self).__init__(context)
+        os.environ.update(PATRONI_RAFT_PARTNER_ADDRS="'" + self.CONTROLLER_ADDR + "'", RAFT_PORT='1234')
+        self._raft = None
+
+    def _start(self):
+        env = os.environ.copy()
+        del env['PATRONI_RAFT_PARTNER_ADDRS']
+        env['PATRONI_RAFT_SELF_ADDR'] = self.CONTROLLER_ADDR
+        env['PATRONI_RAFT_DATA_DIR'] = self._work_directory
+        return subprocess.Popen([sys.executable, '-m', 'coverage', 'run',
+                                '--source=patroni', '-p', 'patroni_raft_controller.py'],
+                                stdout=self._log, stderr=subprocess.STDOUT, env=env)
+
+    def query(self, key, scope='batman'):
+        ret = self._raft.get(self.path(key, scope))
+        return ret and ret['value']
+
+    def set(self, key, value):
+        self._raft.set(self.path(key), value)
+
+    def cleanup_service_tree(self):
+        from patroni.dcs.raft import KVStoreTTL
+        from pysyncobj import SyncObjConf
+
+        if self._raft:
+            self._raft.destroy()
+            self._raft._SyncObj__thread.join()
+            self.stop()
+            os.makedirs(self._work_directory)
+            self.start()
+
+        ready_event = threading.Event()
+        conf = SyncObjConf(appendEntriesUseBatch=False, dynamicMembershipChange=True, onReady=ready_event.set)
+        self._raft = KVStoreTTL(None, [self.CONTROLLER_ADDR], conf)
+        ready_event.wait()
 
 
 class PatroniPoolController(object):

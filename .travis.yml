@@ -22,6 +22,8 @@ matrix:
   - python: "3.6"
     env: DCS="consul" TEST_SUITE="behave"
   - python: "3.6"
+    env: DCS="raft" TEST_SUITE="behave"
+  - python: "3.6"
     env: DCS="kubernetes" TEST_SUITE="behave"
 branches:
   only:
@@ -100,6 +102,10 @@ install:
                 echo -e 'HTTP/1.0 200 OK\nContent-Type: application/json\n\n{"servers":["127.0.0.1"],"port":2181}' \
                     | nc -l 8181 &> /dev/null
             done&
+        }
+
+        function get_raft() {
+            return 0
         }
 
         attempt_num=1

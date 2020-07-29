@@ -55,6 +55,7 @@ class TestConfig(unittest.TestCase):
             'PATRONI_ZOOKEEPER_HOSTS': "'host1:2181','host2:2181'",
             'PATRONI_EXHIBITOR_HOSTS': 'host1,host2',
             'PATRONI_EXHIBITOR_PORT': '8181',
+            'PATRONI_RAFT_PARTNER_ADDRS': "'host1:1234','host2:1234'",
             'PATRONI_foo_HOSTS': '[host1,host2',  # Exception in parse_list
             'PATRONI_SUPERUSER_USERNAME': 'postgres',
             'PATRONI_SUPERUSER_PASSWORD': 'zalando',

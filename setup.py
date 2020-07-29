@@ -23,7 +23,7 @@ KEYWORDS = 'etcd governor patroni postgresql postgres ha haproxy confd' +\
     ' zookeeper exhibitor consul streaming replication kubernetes k8s'
 
 EXTRAS_REQUIRE = {'aws': ['boto'], 'etcd': ['python-etcd'], 'consul': ['python-consul'],
-                  'exhibitor': ['kazoo'], 'zookeeper': ['kazoo'], 'kubernetes': []}
+                  'exhibitor': ['kazoo'], 'zookeeper': ['kazoo'], 'kubernetes': [], 'raft': ['pysyncobj']}
 COVERAGE_XML = True
 COVERAGE_HTML = False
 
@@ -51,6 +51,7 @@ CLASSIFIERS = [
 
 CONSOLE_SCRIPTS = ['patroni = patroni:main',
                    'patronictl = patroni.ctl:ctl',
+                   'patroni_raft_controller = patroni.raft_controller:main',
                    "patroni_wale_restore = patroni.scripts.wale_restore:main",
                    "patroni_aws = patroni.scripts.aws:main"]
 
