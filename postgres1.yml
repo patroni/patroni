@@ -30,6 +30,13 @@ etcd:
   #It is possible to change this behavior through by setting:
   #use_proxies: true
 
+#raft:
+#  data_dir: .
+#  self_addr: 127.0.0.1:2223
+#  partner_addrs:
+#  - 127.0.0.1:2222
+#  - 127.0.0.1:2224
+
 bootstrap:
   # this section will be written into Etcd:/<namespace>/<scope>/config after initializing new cluster
   # and all other cluster members will use it as a `global configuration`
