@@ -850,10 +850,51 @@ class Postgresql(object):
         self.config.setup_server_parameters()
         return True
 
+    def pg_wal_realpath(self):
+        """Returns a dict containing the symlink (key) and target (value) for the wal directory"""
+        links = {}
+        for pg_wal_dir in ('pg_xlog', 'pg_wal'):
+            pg_wal_path = os.path.join(self._data_dir, pg_wal_dir)
+            if os.path.exists(pg_wal_path) and os.path.islink(pg_wal_path):
+                pg_wal_realpath = os.path.realpath(pg_wal_path)
+                links[pg_wal_path] = pg_wal_realpath
+        return links
+
+    def pg_tblspc_realpaths(self):
+        """Returns a dict containing the symlink (key) and target (values) for the tablespaces"""
+        links = {}
+        pg_tblsp_dir = os.path.join(self._data_dir, 'pg_tblspc')
+        if os.path.exists(pg_tblsp_dir):
+            for tsdn in os.listdir(pg_tblsp_dir):
+                pg_tsp_path = os.path.join(pg_tblsp_dir, tsdn)
+                if parse_int(tsdn) and os.path.islink(pg_tsp_path):
+                    pg_tsp_rpath = os.path.realpath(pg_tsp_path)
+                    links[pg_tsp_path] = pg_tsp_rpath
+        return links
+
     def move_data_directory(self):
         if os.path.isdir(self._data_dir) and not self.is_running():
             try:
-                new_name = '{0}_{1}'.format(self._data_dir, time.strftime('%Y-%m-%d-%H-%M-%S'))
+                postfix = time.strftime('%Y-%m-%d-%H-%M-%S')
+
+                # let's see if the wal directory is a symlink, in this case we
+                # should move the target
+                for (source, pg_wal_realpath) in self.pg_wal_realpath().items():
+                    logger.info('renaming WAL directory and updating symlink: %s', pg_wal_realpath)
+                    new_name = '{0}_{1}'.format(pg_wal_realpath, postfix)
+                    os.rename(pg_wal_realpath, new_name)
+                    os.unlink(source)
+                    os.symlink(source, new_name)
+
+                # Move user defined tablespace directory
+                for (source, pg_tsp_rpath) in self.pg_tblspc_realpaths().items():
+                    logger.info('renaming user defined tablespace directory and updating symlink: %s', pg_tsp_rpath)
+                    new_name = '{0}_{1}'.format(pg_tsp_rpath, postfix)
+                    os.rename(pg_tsp_rpath, new_name)
+                    os.unlink(source)
+                    os.symlink(source, new_name)
+
+                new_name = '{0}_{1}'.format(self._data_dir, postfix)
                 logger.info('renaming data directory to %s', new_name)
                 os.rename(self._data_dir, new_name)
             except OSError:
@@ -871,23 +912,16 @@ class Postgresql(object):
                 os.remove(self._data_dir)
             elif os.path.isdir(self._data_dir):
 
-                # let's see if pg_xlog|pg_wal is a symlink, in this case we
+                # let's see if wal directory is a symlink, in this case we
                 # should clean the target
-                for pg_wal_dir in ('pg_xlog', 'pg_wal'):
-                    pg_wal_path = os.path.join(self._data_dir, pg_wal_dir)
-                    if os.path.exists(pg_wal_path) and os.path.islink(pg_wal_path):
-                        pg_wal_realpath = os.path.realpath(pg_wal_path)
-                        logger.info('Removing WAL directory: %s', pg_wal_realpath)
-                        shutil.rmtree(pg_wal_realpath)
-                # Remove user defined tablespace directory
-                pg_tblsp_dir = os.path.join(self._data_dir, 'pg_tblspc')
-                if os.path.exists(pg_tblsp_dir):
-                    for tsdn in os.listdir(pg_tblsp_dir):
-                        pg_tsp_path = os.path.join(pg_tblsp_dir, tsdn)
-                        if parse_int(tsdn) and os.path.islink(pg_tsp_path):
-                            pg_tsp_rpath = os.path.realpath(pg_tsp_path)
-                            logger.info('Removing user defined tablespace directory: %s', pg_tsp_rpath)
-                            shutil.rmtree(pg_tsp_rpath, ignore_errors=True)
+                for pg_wal_realpath in self.pg_wal_realpath().values():
+                    logger.info('Removing WAL directory: %s', pg_wal_realpath)
+                    shutil.rmtree(pg_wal_realpath)
+
+                # Remove user defined tablespace directories
+                for pg_tsp_rpath in self.pg_tblspc_realpaths().values():
+                    logger.info('Removing user defined tablespace directory: %s', pg_tsp_rpath)
+                    shutil.rmtree(pg_tsp_rpath, ignore_errors=True)
 
                 shutil.rmtree(self._data_dir)
         except (IOError, OSError):
