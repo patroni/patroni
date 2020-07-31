@@ -29,7 +29,7 @@ Major Upgrade of PostgreSQL Version
 The only possible way to do a major upgrade currently is:
 
 1. Stop Patroni
-2. Upgrade PostgreSQL binaries and perform `pg_upgrade <https://www.postgresql.org/docs/current/pgupgrade.html>` on the master node
+2. Upgrade PostgreSQL binaries and perform `pg_upgrade <https://www.postgresql.org/docs/current/pgupgrade.html>`_ on the master node
 3. Update patroni.yml
 4. Remove the initialize key from DCS or wipe complete cluster state from DCS. The second one could be achieved by running ``patronictl remove <cluster-name>``. It is necessary because pg_upgrade runs initdb which actually creates a new database with a new PostgreSQL system identifier.
 5. If you wiped the cluster state in the previous step, you may wish to copy patroni.dynamic.json from old data dir to the new one.  It will help you to retain some PostgreSQL parameters you had set before.
