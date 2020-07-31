@@ -23,6 +23,21 @@ A Patroni cluster can be started with a data directory from a single-node Postgr
 3. Start Patroni (e.g. ``patroni /etc/patroni/patroni.yml``). It automatically detects that PostgreSQL daemon is already running but its configuration might be out-of-date.
 4. Ask Patroni to restart the node with ``patronictl restart cluster-name node-name``. This step is only required if PostgreSQL configuration is out-of-date.
 
+Major Upgrade of PostgreSQL Version
+===================================
+
+The only possible way to do a major upgrade currently is:
+
+1. Stop Patroni
+2. Upgrade PostgreSQL binaries and perform `pg_upgrade <https://www.postgresql.org/docs/current/pgupgrade.html>`_ on the master node
+3. Update patroni.yml
+4. Remove the initialize key from DCS or wipe complete cluster state from DCS. The second one could be achieved by running ``patronictl remove <cluster-name>``. It is necessary because pg_upgrade runs initdb which actually creates a new database with a new PostgreSQL system identifier.
+5. If you wiped the cluster state in the previous step, you may wish to copy patroni.dynamic.json from old data dir to the new one.  It will help you to retain some PostgreSQL parameters you had set before.
+6. Start Patroni on the master node.
+7. Upgrade PostgreSQL binaries, update patroni.yml and wipe the data_dir on standby nodes.
+8. Start Patroni on the standby nodes and wait for the replication to complete.
+
+Running pg_upgrade on standby nodes is not supported by PostgreSQL. If you know what you are doing, you can try the rsync procedure described in https://www.postgresql.org/docs/current/pgupgrade.html instead of wiping data_dir on standby nodes. The safest way is however to let Patroni replicate the data for you.
 
 FAQ
 ---
