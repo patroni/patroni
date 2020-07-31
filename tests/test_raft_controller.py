@@ -8,6 +8,7 @@ from patroni.config import Config
 from patroni.raft_controller import RaftController, main as _main
 
 from . import SleepException
+from .test_raft import remove_files
 
 
 class TestPatroniRaftController(unittest.TestCase):
@@ -15,10 +16,7 @@ class TestPatroniRaftController(unittest.TestCase):
     SELF_ADDR = '127.0.0.1:5360'
 
     def remove_files(self):
-        for f in ('journal', 'dump'):
-            f = self.SELF_ADDR + '.' + f
-            if os.path.exists(f):
-                os.unlink(f)
+        remove_files(self.SELF_ADDR + '.')
 
     @patch('pysyncobj.tcp_server.TcpServer.bind', Mock())
     def setUp(self):
