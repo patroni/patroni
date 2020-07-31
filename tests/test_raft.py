@@ -7,6 +7,21 @@ from patroni.dcs.raft import DynMemberSyncObj, KVStoreTTL, Raft, SyncObjUtility
 from pysyncobj import SyncObjConf, FAIL_REASON
 
 
+def remove_files(prefix):
+    for f in ('journal', 'dump'):
+        f = prefix + f
+        if os.path.isfile(f):
+            for i in range(0, 15):
+                try:
+                    if os.path.isfile(f):
+                        os.unlink(f)
+                        break
+                    else:
+                        break
+                except Exception:
+                    time.sleep(1.0)
+
+
 @patch('pysyncobj.tcp_server.TcpServer.bind', Mock())
 class TestDynMemberSyncObj(unittest.TestCase):
 
@@ -44,7 +59,7 @@ class TestDynMemberSyncObj(unittest.TestCase):
 class TestKVStoreTTL(unittest.TestCase):
 
     def setUp(self):
-        self.conf = SyncObjConf(appendEntriesUseBatch=False, appendEntriesPeriod=0.001, journalFile='foo.journal',
+        self.conf = SyncObjConf(appendEntriesUseBatch=False, appendEntriesPeriod=0.001,
                                 raftMinTimeout=0.004, raftMaxTimeout=0.005, autoTickPeriod=0.001)
         callback = Mock()
         callback.replicated = False
@@ -59,8 +74,6 @@ class TestKVStoreTTL(unittest.TestCase):
     def tearDown(self):
         if self.so:
             self.destroy(self.so)
-        if os.path.exists('foo.journal'):
-            os.unlink('foo.journal')
 
     def test_set(self):
         self.assertTrue(self.so.set('foo', 'bar', prevExist=False, ttl=30))
@@ -69,6 +82,7 @@ class TestKVStoreTTL(unittest.TestCase):
         self.assertTrue(self.so.retry(self.so._set, 'foo', {'value': 'buz', 'created': 1, 'updated': 1}))
 
     def test_delete(self):
+        self.conf.autoTickPeriod = 0.1
         self.so.set('foo', 'bar')
         self.so.set('fooo', 'bar')
         self.assertFalse(self.so.delete('foo', prevValue='buz'))
@@ -128,10 +142,7 @@ class TestRaft(unittest.TestCase):
         raft._sync_obj._SyncObj__thread.join()
 
     def tearDown(self):
-        for f in ('journal', 'dump'):
-            f = '127.0.0.1:1234.' + f
-            if os.path.exists(f):
-                os.unlink(f)
+        remove_files('127.0.0.1:1234.')
 
     def setUp(self):
         self.tearDown()

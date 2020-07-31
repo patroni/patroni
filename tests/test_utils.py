@@ -36,9 +36,10 @@ class TestUtils(unittest.TestCase):
     def test_enable_keepalive(self):
         with patch('socket.SIO_KEEPALIVE_VALS', 1, create=True):
             self.assertIsNotNone(enable_keepalive(Mock(), 10, 5))
-        for platform in ('linux2', 'darwin', 'other'):
-            with patch('sys.platform', platform):
-                self.assertIsNone(enable_keepalive(Mock(), 10, 5))
+        with patch('socket.SIO_KEEPALIVE_VALS', None, create=True):
+            for platform in ('linux2', 'darwin', 'other'):
+                with patch('sys.platform', platform):
+                    self.assertIsNone(enable_keepalive(Mock(), 10, 5))
 
 
 @patch('time.sleep', Mock())
