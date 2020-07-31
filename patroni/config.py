@@ -316,8 +316,9 @@ class Config(object):
                         value = parse_bool(value)
                     if value:
                         ret[name.lower()][suffix.lower()] = value
-        if 'etcd' in ret:
-            ret['etcd'].update(_get_auth('etcd'))
+        for dcs in ('etcd', 'etcd3'):
+            if dcs in ret:
+                ret[dcs].update(_get_auth(dcs))
 
         users = {}
         for param in list(os.environ.keys()):

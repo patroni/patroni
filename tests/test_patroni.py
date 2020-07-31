@@ -9,7 +9,7 @@ import patroni.config as config
 from mock import Mock, PropertyMock, patch
 from patroni.api import RestApiServer
 from patroni.async_executor import AsyncExecutor
-from patroni.dcs.etcd import Client
+from patroni.dcs.etcd import AbstractEtcdClientWithFailover
 from patroni.exceptions import DCSError
 from patroni.postgresql import Postgresql
 from patroni.postgresql.config import ConfigHandler
@@ -53,7 +53,7 @@ class TestPatroni(unittest.TestCase):
     @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
     @patch.object(etcd.Client, 'read', etcd_read)
     @patch.object(Thread, 'start', Mock())
-    @patch.object(Client, 'machines', PropertyMock(return_value=['http://remotehost:2379']))
+    @patch.object(AbstractEtcdClientWithFailover, 'machines', PropertyMock(return_value=['http://remotehost:2379']))
     def setUp(self):
         self._handlers = logging.getLogger().handlers[:]
         RestApiServer._BaseServer__is_shut_down = Mock()
@@ -75,7 +75,7 @@ class TestPatroni(unittest.TestCase):
     @patch('sys.argv', ['patroni.py', 'postgres0.yml'])
     @patch('time.sleep', Mock(side_effect=SleepException))
     @patch.object(etcd.Client, 'delete', Mock())
-    @patch.object(Client, 'machines', PropertyMock(return_value=['http://remotehost:2379']))
+    @patch.object(AbstractEtcdClientWithFailover, 'machines', PropertyMock(return_value=['http://remotehost:2379']))
     @patch.object(Thread, 'join', Mock())
     def test_patroni_patroni_main(self):
         with patch('subprocess.call', Mock(return_value=1)):

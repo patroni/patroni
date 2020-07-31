@@ -98,7 +98,6 @@ class TestPostgresql(BaseTestPostgresql):
     def setUp(self):
         super(TestPostgresql, self).setUp()
         self.p.config.write_postgresql_conf()
-        self.p._callback_executor = Mock()
 
     @patch('subprocess.Popen')
     @patch.object(Postgresql, 'wait_for_startup')

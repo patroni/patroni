@@ -6,7 +6,7 @@ import sys
 from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.config import Config
 from patroni.dcs import Cluster, ClusterConfig, Failover, Leader, Member, get_dcs, SyncState, TimelineHistory
-from patroni.dcs.etcd import Client
+from patroni.dcs.etcd import AbstractEtcdClientWithFailover
 from patroni.exceptions import DCSError, PostgresConnectionException, PatroniFatalException
 from patroni.ha import Ha, _MemberStatus
 from patroni.postgresql import Postgresql
@@ -185,7 +185,7 @@ class TestHa(PostgresInit):
     @patch.object(etcd.Client, 'read', etcd_read)
     def setUp(self):
         super(TestHa, self).setUp()
-        with patch.object(Client, 'machines') as mock_machines:
+        with patch.object(AbstractEtcdClientWithFailover, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
             self.p.set_state('running')
             self.p.set_role('replica')

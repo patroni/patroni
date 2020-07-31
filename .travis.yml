@@ -7,16 +7,17 @@ addons:
       - expect-dev # for unbuffer
 env:
   global:
-  - ETCDVERSION=3.0.17 ZKVERSION=3.4.14 CONSULVERSION=0.7.4
-  - PYVERSIONS="2.7 3.5 3.6"
-  - EXCLUDE_BEHAVE="3.5"
+  - ETCDVERSION=3.3.13 ZKVERSION=3.4.14 CONSULVERSION=0.7.4
+  - PYVERSIONS="2.7 3.6"
   - BOTO_CONFIG=/doesnotexist
 matrix:
   include:
   - python: "3.5"
-    env: TEST_SUITE="python setup.py"
+    env: PYVERSIONS="2.7 3.5 3.6" TEST_SUITE="python setup.py"
   - python: "3.6"
     env: DCS="etcd" TEST_SUITE="behave"
+  - python: "3.6"
+    env: DCS="etcd3" TEST_SUITE="behave"
   - python: "3.6"
     env: DCS="exhibitor" TEST_SUITE="behave"
   - python: "3.6"
@@ -36,10 +37,8 @@ before_cache:
 - |
   rm -fr $HOME/mycache/python*
   for pv in $PYVERSIONS; do
-      if [[ $TEST_SUITE != "behave" || $pv != $EXCLUDE_BEHAVE ]]; then
-          fpv=$(basename $(readlink $HOME/virtualenv/python${pv}))
-          mv $HOME/virtualenv/${fpv} $HOME/mycache/${fpv}
-      fi
+      fpv=$(basename $(readlink $HOME/virtualenv/python${pv}))
+      mv $HOME/virtualenv/${fpv} $HOME/mycache/${fpv}
   done
 install:
   - |
@@ -60,12 +59,17 @@ install:
         function get_etcd() {
             EC=~/mycache/etcd_${ETCDVERSION}
             if [[ ! -x $EC ]]; then
+                rm -rf ~/mycache/etcd_*
                 curl -L https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v${ETCDVERSION}-linux-amd64.tar.gz \
                     | tar xz -C . --strip=1 --wildcards --no-anchored etcd
                 [[ ${PIPESTATUS[0]} == 0 ]] || return 1
                 mv etcd $EC
             fi
             ln -s $EC etcd
+        }
+
+        function get_etcd3() {
+            get_etcd
         }
 
         function get_kubernetes() {
@@ -117,41 +121,38 @@ install:
     fi
 
     for pv in $PYVERSIONS; do
-        if [[ $TEST_SUITE != "behave" || $pv != $EXCLUDE_BEHAVE ]]; then
-            fpv=$(basename $(readlink $HOME/virtualenv/python$pv))
-            if [[ -d ~/mycache/${fpv} ]]; then
-                mv ~/virtualenv/${fpv} ~/virtualenv/${fpv}.bckp
-                mv ~/mycache/${fpv} ~/virtualenv/${fpv}
-            fi
-            source ~/virtualenv/python${pv}/bin/activate
-            # explicitly install all needed python modules to cache them
-            for p in '-r requirements.txt' 'psycopg2-binary behave codacy-coverage coverage coveralls flake8 mock pytest-cov pytest setuptools'; do
-                pip install $p --upgrade
-            done
+        fpv=$(basename $(readlink $HOME/virtualenv/python$pv))
+        if [[ -d ~/mycache/${fpv} ]]; then
+            mv ~/virtualenv/${fpv} ~/virtualenv/${fpv}.bckp
+            mv ~/mycache/${fpv} ~/virtualenv/${fpv}
         fi
+        source ~/virtualenv/python${pv}/bin/activate
+        # explicitly install all needed python modules to cache them
+        for p in '-r requirements.txt' 'psycopg2-binary behave codacy-coverage coverage coveralls flake8 mock pytest-cov pytest setuptools'; do
+            pip install $p --upgrade
+        done
     done
 script:
   - |
     for pv in $PYVERSIONS; do
-        if [[ $TEST_SUITE == "behave" && $pv == $EXCLUDE_BEHAVE ]]; then
-            continue
-        fi
-
         source ~/virtualenv/python${pv}/bin/activate
 
-        if [[ $TEST_SUITE != "behave" ]]; then
-            echo Running unit tests using python${pv}
-            unbuffer $TEST_SUITE test
-            $TEST_SUITE flake8
-        elif [[ $pv != $EXCLUDE_BEHAVE ]]; then
-            echo Running acceptance tests using python${pv}
+        if [[ $TEST_SUITE = "behave" ]]; then
+            echo Running integration tests using python${pv}
             if ! PATH=.:/usr/lib/postgresql/9.6/bin:$PATH unbuffer $TEST_SUITE; then
                 # output all log files when tests are failing
                 grep . features/output/*_failed/*postgres?.*
                 exit 1
             fi
+        else
+            echo Running unit tests using python${pv}
+            unbuffer $TEST_SUITE test
+            $TEST_SUITE flake8
         fi
+        mv .coverage /tmp/.coverage.$pv
     done
+    mv /tmp/.coverage.* .
+    python -m coverage combine
 
     set +e
 after_success:
