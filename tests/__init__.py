@@ -169,6 +169,7 @@ class PostgresInit(unittest.TestCase):
                    'stats_temp_directory': '/tmp'}
 
     @patch('psycopg2.connect', psycopg2_connect)
+    @patch('patroni.postgresql.CallbackExecutor', Mock())
     @patch.object(ConfigHandler, 'write_postgresql_conf', Mock())
     @patch.object(ConfigHandler, 'replace_pg_hba', Mock())
     @patch.object(ConfigHandler, 'replace_pg_ident', Mock())

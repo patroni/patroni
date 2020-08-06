@@ -66,6 +66,14 @@ Etcd
 -  **PATRONI\_ETCD\_CERT**: File with the client certificate.
 -  **PATRONI\_ETCD\_KEY**: File with the client key. Can be empty if the key is part of certificate.
 
+Etcdv3
+------
+Environment names for Etcdv3 are similar as for Etcd, you just need to use ``ETCD3`` instead of ``ETCD`` in the variable name. Example: ``PATRONI_ETCD3_HOST``, ``PATRONI_ETCD3_CACERT``, and so on.
+
+.. warning::
+    Keys created with protocol version 2 are not visible with protocol version 3 and the other way around, therefore it is not possible to switch from Etcd to Etcdv3 just by updating Patroni configuration.
+
+
 ZooKeeper
 ---------
 -  **PATRONI\_ZOOKEEPER\_HOSTS**: comma separated list of ZooKeeper cluster members: "'host1:port1','host2:port2','etc...'". It is important to quote every single entity!
@@ -87,6 +95,13 @@ Kubernetes
 -  **PATRONI\_KUBERNETES\_USE\_ENDPOINTS**: (optional) if set to true, Patroni will use Endpoints instead of ConfigMaps to run leader elections and keep cluster state.
 -  **PATRONI\_KUBERNETES\_POD\_IP**: (optional) IP address of the pod Patroni is running in. This value is required when `PATRONI_KUBERNETES_USE_ENDPOINTS` is enabled and is used to populate the leader endpoint subsets when the pod's PostgreSQL is promoted.
 -  **PATRONI\_KUBERNETES\_PORTS**: (optional) if the Service object has the name for the port, the same name must appear in the Endpoint object, otherwise service won't work. For example, if your service is defined as ``{Kind: Service, spec: {ports: [{name: postgresql, port: 5432, targetPort: 5432}]}}``, then you have to set ``PATRONI_KUBERNETES_PORTS='[{"name": "postgresql", "port": 5432}]'`` and Patroni will use it for updating subsets of the leader Endpoint. This parameter is used only if `PATRONI_KUBERNETES_USE_ENDPOINTS` is set.
+
+Raft
+----
+
+-  **PATRONI\_RAFT\_SELF\_ADDR**: ``ip:port`` to listen on for Raft connections. If not set, the node will not participate in consensus.
+-  **PATRONI\_RAFT\_PARTNER\_ADDRS**: list of other Patroni nodes in the cluster in format ``"'ip1:port1','ip2:port2'"``. It is important to quote every single entity!
+-  **PATRONI\_RAFT\_DATA\_DIR**: directory where to store Raft log and snapshot. If not specified the current working directory is used.
 
 PostgreSQL
 ----------

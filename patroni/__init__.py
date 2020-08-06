@@ -4,7 +4,8 @@ import signal
 import sys
 import time
 
-from patroni.version import __version__
+from .daemon import AbstractPatroniDaemon, abstract_main
+from .version import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -12,23 +13,19 @@ PATRONI_ENV_PREFIX = 'PATRONI_'
 KUBERNETES_ENV_PREFIX = 'KUBERNETES_'
 
 
-class Patroni(object):
+class Patroni(AbstractPatroniDaemon):
 
-    def __init__(self, conf):
+    def __init__(self, config):
         from patroni.api import RestApiServer
         from patroni.dcs import get_dcs
         from patroni.ha import Ha
-        from patroni.log import PatroniLogger
         from patroni.postgresql import Postgresql
         from patroni.request import PatroniRequest
         from patroni.watchdog import Watchdog
 
-        self.setup_signal_handlers()
+        super(Patroni, self).__init__(config)
 
         self.version = __version__
-        self.logger = PatroniLogger()
-        self.config = conf
-        self.logger.reload_config(self.config.get('log', {}))
         self.dcs = get_dcs(self.config)
         self.watchdog = Watchdog(self.config)
         self.load_dynamic_configuration()
@@ -71,14 +68,14 @@ class Patroni(object):
     def nosync(self):
         return bool(self.tags.get('nosync', False))
 
-    def reload_config(self, sighup=False):
+    def reload_config(self, sighup=False, local=False):
         try:
-            self.tags = self.get_tags()
-            self.logger.reload_config(self.config.get('log', {}))
-            self.watchdog.reload_config(self.config)
-            if sighup:
+            super(Patroni, self).reload_config(sighup, local)
+            if local:
+                self.tags = self.get_tags()
                 self.request.reload_config(self.config)
-            self.api.reload_config(self.config['restapi'])
+                self.api.reload_config(self.config['restapi'])
+            self.watchdog.reload_config(self.config)
             self.postgresql.reload_config(self.config['postgresql'], sighup)
             self.dcs.reload_config(self.config)
         except Exception:
@@ -87,15 +84,6 @@ class Patroni(object):
     @property
     def replicatefrom(self):
         return self.tags.get('replicatefrom')
-
-    def sighup_handler(self, *args):
-        self._received_sighup = True
-
-    def sigterm_handler(self, *args):
-        with self._sigterm_lock:
-            if not self._received_sigterm:
-                self._received_sigterm = True
-                sys.exit()
 
     @property
     def noloadbalance(self):
@@ -114,48 +102,24 @@ class Patroni(object):
         elif self.ha.watch(nap_time):
             self.next_run = time.time()
 
-    @property
-    def received_sigterm(self):
-        with self._sigterm_lock:
-            return self._received_sigterm
-
     def run(self):
         self.api.start()
-        self.logger.start()
         self.next_run = time.time()
+        super(Patroni, self).run()
 
-        while not self.received_sigterm:
-            if self._received_sighup:
-                self._received_sighup = False
-                if self.config.reload_local_configuration():
-                    self.reload_config(True)
-                else:
-                    self.postgresql.config.reload_config(self.config['postgresql'], True)
+    def _run_cycle(self):
+        logger.info(self.ha.run_cycle())
 
-            logger.info(self.ha.run_cycle())
+        if self.dcs.cluster and self.dcs.cluster.config and self.dcs.cluster.config.data \
+                and self.config.set_dynamic_configuration(self.dcs.cluster.config):
+            self.reload_config()
 
-            if self.dcs.cluster and self.dcs.cluster.config and self.dcs.cluster.config.data \
-                    and self.config.set_dynamic_configuration(self.dcs.cluster.config):
-                self.reload_config()
+        if self.postgresql.role != 'uninitialized':
+            self.config.save_cache()
 
-            if self.postgresql.role != 'uninitialized':
-                self.config.save_cache()
+        self.schedule_next_run()
 
-            self.schedule_next_run()
-
-    def setup_signal_handlers(self):
-        from threading import Lock
-
-        self._received_sighup = False
-        self._sigterm_lock = Lock()
-        self._received_sigterm = False
-        if os.name != 'nt':
-            signal.signal(signal.SIGHUP, self.sighup_handler)
-        signal.signal(signal.SIGTERM, self.sigterm_handler)
-
-    def shutdown(self):
-        with self._sigterm_lock:
-            self._received_sigterm = True
+    def _shutdown(self):
         try:
             self.api.shutdown()
         except Exception:
@@ -164,43 +128,14 @@ class Patroni(object):
             self.ha.shutdown()
         except Exception:
             logger.exception('Exception during Ha.shutdown')
-        self.logger.shutdown()
 
 
 def patroni_main():
-    import argparse
-
     from multiprocessing import freeze_support
-    from patroni.config import Config, ConfigParseError
     from patroni.validator import schema
 
     freeze_support()
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--version', action='version', version='%(prog)s {0}'.format(__version__))
-    parser.add_argument('--validate-config', action='store_true', help='Run config validator and exit')
-    parser.add_argument('configfile', nargs='?', default='',
-                        help='Patroni may also read the configuration from the {0} environment variable'
-                        .format(Config.PATRONI_CONFIG_VARIABLE))
-    args = parser.parse_args()
-    try:
-        if args.validate_config:
-            conf = Config(args.configfile, validator=schema)
-            sys.exit()
-        else:
-            conf = Config(args.configfile)
-    except ConfigParseError as e:
-        if e.value:
-            print(e.value)
-        parser.print_help()
-        sys.exit(1)
-    patroni = Patroni(conf)
-    try:
-        patroni.run()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        patroni.shutdown()
+    abstract_main(Patroni, schema)
 
 
 def fatal(string, *args):

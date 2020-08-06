@@ -293,6 +293,10 @@ class Config(object):
                 logger.exception('Exception when parsing list %s', value)
                 return None
 
+        _set_section_values('raft', ['data_dir', 'self_addr', 'partner_addrs'])
+        if 'raft' in ret and 'partner_addrs' in ret['raft']:
+            ret['raft']['partner_addrs'] = _parse_list(ret['raft']['partner_addrs'])
+
         for param in list(os.environ.keys()):
             if param.startswith(PATRONI_ENV_PREFIX):
                 # PATRONI_(ETCD|CONSUL|ZOOKEEPER|EXHIBITOR|...)_(HOSTS?|PORT|..)
@@ -313,8 +317,9 @@ class Config(object):
                         value = parse_bool(value)
                     if value:
                         ret[name.lower()][suffix.lower()] = value
-        if 'etcd' in ret:
-            ret['etcd'].update(_get_auth('etcd'))
+        for dcs in ('etcd', 'etcd3'):
+            if dcs in ret:
+                ret[dcs].update(_get_auth(dcs))
 
         users = {}
         for param in list(os.environ.keys()):

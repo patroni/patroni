@@ -96,7 +96,7 @@ Patroni can be installed with pip:
 
 where dependencies can be either empty, or consist of one or more of the following:
 
-etcd
+etcd or etcd3
     `python-etcd` module in order to use Etcd as DCS
 consul
     `python-consul` module in order to use Consul as DCS
@@ -106,6 +106,8 @@ exhibitor
     `kazoo` module in order to use Exhibitor as DCS (same dependencies as for Zookeeper)
 kubernetes
     `kubernetes` module in order to use Kubernetes as DCS in Patroni
+raft
+    `pysyncobj` module in order to use python Raft implementation as DCS
 aws
     `boto` in order to use AWS callbacks
 

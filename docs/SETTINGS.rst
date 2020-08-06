@@ -103,7 +103,22 @@ Most of the parameters are optional, but you have to specify one of the **host**
 -  **consistency**: (optional) Select consul consistency mode. Possible values are ``default``, ``consistent``, or ``stale`` (more details in `consul API reference <https://www.consul.io/api/features/consistency.html/>`__)
 -  **checks**: (optional) list of Consul health checks used for the session. By default an empty list is used.
 -  **register\_service**: (optional) whether or not to register a service with the name defined by the scope parameter and the tag master, replica or standby-leader depending on the node's role. Defaults to **false**.
+-  **service\_tags**: (optional) additional static tags to add to the Consul service apart from the role (``master``/``replica``/``standby-leader``).  By default an empty list is used.
 -  **service\_check\_interval**: (optional) how often to perform health check against registered url.
+
+The ``token`` needs to have the following ACL permissions:
+
+::
+
+    service_prefix "${scope}" {
+        policy = "write"
+    }
+    key_prefix "${namespace}/${scope}" {
+        policy = "write"
+    }
+    session_prefix "" {
+        policy = "write"
+    }
 
 Etcd
 ----
@@ -121,6 +136,14 @@ Most of the parameters are optional, but you have to specify one of the **host**
 -  **cacert**: (optional) The ca certificate. If present it will enable validation.
 -  **cert**: (optional) file with the client certificate.
 -  **key**: (optional) file with the client key. Can be empty if the key is part of **cert**.
+
+Etcdv3
+------
+If you want that Patroni works with Etcd cluster via protocol version 3, you need to use the ``etcd3`` section in the Patroni configuration file. All configuration parameters are the same as for ``etcd``.
+
+.. warning::
+    Keys created with protocol version 2 are not visible with protocol version 3 and the other way around, therefore it is not possible to switch from ``etcd`` to ``etcd3`` just by updating Patroni config file.
+
 
 ZooKeeper
 ----------
@@ -144,6 +167,35 @@ Kubernetes
 -  **use\_endpoints**: (optional) if set to true, Patroni will use Endpoints instead of ConfigMaps to run leader elections and keep cluster state.
 -  **pod\_ip**: (optional) IP address of the pod Patroni is running in. This value is required when `use_endpoints` is enabled and is used to populate the leader endpoint subsets when the pod's PostgreSQL is promoted.
 -  **ports**: (optional) if the Service object has the name for the port, the same name must appear in the Endpoint object, otherwise service won't work. For example, if your service is defined as ``{Kind: Service, spec: {ports: [{name: postgresql, port: 5432, targetPort: 5432}]}}``, then you have to set ``kubernetes.ports: [{"name": "postgresql", "port": 5432}]`` and Patroni will use it for updating subsets of the leader Endpoint. This parameter is used only if `kubernetes.use_endpoints` is set.
+
+Raft
+----
+-  **self\_addr**: ``ip:port`` to listen on for Raft connections. If not set, the node will not participate in consensus.
+-  **partner\_addrs**: list of other Patroni nodes in the cluster in format: ['ip1:port', 'ip2:port', 'etc...']
+-  **data\_dir**: directory where to store Raft log and snapshot. If not specified the current working directory is used.
+
+  Short FAQ about Raft implementation
+
+  - Q: How to list all the nodes providing consensus?
+
+    A: ``syncobj_admin -conn host:port`` -status where the host:port is the address of one of the cluster nodes
+
+  - Q: Node that was a part of consensus and has gone and I can't reuse the same IP for other node. How to remove this node from the consensus?
+
+    A: ``syncobj_admin -conn host:port -remove host2:port2`` where the ``host2:port2`` is the address of the node you want to remove from consensus.
+
+  - Q: Where to get the ``syncobj_admin`` utility?
+
+    A: It is installed together with ``pysyncobj`` module (python RAFT implementation), which is Patroni dependancy.
+
+  - Q: it is possible to run Patroni node without adding in to the consensus?
+
+    A: Yes, just comment out or remove ``raft.self_addr`` from Patroni configuration.
+
+  - Q: It is possible to run Patroni and PostgreSQL only on two nodes?
+
+    A: Yes, on the third node you can run ``patroni_raft_controller`` (without Patroni and PostgreSQL). In such setup one can temporary loose one node without affecting the primary.
+
 
 .. _postgresql_settings:
 
