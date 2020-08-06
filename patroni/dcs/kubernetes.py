@@ -229,6 +229,8 @@ class K8sClient(object):
                                     random.shuffle(addresses)
                                     return addresses
                 except Exception as e:
+                    if isinstance(e, k8s_client.rest.ApiException) and e.status == 403:
+                        raise
                     self.pool_manager.clear()
                     logger.error('Failed to get "kubernetes" endpoint from %s: %r', base_uri, e)
             raise K8sConnectionFailed('No more K8s API server nodes in the cluster')
@@ -239,6 +241,13 @@ class K8sClient(object):
                     api_servers_cache = [k8s_config.server] if updating_cache else self.api_servers_cache
                     self._api_servers_cache = self._get_api_servers(api_servers_cache)
                     if updating_cache:
+                        self.pool_manager.clear()
+                except k8s_client.rest.ApiException:  # 403 Permission denied
+                    logger.warning("Kubernetes RBAC doesn't allow GET access to the 'kubernetes' "
+                                   "endpoint in the 'default' namespace. Disabling 'bypass_api_service'.")
+                    self._bypass_api_service = False
+                    self._api_servers_cache = [k8s_config.server]
+                    if not updating_cache:
                         self.pool_manager.clear()
                 except K8sConnectionFailed:
                     if updating_cache:

@@ -95,6 +95,7 @@ class TestK8sConfig(unittest.TestCase):
             self.assertEqual(k8s_config.headers.get('authorization'), 'Bearer token')
 
 
+@patch('urllib3.PoolManager.request')
 class TestApiClient(unittest.TestCase):
 
     @patch.object(K8sConfig, '_server', '', create=True)
@@ -105,13 +106,11 @@ class TestApiClient(unittest.TestCase):
         self.mock_get_ep.content = '{"subsets":[{"ports":[{"name":"https","protocol":"TCP","port":443}],' +\
                                    '"addresses":[{"ip":"127.0.0.1"},{"ip":"127.0.0.2"}]}]}'
 
-    @patch('urllib3.PoolManager.request')
     def test__do_http_request(self, mock_request):
         mock_request.side_effect = [self.mock_get_ep] + [socket.timeout]
         self.assertRaises(K8sException, self.a.call_api, 'GET', 'f')
 
     @patch('time.sleep', Mock())
-    @patch('urllib3.PoolManager.request')
     def test_request(self, mock_request):
         retry = Retry(deadline=10, max_delay=1, max_tries=1, retry_exceptions=KubernetesRetriableException)
         mock_request.side_effect = [self.mock_get_ep] + 3 * [socket.timeout] + [k8s_client.rest.ApiException(500, '')]
@@ -121,6 +120,10 @@ class TestApiClient(unittest.TestCase):
         retry.deadline = 0.0001
         mock_request.side_effect = [socket.timeout, socket.timeout, self.mock_get_ep]
         self.assertRaises(K8sConnectionFailed, retry, self.a.call_api, 'GET', 'f', _retry=retry)
+
+    def test__refresh_api_servers_cache(self, mock_request):
+        mock_request.side_effect = k8s_client.rest.ApiException(403, '')
+        self.a.refresh_api_servers_cache()
 
 
 class TestCoreV1Api(unittest.TestCase):
