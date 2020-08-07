@@ -250,6 +250,8 @@ class TestRestApiHandler(unittest.TestCase):
         MockRestApiServer(RestApiHandler, request)
         mock_dcs.set_config_value.return_value = False
         MockRestApiServer(RestApiHandler, request)
+        mock_dcs.get_cluster.return_value.config = None
+        MockRestApiServer(RestApiHandler, request)
 
     @patch.object(MockPatroni, 'dcs')
     def test_do_PUT_config(self, mock_dcs):

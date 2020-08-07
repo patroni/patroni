@@ -196,6 +196,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
         request = self._read_json_content()
         if request:
             cluster = self.server.patroni.dcs.get_cluster()
+            if not (cluster.config and cluster.config.modify_index):
+                return self.send_error(503)
             data = cluster.config.data.copy()
             if patch_config(data, request):
                 value = json.dumps(data, separators=(',', ':'))
