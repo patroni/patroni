@@ -131,7 +131,7 @@ objects:
                 apiVersion: v1
                 fieldPath: metadata.namespace
           - name: PATRONI_KUBERNETES_BYPASS_API_SERVICE
-            value 'true'
+            value: 'true'
           - name: PATRONI_KUBERNETES_LABELS
             value: '{application: ${APPLICATION_NAME}, cluster-name: ${PATRONI_CLUSTER_NAME}}'
           - name: PATRONI_SUPERUSER_USERNAME
