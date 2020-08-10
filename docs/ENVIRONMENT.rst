@@ -66,6 +66,14 @@ Etcd
 -  **PATRONI\_ETCD\_CERT**: File with the client certificate.
 -  **PATRONI\_ETCD\_KEY**: File with the client key. Can be empty if the key is part of certificate.
 
+Etcdv3
+------
+Environment names for Etcdv3 are similar as for Etcd, you just need to use ``ETCD3`` instead of ``ETCD`` in the variable name. Example: ``PATRONI_ETCD3_HOST``, ``PATRONI_ETCD3_CACERT``, and so on.
+
+.. warning::
+    Keys created with protocol version 2 are not visible with protocol version 3 and the other way around, therefore it is not possible to switch from Etcd to Etcdv3 just by updating Patroni configuration.
+
+
 ZooKeeper
 ---------
 -  **PATRONI\_ZOOKEEPER\_HOSTS**: comma separated list of ZooKeeper cluster members: "'host1:port1','host2:port2','etc...'". It is important to quote every single entity!

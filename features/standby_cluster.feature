@@ -25,6 +25,7 @@ Feature: standby cluster
     Then postgres1 is a leader of batman1 after 10 seconds
     When I add the table foo to postgres0
     Then table foo is present on postgres1 after 20 seconds
+    And I sleep for 3 seconds
     When I issue a GET request to http://127.0.0.1:8009/master
     Then I receive a response code 503
     When I issue a GET request to http://127.0.0.1:8009/standby_leader

@@ -137,6 +137,14 @@ Most of the parameters are optional, but you have to specify one of the **host**
 -  **cert**: (optional) file with the client certificate.
 -  **key**: (optional) file with the client key. Can be empty if the key is part of **cert**.
 
+Etcdv3
+------
+If you want that Patroni works with Etcd cluster via protocol version 3, you need to use the ``etcd3`` section in the Patroni configuration file. All configuration parameters are the same as for ``etcd``.
+
+.. warning::
+    Keys created with protocol version 2 are not visible with protocol version 3 and the other way around, therefore it is not possible to switch from ``etcd`` to ``etcd3`` just by updating Patroni config file.
+
+
 ZooKeeper
 ----------
 -  **hosts**: list of ZooKeeper cluster members in format: ['host1:port1', 'host2:port2', 'etc...'].

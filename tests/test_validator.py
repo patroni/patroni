@@ -153,6 +153,7 @@ class TestValidator(unittest.TestCase):
         self.assertEqual(['etcd.hosts.1', 'etcd.hosts.2', 'kubernetes.pod_ip', 'postgresql.bin_dir',
                           'postgresql.data_dir', 'restapi.connect_address'], parse_output(output))
 
+    @patch('socket.inet_pton', Mock(), create=True)
     def test_bin_dir_is_empty(self, mock_out, mock_err):
         directories.append(config["postgresql"]["data_dir"])
         directories.append(config["postgresql"]["bin_dir"])
