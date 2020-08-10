@@ -533,7 +533,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self.patroni = patroni
         self.__listen = None
         self.__ssl_options = None
-        self.http_extra_headers = []
+        self.http_extra_headers = {}
         self.reload_config(config)
         self.daemon = True
 
