@@ -38,9 +38,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
             headers['Content-Type'] = content_type
         for name, value in headers.items():
             self.send_header(name, value)
-        for http_extra_header in self.server.patroni.api.http_extra_headers:
-            for name, value in  http_extra_header.items():
-                self.send_header(name, value)
+        for name, value in self.server.patroni.api.http_extra_headers.items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body.encode('utf-8'))
 
@@ -669,9 +668,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
         ssl_options = {n: config[n] for n in ('certfile', 'keyfile', 'cafile') if n in config}
 
-        http_extra_headers = config['http_extra_headers'] if config.get('http_extra_headers') else []
-        https_extra_headers = config['https_extra_headers'] if ssl_options.get('certfile') and config.get('https_extra_headers') else []
-        self.http_extra_headers = http_extra_headers + https_extra_headers
+        self.http_extra_headers = config['http_extra_headers'] if config.get('http_extra_headers') else {}
+        self.http_extra_headers.update( config['https_extra_headers'] if ssl_options.get('certfile') and config.get('https_extra_headers') else {} )
 
         if isinstance(config.get('verify_client'), six.string_types):
             ssl_options['verify_client'] = config['verify_client'].lower()
