@@ -142,8 +142,8 @@ REST API
 -  **PATRONI\_RESTAPI\_KEYFILE**: Specifies the file with the secret key in the PEM format.
 -  **PATRONI\_RESTAPI\_CAFILE**: Specifies the file with the CA_BUNDLE with certificates of trusted CAs to use while verifying client certs.
 -  **PATRONI\_RESTAPI\_VERIFY\_CLIENT**: ``none`` (default), ``optional`` or ``required``. When ``none`` REST API will not check client certificates. When ``required`` client certificates are required for all REST API calls. When ``optional`` client certificates are required for all unsafe REST API endpoints. When ``required`` is used, then client authentication succeeds, if the certificate signature verification succeeds. For ``optional`` the client cert will only be checked for ``PUT``, ``POST``, ``PATCH``, and ``DELETE`` requests. 
--  **PATRONI\_RESTAPI\_HTTP\_EXTRA\_HEADERs**: (optional) HTTP headers let the REST API server pass additional information with an HTTP response.
--  **PATRONI\_RESTAPI\_HTTPS\_EXTRA\_HEADERs**: (optional) HTTPS headers let the REST API server pass additional information with an HTTP response when TLS is enabled. This will also pass additional information set in http\_extra\_headers.
+-  **PATRONI\_RESTAPI\_HTTP\_EXTRA\_HEADERS**: (optional) HTTP headers let the REST API server pass additional information with an HTTP response.
+-  **PATRONI\_RESTAPI\_HTTPS\_EXTRA\_HEADERS**: (optional) HTTPS headers let the REST API server pass additional information with an HTTP response when TLS is enabled. This will also pass additional information set in http\_extra\_headers.
 
 CTL
 ---
