@@ -500,7 +500,8 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
                     value['type'] = 'logical' if value.get('database') and value.get('plugin') else 'physical'
 
                 if value['type'] == 'physical':
-                    if name != my_name:  # Don't try to create permanent physical replication slot for yourself
+                    # Don't try to create permanent physical replication slot for yourself
+                    if name != slot_name_from_member_name(my_name):
                         slots[name] = value
                     continue
                 elif value['type'] == 'logical' and value.get('database') and value.get('plugin'):
