@@ -274,6 +274,26 @@ REST API
         -  **http\_extra\_headers**: (optional): HTTP headers let the REST API server pass additional information with an HTTP response.
         -  **https\_extra\_headers**: (optional): HTTPS headers let the REST API server pass additional information with an HTTP response when TLS is enabled. This will also pass additional information set in http\_extra\_headers.
 
+Here is an example of both **http_extra_headers** and **https_extra_headers**:
+
+.. code:: YAML
+
+        restapi:
+          listen: <listen>
+          connect_address: <connect_address>
+          authentication:
+            username: <username>
+            password: <password>
+          http_extra_headers:
+            'X-Frame-Options': 'SAMEORIGIN'
+            'X-XSS-Protection': '1; mode=block'
+            'X-Content-Type-Options': 'nosniff'
+          cafile: <ca file>
+          certfile: <cert>
+          keyfile: <key>
+          https_extra_headers:
+            'Strict-Transport-Security': 'max-age=31536000; includeSubDomains'   
+
 .. _patronictl_settings:
 
 CTL
