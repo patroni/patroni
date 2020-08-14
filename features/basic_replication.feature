@@ -28,6 +28,27 @@ Feature: basic replication
     When I issue a GET request to http://127.0.0.1:8009/async
     Then I receive a response code 200
 
+  Scenario: check multi sync replication
+    Given I issue a PATCH request to http://127.0.0.1:8008/config with {"synchronous_node_count": 2}
+    Then I receive a response code 200
+    And I sleep for 10 seconds
+    Then "sync" key in DCS has sync_standby=postgres1,postgres2 after 5 seconds
+    When I issue a GET request to http://127.0.0.1:8010/sync
+    Then I receive a response code 200
+    When I issue a GET request to http://127.0.0.1:8009/sync
+    Then I receive a response code 200
+    When I issue a PATCH request to http://127.0.0.1:8008/config with {"synchronous_node_count": 1}
+    Then I receive a response code 200
+    And I shut down postgres1
+    And I sleep for 10 seconds
+    Then "sync" key in DCS has sync_standby=postgres2 after 10 seconds
+    When I start postgres1
+    And "members/postgres1" key in DCS has state=running after 10 seconds
+    When I issue a GET request to http://127.0.0.1:8010/sync
+    Then I receive a response code 200
+    When I issue a GET request to http://127.0.0.1:8009/async
+    Then I receive a response code 200
+
   Scenario: check the basic failover in synchronous mode
     Given I run patronictl.py pause batman
     Then I receive a response returncode 0

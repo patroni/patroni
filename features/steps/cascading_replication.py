@@ -21,7 +21,7 @@ def write_label(context, content, name):
     context.pctl.write_label(name, content)
 
 
-@step('"{name}" key in DCS has {key:w}={value:w} after {time_limit:d} seconds')
+@step('"{name}" key in DCS has {key:w}={value} after {time_limit:d} seconds')
 def check_member(context, name, key, value, time_limit):
     time_limit *= context.timeout_multiplier
     max_time = time.time() + int(time_limit)

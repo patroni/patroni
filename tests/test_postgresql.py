@@ -595,36 +595,43 @@ class TestPostgresql(BaseTestPostgresql):
     def test_pick_sync_standby(self):
         cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None,
                           SyncState(0, self.me.name, self.leadermem.name), None)
+        mock_cursor = Mock()
+        mock_cursor.fetchone.return_value = ('remote_apply',)
 
-        with patch.object(Postgresql, "query", return_value=[
-                    (self.leadermem.name, 'streaming', 'sync'),
-                    (self.me.name, 'streaming', 'async'),
-                    (self.other.name, 'streaming', 'async'),
+        with patch.object(Postgresql, "query", side_effect=[
+                    mock_cursor,
+                    [(self.leadermem.name, 'streaming', 'sync'),
+                     (self.me.name, 'streaming', 'async'),
+                     (self.other.name, 'streaming', 'async')]
                 ]):
-            self.assertEqual(self.p.pick_synchronous_standby(cluster), (self.leadermem.name, True))
+            self.assertEqual(self.p.pick_synchronous_standby(cluster), ([self.leadermem.name], [self.leadermem.name]))
 
-        with patch.object(Postgresql, "query", return_value=[
-                    (self.me.name, 'streaming', 'async'),
-                    (self.leadermem.name, 'streaming', 'potential'),
-                    (self.other.name, 'streaming', 'async'),
+        with patch.object(Postgresql, "query", side_effect=[
+                    mock_cursor,
+                    [(self.leadermem.name, 'streaming', 'potential'),
+                     (self.me.name, 'streaming', 'async'),
+                     (self.other.name, 'streaming', 'async')]
                 ]):
-            self.assertEqual(self.p.pick_synchronous_standby(cluster), (self.leadermem.name, False))
+            self.assertEqual(self.p.pick_synchronous_standby(cluster), ([self.leadermem.name], []))
 
-        with patch.object(Postgresql, "query", return_value=[
-                    (self.me.name, 'streaming', 'async'),
-                    (self.other.name, 'streaming', 'async'),
+        with patch.object(Postgresql, "query", side_effect=[
+                    mock_cursor,
+                    [(self.me.name, 'streaming', 'async'),
+                     (self.other.name, 'streaming', 'async')]
                 ]):
-            self.assertEqual(self.p.pick_synchronous_standby(cluster), (self.me.name, False))
+            self.assertEqual(self.p.pick_synchronous_standby(cluster), ([self.me.name], []))
 
-        with patch.object(Postgresql, "query", return_value=[
-                    ('missing', 'streaming', 'sync'),
-                    (self.me.name, 'streaming', 'async'),
-                    (self.other.name, 'streaming', 'async'),
+        with patch.object(Postgresql, "query", side_effect=[
+                    mock_cursor,
+                    [('missing', 'streaming', 'sync'),
+                     (self.me.name, 'streaming', 'async'),
+                     (self.other.name, 'streaming', 'async')]
                 ]):
-            self.assertEqual(self.p.pick_synchronous_standby(cluster), (self.me.name, False))
+            self.assertEqual(self.p.pick_synchronous_standby(cluster), ([self.me.name], []))
 
-        with patch.object(Postgresql, "query", return_value=[]):
-            self.assertEqual(self.p.pick_synchronous_standby(cluster), (None, False))
+        with patch.object(Postgresql, "query", side_effect=[mock_cursor, []]):
+            self.p._major_version = 90400
+            self.assertEqual(self.p.pick_synchronous_standby(cluster), ([], []))
 
     def test_set_sync_standby(self):
         def value_in_conf():
@@ -634,21 +641,21 @@ class TestPostgresql(BaseTestPostgresql):
                         return line.strip()
 
         mock_reload = self.p.reload = Mock()
-        self.p.config.set_synchronous_standby('n1')
+        self.p.config.set_synchronous_standby(['n1'])
         self.assertEqual(value_in_conf(), "synchronous_standby_names = 'n1'")
         mock_reload.assert_called()
 
         mock_reload.reset_mock()
-        self.p.config.set_synchronous_standby('n1')
+        self.p.config.set_synchronous_standby(['n1'])
         mock_reload.assert_not_called()
         self.assertEqual(value_in_conf(), "synchronous_standby_names = 'n1'")
 
-        self.p.config.set_synchronous_standby('n2')
+        self.p.config.set_synchronous_standby(['n1', 'n2'])
         mock_reload.assert_called()
-        self.assertEqual(value_in_conf(), "synchronous_standby_names = 'n2'")
+        self.assertEqual(value_in_conf(), "synchronous_standby_names = '2 (n1,n2)'")
 
         mock_reload.reset_mock()
-        self.p.config.set_synchronous_standby(None)
+        self.p.config.set_synchronous_standby([])
         mock_reload.assert_called()
         self.assertEqual(value_in_conf(), None)
 

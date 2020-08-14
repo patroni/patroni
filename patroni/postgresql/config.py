@@ -1007,16 +1007,20 @@ class ConfigHandler(object):
         else:
             logger.info('No PostgreSQL configuration items changed, nothing to reload.')
 
-    def set_synchronous_standby(self, name):
+    def set_synchronous_standby(self, sync_members):
         """Sets a node to be synchronous standby and if changed does a reload for PostgreSQL."""
-        if name and name != '*':
-            name = quote_ident(name)
-        if name != self._synchronous_standby_names:
-            if name is None:
+        if sync_members and sync_members != ['*']:
+            sync_members = [quote_ident(x) for x in sync_members]
+        if self._postgresql.major_version >= 90600 and len(sync_members) > 1:
+            sync_param = '{0} ({1})'.format(len(sync_members), ','.join(sync_members))
+        else:
+            sync_param = next(iter(sync_members), None)
+        if sync_param != self._synchronous_standby_names:
+            if sync_param is None:
                 self._server_parameters.pop('synchronous_standby_names', None)
             else:
-                self._server_parameters['synchronous_standby_names'] = name
-            self._synchronous_standby_names = name
+                self._server_parameters['synchronous_standby_names'] = sync_param
+            self._synchronous_standby_names = sync_param
             if self._postgresql.state == 'running':
                 self.write_postgresql_conf()
                 self._postgresql.reload()

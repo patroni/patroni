@@ -3,7 +3,7 @@ import etcd
 import os
 import sys
 
-from mock import Mock, MagicMock, PropertyMock, patch, mock_open
+from mock import call, Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.config import Config
 from patroni.dcs import Cluster, ClusterConfig, Failover, Leader, Member, get_dcs, SyncState, TimelineHistory
 from patroni.dcs.etcd import AbstractEtcdClientWithFailover
@@ -856,7 +856,7 @@ class TestHa(PostgresInit):
         with patch.object(self.ha.dcs, 'delete_sync_state') as mock_delete_sync:
             self.ha.run_cycle()
             mock_delete_sync.assert_called_once()
-            mock_set_sync.assert_called_once_with(None)
+            mock_set_sync.assert_called_once_with([])
 
         mock_set_sync.reset_mock()
         # Test sync key not touched when not there
@@ -864,14 +864,14 @@ class TestHa(PostgresInit):
         with patch.object(self.ha.dcs, 'delete_sync_state') as mock_delete_sync:
             self.ha.run_cycle()
             mock_delete_sync.assert_not_called()
-            mock_set_sync.assert_called_once_with(None)
+            mock_set_sync.assert_called_once_with([])
 
         mock_set_sync.reset_mock()
 
         self.ha.is_synchronous_mode = true
 
         # Test sync standby not touched when picking the same node
-        self.p.pick_synchronous_standby = Mock(return_value=('other', True))
+        self.p.pick_synchronous_standby = Mock(return_value=(['other'], ['other']))
         self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
         self.ha.run_cycle()
         mock_set_sync.assert_not_called()
@@ -879,10 +879,18 @@ class TestHa(PostgresInit):
         mock_set_sync.reset_mock()
 
         # Test sync standby is replaced when switching standbys
-        self.p.pick_synchronous_standby = Mock(return_value=('other2', False))
+        self.p.pick_synchronous_standby = Mock(return_value=(['other2'], []))
         self.ha.dcs.write_sync_state = Mock(return_value=True)
         self.ha.run_cycle()
-        mock_set_sync.assert_called_once_with('other2')
+        mock_set_sync.assert_called_once_with(['other2'])
+
+        # Test sync standby is replaced when new standby is joined
+        self.p.pick_synchronous_standby = Mock(return_value=(['other2', 'other3'], ['other2']))
+        self.ha.dcs.write_sync_state = Mock(return_value=True)
+        self.ha.run_cycle()
+        # mock_set_sync.assert_called_once_with(['other2'])
+        calls = [call(['other2']), call(['other2', 'other3'])]
+        mock_set_sync.assert_has_calls(calls)
 
         mock_set_sync.reset_mock()
         # Test sync standby is not disabled when updating dcs fails
@@ -895,7 +903,7 @@ class TestHa(PostgresInit):
         self.ha.dcs.write_sync_state = Mock(return_value=True)
         self.ha.dcs.get_cluster = Mock(return_value=get_cluster_initialized_with_leader(sync=('leader', 'other')))
         # self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
-        self.p.pick_synchronous_standby = Mock(return_value=('other2', True))
+        self.p.pick_synchronous_standby = Mock(return_value=(['other2'], ['other2']))
         self.ha.run_cycle()
         self.ha.dcs.get_cluster.assert_called_once()
         self.assertEqual(self.ha.dcs.write_sync_state.call_count, 2)
@@ -918,9 +926,9 @@ class TestHa(PostgresInit):
         # Test sync set to '*' when synchronous_mode_strict is enabled
         mock_set_sync.reset_mock()
         self.ha.is_synchronous_mode_strict = true
-        self.p.pick_synchronous_standby = Mock(return_value=(None, False))
+        self.p.pick_synchronous_standby = Mock(return_value=([], []))
         self.ha.run_cycle()
-        mock_set_sync.assert_called_once_with('*')
+        mock_set_sync.assert_called_once_with(['*'])
 
     def test_sync_replication_become_master(self):
         self.ha.is_synchronous_mode = true
@@ -935,7 +943,7 @@ class TestHa(PostgresInit):
 
         # When we just became master nobody is sync
         self.assertEqual(self.ha.enforce_master_role('msg', 'promote msg'), 'promote msg')
-        mock_set_sync.assert_called_once_with(None)
+        mock_set_sync.assert_called_once_with([])
         mock_write_sync.assert_called_once_with('leader', None, index=0)
 
         mock_set_sync.reset_mock()

@@ -894,38 +894,46 @@ class Postgresql(object):
             logger.exception('Could not remove data directory %s', self._data_dir)
             self.move_data_directory()
 
-    def pick_synchronous_standby(self, cluster):
+    def _get_synchronous_commit_param(self):
+        return self.query("SHOW synchronous_commit").fetchone()[0]
+
+    def pick_synchronous_standby(self, cluster, sync_node_count=1):
         """Finds the best candidate to be the synchronous standby.
 
         Current synchronous standby is always preferred, unless it has disconnected or does not want to be a
         synchronous standby any longer.
 
-        :returns tuple of candidate name or None, and bool showing if the member is the active synchronous standby.
+        :returns tuple of candidates list and synchronous standby list.
         """
-        current = cluster.sync.sync_standby
-        current = current.lower() if current else current
+        if self._major_version < 90600:
+            sync_node_count = 1
         members = {m.name.lower(): m for m in cluster.members}
         candidates = []
-        # Pick candidates based on who has flushed WAL farthest.
-        # TODO: for synchronous_commit = remote_write we actually want to order on write_location
+        sync_nodes = []
+        # Pick candidates based on who has higher replay/remote_write/flush lsn.
+        sync_commit_par = self._get_synchronous_commit_param()
+        sort_col = {'remote_apply': 'replay', 'remote_write': 'write'}.get(sync_commit_par, 'flush')
+        # pg_stat_replication.sync_state has 4 possible states - async, potential, quorum, sync.
+        # Sort clause "ORDER BY sync_state DESC" is to get the result in required order and to keep
+        # the result consistent in case if a synchronous standby member is slowed down OR async node
+        # receiving changes faster than the sync member (very rare but possible). Such cases would
+        # trigger sync standby member swapping frequently and the sort on sync_state desc should
+        # help in keeping the query result consistent.
         for app_name, state, sync_state in self.query(
                 "SELECT pg_catalog.lower(application_name), state, sync_state"
                 " FROM pg_catalog.pg_stat_replication"
-                " ORDER BY flush_{0} DESC".format(self.lsn_name)):
+                " WHERE state = 'streaming'"
+                " ORDER BY sync_state DESC, {0}_{1} DESC".format(sort_col, self.lsn_name)):
             member = members.get(app_name)
-            if state != 'streaming' or not member or member.tags.get('nosync', False):
+            if not member or member.tags.get('nosync', False):
                 continue
+            candidates.append(member.name)
             if sync_state == 'sync':
-                return member.name, True
-            if sync_state == 'potential' and app_name == current:
-                # Prefer current even if not the best one any more to avoid indecisivness and spurious swaps.
-                return cluster.sync.sync_standby, False
-            if sync_state in ('async', 'potential'):
-                candidates.append(member.name)
+                sync_nodes.append(member.name)
+            if len(candidates) >= sync_node_count:
+                break
 
-        if candidates:
-            return candidates[0], False
-        return None, False
+        return candidates, sync_nodes
 
     def schedule_sanity_checks_after_pause(self):
         """

@@ -64,6 +64,7 @@ class Config(object):
         'master_stop_timeout': 0,
         'synchronous_mode': False,
         'synchronous_mode_strict': False,
+        'synchronous_node_count': 1,
         'standby_cluster': {
             'create_replica_methods': '',
             'host': '',
@@ -386,6 +387,7 @@ class Config(object):
             'retry_timeout',
             'synchronous_mode',
             'synchronous_mode_strict',
+            'synchronous_node_count',
         )
 
         pg_config.update({p: config[p] for p in updated_fields if p in config})
