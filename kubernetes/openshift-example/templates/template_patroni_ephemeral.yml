@@ -118,6 +118,8 @@ objects:
               fieldRef:
                 apiVersion: v1
                 fieldPath: metadata.namespace
+          - name: PATRONI_KUBERNETES_BYPASS_API_SERVICE
+            value: 'true'
           - name: PATRONI_KUBERNETES_LABELS
             value: '{application: ${APPLICATION_NAME}, cluster-name: ${PATRONI_CLUSTER_NAME}}'
           - name: PATRONI_SUPERUSER_USERNAME
@@ -250,6 +252,34 @@ objects:
   subjects:
   - kind: ServiceAccount
     name: ${SERVICE_ACCOUNT}
+# Following privileges are only required if deployed not in the "default"
+# namespace and you want Patroni to bypass kubernetes service
+# (PATRONI_KUBERNETES_BYPASS_API_SERVICE=true)
+- apiVersion: rbac.authorization.k8s.io/v1
+  kind: ClusterRole
+  metadata:
+    name: patroni-k8s-ep-access
+  rules:
+  - apiGroups:
+    - ""
+    resources:
+    - endpoints
+    resourceNames:
+    - kubernetes
+    verbs:
+    - get
+- apiVersion: rbac.authorization.k8s.io/v1
+  kind: ClusterRoleBinding
+  metadata:
+    name: ${NAMESPACE}-${SERVICE_ACCOUNT}-k8s-ep-access
+  roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: ClusterRole
+    name: patroni-k8s-ep-access
+  subjects:
+  - kind: ServiceAccount
+    name: ${SERVICE_ACCOUNT}
+    namespace: ${NAMESPACE}
 parameters:
 - description: The name of the application for labelling all artifacts.
   displayName: Application Name

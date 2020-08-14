@@ -1,10 +1,12 @@
 import json
+import socket
 import time
 import unittest
 
 from mock import Mock, mock_open, patch
-from patroni.dcs.kubernetes import Kubernetes, KubernetesError, K8sConfig, K8sObject, RetryFailedError,\
-        k8s_client, k8s_config, SERVICE_HOST_ENV_NAME, SERVICE_PORT_ENV_NAME
+from patroni.dcs.kubernetes import k8s_client, k8s_config, K8sConfig, K8sConnectionFailed,\
+        K8sException, K8sObject, Kubernetes, KubernetesError, KubernetesRetriableException,\
+        Retry, RetryFailedError, SERVICE_HOST_ENV_NAME, SERVICE_PORT_ENV_NAME
 from six.moves import builtins
 from threading import Thread
 from . import MockResponse, SleepException
@@ -93,12 +95,43 @@ class TestK8sConfig(unittest.TestCase):
             self.assertEqual(k8s_config.headers.get('authorization'), 'Bearer token')
 
 
+@patch('urllib3.PoolManager.request')
+class TestApiClient(unittest.TestCase):
+
+    @patch.object(K8sConfig, '_server', '', create=True)
+    @patch('urllib3.PoolManager.request', Mock())
+    def setUp(self):
+        self.a = k8s_client.ApiClient(True)
+        self.mock_get_ep = MockResponse()
+        self.mock_get_ep.content = '{"subsets":[{"ports":[{"name":"https","protocol":"TCP","port":443}],' +\
+                                   '"addresses":[{"ip":"127.0.0.1"},{"ip":"127.0.0.2"}]}]}'
+
+    def test__do_http_request(self, mock_request):
+        mock_request.side_effect = [self.mock_get_ep] + [socket.timeout]
+        self.assertRaises(K8sException, self.a.call_api, 'GET', 'f')
+
+    @patch('time.sleep', Mock())
+    def test_request(self, mock_request):
+        retry = Retry(deadline=10, max_delay=1, max_tries=1, retry_exceptions=KubernetesRetriableException)
+        mock_request.side_effect = [self.mock_get_ep] + 3 * [socket.timeout] + [k8s_client.rest.ApiException(500, '')]
+        self.assertRaises(k8s_client.rest.ApiException, retry, self.a.call_api, 'GET', 'f', _retry=retry)
+        mock_request.side_effect = [self.mock_get_ep, socket.timeout, Mock(), self.mock_get_ep]
+        self.assertRaises(k8s_client.rest.ApiException, retry, self.a.call_api, 'GET', 'f', _retry=retry)
+        retry.deadline = 0.0001
+        mock_request.side_effect = [socket.timeout, socket.timeout, self.mock_get_ep]
+        self.assertRaises(K8sConnectionFailed, retry, self.a.call_api, 'GET', 'f', _retry=retry)
+
+    def test__refresh_api_servers_cache(self, mock_request):
+        mock_request.side_effect = k8s_client.rest.ApiException(403, '')
+        self.a.refresh_api_servers_cache()
+
+
 class TestCoreV1Api(unittest.TestCase):
 
+    @patch('urllib3.PoolManager.request', Mock())
     @patch.object(K8sConfig, '_server', '', create=True)
     def setUp(self):
         self.a = k8s_client.CoreV1Api()
-        self.a._api_client.set_read_timeout(10)
         self.a._api_client.pool_manager.request = Mock(return_value=MockResponse())
 
     def test_create_namespaced_service(self):
@@ -126,6 +159,7 @@ class TestCoreV1Api(unittest.TestCase):
 
 class BaseTestKubernetes(unittest.TestCase):
 
+    @patch('urllib3.PoolManager.request', Mock())
     @patch('socket.TCP_KEEPIDLE', 4, create=True)
     @patch('socket.TCP_KEEPINTVL', 5, create=True)
     @patch('socket.TCP_KEEPCNT', 6, create=True)
@@ -136,7 +170,8 @@ class BaseTestKubernetes(unittest.TestCase):
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_config_map', mock_list_namespaced_config_map, create=True)
     def setUp(self, config=None):
         config = config or {}
-        config.update(ttl=30, scope='test', name='p-0', loop_wait=10, retry_timeout=10, labels={'f': 'b'})
+        config.update(ttl=30, scope='test', name='p-0', loop_wait=10,
+                      retry_timeout=10, labels={'f': 'b'}, bypass_api_service=True)
         self.k = Kubernetes(config)
         self.assertRaises(AttributeError, self.k._pods._build_cache)
         self.k._pods._is_ready = True
@@ -152,7 +187,7 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
     def test__wait_caches(self):
         self.k._pods._is_ready = False
         with self.k._condition:
-            self.assertRaises(RetryFailedError, self.k._wait_caches)
+            self.assertRaises(RetryFailedError, self.k._wait_caches, time.time() + 10)
 
     @patch('time.time', Mock(return_value=time.time() + 100))
     def test_get_cluster(self):
