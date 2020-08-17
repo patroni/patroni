@@ -77,7 +77,8 @@ class Config(object):
         'postgresql': {
             'bin_dir': '',
             'use_slots': True,
-            'parameters': CaseInsensitiveDict({p: v[0] for p, v in ConfigHandler.CMDLINE_OPTIONS.items()})
+            'parameters': CaseInsensitiveDict({p: v[0] for p, v in ConfigHandler.CMDLINE_OPTIONS.items()
+                                               if p not in ('wal_keep_segments', 'wal_keep_size')})
         },
         'watchdog': {
             'mode': 'automatic',

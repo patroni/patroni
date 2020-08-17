@@ -35,6 +35,7 @@ For the parameters below, PostgreSQL does not require equal values among the mas
 - max_wal_senders: 5
 - max_replication_slots: 5
 - wal_keep_segments: 8
+- wal_keep_size: 128MB
 
 These parameters are validated to ensure they are sane, or meet a minimum value.
 
