@@ -401,6 +401,10 @@ class TestPostgresql(BaseTestPostgresql):
 
     @patch('os.rename', Mock())
     @patch('os.path.isdir', Mock(return_value=True))
+    @patch('os.unlink', Mock())
+    @patch('os.symlink', Mock())
+    @patch('patroni.postgresql.Postgresql.pg_wal_realpath', Mock(return_value={'pg_wal': '/mnt/pg_wal'}))
+    @patch('patroni.postgresql.Postgresql.pg_tblspc_realpaths', Mock(return_value={'42': '/mnt/tablespaces/archive'}))
     def test_move_data_directory(self):
         self.p.move_data_directory()
         with patch('os.rename', Mock(side_effect=OSError)):
