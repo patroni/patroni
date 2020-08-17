@@ -670,8 +670,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
         ssl_options = {n: config[n] for n in ('certfile', 'keyfile', 'cafile') if n in config}
 
-        self.http_extra_headers = config['http_extra_headers'] if config.get('http_extra_headers') else {}
-        self.http_extra_headers.update( config['https_extra_headers'] if ssl_options.get('certfile') and config.get('https_extra_headers') else {} )
+        self.http_extra_headers = config.get('http_extra_headers') or {}
+        self.http_extra_headers.update(ssl_options.get('certfile') and config.get('https_extra_headers') or {})
 
         if isinstance(config.get('verify_client'), six.string_types):
             ssl_options['verify_client'] = config['verify_client'].lower()
