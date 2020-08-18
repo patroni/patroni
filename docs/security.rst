@@ -26,12 +26,12 @@ The Patroni REST API is used by Patroni itself during the leader race, by the ``
 
 From the point of view of security, REST API contains safe (``GET`` requests, only retrieve information) and unsafe (``PUT``, ``POST``, ``PATCH`` and ``DELETE`` requests, change the state of nodes) endpoints.
 
-Unsafe endpoints can be protected with HTTP basic-auth by setting the ``restapi.authentication.username`` and ``restapi.authentication.password`` parameters. There is no way to protect the safe endpoints without enabling TLS.
+The unsafe endpoints can be protected with HTTP basic-auth by setting the ``restapi.authentication.username`` and ``restapi.authentication.password`` parameters. There is no way to protect the safe endpoints without enabling TLS.
 
 When TLS for the REST API is enabled and a PKI is established, mutual authentication of the API server and API client is possible for all endpoints.
 
 The ``restapi`` section parameters enable TLS client authentication to the server. Depending on the value of the ``verify_client`` parameter, the API server requires a successful client certificate verification for both safe and unsafe API calls (``verify_client: required``), or only for unsafe API calls (``verify_client: optional``), or for no API calls (``verify_client: none``).
 
-The ``ctl`` section parameters enable TLS server authentication to the client (the ``patronictl`` tool). Set ``ctl.insecure: true`` to disable the server certificate verification by the client. See :ref:`SETTINGS <patronictl_settings>` for a detailed description of the TLS client parameters.
+The ``ctl`` section parameters enable TLS server authentication to the client (the ``patronictl`` tool which uses the same config as patroni). Set ``insecure: true`` to disable the server certificate verification by the client. See :ref:`SETTINGS <patronictl_settings>` for a detailed description of the TLS client parameters.
 
 Protecting the PostgreSQL database proper from unauthorized access is beyond the scope of this document and is covered in https://www.postgresql.org/docs/current/client-authentication.html
