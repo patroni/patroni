@@ -18,7 +18,7 @@ The details of protection depend on the type of DCS used. The authentication and
 The general recommendation is to enable TLS for all DCS communication.
 
 Protecting the REST API
-==============
+=======================
 
 Protecting the REST API is a more complicated task.
 
