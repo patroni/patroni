@@ -225,7 +225,7 @@ def watching(w, watch, max_count=None, clear=True):
 
 def get_all_members(cluster, role='master'):
     if role == 'master':
-        if cluster.leader is not None:
+        if cluster.leader is not None and cluster.leader.name:
             yield cluster.leader
         return
 
@@ -640,7 +640,7 @@ def _do_failover_or_switchover(obj, action, cluster_name, master, candidate, for
     dcs = get_dcs(obj, cluster_name)
     cluster = dcs.get_cluster()
 
-    if action == 'switchover' and cluster.leader is None:
+    if action == 'switchover' and (cluster.leader is None or not cluster.leader.name):
         raise PatroniCtlException('This cluster has no master')
 
     if master is None:
