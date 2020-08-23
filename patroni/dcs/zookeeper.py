@@ -10,6 +10,8 @@ from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, M
 from patroni.exceptions import DCSError
 from patroni.utils import deep_compare
 
+from ..utils import parse_bool
+
 logger = logging.getLogger(__name__)
 
 
@@ -63,10 +65,25 @@ class ZooKeeper(AbstractDCS):
         if isinstance(hosts, list):
             hosts = ','.join(hosts)
 
+        kwargs = dict(zip(['ca', 'certfile', 'keyfile', 'keyfile_password'],
+                          [config.get(p) for p in ('cacert', 'cert', 'key', 'key_password')]))
+
+        use_ssl = config.get('use_ssl', False)
+        if not isinstance(use_ssl, bool):
+            use_ssl = parse_bool(use_ssl)
+        if isinstance(use_ssl, bool):
+            kwargs['use_ssl'] = use_ssl
+
+        verify_certs = config.get('verify', True)
+        if not isinstance(verify_certs, bool):
+            verify_certs = parse_bool(verify_certs)
+        if isinstance(verify_certs, bool):
+            kwargs['verify_certs'] = verify_certs
+
         self._client = KazooClient(hosts, handler=PatroniSequentialThreadingHandler(config['retry_timeout']),
                                    timeout=config['ttl'], connection_retry=KazooRetry(max_delay=1, max_tries=-1,
                                    sleep_func=time.sleep), command_retry=KazooRetry(deadline=config['retry_timeout'],
-                                   max_delay=1, max_tries=-1, sleep_func=time.sleep))
+                                   max_delay=1, max_tries=-1, sleep_func=time.sleep), **kwargs)
         self._client.add_listener(self.session_listener)
 
         self._fetch_cluster = True

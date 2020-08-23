@@ -147,7 +147,13 @@ If you want that Patroni works with Etcd cluster via protocol version 3, you nee
 
 ZooKeeper
 ----------
--  **hosts**: list of ZooKeeper cluster members in format: ['host1:port1', 'host2:port2', 'etc...'].
+-  **hosts**: List of ZooKeeper cluster members in format: ['host1:port1', 'host2:port2', 'etc...'].
+-  **use_ssl**: (optional) Whether SSL is used or not. Defaults to `false`. If set to `false`, all SSL specific parameters are ignored.
+-  **cacert**: (optional) The ca certificate. If present it will enable validation.
+-  **cert**: (optional) File with the client certificate.
+-  **key**: (optional) File with the client key.
+-  **key_password**: (optional) The client key password.
+-  **verify**: (optional) Whether to verify certificate or not. Defaults to `true`.
 
 Exhibitor
 ---------
