@@ -63,7 +63,7 @@ class ZooKeeper(AbstractDCS):
         if isinstance(hosts, list):
             hosts = ','.join(hosts)
 
-        mapping = {'use_ssl': 'use_ssl', 'verify': 'verify_certs', 'cacert': 'ca', 
+        mapping = {'use_ssl': 'use_ssl', 'verify': 'verify_certs', 'cacert': 'ca',
                    'cert': 'certfile', 'key': 'keyfile', 'key_password': 'keyfile_password'}
         kwargs = {v: config[k] for k, v in mapping.items() if k in config}
 
