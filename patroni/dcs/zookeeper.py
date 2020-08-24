@@ -10,7 +10,6 @@ from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, M
 from patroni.exceptions import DCSError
 from patroni.utils import deep_compare
 
-
 logger = logging.getLogger(__name__)
 
 
