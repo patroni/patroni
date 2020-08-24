@@ -85,7 +85,7 @@ ZooKeeper
 -  **PATRONI\_ZOOKEEPER\_VERIFY**: (optional) Whether to verify certificate or not. Defaults to `true`.
 
 .. note::
-    It is required to install ``kazoo>=2.6.0`` to use SSL.
+    It is required to install ``kazoo>=2.6.0`` to support SSL.
 
 
 Exhibitor
