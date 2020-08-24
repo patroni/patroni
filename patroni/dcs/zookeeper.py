@@ -65,20 +65,9 @@ class ZooKeeper(AbstractDCS):
         if isinstance(hosts, list):
             hosts = ','.join(hosts)
 
-        kwargs = dict(zip(['ca', 'certfile', 'keyfile', 'keyfile_password'],
-                          [config.get(p) for p in ('cacert', 'cert', 'key', 'key_password')]))
-
-        use_ssl = config.get('use_ssl', False)
-        if not isinstance(use_ssl, bool):
-            use_ssl = parse_bool(use_ssl)
-        if isinstance(use_ssl, bool):
-            kwargs['use_ssl'] = use_ssl
-
-        verify_certs = config.get('verify', True)
-        if not isinstance(verify_certs, bool):
-            verify_certs = parse_bool(verify_certs)
-        if isinstance(verify_certs, bool):
-            kwargs['verify_certs'] = verify_certs
+        mapping = {'use_ssl': 'use_ssl', 'verify': 'verify_certs', 'cacert': 'ca', 
+                   'cert': 'certfile', 'key': 'keyfile', 'key_password': 'keyfile_password'}
+        kwargs = {v: config[k] for k, v in mapping.items() if k in config}
 
         self._client = KazooClient(hosts, handler=PatroniSequentialThreadingHandler(config['retry_timeout']),
                                    timeout=config['ttl'], connection_retry=KazooRetry(max_delay=1, max_tries=-1,
