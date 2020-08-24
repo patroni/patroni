@@ -366,7 +366,7 @@ class Ha(object):
         elif self.patroni.replicatefrom and self.patroni.replicatefrom != self.state_handler.name:
             node_to_follow = cluster.get_member(self.patroni.replicatefrom)
         else:
-            node_to_follow = cluster.leader
+            node_to_follow = cluster.leader if cluster.leader and cluster.leader.name else None
 
         node_to_follow = node_to_follow if node_to_follow and node_to_follow.name != self.state_handler.name else None
 
