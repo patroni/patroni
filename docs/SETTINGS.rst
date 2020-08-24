@@ -155,6 +155,10 @@ ZooKeeper
 -  **key_password**: (optional) The client key password.
 -  **verify**: (optional) Whether to verify certificate or not. Defaults to `true`.
 
+.. note::
+    It is required to install ``kazoo>=2.6.0`` to use SSL.
+
+
 Exhibitor
 ---------
 -  **hosts**: initial list of Exhibitor (ZooKeeper) nodes in format: 'host1,host2,etc...'. This list updates automatically whenever the Exhibitor (ZooKeeper) cluster topology changes.

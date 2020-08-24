@@ -84,6 +84,10 @@ ZooKeeper
 -  **PATRONI\_ZOOKEEPER\_KEY\_PASSWORD**: (optional) The client key password.
 -  **PATRONI\_ZOOKEEPER\_VERIFY**: (optional) Whether to verify certificate or not. Defaults to `true`.
 
+.. note::
+    It is required to install ``kazoo>=2.6.0`` to use SSL.
+
+
 Exhibitor
 ---------
 -  **PATRONI\_EXHIBITOR\_HOSTS**: initial list of Exhibitor (ZooKeeper) nodes in format: 'host1,host2,etc...'. This list updates automatically whenever the Exhibitor (ZooKeeper) cluster topology changes.
