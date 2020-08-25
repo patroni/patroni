@@ -24,6 +24,7 @@ arguments to them, i.e. the name of the cluster and the path to the data directo
         <custom_bootstrap_method_name>:
             command: <path_to_custom_bootstrap_script> [param1 [, ...]]
             keep_existing_recovery_conf: False
+            no_params: False
             recovery_conf:
                 recovery_target_action: promote
                 recovery_target_timeline: latest
@@ -39,6 +40,8 @@ in the configuration files, Patroni supplies two cluster-specific ones:
     Name of the cluster to be bootstrapped
 --datadir
     Path to the data directory of the cluster instance to be bootstrapped
+
+Passing these two additional flags can be disabled by setting a special ``no_params`` parameter to ``True``.
 
 If the bootstrap script returns 0, Patroni tries to configure and start the PostgreSQL instance produced by it. If any
 of the intermediate steps fail, or the script returns a non-zero value, Patroni assumes that the bootstrap has failed,
