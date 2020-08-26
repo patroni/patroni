@@ -38,6 +38,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
             headers['Content-Type'] = content_type
         for name, value in headers.items():
             self.send_header(name, value)
+        for name, value in self.server.patroni.api.http_extra_headers.items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body.encode('utf-8'))
 
@@ -533,6 +535,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self.patroni = patroni
         self.__listen = None
         self.__ssl_options = None
+        self.http_extra_headers = {}
         self.reload_config(config)
         self.daemon = True
 
@@ -666,6 +669,9 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             raise ValueError('Can not find "restapi.listen" config')
 
         ssl_options = {n: config[n] for n in ('certfile', 'keyfile', 'cafile') if n in config}
+
+        self.http_extra_headers = config.get('http_extra_headers') or {}
+        self.http_extra_headers.update(ssl_options.get('certfile') and config.get('https_extra_headers') or {})
 
         if isinstance(config.get('verify_client'), six.string_types):
             ssl_options['verify_client'] = config['verify_client'].lower()

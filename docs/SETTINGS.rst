@@ -272,6 +272,28 @@ REST API
         -  **keyfile**: (optional): Specifies the file with the secret key in the PEM format.
         -  **cafile**: (optional): Specifies the file with the CA_BUNDLE with certificates of trusted CAs to use while verifying client certs.
         -  **verify\_client**: (optional): ``none`` (default), ``optional`` or ``required``. When ``none`` REST API will not check client certificates. When ``required`` client certificates are required for all REST API calls. When ``optional`` client certificates are required for all unsafe REST API endpoints. When ``required`` is used, then client authentication succeeds, if the certificate signature verification succeeds.  For ``optional`` the client cert will only be checked for ``PUT``, ``POST``, ``PATCH``, and ``DELETE`` requests.
+        -  **http\_extra\_headers**: (optional): HTTP headers let the REST API server pass additional information with an HTTP response.
+        -  **https\_extra\_headers**: (optional): HTTPS headers let the REST API server pass additional information with an HTTP response when TLS is enabled. This will also pass additional information set in ``http_extra_headers``.
+
+Here is an example of both **http_extra_headers** and **https_extra_headers**:
+
+.. code:: YAML
+
+        restapi:
+          listen: <listen>
+          connect_address: <connect_address>
+          authentication:
+            username: <username>
+            password: <password>
+          http_extra_headers:
+            'X-Frame-Options': 'SAMEORIGIN'
+            'X-XSS-Protection': '1; mode=block'
+            'X-Content-Type-Options': 'nosniff'
+          cafile: <ca file>
+          certfile: <cert>
+          keyfile: <key>
+          https_extra_headers:
+            'Strict-Transport-Security': 'max-age=31536000; includeSubDomains'   
 
 .. _patronictl_settings:
 
