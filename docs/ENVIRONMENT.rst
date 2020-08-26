@@ -82,7 +82,7 @@ ZooKeeper
 -  **PATRONI\_ZOOKEEPER\_CERT**: (optional) File with the client certificate.
 -  **PATRONI\_ZOOKEEPER\_KEY**: (optional) File with the client key.
 -  **PATRONI\_ZOOKEEPER\_KEY\_PASSWORD**: (optional) The client key password.
--  **PATRONI\_ZOOKEEPER\_VERIFY**: (optional) Whether to verify certificate or not. Defaults to `true`.
+-  **PATRONI\_ZOOKEEPER\_VERIFY**: (optional) Whether to verify certificate or not. Defaults to ``true``.
 
 .. note::
     It is required to install ``kazoo>=2.6.0`` to support SSL.
