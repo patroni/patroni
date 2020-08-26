@@ -25,10 +25,6 @@ class Bootstrap(object):
     def keep_existing_recovery_conf(self):
         return self._running_custom_bootstrap and self._keep_existing_recovery_conf
 
-    @property
-    def supply_params(self):
-        return self._running_custom_bootstrap and not self._no_params
-
     @staticmethod
     def process_user_options(tool, options, not_allowed_options, error_handler):
         user_options = []
@@ -102,8 +98,8 @@ class Bootstrap(object):
 
     def _custom_bootstrap(self, config):
         self._postgresql.set_state('running custom bootstrap script')
-        params = [] if not self.supply_params else ['--scope=' + self._postgresql.scope,
-                                                    '--datadir=' + self._postgresql.data_dir]
+        params = [] if config.get('no_params') else ['--scope=' + self._postgresql.scope, 
+                                                     '--datadir=' + self._postgresql.data_dir]
         try:
             logger.info('Running custom bootstrap script: %s', config['command'])
             if self._postgresql.cancellable.call(shlex.split(config['command']) + params) != 0:
@@ -288,7 +284,6 @@ class Bootstrap(object):
         method = config.get('method') or 'initdb'
         if method != 'initdb' and method in config and 'command' in config[method]:
             self._keep_existing_recovery_conf = config[method].get('keep_existing_recovery_conf')
-            self._no_params = config[method].get('no_params', False)
             self._running_custom_bootstrap = True
             do_initialize = self._custom_bootstrap
         else:
