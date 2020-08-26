@@ -78,7 +78,7 @@ ZooKeeper
 ---------
 -  **PATRONI\_ZOOKEEPER\_HOSTS**: Comma separated list of ZooKeeper cluster members: "'host1:port1','host2:port2','etc...'". It is important to quote every single entity!
 -  **PATRONI\_ZOOKEEPER\_USE\_SSL**: (optional) Whether SSL is used or not. Defaults to ``false``. If set to ``false``, all SSL specific parameters are ignored.
--  **PATRONI\_ZOOKEEPER\_CACERT**: (optional) The ca certificate. If present it will enable validation.
+-  **PATRONI\_ZOOKEEPER\_CACERT**: (optional) The CA certificate. If present it will enable validation.
 -  **PATRONI\_ZOOKEEPER\_CERT**: (optional) File with the client certificate.
 -  **PATRONI\_ZOOKEEPER\_KEY**: (optional) File with the client key.
 -  **PATRONI\_ZOOKEEPER\_KEY\_PASSWORD**: (optional) The client key password.
