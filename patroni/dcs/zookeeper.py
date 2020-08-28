@@ -63,10 +63,14 @@ class ZooKeeper(AbstractDCS):
         if isinstance(hosts, list):
             hosts = ','.join(hosts)
 
+        mapping = {'use_ssl': 'use_ssl', 'verify': 'verify_certs', 'cacert': 'ca',
+                   'cert': 'certfile', 'key': 'keyfile', 'key_password': 'keyfile_password'}
+        kwargs = {v: config[k] for k, v in mapping.items() if k in config}
+
         self._client = KazooClient(hosts, handler=PatroniSequentialThreadingHandler(config['retry_timeout']),
                                    timeout=config['ttl'], connection_retry=KazooRetry(max_delay=1, max_tries=-1,
                                    sleep_func=time.sleep), command_retry=KazooRetry(deadline=config['retry_timeout'],
-                                   max_delay=1, max_tries=-1, sleep_func=time.sleep))
+                                   max_delay=1, max_tries=-1, sleep_func=time.sleep), **kwargs)
         self._client.add_listener(self.session_listener)
 
         self._fetch_cluster = True
