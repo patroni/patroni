@@ -98,7 +98,8 @@ class Bootstrap(object):
 
     def _custom_bootstrap(self, config):
         self._postgresql.set_state('running custom bootstrap script')
-        params = ['--scope=' + self._postgresql.scope, '--datadir=' + self._postgresql.data_dir]
+        params = [] if config.get('no_params') else ['--scope=' + self._postgresql.scope,
+                                                     '--datadir=' + self._postgresql.data_dir]
         try:
             logger.info('Running custom bootstrap script: %s', config['command'])
             if self._postgresql.cancellable.call(shlex.split(config['command']) + params) != 0:
