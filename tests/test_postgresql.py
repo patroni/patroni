@@ -272,10 +272,10 @@ class TestPostgresql(BaseTestPostgresql):
     @patch.object(Postgresql, 'major_version', PropertyMock(return_value=100000))
     @patch.object(Postgresql, 'primary_conninfo', Mock(return_value='host=1'))
     def test__read_recovery_params_pre_v12(self):
-        self.p.config.write_recovery_conf({'standby_mode': 'on', 'primary_conninfo': {'password': 'foo'}})
+        self.p.config.write_recovery_conf({'standby_mode': 'off', 'primary_conninfo': {'password': 'foo'}})
         self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
         self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
-        self.p.config.write_recovery_conf({'standby_mode': '\n'})
+        self.p.config.write_recovery_conf({'restore_command': '\n'})
         with patch('patroni.postgresql.config.mtime', mock_mtime):
             self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
 
@@ -716,3 +716,8 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.set_role('standby_leader')
         self.p.reset_cluster_info_state()
         self.assertRaises(PostgresConnectionException, self.p.received_timeline)
+
+    def test__write_recovery_params(self):
+        self.p.config._write_recovery_params(Mock(), {'pause_at_recovery_target': 'false'})
+        with patch.object(Postgresql, 'major_version', PropertyMock(return_value=90400)):
+            self.p.config._write_recovery_params(Mock(), {'recovery_target_action': 'PROMOTE'})
