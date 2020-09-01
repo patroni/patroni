@@ -6,11 +6,12 @@ import socket
 import stat
 import time
 
-from patroni.exceptions import PatroniFatalException
 from six.moves.urllib_parse import urlparse, parse_qsl, unquote
-from urllib3.response import HTTPHeaderDict
 
+from .validator import CaseInsensitiveDict, recovery_parameters,\
+        transform_postgresql_parameter_value, transform_recovery_parameter_value
 from ..dcs import slot_name_from_member_name, RemoteMember
+from ..exceptions import PatroniFatalException
 from ..utils import compare_values, parse_bool, parse_int, split_host_port, uri, \
         validate_directory, is_subpath
 
@@ -254,21 +255,6 @@ class ConfigWriter(object):
         self.writeline("{0} = '{1}'".format(param, self.escape(value)))
 
 
-class CaseInsensitiveDict(HTTPHeaderDict):
-
-    def add(self, key, val):
-        self[key] = val
-
-    def __getitem__(self, key):
-        return self._container[key.lower()][1]
-
-    def __repr__(self):
-        return str(dict(self.items()))
-
-    def copy(self):
-        return CaseInsensitiveDict(self._container.values())
-
-
 class ConfigHandler(object):
 
     # List of parameters which must be always passed to postmaster as command line options
@@ -303,24 +289,7 @@ class ConfigHandler(object):
         'wal_log_hints': ('on', lambda _: False, 90400)
     })
 
-    _RECOVERY_PARAMETERS = {
-        'archive_cleanup_command',
-        'restore_command',
-        'recovery_end_command',
-        'recovery_target',
-        'recovery_target_name',
-        'recovery_target_time',
-        'recovery_target_xid',
-        'recovery_target_lsn',
-        'recovery_target_inclusive',
-        'recovery_target_timeline',
-        'recovery_target_action',
-        'recovery_min_apply_delay',
-        'primary_conninfo',
-        'primary_slot_name',
-        'promote_trigger_file',
-        'trigger_file'
-    }
+    _RECOVERY_PARAMETERS = set(recovery_parameters.keys())
 
     def __init__(self, postgresql, config):
         self._postgresql = postgresql
@@ -422,8 +391,9 @@ class ConfigHandler(object):
             include = self._config.get('custom_conf') or self._postgresql_base_conf_name
             f.writeline("include '{0}'\n".format(ConfigWriter.escape(include)))
             for name, value in sorted((configuration or self._server_parameters).items()):
+                value = transform_postgresql_parameter_value(self._postgresql.major_version, name, value)
                 if (not self._postgresql.bootstrap.running_custom_bootstrap or name != 'hba_file') \
-                        and name not in self._RECOVERY_PARAMETERS:
+                        and name not in self._RECOVERY_PARAMETERS and value is not None:
                     f.write_param(name, value)
             # when we are doing custom bootstrap we assume that we don't know superuser password
             # and in order to be able to change it, we are opening trust access from a certain address
@@ -526,6 +496,13 @@ class ConfigHandler(object):
                         if kw not in skip and params.get(kw) is not None)
 
     def _write_recovery_params(self, fd, recovery_params):
+        if self._postgresql.major_version >= 90500:
+            pause_at_recovery_target = parse_bool(recovery_params.pop('pause_at_recovery_target', None))
+            if pause_at_recovery_target is not None:
+                recovery_params.setdefault('recovery_target_action', 'pause' if pause_at_recovery_target else 'promote')
+        else:
+            if str(recovery_params.pop('recovery_target_action', None)).lower() == 'promote':
+                recovery_params.setdefault('pause_at_recovery_target', 'false')
         for name, value in sorted(recovery_params.items()):
             if name == 'primary_conninfo':
                 if 'password' in value and self._postgresql.major_version >= 100000:
@@ -533,6 +510,10 @@ class ConfigHandler(object):
                     value['passfile'] = self._passfile = self._pgpass
                     self._passfile_mtime = mtime(self._pgpass)
                 value = self.format_dsn(value)
+            else:
+                value = transform_recovery_parameter_value(self._postgresql.major_version, name, value)
+                if value is None:
+                    continue
             fd.write_param(name, value)
 
     def build_recovery_params(self, member):
@@ -576,7 +557,8 @@ class ConfigHandler(object):
 
     @property
     def _recovery_parameters_to_compare(self):
-        skip_params = {'recovery_target_inclusive', 'recovery_target_action', self._triggerfile_wrong_name}
+        skip_params = {'pause_at_recovery_target', 'recovery_target_inclusive',
+                       'recovery_target_action', 'standby_mode', self._triggerfile_wrong_name}
         return self._RECOVERY_PARAMETERS - skip_params
 
     def _read_recovery_params(self):
@@ -730,6 +712,9 @@ class ConfigHandler(object):
             if param == 'recovery_min_apply_delay':
                 if not compare_values('integer', 'ms', value[0], wanted_recovery_params.get(param, 0)):
                     record_missmatch(value[1])
+            elif param == 'standby_mode':
+                if not compare_values('bool', None, value[0], wanted_recovery_params.get(param, 'on')):
+                    record_missmatch(value[1])
             elif param == 'primary_conninfo':
                 if not self._check_primary_conninfo(value[0], wanted_recovery_params.get('primary_conninfo', {})):
                     record_missmatch(value[1])
@@ -842,7 +827,7 @@ class ConfigHandler(object):
         if self._postgresql.major_version >= 130000:
             wal_keep_segments = parameters.pop('wal_keep_segments', self.CMDLINE_OPTIONS['wal_keep_segments'][0])
             parameters.setdefault('wal_keep_size', str(wal_keep_segments * 16) + 'MB')
-        else:
+        elif self._postgresql.major_version:
             wal_keep_size = parse_int(parameters.pop('wal_keep_size', self.CMDLINE_OPTIONS['wal_keep_size'][0]), 'MB')
             parameters.setdefault('wal_keep_segments', int((wal_keep_size + 8) / 16))
         ret = CaseInsensitiveDict({k: v for k, v in parameters.items() if not self._postgresql.major_version or
