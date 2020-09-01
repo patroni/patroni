@@ -80,6 +80,14 @@ class Enum(namedtuple('Enum', 'version_from,version_till,possible_values')):
         logger.warning('Removing enum parameter=%s from the config due to the invalid value=%s', name, value)
 
 
+class EnumBool(Enum):
+
+    def transform(self, name, value):
+        if parse_bool(value) is not None:
+            return value
+        return super(EnumBool, self).transform(name, value)
+
+
 class String(namedtuple('String', 'version_from,version_till')):
 
     @staticmethod
@@ -90,23 +98,13 @@ class String(namedtuple('String', 'version_from,version_till')):
 # Format:
 #  key - parameter name
 #  value - tuple or multiple tuples if something was changing in GUC across postgres versions
-#  tuple - (version_from, version_till, vartype, ...)
-#    version_from - the minimal version of postgres this parameter exists (supported in patroni)
-#    version_till - the version of postgres where the parameter was removed or changed
-#    vartype - possible values: bool, integer, real, enum, string
-#
-#    for integer and real there are additional values:
-#      min_val - the minimal possible value accepted by postgres
-#      max_val - the maximum possible value
-#      unit - ms, s, B, kB, 8kB, MB, 16MB
-#    for enum there is additional value - the tuple with possible enum values
 parameters = CaseInsensitiveDict({
     'allow_system_table_mods': Bool(90300, None),
     'application_name': String(90300, None),
     'archive_command': String(90300, None),
     'archive_mode': (
         Bool(90300, 90500),
-        Enum(90500, None, ('always', 'on', 'off'))
+        EnumBool(90500, None, ('always',))
     ),
     'archive_timeout': Integer(90300, None, 0, 1073741823, 's'),
     'array_nulls': Bool(90300, None),
@@ -132,7 +130,7 @@ parameters = CaseInsensitiveDict({
     'autovacuum_vacuum_threshold': Integer(90300, None, 0, 2147483647, None),
     'autovacuum_work_mem': Integer(90400, None, -1, 2147483647, 'kB'),
     'backend_flush_after': Integer(90600, None, 0, 256, '8kB'),
-    'backslash_quote': Enum(90300, None, ('safe_encoding', 'on', 'off')),
+    'backslash_quote': EnumBool(90300, None, ('safe_encoding',)),
     'backtrace_functions': String(130000, None),
     'bgwriter_delay': Integer(90300, None, 10, 10000, 'ms'),
     'bgwriter_flush_after': Integer(90600, None, 0, 256, '8kB'),
@@ -160,7 +158,7 @@ parameters = CaseInsensitiveDict({
     'commit_delay': Integer(90300, None, 0, 100000, None),
     'commit_siblings': Integer(90300, None, 0, 1000, None),
     'config_file': String(90300, None),
-    'constraint_exclusion': Enum(90300, None, ('partition', 'on', 'off')),
+    'constraint_exclusion': EnumBool(90300, None, ('partition',)),
     'cpu_index_tuple_cost': Real(90300, None, 0, 1.79769e+308, None),
     'cpu_operator_cost': Real(90300, None, 0, 1.79769e+308, None),
     'cpu_tuple_cost': Real(90300, None, 0, 1.79769e+308, None),
@@ -213,7 +211,7 @@ parameters = CaseInsensitiveDict({
     'exit_on_error': Bool(90300, None),
     'external_pid_file': String(90300, None),
     'extra_float_digits': Integer(90300, None, -15, 3, None),
-    'force_parallel_mode': Enum(90600, None, ('off', 'on', 'regress')),
+    'force_parallel_mode': EnumBool(90600, None, ('regress',)),
     'from_collapse_limit': Integer(90300, None, 1, 2147483647, None),
     'fsync': Bool(90300, None),
     'full_page_writes': Bool(90300, None),
@@ -230,7 +228,7 @@ parameters = CaseInsensitiveDict({
     'hba_file': String(90300, None),
     'hot_standby': Bool(90300, None),
     'hot_standby_feedback': Bool(90300, None),
-    'huge_pages': Enum(90400, None, ('off', 'on', 'try')),
+    'huge_pages': EnumBool(90400, None, ('try',)),
     'ident_file': String(90300, None),
     'idle_in_transaction_session_timeout': Integer(90600, None, 0, 2147483647, 'ms'),
     'ignore_checksum_failure': Bool(90300, None),
@@ -394,8 +392,8 @@ parameters = CaseInsensitiveDict({
     ),
     'synchronize_seqscans': Bool(90300, None),
     'synchronous_commit': (
-        Enum(90300, 90600, ('local', 'remote_write', 'on', 'off')),
-        Enum(90600, None, ('local', 'remote_write', 'remote_apply', 'on', 'off'))
+        EnumBool(90300, 90600, ('local', 'remote_write')),
+        EnumBool(90600, None, ('local', 'remote_write', 'remote_apply'))
     ),
     'synchronous_standby_names': String(90300, None),
     'syslog_facility': Enum(90300, None, ('local0', 'local1', 'local2', 'local3',
