@@ -115,6 +115,8 @@ postgresql:
     # same as KRB5CCNAME used by the GSS
 #   krb_server_keyfile: /var/spool/keytabs/postgres
     unix_socket_directories: '.'
+  # Additional fencing script executed after acquiring the leader lock but before promoting the replica
+  #pre_promote: /path/to/pre_promote.sh
 
 #watchdog:
 #  mode: automatic # Allowed values: off, automatic, required

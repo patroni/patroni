@@ -70,7 +70,7 @@ class Ha(object):
         self._was_paused = False
         self._leader_timeline = None
         self.recovering = False
-        self._post_bootstrap_task = None
+        self._async_response = CriticalTask()
         self._crash_recovery_executed = False
         self._start_timeout = None
         self._async_executor = AsyncExecutor(self.state_handler.cancellable, self.wakeup)
@@ -86,6 +86,9 @@ class Ha(object):
         # We need following property to avoid shutdown of postgres when join of Patroni to the postgres
         # already running as replica was aborted due to cluster not beeing initialized in DCS.
         self._join_aborted = False
+
+        # used only in backoff after failing a pre_promote script
+        self._released_leader_key_timestamp = 0
 
     def check_mode(self, mode):
         # Try to protect from the case when DCS was wiped out during pause
@@ -252,7 +255,8 @@ class Ha(object):
         elif self.cluster.initialize is None and not self.patroni.nofailover and 'bootstrap' in self.patroni.config:
             if self.dcs.initialize(create_new=True):  # race for initialization
                 self.state_handler.bootstrapping = True
-                self._post_bootstrap_task = CriticalTask()
+                with self._async_response:
+                    self._async_response.reset()
 
                 if self.is_standby_cluster():
                     ret = self._async_executor.try_run_async('bootstrap_standby_leader', self.bootstrap_standby_leader)
@@ -279,7 +283,8 @@ class Ha(object):
         clone_source = self.get_remote_master()
         msg = 'clone from remote master {0}'.format(clone_source.conn_url)
         result = self.clone(clone_source, msg)
-        self._post_bootstrap_task.complete(result)
+        with self._async_response:  # pretend that post_bootstrap was already executed
+            self._async_response.complete(result)
         if result:
             self.state_handler.set_role('standby_leader')
 
@@ -556,13 +561,27 @@ class Ha(object):
         return self.follow(demote_reason, message)
 
     def enforce_master_role(self, message, promote_message):
-        if not self.is_paused() and not self.watchdog.is_running and not self.watchdog.activate():
-            if self.state_handler.is_leader():
-                self.demote('immediate')
-                return 'Demoting self because watchdog could not be activated'
-            else:
-                self.release_leader_key_voluntarily()
-                return 'Not promoting self because watchdog could not be activated'
+        """
+        Ensure the node that has won the race for the leader key meets criteria
+        for promoting its PG server to the 'master' role.
+        """
+        if not self.is_paused():
+            if not self.watchdog.is_running and not self.watchdog.activate():
+                if self.state_handler.is_leader():
+                    self.demote('immediate')
+                    return 'Demoting self because watchdog could not be activated'
+                else:
+                    self.release_leader_key_voluntarily()
+                    return 'Not promoting self because watchdog could not be activated'
+
+            with self._async_response:
+                if self._async_response.result is False:
+                    logger.warning("Releasing the leader key voluntarily because the pre-promote script failed")
+                    self._released_leader_key_timestamp = time.time()
+                    self.release_leader_key_voluntarily()
+                    # discard the result of the failed pre-promote script to be able to re-try promote
+                    self._async_response.reset()
+                    return 'Promotion cancelled because the pre-promote script failed'
 
         if self.state_handler.is_leader():
             # Inform the state handler about its master role.
@@ -590,8 +609,10 @@ class Ha(object):
                     self._rewind.reset_state()
                     logger.info("cleared rewind state after becoming the leader")
 
+                with self._async_response:
+                    self._async_response.reset()
                 self._async_executor.try_run_async('promote', self.state_handler.promote,
-                                                   args=(self.dcs.loop_wait, on_success,
+                                                   args=(self.dcs.loop_wait, self._async_response, on_success,
                                                          self._leader_access_is_restricted))
             return promote_message
 
@@ -727,6 +748,10 @@ class Ha(object):
         return self._is_healthiest_node(members, check_replication_lag=False)
 
     def is_healthiest_node(self):
+        if time.time() - self._released_leader_key_timestamp < self.dcs.ttl:
+            logger.info('backoff: skip leader race after pre_promote script failure and releasing the lock voluntarily')
+            return False
+
         if self.is_paused() and not self.patroni.nofailover and \
                 self.cluster.failover and not self.cluster.failover.scheduled_at:
             ret = self.manual_failover_process_no_leader()
@@ -916,9 +941,9 @@ class Ha(object):
                 self.load_cluster_from_dcs()
 
                 if self.is_standby_cluster():
-                    # standby leader disappeared, and this is a healthiest
+                    # standby leader disappeared, and this is the healthiest
                     # replica, so it should become a new standby leader.
-                    # This imply that we need to start following a remote master
+                    # This implies we need to start following a remote master
                     msg = 'promoted self to a standby leader by acquiring session lock'
                     return self.enforce_follow_remote_master(msg)
                 else:
@@ -1136,10 +1161,20 @@ class Ha(object):
         self._async_executor.run_async(self._do_reinitialize, args=(self.cluster, ))
 
     def handle_long_action_in_progress(self):
+        """
+        Figure out what to do with the task AsyncExecutor is performing.
+        """
         if self.has_lock() and self.update_lock():
             return 'updated leader lock during ' + self._async_executor.scheduled_action
         elif not self.state_handler.bootstrapping:
-            # Don't have lock, make sure we are not starting up a master in the background
+            # Don't have lock, make sure we are not promoting or starting up a master in the background
+            if self._async_executor.scheduled_action == 'promote':
+                with self._async_response:
+                    cancel = self._async_response.cancel()
+                if cancel:
+                    self.state_handler.cancellable.cancel()
+                    return 'lost leader before promote'
+
             if self.state_handler.role == 'master':
                 logger.info("Demoting master during " + self._async_executor.scheduled_action)
                 if self._async_executor.scheduled_action == 'restart':
@@ -1150,7 +1185,6 @@ class Ha(object):
                             self.state_handler.terminate_starting_postmaster(postmaster=task.result)
                 self.demote('immediate-nolock')
                 return 'lost leader lock during ' + self._async_executor.scheduled_action
-
         if self.cluster.is_unlocked():
             logger.info('not healthy enough for leader race')
 
@@ -1185,17 +1219,19 @@ class Ha(object):
         raise PatroniFatalException('Failed to bootstrap cluster')
 
     def post_bootstrap(self):
+        with self._async_response:
+            result = self._async_response.result
         # bootstrap has failed if postgres is not running
-        if not self.state_handler.is_running() or self._post_bootstrap_task.result is False:
+        if not self.state_handler.is_running() or result is False:
             self.cancel_initialization()
 
-        if self._post_bootstrap_task.result is None:
+        if result is None:
             if not self.state_handler.is_leader():
                 return 'waiting for end of recovery after bootstrap'
 
             self.state_handler.set_role('master')
             ret = self._async_executor.try_run_async('post_bootstrap', self.state_handler.bootstrap.post_bootstrap,
-                                                     args=(self.patroni.config['bootstrap'], self._post_bootstrap_task))
+                                                     args=(self.patroni.config['bootstrap'], self._async_response))
             return ret or 'running post_bootstrap'
 
         self.state_handler.bootstrapping = False
@@ -1409,7 +1445,7 @@ class Ha(object):
             self.while_not_sync_standby(lambda: self.state_handler.stop(checkpoint=False, on_safepoint=disable_wd,
                                                                         stop_timeout=self.master_stop_timeout()))
             if not self.state_handler.is_running():
-                if self.has_lock():
+                if self.is_leader():
                     checkpoint_location = self.state_handler.latest_checkpoint_location()
                     self.dcs.delete_leader(checkpoint_location)
                 self.touch_member()

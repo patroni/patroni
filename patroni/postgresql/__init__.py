@@ -20,8 +20,8 @@ from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.slots import SlotsHandler
 from patroni.exceptions import PostgresConnectionException
 from patroni.utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty, parse_int
-from threading import current_thread, Lock
 from psutil import TimeoutExpired
+from threading import current_thread, Lock
 
 
 logger = logging.getLogger(__name__)
@@ -795,9 +795,38 @@ class Postgresql(object):
             if data.get('Database cluster state') == 'in production':
                 return True
 
-    def promote(self, wait_seconds, on_success=None, access_is_restricted=False):
+    def _pre_promote(self):
+        """
+        Runs a fencing script after the leader lock is acquired but before the replica is promoted.
+        If the script exits with a non-zero code, promotion does not happen and the leader key is removed from DCS.
+        """
+
+        cmd = self.config.get('pre_promote')
+        if not cmd:
+            return True
+
+        ret = self.cancellable.call(shlex.split(cmd))
+        if ret is not None:
+            logger.info('pre_promote script `%s` exited with %s', cmd, ret)
+        return ret == 0
+
+    def promote(self, wait_seconds, task, on_success=None, access_is_restricted=False):
         if self.role == 'master':
             return True
+
+        ret = self._pre_promote()
+        with task:
+            if task.is_cancelled:
+                return False
+            task.complete(ret)
+
+        if ret is False:
+            return False
+
+        if self.cancellable.is_cancelled:
+            logger.info("PostgreSQL promote cancelled.")
+            return False
+
         ret = self.pg_ctl('promote', '-W')
         if ret:
             self.set_role('master')

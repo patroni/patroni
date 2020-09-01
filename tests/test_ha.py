@@ -302,6 +302,19 @@ class TestHa(PostgresInit):
         self.p.is_leader = false
         self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
 
+    def test_promotion_cancelled_after_pre_promote_failed(self):
+        self.p.is_leader = false
+        self.p._pre_promote = false
+        self.ha._is_healthiest_node = true
+        self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
+        self.assertEqual(self.ha.run_cycle(), 'Promotion cancelled because the pre-promote script failed')
+        self.assertEqual(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
+
+    def test_lost_leader_lock_during_promote(self):
+        with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)):
+            self.ha._async_executor.schedule('promote')
+            self.assertEqual(self.ha.run_cycle(), 'lost leader before promote')
+
     def test_long_promote(self):
         self.ha.cluster.is_unlocked = false
         self.ha.has_lock = true
@@ -1042,7 +1055,7 @@ class TestHa(PostgresInit):
 
     def test_shutdown(self):
         self.p.is_running = false
-        self.ha.has_lock = true
+        self.ha.is_leader = true
         self.ha.shutdown()
 
     @patch('time.sleep', Mock())

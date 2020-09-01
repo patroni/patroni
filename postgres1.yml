@@ -112,6 +112,9 @@ postgresql:
   basebackup:
       - verbose
       - max-rate: 100M
+  # Additional fencing script executed after acquiring the leader lock but before promoting the replica
+  #pre_promote: /path/to/pre_promote.sh
+
 tags:
     nofailover: false
     noloadbalance: false
