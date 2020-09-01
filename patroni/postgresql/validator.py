@@ -27,7 +27,8 @@ class CaseInsensitiveDict(HTTPHeaderDict):
 
 class Bool(namedtuple('Bool', 'version_from,version_till')):
 
-    def transform(self, name, value):
+    @staticmethod
+    def transform(name, value):
         if parse_bool(value) is not None:
             return value
         logger.warning('Removing bool parameter=%s from the config due to the invalid value=%s', name, value)
@@ -81,7 +82,8 @@ class Enum(namedtuple('Enum', 'version_from,version_till,possible_values')):
 
 class String(namedtuple('String', 'version_from,version_till')):
 
-    def transform(self, name, value):
+    @staticmethod
+    def transform(name, value):
         return value
 
 
