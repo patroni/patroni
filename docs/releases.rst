@@ -12,7 +12,7 @@ This version enhances compatibility with PostgreSQL 13, adds support of multiple
 
 - Don't fire ``on_reload`` when promoting to ``standby_leader`` on PostgreSQL 13+ (Alexander Kukushkin)
 
-  When promoting to ``standby_leader`` we change ``primary_conninfo``, update the role and reload oPstgres. Since ``on_role_change`` and ``on_reload`` effectively duplicate each other, Patroni will call only ``on_role_change``.
+  When promoting to ``standby_leader`` we change ``primary_conninfo``, update the role and reload Postgres. Since ``on_role_change`` and ``on_reload`` effectively duplicate each other, Patroni will call only ``on_role_change``.
 
 - Added support for ``gssencmode`` and ``channel_binding`` connection parameters (Alexander)
 
