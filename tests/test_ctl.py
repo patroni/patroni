@@ -436,7 +436,7 @@ class TestCtl(unittest.TestCase):
         cluster.members.append(cascade_member_wrong_tags)
         mock_get_dcs.return_value.get_cluster = Mock(return_value=cluster)
         result = self.runner.invoke(ctl, ['topology', 'dummy'])
-        assert '+\n| leader          | 127.0.0.1:5435 |  Leader |' in result.output
+        assert '+\n| leader          | 127.0.0.1:5435 | Leader  |' in result.output
         assert '|\n| + other         | 127.0.0.1:5436 | Replica |' in result.output
         assert '|\n|   + cascade     | 127.0.0.1:5437 | Replica |' in result.output
         assert '|\n| + wrong_cascade | 127.0.0.1:5438 | Replica |' in result.output
