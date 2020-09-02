@@ -40,5 +40,9 @@ Please provide a snippet of Patroni log files here
 **Have you checked PostgreSQL logs?**
 Please provide a snippet here
 
+**Have you tried to use GitHub issue search?**
+Maybe there is already a similar issue solved.
+
+
 **Additional context**
 Add any other context about the problem here.
