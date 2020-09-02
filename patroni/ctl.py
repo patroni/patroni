@@ -188,6 +188,7 @@ def print_output(columns, rows, alignment=None, fmt='pretty', header=None, delim
         else:
             hrules = ALL if any(any(isinstance(c, six.string_types) and '\n' in c for c in r) for r in rows) else FRAME
             table = PatronictlPrettyTable(header, columns, hrules=hrules)
+            table.align = 'l'
             for k, v in (alignment or {}).items():
                 table.align[k] = v
             for r in rows:
@@ -820,8 +821,7 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
 
         rows.append([m.get(n.lower().replace(' ', '_'), '') for n in columns])
 
-    print_output(columns, rows, {'Member': 'l', 'Lag in MB': 'r', 'TL': 'r', 'Tags': 'l'},
-                 fmt, ' Cluster: {0} ({1}) '.format(name, initialize))
+    print_output(columns, rows, {'Lag in MB': 'r', 'TL': 'r'}, fmt, ' Cluster: {0} ({1}) '.format(name, initialize))
 
     if fmt not in ('pretty', 'topology'):  # Omit service info when using machine-readable formats
         return

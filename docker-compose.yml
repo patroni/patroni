@@ -6,42 +6,30 @@ networks:
     demo:
 
 services:
-    etcd1:
+    etcd1: &etcd
         image: patroni
         networks: [ demo ]
-        container_name: demo-etcd1
-        hostname: etcd1
-        command: etcd -name etcd1 -initial-advertise-peer-urls http://etcd1:2380
-        environment: &etcd_env
+        environment:
             ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
             ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
             ETCD_INITIAL_CLUSTER: etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
             ETCD_INITIAL_CLUSTER_STATE: new
             ETCD_INITIAL_CLUSTER_TOKEN: tutorial
-            ETCD_NAME: etcd1
-            ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd1:2380
+        container_name: demo-etcd1
+        hostname: etcd1
+        command: etcd -name etcd1 -initial-advertise-peer-urls http://etcd1:2380
 
     etcd2:
-        image: patroni
-        networks: [ demo ]
+        <<: *etcd
         container_name: demo-etcd2
         hostname: etcd2
         command: etcd -name etcd2 -initial-advertise-peer-urls http://etcd2:2380
-        environment:
-            <<: *etcd_env
-            ETCD_NAME: etcd2
-            ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd2:2380
 
     etcd3:
-        image: patroni
-        networks: [ demo ]
+        <<: *etcd
         container_name: demo-etcd3
         hostname: etcd3
         command: etcd -name etcd3 -initial-advertise-peer-urls http://etcd3:2380
-        environment:
-            <<: *etcd_env
-            ETCD_NAME: etcd3
-            ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd3:2380
 
     haproxy:
         image: patroni

@@ -42,6 +42,7 @@ Feature: standby cluster
     Then postgres2 is replicating from postgres0 after 32 seconds
     When I issue a GET request to http://127.0.0.1:8010/master
     Then I receive a response code 503
+    And I sleep for 3 seconds
     When I issue a GET request to http://127.0.0.1:8010/standby_leader
     Then I receive a response code 200
     And I receive a response role standby_leader

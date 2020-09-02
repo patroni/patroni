@@ -120,8 +120,6 @@ class MockPatroni(object):
     logger = MockLogger()
     tags = {}
     version = '0.00'
-    api = Mock()
-    api.http_extra_headers = {}
     noloadbalance = PropertyMock(return_value=False)
     scheduled_restart = {'schedule': future_restart_time,
                          'postmaster_start_time': postgresql.postmaster_start_time()}
@@ -150,7 +148,8 @@ class MockRestApiServer(RestApiServer):
         self.serve_forever = Mock()
         MockRestApiServer._BaseServer__is_shut_down = Mock()
         MockRestApiServer._BaseServer__shutdown_request = True
-        config = config or {'listen': '127.0.0.1:8008', 'auth': 'test:test', 'certfile': 'dumb', 'verify_client': 'a'}
+        config = config or {'listen': '127.0.0.1:8008', 'auth': 'test:test', 'certfile': 'dumb', 'verify_client': 'a',
+                            'http_extra_headers': {'foo': 'bar'}, 'https_extra_headers': {'foo': 'sbar'}}
         super(MockRestApiServer, self).__init__(MockPatroni(), config)
         Handler(MockRequest(request), ('0.0.0.0', 8080), self)
 
@@ -181,7 +180,7 @@ class TestRestApiHandler(unittest.TestCase):
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'replica'})):
             MockRestApiServer(RestApiHandler, 'GET /synchronous')
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'replica'})):
-            MockPatroni.dcs.cluster.sync.sync_standby = ''
+            MockPatroni.dcs.cluster.sync.members = []
             MockRestApiServer(RestApiHandler, 'GET /asynchronous')
         with patch.object(MockHa, 'is_leader', Mock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /replica')
