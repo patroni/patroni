@@ -92,7 +92,7 @@ class Config(object):
         self.__environment_configuration = self._build_environment_configuration()
 
         # Patroni reads the configuration from the command-line argument if it exists, otherwise from the environment
-        self._config_file = configfile and os.path.isfile(configfile) and configfile
+        self._config_file = configfile and os.path.exists(configfile) and configfile
         if self._config_file:
             self._local_configuration = self._load_config_file()
         else:
@@ -120,12 +120,32 @@ class Config(object):
     def check_mode(self, mode):
         return bool(parse_bool(self._dynamic_configuration.get(mode)))
 
+    def _load_config_path(self, path):
+        """
+        If path is a file, loads the yml file pointed to by path.
+        If path is a directory, loads all yml files in that directory in alphabetical order
+        """
+        if os.path.isfile(path):
+            files = [path]
+        elif os.path.isdir(path):
+            files = [os.path.join(path, f) for f in sorted(os.listdir(path))
+                     if (f.endswith('.yml') or f.endswith('.yaml')) and os.path.isfile(os.path.join(path, f))]
+        else:
+            logger.error('config path %s is neither directory nor file', path)
+            raise ConfigParseError('invalid config path')
+
+        overall_config = {}
+        for fname in files:
+            with open(fname) as f:
+                config = yaml.safe_load(f)
+                patch_config(overall_config, config)
+        return overall_config
+
     def _load_config_file(self):
         """Loads config.yaml from filesystem and applies some values which were set via ENV"""
-        with open(self._config_file) as f:
-            config = yaml.safe_load(f)
-            patch_config(config, self.__environment_configuration)
-            return config
+        config = self._load_config_path(self._config_file)
+        patch_config(config, self.__environment_configuration)
+        return config
 
     def _load_cache(self):
         if os.path.isfile(self._cache_file):
