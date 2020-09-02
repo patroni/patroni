@@ -22,6 +22,7 @@ We call Patroni a "template" because it is far from being a one-size-fits-all or
    rest_api
    ENVIRONMENT
    SETTINGS
+   security
    replica_bootstrap
    replication_modes
    pause
