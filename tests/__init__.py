@@ -165,8 +165,10 @@ class PostgresInit(unittest.TestCase):
                    'search_path': 'public', 'hot_standby': 'on', 'max_wal_senders': 5,
                    'wal_keep_segments': 8, 'wal_log_hints': 'on', 'max_locks_per_transaction': 64,
                    'max_worker_processes': 8, 'max_connections': 100, 'max_prepared_transactions': 0,
-                   'track_commit_timestamp': 'off', 'unix_socket_directories': '/tmp', 'trigger_file': 'bla',
-                   'stats_temp_directory': '/tmp'}
+                   'track_commit_timestamp': 'off', 'unix_socket_directories': '/tmp',
+                   'trigger_file': 'bla', 'stats_temp_directory': '/tmp', 'zero_damaged_pages': '',
+                   'force_parallel_mode': '1', 'constraint_exclusion': '',
+                   'max_stack_depth': 'Z', 'vacuum_cost_limit': -1, 'vacuum_cost_delay': 200}
 
     @patch('psycopg2.connect', psycopg2_connect)
     @patch('patroni.postgresql.CallbackExecutor', Mock())
