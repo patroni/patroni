@@ -156,7 +156,11 @@ class Ha(object):
                 last_operation = self.state_handler.last_operation()
             except Exception:
                 logger.exception('Exception when called state_handler.last_operation()')
-        ret = self.dcs.update_leader(last_operation, self._leader_access_is_restricted)
+        try:
+            ret = self.dcs.update_leader(last_operation, self._leader_access_is_restricted)
+        except Exception:
+            logger.exception('Unexpected exception raised from update_leader, please report it as a BUG')
+            ret = False
         self.set_is_leader(ret)
         if ret:
             self.watchdog.keepalive()

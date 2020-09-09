@@ -200,7 +200,8 @@ class TestHa(PostgresInit):
 
     def test_update_lock(self):
         self.p.last_operation = Mock(side_effect=PostgresConnectionException(''))
-        self.assertTrue(self.ha.update_lock(True))
+        self.ha.dcs.update_leader = Mock(side_effect=Exception)
+        self.assertFalse(self.ha.update_lock(True))
 
     @patch.object(Postgresql, 'received_timeline', Mock(return_value=None))
     def test_touch_member(self):
