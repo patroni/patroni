@@ -762,9 +762,9 @@ class Ha(object):
             return False
 
         if self.state_handler.is_leader():
-            # in pause leader is the healthiest only when sysid matches with initialize!
-            return not self.is_paused() or self.sysid_valid(self.cluster.initialize)\
-                    and self.state_handler.sysid == self.cluster.initialize
+            # in pause leader is the healthiest only when no initialize or sysid matches with initialize!
+            return not self.is_paused() or not self.cluster.initialize\
+                    or self.state_handler.sysid == self.cluster.initialize
 
         if self.is_paused():
             return False
