@@ -61,9 +61,15 @@ Scenario: check the scheduled restart
 		And postgres0 role is the primary after 10 seconds
 
 Scenario: check API requests for the primary-replica pair in the pause mode
-	Given I run patronictl.py pause batman
+	Given I start postgres1
+	Then replication works from postgres0 to postgres1 after 20 seconds
+	When I run patronictl.py pause batman
 	Then I receive a response returncode 0
-	When I start postgres1
+	When I kill postmaster on postgres1
+	And I issue a GET request to http://127.0.0.1:8009/replica
+	Then I receive a response code 503
+	When I run patronictl.py restart batman postgres1 --force
+	Then I receive a response returncode 0
 	Then replication works from postgres0 to postgres1 after 20 seconds
 	When I issue a GET request to http://127.0.0.1:8009/replica
 	Then I receive a response code 200
