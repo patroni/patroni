@@ -901,7 +901,7 @@ class Kubernetes(AbstractDCS):
             else:
                 logger.exception('Permission denied' if e.status == 403 else 'Unexpected error from Kubernetes API')
                 return False
-        except RetryFailedError:
+        except (RetryFailedError, K8sException):
             return False
 
         deadline = retry.stoptime - time.time()
