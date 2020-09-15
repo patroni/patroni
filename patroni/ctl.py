@@ -1090,11 +1090,13 @@ def show_diff(before_editing, after_editing):
             width = 80
             tab_width = 8
             wrap = True
-            if not find_executable('less'):
+            if find_executable('less'):
+                pager = None
+            else
                 pager = 'more.com' if sys.platform == 'win32' else 'more'
             pager_options = None
 
-        ydiff.markup_to_pager(ydiff.PatchStream(buf), opts)
+        markup_to_pager(PatchStream(buf), opts)
     else:
         for line in unified_diff:
             click.echo(line.rstrip('\n'))
