@@ -1,4 +1,4 @@
-﻿'''
+'''
 Patroni Control
 '''
 
