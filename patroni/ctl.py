@@ -1087,9 +1087,8 @@ def show_diff(before_editing, after_editing):
             width = 80
             tab_width = 8
             wrap = True
-            if (sys.platform == 'win32'):
-                pager = 'more.com'
-                pager_options = None
+            pager = 'more.com' if (sys.platform == 'win32') else None
+            pager_options = None
 
         ydiff.markup_to_pager(ydiff.PatchStream(buf), opts)
     else:
