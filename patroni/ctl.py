@@ -1,4 +1,4 @@
-'''
+﻿'''
 Patroni Control
 '''
 
@@ -7,7 +7,7 @@ import codecs
 import datetime
 import dateutil.parser
 import dateutil.tz
-import cdiff
+import ydiff
 import copy
 import difflib
 import io
@@ -1086,7 +1086,12 @@ def show_diff(before_editing, after_editing):
             side_by_side = False
             width = 80
             tab_width = 8
-        cdiff.markup_to_pager(cdiff.PatchStream(buf), opts)
+            wrap = True
+            if (sys.platform == 'win32'):
+                pager = 'more.com'
+                pager_options = None
+
+        ydiff.markup_to_pager(ydiff.PatchStream(buf), opts)
     else:
         for line in unified_diff:
             click.echo(line.rstrip('\n'))
