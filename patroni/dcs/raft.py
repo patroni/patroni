@@ -87,15 +87,14 @@ class DynMemberSyncObj(SyncObj):
 
     def __init__(self, selfAddress, partnerAddrs, conf):
         add_self = False
-        if selfAddress:
-            utility = SyncObjUtility(partnerAddrs, conf)
-            for node in utility._SyncObj__otherNodes:
-                utility.setPartnerNode(node)
-                response = utility.sendMessage(['members'])
-                if response:
-                    partnerAddrs = [member['addr'] for member in response if member['addr'] != selfAddress]
-                    add_self = len(partnerAddrs) == len(response)
-                    break
+        utility = SyncObjUtility(partnerAddrs, conf)
+        for node in utility._SyncObj__otherNodes:
+            utility.setPartnerNode(node)
+            response = utility.sendMessage(['members'])
+            if response:
+                partnerAddrs = [member['addr'] for member in response if member['addr'] != selfAddress]
+                add_self = selfAddress and len(partnerAddrs) == len(response)
+                break
 
         super(DynMemberSyncObj, self).__init__(selfAddress, partnerAddrs, conf, transportClass=MyTCPTransport)
         if add_self:
