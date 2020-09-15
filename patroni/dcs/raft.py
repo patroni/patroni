@@ -269,14 +269,19 @@ class Raft(AbstractDCS):
         super(Raft, self).__init__(config)
         self._ttl = int(config.get('ttl') or 30)
 
-        self_addr = None if self._ctl else config.get('self_addr')
+        self_addr = config.get('self_addr')
+        partner_addrs = config.get('partner_addrs', [])
+        if self._ctl:
+            if self_addr:
+                partner_addrs.append(self_addr)
+            self_addr = None
         template = os.path.join(config.get('data_dir', ''), self_addr or '')
         files = {'journalFile': template + '.journal', 'fullDumpFile': template + '.dump'} if self_addr else {}
 
         ready_event = threading.Event()
         conf = SyncObjConf(commandsWaitLeader=False, appendEntriesUseBatch=False, onReady=ready_event.set,
                            dynamicMembershipChange=True, **files)
-        self._sync_obj = KVStoreTTL(self_addr, config.get('partner_addrs', []), conf, self._on_set, self._on_delete)
+        self._sync_obj = KVStoreTTL(self_addr, partner_addrs, conf, self._on_set, self._on_delete)
         while True:
             ready_event.wait(5)
             if ready_event.isSet() or self._sync_obj.applied_local_log:
