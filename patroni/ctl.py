@@ -20,10 +20,6 @@ import sys
 import tempfile
 import time
 import yaml
-try:
-    import ydiff
-except ImportError:
-    import cdiff as ydiff
 
 from click import ClickException
 from collections import defaultdict
@@ -37,6 +33,10 @@ from patroni.request import PatroniRequest
 from patroni.version import __version__
 from prettytable import ALL, FRAME, PrettyTable
 from six.moves.urllib_parse import urlparse
+try:
+    from ydiff import markup_to_pager, PatchStream
+except ImportError:  # pragma: no cover
+    from cdiff import markup_to_pager, PatchStream
 
 CONFIG_DIR_PATH = click.get_app_dir('patroni')
 CONFIG_FILE_PATH = os.path.join(CONFIG_DIR_PATH, 'patronictl.yaml')
