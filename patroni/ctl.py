@@ -7,7 +7,6 @@ import codecs
 import datetime
 import dateutil.parser
 import dateutil.tz
-import ydiff
 import copy
 import difflib
 import io
@@ -21,6 +20,10 @@ import sys
 import tempfile
 import time
 import yaml
+try:
+    import ydiff
+except ImportError:
+    import cdiff as ydiff
 
 from click import ClickException
 from collections import defaultdict
