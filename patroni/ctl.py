@@ -1092,7 +1092,7 @@ def show_diff(before_editing, after_editing):
             wrap = True
             if find_executable('less'):
                 pager = None
-            else
+            else:
                 pager = 'more.com' if sys.platform == 'win32' else 'more'
             pager_options = None
 
