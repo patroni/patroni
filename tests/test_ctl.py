@@ -561,7 +561,7 @@ class TestCtl(unittest.TestCase):
         self.assertRaises(PatroniCtlException, apply_config_changes, before_editing, config, ['a'])
 
     @patch('sys.stdout.isatty', return_value=False)
-    @patch('cdiff.markup_to_pager')
+    @patch('patroni.ctl.markup_to_pager')
     def test_show_diff(self, mock_markup_to_pager, mock_isatty):
         show_diff("foo:\n  bar: 1\n", "foo:\n  bar: 2\n")
         mock_markup_to_pager.assert_not_called()
@@ -569,6 +569,9 @@ class TestCtl(unittest.TestCase):
         mock_isatty.return_value = True
         show_diff("foo:\n  bar: 1\n", "foo:\n  bar: 2\n")
         mock_markup_to_pager.assert_called_once()
+
+        with patch('patroni.ctl.find_executable', Mock(return_value=None)):
+            show_diff("foo:\n  bar: 1\n", "foo:\n  bar: 2\n")
 
         # Test that unicode handling doesn't fail with an exception
         show_diff(b"foo:\n  bar: \xc3\xb6\xc3\xb6\n".decode('utf-8'),
