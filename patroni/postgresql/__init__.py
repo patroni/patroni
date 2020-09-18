@@ -459,6 +459,8 @@ class Postgresql(object):
         self._pending_restart = False
 
         try:
+            if not self._major_version:
+                self.configure_server_parameters()
             configuration = self.config.effective_configuration
         except Exception:
             return None
@@ -1001,8 +1003,11 @@ class Postgresql(object):
     def schedule_sanity_checks_after_pause(self):
         """
             After coming out of pause we have to:
-            1. sync replication slots, because it might happen that slots were removed
-            2. get new 'Database system identifier' to make sure that it wasn't changed
+            1. configure server parameters if necessary
+            2. sync replication slots, because it might happen that slots were removed
+            3. get new 'Database system identifier' to make sure that it wasn't changed
         """
+        if not self._major_version:
+            self.configure_server_parameters()
         self.slots_handler.schedule()
         self._sysid = None

@@ -484,7 +484,7 @@ recovery_parameters = CaseInsensitiveDict({
     'promote_trigger_file': String(120000, None),
     'recovery_end_command': String(90300, None),
     'recovery_min_apply_delay': Integer(90400, None, 0, 2147483647, 'ms'),
-    'recovery_target': Enum(90400, None, ('immediate',)),
+    'recovery_target': Enum(90400, None, ('immediate', '')),
     'recovery_target_action': Enum(90500, None, ('pause', 'promote', 'shutdown')),
     'recovery_target_inclusive': Bool(90300, None),
     'recovery_target_lsn': String(100000, None),

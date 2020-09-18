@@ -1112,3 +1112,18 @@ class TestHa(PostgresInit):
         self.assertEqual(self.ha.run_cycle(), 'Unexpected exception raised, please report it as a BUG')
         self.ha.dcs.touch_member = Mock(side_effect=PatroniFatalException('foo'))
         self.assertRaises(PatroniFatalException, self.ha.run_cycle)
+
+    def test_empty_directory_in_pause(self):
+        self.ha.is_paused = true
+        self.p.data_directory_empty = true
+        self.assertEqual(self.ha.run_cycle(), 'PAUSE: running with empty data directory')
+        self.assertEqual(self.p.role, 'uninitialized')
+
+    @patch('patroni.ha.Ha.sysid_valid', MagicMock(return_value=True))
+    def test_sysid_no_match_in_pause(self):
+        self.ha.is_paused = true
+        self.p.controldata = lambda: {'Database cluster state': 'in recovery', 'Database system identifier': '123'}
+        self.assertEqual(self.ha.run_cycle(), 'PAUSE: continue to run as master without lock')
+
+        self.ha.has_lock = true
+        self.assertEqual(self.ha.run_cycle(), 'PAUSE: released leader key voluntarily due to the system ID mismatch')

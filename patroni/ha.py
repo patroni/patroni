@@ -765,8 +765,10 @@ class Ha(object):
         if self.state_handler.is_starting():  # postgresql still starting up is unhealthy
             return False
 
-        if self.state_handler.is_leader():  # leader is always the healthiest
-            return True
+        if self.state_handler.is_leader():
+            # in pause leader is the healthiest only when no initialize or sysid matches with initialize!
+            return not self.is_paused() or not self.cluster.initialize\
+                    or self.state_handler.sysid == self.cluster.initialize
 
         if self.is_paused():
             return False
@@ -1352,6 +1354,8 @@ class Ha(object):
                     self.release_leader_key_voluntarily()
                     return 'released leader key voluntarily as data dir empty and currently leader'
 
+                if self.is_paused():
+                    return 'running with empty data directory'
                 return self.bootstrap()  # new node
             else:
                 # check if we are allowed to join
@@ -1363,9 +1367,16 @@ class Ha(object):
 
                 if self.sysid_valid(self.cluster.initialize):
                     if self.cluster.initialize != data_sysid:
-                        logger.fatal("system ID mismatch, node %s belongs to a different cluster: %s != %s",
-                                     self.state_handler.name, self.cluster.initialize, data_sysid)
-                        sys.exit(1)
+                        if self.is_paused():
+                            logger.warning('system ID has changed while in paused mode. Patroni will exit when resuming'
+                                           ' unless system ID is reset: %s != %s', self.cluster.initialize, data_sysid)
+                            if self.has_lock():
+                                self.release_leader_key_voluntarily()
+                                return 'released leader key voluntarily due to the system ID mismatch'
+                        else:
+                            logger.fatal('system ID mismatch, node %s belongs to a different cluster: %s != %s',
+                                         self.state_handler.name, self.cluster.initialize, data_sysid)
+                            sys.exit(1)
                 elif self.cluster.is_unlocked() and not self.is_paused():
                     # "bootstrap", but data directory is not empty
                     if not self.state_handler.cb_called and self.state_handler.is_running() \
