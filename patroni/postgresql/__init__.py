@@ -700,7 +700,7 @@ class Postgresql(object):
         return True
 
     def get_guc_value(self, name):
-        cmd = [self.pgcommand('postgres'), self._data_dir, '-C', name]
+        cmd = [self.pgcommand('postgres'), '-D', self._data_dir, '-C', name]
         try:
             data = subprocess.check_output(cmd)
             if data:
