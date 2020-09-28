@@ -18,7 +18,6 @@ from patroni.postgresql.slots import SlotsHandler
 from patroni.utils import tzutc
 from patroni.watchdog import Watchdog
 from six.moves import builtins
-from unittest import mock
 
 from . import PostgresInit, MockPostmaster, psycopg2_connect, requests_get
 from .test_etcd import socket_getaddrinfo, etcd_read, etcd_write
@@ -903,9 +902,8 @@ class TestHa(PostgresInit):
         self.p.pick_synchronous_standby = Mock(return_value=(['other2', 'other3'], ['other2']))
         self.ha.dcs.write_sync_state = Mock(return_value=True)
         self.ha.run_cycle()
-        # mock_set_sync.assert_called_once_with(['other2'])
-        calls = [mock.call(['other2']), mock.call(['other2', 'other3'])]
-        mock_set_sync.assert_has_calls(calls)
+        self.assertEqual(mock_set_sync.call_args_list[0][0], (['other2'],))
+        self.assertEqual(mock_set_sync.call_args_list[1][0], (['other2', 'other3'],))
 
         mock_set_sync.reset_mock()
         # Test sync standby is not disabled when updating dcs fails
