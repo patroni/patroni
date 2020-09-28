@@ -109,9 +109,11 @@ Kubernetes
 Raft
 ----
 
--  **PATRONI\_RAFT\_SELF\_ADDR**: ``ip:port`` to listen on for Raft connections. If not set, the node will not participate in consensus.
+-  **PATRONI\_RAFT\_SELF\_ADDR**: ``ip:port`` to listen on for Raft connections. The ``self_addr`` must be accessible from other nodes of the cluster. If not set, the node will not participate in consensus.
+-  **PATRONI\_RAFT\_BIND\_ADDR**: (optional) ``ip:port`` to listen on for Raft connections. If not specified the ``self_addr`` will be used.
 -  **PATRONI\_RAFT\_PARTNER\_ADDRS**: list of other Patroni nodes in the cluster in format ``"'ip1:port1','ip2:port2'"``. It is important to quote every single entity!
 -  **PATRONI\_RAFT\_DATA\_DIR**: directory where to store Raft log and snapshot. If not specified the current working directory is used.
+-  **PATRONI\_RAFT\_PASSWORD**: (optional) Encrypt Raft traffic with a specified password, requires ``cryptography`` python module.
 
 PostgreSQL
 ----------

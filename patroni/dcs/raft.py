@@ -274,12 +274,15 @@ class Raft(AbstractDCS):
             if self_addr:
                 partner_addrs.append(self_addr)
             self_addr = None
-        template = os.path.join(config.get('data_dir', ''), self_addr or '')
-        files = {'journalFile': template + '.journal', 'fullDumpFile': template + '.dump'} if self_addr else {}
 
         ready_event = threading.Event()
-        conf = SyncObjConf(commandsWaitLeader=False, appendEntriesUseBatch=False, onReady=ready_event.set,
-                           dynamicMembershipChange=True, **files)
+        file_template = os.path.join(config.get('data_dir', ''), (self_addr or ''))
+        conf = SyncObjConf(password=config.get('password'), appendEntriesUseBatch=False,
+                           bindAddress=config.get('bind_addr'), commandsWaitLeader=False,
+                           fullDumpFile=(file_template + '.dump' if self_addr else None),
+                           journalFile=(file_template + '.journal' if self_addr else None),
+                           onReady=ready_event.set, dynamicMembershipChange=True)
+
         self._sync_obj = KVStoreTTL(self_addr, partner_addrs, conf, self._on_set, self._on_delete)
         while True:
             ready_event.wait(5)

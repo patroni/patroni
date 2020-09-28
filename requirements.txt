@@ -8,6 +8,6 @@ python-consul>=0.7.1
 click>=4.1
 prettytable>=0.7
 python-dateutil
-pysyncobj>=0.3.5
+pysyncobj>=0.3.7
 psutil>=2.0.0
 ydiff>=1.2.0

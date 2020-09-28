@@ -316,7 +316,7 @@ class Config(object):
                 logger.exception('Exception when parsing list %s', value)
                 return None
 
-        _set_section_values('raft', ['data_dir', 'self_addr', 'partner_addrs'])
+        _set_section_values('raft', ['data_dir', 'self_addr', 'partner_addrs', 'password', 'bind_addr'])
         if 'raft' in ret and 'partner_addrs' in ret['raft']:
             ret['raft']['partner_addrs'] = _parse_list(ret['raft']['partner_addrs'])
 
