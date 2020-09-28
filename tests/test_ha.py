@@ -3,7 +3,7 @@ import etcd
 import os
 import sys
 
-from mock import call, Mock, MagicMock, PropertyMock, patch, mock_open
+from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.config import Config
 from patroni.dcs import Cluster, ClusterConfig, Failover, Leader, Member, get_dcs, SyncState, TimelineHistory
 from patroni.dcs.etcd import AbstractEtcdClientWithFailover
@@ -18,6 +18,7 @@ from patroni.postgresql.slots import SlotsHandler
 from patroni.utils import tzutc
 from patroni.watchdog import Watchdog
 from six.moves import builtins
+from unittest import mock
 
 from . import PostgresInit, MockPostmaster, psycopg2_connect, requests_get
 from .test_etcd import socket_getaddrinfo, etcd_read, etcd_write
@@ -903,7 +904,7 @@ class TestHa(PostgresInit):
         self.ha.dcs.write_sync_state = Mock(return_value=True)
         self.ha.run_cycle()
         # mock_set_sync.assert_called_once_with(['other2'])
-        calls = [call(['other2']), call(['other2', 'other3'])]
+        calls = [mock.call(['other2']), mock.call(['other2', 'other3'])]
         mock_set_sync.assert_has_calls(calls)
 
         mock_set_sync.reset_mock()
