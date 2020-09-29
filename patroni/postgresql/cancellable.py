@@ -114,7 +114,7 @@ class CancellableSubprocess(CancellableExecutor):
         with self._lock:
             return self._is_cancelled
 
-    def cancel(self):
+    def cancel(self, kill=False):
         with self._lock:
             self._is_cancelled = True
             if self._process is None or not self._process.is_running():
@@ -127,5 +127,7 @@ class CancellableSubprocess(CancellableExecutor):
             with self._lock:
                 if self._process is None or not self._process.is_running():
                     return
+            if kill:
+                break
 
         self._kill_process()
