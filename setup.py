@@ -23,7 +23,7 @@ KEYWORDS = 'etcd governor patroni postgresql postgres ha haproxy confd' +\
     ' zookeeper exhibitor consul streaming replication kubernetes k8s'
 
 EXTRAS_REQUIRE = {'aws': ['boto'], 'etcd': ['python-etcd'], 'etcd3': ['python-etcd'], 'consul': ['python-consul'],
-                  'exhibitor': ['kazoo'], 'zookeeper': ['kazoo'], 'kubernetes': [], 'raft': ['pysyncobj']}
+                  'exhibitor': ['kazoo'], 'zookeeper': ['kazoo'], 'kubernetes': ['ipaddress'], 'raft': ['pysyncobj']}
 COVERAGE_XML = True
 COVERAGE_HTML = False
 
@@ -143,9 +143,13 @@ class PyTest(Command):
 
     def run(self):
         from pkg_resources import evaluate_marker
-        requirements = self.distribution.install_requires + ['mock>=2.0.0', 'pytest-cov', 'pytest'] +\
-            [v for k, v in self.distribution.extras_require.items() if not k.startswith(':') or evaluate_marker(k[1:])]
-        self.distribution.fetch_build_eggs(requirements)
+
+        requirements = set(self.distribution.install_requires + ['mock>=2.0.0', 'pytest-cov', 'pytest'])
+        for k, v in self.distribution.extras_require.items():
+            if not k.startswith(':') or evaluate_marker(k[1:]):
+                requirements.update(v)
+
+        self.distribution.fetch_build_eggs(list(requirements))
         self.run_tests()
 
 
@@ -167,7 +171,7 @@ def setup_package(version):
         extra = False
         for e, v in EXTRAS_REQUIRE.items():
             if v and r.startswith(v[0]):
-                EXTRAS_REQUIRE[e] = [r]
+                EXTRAS_REQUIRE[e] = [r] if e != 'kubernetes' or sys.version_info < (3, 0, 0) else []
                 extra = True
         if not extra:
             install_requires.append(r)
