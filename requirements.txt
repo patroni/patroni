@@ -1,4 +1,5 @@
-urllib3[secure]>=1.19.1,!=1.21
+urllib3>=1.19.1,!=1.21
+ipaddress; python_version=="2.7"
 boto
 PyYAML
 six >= 1.7

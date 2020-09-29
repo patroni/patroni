@@ -3,7 +3,7 @@ import etcd
 import os
 import sys
 
-from mock import call, Mock, MagicMock, PropertyMock, patch, mock_open
+from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.config import Config
 from patroni.dcs import Cluster, ClusterConfig, Failover, Leader, Member, get_dcs, SyncState, TimelineHistory
 from patroni.dcs.etcd import AbstractEtcdClientWithFailover
@@ -902,9 +902,8 @@ class TestHa(PostgresInit):
         self.p.pick_synchronous_standby = Mock(return_value=(['other2', 'other3'], ['other2']))
         self.ha.dcs.write_sync_state = Mock(return_value=True)
         self.ha.run_cycle()
-        # mock_set_sync.assert_called_once_with(['other2'])
-        calls = [call(['other2']), call(['other2', 'other3'])]
-        mock_set_sync.assert_has_calls(calls)
+        self.assertEqual(mock_set_sync.call_args_list[0][0], (['other2'],))
+        self.assertEqual(mock_set_sync.call_args_list[1][0], (['other2', 'other3'],))
 
         mock_set_sync.reset_mock()
         # Test sync standby is not disabled when updating dcs fails
