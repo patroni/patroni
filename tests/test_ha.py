@@ -261,9 +261,17 @@ class TestHa(PostgresInit):
 
     @patch.object(Rewind, 'ensure_clean_shutdown', Mock())
     def test_crash_recovery(self):
+        self.ha.has_lock = true
         self.p.is_running = false
         self.p.controldata = lambda: {'Database cluster state': 'in production', 'Database system identifier': SYSID}
         self.assertEqual(self.ha.run_cycle(), 'doing crash recovery in a single user mode')
+        with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)),\
+                patch.object(Ha, 'check_timeline', Mock(return_value=False)):
+            self.ha._async_executor.schedule('doing crash recovery in a single user mode')
+            self.ha.state_handler.cancellable._process = Mock()
+            self.ha._crash_recovery_started -= 600
+            self.ha.patroni.config.set_dynamic_configuration({'maximum_lag_on_failover': 10})
+            self.assertEqual(self.ha.run_cycle(), 'terminated crash recovery because of startup timeout')
 
     @patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
     @patch.object(Rewind, 'can_rewind', PropertyMock(return_value=True))

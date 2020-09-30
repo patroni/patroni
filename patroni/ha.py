@@ -72,6 +72,7 @@ class Ha(object):
         self.recovering = False
         self._async_response = CriticalTask()
         self._crash_recovery_executed = False
+        self._crash_recovery_started = None
         self._start_timeout = None
         self._async_executor = AsyncExecutor(self.state_handler.cancellable, self.wakeup)
         self.watchdog = patroni.watchdog
@@ -333,6 +334,7 @@ class Ha(object):
                 and not self._crash_recovery_executed and \
                 (self.cluster.is_unlocked() or self._rewind.can_rewind):
             self._crash_recovery_executed = True
+            self._crash_recovery_started = time.time()
             msg = 'doing crash recovery in a single user mode'
             return self._async_executor.try_run_async(msg, self._rewind.ensure_clean_shutdown) or msg
 
@@ -1171,6 +1173,14 @@ class Ha(object):
         Figure out what to do with the task AsyncExecutor is performing.
         """
         if self.has_lock() and self.update_lock():
+            if self._async_executor.scheduled_action == 'doing crash recovery in a single user mode':
+                time_left = self.patroni.config['master_start_timeout'] - (time.time() - self._crash_recovery_started)
+                if time_left <= 0 and self.is_failover_possible(self.cluster.members):
+                    logger.info("Demoting self because crash recovery is taking too long")
+                    self.state_handler.cancellable.cancel(True)
+                    self.demote('immediate')
+                    return 'terminated crash recovery because of startup timeout'
+
             return 'updated leader lock during ' + self._async_executor.scheduled_action
         elif not self.state_handler.bootstrapping:
             # Don't have lock, make sure we are not promoting or starting up a master in the background

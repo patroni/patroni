@@ -1,5 +1,6 @@
 import logging
 import os
+import shlex
 import six
 import subprocess
 
@@ -273,7 +274,7 @@ class Rewind(object):
             i += 1
 
         logger.info('Trying to fetch the missing wal: %s', cmd)
-        return self._postgresql.cancellable.call(cmd, shell=True) == 0
+        return self._postgresql.cancellable.call(shlex.split(cmd)) == 0
 
     def _find_missing_wal(self, data):
         # could not open file "$PGDATA/pg_wal/0000000A00006AA100000068": No such file or directory
@@ -427,4 +428,4 @@ class Rewind(object):
         opts = self.read_postmaster_opts()
         opts.update({'archive_mode': 'on', 'archive_command': 'false'})
         self._postgresql.config.remove_recovery_conf()
-        return self.single_user_mode(options=opts) == 0 or None
+        return self.single_user_mode(communicate={}, options=opts) == 0 or None
