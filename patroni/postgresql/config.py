@@ -478,7 +478,7 @@ class ConfigHandler(object):
     def format_dsn(self, params, include_dbname=False):
         # A list of keywords that can be found in a conninfo string. Follows what is acceptable by libpq
         keywords = ('dbname', 'user', 'passfile' if params.get('passfile') else 'password', 'host', 'port',
-                    'sslmode', 'sslcompression', 'sslcert', 'sslkey', 'sslrootcert', 'sslcrl',
+                    'sslmode', 'sslcompression', 'sslcert', 'sslkey', 'sslpassword', 'sslrootcert', 'sslcrl',
                     'application_name', 'krbsrvname', 'gssencmode', 'channel_binding')
         if include_dbname:
             params = params.copy()
