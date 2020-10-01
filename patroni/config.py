@@ -21,6 +21,7 @@ _AUTH_ALLOWED_PARAMETERS = (
     'sslmode',
     'sslcert',
     'sslkey',
+    'sslpassword',
     'sslrootcert',
     'sslcrl',
     'gssencmode',
