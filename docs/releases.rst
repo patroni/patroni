@@ -3,6 +3,54 @@
 Release notes
 =============
 
+Version 2.0.1
+-------------
+
+**New features**
+
+- Use ``more`` as pager in ``patronictl edit-config`` if ``less`` is not available (Pavel Golub)
+
+  On Windows it would be the ``more.com``. In addition to that, ``cdiff`` was changed to ``ydiff`` in ``requirements.txt``, but ``patronictl`` still supports both for compatibility.
+
+- Added support of ``raft`` ``bind_addr`` and ``password`` (Alexander Kukushkin)
+
+  ``raft.bind_addr`` might be useful when running behind NAT. ``raft.password`` enables traffic encryption (requires the ``cryptography`` module).
+
+- Added ``sslpassword`` connection parameter support (Kostiantyn Nemchenko)
+
+  The connection parameter was introduced in PostgreSQL 13.
+
+**Stability improvements**
+
+- Changed the behavior in pause (Alexander)
+
+  1. Patroni will not call the ``bootstrap`` method if the ``PGDATA`` directory is missing/empty.
+  2. Patroni will not exit on sysid mismatch in pause, only log a warning.
+  3. The node will not try to grab the leader key in pause mode if Postgres is running not in recovery (accepting writes) but the sysid doesn't match with the initialize key.
+
+- Apply ``master_start_timeout`` when executing crash recovery (Alexander)
+
+  If Postgres crashed on the leader node, Patroni does a crash-recovery by starting Postgres in single-user mode. During the crash-recovery the leader lock is being updated. If the crash-recovery didn't finish in ``master_start_timeout`` seconds, Patroni will stop it forcefully and release the leader lock.
+
+- Removed the ``secure`` extra from the ``urllib3`` requirements (Alexander)
+
+  The only reason for adding it there was the ``ipaddress`` dependency for python 2.7.
+
+**Bugfixes**
+
+- Fixed a bug in the ``Kubernetes.update_leader()`` (Alexander)
+
+  An unhandled exception was preventing demoting the primary when the update of the leader object failed.
+
+- Fixed hanging ``patronictl`` when RAFT is being used (Alexander)
+
+  When using ``patronictl`` with Patroni config, ``self_addr`` should be added to the ``partner_addrs``.
+
+- Fixed bug in ``get_guc_value()`` (Alexander)
+
+  Patroni was failing to get the value of ``restore_command`` on PostgreSQL 12, therefore fetching missing WALs for ``pg_rewind`` didn't work.
+
+
 Version 2.0.0
 -------------
 
