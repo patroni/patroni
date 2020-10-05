@@ -1182,7 +1182,7 @@ class Ha(object):
                     return 'terminated crash recovery because of startup timeout'
 
             return 'updated leader lock during ' + self._async_executor.scheduled_action
-        elif not self.state_handler.bootstrapping:
+        elif not self.state_handler.bootstrapping and not self.is_paused():
             # Don't have lock, make sure we are not promoting or starting up a master in the background
             if self._async_executor.scheduled_action == 'promote':
                 with self._async_response:
