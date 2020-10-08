@@ -501,6 +501,9 @@ class TestHa(PostgresInit):
                     self.assertEqual(self.ha.run_cycle(), 'lost leader lock during restart')
                     mock_terminate.assert_called()
 
+            self.ha.is_paused = true
+            self.assertEqual(self.ha.run_cycle(), 'PAUSE: restart in progress')
+
     def test_manual_failover_from_leader(self):
         self.ha.fetch_node_status = get_node_status()
         self.ha.has_lock = true
