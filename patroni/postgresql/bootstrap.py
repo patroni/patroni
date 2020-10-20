@@ -248,14 +248,17 @@ class Bootstrap(object):
             if not self._postgresql.data_directory_empty():
                 self._postgresql.remove_data_directory()
             try:
+                results = {}
                 ret = self._postgresql.cancellable.call([self._postgresql.pgcommand('pg_basebackup'),
                                                          '--pgdata=' + self._postgresql.data_dir, '-X', 'stream',
-                                                         '--dbname=' + conn_url] + user_options, env=env)
+                                                         '--dbname=' + conn_url] + user_options, env=env, communicate=results)
                 if ret == 0:
                     break
                 else:
                     logger.error('Error when fetching backup: pg_basebackup exited with code=%s', ret)
-
+                    logger.info(' stdout=%s', results['stdout'].decode('utf-8'))
+                    logger.info(' stderr=%s', results['stderr'].decode('utf-8'))
+                    
             except Exception as e:
                 logger.error('Error when fetching backup with pg_basebackup: %s', e)
 
