@@ -33,6 +33,14 @@ class SlotsHandler(object):
             self._replication_slots = replication_slots
             self._schedule_load_slots = False
 
+    def ignore_replication_slot(self, cluster, name):
+        slot = self._replication_slots[name]
+        for matcher in cluster.config.ignore_slots_matchers:
+            if ((matcher.get("name") is None or matcher["name"] == name)
+               and all(not matcher.get(a) or matcher[a] == slot.get(a) for a in ('database', 'plugin', 'type'))):
+                return True
+        return False
+
     def drop_replication_slot(self, name):
         cursor = self._query(('SELECT pg_catalog.pg_drop_replication_slot(%s) WHERE EXISTS (SELECT 1 ' +
                               'FROM pg_catalog.pg_replication_slots WHERE slot_name = %s AND NOT active)'), name, name)
@@ -48,7 +56,7 @@ class SlotsHandler(object):
 
                 # drop old replication slots which are not presented in desired slots
                 for name in set(self._replication_slots) - set(slots):
-                    if not self.drop_replication_slot(name):
+                    if not self.ignore_replication_slot(cluster, name) and not self.drop_replication_slot(name):
                         logger.error("Failed to drop replication slot '%s'", name)
                         self._schedule_load_slots = True
 
