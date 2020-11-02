@@ -44,6 +44,7 @@ Feature: ignored slots
     When I start postgres1
     Then postgres1 role is the secondary after 20 seconds
     And "members/postgres1" key in DCS has role=replica after 3 seconds
+    And I sleep for 2 seconds  # give Patroni time to sync replication slots
     And postgres1 has a logical replication slot named unmanaged_slot_0 with the test_decoding plugin
     And postgres1 has a logical replication slot named unmanaged_slot_1 with the test_decoding plugin
     And postgres1 has a logical replication slot named unmanaged_slot_2 with the test_decoding plugin
