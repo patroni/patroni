@@ -128,7 +128,7 @@ install:
         fi
         source ~/virtualenv/python${pv}/bin/activate
         # explicitly install all needed python modules to cache them
-        for p in '-r requirements.txt' 'psycopg2-binary behave codacy-coverage coverage coveralls flake8 mock pytest-cov pytest setuptools'; do
+        for p in '-r requirements.txt' '-r requirements.dev.txt'; do
             pip install $p --upgrade
         done
     done

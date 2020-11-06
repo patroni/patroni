@@ -10,6 +10,37 @@ Chatting
 
 Just want to chat with other Patroni users?  Looking for interactive troubleshooting help? Join us on channel #patroni in the `PostgreSQL Slack <https://postgres-slack.herokuapp.com/>`__.
 
+Running tests
+-------------
+
+Base requirements:
+
+1. PostgreSQL packages need to be installed.
+2. PostgreSQL binaries must be available in your `PATH`. You may need to add them to the path with something like `PATH=:/usr/lib/postgresql/11/bin:$PATH <test commands>`.
+3. If you'd like to test with external DCSs (e.g., Etcd, Consul, Zookeeper, and Kuberetes) you'll need the packages installed and binaries available in the `PATH`. See the `get_<dcs>` functions in the scripting in [the Travis configuration](.travis.yml) for more details4. Install dependencies:
+
+.. code-block:: bash
+
+    # You may want to use Virtualenv or specify pip3.
+    pip install -r requirements.txt
+    pip install -r requirements.dev.txt
+
+After you have all dependencies installed, you can run the various test suites:
+
+.. code-block:: bash
+
+    # You may want to use Virtualenv or specify python3.
+
+    # Run flake8 to check syntax and formatting:
+    python setup.py flake8
+
+    # Run the pytest suite in tests/:
+    python setup.py test
+
+    # Run the behave (https://behave.readthedocs.io/en/latest/) test suite in features/;
+    # modify DCS as desired (raft has no dependencies so is the easiest to start with):
+    DCS=raft python -m behave
+
 Reporting issues
 ----------------
 
