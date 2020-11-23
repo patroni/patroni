@@ -13,11 +13,13 @@ Just want to chat with other Patroni users?  Looking for interactive troubleshoo
 Running tests
 -------------
 
-Base requirements:
+Requirements for running behave tests:
 
 1. PostgreSQL packages need to be installed.
-2. PostgreSQL binaries must be available in your `PATH`. You may need to add them to the path with something like `PATH=:/usr/lib/postgresql/11/bin:$PATH <test commands>`.
-3. If you'd like to test with external DCSs (e.g., Etcd, Consul, Zookeeper, and Kuberetes) you'll need the packages installed and binaries available in the `PATH`. See the `get_<dcs>` functions in the scripting in [the Travis configuration](.travis.yml) for more details4. Install dependencies:
+2. PostgreSQL binaries must be available in your `PATH`. You may need to add them to the path with something like `PATH=/usr/lib/postgresql/11/bin:$PATH python -m behave`.
+3. If you'd like to test with external DCSs (e.g., Etcd, Consul, and Zookeeper) you'll need the packages installed and respective services running and accepting unencrypted/unprotected connections on localhost and default port. In the case of Etcd or Consul, the behave test suite could start them up if binaries are available in the `PATH`. See the `get_<dcs>` functions in the scripting in [the Travis configuration](.travis.yml) for more details.
+
+ Install dependencies:
 
 .. code-block:: bash
 
