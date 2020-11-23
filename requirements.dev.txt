@@ -1,8 +1,6 @@
- psycopg2-binary
+psycopg2-binary
 behave
-codacy-coverage
 coverage
-coveralls
 flake8
 mock
 pytest-cov
