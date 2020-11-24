@@ -7,7 +7,7 @@ addons:
       - expect-dev # for unbuffer
 env:
   global:
-  - ETCDVERSION=3.3.13 ZKVERSION=3.4.14 CONSULVERSION=0.7.4
+  - ETCDVERSION=3.3.13 ZKVERSION=3.6.2 CONSULVERSION=0.7.4
   - PYVERSIONS="2.7 3.6"
   - BOTO_CONFIG=/doesnotexist
 matrix:
@@ -93,14 +93,15 @@ install:
         }
 
         function get_exhibitor() {
-            ZC=~/mycache/zookeeper-${ZKVERSION}
-            if [[ ! -d $ZC ]]; then
-                curl -L http://www.apache.org/dist/zookeeper/zookeeper-${ZKVERSION}/zookeeper-${ZKVERSION}.tar.gz | tar xz
+            ZK_PACKAGE=apache-zookeeper-${ZKVERSION}-bin
+            ZK=~/mycache/$ZK_PACKAGE
+            if [[ ! -d $ZK ]]; then
+                curl -L https://downloads.apache.org/zookeeper/zookeeper-${ZKVERSION}/${ZK_PACKAGE}.tar.gz | tar xz
                 [[ ${PIPESTATUS[0]} == 0 ]] || return 1
-                mv zookeeper-${ZKVERSION}/conf/zoo_sample.cfg zookeeper-${ZKVERSION}/conf/zoo.cfg
-                mv zookeeper-${ZKVERSION} $ZC
+                mv $ZK_PACKAGE/conf/zoo_sample.cfg $ZK_PACKAGE/conf/zoo.cfg
+                mv $ZK_PACKAGE $ZK
             fi
-            $ZC/bin/zkServer.sh start
+            $ZK/bin/zkServer.sh start
             # following lines are 'emulating' exhibitor REST API
             while true; do
                 echo -e 'HTTP/1.0 200 OK\nContent-Type: application/json\n\n{"servers":["127.0.0.1"],"port":2181}' \
@@ -128,7 +129,7 @@ install:
         fi
         source ~/virtualenv/python${pv}/bin/activate
         # explicitly install all needed python modules to cache them
-        for p in '-r requirements.txt' 'psycopg2-binary behave codacy-coverage coverage coveralls flake8 mock pytest-cov pytest setuptools'; do
+        for p in '-r requirements.txt' '-r requirements.dev.txt' 'codacy-coverage coveralls'; do
             pip install $p --upgrade
         done
     done
