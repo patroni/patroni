@@ -342,6 +342,10 @@ class ClusterConfig(namedtuple('ClusterConfig', 'index,data,modify_index')):
         ) or {}
 
     @property
+    def ignore_slots_matchers(self):
+        return isinstance(self.data, dict) and self.data.get('ignore_slots') or []
+
+    @property
     def max_timelines_history(self):
         return self.data.get('max_timelines_history', 0)
 

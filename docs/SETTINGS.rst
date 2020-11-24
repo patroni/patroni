@@ -38,6 +38,32 @@ Dynamic configuration is stored in the DCS (Distributed Configuration Store) and
         -  **type**: slot type. Could be ``physical`` or ``logical``. If the slot is logical, you have to additionally define ``database`` and ``plugin``.
         -  **database**: the database name where logical slots should be created.
         -  **plugin**: the plugin name for the logical slot.
+-  **ignore_slots**: list of sets of replication slot properties for which Patroni should ignore matching slots. This configuration/feature/etc. is useful when some replication slots are managed outside of Patroni. Any subset of matching properties will cause a slot to be ignored.
+    -  **name**: the name of the replication slot.
+    -  **type**: slot type. Can be ``physical`` or ``logical``. If the slot is logical, you may additionally define ``database`` and/or ``plugin``.
+    -  **database**: the database name (when matching a ``logical`` slot).
+    -  **plugin**: the logical decoding plugin (when matching a ``logical`` slot).
+
+Note: **slots** is a hashmap while **ignore_slots** is an array. For example:
+
+.. code:: YAML
+
+        slots:
+          permanent_logical_slot_name:
+            type: logical
+            database: my_db
+            plugin: test_decoding
+          permanent_physical_slot_name:
+            type: physical
+          ...
+        ignore_slots:
+          - name: ignored_logical_slot_name
+            type: logical
+            database: my_db
+            plugin: test_decoding
+          - name: ignored_physical_slot_name
+            type: physical
+          ...
 
 Global/Universal
 ----------------
