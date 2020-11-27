@@ -501,4 +501,3 @@ class TestRestApiServer(unittest.TestCase):
                 Mock(return_value=(mock_request, mock_address))
             ):
                 self.srv._handle_request_noblock()
-
