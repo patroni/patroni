@@ -664,6 +664,11 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             newsock = (sock, newsock)
         return newsock, addr
 
+    def shutdown_request(self, request):
+        if isinstance(request, tuple):
+            _, request = request  # SSLSocket
+        return super(RestApiServer, self).shutdown_request(request)
+
     def reload_config(self, config):
         if 'listen' not in config:  # changing config in runtime
             raise ValueError('Can not find "restapi.listen" config')

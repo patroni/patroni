@@ -488,3 +488,16 @@ class TestRestApiServer(unittest.TestCase):
         mock_accept.return_value = (newsock, '2')
         self.srv.socket = Mock()
         self.assertEqual(self.srv.get_request(), ((self.srv.socket, newsock), '2'))
+
+    @patch.object(MockRestApiServer, 'process_request', Mock(side_effect=RuntimeError))
+    def test_process_request_error(self):
+        mock_address = ('127.0.0.1', 55555)
+        mock_socket = Mock()
+        mock_ssl_socket = (Mock(), Mock())
+        for mock_request in (mock_socket, mock_ssl_socket):
+            with patch.object(
+                MockRestApiServer,
+                'get_request',
+                Mock(return_value=(mock_request, mock_address))
+            ):
+                self.srv._handle_request_noblock()
