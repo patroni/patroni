@@ -24,19 +24,21 @@ import yaml
 from click import ClickException
 from collections import defaultdict
 from contextlib import contextmanager
-from patroni.dcs import get_dcs as _get_dcs
-from patroni.exceptions import PatroniException
-from patroni.postgresql import Postgresql
-from patroni.postgresql.misc import postgres_version_to_int
-from patroni.utils import cluster_as_json, patch_config, polling_loop
-from patroni.request import PatroniRequest
-from patroni.version import __version__
 from prettytable import ALL, FRAME, PrettyTable
 from six.moves.urllib_parse import urlparse
+
 try:
     from ydiff import markup_to_pager, PatchStream
 except ImportError:  # pragma: no cover
     from cdiff import markup_to_pager, PatchStream
+
+from .dcs import get_dcs as _get_dcs
+from .exceptions import PatroniException
+from .postgresql import Postgresql
+from .postgresql.misc import postgres_version_to_int
+from .utils import cluster_as_json, find_executable, patch_config, polling_loop
+from .request import PatroniRequest
+from .version import __version__
 
 CONFIG_DIR_PATH = click.get_app_dir('patroni')
 CONFIG_FILE_PATH = os.path.join(CONFIG_DIR_PATH, 'patronictl.yaml')
@@ -1169,24 +1171,6 @@ def apply_yaml_file(data, filename):
     patch_config(changed_data, new_options)
 
     return format_config_for_editing(changed_data), changed_data
-
-
-def find_executable(executable, path=None):
-    _, ext = os.path.splitext(executable)
-
-    if (sys.platform == 'win32') and (ext != '.exe'):
-        executable = executable + '.exe'
-
-    if os.path.isfile(executable):
-        return executable
-
-    if path is None:
-        path = os.environ.get('PATH', os.defpath)
-
-    for p in path.split(os.pathsep):
-        f = os.path.join(p, executable)
-        if os.path.isfile(f):
-            return f
 
 
 def invoke_editor(before_editing, cluster_name):
