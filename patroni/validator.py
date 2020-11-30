@@ -53,9 +53,13 @@ def validate_host_port(host_port, listen=False, multiple_hosts=False):
     return True
 
 
-def comma_separated_host_port(string):
-    assert all([validate_host_port(s.strip()) for s in string.split(",")]), "didn't pass the validation"
+def validate_host_port_list(value):
+    assert all([validate_host_port(v) for v in value]), "didn't pass the validation"
     return True
+
+
+def comma_separated_host_port(string):
+    return validate_host_port_list([s.strip() for s in string.split(",")])
 
 
 def validate_host_port_listen(host_port):
@@ -291,11 +295,20 @@ def assert_(condition, message="Wrong value"):
 
 userattributes = {"username": "", Optional("password"): ""}
 available_dcs = [m.split(".")[-1] for m in dcs_modules()]
+validate_host_port_list.expected_type = list
 comma_separated_host_port.expected_type = string_types
 validate_connect_address.expected_type = string_types
 validate_host_port_listen.expected_type = string_types
 validate_host_port_listen_multiple_hosts.expected_type = string_types
 validate_data_dir.expected_type = string_types
+validate_etcd = {
+    Or("host", "hosts", "srv", "url", "proxy"): Case({
+        "host": validate_host_port,
+        "hosts": Or(comma_separated_host_port, [validate_host_port]),
+        "srv": str,
+        "url": str,
+        "proxy": str})
+}
 
 schema = Schema({
   "name": str,
@@ -320,18 +333,19 @@ schema = Schema({
               "host": validate_host_port,
               "url": str})
           },
-      "etcd": {
-          Or("host", "hosts", "srv", "url", "proxy"): Case({
-              "host": validate_host_port,
-              "hosts": Or(comma_separated_host_port, [validate_host_port]),
-              "srv": str,
-              "url": str,
-              "proxy": str})
-         },
+      "etcd": validate_etcd,
+      "etcd3": validate_etcd,
       "exhibitor": {
           "hosts": [str],
           "port": lambda i: assert_(int(i) <= 65535),
           Optional("pool_interval"): int
+          },
+      "raft": {
+          "self_addr": validate_connect_address,
+          Optional("bind_addr"): validate_host_port_listen,
+          "partner_addrs": validate_host_port_list,
+          Optional("data_dir"): str,
+          Optional("password"): str
           },
       "zookeeper": {
           "hosts": Or(comma_separated_host_port, [validate_host_port]),
