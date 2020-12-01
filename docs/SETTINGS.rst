@@ -241,6 +241,9 @@ Raft
 
     A: Yes, on the third node you can run ``patroni_raft_controller`` (without Patroni and PostgreSQL). In such a setup, one can temporarily lose one node without affecting the primary.
 
+  - Q: Do I need to specify a port?
+
+    A: No, if you omit the port, Patroni will prepend the startup API port with 1 (i.e. add 10000 to it).
 
 .. _postgresql_settings:
 
