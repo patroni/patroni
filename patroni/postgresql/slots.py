@@ -48,7 +48,7 @@ class SlotsHandler(object):
         return cursor.rowcount == 1
 
     def sync_replication_slots(self, cluster):
-        if self._postgresql.major_version >= 90400:
+        if self._postgresql.major_version >= 90400 and cluster.config:
             try:
                 self.load_replication_slots()
 
