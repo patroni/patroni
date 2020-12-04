@@ -1,0 +1,173 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches:
+    - master
+    tags:
+    - v.*
+
+jobs:
+  unit:
+    runs-on: ${{ matrix.os }}-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu, windows, macos]
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: Set up Python 2.7
+      uses: actions/setup-python@v2
+      with:
+        python-version: 2.7
+      if: matrix.os != 'windows'
+    - name: Install dependencies
+      run: python .github/workflows/install_deps.py
+      if: matrix.os != 'windows'
+    - name: Run tests and flake8
+      run: python .github/workflows/run_tests.py
+      if: matrix.os != 'windows'
+
+    - name: Set up Python 3.5
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.5
+    - name: Install dependencies
+      run: python .github/workflows/install_deps.py
+    - name: Run tests and flake8
+      run: python .github/workflows/run_tests.py
+
+    - name: Set up Python 3.6
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.6
+    - name: Install dependencies
+      run: python .github/workflows/install_deps.py
+    - name: Run tests and flake8
+      run: python .github/workflows/run_tests.py
+
+    - name: Set up Python 3.7
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.7
+    - name: Install dependencies
+      run: python .github/workflows/install_deps.py
+    - name: Run tests and flake8
+      run: python .github/workflows/run_tests.py
+
+    - name: Set up Python 3.8
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.8
+    - name: Install dependencies
+      run: python .github/workflows/install_deps.py
+    - name: Run tests and flake8
+      run: python .github/workflows/run_tests.py
+
+    - name: Set up Python 3.9
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.9
+    - name: Install dependencies
+      run: python .github/workflows/install_deps.py
+    - name: Run tests and flake8
+      run: python .github/workflows/run_tests.py
+
+    - name: Combine coverage
+      run: python .github/workflows/run_tests.py combine
+
+    - name: Install coveralls
+      run: python -m pip install coveralls
+
+    - name: Upload Coverage
+      env:
+        COVERALLS_FLAG_NAME: unit-${{ matrix.os }}
+        COVERALLS_PARALLEL: 'true'
+        GITHUB_TOKEN: ${{ secrets.github_token }}
+      run: python -m coveralls
+
+    - name: Run codacy-coverage-reporter
+      uses: codacy/codacy-coverage-reporter-action@master
+      with:
+        project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
+        coverage-reports: coverage.xml
+      if: matrix.os == 'ubuntu'
+
+  behave:
+    runs-on: ${{ matrix.os }}-latest
+    env:
+      DCS: ${{ matrix.dcs }}
+      ETCDVERSION: 3.3.13
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu]
+        python-version: [2.7, 3.5, 3.8]
+        dcs: [etcd, etcd3, consul, exhibitor, kubernetes, raft]
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: python .github/workflows/install_deps.py
+    - name: Run behave tests
+      run: python .github/workflows/run_tests.py
+    - uses: actions/setup-python@v2
+      with:
+        python-version: 3.9
+    - name: Install coveralls
+      run: python -m pip install coveralls
+    - name: Upload Coverage
+      env:
+        COVERALLS_FLAG_NAME: behave-${{ matrix.os }}-${{ matrix.dcs }}-${{ matrix.python-version }}
+        COVERALLS_PARALLEL: 'true'
+        GITHUB_TOKEN: ${{ secrets.github_token }}
+      run: python -m coveralls
+
+  behavem:
+    runs-on: ${{ matrix.os }}-latest
+    env:
+      DCS: ${{ matrix.dcs }}
+      ETCDVERSION: 3.3.13
+      PGVERSION: 12.1-1  # for windows and macos
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos]  #, windows]
+        python-version: [3.7]
+        dcs: [etcd, etcd3, raft]
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: python .github/workflows/install_deps.py
+    - name: Run behave tests
+      run: python .github/workflows/run_tests.py
+    - name: Install coveralls
+      run: python -m pip install coveralls
+    - name: Upload Coverage
+      env:
+        COVERALLS_FLAG_NAME: behave-${{ matrix.os }}-${{ matrix.dcs }}-${{ matrix.python-version }}
+        COVERALLS_PARALLEL: 'true'
+        GITHUB_TOKEN: ${{ secrets.github_token }}
+      run: python -m coveralls
+
+  coveralls-finish:
+    name: Finalize coveralls.io
+    needs: [unit, behave, behavem]
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/setup-python@v2
+    - run: python -m pip install coveralls
+    - run: python -m coveralls --finish
+      env:
+        GITHUB_TOKEN: ${{ secrets.github_token }}
