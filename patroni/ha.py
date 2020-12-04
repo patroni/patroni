@@ -782,6 +782,7 @@ class Ha(object):
             return self.manual_failover_process_no_leader()
 
         if not self.watchdog.is_healthy:
+            logger.warning('Watchdog device is not usable')
             return False
 
         # When in sync mode, only last known master and sync standby are allowed to promote automatically.
