@@ -915,7 +915,7 @@ class Postgresql(object):
                     new_name = '{0}_{1}'.format(pg_wal_realpath, postfix)
                     os.rename(pg_wal_realpath, new_name)
                     os.unlink(source)
-                    os.symlink(source, new_name)
+                    os.symlink(new_name, source)
 
                 # Move user defined tablespace directory
                 for (source, pg_tsp_rpath) in self.pg_tblspc_realpaths().items():
@@ -923,7 +923,7 @@ class Postgresql(object):
                     new_name = '{0}_{1}'.format(pg_tsp_rpath, postfix)
                     os.rename(pg_tsp_rpath, new_name)
                     os.unlink(source)
-                    os.symlink(source, new_name)
+                    os.symlink(new_name, source)
 
                 new_name = '{0}_{1}'.format(self._data_dir, postfix)
                 logger.info('renaming data directory to %s', new_name)
