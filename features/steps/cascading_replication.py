@@ -37,7 +37,8 @@ def check_member(context, name, key, value, time_limit):
         except Exception:
             pass
         time.sleep(1)
-    assert False, "{0} does not have {1}={2} (found {3}) in dcs after {4} seconds".format(name, key, value, dcs_value, time_limit)
+    assert False, "{0} does not have {1}={2} (found {3}) in dcs after {4} seconds".format(name, key, value,
+                                                                                          dcs_value, time_limit)
 
 
 @step('there is a non empty {key:w} key in DCS after {time_limit:d} seconds')
