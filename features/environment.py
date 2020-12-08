@@ -13,6 +13,8 @@ import threading
 import time
 import yaml
 
+from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
+
 
 @six.add_metaclass(abc.ABCMeta)
 class AbstractController(object):
@@ -559,11 +561,28 @@ class ZooKeeperController(AbstractDcsController):
             return False
 
 
+class MockExhibitor(BaseHTTPRequestHandler):
+
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b'{"servers":["127.0.0.1"],"port":2181}')
+
+    def log_message(self, fmt, *args):
+        pass
+
+
 class ExhibitorController(ZooKeeperController):
 
     def __init__(self, context):
         super(ExhibitorController, self).__init__(context, False)
-        os.environ.update({'PATRONI_EXHIBITOR_HOSTS': 'localhost', 'PATRONI_EXHIBITOR_PORT': '8181'})
+        port = 8181
+        exhibitor = HTTPServer(('', port), MockExhibitor)
+        exhibitor.daemon_thread = True
+        exhibitor_thread = threading.Thread(target=exhibitor.serve_forever)
+        exhibitor_thread.daemon = True
+        exhibitor_thread.start()
+        os.environ.update({'PATRONI_EXHIBITOR_HOSTS': 'localhost', 'PATRONI_EXHIBITOR_PORT': str(port)})
 
 
 class RaftController(AbstractDcsController):
