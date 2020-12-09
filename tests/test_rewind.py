@@ -40,6 +40,12 @@ def mock_cancellable_call1(*args, **kwargs):
     return 1
 
 
+def mock_single_user_mode(self, communicate, options):
+    communicate['stdout'] = b'foo'
+    communicate['stderr'] = b'bar'
+    return 1
+
+
 @patch('subprocess.call', Mock(return_value=0))
 @patch('psycopg2.connect', psycopg2_connect)
 class TestRewind(BaseTestPostgresql):
@@ -170,8 +176,8 @@ class TestRewind(BaseTestPostgresql):
 
     @patch.object(MockCursor, 'fetchone', Mock(side_effect=[(True,), Exception]))
     def test_check_leader_is_not_in_recovery(self):
-        self.r.check_leader_is_not_in_recovery()
-        self.r.check_leader_is_not_in_recovery()
+        self.r.check_leader_is_not_in_recovery({})
+        self.r.check_leader_is_not_in_recovery({})
 
     def test_read_postmaster_opts(self):
         m = mock_open(read_data='/usr/lib/postgres/9.6/bin/postgres "-D" "data/postgresql0" \
@@ -206,9 +212,9 @@ class TestRewind(BaseTestPostgresql):
     @patch('os.listdir', Mock(return_value=[]))
     @patch('os.path.isfile', Mock(return_value=True))
     @patch.object(Rewind, 'read_postmaster_opts', Mock(return_value={}))
-    @patch.object(Rewind, 'single_user_mode', Mock(return_value=0))
+    @patch.object(Rewind, 'single_user_mode', mock_single_user_mode)
     def test_ensure_clean_shutdown(self):
-        self.assertTrue(self.r.ensure_clean_shutdown())
+        self.assertIsNone(self.r.ensure_clean_shutdown())
 
     @patch('patroni.postgresql.rewind.Thread', MockThread)
     @patch.object(Postgresql, 'controldata')
