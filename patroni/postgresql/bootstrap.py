@@ -130,7 +130,7 @@ class Bootstrap(object):
                 # (pghost empty or the default socket directory) connections coming from the local machine.
                 r['host'] = 'localhost'  # set it to localhost to write into pgpass
 
-            env = self._postgresql.config.write_pgpass(r) if 'password' in r else None
+            env = self._postgresql.config.write_pgpass(r)
             env['PGOPTIONS'] = '-c synchronous_commit=local'
 
             try:
