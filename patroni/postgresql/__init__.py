@@ -984,16 +984,17 @@ class Postgresql(object):
         # receiving changes faster than the sync member (very rare but possible). Such cases would
         # trigger sync standby member swapping frequently and the sort on sync_state desc should
         # help in keeping the query result consistent.
-        for app_name, state, sync_state in self.query(
+        for app_name, state, sync_state, replica_rank in self.query(
                 "SELECT pg_catalog.lower(application_name), state, sync_state"
+                ", rank() over (order by {0}_{1} DESC) as replica_rank"
                 " FROM pg_catalog.pg_stat_replication"
                 " WHERE state = 'streaming'"
-                " ORDER BY sync_state DESC, {0}_{1} DESC".format(sort_col, self.lsn_name)):
+                " ORDER BY {0}_{1} DESC, sync_state DESC".format(sort_col, self.lsn_name)):
             member = members.get(app_name)
             if not member or member.tags.get('nosync', False):
                 continue
             candidates.append(member.name)
-            if sync_state == 'sync':
+            if sync_state == 'sync' and replica_rank == 1:
                 sync_nodes.append(member.name)
             if len(candidates) >= sync_node_count:
                 break
