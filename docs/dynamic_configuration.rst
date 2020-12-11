@@ -87,3 +87,6 @@ Upon changing these options, Patroni will read the relevant section of the confi
 run-time values.
 
 Patroni nodes are dumping the state of the DCS options to disk upon for every change of the configuration into the file ``patroni.dynamic.json`` located in the Postgres data directory. Only the master is allowed to restore these options from the on-disk dump if these are completely absent from the DCS or if they are invalid.
+
+
+
