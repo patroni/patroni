@@ -387,6 +387,9 @@ class ConfigHandler(object):
         if 'custom_conf' not in self._config and not os.path.exists(self._postgresql_base_conf):
             os.rename(self._postgresql_conf, self._postgresql_base_conf)
 
+        if self._postgresql.bootstrap.running_custom_bootstrap:
+            configuration['hot_standby'] = 'off'
+
         with ConfigWriter(self._postgresql_conf) as f:
             include = self._config.get('custom_conf') or self._postgresql_base_conf_name
             f.writeline("include '{0}'\n".format(ConfigWriter.escape(include)))
