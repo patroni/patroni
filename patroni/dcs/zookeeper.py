@@ -123,13 +123,14 @@ class ZooKeeper(AbstractDCS):
         # the same time, set_ttl method will reestablish connection and return
         # `!True`, otherwise we will close existing connection and let kazoo
         # open the new one.
-        if not self.set_ttl(int(config['ttl'] * 1000)) and loop_wait_changed:
+        if not self.set_ttl(config['ttl']) and loop_wait_changed:
             self._client._connection._socket.close()
 
     def set_ttl(self, ttl):
         """It is not possible to change ttl (session_timeout) in zookeeper without
         destroying old session and creating the new one. This method returns `!True`
         if session_timeout has been changed (`restart()` has been called)."""
+        ttl = int(ttl * 1000)
         if self._client._session_timeout != ttl:
             self._client._session_timeout = ttl
             self._client.restart()
@@ -137,7 +138,7 @@ class ZooKeeper(AbstractDCS):
 
     @property
     def ttl(self):
-        return self._client._session_timeout
+        return self._client._session_timeout / 1000.0
 
     def set_retry_timeout(self, retry_timeout):
         retry = self._client.retry if isinstance(self._client.retry, KazooRetry) else self._client._retry
@@ -372,6 +373,7 @@ class ZooKeeper(AbstractDCS):
         return self.set_sync_state_value("{}", index)
 
     def watch(self, leader_index, timeout):
-        if super(ZooKeeper, self).watch(leader_index, timeout) and not self._fetch_optime:
+        ret = super(ZooKeeper, self).watch(leader_index, timeout)
+        if ret and not self._fetch_optime:
             self._fetch_cluster = True
-        return self._fetch_cluster
+        return ret or self._fetch_cluster

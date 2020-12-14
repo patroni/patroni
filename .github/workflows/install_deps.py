@@ -154,13 +154,6 @@ users:
     return 0
 
 
-def setup_exhibitor():
-    response = '{"servers":["127.0.0.1"],"port":2181}'
-    response = 'HTTP/1.0 200 OK\\nContent-Length: {0}\\n\\n{1}'.format(len(response), response)
-    s = subprocess.Popen("while true; do echo '{0}'| nc -l 8181 > /dev/null; done".format(response), shell=True)
-    return 0 if s.poll() is None else s.returncode
-
-
 def main():
     what = os.environ.get('DCS', sys.argv[1] if len(sys.argv) > 1 else 'all')
     r = install_requirements(what)
@@ -178,8 +171,6 @@ def main():
         return install_etcd()
     elif what == 'kubernetes':
         return setup_kubernetes()
-    elif what == 'exhibitor':
-        return setup_exhibitor()
     return 0
 
 
