@@ -7,7 +7,6 @@ import subprocess
 from six import string_types
 
 from .utils import find_executable, split_host_port, data_directory_is_empty
-from .ctl import find_executable
 from .dcs import dcs_modules
 from .exceptions import ConfigParseError
 
