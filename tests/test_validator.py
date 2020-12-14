@@ -45,7 +45,7 @@ config = {
         "self_addr": "127.0.0.1:2222",
         "bind_addr": "0.0.0.0:2222",
         "partner_addrs": ["127.0.0.1:2223", "127.0.0.1:2224"],
-        "data_dir": "/tmp",
+        "data_dir": "/",
         "password": "12345"
     },
     "zookeeper": {
