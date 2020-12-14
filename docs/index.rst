@@ -22,6 +22,7 @@ Currently supported PostgreSQL versions: 9.3 to 13.
    README
    dynamic_configuration
    rest_api
+   existing_data
    ENVIRONMENT
    SETTINGS
    security
