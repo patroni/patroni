@@ -12,6 +12,8 @@ Patroni is a template for you to create your own customized, high-availability s
 
 We call Patroni a "template" because it is far from being a one-size-fits-all or plug-and-play replication system. It will have its own caveats. Use wisely.
 
+Currently supported PostgreSQL versions: 9.3 to 13.
+
 **Note to Kubernetes users**: Patroni can run natively on top of Kubernetes. Take a look at the `Kubernetes <https://github.com/zalando/patroni/blob/master/docs/kubernetes.rst>`__ chapter of the Patroni documentation.
 
 .. contents::
