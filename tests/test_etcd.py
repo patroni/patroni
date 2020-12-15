@@ -110,6 +110,7 @@ class TestDnsCachingResolver(unittest.TestCase):
     @patch('socket.getaddrinfo', Mock(side_effect=socket.gaierror))
     def test_run(self):
         r = DnsCachingResolver()
+        r._invoke_excepthook = Mock()
         self.assertIsNone(r.resolve_async('', 0))
         r.join()
 
