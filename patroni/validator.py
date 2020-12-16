@@ -4,11 +4,11 @@ import socket
 import re
 import subprocess
 
-from patroni.utils import split_host_port, data_directory_is_empty
-from patroni.ctl import find_executable
-from patroni.dcs import dcs_modules
-from patroni.exceptions import ConfigParseError
 from six import string_types
+
+from .utils import find_executable, split_host_port, data_directory_is_empty
+from .dcs import dcs_modules
+from .exceptions import ConfigParseError
 
 
 def data_directory_empty(data_dir):

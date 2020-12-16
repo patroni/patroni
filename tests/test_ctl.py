@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from mock import patch, Mock
 from patroni.ctl import ctl, store_config, load_config, output_members, get_dcs, parse_dcs, \
     get_all_members, get_any_member, get_cursor, query_member, configure, PatroniCtlException, apply_config_changes, \
-    format_config_for_editing, show_diff, invoke_editor, format_pg_version, find_executable, CONFIG_FILE_PATH
+    format_config_for_editing, show_diff, invoke_editor, format_pg_version, CONFIG_FILE_PATH
 from patroni.dcs.etcd import AbstractEtcdClientWithFailover, Failover
 from patroni.utils import tzutc
 from psycopg2 import OperationalError
@@ -628,15 +628,6 @@ class TestCtl(unittest.TestCase):
     def test_format_pg_version(self):
         self.assertEqual(format_pg_version(100001), '10.1')
         self.assertEqual(format_pg_version(90605), '9.6.5')
-
-    @patch('sys.platform', 'win32')
-    def test_find_executable(self):
-        with patch('os.path.isfile', Mock(return_value=True)):
-            self.assertEqual(find_executable('vim'), 'vim.exe')
-        with patch('os.path.isfile', Mock(return_value=False)):
-            self.assertIsNone(find_executable('vim'))
-        with patch('os.path.isfile', Mock(side_effect=[False, True])):
-            self.assertEqual(find_executable('vim', '/'), '/vim.exe')
 
     @patch('patroni.ctl.get_dcs')
     def test_get_members(self, mock_get_dcs):
