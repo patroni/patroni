@@ -59,11 +59,10 @@ class Rewind(object):
         if self.can_rewind_or_reinitialize_allowed and self._state != REWIND_STATUS.NEED:
             self._state = REWIND_STATUS.CHECK
 
-    def check_leader_is_not_in_recovery(self, **kwargs):
-        if not kwargs.get('database'):
-            kwargs['database'] = self._postgresql.database
+    @staticmethod
+    def check_leader_is_not_in_recovery(conn_kwargs):
         try:
-            with get_connection_cursor(connect_timeout=3, options='-c statement_timeout=2000', **kwargs) as cur:
+            with get_connection_cursor(connect_timeout=3, options='-c statement_timeout=2000', **conn_kwargs) as cur:
                 cur.execute('SELECT pg_catalog.pg_is_in_recovery()')
                 if not cur.fetchone()[0]:
                     return True
@@ -165,6 +164,12 @@ class Rewind(object):
 
         logger.info('master: history=%s', '\n'.join(history_show))
 
+    def _conn_kwargs(self, member, auth):
+        ret = member.conn_kwargs(auth)
+        if not ret.get('database'):
+            ret['database'] = self._postgresql.database
+        return ret
+
     def _check_timeline_and_lsn(self, leader):
         in_recovery, local_timeline, local_lsn = self._get_local_timeline_lsn()
         if local_timeline is None or local_lsn is None:
@@ -174,7 +179,7 @@ class Rewind(object):
             if leader.member.data.get('role') != 'master':
                 return
         # standby cluster
-        elif not self.check_leader_is_not_in_recovery(**leader.conn_kwargs(self._postgresql.config.replication)):
+        elif not self.check_leader_is_not_in_recovery(self._conn_kwargs(leader, self._postgresql.config.replication)):
             return
 
         history = need_rewind = None
@@ -333,7 +338,7 @@ class Rewind(object):
             return logger.warning('Can not run pg_rewind because postgres is still running')
 
         # prepare pg_rewind connection
-        r = leader.conn_kwargs(self._postgresql.config.rewind_credentials)
+        r = self._conn_kwargs(leader, self._postgresql.config.rewind_credentials)
 
         # 1. make sure that we are really trying to rewind from the master
         # 2. make sure that pg_control contains the new timeline by:
@@ -341,17 +346,17 @@ class Rewind(object):
         #   waiting until Patroni on the master will expose checkpoint_after_promote=True
         checkpoint_status = leader.checkpoint_after_promote if isinstance(leader, Leader) else None
         if checkpoint_status is None:  # master still runs the old Patroni
-            leader_status = self._postgresql.checkpoint(leader.conn_kwargs(self._postgresql.config.superuser))
+            leader_status = self._postgresql.checkpoint(self._conn_kwargs(leader, self._postgresql.config.superuser))
             if leader_status:
                 return logger.warning('Can not use %s for rewind: %s', leader.name, leader_status)
         elif not checkpoint_status:
             return logger.info('Waiting for checkpoint on %s before rewind', leader.name)
-        elif not self.check_leader_is_not_in_recovery(**r):
+        elif not self.check_leader_is_not_in_recovery(r):
             return
 
         if self.pg_rewind(r):
             self._state = REWIND_STATUS.SUCCESS
-        elif not self.check_leader_is_not_in_recovery(**r):
+        elif not self.check_leader_is_not_in_recovery(r):
             logger.warning('Failed to rewind because master %s become unreachable', leader.name)
         else:
             logger.error('Failed to rewind from healty master: %s', leader.name)
@@ -428,4 +433,10 @@ class Rewind(object):
         opts = self.read_postmaster_opts()
         opts.update({'archive_mode': 'on', 'archive_command': 'false'})
         self._postgresql.config.remove_recovery_conf()
-        return self.single_user_mode(communicate={}, options=opts) == 0 or None
+        output = {}
+        ret = self.single_user_mode(communicate=output, options=opts)
+        if ret != 0:
+            logger.error('Crash recovery finished with code=%s', ret)
+            logger.info(' stdout=%s', output['stdout'].decode('utf-8'))
+            logger.info(' stderr=%s', output['stderr'].decode('utf-8'))
+        return ret == 0 or None
