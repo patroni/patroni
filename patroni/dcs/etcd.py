@@ -404,7 +404,7 @@ class EtcdClient(AbstractEtcdClientWithFailover):
         if self.http is not None:
             try:
                 self.http.clear()
-            except (ReferenceError, TypeError):
+            except (ReferenceError, TypeError, AttributeError):
                 pass
 
     def _prepare_get_members(self, etcd_nodes):
