@@ -33,10 +33,20 @@ config = {
     "etcd": {
         "hosts": "127.0.0.1:2379,127.0.0.1:2380"
     },
+    "etcd3": {
+        "url": "https://127.0.0.1:2379"
+    },
     "exhibitor": {
         "hosts": ["string"],
         "port": 4000,
         "pool_interval": 1000
+    },
+    "raft": {
+        "self_addr": "127.0.0.1:2222",
+        "bind_addr": "0.0.0.0:2222",
+        "partner_addrs": ["127.0.0.1:2223", "127.0.0.1:2224"],
+        "data_dir": "/",
+        "password": "12345"
     },
     "zookeeper": {
         "hosts":  "127.0.0.1:3379,127.0.0.1:3380"
@@ -139,7 +149,7 @@ class TestValidator(unittest.TestCase):
     def test_complete_config(self, mock_out, mock_err):
         schema(config)
         output = mock_out.getvalue()
-        self.assertEqual(['postgresql.bin_dir'], parse_output(output))
+        self.assertEqual(['postgresql.bin_dir', 'raft.bind_addr', 'raft.self_addr'], parse_output(output))
 
     def test_bin_dir_is_file(self, mock_out, mock_err):
         files.append(config["postgresql"]["data_dir"])
@@ -151,7 +161,8 @@ class TestValidator(unittest.TestCase):
         schema(c)
         output = mock_out.getvalue()
         self.assertEqual(['etcd.hosts.1', 'etcd.hosts.2', 'kubernetes.pod_ip', 'postgresql.bin_dir',
-                          'postgresql.data_dir', 'restapi.connect_address'], parse_output(output))
+                          'postgresql.data_dir', 'raft.bind_addr', 'raft.self_addr',
+                          'restapi.connect_address'], parse_output(output))
 
     @patch('socket.inet_pton', Mock(), create=True)
     def test_bin_dir_is_empty(self, mock_out, mock_err):
@@ -167,8 +178,8 @@ class TestValidator(unittest.TestCase):
         with patch('patroni.validator.open', mock_open(read_data='9')):
             schema(c)
         output = mock_out.getvalue()
-        self.assertEqual(['consul.host', 'etcd.host', 'postgresql.bin_dir', 'postgresql.data_dir',
-                          'postgresql.listen', 'restapi.connect_address'], parse_output(output))
+        self.assertEqual(['consul.host', 'etcd.host', 'postgresql.bin_dir', 'postgresql.data_dir', 'postgresql.listen',
+                          'raft.bind_addr', 'raft.self_addr', 'restapi.connect_address'], parse_output(output))
 
     @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
     def test_data_dir_contains_pg_version(self, mock_out, mock_err):
@@ -186,7 +197,7 @@ class TestValidator(unittest.TestCase):
         with patch('patroni.validator.open', mock_open(read_data='12')):
             schema(config)
         output = mock_out.getvalue()
-        self.assertEqual([], parse_output(output))
+        self.assertEqual(['raft.bind_addr', 'raft.self_addr'], parse_output(output))
 
     @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
     def test_pg_version_missmatch(self, mock_out, mock_err):
@@ -201,7 +212,8 @@ class TestValidator(unittest.TestCase):
         with patch('patroni.validator.open', mock_open(read_data='11')):
             schema(c)
         output = mock_out.getvalue()
-        self.assertEqual(['etcd.hosts', 'postgresql.data_dir'], parse_output(output))
+        self.assertEqual(['etcd.hosts', 'postgresql.data_dir',
+                          'raft.bind_addr', 'raft.self_addr'], parse_output(output))
 
     @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
     def test_pg_wal_doesnt_exist(self, mock_out, mock_err):
@@ -214,7 +226,7 @@ class TestValidator(unittest.TestCase):
         with patch('patroni.validator.open', mock_open(read_data='11')):
             schema(c)
         output = mock_out.getvalue()
-        self.assertEqual(['postgresql.data_dir'], parse_output(output))
+        self.assertEqual(['postgresql.data_dir', 'raft.bind_addr', 'raft.self_addr'], parse_output(output))
 
     def test_data_dir_is_empty_string(self, mock_out, mock_err):
         directories.append(config["postgresql"]["data_dir"])
@@ -226,5 +238,5 @@ class TestValidator(unittest.TestCase):
         c["postgresql"]["bin_dir"] = ""
         schema(c)
         output = mock_out.getvalue()
-        self.assertEqual(['kubernetes', 'postgresql.bin_dir',
-                          'postgresql.data_dir', 'postgresql.pg_hba'], parse_output(output))
+        self.assertEqual(['kubernetes', 'postgresql.bin_dir', 'postgresql.data_dir',
+                          'postgresql.pg_hba', 'raft.bind_addr', 'raft.self_addr'], parse_output(output))
