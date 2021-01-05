@@ -86,8 +86,6 @@ class TestKVStoreTTL(unittest.TestCase):
         self.so.set('foo', 'bar')
         self.so.set('fooo', 'bar')
         self.assertFalse(self.so.delete('foo', prevValue='buz'))
-        self.assertFalse(self.so.delete('foo', prevValue='bar', timeout=0.00001))
-        self.assertFalse(self.so.delete('foo', prevValue='bar'))
         self.assertTrue(self.so.delete('foo', recursive=True))
         self.assertFalse(self.so.retry(self.so._delete, 'foo', prevValue=''))
 
@@ -99,10 +97,14 @@ class TestKVStoreTTL(unittest.TestCase):
 
     @patch('time.sleep', Mock())
     def test_retry(self):
-        return_values = [FAIL_REASON.QUEUE_FULL, FAIL_REASON.SUCCESS, FAIL_REASON.REQUEST_DENIED]
+        return_values = [FAIL_REASON.QUEUE_FULL] * 2 + [FAIL_REASON.SUCCESS, FAIL_REASON.REQUEST_DENIED]
 
         def test(callback):
             callback(True, return_values.pop(0))
+
+        with patch('time.time', Mock(side_effect=[1, 100])):
+            self.assertFalse(self.so.retry(test))
+
         self.assertTrue(self.so.retry(test))
         self.assertFalse(self.so.retry(test))
 
