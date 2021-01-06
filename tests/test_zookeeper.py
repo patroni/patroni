@@ -30,7 +30,9 @@ class MockKazooClient(Mock):
     def get(self, path, watch=None):
         if not isinstance(path, six.string_types):
             raise TypeError("Invalid type for 'path' (string expected)")
-        if path == '/no_node':
+        if path == '/broken/status':
+            return (b'{', ZnodeStat(0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0))
+        elif path in ('/no_node', '/legacy/status'):
             raise NoNodeError
         elif '/members/' in path:
             return (
@@ -45,6 +47,8 @@ class MockKazooClient(Mock):
             return (b'foo', ZnodeStat(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
         elif path.endswith('/initialize'):
             return (b'foo', ZnodeStat(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+        elif path.endswith('/status'):
+            return (b'{"optime":500,"slots":{"ls":1234567}}', ZnodeStat(0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0))
         return (b'', ZnodeStat(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
 
     @staticmethod
@@ -147,6 +151,10 @@ class TestZooKeeper(unittest.TestCase):
     def test__inner_load_cluster(self):
         self.zk._base_path = self.zk._base_path.replace('test', 'bla')
         self.zk._inner_load_cluster()
+        self.zk._base_path = self.zk._base_path = '/broken'
+        self.zk._inner_load_cluster()
+        self.zk._base_path = self.zk._base_path = '/legacy'
+        self.zk._inner_load_cluster()
         self.zk._base_path = self.zk._base_path = '/no_node'
         self.zk._inner_load_cluster()
 
@@ -156,7 +164,7 @@ class TestZooKeeper(unittest.TestCase):
         self.assertIsInstance(cluster.leader, Leader)
         self.zk.touch_member({'foo': 'foo'})
         self.zk._name = 'bar'
-        self.zk.optime_watcher(None)
+        self.zk.status_watcher(None)
         with patch.object(ZooKeeper, 'get_node', Mock(side_effect=Exception)):
             self.zk.get_cluster()
         cluster = self.zk.get_cluster()
@@ -221,7 +229,7 @@ class TestZooKeeper(unittest.TestCase):
     def test_watch(self):
         self.zk.watch(None, 0)
         self.zk.event.isSet = Mock(return_value=True)
-        self.zk._fetch_optime = False
+        self.zk._fetch_status = False
         self.zk.watch(None, 0)
 
     def test__kazoo_connect(self):

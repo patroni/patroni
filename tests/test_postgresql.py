@@ -308,7 +308,7 @@ class TestPostgresql(BaseTestPostgresql):
         config = ClusterConfig(1, {'slots': {'test_3': {'database': 'a', 'plugin': 'b'},
                                              'A': 0, 'ls': 0, 'b': {'type': 'logical', 'plugin': '1'}},
                                    'ignore_slots': [{'name': 'blabla'}]}, 1)
-        cluster = Cluster(True, config, self.leader, 0, [self.me, self.other, self.leadermem], None, None, None)
+        cluster = Cluster(True, config, self.leader, 0, [self.me, self.other, self.leadermem], None, None, None, None)
         with mock.patch('patroni.postgresql.Postgresql._query', Mock(side_effect=psycopg2.OperationalError)):
             self.p.slots_handler.sync_replication_slots(cluster)
         self.p.slots_handler.sync_replication_slots(cluster)
@@ -609,7 +609,7 @@ class TestPostgresql(BaseTestPostgresql):
 
     def test_pick_sync_standby(self):
         cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None,
-                          SyncState(0, self.me.name, self.leadermem.name), None)
+                          SyncState(0, self.me.name, self.leadermem.name), None, None)
         mock_cursor = Mock()
         mock_cursor.fetchone.return_value = ('remote_apply',)
 

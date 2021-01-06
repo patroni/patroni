@@ -15,8 +15,7 @@ def kv_get(self, key, **kwargs):
         return None, None
     if key == 'service/good/leader':
         return '1', None
-    if key == 'service/good/':
-        return ('6429',
+    good_cls = ('6429',
                 [{'CreateIndex': 1334, 'Flags': 0, 'Key': key + 'failover', 'LockIndex': 0,
                   'ModifyIndex': 1334, 'Value': b''},
                  {'CreateIndex': 1334, 'Flags': 0, 'Key': key + 'initialize', 'LockIndex': 0,
@@ -34,7 +33,17 @@ def kv_get(self, key, **kwargs):
                  {'CreateIndex': 1085, 'Flags': 0, 'Key': key + 'optime/leader', 'LockIndex': 0,
                   'ModifyIndex': 6429, 'Value': b'4496294792'},
                  {'CreateIndex': 1085, 'Flags': 0, 'Key': key + 'sync', 'LockIndex': 0,
-                  'ModifyIndex': 6429, 'Value': b'{"leader": "leader", "sync_standby": null}'}])
+                  'ModifyIndex': 6429, 'Value': b'{"leader": "leader", "sync_standby": null}'},
+                 {'CreateIndex': 1085, 'Flags': 0, 'Key': key + 'status', 'LockIndex': 0,
+                  'ModifyIndex': 6429, 'Value': b'{"optime":4496294792, "slots":{"ls":12345}}'}])
+    if key == 'service/good/':
+        return good_cls
+    if key == 'service/broken/':
+        good_cls[1][-1]['Value'] = '{'
+        return good_cls
+    if key == 'service/legacy/':
+        good_cls[1].pop()
+        return good_cls
     raise ConsulException
 
 
@@ -108,6 +117,10 @@ class TestConsul(unittest.TestCase):
         self.assertIsInstance(self.c.get_cluster(), Cluster)
         self.c._base_path = '/service/fail'
         self.assertRaises(ConsulError, self.c.get_cluster)
+        self.c._base_path = '/service/broken'
+        self.assertIsInstance(self.c.get_cluster(), Cluster)
+        self.c._base_path = '/service/legacy'
+        self.assertIsInstance(self.c.get_cluster(), Cluster)
         self.c._base_path = '/service/good'
         self.c._session = 'fd4f44fe-2cac-bba5-a60b-304b51ff39b8'
         self.assertIsInstance(self.c.get_cluster(), Cluster)

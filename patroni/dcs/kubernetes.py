@@ -727,6 +727,13 @@ class Kubernetes(AbstractDCS):
             last_lsn = annotations.get(self._OPTIME)
             last_lsn = 0 if last_lsn is None else int(last_lsn)
 
+            # get permanent slots state (confirmed_flush_lsn)
+            slots = annotations.get('slots')
+            try:
+                slots = slots and json.loads(slots)
+            except Exception:
+                slots = None
+
             # get leader
             leader_record = {n: annotations.get(n) for n in (self._LEADER, 'acquireTime',
                              'ttl', 'renewTime', 'transitions') if n in annotations}
@@ -759,7 +766,7 @@ class Kubernetes(AbstractDCS):
             metadata = sync and sync.metadata
             sync = SyncState.from_node(metadata and metadata.resource_version,  metadata and metadata.annotations)
 
-            return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history)
+            return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots)
         except Exception:
             logger.exception('get_cluster')
             raise KubernetesError('Kubernetes API is not responding properly')

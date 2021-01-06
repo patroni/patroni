@@ -172,6 +172,22 @@ class TestEtcd3(BaseTestEtcd3):
         self.assertIsInstance(self.etcd3.get_cluster(), Cluster)
         self.client._kv_cache = None
         with patch.object(urllib3.PoolManager, 'urlopen') as mock_urlopen:
+            mock_urlopen.return_value = MockResponse()
+            mock_urlopen.return_value.content = json.dumps({
+                "header": {"revision": "1"},
+                "kvs": [
+                    {"key": base64_encode('/patroni/test/status'),
+                     "value": base64_encode('{"optime":1234567,"slots":{"ls":12345}}'), "mod_revision": '1'}
+                ]
+            })
+            self.assertIsInstance(self.etcd3.get_cluster(), Cluster)
+            mock_urlopen.return_value.content = json.dumps({
+                "header": {"revision": "1"},
+                "kvs": [
+                    {"key": base64_encode('/patroni/test/status'), "value": base64_encode('{'), "mod_revision": '1'}
+                ]
+            })
+            self.assertIsInstance(self.etcd3.get_cluster(), Cluster)
             mock_urlopen.side_effect = UnsupportedEtcdVersion('')
             self.assertRaises(UnsupportedEtcdVersion, self.etcd3.get_cluster)
             mock_urlopen.side_effect = SleepException()

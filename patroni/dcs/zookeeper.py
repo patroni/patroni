@@ -74,7 +74,7 @@ class ZooKeeper(AbstractDCS):
         self._client.add_listener(self.session_listener)
 
         self._fetch_cluster = True
-        self._fetch_optime = True
+        self._fetch_status = True
 
         self._orig_kazoo_connect = self._client._connection._connect
         self._client._connection._connect = self._kazoo_connect
@@ -100,13 +100,13 @@ class ZooKeeper(AbstractDCS):
         if state in [KazooState.SUSPENDED, KazooState.LOST]:
             self.cluster_watcher(None)
 
-    def optime_watcher(self, event):
-        self._fetch_optime = True
+    def status_watcher(self, event):
+        self._fetch_status = True
         self.event.set()
 
     def cluster_watcher(self, event):
         self._fetch_cluster = True
-        self.optime_watcher(event)
+        self.status_watcher(event)
 
     def reload_config(self, config):
         self.set_retry_timeout(config['retry_timeout'])
@@ -151,11 +151,29 @@ class ZooKeeper(AbstractDCS):
         except NoNodeError:
             return None
 
-    def get_leader_optime(self, leader):
-        watch = self.optime_watcher if not leader or leader.name != self._name else None
-        optime = self.get_node(self.leader_optime_path, watch)
-        self._fetch_optime = False
-        return optime and int(optime[0]) or 0
+    def get_status(self, leader):
+        watch = self.status_watcher if not leader or leader.name != self._name else None
+
+        status = self.get_node(self.status_path, watch)
+        if status:
+            try:
+                status = json.loads(status[0])
+                last_lsn = status.get(self._OPTIME)
+                slots = status.get('slots')
+            except Exception:
+                slots = last_lsn = None
+        else:
+            last_lsn = self.get_node(self.leader_optime_path, watch)
+            last_lsn = last_lsn and last_lsn[0]
+            slots = None
+
+        try:
+            last_lsn = int(last_lsn)
+        except Exception:
+            last_lsn = 0
+
+        self._fetch_status = False
+        return last_lsn, slots
 
     @staticmethod
     def member(name, value, znode):
@@ -218,14 +236,14 @@ class ZooKeeper(AbstractDCS):
                 leader = Leader(leader[1].version, leader[1].ephemeralOwner, member)
                 self._fetch_cluster = member.index == -1
 
-        # get last known leader lsn
-        last_lsn = self._OPTIME in nodes and self.get_leader_optime(leader)
+        # get last known leader lsn and slots
+        last_lsn, slots = self.get_status(leader)
 
         # failover key
         failover = self.get_node(self.failover_path, watch=self.cluster_watcher) if self._FAILOVER in nodes else None
         failover = failover and Failover.from_node(failover[1].version, failover[0])
 
-        return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history)
+        return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots)
 
     def _load_cluster(self):
         cluster = self.cluster
@@ -237,12 +255,13 @@ class ZooKeeper(AbstractDCS):
                 self.cluster_watcher(None)
                 raise ZooKeeperError('ZooKeeper in not responding properly')
         # Optime ZNode was updated or doesn't exist and we are not leader
-        elif (self._fetch_optime and not self._fetch_cluster or not cluster.last_lsn) and\
+        elif (self._fetch_status and not self._fetch_cluster or not cluster.last_lsn
+              or cluster.has_permanent_logical_slots(self._name) and not cluster.slots) and\
                 not (cluster.leader and cluster.leader.name == self._name):
             try:
-                optime = self.get_leader_optime(cluster.leader)
-                cluster = Cluster(cluster.initialize, cluster.config, cluster.leader, optime,
-                                  cluster.members, cluster.failover, cluster.sync, cluster.history)
+                last_lsn, slots = self.get_status(cluster.leader)
+                cluster = Cluster(cluster.initialize, cluster.config, cluster.leader, last_lsn,
+                                  cluster.members, cluster.failover, cluster.sync, cluster.history, slots)
             except Exception:
                 pass
         return cluster
@@ -374,6 +393,6 @@ class ZooKeeper(AbstractDCS):
 
     def watch(self, leader_index, timeout):
         ret = super(ZooKeeper, self).watch(leader_index, timeout)
-        if ret and not self._fetch_optime:
+        if ret and not self._fetch_status:
             self._fetch_cluster = True
         return ret or self._fetch_cluster

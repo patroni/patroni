@@ -432,7 +432,7 @@ class TimelineHistory(namedtuple('TimelineHistory', 'index,value,lines')):
         return TimelineHistory(index, value, lines)
 
 
-class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,failover,sync,history')):
+class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,failover,sync,history,slots')):
 
     """Immutable object (namedtuple) which represents PostgreSQL cluster.
     Consists of the following fields:
@@ -441,10 +441,12 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,f
     :param leader: `Leader` object which represents current leader of the cluster
     :param last_lsn: int or long object containing position of last known leader LSN.
         This value is stored in `/optime/leader` key
+        This value is stored in the `/status` key or `/optime/leader` (legacy) key
     :param members: list of Member object, all PostgreSQL cluster members including leader
     :param failover: reference to `Failover` object
     :param sync: reference to `SyncState` object, last observed synchronous replication state.
     :param history: reference to `TimelineHistory` object
+    :param slots: state of permanent logical replication slots on the primary in the format: {"slot_name": int}
     """
 
     def is_unlocked(self):
@@ -534,11 +536,11 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,f
     @property
     def timeline(self):
         """
-        >>> Cluster(0, 0, 0, 0, 0, 0, 0, 0).timeline
+        >>> Cluster(0, 0, 0, 0, 0, 0, 0, 0, 0).timeline
         0
-        >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[]')).timeline
+        >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[]'), 0).timeline
         1
-        >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[["a"]]')).timeline
+        >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[["a"]]'), 0).timeline
         0
         """
         if self.history:
@@ -562,7 +564,8 @@ class AbstractDCS(object):
     _HISTORY = 'history'
     _MEMBERS = 'members/'
     _OPTIME = 'optime'
-    _LEADER_OPTIME = _OPTIME + '/' + _LEADER
+    _STATUS = 'status'  # JSON, containts "leader_lsn" and confirmed_flush_lsn of logical "slots" on the leader
+    _LEADER_OPTIME = _OPTIME + '/' + _LEADER  # legacy
     _SYNC = 'sync'
 
     def __init__(self, config):
@@ -611,6 +614,10 @@ class AbstractDCS(object):
     @property
     def history_path(self):
         return self.client_path(self._HISTORY)
+
+    @property
+    def status_path(self):
+        return self.client_path(self._STATUS)
 
     @property
     def leader_optime_path(self):
