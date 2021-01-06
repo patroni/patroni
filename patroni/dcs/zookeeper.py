@@ -218,14 +218,14 @@ class ZooKeeper(AbstractDCS):
                 leader = Leader(leader[1].version, leader[1].ephemeralOwner, member)
                 self._fetch_cluster = member.index == -1
 
-        # get last leader operation
-        last_leader_operation = self._OPTIME in nodes and self.get_leader_optime(leader)
+        # get last known leader lsn
+        last_lsn = self._OPTIME in nodes and self.get_leader_optime(leader)
 
         # failover key
         failover = self.get_node(self.failover_path, watch=self.cluster_watcher) if self._FAILOVER in nodes else None
         failover = failover and Failover.from_node(failover[1].version, failover[0])
 
-        return Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
+        return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history)
 
     def _load_cluster(self):
         cluster = self.cluster
@@ -237,7 +237,7 @@ class ZooKeeper(AbstractDCS):
                 self.cluster_watcher(None)
                 raise ZooKeeperError('ZooKeeper in not responding properly')
         # Optime ZNode was updated or doesn't exist and we are not leader
-        elif (self._fetch_optime and not self._fetch_cluster or not cluster.last_leader_operation) and\
+        elif (self._fetch_optime and not self._fetch_cluster or not cluster.last_lsn) and\
                 not (cluster.leader and cluster.leader.name == self._name):
             try:
                 optime = self.get_leader_optime(cluster.leader)
@@ -336,8 +336,8 @@ class ZooKeeper(AbstractDCS):
     def take_leader(self):
         return self.attempt_to_acquire_leader()
 
-    def _write_leader_optime(self, last_operation):
-        return self._set_or_create(self.leader_optime_path, last_operation)
+    def _write_leader_optime(self, last_lsn):
+        return self._set_or_create(self.leader_optime_path, last_lsn)
 
     def _update_leader(self):
         return True

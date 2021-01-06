@@ -432,14 +432,14 @@ class TimelineHistory(namedtuple('TimelineHistory', 'index,value,lines')):
         return TimelineHistory(index, value, lines)
 
 
-class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operation,members,failover,sync,history')):
+class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,failover,sync,history')):
 
     """Immutable object (namedtuple) which represents PostgreSQL cluster.
     Consists of the following fields:
     :param initialize: shows whether this cluster has initialization key stored in DC or not.
     :param config: global dynamic configuration, reference to `ClusterConfig` object
     :param leader: `Leader` object which represents current leader of the cluster
-    :param last_leader_operation: int or long object containing position of last known leader operation.
+    :param last_lsn: int or long object containing position of last known leader LSN.
         This value is stored in `/optime/leader` key
     :param members: list of Member object, all PostgreSQL cluster members including leader
     :param failover: reference to `Failover` object
@@ -578,7 +578,7 @@ class AbstractDCS(object):
         self._cluster = None
         self._cluster_valid_till = 0
         self._cluster_thread_lock = Lock()
-        self._last_leader_operation = ''
+        self._last_lsn = ''
         self.event = Event()
 
     def client_path(self, path):
@@ -682,14 +682,14 @@ class AbstractDCS(object):
             self._cluster_valid_till = 0
 
     @abc.abstractmethod
-    def _write_leader_optime(self, last_operation):
-        """write current xlog location into `/optime/leader` key in DCS
-        :param last_operation: absolute xlog location in bytes
+    def _write_leader_optime(self, last_lsn):
+        """write current WAL LSN into `/optime/leader` key in DCS
+        :param last_lsn: absolute WAL LSN in bytes
         :returns: `!True` on success."""
 
-    def write_leader_optime(self, last_operation):
-        if self._last_leader_operation != last_operation and self._write_leader_optime(last_operation):
-            self._last_leader_operation = last_operation
+    def write_leader_optime(self, last_lsn):
+        if self._last_lsn != last_lsn and self._write_leader_optime(last_lsn):
+            self._last_lsn = last_lsn
 
     @abc.abstractmethod
     def _update_leader(self):
@@ -701,16 +701,16 @@ class AbstractDCS(object):
         You have to use CAS (Compare And Swap) operation in order to update leader key,
         for example for etcd `prevValue` parameter must be used."""
 
-    def update_leader(self, last_operation, access_is_restricted=False):
+    def update_leader(self, last_lsn, access_is_restricted=False):
         """Update leader key (or session) ttl and optime/leader
 
-        :param last_operation: absolute xlog location in bytes
+        :param last_lsn: absolute WAL LSN in bytes
         :returns: `!True` if leader key (or session) has been updated successfully.
             If not, `!False` must be returned and current instance would be demoted."""
 
         ret = self._update_leader()
-        if ret and last_operation:
-            self.write_leader_optime(last_operation)
+        if ret and last_lsn:
+            self.write_leader_optime(last_lsn)
         return ret
 
     @abc.abstractmethod
@@ -779,13 +779,13 @@ class AbstractDCS(object):
         """Remove leader key from DCS.
         This method should remove leader key if current instance is the leader"""
 
-    def delete_leader(self, last_operation=None):
+    def delete_leader(self, last_lsn=None):
         """Update optime/leader and voluntarily remove leader key from DCS.
         This method should remove leader key if current instance is the leader.
-        :param last_operation: latest checkpoint location in bytes"""
+        :param last_lsn: latest checkpoint location in bytes"""
 
-        if last_operation:
-            self.write_leader_optime(last_operation)
+        if last_lsn:
+            self.write_leader_optime(last_lsn)
         return self._delete_leader()
 
     @abc.abstractmethod

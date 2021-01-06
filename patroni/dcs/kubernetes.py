@@ -723,9 +723,9 @@ class Kubernetes(AbstractDCS):
             self._leader_resource_version = metadata.resource_version if metadata else None
             annotations = metadata and metadata.annotations or {}
 
-            # get last leader operation
-            last_leader_operation = annotations.get(self._OPTIME)
-            last_leader_operation = 0 if last_leader_operation is None else int(last_leader_operation)
+            # get last known leader lsn
+            last_lsn = annotations.get(self._OPTIME)
+            last_lsn = 0 if last_lsn is None else int(last_lsn)
 
             # get leader
             leader_record = {n: annotations.get(n) for n in (self._LEADER, 'acquireTime',
@@ -759,7 +759,7 @@ class Kubernetes(AbstractDCS):
             metadata = sync and sync.metadata
             sync = SyncState.from_node(metadata and metadata.resource_version,  metadata and metadata.annotations)
 
-            return Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
+            return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history)
         except Exception:
             logger.exception('get_cluster')
             raise KubernetesError('Kubernetes API is not responding properly')
@@ -880,7 +880,7 @@ class Kubernetes(AbstractDCS):
                 return logger.exception('create_config_service failed')
         self._should_create_config_service = False
 
-    def _write_leader_optime(self, last_operation):
+    def _write_leader_optime(self, last_lsn):
         """Unused"""
 
     def _update_leader(self):
@@ -921,7 +921,7 @@ class Kubernetes(AbstractDCS):
         retry.deadline = deadline - 1  # Update deadline and retry
         return self.patch_or_create(self.leader_path, annotations, kind_resource_version, ips=ips, retry=_retry)
 
-    def update_leader(self, last_operation, access_is_restricted=False):
+    def update_leader(self, last_lsn, access_is_restricted=False):
         kind = self._kinds.get(self.leader_path)
         kind_annotations = kind and kind.metadata.annotations or {}
 
@@ -933,8 +933,8 @@ class Kubernetes(AbstractDCS):
         annotations = {self._LEADER: self._name, 'ttl': str(self._ttl), 'renewTime': now,
                        'acquireTime': leader_observed_record.get('acquireTime') or now,
                        'transitions': leader_observed_record.get('transitions') or '0'}
-        if last_operation:
-            annotations[self._OPTIME] = last_operation
+        if last_lsn:
+            annotations[self._OPTIME] = last_lsn
 
         resource_version = kind and kind.metadata.resource_version
         ips = [] if access_is_restricted else self.__ips
@@ -1014,12 +1014,12 @@ class Kubernetes(AbstractDCS):
     def _delete_leader(self):
         """Unused"""
 
-    def delete_leader(self, last_operation=None):
+    def delete_leader(self, last_lsn=None):
         kind = self._kinds.get(self.leader_path)
         if kind and (kind.metadata.annotations or {}).get(self._LEADER) == self._name:
             annotations = {self._LEADER: None}
-            if last_operation:
-                annotations[self._OPTIME] = last_operation
+            if last_lsn:
+                annotations[self._OPTIME] = last_lsn
             self.patch_or_create(self.leader_path, annotations, kind.metadata.resource_version, True, False, [])
             self.reset_cluster()
 

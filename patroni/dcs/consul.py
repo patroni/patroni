@@ -328,9 +328,9 @@ class Consul(AbstractDCS):
             history = nodes.get(self._HISTORY)
             history = history and TimelineHistory.from_node(history['ModifyIndex'], history['Value'])
 
-            # get last leader operation
-            last_leader_operation = nodes.get(self._LEADER_OPTIME)
-            last_leader_operation = 0 if last_leader_operation is None else int(last_leader_operation['Value'])
+            # get last known leader lsn
+            last_lsn = nodes.get(self._LEADER_OPTIME)
+            last_lsn = 0 if last_lsn is None else int(last_lsn['Value'])
 
             # get list of members
             members = [self.member(n) for k, n in nodes.items() if k.startswith(self._MEMBERS) and k.count('/') == 1]
@@ -357,7 +357,7 @@ class Consul(AbstractDCS):
             sync = nodes.get(self._SYNC)
             sync = SyncState.from_node(sync and sync['ModifyIndex'], sync and sync['Value'])
 
-            return Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
+            return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history)
         except NotFound:
             return Cluster(None, None, None, None, [], None, None, None)
         except Exception:
@@ -482,8 +482,8 @@ class Consul(AbstractDCS):
         return self._client.kv.put(self.config_path, value, cas=index)
 
     @catch_consul_errors
-    def _write_leader_optime(self, last_operation):
-        return self._client.kv.put(self.leader_optime_path, last_operation)
+    def _write_leader_optime(self, last_lsn):
+        return self._client.kv.put(self.leader_optime_path, last_lsn)
 
     @catch_consul_errors
     def _update_leader(self):

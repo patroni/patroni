@@ -151,14 +151,14 @@ class Ha(object):
         return ret
 
     def update_lock(self, write_leader_optime=False):
-        last_operation = None
+        last_lsn = None
         if write_leader_optime:
             try:
-                last_operation = self.state_handler.last_operation()
+                last_lsn = self.state_handler.last_operation()
             except Exception:
                 logger.exception('Exception when called state_handler.last_operation()')
         try:
-            ret = self.dcs.update_leader(last_operation, self._leader_access_is_restricted)
+            ret = self.dcs.update_leader(last_lsn, self._leader_access_is_restricted)
         except Exception:
             logger.exception('Unexpected exception raised from update_leader, please report it as a BUG')
             ret = False
@@ -649,7 +649,7 @@ class Ha(object):
         :param wal_position: Current wal position.
         :returns True when node is lagging
         """
-        lag = (self.cluster.last_leader_operation or 0) - wal_position
+        lag = (self.cluster.last_lsn or 0) - wal_position
         return lag > self.patroni.config.get('maximum_lag_on_failover', 0)
 
     def _is_healthiest_node(self, members, check_replication_lag=True):
@@ -798,13 +798,13 @@ class Ha(object):
 
         return self._is_healthiest_node(members.values())
 
-    def _delete_leader(self, last_operation=None):
+    def _delete_leader(self, last_lsn=None):
         self.set_is_leader(False)
-        self.dcs.delete_leader(last_operation)
+        self.dcs.delete_leader(last_lsn)
         self.dcs.reset_cluster()
 
-    def release_leader_key_voluntarily(self, last_operation=None):
-        self._delete_leader(last_operation)
+    def release_leader_key_voluntarily(self, last_lsn=None):
+        self._delete_leader(last_lsn)
         self.touch_member()
         logger.info("Leader key released")
 
@@ -1464,7 +1464,7 @@ class Ha(object):
             self.watchdog.disable()
         elif not self._join_aborted:
             # FIXME: If stop doesn't reach safepoint quickly enough keepalive is triggered. If shutdown checkpoint
-            # takes longer than ttl, then leader key is lost and replication might not have sent out all xlog.
+            # takes longer than ttl, then leader key is lost and replication might not have sent out all WAL.
             # This might not be the desired behavior of users, as a graceful shutdown of the host can mean lost data.
             # We probably need to something smarter here.
             disable_wd = self.watchdog.disable if self.watchdog.is_running else None

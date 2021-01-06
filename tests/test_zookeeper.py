@@ -160,7 +160,7 @@ class TestZooKeeper(unittest.TestCase):
         with patch.object(ZooKeeper, 'get_node', Mock(side_effect=Exception)):
             self.zk.get_cluster()
         cluster = self.zk.get_cluster()
-        self.assertEqual(cluster.last_leader_operation, 500)
+        self.assertEqual(cluster.last_lsn, 500)
 
     def test_delete_leader(self):
         self.assertTrue(self.zk.delete_leader())
@@ -206,7 +206,7 @@ class TestZooKeeper(unittest.TestCase):
         self.assertTrue(self.zk.update_leader(None))
 
     def test_write_leader_optime(self):
-        self.zk.last_leader_operation = '0'
+        self.zk.last_lsn = '0'
         self.zk.write_leader_optime('1')
         with patch.object(MockKazooClient, 'create_async', Mock()):
             self.zk.write_leader_optime('1')

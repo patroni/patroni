@@ -337,9 +337,9 @@ class Raft(AbstractDCS):
         history = nodes.get(self._HISTORY)
         history = history and TimelineHistory.from_node(history['index'], history['value'])
 
-        # get last leader operation
-        last_leader_operation = nodes.get(self._LEADER_OPTIME)
-        last_leader_operation = 0 if last_leader_operation is None else int(last_leader_operation['value'])
+        # get last known leader lsn
+        last_lsn = nodes.get(self._LEADER_OPTIME)
+        last_lsn = 0 if last_lsn is None else int(last_lsn['value'])
 
         # get list of members
         members = [self.member(k, n) for k, n in nodes.items() if k.startswith(self._MEMBERS) and k.count('/') == 1]
@@ -360,10 +360,10 @@ class Raft(AbstractDCS):
         sync = nodes.get(self._SYNC)
         sync = SyncState.from_node(sync and sync['index'], sync and sync['value'])
 
-        return Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
+        return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history)
 
-    def _write_leader_optime(self, last_operation):
-        return self._sync_obj.set(self.leader_optime_path, last_operation, timeout=1)
+    def _write_leader_optime(self, last_lsn):
+        return self._sync_obj.set(self.leader_optime_path, last_lsn, timeout=1)
 
     def _update_leader(self):
         ret = self._sync_obj.set(self.leader_path, self._name, ttl=self._ttl, prevValue=self._name)
