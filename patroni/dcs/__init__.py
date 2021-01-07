@@ -13,11 +13,12 @@ import time
 
 from collections import defaultdict, namedtuple
 from copy import deepcopy
-from patroni.exceptions import PatroniFatalException
-from patroni.utils import parse_bool, uri
 from random import randint
 from six.moves.urllib_parse import urlparse, urlunparse, parse_qsl
 from threading import Event, Lock
+
+from ..exceptions import PatroniFatalException
+from ..utils import deep_compare, parse_bool, uri
 
 slot_name_re = re.compile('^[a-z0-9_]{1,63}$')
 logger = logging.getLogger(__name__)
@@ -133,6 +134,8 @@ class Member(namedtuple('Member', 'index,name,session,data')):
         else:
             try:
                 data = json.loads(data)
+                if not isinstance(data, dict):
+                    data = {}
             except (TypeError, ValueError):
                 data = {}
         return Member(index, name, session, data)
@@ -206,6 +209,15 @@ class Member(namedtuple('Member', 'index,name,session,data')):
     def is_running(self):
         return self.state == 'running'
 
+    @property
+    def version(self):
+        version = self.data.get('version')
+        if version:
+            try:
+                return tuple(map(int, version.split('.')))
+            except Exception:
+                logger.debug('Failed to parse Patroni version %s', version)
+
 
 class RemoteMember(Member):
     """ Represents a remote master for a standby cluster
@@ -259,14 +271,10 @@ class Leader(namedtuple('Leader', 'index,session,member')):
         """
         >>> Leader(1, '', Member.from_node(1, '', '', '{"version":"z"}')).checkpoint_after_promote
         """
-        version = self.data.get('version')
-        if version:
-            try:
-                # 1.5.6 is the last version which doesn't expose checkpoint_after_promote: false
-                if tuple(map(int, version.split('.'))) > (1, 5, 6):
-                    return self.data['role'] == 'master' and 'checkpoint_after_promote' not in self.data
-            except Exception:
-                logger.debug('Failed to parse Patroni version %s', version)
+        version = self.member.version
+        # 1.5.6 is the last version which doesn't expose checkpoint_after_promote: false
+        if version and version > (1, 5, 6):
+            return self.data.get('role') == 'master' and 'checkpoint_after_promote' not in self.data
 
 
 class Failover(namedtuple('Failover', 'index,leader,candidate,scheduled_at')):
@@ -440,7 +448,6 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,f
     :param config: global dynamic configuration, reference to `ClusterConfig` object
     :param leader: `Leader` object which represents current leader of the cluster
     :param last_lsn: int or long object containing position of last known leader LSN.
-        This value is stored in `/optime/leader` key
         This value is stored in the `/status` key or `/optime/leader` (legacy) key
     :param members: list of Member object, all PostgreSQL cluster members including leader
     :param failover: reference to `Failover` object
@@ -553,6 +560,10 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,f
                 return 1
         return 0
 
+    @property
+    def min_version(self):
+        return next(iter(sorted(filter(lambda v: v, [m.version for m in self.members])) + [None]))
+
 
 @six.add_metaclass(abc.ABCMeta)
 class AbstractDCS(object):
@@ -582,6 +593,7 @@ class AbstractDCS(object):
         self._cluster_valid_till = 0
         self._cluster_thread_lock = Lock()
         self._last_lsn = ''
+        self._last_status = {}
         self.event = Event()
 
     def client_path(self, path):
@@ -699,6 +711,20 @@ class AbstractDCS(object):
             self._last_lsn = last_lsn
 
     @abc.abstractmethod
+    def _write_status(self, value):
+        """write current WAL LSN and confirmed_flush_lsn of permanent slots into the `/status` key in DCS
+        :param value: status serialized in JSON forman
+        :returns: `!True` on success."""
+
+    def write_status(self, value):
+        if not deep_compare(self._last_status, value) and self._write_status(json.dumps(value, separators=(',', ':'))):
+            self._last_status = value
+        cluster = self.cluster
+        min_version = cluster and cluster.min_version
+        if min_version and min_version < (2, 0, 2):
+            self._write_leader_optime(str(value[self._OPTIME]))
+
+    @abc.abstractmethod
     def _update_leader(self):
         """Update leader key (or session) ttl
 
@@ -717,7 +743,7 @@ class AbstractDCS(object):
 
         ret = self._update_leader()
         if ret and last_lsn:
-            self.write_leader_optime(last_lsn)
+            self.write_status({self._OPTIME: last_lsn})
         return ret
 
     @abc.abstractmethod

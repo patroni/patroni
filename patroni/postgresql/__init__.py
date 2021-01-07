@@ -10,18 +10,19 @@ from contextlib import contextmanager
 from copy import deepcopy
 from dateutil import tz
 from datetime import datetime
-from patroni.postgresql.callback_executor import CallbackExecutor
-from patroni.postgresql.bootstrap import Bootstrap
-from patroni.postgresql.cancellable import CancellableSubprocess
-from patroni.postgresql.config import ConfigHandler, mtime
-from patroni.postgresql.connection import Connection, get_connection_cursor
-from patroni.postgresql.misc import parse_history, parse_lsn, postgres_major_version_to_int
-from patroni.postgresql.postmaster import PostmasterProcess
-from patroni.postgresql.slots import SlotsHandler
-from patroni.exceptions import PostgresConnectionException
-from patroni.utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty, parse_int
 from psutil import TimeoutExpired
 from threading import current_thread, Lock
+
+from .callback_executor import CallbackExecutor
+from .bootstrap import Bootstrap
+from .cancellable import CancellableSubprocess
+from .config import ConfigHandler, mtime
+from .connection import Connection, get_connection_cursor
+from .misc import parse_history, parse_lsn, postgres_major_version_to_int
+from .postmaster import PostmasterProcess
+from .slots import SlotsHandler
+from ..exceptions import PostgresConnectionException
+from ..utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty, parse_int
 
 
 logger = logging.getLogger(__name__)
@@ -873,8 +874,8 @@ class Postgresql(object):
             return None
 
     def last_operation(self):
-        return str(self._wal_position(self.is_leader(), self._cluster_info_state_get('wal_position'),
-                                      self.received_location(), self.replayed_location()))
+        return self._wal_position(self.is_leader(), self._cluster_info_state_get('wal_position'),
+                                  self.received_location(), self.replayed_location())
 
     def configure_server_parameters(self):
         self._major_version = self.get_major_version()

@@ -496,6 +496,10 @@ class Consul(AbstractDCS):
         return self._client.kv.put(self.leader_optime_path, last_lsn)
 
     @catch_consul_errors
+    def _write_status(self, value):
+        return self._client.kv.put(self.status_path, value)
+
+    @catch_consul_errors
     def _update_leader(self):
         if self._session:
             self.retry(self._client.session.renew, self._session)

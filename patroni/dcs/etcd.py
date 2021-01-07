@@ -684,6 +684,10 @@ class Etcd(AbstractEtcd):
         return self._client.set(self.leader_optime_path, last_lsn)
 
     @catch_etcd_errors
+    def _write_status(self, value):
+        return self._client.set(self.status_path, value)
+
+    @catch_etcd_errors
     def _update_leader(self):
         return self.retry(self._client.write, self.leader_path, self._name, prevValue=self._name, ttl=self._ttl)
 

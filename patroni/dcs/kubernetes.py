@@ -890,6 +890,9 @@ class Kubernetes(AbstractDCS):
     def _write_leader_optime(self, last_lsn):
         """Unused"""
 
+    def _write_status(self, value):
+        """Unused"""
+
     def _update_leader(self):
         """Unused"""
 
@@ -941,7 +944,7 @@ class Kubernetes(AbstractDCS):
                        'acquireTime': leader_observed_record.get('acquireTime') or now,
                        'transitions': leader_observed_record.get('transitions') or '0'}
         if last_lsn:
-            annotations[self._OPTIME] = last_lsn
+            annotations[self._OPTIME] = str(last_lsn)
 
         resource_version = kind and kind.metadata.resource_version
         ips = [] if access_is_restricted else self.__ips

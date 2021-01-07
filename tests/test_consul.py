@@ -39,7 +39,7 @@ def kv_get(self, key, **kwargs):
     if key == 'service/good/':
         return good_cls
     if key == 'service/broken/':
-        good_cls[1][-1]['Value'] = '{'
+        good_cls[1][-1]['Value'] = b'{'
         return good_cls
     if key == 'service/legacy/':
         good_cls[1].pop()
@@ -158,7 +158,7 @@ class TestConsul(unittest.TestCase):
 
     @patch.object(consul.Consul.Session, 'renew', Mock())
     def test_update_leader(self):
-        self.c.update_leader(None)
+        self.c.update_leader(12345)
 
     @patch.object(consul.Consul.KV, 'delete', Mock(return_value=True))
     def test_delete_leader(self):

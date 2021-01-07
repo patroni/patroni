@@ -211,7 +211,7 @@ class TestZooKeeper(unittest.TestCase):
             self.zk.take_leader()
 
     def test_update_leader(self):
-        self.assertTrue(self.zk.update_leader(None))
+        self.assertTrue(self.zk.update_leader(12345))
 
     def test_write_leader_optime(self):
         self.zk.last_lsn = '0'

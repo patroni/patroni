@@ -6,9 +6,10 @@ import time
 from kazoo.client import KazooClient, KazooState, KazooRetry
 from kazoo.exceptions import NoNodeError, NodeExistsError
 from kazoo.handlers.threading import SequentialThreadingHandler
-from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
-from patroni.exceptions import DCSError
-from patroni.utils import deep_compare
+
+from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
+from ..exceptions import DCSError
+from ..utils import deep_compare
 
 logger = logging.getLogger(__name__)
 
@@ -357,6 +358,9 @@ class ZooKeeper(AbstractDCS):
 
     def _write_leader_optime(self, last_lsn):
         return self._set_or_create(self.leader_optime_path, last_lsn)
+
+    def _write_status(self, value):
+        return self._set_or_create(self.status_path, value)
 
     def _update_leader(self):
         return True

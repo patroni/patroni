@@ -756,6 +756,10 @@ class Etcd3(AbstractEtcd):
         return self._client.put(self.leader_optime_path, last_lsn)
 
     @catch_etcd_errors
+    def _write_status(self, value):
+        return self._client.put(self.status_path, value)
+
+    @catch_etcd_errors
     def _update_leader(self):
         if not self._lease:
             self.refresh_lease()

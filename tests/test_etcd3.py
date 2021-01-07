@@ -33,6 +33,8 @@ def mock_urlopen(self, method, url, **kwargs):
                  "value": base64_encode('foo'), "lease": "bla", "mod_revision": '1'},
                 {"key": base64_encode('/patroni/test/members/foo'),
                  "value": base64_encode('{}'), "lease": "123", "mod_revision": '1'},
+                {"key": base64_encode('/patroni/test/members/bar'),
+                 "value": base64_encode('{"version":"1.6.5"}'), "lease": "123", "mod_revision": '1'},
                 {"key": base64_encode('/patroni/test/failover'), "value": base64_encode('{}'), "mod_revision": '1'}
             ]
         })

@@ -4,9 +4,10 @@ import os
 import threading
 import time
 
-from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
 from pysyncobj import SyncObj, SyncObjConf, replicated, FAIL_REASON
 from pysyncobj.transport import Node, TCPTransport, CONNECTION_STATE
+
+from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
 
 logger = logging.getLogger(__name__)
 
@@ -379,6 +380,9 @@ class Raft(AbstractDCS):
 
     def _write_leader_optime(self, last_lsn):
         return self._sync_obj.set(self.leader_optime_path, last_lsn, timeout=1)
+
+    def _write_status(self, value):
+        return self._sync_obj.set(self.status_path, value, timeout=1)
 
     def _update_leader(self):
         ret = self._sync_obj.set(self.leader_path, self._name, ttl=self._ttl, prevValue=self._name)
