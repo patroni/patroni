@@ -967,9 +967,9 @@ class Postgresql(object):
 
         Current synchronous standby is always preferred, unless it has disconnected or does not want to be a
         synchronous standby any longer.
-        Parameter sync_node_maxlag(maximum_lag_on_syncnode) would help swapping unhealthy sync replica incase 
-        if it stops responding (or hung). Please set the value high enough so it won't unncessarily swap sync 
-        standbys during high loads. Any less or equal of 0 value keep the behavior backward compatible and 
+        Parameter sync_node_maxlag(maximum_lag_on_syncnode) would help swapping unhealthy sync replica incase
+        if it stops responding (or hung). Please set the value high enough so it won't unncessarily swap sync
+        standbys during high loads. Any less or equal of 0 value keep the behavior backward compatible and
         will not swap. Please note that it will not also swap sync standbys in case where all replicas are hung.
 
         :returns tuple of candidates list and synchronous standby list.
@@ -1010,7 +1010,7 @@ class Postgresql(object):
             if (sync_node_maxlag <= 0) or (sync_node_maxlag > 0 and replica_lag <= sync_node_maxlag):
                 candidates.append(member.name)
 
-            if sync_state == 'sync' and ((sync_node_maxlag <= 0) or (sync_node_maxlag > 0 and 
+            if sync_state == 'sync' and ((sync_node_maxlag <= 0) or (sync_node_maxlag > 0 and
                                                                      replica_lag <= sync_node_maxlag)):
                 sync_nodes.append(member.name)
             if len(candidates) >= sync_node_count:
