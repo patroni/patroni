@@ -38,7 +38,7 @@ def pause_wal_replay(context, pg_name):
     # pause the wal replay process
     try:
        version = context.pctl.query(pg_name, "select pg_catalog.pg_read_file('PG_VERSION', 0, 2)").fetchone()
-       wal = version and int(version) < 10 and "xlog" or "wal"
+       wal = version and version[0] and int(version[0]) < 10 and "xlog" or "wal"
        context.pctl.query(pg_name, "SELECT pg_{0}_replay_pause()".format(wal))
     except pg.Error as e:
         assert False, "Error pausing wal recovery on {0}: {1}".format(pg_name, e)
@@ -49,18 +49,28 @@ def resume_wal_replay(context, pg_name):
     # resume the wal replay process
     try:
        version = context.pctl.query(pg_name, "select pg_catalog.pg_read_file('PG_VERSION', 0, 2)").fetchone()
-       wal = version and int(version) < 10 and "xlog" or "wal"
+       wal = version and version[0] and int(version[0]) < 10 and "xlog" or "wal"
        context.pctl.query(pg_name, "SELECT pg_{0}_replay_resume()".format(wal))
     except pg.Error as e:
         assert False, "Error resuming wal recovery on {0}: {1}".format(pg_name, e)
+
+
+@step('I create table on {pg_name:w}')
+def create_mytest(context, pg_name):
+    # perform dummy load
+    try:
+       context.pctl.query(pg_name, "create table mytest(id Numeric)")
+    except pg.Error as e:
+        assert False, "Error create table mytest on {0}: {1}".format(pg_name, e)
+
 
 @step('I load data on {pg_name:w}')
 def initiate_load(context, pg_name):
     # perform dummy load
     try:
-       context.pctl.query(pg_name, "create table mytest(id) as select r::numeric from generate_series(1, 4000000) r")
+       context.pctl.query(pg_name, "begin; insert into mytest select r::numeric from generate_series(1, 3500000) r; commit;")
     except pg.Error as e:
-        assert False, "Error loading dummy data on {0}: {1}".format(pg_name, e)
+        assert False, "Error loading test data on {0}: {1}".format(pg_name, e)
 
 
 @then('Table {table_name:w} is present on {pg_name:w} after {max_replication_delay:d} seconds')
