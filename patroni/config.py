@@ -60,6 +60,7 @@ class Config(object):
     __DEFAULT_CONFIG = {
         'ttl': 30, 'loop_wait': 10, 'retry_timeout': 10,
         'maximum_lag_on_failover': 1048576,
+        'maximum_lag_on_syncnode': -1,
         'check_timeline': False,
         'master_start_timeout': 300,
         'master_stop_timeout': 0,
@@ -412,6 +413,7 @@ class Config(object):
             'synchronous_mode',
             'synchronous_mode_strict',
             'synchronous_node_count',
+            'maximum_lag_on_syncnode'
         )
 
         pg_config.update({p: config[p] for p in updated_fields if p in config})

@@ -962,11 +962,15 @@ class Postgresql(object):
     def _get_synchronous_commit_param(self):
         return self.query("SHOW synchronous_commit").fetchone()[0]
 
-    def pick_synchronous_standby(self, cluster, sync_node_count=1):
+    def pick_synchronous_standby(self, cluster, sync_node_count=1, sync_node_maxlag=-1):
         """Finds the best candidate to be the synchronous standby.
 
         Current synchronous standby is always preferred, unless it has disconnected or does not want to be a
         synchronous standby any longer.
+        Parameter sync_node_maxlag(maximum_lag_on_syncnode) would help swapping unhealthy sync replica incase 
+        if it stops responding (or hung). Please set the value high enough so it won't unncessarily swap sync 
+        standbys during high loads. Any less or equal of 0 value keep the behavior backward compatible and 
+        will not swap. Please note that it will not also swap sync standbys in case where all replicas are hung.
 
         :returns tuple of candidates list and synchronous standby list.
         """
@@ -984,17 +988,30 @@ class Postgresql(object):
         # receiving changes faster than the sync member (very rare but possible). Such cases would
         # trigger sync standby member swapping frequently and the sort on sync_state desc should
         # help in keeping the query result consistent.
-        for app_name, state, sync_state, replica_rank in self.query(
-                "SELECT pg_catalog.lower(application_name), state, sync_state"
-                ", rank() over (order by {0}_{1} DESC) as replica_rank"
+        for app_name, state, sync_state, replica_lag in self.query(
+                "SELECT app_name, state, sync_state,"
+                "       (case when replica_count > 0 then max_replica_lsn - replica_lsn"
+                "             else current_lsn - replica_lsn"
+                "        end) replica_lag"
+                " FROM ("
+                " SELECT pg_catalog.lower(application_name) app_name, state, sync_state"
+                "       , pg_{2}_{1}_diff(pg_current_{2}_{1}(), '0/0')::bigint current_lsn"
+                "       , pg_{2}_{1}_diff({0}_{1}, '0/0')::bigint replica_lsn"
+                "       , max( pg_{2}_{1}_diff({0}_{1}, '0/0')::bigint ) over () max_replica_lsn"
+                "       , count(1) over () replica_count"
                 " FROM pg_catalog.pg_stat_replication"
                 " WHERE state = 'streaming'"
-                " ORDER BY {0}_{1} DESC, sync_state DESC".format(sort_col, self.lsn_name)):
+                " ) AS r"
+                " ORDER BY sync_state DESC, replica_lsn DESC".format(sort_col, self.lsn_name, self.wal_name)):
             member = members.get(app_name)
             if not member or member.tags.get('nosync', False):
                 continue
-            candidates.append(member.name)
-            if sync_state == 'sync' and replica_rank == 1:
+
+            if (sync_node_maxlag <= 0) or (sync_node_maxlag > 0 and replica_lag <= sync_node_maxlag):
+                candidates.append(member.name)
+
+            if sync_state == 'sync' and ((sync_node_maxlag <= 0) or (sync_node_maxlag > 0 and 
+                                                                     replica_lag <= sync_node_maxlag)):
                 sync_nodes.append(member.name)
             if len(candidates) >= sync_node_count:
                 break
