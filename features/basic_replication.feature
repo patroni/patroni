@@ -41,7 +41,7 @@ Feature: basic replication
     And I issue a GET request to http://127.0.0.1:8009/sync
     Then I receive a response code 200
     And I resume wal replay on postgres2
-    And I sleep for 2 seconds
+    And I sleep for 20 seconds
     When I issue a GET request to http://127.0.0.1:8010/async
     Then I receive a response code 200
     When I issue a PATCH request to http://127.0.0.1:8008/config with {"maximum_lag_on_syncnode": -1, "postgresql": {"parameters": {"synchronous_commit": "on"}}}
@@ -91,6 +91,6 @@ Feature: basic replication
   Scenario: check rejoin of the former master with pg_rewind
     Given I add the table splitbrain to postgres0
     And I start postgres0
-    Then postgres0 role is the secondary after 20 seconds
+    Then postgres0 role is the secondary after 120 seconds
     When I add the table buz to postgres1
     Then table buz is present on postgres0 after 20 seconds

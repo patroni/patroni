@@ -187,7 +187,8 @@ class PatroniController(AbstractController):
         if 'bootstrap' in config:
             config['bootstrap']['post_bootstrap'] = 'psql -w -c "SELECT 1"'
             if 'initdb' in config['bootstrap']:
-                config['bootstrap']['initdb'].extend([{'auth': 'md5'}, {'auth-host': 'md5'}])
+                config['bootstrap']['initdb'].extend([{'auth': 'md5'}, {'auth-host': 'md5'},
+                                                      {'wal-segsize': '256'}])
 
         if custom_config is not None:
             self.recursive_update(config, custom_config)
