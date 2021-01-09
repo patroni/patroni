@@ -187,11 +187,16 @@ class PatroniController(AbstractController):
         if 'bootstrap' in config:
             config['bootstrap']['post_bootstrap'] = 'psql -w -c "SELECT 1"'
             if 'initdb' in config['bootstrap']:
-                config['bootstrap']['initdb'].extend([{'auth': 'md5'}, {'auth-host': 'md5'},
-                                                      {'wal-segsize': '256'}])
+                config['bootstrap']['initdb'].extend([{'auth': 'md5'}, {'auth-host': 'md5'}])
 
         if custom_config is not None:
             self.recursive_update(config, custom_config)
+
+        if config.get('bootstrap', {}).get('dcs', {}).get('postgresql', {}):
+            if config['bootstrap']['dcs']['postgresql'].get('parameters',{}):
+                config['bootstrap']['dcs']['postgresql']['parameters'].update({'wal_keep_segments': 100})
+            else:
+                config['bootstrap']['dcs']['postgresql']['parameters'] = {'wal_keep_segments': 100}
 
         if config['postgresql'].get('callbacks', {}).get('on_role_change'):
             config['postgresql']['callbacks']['on_role_change'] += ' ' + str(self.__PORT)

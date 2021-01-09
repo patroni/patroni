@@ -91,6 +91,7 @@ Feature: basic replication
   Scenario: check rejoin of the former master with pg_rewind
     Given I add the table splitbrain to postgres0
     And I start postgres0
-    Then postgres0 role is the secondary after 120 seconds
+    Then postgres0 role is the secondary after 20 seconds
+    Then I sleep for 20 seconds
     When I add the table buz to postgres1
-    Then table buz is present on postgres0 after 20 seconds
+    Then table buz is present on postgres0 after 120 seconds
