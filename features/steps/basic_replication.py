@@ -38,7 +38,7 @@ def pause_wal_replay(context, pg_name):
     # pause the wal replay process
     try:
        version = context.pctl.query(pg_name, "select pg_catalog.pg_read_file('PG_VERSION', 0, 2)").fetchone()
-       wal = version and version[0] and int(version[0]) < 10 and "xlog" or "wal"
+       wal = version and version[0] and int(version[0].split('.')[0]) < 10 and "xlog" or "wal"
        context.pctl.query(pg_name, "SELECT pg_{0}_replay_pause()".format(wal))
     except pg.Error as e:
         assert False, "Error pausing wal recovery on {0}: {1}".format(pg_name, e)
@@ -49,7 +49,7 @@ def resume_wal_replay(context, pg_name):
     # resume the wal replay process
     try:
        version = context.pctl.query(pg_name, "select pg_catalog.pg_read_file('PG_VERSION', 0, 2)").fetchone()
-       wal = version and version[0] and int(version[0]) < 10 and "xlog" or "wal"
+       wal = version and version[0] and int(version[0].split('.')[0]) < 10 and "xlog" or "wal"
        context.pctl.query(pg_name, "SELECT pg_{0}_replay_resume()".format(wal))
     except pg.Error as e:
         assert False, "Error resuming wal recovery on {0}: {1}".format(pg_name, e)
