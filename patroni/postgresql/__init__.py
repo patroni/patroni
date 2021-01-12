@@ -55,7 +55,7 @@ class Postgresql(object):
               "pg_catalog.pg_current_{0}_{1}()), 1, 8))::bit(32)::int END, "  # master timeline
               "CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
               "ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), '0/0')::bigint END, "  # write_lsn
-              "pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint,  "
+              "pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint, "
               "pg_catalog.pg_{0}_{1}_diff(COALESCE(pg_catalog.pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint, "
               "pg_catalog.pg_is_in_recovery() AND pg_catalog.pg_is_{0}_replay_paused()")
 
@@ -102,6 +102,7 @@ class Postgresql(object):
         self._state_entry_timestamp = None
 
         self._cluster_info_state = {}
+        self._has_permanent_logical_slots = True
         self._cached_replica_timeline = None
 
         # Last known running process
@@ -153,14 +154,18 @@ class Postgresql(object):
     @property
     def cluster_info_query(self):
         if self._major_version >= 90600:
+            extra = "(SELECT pg_catalog.json_agg(s.*) FROM (SELECT slot_name, slot_type as type, datoid::bigint, " +\
+                    "plugin, catalog_xmin, pg_catalog.pg_wal_lsn_diff(confirmed_flush_lsn, '0/0')::bigint AS " + \
+                    "confirmed_flush_lsn FROM pg_catalog.pg_get_replication_slots() WHERE slot_type = 'logical') AS s)"\
+                            if self._has_permanent_logical_slots and self._major_version >= 110000 else "NULL"
             extra = (", CASE WHEN latest_end_lsn IS NULL THEN NULL ELSE received_tli END,"
-                     " slot_name, conninfo FROM pg_catalog.pg_stat_get_wal_receiver()")
+                     " slot_name, conninfo, {0} FROM pg_catalog.pg_stat_get_wal_receiver()").format(extra)
             if self.role == 'standby_leader':
                 extra = "timeline_id" + extra + ", pg_catalog.pg_control_checkpoint()"
             else:
                 extra = "0" + extra
         else:
-            extra = "0, NULL, NULL, NULL"
+            extra = "0, NULL, NULL, NULL, NULL"
 
         return ("SELECT " + self.TL_LSN + ", {2}").format(self.wal_name, self.lsn_name, extra)
 
@@ -300,16 +305,20 @@ class Postgresql(object):
             replica_methods = self.create_replica_methods
         return any(self.replica_method_can_work_without_replication_connection(m) for m in replica_methods)
 
-    def reset_cluster_info_state(self):
+    def reset_cluster_info_state(self, cluster):
         self._cluster_info_state = {}
+        if cluster and cluster.config and cluster.config.modify_index:
+            self._has_permanent_logical_slots = cluster.has_permanent_logical_slots(self.name)
 
     def _cluster_info_state_get(self, name):
         if not self._cluster_info_state:
             try:
                 result = self._is_leader_retry(self._query, self.cluster_info_query).fetchone()
-                self._cluster_info_state = dict(zip(['timeline', 'wal_position', 'replayed_location',
-                                                     'received_location', 'replay_paused', 'pg_control_timeline',
-                                                     'received_tli', 'slot_name', 'conninfo'], result))
+                cluster_info_state = dict(zip(['timeline', 'wal_position', 'replayed_location',
+                                               'received_location', 'replay_paused', 'pg_control_timeline',
+                                               'received_tli', 'slot_name', 'conninfo', 'slots'], result))
+                cluster_info_state['slots'] = self.slots_handler.process_permanent_slots(cluster_info_state['slots'])
+                self._cluster_info_state = cluster_info_state
             except RetryFailedError as e:  # SELECT failed two times
                 self._cluster_info_state = {'error': str(e)}
                 if not self.is_starting() and self.pg_isready() == STATE_REJECT:
@@ -325,6 +334,9 @@ class Postgresql(object):
 
     def received_location(self):
         return self._cluster_info_state_get('received_location')
+
+    def slots(self):
+        return self._cluster_info_state_get('slots')
 
     def primary_slot_name(self):
         return self._cluster_info_state_get('slot_name')

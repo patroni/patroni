@@ -479,6 +479,21 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,f
     def is_synchronous_mode(self):
         return self.check_mode('synchronous_mode')
 
+    @property
+    def __permanent_slots(self):
+        return self.config and self.config.permanent_slots or {}
+
+    @property
+    def __permanent_physical_slots(self):
+        return {name: value for name, value in self.__permanent_slots.items()
+                if not value or isinstance(value, dict) and value.get('type', 'physical') == 'physical'}
+
+    @property
+    def __permanent_logical_slots(self):
+        return {}  # XXX
+        return {name: value for name, value in self.__permanent_slots.items() if isinstance(value, dict)
+                and value.get('type', 'logical') == 'logical' and value.get('database') and value.get('plugin')}
+
     def get_replication_slots(self, my_name, role):
         # if the replicatefrom tag is set on the member - we should not create the replication slot for it on
         # the current master, because that member would replicate from elsewhere. We still create the slot if
@@ -489,12 +504,14 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,f
             slot_members = [m.name for m in self.members if use_slots and m.name != my_name and
                             (m.replicatefrom is None or m.replicatefrom == my_name or
                              not self.has_member(m.replicatefrom))]
-            permanent_slots = (self.config and self.config.permanent_slots or {}).copy()
+            permanent_slots = self.__permanent_slots if use_slots and \
+                role == 'master' else self.__permanent_physical_slots
         else:
             # only manage slots for replicas that replicate from this one, except for the leader among them
             slot_members = [m.name for m in self.members if use_slots and
                             m.replicatefrom == my_name and m.name != self.leader.name]
-            permanent_slots = {}
+            member = self.get_member(my_name, False)
+            permanent_slots = self.__permanent_logical_slots if use_slots and member and not member.nofailover else {}
 
         slots = {slot_name_from_member_name(name): {'type': 'physical'} for name in slot_members}
 
@@ -537,7 +554,7 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,f
         return slots
 
     def has_permanent_logical_slots(self, name):
-        slots = self.get_replication_slots(name, 'master').values()
+        slots = self.get_replication_slots(name, 'master').values()  # XXX: must be 'replica'
         return any(v for v in slots if v.get("type") == "logical")
 
     @property
@@ -734,16 +751,20 @@ class AbstractDCS(object):
         You have to use CAS (Compare And Swap) operation in order to update leader key,
         for example for etcd `prevValue` parameter must be used."""
 
-    def update_leader(self, last_lsn, access_is_restricted=False):
+    def update_leader(self, last_lsn, slots=None, access_is_restricted=False):
         """Update leader key (or session) ttl and optime/leader
 
         :param last_lsn: absolute WAL LSN in bytes
+        :param slots: dict with permanent slots confirmed_flush_lsn
         :returns: `!True` if leader key (or session) has been updated successfully.
             If not, `!False` must be returned and current instance would be demoted."""
 
         ret = self._update_leader()
         if ret and last_lsn:
-            self.write_status({self._OPTIME: last_lsn})
+            status = {self._OPTIME: last_lsn}
+            if slots:
+                status['slots'] = slots
+            self.write_status(status)
         return ret
 
     @abc.abstractmethod

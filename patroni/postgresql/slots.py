@@ -6,9 +6,9 @@ from collections import defaultdict
 logger = logging.getLogger(__name__)
 
 
-def compare_slots(s1, s2):
+def compare_slots(s1, s2, dbid='database'):
     return s1['type'] == s2['type'] and (s1['type'] == 'physical' or
-                                         s1['database'] == s2['database'] and s1['plugin'] == s2['plugin'])
+                                         s1.get(dbid) == s2.get(dbid) and s1['plugin'] == s2['plugin'])
 
 
 class SlotsHandler(object):
@@ -21,14 +21,32 @@ class SlotsHandler(object):
     def _query(self, sql, *params):
         return self._postgresql.query(sql, *params, retry=False)
 
+    def process_permanent_slots(self, slots):
+        """
+        We want to expose information only about permanent slots that are configured in DCS.
+        This function performs such filtering and in addition to that it checks for
+        discrepancies and might schedule the resync.
+        """
+
+        if slots:
+            ret = {}
+            for slot in slots:
+                if slot['slot_name'] in self._replication_slots:
+                    if compare_slots(slot, self._replication_slots[slot['slot_name']], 'datoid'):
+                        ret[slot['slot_name']] = slot['confirmed_flush_lsn']
+                    else:
+                        self._schedule_load_slots = True
+            return ret
+
     def load_replication_slots(self):
         if self._postgresql.major_version >= 90400 and self._schedule_load_slots:
             replication_slots = {}
-            cursor = self._query('SELECT slot_name, slot_type, plugin, database FROM pg_catalog.pg_replication_slots')
+            cursor = self._query('SELECT slot_name, slot_type, plugin, database, datoid'
+                                 ' FROM pg_catalog.pg_replication_slots')
             for r in cursor:
                 value = {'type': r[1]}
                 if r[1] == 'logical':
-                    value.update({'plugin': r[2], 'database': r[3]})
+                    value.update(plugin=r[2], database=r[3], datoid=r[4])
                 replication_slots[r[0]] = value
             self._replication_slots = replication_slots
             self._schedule_load_slots = False
@@ -75,14 +93,17 @@ class SlotsHandler(object):
                                      immediately_reserve), name, name)
                 except Exception:
                     logger.exception("Failed to create physical replication slot '%s'", name)
-                    self._schedule_load_slots = True
+                self._schedule_load_slots = True
 
     def _ensure_logical_slots_primary(self, slots):
         # Group logical slots to be created by database name
         logical_slots = defaultdict(dict)
         for name, value in slots.items():
-            if name not in self._replication_slots and value['type'] == 'logical':
-                logical_slots[value['database']][name] = value
+            if value['type'] == 'logical':
+                if name in self._replication_slots:
+                    value['datoid'] = self._replication_slots[name]['datoid']
+                else:
+                    logical_slots[value['database']][name] = value
 
         # Create new logical slots
         for database, values in logical_slots.items():
@@ -95,10 +116,11 @@ class SlotsHandler(object):
                                     " WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_replication_slots" +
                                     " WHERE slot_type = 'logical' AND slot_name = %s)",
                                     (name, value['plugin'], name))
-                    except Exception:
-                        logger.exception("Failed to create logical replication slot '%s' plugin='%s'",
-                                         name, value['plugin'])
-                        self._schedule_load_slots = True
+                    except Exception as e:
+                        logger.exception("Failed to create logical replication slot '%s' plugin='%s': %r",
+                                         name, value['plugin'], e)
+                        slots.pop(name)
+                    self._schedule_load_slots = True
 
     def sync_replication_slots(self, cluster):
         if self._postgresql.major_version >= 90400 and cluster.config:

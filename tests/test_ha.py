@@ -66,7 +66,7 @@ def get_cluster_initialized_with_leader(failover=None, sync=None):
 
 def get_cluster_initialized_with_only_leader(failover=None, cluster_config=None):
     leader = get_cluster_initialized_without_leader(leader=True, failover=failover).leader
-    return get_cluster(True, leader, [leader], failover, None, cluster_config)
+    return get_cluster(True, leader, [leader.member], failover, None, cluster_config)
 
 
 def get_standby_cluster_initialized_with_only_leader(failover=None, sync=None):
@@ -152,7 +152,7 @@ def run_async(self, func, args=()):
 @patch.object(Postgresql, 'is_running', Mock(return_value=MockPostmaster()))
 @patch.object(Postgresql, 'is_leader', Mock(return_value=True))
 @patch.object(Postgresql, 'timeline_wal_position', Mock(return_value=(1, 10, 1)))
-@patch.object(Postgresql, '_cluster_info_state_get', Mock(return_value=3))
+@patch.object(Postgresql, '_cluster_info_state_get', Mock(return_value=10))
 @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=False))
 @patch.object(Postgresql, 'controldata', Mock(return_value={
     'Database system identifier': SYSID,
@@ -634,7 +634,7 @@ class TestHa(PostgresInit):
         # in synchronous_mode consider itself healthy if the former leader is accessible in read-only and ahead of us
         with patch.object(Ha, 'is_synchronous_mode', Mock(return_value=True)):
             self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
-        with patch('patroni.postgresql.Postgresql.timeline_wal_position', return_value=(1, 1, 1)):
+        with patch('patroni.postgresql.Postgresql.last_operation', return_value=1):
             self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         with patch('patroni.postgresql.Postgresql.replica_cached_timeline', return_value=1):
             self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
@@ -1110,6 +1110,7 @@ class TestHa(PostgresInit):
     @patch('psycopg2.connect', psycopg2_connect)
     def test_permanent_logical_slots_after_promote(self):
         config = ClusterConfig(1, {'slots': {'l': {'database': 'postgres', 'plugin': 'test_decoding'}}}, 1)
+        self.p.name = 'other'
         self.ha.cluster = get_cluster_initialized_without_leader(cluster_config=config)
         self.assertEqual(self.ha.run_cycle(), 'acquired session lock as a leader')
         self.ha.cluster = get_cluster_initialized_without_leader(leader=True, cluster_config=config)

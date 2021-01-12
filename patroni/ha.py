@@ -151,14 +151,15 @@ class Ha(object):
         return ret
 
     def update_lock(self, write_leader_optime=False):
-        last_lsn = None
+        last_lsn = slots = None
         if write_leader_optime:
             try:
                 last_lsn = self.state_handler.last_operation()
+                slots = self.state_handler.slots()
             except Exception:
                 logger.exception('Exception when called state_handler.last_operation()')
         try:
-            ret = self.dcs.update_leader(last_lsn, self._leader_access_is_restricted)
+            ret = self.dcs.update_leader(last_lsn, slots, self._leader_access_is_restricted)
         except Exception:
             logger.exception('Unexpected exception raised from update_leader, please report it as a BUG')
             ret = False
@@ -655,8 +656,7 @@ class Ha(object):
     def _is_healthiest_node(self, members, check_replication_lag=True):
         """This method tries to determine whether I am healthy enough to became a new leader candidate or not."""
 
-        # We don't call `last_operation()` here because it returns a string
-        _, my_wal_position, _ = self.state_handler.timeline_wal_position()
+        my_wal_position = self.state_handler.last_operation()
         if check_replication_lag and self.is_lagging(my_wal_position):
             logger.info('My wal position exceeds maximum replication lag')
             return False  # Too far behind last reported wal position on master
@@ -1313,8 +1313,8 @@ class Ha(object):
     def _run_cycle(self):
         dcs_failed = False
         try:
-            self.state_handler.reset_cluster_info_state()
             self.load_cluster_from_dcs()
+            self.state_handler.reset_cluster_info_state(self.cluster)
 
             if self.is_paused():
                 self.watchdog.disable()

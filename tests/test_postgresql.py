@@ -311,7 +311,9 @@ class TestPostgresql(BaseTestPostgresql):
         cluster = Cluster(True, config, self.leader, 0, [self.me, self.other, self.leadermem], None, None, None, None)
         with mock.patch('patroni.postgresql.Postgresql._query', Mock(side_effect=psycopg2.OperationalError)):
             self.p.slots_handler.sync_replication_slots(cluster)
+        self.p.set_role('standby_leader')
         self.p.slots_handler.sync_replication_slots(cluster)
+        self.p.set_role('master')
         with mock.patch('patroni.postgresql.Postgresql.role', new_callable=PropertyMock(return_value='replica')):
             self.p.slots_handler.sync_replication_slots(cluster)
         with patch.object(SlotsHandler, 'drop_replication_slot', Mock(return_value=True)),\
@@ -339,7 +341,7 @@ class TestPostgresql(BaseTestPostgresql):
     @patch.object(Postgresql, 'pg_isready', Mock(return_value=STATE_REJECT))
     def test_is_leader(self):
         self.assertTrue(self.p.is_leader())
-        self.p.reset_cluster_info_state()
+        self.p.reset_cluster_info_state(None)
         with patch.object(Postgresql, '_query', Mock(side_effect=RetryFailedError(''))):
             self.assertRaises(PostgresConnectionException, self.p.is_leader)
 
@@ -725,10 +727,31 @@ class TestPostgresql(BaseTestPostgresql):
     @patch.object(Postgresql, '_query', Mock(side_effect=RetryFailedError('')))
     def test_received_timeline(self):
         self.p.set_role('standby_leader')
-        self.p.reset_cluster_info_state()
+        self.p.reset_cluster_info_state(None)
         self.assertRaises(PostgresConnectionException, self.p.received_timeline)
 
     def test__write_recovery_params(self):
         self.p.config._write_recovery_params(Mock(), {'pause_at_recovery_target': 'false'})
         with patch.object(Postgresql, 'major_version', PropertyMock(return_value=90400)):
             self.p.config._write_recovery_params(Mock(), {'recovery_target_action': 'PROMOTE'})
+
+    @patch.object(Postgresql, 'is_running', Mock(return_value=True))
+    def test_process_permanent_slots(self):
+        self.p.start()
+        config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'}},
+                                   'ignore_slots': [{'name': 'blabla'}]}, 1)
+        cluster = Cluster(True, config, self.leader, 0, [self.me, self.other, self.leadermem], None, None, None, None)
+
+        self.p.slots_handler.sync_replication_slots(cluster)
+        with patch.object(Postgresql, '_query') as mock_query:
+            self.p.reset_cluster_info_state(None)
+            mock_query.return_value.fetchone.return_value = (
+                1, 0, 0, 0, 0, 0, 0, 0, 0,
+                [{"slot_name": "ls", "type": "logical", "datoid": 5, "plugin": "b", "confirmed_flush_lsn": 12345}])
+            self.assertEqual(self.p.slots(), {'ls': 12345})
+
+            self.p.reset_cluster_info_state(None)
+            mock_query.return_value.fetchone.return_value = (
+                1, 0, 0, 0, 0, 0, 0, 0, 0,
+                [{"slot_name": "ls", "type": "logical", "datoid": 6, "plugin": "b", "confirmed_flush_lsn": 12345}])
+            self.assertEqual(self.p.slots(), {})
