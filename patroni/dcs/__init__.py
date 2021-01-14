@@ -490,11 +490,10 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,f
 
     @property
     def __permanent_logical_slots(self):
-        return {}  # XXX
         return {name: value for name, value in self.__permanent_slots.items() if isinstance(value, dict)
                 and value.get('type', 'logical') == 'logical' and value.get('database') and value.get('plugin')}
 
-    def get_replication_slots(self, my_name, role):
+    def get_replication_slots(self, my_name, role, nofailover):
         # if the replicatefrom tag is set on the member - we should not create the replication slot for it on
         # the current master, because that member would replicate from elsewhere. We still create the slot if
         # the replicatefrom destination member is currently not a member of the cluster (fallback to the
@@ -510,8 +509,7 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,f
             # only manage slots for replicas that replicate from this one, except for the leader among them
             slot_members = [m.name for m in self.members if use_slots and
                             m.replicatefrom == my_name and m.name != self.leader.name]
-            member = self.get_member(my_name, False)
-            permanent_slots = self.__permanent_logical_slots if use_slots and member and not member.nofailover else {}
+            permanent_slots = self.__permanent_logical_slots if use_slots and not nofailover else {}
 
         slots = {slot_name_from_member_name(name): {'type': 'physical'} for name in slot_members}
 
@@ -553,8 +551,8 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,f
 
         return slots
 
-    def has_permanent_logical_slots(self, name):
-        slots = self.get_replication_slots(name, 'master').values()  # XXX: must be 'replica'
+    def has_permanent_logical_slots(self, name, nofailover):
+        slots = self.get_replication_slots(name, 'replica', nofailover).values()
         return any(v for v in slots if v.get("type") == "logical")
 
     @property

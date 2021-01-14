@@ -158,7 +158,7 @@ def run_async(self, func, args=()):
     'Database system identifier': SYSID,
     'Database cluster state': 'shut down',
     'Latest checkpoint location': '0/12345678'}))
-@patch.object(SlotsHandler, 'sync_replication_slots', Mock())
+@patch.object(SlotsHandler, 'sync_replication_slots', Mock(return_value=None))
 @patch.object(ConfigHandler, 'append_pg_hba', Mock())
 @patch.object(ConfigHandler, 'write_pgpass', Mock(return_value={}))
 @patch.object(ConfigHandler, 'write_recovery_conf', Mock())

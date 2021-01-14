@@ -145,7 +145,8 @@ class Ha(object):
         self._leader_timeline = None if cluster.is_unlocked() else cluster.leader.timeline
 
     def acquire_lock(self):
-        self.set_leader_access_is_restricted(self.cluster.has_permanent_logical_slots(self.state_handler.name))
+        self.set_leader_access_is_restricted(self.cluster.has_permanent_logical_slots(self.state_handler.name,
+                                                                                      self.patroni.nofailover))
         ret = self.dcs.attempt_to_acquire_leader()
         self.set_is_leader(ret)
         return ret
@@ -610,7 +611,8 @@ class Ha(object):
                     return 'Postponing promotion because synchronous replication state was updated by somebody else'
                 self.state_handler.config.set_synchronous_standby(['*'] if self.is_synchronous_mode_strict() else [])
             if self.state_handler.role != 'master':
-                self.set_leader_access_is_restricted(self.cluster.has_permanent_logical_slots(self.state_handler.name))
+                self.set_leader_access_is_restricted(self.cluster.has_permanent_logical_slots(self.state_handler.name,
+                                                                                              self.patroni.nofailover))
 
                 def on_success():
                     self._rewind.reset_state()
@@ -986,7 +988,7 @@ class Ha(object):
                 return 'removed leader lock because postgres is not running as master'
 
             if self.state_handler.is_leader() and self._leader_access_is_restricted:
-                self.state_handler.slots_handler.sync_replication_slots(self.cluster)
+                self.state_handler.slots_handler.sync_replication_slots(self.cluster, self.patroni.nofailover)
                 self.state_handler.call_nowait(ACTION_ON_ROLE_CHANGE)
                 self.set_leader_access_is_restricted(False)
 
@@ -1257,7 +1259,7 @@ class Ha(object):
             self.cancel_initialization()
         self.dcs.initialize(create_new=(self.cluster.initialize is None), sysid=self.state_handler.sysid)
         self.dcs.set_config_value(json.dumps(self.patroni.config.dynamic_configuration, separators=(',', ':')))
-        self.state_handler.slots_handler.sync_replication_slots(self.cluster)
+        self.state_handler.slots_handler.sync_replication_slots(self.cluster, self.patroni.nofailover)
         self.dcs.take_leader()
         self.set_is_leader(True)
         self.state_handler.call_nowait(ACTION_ON_START)
@@ -1314,7 +1316,7 @@ class Ha(object):
         dcs_failed = False
         try:
             self.load_cluster_from_dcs()
-            self.state_handler.reset_cluster_info_state(self.cluster)
+            self.state_handler.reset_cluster_info_state(self.cluster, self.patroni.nofailover)
 
             if self.is_paused():
                 self.watchdog.disable()
@@ -1420,20 +1422,28 @@ class Ha(object):
 
             try:
                 if self.cluster.is_unlocked():
-                    return self.process_unhealthy_cluster()
+                    ret = self.process_unhealthy_cluster()
                 else:
                     msg = self.process_healthy_cluster()
-                    return self.evaluate_scheduled_restart() or msg
+                    ret = self.evaluate_scheduled_restart() or msg
             finally:
                 # we might not have a valid PostgreSQL connection here if another thread
                 # stops PostgreSQL, therefore, we only reload replication slots if no
                 # asynchronous processes are running (should be always the case for the master)
                 if not self._async_executor.busy and not self.state_handler.is_starting():
-                    self.state_handler.slots_handler.sync_replication_slots(self.cluster)
+                    create_slots = self.state_handler.slots_handler.sync_replication_slots(self.cluster,
+                                                                                           self.patroni.nofailover)
                     if not self.state_handler.cb_called:
                         if not self.state_handler.is_leader():
                             self._rewind.trigger_check_diverged_lsn()
                         self.state_handler.call_nowait(ACTION_ON_START)
+                    if create_slots:
+                        err = self._async_executor.try_run_async('copy_logical_slots',
+                                                                 self.state_handler.slots_handler.copy_logical_slots,
+                                                                 args=(self.cluster, create_slots,))
+                        if not err:
+                            ret = 'Copying logical slots {0} from the primary'.format(create_slots)
+            return ret
         except DCSError:
             dcs_failed = True
             logger.error('Error communicating with DCS')

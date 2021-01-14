@@ -305,10 +305,10 @@ class Postgresql(object):
             replica_methods = self.create_replica_methods
         return any(self.replica_method_can_work_without_replication_connection(m) for m in replica_methods)
 
-    def reset_cluster_info_state(self, cluster):
+    def reset_cluster_info_state(self, cluster, nofailover=None):
         self._cluster_info_state = {}
         if cluster and cluster.config and cluster.config.modify_index:
-            self._has_permanent_logical_slots = cluster.has_permanent_logical_slots(self.name)
+            self._has_permanent_logical_slots = cluster.has_permanent_logical_slots(self.name, nofailover)
 
     def _cluster_info_state_get(self, name):
         if not self._cluster_info_state:
