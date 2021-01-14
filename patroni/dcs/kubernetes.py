@@ -931,7 +931,7 @@ class Kubernetes(AbstractDCS):
         retry.deadline = deadline - 1  # Update deadline and retry
         return self.patch_or_create(self.leader_path, annotations, kind_resource_version, ips=ips, retry=_retry)
 
-    def update_leader(self, last_lsn, slots=None, access_is_restricted=False):
+    def update_leader(self, last_lsn, slots=None):
         kind = self._kinds.get(self.leader_path)
         kind_annotations = kind and kind.metadata.annotations or {}
 
@@ -948,8 +948,7 @@ class Kubernetes(AbstractDCS):
         annotations['slots'] = slots or None
 
         resource_version = kind and kind.metadata.resource_version
-        ips = [] if access_is_restricted else self.__ips
-        return self._update_leader_with_retry(annotations, resource_version, ips)
+        return self._update_leader_with_retry(annotations, resource_version, self.__ips)
 
     def attempt_to_acquire_leader(self, permanent=False):
         now = datetime.datetime.now(tzutc).isoformat()

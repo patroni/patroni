@@ -66,7 +66,6 @@ class Ha(object):
         self.old_cluster = None
         self._is_leader = False
         self._is_leader_lock = RLock()
-        self._leader_access_is_restricted = False
         self._was_paused = False
         self._leader_timeline = None
         self.recovering = False
@@ -121,15 +120,11 @@ class Ha(object):
 
     def is_leader(self):
         with self._is_leader_lock:
-            return self._is_leader > time.time() and not self._leader_access_is_restricted
+            return self._is_leader > time.time()
 
     def set_is_leader(self, value):
         with self._is_leader_lock:
             self._is_leader = time.time() + self.dcs.ttl if value else 0
-
-    def set_leader_access_is_restricted(self, value):
-        with self._is_leader_lock:
-            self._leader_access_is_restricted = value
 
     def load_cluster_from_dcs(self):
         cluster = self.dcs.get_cluster()
@@ -145,8 +140,6 @@ class Ha(object):
         self._leader_timeline = None if cluster.is_unlocked() else cluster.leader.timeline
 
     def acquire_lock(self):
-        self.set_leader_access_is_restricted(self.cluster.has_permanent_logical_slots(self.state_handler.name,
-                                                                                      self.patroni.nofailover))
         ret = self.dcs.attempt_to_acquire_leader()
         self.set_is_leader(ret)
         return ret
@@ -160,7 +153,7 @@ class Ha(object):
             except Exception:
                 logger.exception('Exception when called state_handler.last_operation()')
         try:
-            ret = self.dcs.update_leader(last_lsn, slots, self._leader_access_is_restricted)
+            ret = self.dcs.update_leader(last_lsn, slots)
         except Exception:
             logger.exception('Unexpected exception raised from update_leader, please report it as a BUG')
             ret = False
@@ -611,9 +604,6 @@ class Ha(object):
                     return 'Postponing promotion because synchronous replication state was updated by somebody else'
                 self.state_handler.config.set_synchronous_standby(['*'] if self.is_synchronous_mode_strict() else [])
             if self.state_handler.role != 'master':
-                self.set_leader_access_is_restricted(self.cluster.has_permanent_logical_slots(self.state_handler.name,
-                                                                                              self.patroni.nofailover))
-
                 def on_success():
                     self._rewind.reset_state()
                     logger.info("cleared rewind state after becoming the leader")
@@ -621,8 +611,7 @@ class Ha(object):
                 with self._async_response:
                     self._async_response.reset()
                 self._async_executor.try_run_async('promote', self.state_handler.promote,
-                                                   args=(self.dcs.loop_wait, self._async_response, on_success,
-                                                         self._leader_access_is_restricted))
+                                                   args=(self.dcs.loop_wait, self._async_response, on_success))
             return promote_message
 
     def fetch_node_status(self, member):
@@ -986,11 +975,6 @@ class Ha(object):
 
                 self._delete_leader()
                 return 'removed leader lock because postgres is not running as master'
-
-            if self.state_handler.is_leader() and self._leader_access_is_restricted:
-                self.state_handler.slots_handler.sync_replication_slots(self.cluster, self.patroni.nofailover)
-                self.state_handler.call_nowait(ACTION_ON_ROLE_CHANGE)
-                self.set_leader_access_is_restricted(False)
 
             if self.update_lock(True):
                 msg = self.process_manual_failover_from_leader()

@@ -749,7 +749,7 @@ class AbstractDCS(object):
         You have to use CAS (Compare And Swap) operation in order to update leader key,
         for example for etcd `prevValue` parameter must be used."""
 
-    def update_leader(self, last_lsn, slots=None, access_is_restricted=False):
+    def update_leader(self, last_lsn, slots=None):
         """Update leader key (or session) ttl and optime/leader
 
         :param last_lsn: absolute WAL LSN in bytes

@@ -10,7 +10,7 @@ Feature: standby cluster
     When I issue a PATCH request to http://127.0.0.1:8009/config with {"slots": {"test_logical": {"type": "logical", "database": "postgres", "plugin": "test_decoding"}}}
     Then I receive a response code 200
     And I do a backup of postgres1
-    When I start postgres0 with callback configured
+    When I start postgres0
     Then "members/postgres0" key in DCS has state=running after 10 seconds
     And replication works from postgres1 to postgres0 after 15 seconds
     When I shut down postgres1
@@ -18,7 +18,6 @@ Feature: standby cluster
     And "members/postgres0" key in DCS has role=master after 3 seconds
     When I issue a GET request to http://127.0.0.1:8008/
     Then I receive a response code 200
-    And there is a label with "test_logical" in postgres0 data directory
 
   Scenario: check replication of a single table in a standby cluster
     Given I start postgres1 in a standby cluster batman1 as a clone of postgres0

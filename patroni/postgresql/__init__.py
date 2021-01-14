@@ -825,7 +825,7 @@ class Postgresql(object):
             logger.info('pre_promote script `%s` exited with %s', cmd, ret)
         return ret == 0
 
-    def promote(self, wait_seconds, task, on_success=None, access_is_restricted=False):
+    def promote(self, wait_seconds, task, on_success=None):
         if self.role == 'master':
             return True
 
@@ -847,8 +847,7 @@ class Postgresql(object):
             self.set_role('master')
             if on_success is not None:
                 on_success()
-            if not access_is_restricted:
-                self.call_nowait(ACTION_ON_ROLE_CHANGE)
+            self.call_nowait(ACTION_ON_ROLE_CHANGE)
             ret = self._wait_promote(wait_seconds)
         return ret
 

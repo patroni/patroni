@@ -108,7 +108,7 @@ class SlotsHandler(object):
         for name, value in slots.items():
             if value['type'] == 'logical':
                 # If the logical already exists, copy some information about it into the original structure
-                if name in self._replication_slots:
+                if self._replication_slots.get(name, {}).get('datoid'):
                     value['datoid'] = self._replication_slots[name]['datoid']
                     value['catalog_xmin'] = self._replication_slots[name]['catalog_xmin']
                     value['confirmed_flush_lsn'] = self._replication_slots[name]['confirmed_flush_lsn']

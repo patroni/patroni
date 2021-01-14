@@ -258,10 +258,6 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
         self.k._kinds._object_cache['test'].metadata.annotations['leader'] = 'p-1'
         self.assertFalse(self.k.update_leader('123'))
 
-    @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints', mock_namespaced_kind, create=True)
-    def test_update_leader_with_restricted_access(self):
-        self.assertIsNotNone(self.k.update_leader('123', True))
-
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints', create=True)
     def test__update_leader_with_retry(self, mock_patch):
         mock_patch.side_effect = k8s_client.rest.ApiException(502, '')

@@ -14,17 +14,6 @@ executable = sys.executable if os.name != 'nt' else sys.executable.replace('\\',
 callback = executable + " features/callback2.py "
 
 
-@step('I start {name:w} with callback configured')
-def start_patroni_with_callbacks(context, name):
-    return context.pctl.start(name, custom_config={
-        "postgresql": {
-            "callbacks": {
-                "on_role_change": executable + " features/callback.py"
-            }
-        }
-    })
-
-
 @step('I start {name:w} in a cluster {cluster_name:w}')
 def start_patroni(context, name, cluster_name):
     return context.pctl.start(name, custom_config={
