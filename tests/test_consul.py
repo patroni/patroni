@@ -4,7 +4,7 @@ import unittest
 from consul import ConsulException, NotFound
 from mock import Mock, patch
 from patroni.dcs.consul import AbstractDCS, Cluster, Consul, ConsulInternalError, \
-                                ConsulError, HTTPClient, InvalidSessionTTL, InvalidSession
+                                ConsulError, ConsulClient, HTTPClient, InvalidSessionTTL, InvalidSession
 from . import SleepException
 
 
@@ -41,7 +41,8 @@ def kv_get(self, key, **kwargs):
 class TestHTTPClient(unittest.TestCase):
 
     def setUp(self):
-        self.client = HTTPClient('127.0.0.1', '8500', 'http', False)
+        c = ConsulClient()
+        self.client = c.http
         self.client.http.request = Mock()
 
     def test_get(self):
