@@ -44,7 +44,11 @@ def install_packages(what):
 
 
 def get_file(url, name):
-    from six.moves.urllib.request import urlretrieve
+    try:
+        from urllib.request import urlretrieve
+    except ImportError:
+        from urllib import urlretrieve
+
     print('Downloading ' + url)
     urlretrieve(url, name)
 
@@ -119,7 +123,6 @@ def setup_kubernetes():
                      stdout=devnull, stderr=devnull)
     for _ in range(0, 120):
         if subprocess.call(['wget', '-qO', '-', 'http://127.0.0.1:8080/'], stdout=devnull, stderr=devnull) == 0:
-            time.sleep(10)
             break
         time.sleep(1)
     else:
@@ -156,22 +159,22 @@ users:
 
 def main():
     what = os.environ.get('DCS', sys.argv[1] if len(sys.argv) > 1 else 'all')
-    r = install_requirements(what)
-    if what == 'all' or r != 0:
-        return r
 
-    if sys.platform.startswith('linux'):
-        r = install_packages(what)
-    else:
-        r = install_postgres()
-    if r != 0:
-        return r
+    if what != 'all':
+        if sys.platform.startswith('linux'):
+            r = install_packages(what)
+            if r == 0 and what == 'kubernetes':
+                r = setup_kubernetes()
+        else:
+            r = install_postgres()
 
-    if what.startswith('etcd'):
-        return install_etcd()
-    elif what == 'kubernetes':
-        return setup_kubernetes()
-    return 0
+        if r == 0 and what.startswith('etcd'):
+            r = install_etcd()
+
+        if r != 0:
+            return r
+
+    return install_requirements(what)
 
 
 if __name__ == '__main__':
