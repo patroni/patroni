@@ -493,12 +493,16 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,f
         return {name: value for name, value in self.__permanent_slots.items() if isinstance(value, dict)
                 and value.get('type', 'logical') == 'logical' and value.get('database') and value.get('plugin')}
 
+    @property
+    def use_slots(self):
+        return self.config and self.config.data.get('postgresql', {}).get('use_slots', True)
+
     def get_replication_slots(self, my_name, role, nofailover):
         # if the replicatefrom tag is set on the member - we should not create the replication slot for it on
         # the current master, because that member would replicate from elsewhere. We still create the slot if
         # the replicatefrom destination member is currently not a member of the cluster (fallback to the
         # master), or if replicatefrom destination member happens to be the current master
-        use_slots = self.config and self.config.data.get('postgresql', {}).get('use_slots', True)
+        use_slots = self.use_slots
         if role in ('master', 'standby_leader'):
             slot_members = [m.name for m in self.members if use_slots and m.name != my_name and
                             (m.replicatefrom is None or m.replicatefrom == my_name or
@@ -551,9 +555,23 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,f
 
         return slots
 
-    def has_permanent_logical_slots(self, name, nofailover):
-        slots = self.get_replication_slots(name, 'replica', nofailover).values()
+    def has_permanent_logical_slots(self, my_name, nofailover):
+        slots = self.get_replication_slots(my_name, 'replica', nofailover).values()
         return any(v for v in slots if v.get("type") == "logical")
+
+    def should_enforce_hot_standby_feedback(self, my_name, nofailover):
+        """
+        The hot_standby_feedback must be enabled if the current replica has logical slots
+        or it is working as a cascading replica for the other node that has logical slots.
+        """
+
+        if self.has_permanent_logical_slots(my_name, nofailover):
+            return True
+
+        if self.use_slots:
+            slot_members = [m for m in self.members if m.replicatefrom == my_name and m.name != self.leader.name]
+            return any(self.should_enforce_hot_standby_feedback(m.name, m.nofailover) for m in slot_members)
+        return False
 
     @property
     def timeline(self):

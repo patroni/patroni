@@ -103,6 +103,7 @@ class Postgresql(object):
 
         self._cluster_info_state = {}
         self._has_permanent_logical_slots = True
+        self._enforce_hot_standby_feedback = False
         self._cached_replica_timeline = None
 
         # Last known running process
@@ -305,10 +306,23 @@ class Postgresql(object):
             replica_methods = self.create_replica_methods
         return any(self.replica_method_can_work_without_replication_connection(m) for m in replica_methods)
 
+    @property
+    def enforce_hot_standby_feedback(self):
+        return self._enforce_hot_standby_feedback
+
+    def set_enforce_hot_standby_feedback(self, value):
+        # If we enable or disable the hot_standby_feedback we need to update postgresql.conf and reload
+        if self._enforce_hot_standby_feedback != value:
+            self._enforce_hot_standby_feedback = value
+            self.config.write_postgresql_conf()
+            self.reload()
+
     def reset_cluster_info_state(self, cluster, nofailover=None):
         self._cluster_info_state = {}
         if cluster and cluster.config and cluster.config.modify_index:
             self._has_permanent_logical_slots = cluster.has_permanent_logical_slots(self.name, nofailover)
+            self.set_enforce_hot_standby_feedback(True if self._has_permanent_logical_slots else
+                                                  cluster.should_enforce_hot_standby_feedback(self.name, nofailover))
 
     def _cluster_info_state_get(self, name):
         if not self._cluster_info_state:
