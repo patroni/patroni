@@ -5,7 +5,7 @@ import urllib3
 
 from mock import Mock, patch
 from patroni.dcs.etcd3 import PatroniEtcd3Client, Cluster, Etcd3, Etcd3Error, Etcd3ClientError, RetryFailedError,\
-        InvalidAuthToken, Unavailable, Unknown, UnsupportedEtcdVersion, UserEmpty, base64_encode
+        InvalidAuthToken, Unavailable, Unknown, UnsupportedEtcdVersion, UserEmpty, AuthFailed, base64_encode
 from threading import Thread
 
 from . import SleepException, MockResponse
@@ -90,7 +90,7 @@ class TestKVCache(BaseTestEtcd3):
 
 class TestPatroniEtcd3Client(BaseTestEtcd3):
 
-    @patch('patroni.dcs.etcd3.Etcd3Client.authenticate', Mock(side_effect=Exception))
+    @patch('patroni.dcs.etcd3.Etcd3Client.authenticate', Mock(side_effect=AuthFailed))
     def test__init__(self):
         self.assertRaises(SystemExit, self.setUp)
 
