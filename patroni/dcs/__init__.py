@@ -497,7 +497,7 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,f
     def use_slots(self):
         return self.config and self.config.data.get('postgresql', {}).get('use_slots', True)
 
-    def get_replication_slots(self, my_name, role, nofailover):
+    def get_replication_slots(self, my_name, role, nofailover, major_version, show_error=False):
         # if the replicatefrom tag is set on the member - we should not create the replication slot for it on
         # the current master, because that member would replicate from elsewhere. We still create the slot if
         # the replicatefrom destination member is currently not a member of the cluster (fallback to the
@@ -527,6 +527,7 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,f
                                    for k, v in slot_conflicts.items() if len(v) > 1))
 
         # "merge" replication slots for members with permanent_replication_slots
+        disabled_permanent_logical_slots = []
         for name, value in permanent_slots.items():
             if not slot_name_re.match(name):
                 logger.error("Invalid permanent replication slot name '%s'", name)
@@ -544,7 +545,9 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,f
                         slots[name] = value
                     continue
                 elif value['type'] == 'logical' and value.get('database') and value.get('plugin'):
-                    if name in slots:
+                    if major_version < 110000:
+                        disabled_permanent_logical_slots.append(name)
+                    elif name in slots:
                         logger.error("Permanent logical replication slot {'%s': %s} is conflicting with" +
                                      " physical replication slot for cluster member", name, value)
                     else:
@@ -553,24 +556,33 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,f
 
             logger.error("Bad value for slot '%s' in permanent_slots: %s", name, permanent_slots[name])
 
+        if disabled_permanent_logical_slots and show_error:
+            logger.error("Permanent logical replication slots supported by Patroni only starting from PostgreSQL 11. "
+                         "Following slots will not be created: %s.", disabled_permanent_logical_slots)
+
         return slots
 
-    def has_permanent_logical_slots(self, my_name, nofailover):
-        slots = self.get_replication_slots(my_name, 'replica', nofailover).values()
+    def has_permanent_logical_slots(self, my_name, nofailover, major_version=110000):
+        if major_version < 110000:
+            return False
+        slots = self.get_replication_slots(my_name, 'replica', nofailover, major_version).values()
         return any(v for v in slots if v.get("type") == "logical")
 
-    def should_enforce_hot_standby_feedback(self, my_name, nofailover):
+    def should_enforce_hot_standby_feedback(self, my_name, nofailover, major_version):
         """
         The hot_standby_feedback must be enabled if the current replica has logical slots
         or it is working as a cascading replica for the other node that has logical slots.
         """
 
-        if self.has_permanent_logical_slots(my_name, nofailover):
+        if major_version < 110000:
+            return False
+
+        if self.has_permanent_logical_slots(my_name, nofailover, major_version):
             return True
 
         if self.use_slots:
-            slot_members = [m for m in self.members if m.replicatefrom == my_name and m.name != self.leader.name]
-            return any(self.should_enforce_hot_standby_feedback(m.name, m.nofailover) for m in slot_members)
+            members = [m for m in self.members if m.replicatefrom == my_name and m.name != self.leader.name]
+            return any(self.should_enforce_hot_standby_feedback(m.name, m.nofailover, major_version) for m in members)
         return False
 
     @property

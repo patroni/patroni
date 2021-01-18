@@ -51,6 +51,8 @@ class TestSlotsHandler(BaseTestPostgresql):
             ca = errorlog_mock.call_args_list[0][0][1]
             self.assertTrue("test-3" in ca, "non matching {0}".format(ca))
             self.assertTrue("test.3" in ca, "non matching {0}".format(ca))
+            with patch.object(Postgresql, 'major_version', PropertyMock(return_value=90618)):
+                self.s.sync_replication_slots(cluster)
 
     def test_process_permanent_slots(self):
         config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'}},

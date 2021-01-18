@@ -384,6 +384,7 @@ class TestHa(PostgresInit):
         self.p.is_leader = false
         self.assertEqual(self.ha.run_cycle(), 'not promoting because failed to update leader lock in DCS')
 
+    @patch.object(Postgresql, 'major_version', PropertyMock(return_value=130000))
     def test_follow(self):
         self.ha.cluster.is_unlocked = false
         self.p.is_leader = false

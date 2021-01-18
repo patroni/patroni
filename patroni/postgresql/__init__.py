@@ -321,9 +321,11 @@ class Postgresql(object):
     def reset_cluster_info_state(self, cluster, nofailover=None):
         self._cluster_info_state = {}
         if cluster and cluster.config and cluster.config.modify_index:
-            self._has_permanent_logical_slots = cluster.has_permanent_logical_slots(self.name, nofailover)
-            self.set_enforce_hot_standby_feedback(True if self._has_permanent_logical_slots else
-                                                  cluster.should_enforce_hot_standby_feedback(self.name, nofailover))
+            self._has_permanent_logical_slots =\
+                cluster.has_permanent_logical_slots(self.name, nofailover, self.major_version)
+            self.set_enforce_hot_standby_feedback(
+                self._has_permanent_logical_slots or
+                cluster.should_enforce_hot_standby_feedback(self.name, nofailover, self.major_version))
 
     def _cluster_info_state_get(self, name):
         if not self._cluster_info_state:
