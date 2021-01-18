@@ -31,15 +31,24 @@ class SlotsHandler(object):
         discrepancies and might schedule the resync.
         """
 
+        ret = {}
+
+        slots = {slot['slot_name']: slot for slot in slots or []}
+#        logger.error('%s %s', slots, self._replication_slots)
         if slots:
-            ret = {}
-            for slot in slots:
-                if slot['slot_name'] in self._replication_slots:
-                    if compare_slots(slot, self._replication_slots[slot['slot_name']], 'datoid'):
-                        ret[slot['slot_name']] = slot['confirmed_flush_lsn']
+            for name, value in slots.items():
+                if name in self._replication_slots:
+                    if compare_slots(value, self._replication_slots[name], 'datoid'):
+                        if value['type'] == 'logical':
+                            ret[name] = value['confirmed_flush_lsn']
                     else:
                         self._schedule_load_slots = True
-            return ret
+
+        # It could happen that the slots was deleted in the background, we want to detect this case
+        if any(name not in slots for name in self._replication_slots.keys()):
+            self._schedule_load_slots = True
+
+        return ret
 
     def load_replication_slots(self):
         if self._postgresql.major_version >= 90400 and self._schedule_load_slots:
@@ -183,7 +192,7 @@ class SlotsHandler(object):
 
                 if self._postgresql.is_leader():
                     self._ensure_logical_slots_primary(slots)
-                elif cluster.slots:
+                elif cluster.slots and slots:
                     ret = self._ensure_logical_slots_replica(cluster, slots)
 
                 self._replication_slots = slots
@@ -192,8 +201,8 @@ class SlotsHandler(object):
                 self._schedule_load_slots = True
         return ret
 
-    def copy_logical_slots(self, cluster, slots):
-        conn_kwargs = cluster.leader.conn_kwargs(self._postgresql.config.rewind_credentials)
+    def copy_logical_slots(self, leader, slots):
+        conn_kwargs = leader.conn_kwargs(self._postgresql.config.rewind_credentials)
         conn_kwargs['database'] = self._postgresql.database
         with get_connection_cursor(connect_timeout=3, options="-c statement_timeout=2000", **conn_kwargs) as cur:
             try:
@@ -204,8 +213,7 @@ class SlotsHandler(object):
                             " AND slot_name = ANY(%s)", (slots,))
                 slots = {r[0]: {'catalog_xmin': r[1], 'confirmed_flush_lsn': r[2], 'data': r[3]} for r in cur}
             except Exception as e:
-                logger.error("Failed to copy logical slots from the %s via postgresql connection: %r",
-                             cluster.leader.name, e)
+                logger.error("Failed to copy logical slots from the %s via postgresql connection: %r", leader.name, e)
 
         if isinstance(slots, dict) and self._postgresql.stop():
             for name, value in slots.items():
@@ -213,7 +221,7 @@ class SlotsHandler(object):
                 os.makedirs(slot_dir)
                 with open(os.path.join(slot_dir, 'state'), 'wb') as f:
                     f.write(value['data'])
-        self._postgresql.start()
+            self._postgresql.start()
 
     def schedule(self, value=None):
         if value is None:

@@ -1,4 +1,3 @@
-import mock  # for the mock.call method, importing it without a namespace breaks python3
 import os
 import psutil
 import psycopg2
@@ -8,11 +7,10 @@ import time
 
 from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.async_executor import CriticalTask
-from patroni.dcs import Cluster, ClusterConfig, Member, RemoteMember, SyncState
+from patroni.dcs import Cluster, RemoteMember, SyncState
 from patroni.exceptions import PostgresConnectionException, PatroniException
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
 from patroni.postgresql.postmaster import PostmasterProcess
-from patroni.postgresql.slots import SlotsHandler
 from patroni.utils import RetryFailedError
 from six.moves import builtins
 from threading import Thread, current_thread
@@ -301,31 +299,6 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.call_nowait('on_start')
         m = RemoteMember('1', {'restore_command': '2', 'primary_slot_name': 'foo', 'conn_kwargs': {'host': 'bar'}})
         self.p.follow(m)
-
-    @patch.object(Postgresql, 'is_running', Mock(return_value=True))
-    def test_sync_replication_slots(self):
-        self.p.start()
-        config = ClusterConfig(1, {'slots': {'test_3': {'database': 'a', 'plugin': 'b'},
-                                             'A': 0, 'ls': 0, 'b': {'type': 'logical', 'plugin': '1'}},
-                                   'ignore_slots': [{'name': 'blabla'}]}, 1)
-        cluster = Cluster(True, config, self.leader, 0, [self.me, self.other, self.leadermem], None, None, None, None)
-        with mock.patch('patroni.postgresql.Postgresql._query', Mock(side_effect=psycopg2.OperationalError)):
-            self.p.slots_handler.sync_replication_slots(cluster)
-        self.p.set_role('standby_leader')
-        self.p.slots_handler.sync_replication_slots(cluster)
-        self.p.set_role('master')
-        with mock.patch('patroni.postgresql.Postgresql.role', new_callable=PropertyMock(return_value='replica')):
-            self.p.slots_handler.sync_replication_slots(cluster)
-        with patch.object(SlotsHandler, 'drop_replication_slot', Mock(return_value=True)),\
-                patch('patroni.dcs.logger.error', new_callable=Mock()) as errorlog_mock:
-            alias1 = Member(0, 'test-3', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres'})
-            alias2 = Member(0, 'test.3', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres'})
-            cluster.members.extend([alias1, alias2])
-            self.p.slots_handler.sync_replication_slots(cluster)
-            self.assertEqual(errorlog_mock.call_count, 5)
-            ca = errorlog_mock.call_args_list[0][0][1]
-            self.assertTrue("test-3" in ca, "non matching {0}".format(ca))
-            self.assertTrue("test.3" in ca, "non matching {0}".format(ca))
 
     @patch.object(MockCursor, 'execute', Mock(side_effect=psycopg2.OperationalError))
     def test__query(self):
@@ -736,22 +709,5 @@ class TestPostgresql(BaseTestPostgresql):
             self.p.config._write_recovery_params(Mock(), {'recovery_target_action': 'PROMOTE'})
 
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
-    def test_process_permanent_slots(self):
-        self.p.start()
-        config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'}},
-                                   'ignore_slots': [{'name': 'blabla'}]}, 1)
-        cluster = Cluster(True, config, self.leader, 0, [self.me, self.other, self.leadermem], None, None, None, None)
-
-        self.p.slots_handler.sync_replication_slots(cluster)
-        with patch.object(Postgresql, '_query') as mock_query:
-            self.p.reset_cluster_info_state(None)
-            mock_query.return_value.fetchone.return_value = (
-                1, 0, 0, 0, 0, 0, 0, 0, 0,
-                [{"slot_name": "ls", "type": "logical", "datoid": 5, "plugin": "b", "confirmed_flush_lsn": 12345}])
-            self.assertEqual(self.p.slots(), {'ls': 12345})
-
-            self.p.reset_cluster_info_state(None)
-            mock_query.return_value.fetchone.return_value = (
-                1, 0, 0, 0, 0, 0, 0, 0, 0,
-                [{"slot_name": "ls", "type": "logical", "datoid": 6, "plugin": "b", "confirmed_flush_lsn": 12345}])
-            self.assertEqual(self.p.slots(), {})
+    def test_set_enforce_hot_standby_feedback(self):
+        self.p.set_enforce_hot_standby_feedback(True)

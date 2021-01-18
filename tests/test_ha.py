@@ -158,7 +158,7 @@ def run_async(self, func, args=()):
     'Database system identifier': SYSID,
     'Database cluster state': 'shut down',
     'Latest checkpoint location': '0/12345678'}))
-@patch.object(SlotsHandler, 'sync_replication_slots', Mock(return_value=None))
+@patch.object(SlotsHandler, 'load_replication_slots', Mock(side_effect=Exception))
 @patch.object(ConfigHandler, 'append_pg_hba', Mock())
 @patch.object(ConfigHandler, 'write_pgpass', Mock(return_value={}))
 @patch.object(ConfigHandler, 'write_recovery_conf', Mock())
@@ -390,7 +390,14 @@ class TestHa(PostgresInit):
         self.assertEqual(self.ha.run_cycle(), 'no action.  i am a secondary and i am following a leader')
         self.ha.patroni.replicatefrom = "foo"
         self.p.config.check_recovery_conf = Mock(return_value=(True, False))
+        self.ha.cluster.config.data.update({'slots': {'l': {'database': 'a', 'plugin': 'b'}}})
+        self.ha.cluster.members[1].data['tags']['replicatefrom'] = 'postgresql0'
+        self.ha.patroni.nofailover = True
         self.assertEqual(self.ha.run_cycle(), 'no action.  i am a secondary and i am following a leader')
+        del self.ha.cluster.config.data['slots']
+        self.ha.cluster.config.data.update({'postgresql': {'use_slots': False}})
+        self.assertEqual(self.ha.run_cycle(), 'no action.  i am a secondary and i am following a leader')
+        del self.ha.cluster.config.data['postgresql']['use_slots']
 
     def test_follow_in_pause(self):
         self.ha.cluster.is_unlocked = false
@@ -1138,3 +1145,13 @@ class TestHa(PostgresInit):
 
         self.ha.has_lock = true
         self.assertEqual(self.ha.run_cycle(), 'PAUSE: released leader key voluntarily due to the system ID mismatch')
+
+    @patch('psycopg2.connect', psycopg2_connect)
+    @patch('os.makedirs', Mock())
+    @patch('patroni.postgresql.Postgresql.is_starting', Mock(return_value=False))
+    @patch.object(builtins, 'open', mock_open())
+    @patch.object(SlotsHandler, 'sync_replication_slots', Mock(return_value=['foo']))
+    def test_follow_copy(self):
+        self.ha.cluster.is_unlocked = false
+        self.p.is_leader = false
+        self.assertTrue(self.ha.run_cycle().startswith('Copying logical slots'))

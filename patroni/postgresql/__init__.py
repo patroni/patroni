@@ -156,8 +156,8 @@ class Postgresql(object):
     def cluster_info_query(self):
         if self._major_version >= 90600:
             extra = "(SELECT pg_catalog.json_agg(s.*) FROM (SELECT slot_name, slot_type as type, datoid::bigint, " +\
-                    "plugin, catalog_xmin, pg_catalog.pg_wal_lsn_diff(confirmed_flush_lsn, '0/0')::bigint AS " + \
-                    "confirmed_flush_lsn FROM pg_catalog.pg_get_replication_slots() WHERE slot_type = 'logical') AS s)"\
+                    "plugin, catalog_xmin, pg_catalog.pg_wal_lsn_diff(confirmed_flush_lsn, '0/0')::bigint" + \
+                    " AS confirmed_flush_lsn FROM pg_catalog.pg_get_replication_slots()) AS s)"\
                             if self._has_permanent_logical_slots and self._major_version >= 110000 else "NULL"
             extra = (", CASE WHEN latest_end_lsn IS NULL THEN NULL ELSE received_tli END,"
                      " slot_name, conninfo, {0} FROM pg_catalog.pg_stat_get_wal_receiver()").format(extra)
@@ -314,8 +314,9 @@ class Postgresql(object):
         # If we enable or disable the hot_standby_feedback we need to update postgresql.conf and reload
         if self._enforce_hot_standby_feedback != value:
             self._enforce_hot_standby_feedback = value
-            self.config.write_postgresql_conf()
-            self.reload()
+            if self.is_running():
+                self.config.write_postgresql_conf()
+                self.reload()
 
     def reset_cluster_info_state(self, cluster, nofailover=None):
         self._cluster_info_state = {}
