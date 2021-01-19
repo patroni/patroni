@@ -46,6 +46,7 @@ Feature: basic replication
     Then I receive a response code 200
     When I issue a PATCH request to http://127.0.0.1:8008/config with {"maximum_lag_on_syncnode": -1, "postgresql": {"parameters": {"synchronous_commit": "on"}}}
     Then I receive a response code 200
+    And I sleep for 10 seconds
 
   Scenario: check multi sync replication
     Given I issue a PATCH request to http://127.0.0.1:8008/config with {"synchronous_node_count": 2}
