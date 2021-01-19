@@ -1,5 +1,5 @@
 Feature: standby cluster
-  Scenario: check permanent logical slots are preserved on failover/switchover
+  Scenario: prepare the cluster with logical slots
     Given I start postgres1
     Then postgres1 is a leader after 10 seconds
     And there is a non empty initialize key in DCS after 15 seconds
@@ -13,6 +13,16 @@ Feature: standby cluster
     When I start postgres0
     Then "members/postgres0" key in DCS has state=running after 10 seconds
     And replication works from postgres1 to postgres0 after 15 seconds
+    And I run patronictl.py restart batman postgres1 --force
+
+  @skip
+  Scenario: check permanent logical slots are synced to the replica
+    Given Logical slot test_logical is in sync between postgres0 and postgres1 after 10 seconds
+    When I add the table replicate_me to postgres1
+    And I get all changes from logical slot test_logical on postgres1
+    Then Logical slot test_logical is in sync between postgres0 and postgres1 after 10 seconds
+
+  Scenario: Detach exiting node from the cluster
     When I shut down postgres1
     Then postgres0 is a leader after 10 seconds
     And "members/postgres0" key in DCS has role=master after 3 seconds
@@ -34,6 +44,7 @@ Feature: standby cluster
     When I start postgres2 in a cluster batman1
     Then postgres2 role is the replica after 24 seconds
     And table foo is present on postgres2 after 20 seconds
+    And postgres1 does not have a logical replication slot named test_logical
 
   Scenario: check failover
     When I kill postgres1

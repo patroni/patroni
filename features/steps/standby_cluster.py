@@ -44,7 +44,8 @@ def start_patroni_standby_cluster(context, name, cluster_name, name2):
                     "port": port,
                     "primary_slot_name": "pm_1",
                     "create_replica_methods": ["backup_restore", "basebackup"]
-                }
+                },
+                "postgresql": {"parameters": {"wal_level": "logical"}}
             }
         },
         "postgresql": {
