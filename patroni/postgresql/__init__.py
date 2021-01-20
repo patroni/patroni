@@ -392,7 +392,7 @@ class Postgresql(object):
                 return self._postmaster_proc
             self._postmaster_proc = None
 
-        # we noticed that postgres was restarted, force syncing of replication
+        # we noticed that postgres was restarted, force syncing of replication slots and check of logical slots
         self.slots_handler.schedule()
 
         self._postmaster_proc = PostmasterProcess.from_pidfile(self._data_dir)
@@ -858,6 +858,8 @@ class Postgresql(object):
         if self.cancellable.is_cancelled:
             logger.info("PostgreSQL promote cancelled.")
             return False
+
+        self.slots_handler.on_promote()
 
         ret = self.pg_ctl('promote', '-W')
         if ret:

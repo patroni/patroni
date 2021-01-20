@@ -2,6 +2,7 @@ import logging
 import os
 
 from collections import defaultdict
+from contextlib import contextmanager
 
 from .connection import get_connection_cursor
 from .misc import format_lsn
@@ -19,10 +20,15 @@ class SlotsHandler(object):
     def __init__(self, postgresql):
         self._postgresql = postgresql
         self._replication_slots = {}  # already existing replication slots
+        self._unready_logical_slots = set()
         self.schedule()
 
     def _query(self, sql, *params):
         return self._postgresql.query(sql, *params, retry=False)
+
+    @staticmethod
+    def _copy_items(src, dst, keys=None):
+        dst.update({key: src[key] for key in keys or ('datoid', 'catalog_xmin', 'confirmed_flush_lsn')})
 
     def process_permanent_slots(self, slots):
         """
@@ -34,13 +40,13 @@ class SlotsHandler(object):
         ret = {}
 
         slots = {slot['slot_name']: slot for slot in slots or []}
-#        logger.error('%s %s', slots, self._replication_slots)
         if slots:
             for name, value in slots.items():
                 if name in self._replication_slots:
                     if compare_slots(value, self._replication_slots[name], 'datoid'):
                         if value['type'] == 'logical':
                             ret[name] = value['confirmed_flush_lsn']
+                            self._copy_items(value, self._replication_slots[name])
                     else:
                         self._schedule_load_slots = True
 
@@ -66,6 +72,9 @@ class SlotsHandler(object):
                 replication_slots[r[0]] = value
             self._replication_slots = replication_slots
             self._schedule_load_slots = False
+            if self._force_readiness_check:
+                self._unready_logical_slots = set(n for n, v in replication_slots.items() if v['type'] == 'logical')
+                self._force_readiness_check = False
 
     def ignore_replication_slot(self, cluster, name):
         slot = self._replication_slots[name]
@@ -111,6 +120,13 @@ class SlotsHandler(object):
                     logger.exception("Failed to create physical replication slot '%s'", name)
                 self._schedule_load_slots = True
 
+    @contextmanager
+    def _get_local_connection_cursor(self, database):
+        conn_kwargs = self._postgresql.config.local_connect_kwargs
+        conn_kwargs['database'] = database
+        with get_connection_cursor(**conn_kwargs) as cur:
+            yield cur
+
     def _ensure_logical_slots_primary(self, slots):
         # Group logical slots to be created by database name
         logical_slots = defaultdict(dict)
@@ -118,17 +134,13 @@ class SlotsHandler(object):
             if value['type'] == 'logical':
                 # If the logical already exists, copy some information about it into the original structure
                 if self._replication_slots.get(name, {}).get('datoid'):
-                    value['datoid'] = self._replication_slots[name]['datoid']
-                    value['catalog_xmin'] = self._replication_slots[name]['catalog_xmin']
-                    value['confirmed_flush_lsn'] = self._replication_slots[name]['confirmed_flush_lsn']
+                    self._copy_items(self._replication_slots[name], value)
                 else:
                     logical_slots[value['database']][name] = value
 
         # Create new logical slots
         for database, values in logical_slots.items():
-            conn_kwargs = self._postgresql.config.local_connect_kwargs
-            conn_kwargs['database'] = database
-            with get_connection_cursor(**conn_kwargs) as cur:
+            with self._get_local_connection_cursor(database) as cur:
                 for name, value in values.items():
                     try:
                         cur.execute("SELECT pg_catalog.pg_create_logical_replication_slot(%s, %s)" +
@@ -148,9 +160,7 @@ class SlotsHandler(object):
             if value['type'] == 'logical':
                 # If the logical already exists, copy some information about it into the original structure
                 if self._replication_slots.get(name, {}).get('datoid'):
-                    value['datoid'] = self._replication_slots[name]['datoid']
-                    value['catalog_xmin'] = self._replication_slots[name]['catalog_xmin']
-                    value['confirmed_flush_lsn'] = self._replication_slots[name]['confirmed_flush_lsn']
+                    self._copy_items(self._replication_slots[name], value)
                     if name in cluster.slots:
                         try:  # Skip slots that doesn't need to be advanced
                             if value['confirmed_flush_lsn'] < int(cluster.slots[name]):
@@ -162,23 +172,17 @@ class SlotsHandler(object):
 
         # Advance logical slots
         for database, values in advance_slots.items():
-            conn_kwargs = self._postgresql.config.local_connect_kwargs
-            conn_kwargs['database'] = database
-            with get_connection_cursor(**conn_kwargs) as cur:
+            with self._get_local_connection_cursor(database) as cur:
                 for name, value in values.items():
                     try:
-                        cur.execute("SELECT catalog_xmin, pg_catalog.pg_wal_lsn_diff("
-                                    "(pg_catalog.pg_replication_slot_advance(slot_name, %s)).end_lsn, '0/0')"
-                                    " FROM pg_get_replication_slots() WHERE slot_name = %s",
-                                    (format_lsn(int(cluster.slots[name])), name))
-                        catalog_xmin, end_lsn = cur.fetchone()
-                        slots[name].update(confirmed_flush_lsn=end_lsn, catalog_xmin=catalog_xmin)
+                        cur.execute("SELECT pg_catalog.pg_replication_slot_advance(%s, %s)",
+                                    (name, format_lsn(int(cluster.slots[name]))))
                     except Exception as e:
                         logger.exception("Failed to advance logical replication slot '%s': %r", name, e)
                         self._schedule_load_slots = True
         return create_slots
 
-    def sync_replication_slots(self, cluster, nofailover=None):
+    def sync_replication_slots(self, cluster, nofailover, replicatefrom=None):
         ret = None
         if self._postgresql.major_version >= 90400 and cluster.config:
             try:
@@ -192,8 +196,11 @@ class SlotsHandler(object):
                 self._ensure_physical_slots(slots)
 
                 if self._postgresql.is_leader():
+                    self._unready_logical_slots.clear()
                     self._ensure_logical_slots_primary(slots)
                 elif cluster.slots and slots:
+                    self.check_logical_slots_readiness(cluster, nofailover, replicatefrom)
+
                     ret = self._ensure_logical_slots_replica(cluster, slots)
 
                 self._replication_slots = slots
@@ -202,10 +209,34 @@ class SlotsHandler(object):
                 self._schedule_load_slots = True
         return ret
 
-    def copy_logical_slots(self, leader, slots):
+    @contextmanager
+    def _get_leader_connection_cursor(self, leader):
         conn_kwargs = leader.conn_kwargs(self._postgresql.config.rewind_credentials)
         conn_kwargs['database'] = self._postgresql.database
         with get_connection_cursor(connect_timeout=3, options="-c statement_timeout=2000", **conn_kwargs) as cur:
+            yield cur
+
+    def check_logical_slots_readiness(self, cluster, nofailover, replicatefrom):
+        if self._unready_logical_slots:
+            slot_name = cluster.get_my_slot_name_on_primary(self._postgresql.name, replicatefrom)
+            try:
+                with self._get_leader_connection_cursor(cluster.leader) as cur:
+                    cur.execute("SELECT catalog_xmin FROM pg_catalog.pg_get_replication_slots()"
+                                " WHERE NOT pg_catalog.pg_is_in_recovery() AND slot_name = %s", (slot_name,))
+                    if cur.rowcount < 1:
+                        return logger.warning('Physical slot %s does not exist on the primary', slot_name)
+                    catalog_xmin = cur.fetchone()[0]
+            except Exception as e:
+                return logger.error("Failed to check %s physical slot on the primary: %r", slot_name, e)
+        for name in list(self._unready_logical_slots):
+            value = self._replication_slots.get(name)
+            if not value or catalog_xmin <= value['catalog_xmin']:
+                self._unready_logical_slots.remove(name)
+                if value:
+                    logger.info('Logical slot %s is safe to be used after a failover', name)
+
+    def copy_logical_slots(self, leader, slots):
+        with self._get_leader_connection_cursor(leader) as cur:
             try:
                 cur.execute("SELECT slot_name, catalog_xmin, "
                             "pg_catalog.pg_wal_lsn_diff(confirmed_flush_lsn, '0/0')::bigint, "
@@ -222,9 +253,15 @@ class SlotsHandler(object):
                 os.makedirs(slot_dir)
                 with open(os.path.join(slot_dir, 'state'), 'wb') as f:
                     f.write(value['data'])
+                self._unready_logical_slots.add(name)
             self._postgresql.start()
 
     def schedule(self, value=None):
         if value is None:
             value = self._postgresql.major_version >= 90400
-        self._schedule_load_slots = value
+        self._schedule_load_slots = self._force_readiness_check = value
+
+    def on_promote(self):
+        if self._unready_logical_slots:
+            logger.warning('Logical replication slots that might be unsafe to use after promote: %s',
+                           self._unready_logical_slots)

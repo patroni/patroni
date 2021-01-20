@@ -1243,7 +1243,6 @@ class Ha(object):
             self.cancel_initialization()
         self.dcs.initialize(create_new=(self.cluster.initialize is None), sysid=self.state_handler.sysid)
         self.dcs.set_config_value(json.dumps(self.patroni.config.dynamic_configuration, separators=(',', ':')))
-        self.state_handler.slots_handler.sync_replication_slots(self.cluster, self.patroni.nofailover)
         self.dcs.take_leader()
         self.set_is_leader(True)
         self.state_handler.call_nowait(ACTION_ON_START)

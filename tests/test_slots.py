@@ -32,45 +32,47 @@ class TestSlotsHandler(BaseTestPostgresql):
         cluster = Cluster(True, config, self.leader, 0,
                           [self.me, self.other, self.leadermem], None, None, None, {'test_3': 10})
         with mock.patch('patroni.postgresql.Postgresql._query', Mock(side_effect=psycopg2.OperationalError)):
-            self.s.sync_replication_slots(cluster)
+            self.s.sync_replication_slots(cluster, False)
         self.p.set_role('standby_leader')
-        self.s.sync_replication_slots(cluster)
+        self.s.sync_replication_slots(cluster, False)
         self.p.set_role('replica')
         with patch.object(Postgresql, 'is_leader', Mock(return_value=False)):
-            self.s.sync_replication_slots(cluster)
+            self.s.sync_replication_slots(cluster, False)
         self.p.set_role('master')
         with mock.patch('patroni.postgresql.Postgresql.role', new_callable=PropertyMock(return_value='replica')):
-            self.s.sync_replication_slots(cluster)
+            self.s.sync_replication_slots(cluster, False)
         with patch.object(SlotsHandler, 'drop_replication_slot', Mock(return_value=True)),\
                 patch('patroni.dcs.logger.error', new_callable=Mock()) as errorlog_mock:
             alias1 = Member(0, 'test-3', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres'})
             alias2 = Member(0, 'test.3', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres'})
             cluster.members.extend([alias1, alias2])
-            self.s.sync_replication_slots(cluster)
+            self.s.sync_replication_slots(cluster, False)
             self.assertEqual(errorlog_mock.call_count, 5)
             ca = errorlog_mock.call_args_list[0][0][1]
             self.assertTrue("test-3" in ca, "non matching {0}".format(ca))
             self.assertTrue("test.3" in ca, "non matching {0}".format(ca))
             with patch.object(Postgresql, 'major_version', PropertyMock(return_value=90618)):
-                self.s.sync_replication_slots(cluster)
+                self.s.sync_replication_slots(cluster, False)
 
     def test_process_permanent_slots(self):
         config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'}},
                                    'ignore_slots': [{'name': 'blabla'}]}, 1)
         cluster = Cluster(True, config, self.leader, 0, [self.me, self.other, self.leadermem], None, None, None, None)
 
-        self.s.sync_replication_slots(cluster)
+        self.s.sync_replication_slots(cluster, False)
         with patch.object(Postgresql, '_query') as mock_query:
             self.p.reset_cluster_info_state(None)
             mock_query.return_value.fetchone.return_value = (
                 1, 0, 0, 0, 0, 0, 0, 0, 0,
-                [{"slot_name": "ls", "type": "logical", "datoid": 5, "plugin": "b", "confirmed_flush_lsn": 12345}])
+                [{"slot_name": "ls", "type": "logical", "datoid": 5, "plugin": "b",
+                  "confirmed_flush_lsn": 12345, "catalog_xmin": 105}])
             self.assertEqual(self.p.slots(), {'ls': 12345})
 
             self.p.reset_cluster_info_state(None)
             mock_query.return_value.fetchone.return_value = (
                 1, 0, 0, 0, 0, 0, 0, 0, 0,
-                [{"slot_name": "ls", "type": "logical", "datoid": 6, "plugin": "b", "confirmed_flush_lsn": 12345}])
+                [{"slot_name": "ls", "type": "logical", "datoid": 6, "plugin": "b",
+                  "confirmed_flush_lsn": 12345, "catalog_xmin": 105}])
             self.assertEqual(self.p.slots(), {})
 
     @patch.object(Postgresql, 'is_leader', Mock(return_value=False))
@@ -79,12 +81,34 @@ class TestSlotsHandler(BaseTestPostgresql):
         config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'}}}, 1)
         cluster = Cluster(True, config, self.leader, 0,
                           [self.me, self.other, self.leadermem], None, None, None, {'ls': 12346})
-        with patch.object(MockCursor, 'fetchone'):
-            self.assertEqual(self.s.sync_replication_slots(cluster), [])
-        self.assertEqual(self.s.sync_replication_slots(cluster), [])
+        self.assertEqual(self.s.sync_replication_slots(cluster, False), [])
+        self.s._schedule_load_slots = False
+        with patch.object(MockCursor, 'execute', Mock(side_effect=psycopg2.OperationalError)):
+            self.assertEqual(self.s.sync_replication_slots(cluster, False), [])
         cluster.slots['ls'] = 'a'
-        self.assertEqual(self.s.sync_replication_slots(cluster), [])
+        self.assertEqual(self.s.sync_replication_slots(cluster, False), [])
+        with patch.object(MockCursor, 'rowcount', PropertyMock(return_value=1), create=True):
+            self.assertEqual(self.s.sync_replication_slots(cluster, False), ['ls'])
 
     @patch.object(MockCursor, 'execute', Mock(side_effect=psycopg2.OperationalError))
     def test_copy_logical_slots(self):
         self.s.copy_logical_slots(self.leader, ['foo'])
+
+    @patch.object(Postgresql, 'stop', Mock(return_value=True))
+    @patch.object(Postgresql, 'start', Mock(return_value=True))
+    @patch.object(Postgresql, 'is_leader', Mock(return_value=False))
+    def test_check_logical_slots_readiness(self):
+        self.s.copy_logical_slots(self.leader, ['ls'])
+        config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'}}}, 1)
+        cluster = Cluster(True, config, self.leader, 0,
+                          [self.me, self.other, self.leadermem], None, None, None, {'ls': 12345})
+        self.assertEqual(self.s.sync_replication_slots(cluster, False), [])
+        with patch.object(MockCursor, 'rowcount', PropertyMock(return_value=1), create=True):
+            self.s.check_logical_slots_readiness(cluster, False, None)
+
+    @patch.object(Postgresql, 'stop', Mock(return_value=True))
+    @patch.object(Postgresql, 'start', Mock(return_value=True))
+    @patch.object(Postgresql, 'is_leader', Mock(return_value=False))
+    def test_on_promote(self):
+        self.s.copy_logical_slots(self.leader, ['ls'])
+        self.s.on_promote()

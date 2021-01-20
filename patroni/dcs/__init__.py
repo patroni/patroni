@@ -585,6 +585,16 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,f
             return any(self.should_enforce_hot_standby_feedback(m.name, m.nofailover, major_version) for m in members)
         return False
 
+    def get_my_slot_name_on_primary(self, my_name, replicatefrom):
+        """
+        P <-- I <-- L
+        In case of cascading replication we have to check not our physical slot,
+        but slot of the replica that connects us to the primary.
+        """
+
+        m = self.get_member(replicatefrom, False) if replicatefrom else None
+        return self.get_my_slot_name_on_primary(m.name, m.replicatefrom) if m else slot_name_from_member_name(my_name)
+
     @property
     def timeline(self):
         """
