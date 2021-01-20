@@ -13,11 +13,11 @@ Feature: standby cluster
     When I start postgres0
     Then "members/postgres0" key in DCS has state=running after 10 seconds
     And replication works from postgres1 to postgres0 after 15 seconds
-    And I run patronictl.py restart batman postgres1 --force
 
   @skip
   Scenario: check permanent logical slots are synced to the replica
-    Given Logical slot test_logical is in sync between postgres0 and postgres1 after 10 seconds
+    Given I run patronictl.py restart batman postgres1 --force
+    Then Logical slot test_logical is in sync between postgres0 and postgres1 after 10 seconds
     When I add the table replicate_me to postgres1
     And I get all changes from logical slot test_logical on postgres1
     Then Logical slot test_logical is in sync between postgres0 and postgres1 after 10 seconds

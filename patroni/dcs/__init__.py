@@ -758,6 +758,7 @@ class AbstractDCS(object):
     @abc.abstractmethod
     def _write_leader_optime(self, last_lsn):
         """write current WAL LSN into `/optime/leader` key in DCS
+
         :param last_lsn: absolute WAL LSN in bytes
         :returns: `!True` on success."""
 
@@ -768,6 +769,7 @@ class AbstractDCS(object):
     @abc.abstractmethod
     def _write_status(self, value):
         """write current WAL LSN and confirmed_flush_lsn of permanent slots into the `/status` key in DCS
+
         :param value: status serialized in JSON forman
         :returns: `!True` on success."""
 

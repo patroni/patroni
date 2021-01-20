@@ -31,12 +31,17 @@ class SlotsHandler(object):
         dst.update({key: src[key] for key in keys or ('datoid', 'catalog_xmin', 'confirmed_flush_lsn')})
 
     def process_permanent_slots(self, slots):
-        """
-        We want to expose information only about permanent slots that are configured in DCS.
-        This function performs such filtering and in addition to that it checks for
-        discrepancies and might schedule the resync.
-        """
+        """This methods solves three problems at once (I know, it is weird).
 
+        The cluster_info_query from `Postgresql` is executed every HA loop and returns
+        information about all replication slots that exists on the current host.
+        Based on this information we perform the following actions:
+        1. For the primary we want to expose to DCS permanent logical slots, therefore the method
+           builds (and returns) a dict, that maps permanent logical slot names and confirmed_flush_lsns.
+        2. This method also detects if one of the previously known permanent slots got missing and schedules resync.
+        3. Updates the local cache with the fresh catalog_xmin and confirmed_flush_lsn for every known slot.
+           This info is used when performing the check of logical slot readiness on standbys.
+        """
         ret = {}
 
         slots = {slot['slot_name']: slot for slot in slots or []}

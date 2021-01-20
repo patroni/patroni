@@ -257,7 +257,7 @@ class ZooKeeper(AbstractDCS):
                 raise ZooKeeperError('ZooKeeper in not responding properly')
         # Optime ZNode was updated or doesn't exist and we are not leader
         elif (self._fetch_status and not self._fetch_cluster or not cluster.last_lsn
-              or cluster.has_permanent_logical_slots(self._name) and not cluster.slots) and\
+              or cluster.has_permanent_logical_slots(self._name, False) and not cluster.slots) and\
                 not (cluster.leader and cluster.leader.name == self._name):
             try:
                 last_lsn, slots = self.get_status(cluster.leader)
