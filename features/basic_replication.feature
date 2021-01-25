@@ -32,7 +32,8 @@ Feature: basic replication
     Given I issue a PATCH request to http://127.0.0.1:8008/config with {"maximum_lag_on_syncnode": 100000000, "postgresql": {"parameters": {"synchronous_commit": "remote_apply"}}}
     Then I receive a response code 200
     And I create table on postgres0
-    And I sleep for 5 seconds
+    And table mytest is present on postgres1 after 5 seconds
+    And table mytest is present on postgres2 after 5 seconds
     When I pause wal replay on postgres2
     And I sleep for 10 seconds
     And I load data on postgres0
