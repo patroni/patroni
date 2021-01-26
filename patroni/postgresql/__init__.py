@@ -1002,7 +1002,8 @@ class Postgresql(object):
                 " FROM pg_catalog.pg_stat_replication"
                 " WHERE state = 'streaming'"
                 " ) AS r"
-                " ORDER BY sync_state DESC, replica_lsn DESC".format(sort_col, self.lsn_name, self.wal_name, current_wal_lsn)):
+                " ORDER BY sync_state DESC, replica_lsn DESC".format(sort_col, self.lsn_name,
+                                                                     self.wal_name, current_wal_lsn)):
             member = members.get(app_name)
             if not member or member.tags.get('nosync', False):
                 continue
