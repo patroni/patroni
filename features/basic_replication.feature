@@ -32,14 +32,15 @@ Feature: basic replication
     Given I issue a PATCH request to http://127.0.0.1:8008/config with {"maximum_lag_on_syncnode": 15000000, "postgresql": {"parameters": {"synchronous_commit": "remote_apply"}}}
     Then I receive a response code 200
     And I create table on postgres0
-    And table mytest is present on postgres1 after 5 seconds
-    And table mytest is present on postgres2 after 5 seconds
+    And table mytest is present on postgres1 after 2 seconds
+    And table mytest is present on postgres2 after 2 seconds
     When I pause wal replay on postgres2
     And I load data on postgres0
     Then "sync" key in DCS has sync_standby=postgres1 after 15 seconds
+    And I resume wal replay on postgres2
+    And I sleep for 2 seconds
     And I issue a GET request to http://127.0.0.1:8009/sync
     Then I receive a response code 200
-    And I resume wal replay on postgres2
     When I issue a GET request to http://127.0.0.1:8010/async
     Then I receive a response code 200
     When I issue a PATCH request to http://127.0.0.1:8008/config with {"maximum_lag_on_syncnode": -1, "postgresql": {"parameters": {"synchronous_commit": "on"}}}
@@ -91,6 +92,5 @@ Feature: basic replication
     Given I add the table splitbrain to postgres0
     And I start postgres0
     Then postgres0 role is the secondary after 20 seconds
-    Then I sleep for 20 seconds
     When I add the table buz to postgres1
-    Then table buz is present on postgres0 after 120 seconds
+    Then table buz is present on postgres0 after 20 seconds
