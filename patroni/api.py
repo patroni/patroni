@@ -635,7 +635,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             import ssl
             ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH, cafile=ssl_options.get('cafile'))
             if ssl_options.get('ciphers'):
-				ctx.set_ciphers(ssl_options['ciphers'])
+                ctx.set_ciphers(ssl_options['ciphers'])
             ctx.load_cert_chain(certfile=ssl_options['certfile'], keyfile=ssl_options.get('keyfile'))
             verify_client = ssl_options.get('verify_client')
             if verify_client:
