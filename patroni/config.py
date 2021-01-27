@@ -265,7 +265,7 @@ class Config(object):
                 if value:
                     ret[section][param] = value
 
-        _set_section_values('restapi', ['listen', 'connect_address', 'certfile', 'keyfile', 'cafile', 'verify_client',
+        _set_section_values('restapi', ['listen', 'connect_address', 'certfile', 'keyfile', 'cafile', 'ciphers', 'verify_client',
                                         'http_extra_headers', 'https_extra_headers'])
         _set_section_values('ctl', ['insecure', 'cacert', 'certfile', 'keyfile'])
         _set_section_values('postgresql', ['listen', 'connect_address', 'config_dir', 'data_dir', 'pgpass', 'bin_dir'])

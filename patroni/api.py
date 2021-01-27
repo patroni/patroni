@@ -634,6 +634,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         if self.__protocol == 'https':
             import ssl
             ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH, cafile=ssl_options.get('cafile'))
+            if ssl_options.get('ciphers'):
+				ctx.set_ciphers(ssl_options['ciphers'])
             ctx.load_cert_chain(certfile=ssl_options['certfile'], keyfile=ssl_options.get('keyfile'))
             verify_client = ssl_options.get('verify_client')
             if verify_client:
@@ -673,7 +675,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         if 'listen' not in config:  # changing config in runtime
             raise ValueError('Can not find "restapi.listen" config')
 
-        ssl_options = {n: config[n] for n in ('certfile', 'keyfile', 'cafile') if n in config}
+        ssl_options = {n: config[n] for n in ('certfile', 'keyfile', 'cafile', 'ciphers') if n in config}
 
         self.http_extra_headers = config.get('http_extra_headers') or {}
         self.http_extra_headers.update((config.get('https_extra_headers') or {}) if ssl_options.get('certfile') else {})
