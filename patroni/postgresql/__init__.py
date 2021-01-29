@@ -989,18 +989,18 @@ class Postgresql(object):
         # receiving changes faster than the sync member (very rare but possible). Such cases would
         # trigger sync standby member swapping frequently and the sort on sync_state desc should
         # help in keeping the query result consistent.
-        for app_name, state, sync_state, replica_lsn in self.query(
-                "SELECT pg_catalog.lower(application_name), state, sync_state, pg_{2}_{1}_diff({0}_{1}, '0/0')::bigint"
+        for app_name, sync_state, replica_lsn in self.query(
+                "SELECT pg_catalog.lower(application_name), sync_state, pg_{2}_{1}_diff({0}_{1}, '0/0')::bigint"
                 " FROM pg_catalog.pg_stat_replication"
                 " WHERE state = 'streaming'"
                 " ORDER BY sync_state DESC, {0}_{1} DESC".format(sort_col, self.lsn_name, self.wal_name)):
             member = members.get(app_name)
             if member and not member.tags.get('nosync', False):
-                replica_list.append((member.name, state, sync_state, replica_lsn))
+                replica_list.append((member.name, sync_state, replica_lsn))
 
-        max_lsn = max(replica_list, key=lambda x: x[3])[3] if len(replica_list) > 1 else int(str(self.last_operation()))
+        max_lsn = max(replica_list, key=lambda x: x[2])[2] if len(replica_list) > 1 else int(str(self.last_operation()))
 
-        for app_name, state, sync_state, replica_lsn in replica_list:
+        for app_name, sync_state, replica_lsn in replica_list:
             if sync_node_maxlag <= 0 or max_lsn - replica_lsn <= sync_node_maxlag:
                 candidates.append(app_name)
                 if sync_state == 'sync':
