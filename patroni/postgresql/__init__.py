@@ -979,6 +979,7 @@ class Postgresql(object):
         members = {m.name.lower(): m for m in cluster.members}
         candidates = []
         sync_nodes = []
+        replica_list = []
         # Pick candidates based on who has higher replay/remote_write/flush lsn.
         sync_commit_par = self._get_synchronous_commit_param()
         sort_col = {'remote_apply': 'replay', 'remote_write': 'write'}.get(sync_commit_par, 'flush')
@@ -989,31 +990,26 @@ class Postgresql(object):
         # trigger sync standby member swapping frequently and the sort on sync_state desc should
         # help in keeping the query result consistent.
         current_wal_lsn = int(str(self.last_operation()))
-        for app_name, state, sync_state, replica_lag in self.query(
-                "SELECT app_name, state, sync_state,"
-                "       (case when replica_count > 0 then max_replica_lsn - replica_lsn"
-                "             else {3} - replica_lsn"
-                "        end) replica_lag"
-                " FROM ("
-                " SELECT pg_catalog.lower(application_name) app_name, state, sync_state"
+        for app_name, state, sync_state, replica_lsn in self.query(
+                "SELECT pg_catalog.lower(application_name) app_name, state, sync_state"
                 "       , pg_{2}_{1}_diff({0}_{1}, '0/0')::bigint replica_lsn"
-                "       , max( pg_{2}_{1}_diff({0}_{1}, '0/0')::bigint ) over () max_replica_lsn"
-                "       , count(1) over () replica_count"
                 " FROM pg_catalog.pg_stat_replication"
                 " WHERE state = 'streaming'"
-                " ) AS r"
                 " ORDER BY sync_state DESC, replica_lsn DESC".format(sort_col, self.lsn_name,
-                                                                     self.wal_name, current_wal_lsn)):
+                                                                     self.wal_name)):
             member = members.get(app_name)
             if not member or member.tags.get('nosync', False):
                 continue
+            replica_list.append((member.name, state, sync_state, replica_lsn))
 
+        max_replica_lsn = replica_list and max(replica_list, key=lambda x: x[3])[3] or current_wal_lsn
+
+        for app_name, state, sync_state, replica_lsn in replica_list:
+            replica_lag = (max_replica_lsn if len(replica_list) > 1 else current_wal_lsn) - replica_lsn
             if (sync_node_maxlag <= 0) or (sync_node_maxlag > 0 and replica_lag <= sync_node_maxlag):
-                candidates.append(member.name)
-
-            if sync_state == 'sync' and ((sync_node_maxlag <= 0) or (sync_node_maxlag > 0 and
-                                                                     replica_lag <= sync_node_maxlag)):
-                sync_nodes.append(member.name)
+                candidates.append(app_name)
+                if sync_state == 'sync':
+                    sync_nodes.append(app_name)
             if len(candidates) >= sync_node_count:
                 break
 
