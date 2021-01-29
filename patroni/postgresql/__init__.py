@@ -989,24 +989,19 @@ class Postgresql(object):
         # receiving changes faster than the sync member (very rare but possible). Such cases would
         # trigger sync standby member swapping frequently and the sort on sync_state desc should
         # help in keeping the query result consistent.
-        current_wal_lsn = int(str(self.last_operation()))
         for app_name, state, sync_state, replica_lsn in self.query(
-                "SELECT pg_catalog.lower(application_name) app_name, state, sync_state"
-                "       , pg_{2}_{1}_diff({0}_{1}, '0/0')::bigint replica_lsn"
+                "SELECT pg_catalog.lower(application_name), state, sync_state, pg_{2}_{1}_diff({0}_{1}, '0/0')::bigint"
                 " FROM pg_catalog.pg_stat_replication"
                 " WHERE state = 'streaming'"
-                " ORDER BY sync_state DESC, replica_lsn DESC".format(sort_col, self.lsn_name,
-                                                                     self.wal_name)):
+                " ORDER BY sync_state DESC, replica_lsn DESC".format(sort_col, self.lsn_name, self.wal_name)):
             member = members.get(app_name)
-            if not member or member.tags.get('nosync', False):
-                continue
-            replica_list.append((member.name, state, sync_state, replica_lsn))
+            if member and not member.tags.get('nosync', False):
+                replica_list.append((member.name, state, sync_state, replica_lsn))
 
-        max_replica_lsn = replica_list and max(replica_list, key=lambda x: x[3])[3] or current_wal_lsn
+        max_lsn = max(replica_list, key=lambda x: x[3])[3] if len(replica_list) > 1 else int(str(self.last_operation()))
 
         for app_name, state, sync_state, replica_lsn in replica_list:
-            replica_lag = (max_replica_lsn if len(replica_list) > 1 else current_wal_lsn) - replica_lsn
-            if (sync_node_maxlag <= 0) or (sync_node_maxlag > 0 and replica_lag <= sync_node_maxlag):
+            if sync_node_maxlag <= 0 or max_lsn - replica_lsn <= sync_node_maxlag:
                 candidates.append(app_name)
                 if sync_state == 'sync':
                     sync_nodes.append(app_name)
