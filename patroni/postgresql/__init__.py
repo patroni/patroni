@@ -993,7 +993,7 @@ class Postgresql(object):
                 "SELECT pg_catalog.lower(application_name), state, sync_state, pg_{2}_{1}_diff({0}_{1}, '0/0')::bigint"
                 " FROM pg_catalog.pg_stat_replication"
                 " WHERE state = 'streaming'"
-                " ORDER BY sync_state DESC, replica_lsn DESC".format(sort_col, self.lsn_name, self.wal_name)):
+                " ORDER BY sync_state DESC, {0}_{1} DESC".format(sort_col, self.lsn_name, self.wal_name)):
             member = members.get(app_name)
             if member and not member.tags.get('nosync', False):
                 replica_list.append((member.name, state, sync_state, replica_lsn))
