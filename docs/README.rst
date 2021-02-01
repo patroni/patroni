@@ -170,13 +170,13 @@ Testing an HA solution is a time consuming process, with many variables. This is
 
 That said, here are some pieces of your infrastructure you should be sure to test:
 
-Network (the network in front of your system as well as the NICs [physical or virtual] themselves)
-Disk IO 
-file limits (nofile in Linux)
-RAM. Even if you have oomkiller turned off as suggested, the unavailability of RAM could cause issues.
-CPU
-Virtualization Contention (overcommitting the hypervisor)
-Any cgroup limitation (likely to be related to the above)
-`kill -9` of any postgres process (except postmaster!). This is a decent simulation of a segfault.
+* Network (the network in front of your system as well as the NICs [physical or virtual] themselves)
+* Disk IO 
+* file limits (nofile in Linux)
+* RAM. Even if you have oomkiller turned off as suggested, the unavailability of RAM could cause issues.
+* CPU
+* Virtualization Contention (overcommitting the hypervisor)
+* Any cgroup limitation (likely to be related to the above)
+* ``kill -9`` of any postgres process (except postmaster!). This is a decent simulation of a segfault.
 
-One thing that you should not do is run `kill -9` on a postmaster process. This is because doing so does not mimic any real life scenario. If you are concerned your infrastructure is insecure and an attacker could run `kill -9`, no amount of HA process is going to fix that. The attacker will simply kill the process again, or cause chaos in another way.
+One thing that you should not do is run ``kill -9`` on a postmaster process. This is because doing so does not mimic any real life scenario. If you are concerned your infrastructure is insecure and an attacker could run ``kill -9``, no amount of HA process is going to fix that. The attacker will simply kill the process again, or cause chaos in another way.
