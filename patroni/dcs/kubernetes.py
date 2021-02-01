@@ -631,7 +631,8 @@ class Kubernetes(AbstractDCS):
             port.update({n: p[n] for n in ('name', 'protocol') if p.get(n)})
             self.__ports.append(k8s_client.V1EndpointPort(**port))
 
-        self._api = CoreV1ApiProxy(config.get('use_endpoints'), config.get('bypass_api_service'))
+        bypass_api_service = not config.get('patronictl') and config.get('bypass_api_service')
+        self._api = CoreV1ApiProxy(config.get('use_endpoints'), bypass_api_service)
         self._should_create_config_service = self._api.use_endpoints
         self.reload_config(config)
         # leader_observed_record, leader_resource_version, and leader_observed_time are used only for leader race!
