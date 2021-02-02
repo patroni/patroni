@@ -615,32 +615,32 @@ class TestPostgresql(BaseTestPostgresql):
 
         with patch.object(Postgresql, "query", side_effect=[
                     mock_cursor,
-                    [(self.leadermem.name, 'streaming', 'sync'),
-                     (self.me.name, 'streaming', 'async'),
-                     (self.other.name, 'streaming', 'async')]
+                    [(self.leadermem.name, 'sync', 1),
+                     (self.me.name, 'async', 2),
+                     (self.other.name, 'async', 2)]
                 ]):
             self.assertEqual(self.p.pick_synchronous_standby(cluster), ([self.leadermem.name], [self.leadermem.name]))
 
         with patch.object(Postgresql, "query", side_effect=[
                     mock_cursor,
-                    [(self.leadermem.name, 'streaming', 'potential'),
-                     (self.me.name, 'streaming', 'async'),
-                     (self.other.name, 'streaming', 'async')]
+                    [(self.leadermem.name, 'potential', 1),
+                     (self.me.name, 'async', 2),
+                     (self.other.name, 'async', 2)]
                 ]):
             self.assertEqual(self.p.pick_synchronous_standby(cluster), ([self.leadermem.name], []))
 
         with patch.object(Postgresql, "query", side_effect=[
                     mock_cursor,
-                    [(self.me.name, 'streaming', 'async'),
-                     (self.other.name, 'streaming', 'async')]
+                    [(self.me.name, 'async', 1),
+                     (self.other.name, 'async', 2)]
                 ]):
             self.assertEqual(self.p.pick_synchronous_standby(cluster), ([self.me.name], []))
 
         with patch.object(Postgresql, "query", side_effect=[
                     mock_cursor,
-                    [('missing', 'streaming', 'sync'),
-                     (self.me.name, 'streaming', 'async'),
-                     (self.other.name, 'streaming', 'async')]
+                    [('missing', 'sync', 1),
+                     (self.me.name, 'async', 2),
+                     (self.other.name, 'async', 3)]
                 ]):
             self.assertEqual(self.p.pick_synchronous_standby(cluster), ([self.me.name], []))
 

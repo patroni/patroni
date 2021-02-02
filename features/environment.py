@@ -194,6 +194,8 @@ class PatroniController(AbstractController):
         if custom_config is not None:
             self.recursive_update(config, custom_config)
 
+        self.recursive_update(config, {
+            'bootstrap': {'dcs': {'postgresql': {'parameters': {'wal_keep_segments': 100}}}}})
         if config['postgresql'].get('callbacks', {}).get('on_role_change'):
             config['postgresql']['callbacks']['on_role_change'] += ' ' + str(self.__PORT)
 

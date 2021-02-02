@@ -460,7 +460,9 @@ class Ha(object):
         if self.is_synchronous_mode():
             sync_node_count = self.patroni.config['synchronous_node_count']
             current = self.cluster.sync.leader and self.cluster.sync.members or []
-            picked, allow_promote = self.state_handler.pick_synchronous_standby(self.cluster, sync_node_count)
+            picked, allow_promote = self.state_handler.pick_synchronous_standby(self.cluster, sync_node_count,
+                                                                                self.patroni.config[
+                                                                                    'maximum_lag_on_syncnode'])
             if set(picked) != set(current):
                 # update synchronous standby list in dcs temporarily to point to common nodes in current and picked
                 sync_common = list(set(current).intersection(set(allow_promote)))
@@ -484,7 +486,9 @@ class Ha(object):
                     # Wait for PostgreSQL to enable synchronous mode and see if we can immediately set sync_standby
                     time.sleep(2)
                     _, allow_promote = self.state_handler.pick_synchronous_standby(self.cluster,
-                                                                                   sync_node_count)
+                                                                                   sync_node_count,
+                                                                                   self.patroni.config[
+                                                                                       'maximum_lag_on_syncnode'])
                 if allow_promote and set(allow_promote) != set(sync_common):
                     try:
                         cluster = self.dcs.get_cluster()
