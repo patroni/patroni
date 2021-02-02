@@ -187,10 +187,10 @@ class PostmasterProcess(psutil.Process):
         user_backends_cmdlines = []
         for child in children:
             try:
-                cmdline = child.cmdline()[0]
-                if not aux_proc_re.match(cmdline):
+                cmdline = child.cmdline()
+                if cmdline and not aux_proc_re.match(cmdline[0]):
                     user_backends.append(child)
-                    user_backends_cmdlines.append(cmdline)
+                    user_backends_cmdlines.append(cmdline[0])
             except psutil.NoSuchProcess:
                 pass
         if user_backends:
