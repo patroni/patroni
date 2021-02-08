@@ -76,6 +76,9 @@ class Ha(object):
         self._start_timeout = None
         self._async_executor = AsyncExecutor(self.state_handler.cancellable, self.wakeup)
         self.watchdog = patroni.watchdog
+        self._async_liveness = AsyncExecutor(self.state_handler.cancellable, None)
+        self._liveness_next_run = datetime.datetime.now(tzutc) + datetime.timedelta(
+            seconds=self.state_handler.liveness['interval']) if self.state_handler.liveness else None
 
         # Each member publishes various pieces of information to the DCS using touch_member. This lock protects
         # the state and publishing procedure to have consistent ordering and avoid publishing stale values.
@@ -860,7 +863,7 @@ class Ha(object):
                 return False  # do not start postgres, but run pg_rewind on the next iteration
             self.state_handler.follow(node_to_follow)
 
-    def should_run_scheduled_action(self, action_name, scheduled_at, cleanup_fn):
+    def should_run_scheduled_action(self, action_name, scheduled_at, cleanup_fn, nowait=False):
         if scheduled_at and not self.is_paused():
             # If the scheduled action is in the far future, we shouldn't do anything and just return.
             # If the scheduled action is in the past, we consider the value to be stale and we remove
@@ -886,7 +889,8 @@ class Ha(object):
                     return False
 
                 # The value is very close to now
-                time.sleep(max(delta, 0))
+                if not nowait:
+                    time.sleep(max(delta, 0))
                 logger.info('Manual scheduled {0} at %s'.format(action_name), scheduled_at.isoformat())
                 return True
             except TypeError:
@@ -1086,6 +1090,25 @@ class Ha(object):
                 self.touch_member()
                 return True
         return False
+
+    def reset_liveness_schedule(self):
+        ret = False
+        with self._async_liveness:
+            if self.state_handler.liveness:
+                self._liveness_next_run = datetime.datetime.now(tzutc) + \
+                                          datetime.timedelta(seconds=int(
+                                              self.state_handler.liveness['interval'])
+                                                                     + self.dcs.loop_wait)
+                ret = True
+        return ret
+
+    def cancel_liveness(self):
+        if self._async_executor.scheduled_action == 'liveness plugin':
+            logger.info(self._async_executor.scheduled_action + ' still in progress, cancelling')
+            self.state_handler.liveness_terminate()
+            with self._async_executor.critical_task as task:
+                if not task.cancel():
+                    logger.error("Unable to stop the liveness plugin async call")
 
     def delete_future_restart(self):
         ret = False
@@ -1438,6 +1461,9 @@ class Ha(object):
                         if not self.state_handler.is_leader():
                             self._rewind.trigger_check_diverged_lsn()
                         self.state_handler.call_nowait(ACTION_ON_START)
+                    if not self.state_handler.lv_called and self.state_handler.is_leader() and \
+                            not self.is_paused() and self.state_handler.is_running():
+                        self.liveness_plugin()
         except DCSError:
             dcs_failed = True
             logger.error('Error communicating with DCS')
@@ -1522,3 +1548,75 @@ class Ha(object):
 
     def get_remote_master(self):
         return self.get_remote_member()
+
+    def liveness_plugin(self):
+        with self._async_liveness:
+            if self._async_liveness.busy:
+                logger.info("Liveness probe already in progress")
+                return None
+            if self.should_run_scheduled_action('liveness plugin', self._liveness_next_run,
+                                                self.reset_liveness_schedule, True):
+                _ = self._async_liveness.try_run_async('liveness plugin', self._liveness_plugin_async_call)
+        return None
+
+    def _liveness_plugin_async_call(self):
+        try:
+            failover = self.cluster.failover
+            # if adhoc failover scheduled at later date, not by liveness failures ?
+            if failover and (failover.leader or failover.candidate):
+                logger.info('Liveness probe cancelled, failover already scheduled')
+                return None
+            self.state_handler.liveness_check()
+            if self.state_handler.lv_failures > 0:
+                logger.info('Liveness Probe Failures Count: {}'.format(self.state_handler.lv_failures))
+            if self.state_handler.lv_failures > self.state_handler.liveness['max_failures'] and \
+                    self.state_handler.liveness['max_failures'] > 0:
+                return self._demote_leader()
+            self.reset_liveness_schedule()
+        except Exception:
+            logger.exception('Exception during async liveness probe executor')
+
+        return None
+
+    def _demote_leader(self):
+
+        candidate = self._identify_healthy_candidate()
+        if not candidate:
+            logger.error('Unable identify member for failover (Liveness probe failures threshold)')
+            return self.state_handler.reset_lv_failures()
+        logger.info('Demoting. candidate: ' + str(candidate.name) + ", leader " + str(
+            self.cluster.leader.name) + " (Liveness failures)")
+        self.dcs.manual_failover(leader=self.cluster.leader.name, candidate=candidate.name, scheduled_at=None,
+                                 index=self.cluster.failover) and self.state_handler.reset_lv_failures()
+        return None
+
+    def _async_liveness_terminate(self):
+        if self._async_liveness.busy and self._async_liveness.scheduled_action == 'liveness plugin':
+            logger.info("Cancelling long running %s", self._async_liveness.scheduled_action)
+            self.state_handler.liveness_terminate()
+            self._async_liveness.cancel()
+            self.state_handler.reset_lv_failures()
+
+    def _identify_healthy_candidate(self):
+        try:
+            if not self.is_healthiest_node() and not self.cluster.leader and \
+                    not self.cluster.leader.name:
+                logger.error('Failover action from liveness probe aborted - no healthy member found')
+                return None
+            if self.is_synchronous_mode() and not self.cluster.sync.sync_standby:
+                logger.error('Failover action from liveness probe aborted - no sync standby found')
+                return None
+            memberset = self.is_synchronous_mode() and self.cluster.sync.sync_standby or [m.name for m in
+                                                                                          self.cluster.members if
+                                                                                          m.name !=
+                                                                                          self.cluster.leader.name and
+                                                                                          not m.nofailover]
+            members = [m for m in self.cluster.members if m.name in memberset]
+            members.sort(key=lambda x: (x.data['timeline'], x.data['xlog_location']), reverse=True)
+            for member in members:
+                if self.is_failover_possible([member]):
+                    return member
+            return None
+        except Exception as e:
+            logger.exception("Unable to identify candidate for liveness probe failover, " + str(e))
+            return None
