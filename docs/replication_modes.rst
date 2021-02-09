@@ -59,11 +59,14 @@ Synchronous mode can be switched on and off via Patroni REST interface. See :ref
 
 Note: Because of the way synchronous replication is implemented in PostgreSQL it is still possible to lose transactions even when using ``synchronous_mode_strict``. If the PostgreSQL backend is cancelled while waiting to acknowledge replication (as a result of packet cancellation due to client timeout or backend failure) transaction changes become visible for other backends. Such changes are not yet replicated and may be lost in case of standby promotion.
 
+Synchronous Replication Factor
+------------------------------
+The parameter ``synchronous_node_count`` is used by Patroni to manage number of synchronous standby databases. It is set to 1 by default. It has no effect when ``synchronous_mode`` is set to off. When enabled, Patroni manages precise number of synchronous standby databases based on parameter ``synchronous_node_count`` and adjusts the state in DCS & synchronous_standby_names as members join and leave.
 
 Synchronous mode implementation
 -------------------------------
 
-When in synchronous mode Patroni maintains synchronization state in the DCS, containing the latest primary and current synchronous standby. This state is updated with strict ordering constraints to ensure the following invariants:
+When in synchronous mode Patroni maintains synchronization state in the DCS, containing the latest primary and current synchronous standby databases. This state is updated with strict ordering constraints to ensure the following invariants:
 
 - A node must be marked as the latest leader whenever it can accept write transactions. Patroni crashing or PostgreSQL not shutting down can cause violations of this invariant.
 
@@ -71,9 +74,9 @@ When in synchronous mode Patroni maintains synchronization state in the DCS, con
 
 - A node that is not the leader or current synchronous standby is not allowed to promote itself automatically.
 
-Patroni will only ever assign one standby to ``synchronous_standby_names`` because with multiple candidates it is not possible to know which node was acting as synchronous during the failure.
+Patroni will only assign one or more synchronous standby nodes based on ``synchronous_node_count`` parameter to ``synchronous_standby_names``.
 
-On each HA loop iteration Patroni re-evaluates synchronous standby choice. If the current synchronous standby is connected and has not requested its synchronous status to be removed it remains picked. Otherwise the cluster member available for sync that is furthest ahead in replication is picked.
+On each HA loop iteration Patroni re-evaluates synchronous standby nodes choice. If the current list of synchronous standby nodes are connected and has not requested its synchronous status to be removed it remains picked. Otherwise the cluster member available for sync that is furthest ahead in replication is picked.
 
 
 .. [1] The data is still there, but recovering it requires a manual recovery effort by data recovery specialists. When Patroni is allowed to rewind with ``use_pg_rewind`` the forked timeline will be automatically erased to rejoin the failed primary with the cluster.

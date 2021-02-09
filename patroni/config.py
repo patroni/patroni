@@ -21,8 +21,11 @@ _AUTH_ALLOWED_PARAMETERS = (
     'sslmode',
     'sslcert',
     'sslkey',
+    'sslpassword',
     'sslrootcert',
-    'sslcrl'
+    'sslcrl',
+    'gssencmode',
+    'channel_binding'
 )
 
 
@@ -57,11 +60,13 @@ class Config(object):
     __DEFAULT_CONFIG = {
         'ttl': 30, 'loop_wait': 10, 'retry_timeout': 10,
         'maximum_lag_on_failover': 1048576,
+        'maximum_lag_on_syncnode': -1,
         'check_timeline': False,
         'master_start_timeout': 300,
         'master_stop_timeout': 0,
         'synchronous_mode': False,
         'synchronous_mode_strict': False,
+        'synchronous_node_count': 1,
         'standby_cluster': {
             'create_replica_methods': '',
             'host': '',
@@ -74,7 +79,8 @@ class Config(object):
         'postgresql': {
             'bin_dir': '',
             'use_slots': True,
-            'parameters': CaseInsensitiveDict({p: v[0] for p, v in ConfigHandler.CMDLINE_OPTIONS.items()})
+            'parameters': CaseInsensitiveDict({p: v[0] for p, v in ConfigHandler.CMDLINE_OPTIONS.items()
+                                               if p not in ('wal_keep_segments', 'wal_keep_size')})
         },
         'watchdog': {
             'mode': 'automatic',
@@ -88,7 +94,7 @@ class Config(object):
         self.__environment_configuration = self._build_environment_configuration()
 
         # Patroni reads the configuration from the command-line argument if it exists, otherwise from the environment
-        self._config_file = configfile and os.path.isfile(configfile) and configfile
+        self._config_file = configfile and os.path.exists(configfile) and configfile
         if self._config_file:
             self._local_configuration = self._load_config_file()
         else:
@@ -116,12 +122,32 @@ class Config(object):
     def check_mode(self, mode):
         return bool(parse_bool(self._dynamic_configuration.get(mode)))
 
+    def _load_config_path(self, path):
+        """
+        If path is a file, loads the yml file pointed to by path.
+        If path is a directory, loads all yml files in that directory in alphabetical order
+        """
+        if os.path.isfile(path):
+            files = [path]
+        elif os.path.isdir(path):
+            files = [os.path.join(path, f) for f in sorted(os.listdir(path))
+                     if (f.endswith('.yml') or f.endswith('.yaml')) and os.path.isfile(os.path.join(path, f))]
+        else:
+            logger.error('config path %s is neither directory nor file', path)
+            raise ConfigParseError('invalid config path')
+
+        overall_config = {}
+        for fname in files:
+            with open(fname) as f:
+                config = yaml.safe_load(f)
+                patch_config(overall_config, config)
+        return overall_config
+
     def _load_config_file(self):
         """Loads config.yaml from filesystem and applies some values which were set via ENV"""
-        with open(self._config_file) as f:
-            config = yaml.safe_load(f)
-            patch_config(config, self.__environment_configuration)
-            return config
+        config = self._load_config_path(self._config_file)
+        patch_config(config, self.__environment_configuration)
+        return config
 
     def _load_cache(self):
         if os.path.isfile(self._cache_file):
@@ -240,7 +266,9 @@ class Config(object):
                 if value:
                     ret[section][param] = value
 
-        _set_section_values('restapi', ['listen', 'connect_address', 'certfile', 'keyfile', 'cafile', 'verify_client'])
+        _set_section_values('restapi', ['listen', 'connect_address', 'certfile', 'keyfile', 'keyfile_password',
+                                        'cafile', 'ciphers', 'verify_client', 'http_extra_headers',
+                                        'https_extra_headers'])
         _set_section_values('ctl', ['insecure', 'cacert', 'certfile', 'keyfile'])
         _set_section_values('postgresql', ['listen', 'connect_address', 'config_dir', 'data_dir', 'pgpass', 'bin_dir'])
         _set_section_values('log', ['level', 'traceback_level', 'format', 'dateformat', 'max_queue_size',
@@ -291,6 +319,10 @@ class Config(object):
                 logger.exception('Exception when parsing list %s', value)
                 return None
 
+        _set_section_values('raft', ['data_dir', 'self_addr', 'partner_addrs', 'password', 'bind_addr'])
+        if 'raft' in ret and 'partner_addrs' in ret['raft']:
+            ret['raft']['partner_addrs'] = _parse_list(ret['raft']['partner_addrs'])
+
         for param in list(os.environ.keys()):
             if param.startswith(PATRONI_ENV_PREFIX):
                 # PATRONI_(ETCD|CONSUL|ZOOKEEPER|EXHIBITOR|...)_(HOSTS?|PORT|..)
@@ -298,7 +330,8 @@ class Config(object):
                 if suffix in ('HOST', 'HOSTS', 'PORT', 'USE_PROXIES', 'PROTOCOL', 'SRV', 'URL', 'PROXY',
                               'CACERT', 'CERT', 'KEY', 'VERIFY', 'TOKEN', 'CHECKS', 'DC', 'CONSISTENCY',
                               'REGISTER_SERVICE', 'SERVICE_CHECK_INTERVAL', 'NAMESPACE', 'CONTEXT',
-                              'USE_ENDPOINTS', 'SCOPE_LABEL', 'ROLE_LABEL', 'POD_IP', 'PORTS', 'LABELS') and name:
+                              'USE_ENDPOINTS', 'SCOPE_LABEL', 'ROLE_LABEL', 'POD_IP', 'PORTS', 'LABELS',
+                              'BYPASS_API_SERVICE', 'KEY_PASSWORD', 'USE_SSL') and name:
                     value = os.environ.pop(param)
                     if suffix == 'PORT':
                         value = value and parse_int(value)
@@ -306,12 +339,13 @@ class Config(object):
                         value = value and _parse_list(value)
                     elif suffix == 'LABELS':
                         value = _parse_dict(value)
-                    elif suffix in ('USE_PROXIES', 'REGISTER_SERVICE'):
+                    elif suffix in ('USE_PROXIES', 'REGISTER_SERVICE', 'USE_ENDPOINTS', 'BYPASS_API_SERVICE'):
                         value = parse_bool(value)
                     if value:
                         ret[name.lower()][suffix.lower()] = value
-        if 'etcd' in ret:
-            ret['etcd'].update(_get_auth('etcd'))
+        for dcs in ('etcd', 'etcd3'):
+            if dcs in ret:
+                ret[dcs].update(_get_auth(dcs))
 
         users = {}
         for param in list(os.environ.keys()):
@@ -379,6 +413,8 @@ class Config(object):
             'retry_timeout',
             'synchronous_mode',
             'synchronous_mode_strict',
+            'synchronous_node_count',
+            'maximum_lag_on_syncnode'
         )
 
         pg_config.update({p: config[p] for p in updated_fields if p in config})

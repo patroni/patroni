@@ -13,6 +13,8 @@ import threading
 import time
 import yaml
 
+from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
+
 
 @six.add_metaclass(abc.ABCMeta)
 class AbstractController(object):
@@ -165,12 +167,18 @@ class PatroniController(AbstractController):
             config = yaml.safe_load(f)
             config.pop('etcd', None)
 
+        raft_port = os.environ.get('RAFT_PORT')
+        if raft_port:
+            os.environ['RAFT_PORT'] = str(int(raft_port) + 1)
+            config['raft'] = {'data_dir': self._output_dir, 'self_addr': 'localhost:' + os.environ['RAFT_PORT']}
+
         host = config['postgresql']['listen'].split(':')[0]
 
         config['postgresql']['listen'] = config['postgresql']['connect_address'] = '{0}:{1}'.format(host, self.__PORT)
 
         config['name'] = name
         config['postgresql']['data_dir'] = self._data_dir
+        config['postgresql']['basebackup'] = [{'checkpoint': 'fast'}]
         config['postgresql']['use_unix_socket'] = os.name != 'nt'  # windows doesn't yet support unix-domain sockets
         config['postgresql']['pgpass'] = os.path.join(tempfile.gettempdir(), 'pgpass_' + name)
         config['postgresql']['parameters'].update({
@@ -186,6 +194,8 @@ class PatroniController(AbstractController):
         if custom_config is not None:
             self.recursive_update(config, custom_config)
 
+        self.recursive_update(config, {
+            'bootstrap': {'dcs': {'postgresql': {'parameters': {'wal_keep_segments': 100}}}}})
         if config['postgresql'].get('callbacks', {}).get('on_role_change'):
             config['postgresql']['callbacks']['on_role_change'] += ' ' + str(self.__PORT)
 
@@ -373,20 +383,35 @@ class ConsulController(AbstractDcsController):
         super(ConsulController, self).start(max_wait_limit)
 
 
-class EtcdController(AbstractDcsController):
+class AbstractEtcdController(AbstractDcsController):
 
     """ handles all etcd related tasks, used for the tests setup and cleanup """
 
-    def __init__(self, context):
-        super(EtcdController, self).__init__(context)
-        os.environ['PATRONI_ETCD_HOST'] = 'localhost:2379'
-
-        import etcd
-        self._client = etcd.Client(port=2379)
+    def __init__(self, context, client_cls):
+        super(AbstractEtcdController, self).__init__(context)
+        self._client_cls = client_cls
 
     def _start(self):
         return subprocess.Popen(["etcd", "--debug", "--data-dir", self._work_directory],
                                 stdout=self._log, stderr=subprocess.STDOUT)
+
+    def _is_running(self):
+        from patroni.dcs.etcd import DnsCachingResolver
+        # if etcd is running, but we didn't start it
+        try:
+            self._client = self._client_cls({'host': 'localhost', 'port': 2379, 'retry_timeout': 30,
+                                             'patronictl': 1}, DnsCachingResolver())
+            return True
+        except Exception:
+            return False
+
+
+class EtcdController(AbstractEtcdController):
+
+    def __init__(self, context):
+        from patroni.dcs.etcd import EtcdClient
+        super(EtcdController, self).__init__(context, EtcdClient)
+        os.environ['PATRONI_ETCD_HOST'] = 'localhost:2379'
 
     def query(self, key, scope='batman'):
         import etcd
@@ -404,12 +429,25 @@ class EtcdController(AbstractDcsController):
         except Exception as e:
             assert False, "exception when cleaning up etcd contents: {0}".format(e)
 
-    def _is_running(self):
-        # if etcd is running, but we didn't start it
+
+class Etcd3Controller(AbstractEtcdController):
+
+    def __init__(self, context):
+        from patroni.dcs.etcd3 import Etcd3Client
+        super(Etcd3Controller, self).__init__(context, Etcd3Client)
+        os.environ['PATRONI_ETCD3_HOST'] = 'localhost:2379'
+
+    def query(self, key, scope='batman'):
+        import base64
+        response = self._client.range(self.path(key, scope))
+        for k in response.get('kvs', []):
+            return base64.b64decode(k['value']).decode('utf-8') if 'value' in k else None
+
+    def cleanup_service_tree(self):
         try:
-            return bool(self._client.machines)
-        except Exception:
-            return False
+            self._client.deleteprefix(self.path(scope=''))
+        except Exception as e:
+            assert False, "exception when cleaning up etcd contents: {0}".format(e)
 
 
 class KubernetesController(AbstractDcsController):
@@ -421,8 +459,9 @@ class KubernetesController(AbstractDcsController):
         self._label_selector = ','.join('{0}={1}'.format(k, v) for k, v in self._labels.items())
         os.environ['PATRONI_KUBERNETES_LABELS'] = json.dumps(self._labels)
         os.environ['PATRONI_KUBERNETES_USE_ENDPOINTS'] = 'true'
+        os.environ['PATRONI_KUBERNETES_BYPASS_API_SERVICE'] = 'true'
 
-        from kubernetes import client as k8s_client, config as k8s_config
+        from patroni.dcs.kubernetes import k8s_client, k8s_config
         k8s_config.load_kube_config(context='local')
         self._client = k8s_client
         self._api = self._client.CoreV1Api()
@@ -524,11 +563,70 @@ class ZooKeeperController(AbstractDcsController):
             return False
 
 
+class MockExhibitor(BaseHTTPRequestHandler):
+
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b'{"servers":["127.0.0.1"],"port":2181}')
+
+    def log_message(self, fmt, *args):
+        pass
+
+
 class ExhibitorController(ZooKeeperController):
 
     def __init__(self, context):
         super(ExhibitorController, self).__init__(context, False)
-        os.environ.update({'PATRONI_EXHIBITOR_HOSTS': 'localhost', 'PATRONI_EXHIBITOR_PORT': '8181'})
+        port = 8181
+        exhibitor = HTTPServer(('', port), MockExhibitor)
+        exhibitor.daemon_thread = True
+        exhibitor_thread = threading.Thread(target=exhibitor.serve_forever)
+        exhibitor_thread.daemon = True
+        exhibitor_thread.start()
+        os.environ.update({'PATRONI_EXHIBITOR_HOSTS': 'localhost', 'PATRONI_EXHIBITOR_PORT': str(port)})
+
+
+class RaftController(AbstractDcsController):
+
+    CONTROLLER_ADDR = 'localhost:1234'
+
+    def __init__(self, context):
+        super(RaftController, self).__init__(context)
+        os.environ.update(PATRONI_RAFT_PARTNER_ADDRS="'" + self.CONTROLLER_ADDR + "'", RAFT_PORT='1234')
+        self._raft = None
+
+    def _start(self):
+        env = os.environ.copy()
+        del env['PATRONI_RAFT_PARTNER_ADDRS']
+        env['PATRONI_RAFT_SELF_ADDR'] = self.CONTROLLER_ADDR
+        env['PATRONI_RAFT_DATA_DIR'] = self._work_directory
+        return subprocess.Popen([sys.executable, '-m', 'coverage', 'run',
+                                '--source=patroni', '-p', 'patroni_raft_controller.py'],
+                                stdout=self._log, stderr=subprocess.STDOUT, env=env)
+
+    def query(self, key, scope='batman'):
+        ret = self._raft.get(self.path(key, scope))
+        return ret and ret['value']
+
+    def set(self, key, value):
+        self._raft.set(self.path(key), value)
+
+    def cleanup_service_tree(self):
+        from patroni.dcs.raft import KVStoreTTL
+        from pysyncobj import SyncObjConf
+
+        if self._raft:
+            self._raft.destroy()
+            self._raft._SyncObj__thread.join()
+            self.stop()
+            os.makedirs(self._work_directory)
+            self.start()
+
+        ready_event = threading.Event()
+        conf = SyncObjConf(appendEntriesUseBatch=False, dynamicMembershipChange=True, onReady=ready_event.set)
+        self._raft = KVStoreTTL(None, [self.CONTROLLER_ADDR], conf)
+        ready_event.wait()
 
 
 class PatroniPoolController(object):
@@ -773,8 +871,8 @@ class WatchdogMonitor(object):
 # actions to execute on start/stop of the tests and before running invidual features
 def before_all(context):
     os.environ.update({'PATRONI_RESTAPI_USERNAME': 'username', 'PATRONI_RESTAPI_PASSWORD': 'password'})
-    context.ci = 'TRAVIS_BUILD_NUMBER' in os.environ or 'BUILD_NUMBER' in os.environ
-    context.timeout_multiplier = 2 if context.ci else 1
+    context.ci = any(a in os.environ for a in ('TRAVIS_BUILD_NUMBER', 'BUILD_NUMBER', 'GITHUB_ACTIONS'))
+    context.timeout_multiplier = 5 if context.ci else 1  # MacOS sometimes is VERY slow
     context.pctl = PatroniPoolController(context)
     context.dcs_ctl = context.pctl.known_dcs[context.pctl.dcs](context)
     context.dcs_ctl.start()

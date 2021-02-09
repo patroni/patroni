@@ -8,18 +8,20 @@ import time
 
 from contextlib import contextmanager
 from copy import deepcopy
+from dateutil import tz
+from datetime import datetime
 from patroni.postgresql.callback_executor import CallbackExecutor
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.cancellable import CancellableSubprocess
-from patroni.postgresql.config import ConfigHandler
+from patroni.postgresql.config import ConfigHandler, mtime
 from patroni.postgresql.connection import Connection, get_connection_cursor
-from patroni.postgresql.misc import parse_history, postgres_major_version_to_int
+from patroni.postgresql.misc import parse_history, parse_lsn, postgres_major_version_to_int
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.slots import SlotsHandler
 from patroni.exceptions import PostgresConnectionException
 from patroni.utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty, parse_int
-from threading import current_thread, Lock
 from psutil import TimeoutExpired
+from threading import current_thread, Lock
 
 
 logger = logging.getLogger(__name__)
@@ -45,6 +47,16 @@ def null_context():
 
 
 class Postgresql(object):
+
+    POSTMASTER_START_TIME = "pg_catalog.to_char(pg_catalog.pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ')"
+    TL_LSN = ("CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
+              "ELSE ('x' || pg_catalog.substr(pg_catalog.pg_{0}file_name("
+              "pg_catalog.pg_current_{0}_{1}()), 1, 8))::bit(32)::int END, "  # master timeline
+              "CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
+              "ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), '0/0')::bigint END, "  # write_lsn
+              "pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint,  "
+              "pg_catalog.pg_{0}_{1}_diff(COALESCE(pg_catalog.pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint, "
+              "pg_catalog.pg_is_in_recovery() AND pg_catalog.pg_is_{0}_replay_paused()")
 
     def __init__(self, config):
         self.name = config['name']
@@ -126,6 +138,10 @@ class Postgresql(object):
         return self.config.get('callbacks') or {}
 
     @property
+    def wal_dir(self):
+        return os.path.join(self._data_dir, 'pg_' + self.wal_name)
+
+    @property
     def wal_name(self):
         return 'wal' if self._major_version >= 100000 else 'xlog'
 
@@ -135,17 +151,17 @@ class Postgresql(object):
 
     @property
     def cluster_info_query(self):
-        pg_control_timeline = 'timeline_id FROM pg_catalog.pg_control_checkpoint()' \
-                if self._major_version >= 90600 and self.role == 'standby_leader' else '0'
-        return ("SELECT CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
-                "ELSE ('x' || pg_catalog.substr(pg_catalog.pg_{0}file_name("
-                "pg_catalog.pg_current_{0}_{1}()), 1, 8))::bit(32)::int END, "
-                "CASE WHEN pg_catalog.pg_is_in_recovery() THEN GREATEST("
-                " pg_catalog.pg_{0}_{1}_diff(COALESCE("
-                "pg_catalog.pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint,"
-                " pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint)"
-                "ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), '0/0')::bigint "
-                "END, {2}").format(self.wal_name, self.lsn_name, pg_control_timeline)
+        if self._major_version >= 90600:
+            extra = (", CASE WHEN latest_end_lsn IS NULL THEN NULL ELSE received_tli END,"
+                     " slot_name, conninfo FROM pg_catalog.pg_stat_get_wal_receiver()")
+            if self.role == 'standby_leader':
+                extra = "timeline_id" + extra + ", pg_catalog.pg_control_checkpoint()"
+            else:
+                extra = "0" + extra
+        else:
+            extra = "0, NULL, NULL, NULL"
+
+        return ("SELECT " + self.TL_LSN + ", {2}").format(self.wal_name, self.lsn_name, extra)
 
     def _version_file_exists(self):
         return not self.data_directory_empty() and os.path.isfile(self._version_file)
@@ -290,7 +306,9 @@ class Postgresql(object):
         if not self._cluster_info_state:
             try:
                 result = self._is_leader_retry(self._query, self.cluster_info_query).fetchone()
-                self._cluster_info_state = dict(zip(['timeline', 'wal_position', 'pg_control_timeline'], result))
+                self._cluster_info_state = dict(zip(['timeline', 'wal_position', 'replayed_location',
+                                                     'received_location', 'replay_paused', 'pg_control_timeline',
+                                                     'received_tli', 'slot_name', 'conninfo'], result))
             except RetryFailedError as e:  # SELECT failed two times
                 self._cluster_info_state = {'error': str(e)}
                 if not self.is_starting() and self.pg_isready() == STATE_REJECT:
@@ -301,6 +319,21 @@ class Postgresql(object):
 
         return self._cluster_info_state.get(name)
 
+    def replayed_location(self):
+        return self._cluster_info_state_get('replayed_location')
+
+    def received_location(self):
+        return self._cluster_info_state_get('received_location')
+
+    def primary_slot_name(self):
+        return self._cluster_info_state_get('slot_name')
+
+    def primary_conninfo(self):
+        return self._cluster_info_state_get('conninfo')
+
+    def received_timeline(self):
+        return self._cluster_info_state_get('received_tli')
+
     def is_leader(self):
         return bool(self._cluster_info_state_get('timeline'))
 
@@ -309,6 +342,17 @@ class Postgresql(object):
             return int(self.controldata().get("Latest checkpoint's TimeLineID"))
         except (TypeError, ValueError):
             logger.exception('Failed to parse timeline from pg_controldata output')
+
+    def latest_checkpoint_location(self):
+        """Returns checkpoint location for the cleanly shut down primary"""
+
+        data = self.controldata()
+        lsn = data.get('Latest checkpoint location')
+        if data.get('Database cluster state') == 'shut down' and lsn:
+            try:
+                return str(parse_lsn(lsn))
+            except (IndexError, ValueError) as e:
+                logger.error('Exception when parsing lsn %s: %r', lsn, e)
 
     def is_running(self):
         """Returns PostmasterProcess if one is running on the data directory or None. If most recently seen process
@@ -415,6 +459,8 @@ class Postgresql(object):
         self._pending_restart = False
 
         try:
+            if not self._major_version:
+                self.configure_server_parameters()
             configuration = self.config.effective_configuration
         except Exception:
             return None
@@ -426,7 +472,7 @@ class Postgresql(object):
         self.config.replace_pg_ident()
 
         options = ['--{0}={1}'.format(p, configuration[p]) for p in self.config.CMDLINE_OPTIONS
-                   if p in configuration and p != 'wal_keep_segments']
+                   if p in configuration and p not in ('wal_keep_segments', 'wal_keep_size')]
 
         if self.cancellable.is_cancelled:
             return False
@@ -571,9 +617,9 @@ class Postgresql(object):
         except psycopg2.Error:
             pass
 
-    def reload(self):
+    def reload(self, block_callbacks=False):
         ret = self.pg_ctl('reload')
-        if ret:
+        if ret and not block_callbacks:
             self.call_nowait(ACTION_ON_RELOAD)
         return ret
 
@@ -653,9 +699,17 @@ class Postgresql(object):
             return False
         return True
 
+    def get_guc_value(self, name):
+        cmd = [self.pgcommand('postgres'), '-D', self._data_dir, '-C', name]
+        try:
+            data = subprocess.check_output(cmd)
+            if data:
+                return data.decode('utf-8').strip()
+        except Exception as e:
+            logger.error('Failed to execute %s: %r', cmd, e)
+
     def controldata(self):
         """ return the contents of pg_controldata, or non-True value if pg_controldata call failed """
-        result = {}
         # Don't try to call pg_controldata during backup restore
         if self._version_file_exists() and self.state != 'creating replica':
             try:
@@ -663,13 +717,12 @@ class Postgresql(object):
                 env.update(LANG='C', LC_ALL='C')
                 data = subprocess.check_output([self.pgcommand('pg_controldata'), self._data_dir], env=env)
                 if data:
-                    data = data.decode('utf-8').splitlines()
-                    # pg_controldata output depends on major verion. Some of parameters are prefixed by 'Current '
-                    result = {l.split(':')[0].replace('Current ', '', 1): l.split(':', 1)[1].strip() for l in data
-                              if l and ':' in l}
+                    data = filter(lambda e: ':' in e, data.decode('utf-8').splitlines())
+                    # pg_controldata output depends on major version. Some of parameters are prefixed by 'Current '
+                    return {k.replace('Current ', '', 1): v.strip() for k, v in map(lambda e: e.split(':', 1), data)}
             except subprocess.CalledProcessError:
                 logger.exception("Error when calling pg_controldata")
-        return result
+        return {}
 
     @contextmanager
     def get_replication_connection_cursor(self, host='localhost', port=5432, **kwargs):
@@ -679,18 +732,13 @@ class Postgresql(object):
         with get_connection_cursor(**conn_kwargs) as cur:
             yield cur
 
-    def get_local_timeline_lsn_from_replication_connection(self):
-        timeline = lsn = None
+    def get_replica_timeline(self):
         try:
             with self.get_replication_connection_cursor(**self.config.local_replication_address) as cur:
                 cur.execute('IDENTIFY_SYSTEM')
-                timeline, lsn = cur.fetchone()[1:3]
+                return cur.fetchone()[1]
         except Exception:
             logger.exception('Can not fetch local timeline and lsn from replication connection')
-        return timeline, lsn
-
-    def get_replica_timeline(self):
-        return self.get_local_timeline_lsn_from_replication_connection()[0]
 
     def replica_cached_timeline(self, master_timeline):
         if not self._cached_replica_timeline or not master_timeline or self._cached_replica_timeline != master_timeline:
@@ -701,19 +749,19 @@ class Postgresql(object):
         return self._cluster_info_state_get('timeline')
 
     def get_history(self, timeline):
-        history_path = 'pg_{0}/{1:08X}.history'.format(self.wal_name, timeline)
-        try:
-            cursor = self._connection.cursor()
-            cursor.execute('SELECT isdir, modification FROM pg_catalog.pg_stat_file(%s)', (history_path,))
-            isdir, modification = cursor.fetchone()
-            if not isdir:
-                cursor.execute('SELECT pg_catalog.pg_read_file(%s)', (history_path,))
-                history = list(parse_history(cursor.fetchone()[0]))
+        history_path = os.path.join(self.wal_dir, '{0:08X}.history'.format(timeline))
+        history_mtime = mtime(history_path)
+        if history_mtime:
+            try:
+                with open(history_path, 'r') as f:
+                    history = f.read()
+                history = list(parse_history(history))
                 if history[-1][0] == timeline - 1:
-                    history[-1].append(modification.isoformat())
+                    history_mtime = datetime.fromtimestamp(history_mtime).replace(tzinfo=tz.tzlocal())
+                    history[-1].append(history_mtime.isoformat())
                 return history
-        except Exception:
-            logger.exception('Failed to read and parse %s', (history_path,))
+            except Exception:
+                logger.exception('Failed to read and parse %s', (history_path,))
 
     def follow(self, member, role='replica', timeout=None, do_reload=False):
         recovery_params = self.config.build_recovery_params(member)
@@ -731,7 +779,8 @@ class Postgresql(object):
         if self.is_running():
             if do_reload:
                 self.config.write_postgresql_conf()
-                self.reload()
+                if self.reload(block_callbacks=change_role) and change_role:
+                    self.set_role(role)
             else:
                 self.restart(block_callbacks=change_role, role=role)
         else:
@@ -748,9 +797,38 @@ class Postgresql(object):
             if data.get('Database cluster state') == 'in production':
                 return True
 
-    def promote(self, wait_seconds, on_success=None, access_is_restricted=False):
+    def _pre_promote(self):
+        """
+        Runs a fencing script after the leader lock is acquired but before the replica is promoted.
+        If the script exits with a non-zero code, promotion does not happen and the leader key is removed from DCS.
+        """
+
+        cmd = self.config.get('pre_promote')
+        if not cmd:
+            return True
+
+        ret = self.cancellable.call(shlex.split(cmd))
+        if ret is not None:
+            logger.info('pre_promote script `%s` exited with %s', cmd, ret)
+        return ret == 0
+
+    def promote(self, wait_seconds, task, on_success=None, access_is_restricted=False):
         if self.role == 'master':
             return True
+
+        ret = self._pre_promote()
+        with task:
+            if task.is_cancelled:
+                return False
+            task.complete(ret)
+
+        if ret is False:
+            return False
+
+        if self.cancellable.is_cancelled:
+            logger.info("PostgreSQL promote cancelled.")
+            return False
+
         ret = self.pg_ctl('promote', '-W')
         if ret:
             self.set_role('master')
@@ -761,21 +839,31 @@ class Postgresql(object):
             ret = self._wait_promote(wait_seconds)
         return ret
 
+    @staticmethod
+    def _wal_position(is_leader, wal_position, received_location, replayed_location):
+        return wal_position if is_leader else max(received_location or 0, replayed_location or 0)
+
     def timeline_wal_position(self):
         # This method could be called from different threads (simultaneously with some other `_query` calls).
         # If it is called not from main thread we will create a new cursor to execute statement.
         if current_thread().ident == self.__thread_ident:
-            return (self._cluster_info_state_get('timeline'),
-                    self._cluster_info_state_get('wal_position'),
-                    self._cluster_info_state_get('pg_control_timeline'))
+            timeline = self._cluster_info_state_get('timeline')
+            wal_position = self._cluster_info_state_get('wal_position')
+            replayed_location = self.replayed_location()
+            received_location = self.received_location()
+            pg_control_timeline = self._cluster_info_state_get('pg_control_timeline')
+        else:
+            with self.connection().cursor() as cursor:
+                cursor.execute(self.cluster_info_query)
+                (timeline, wal_position, replayed_location,
+                 received_location, _, pg_control_timeline) = cursor.fetchone()[:6]
 
-        with self.connection().cursor() as cursor:
-            cursor.execute(self.cluster_info_query)
-            return cursor.fetchone()[:3]
+        wal_position = self._wal_position(timeline, wal_position, received_location, replayed_location)
+        return (timeline, wal_position, pg_control_timeline)
 
     def postmaster_start_time(self):
         try:
-            query = "SELECT pg_catalog.to_char(pg_catalog.pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ')"
+            query = "SELECT " + self.POSTMASTER_START_TIME
             if current_thread().ident == self.__thread_ident:
                 return self.query(query).fetchone()[0]
             with self.connection().cursor() as cursor:
@@ -785,17 +873,59 @@ class Postgresql(object):
             return None
 
     def last_operation(self):
-        return str(self._cluster_info_state_get('wal_position'))
+        return str(self._wal_position(self.is_leader(), self._cluster_info_state_get('wal_position'),
+                                      self.received_location(), self.replayed_location()))
 
     def configure_server_parameters(self):
         self._major_version = self.get_major_version()
         self.config.setup_server_parameters()
         return True
 
+    def pg_wal_realpath(self):
+        """Returns a dict containing the symlink (key) and target (value) for the wal directory"""
+        links = {}
+        for pg_wal_dir in ('pg_xlog', 'pg_wal'):
+            pg_wal_path = os.path.join(self._data_dir, pg_wal_dir)
+            if os.path.exists(pg_wal_path) and os.path.islink(pg_wal_path):
+                pg_wal_realpath = os.path.realpath(pg_wal_path)
+                links[pg_wal_path] = pg_wal_realpath
+        return links
+
+    def pg_tblspc_realpaths(self):
+        """Returns a dict containing the symlink (key) and target (values) for the tablespaces"""
+        links = {}
+        pg_tblsp_dir = os.path.join(self._data_dir, 'pg_tblspc')
+        if os.path.exists(pg_tblsp_dir):
+            for tsdn in os.listdir(pg_tblsp_dir):
+                pg_tsp_path = os.path.join(pg_tblsp_dir, tsdn)
+                if parse_int(tsdn) and os.path.islink(pg_tsp_path):
+                    pg_tsp_rpath = os.path.realpath(pg_tsp_path)
+                    links[pg_tsp_path] = pg_tsp_rpath
+        return links
+
     def move_data_directory(self):
         if os.path.isdir(self._data_dir) and not self.is_running():
             try:
-                new_name = '{0}_{1}'.format(self._data_dir, time.strftime('%Y-%m-%d-%H-%M-%S'))
+                postfix = time.strftime('%Y-%m-%d-%H-%M-%S')
+
+                # let's see if the wal directory is a symlink, in this case we
+                # should move the target
+                for (source, pg_wal_realpath) in self.pg_wal_realpath().items():
+                    logger.info('renaming WAL directory and updating symlink: %s', pg_wal_realpath)
+                    new_name = '{0}_{1}'.format(pg_wal_realpath, postfix)
+                    os.rename(pg_wal_realpath, new_name)
+                    os.unlink(source)
+                    os.symlink(new_name, source)
+
+                # Move user defined tablespace directory
+                for (source, pg_tsp_rpath) in self.pg_tblspc_realpaths().items():
+                    logger.info('renaming user defined tablespace directory and updating symlink: %s', pg_tsp_rpath)
+                    new_name = '{0}_{1}'.format(pg_tsp_rpath, postfix)
+                    os.rename(pg_tsp_rpath, new_name)
+                    os.unlink(source)
+                    os.symlink(new_name, source)
+
+                new_name = '{0}_{1}'.format(self._data_dir, postfix)
                 logger.info('renaming data directory to %s', new_name)
                 os.rename(self._data_dir, new_name)
             except OSError:
@@ -813,114 +943,81 @@ class Postgresql(object):
                 os.remove(self._data_dir)
             elif os.path.isdir(self._data_dir):
 
-                # let's see if pg_xlog|pg_wal is a symlink, in this case we
+                # let's see if wal directory is a symlink, in this case we
                 # should clean the target
-                for pg_wal_dir in ('pg_xlog', 'pg_wal'):
-                    pg_wal_path = os.path.join(self._data_dir, pg_wal_dir)
-                    if os.path.exists(pg_wal_path) and os.path.islink(pg_wal_path):
-                        pg_wal_realpath = os.path.realpath(pg_wal_path)
-                        logger.info('Removing WAL directory: %s', pg_wal_realpath)
-                        shutil.rmtree(pg_wal_realpath)
-                # Remove user defined tablespace directory
-                pg_tblsp_dir = os.path.join(self._data_dir, 'pg_tblspc')
-                if os.path.exists(pg_tblsp_dir):
-                    for tsdn in os.listdir(pg_tblsp_dir):
-                        pg_tsp_path = os.path.join(pg_tblsp_dir, tsdn)
-                        if parse_int(tsdn) and os.path.islink(pg_tsp_path):
-                            pg_tsp_rpath = os.path.realpath(pg_tsp_path)
-                            logger.info('Removing user defined tablespace directory: %s', pg_tsp_rpath)
-                            shutil.rmtree(pg_tsp_rpath, ignore_errors=True)
+                for pg_wal_realpath in self.pg_wal_realpath().values():
+                    logger.info('Removing WAL directory: %s', pg_wal_realpath)
+                    shutil.rmtree(pg_wal_realpath)
+
+                # Remove user defined tablespace directories
+                for pg_tsp_rpath in self.pg_tblspc_realpaths().values():
+                    logger.info('Removing user defined tablespace directory: %s', pg_tsp_rpath)
+                    shutil.rmtree(pg_tsp_rpath, ignore_errors=True)
 
                 shutil.rmtree(self._data_dir)
         except (IOError, OSError):
             logger.exception('Could not remove data directory %s', self._data_dir)
             self.move_data_directory()
 
-    def pick_synchronous_standby(self, cluster):
+    def _get_synchronous_commit_param(self):
+        return self.query("SHOW synchronous_commit").fetchone()[0]
+
+    def pick_synchronous_standby(self, cluster, sync_node_count=1, sync_node_maxlag=-1):
         """Finds the best candidate to be the synchronous standby.
 
         Current synchronous standby is always preferred, unless it has disconnected or does not want to be a
         synchronous standby any longer.
+        Parameter sync_node_maxlag(maximum_lag_on_syncnode) would help swapping unhealthy sync replica incase
+        if it stops responding (or hung). Please set the value high enough so it won't unncessarily swap sync
+        standbys during high loads. Any less or equal of 0 value keep the behavior backward compatible and
+        will not swap. Please note that it will not also swap sync standbys in case where all replicas are hung.
 
-        :returns tuple of candidate name or None, and bool showing if the member is the active synchronous standby.
+        :returns tuple of candidates list and synchronous standby list.
         """
-        current = cluster.sync.sync_standby
-        current = current.lower() if current else current
+        if self._major_version < 90600:
+            sync_node_count = 1
         members = {m.name.lower(): m for m in cluster.members}
         candidates = []
-        # Pick candidates based on who has flushed WAL farthest.
-        # TODO: for synchronous_commit = remote_write we actually want to order on write_location
-        for app_name, state, sync_state in self.query(
-                "SELECT pg_catalog.lower(application_name), state, sync_state"
+        sync_nodes = []
+        replica_list = []
+        # Pick candidates based on who has higher replay/remote_write/flush lsn.
+        sync_commit_par = self._get_synchronous_commit_param()
+        sort_col = {'remote_apply': 'replay', 'remote_write': 'write'}.get(sync_commit_par, 'flush')
+        # pg_stat_replication.sync_state has 4 possible states - async, potential, quorum, sync.
+        # Sort clause "ORDER BY sync_state DESC" is to get the result in required order and to keep
+        # the result consistent in case if a synchronous standby member is slowed down OR async node
+        # receiving changes faster than the sync member (very rare but possible). Such cases would
+        # trigger sync standby member swapping frequently and the sort on sync_state desc should
+        # help in keeping the query result consistent.
+        for app_name, sync_state, replica_lsn in self.query(
+                "SELECT pg_catalog.lower(application_name), sync_state, pg_{2}_{1}_diff({0}_{1}, '0/0')::bigint"
                 " FROM pg_catalog.pg_stat_replication"
-                " ORDER BY flush_{0} DESC".format(self.lsn_name)):
+                " WHERE state = 'streaming'"
+                " ORDER BY sync_state DESC, {0}_{1} DESC".format(sort_col, self.lsn_name, self.wal_name)):
             member = members.get(app_name)
-            if state != 'streaming' or not member or member.tags.get('nosync', False):
-                continue
-            if sync_state == 'sync':
-                return member.name, True
-            if sync_state == 'potential' and app_name == current:
-                # Prefer current even if not the best one any more to avoid indecisivness and spurious swaps.
-                return cluster.sync.sync_standby, False
-            if sync_state in ('async', 'potential'):
-                candidates.append(member.name)
+            if member and not member.tags.get('nosync', False):
+                replica_list.append((member.name, sync_state, replica_lsn))
 
-        if candidates:
-            return candidates[0], False
-        return None, False
+        max_lsn = max(replica_list, key=lambda x: x[2])[2] if len(replica_list) > 1 else int(str(self.last_operation()))
 
-    def read_postmaster_opts(self):
-        """returns the list of option names/values from postgres.opts, Empty dict if read failed or no file"""
-        result = {}
-        try:
-            with open(os.path.join(self._data_dir, 'postmaster.opts')) as f:
-                data = f.read()
-                for opt in data.split('" "'):
-                    if '=' in opt and opt.startswith('--'):
-                        name, val = opt.split('=', 1)
-                        result[name.strip('-')] = val.rstrip('"\n')
-        except IOError:
-            logger.exception('Error when reading postmaster.opts')
-        return result
+        for app_name, sync_state, replica_lsn in replica_list:
+            if sync_node_maxlag <= 0 or max_lsn - replica_lsn <= sync_node_maxlag:
+                candidates.append(app_name)
+                if sync_state == 'sync':
+                    sync_nodes.append(app_name)
+            if len(candidates) >= sync_node_count:
+                break
 
-    def single_user_mode(self, command=None, options=None):
-        """run a given command in a single-user mode. If the command is empty - then just start and stop"""
-        cmd = [self.pgcommand('postgres'), '--single', '-D', self._data_dir]
-        for opt, val in sorted((options or {}).items()):
-            cmd.extend(['-c', '{0}={1}'.format(opt, val)])
-        # need a database name to connect
-        cmd.append(self._database)
-        return self.cancellable.call(cmd, communicate_input=command)
-
-    def cleanup_archive_status(self):
-        status_dir = os.path.join(self._data_dir, 'pg_' + self.wal_name, 'archive_status')
-        try:
-            for f in os.listdir(status_dir):
-                path = os.path.join(status_dir, f)
-                try:
-                    if os.path.islink(path):
-                        os.unlink(path)
-                    elif os.path.isfile(path):
-                        os.remove(path)
-                except OSError:
-                    logger.exception('Unable to remove %s', path)
-        except OSError:
-            logger.exception('Unable to list %s', status_dir)
-
-    def fix_cluster_state(self):
-        self.cleanup_archive_status()
-
-        # Start in a single user mode and stop to produce a clean shutdown
-        opts = self.read_postmaster_opts()
-        opts.update({'archive_mode': 'on', 'archive_command': 'false'})
-        self.config.remove_recovery_conf()
-        return self.single_user_mode(options=opts) == 0 or None
+        return candidates, sync_nodes
 
     def schedule_sanity_checks_after_pause(self):
         """
             After coming out of pause we have to:
-            1. sync replication slots, because it might happen that slots were removed
-            2. get new 'Database system identifier' to make sure that it wasn't changed
+            1. configure server parameters if necessary
+            2. sync replication slots, because it might happen that slots were removed
+            3. get new 'Database system identifier' to make sure that it wasn't changed
         """
+        if not self._major_version:
+            self.configure_server_parameters()
         self.slots_handler.schedule()
         self._sysid = None

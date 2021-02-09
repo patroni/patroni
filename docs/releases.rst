@@ -3,6 +3,392 @@
 Release notes
 =============
 
+Version 2.0.1
+-------------
+
+**New features**
+
+- Use ``more`` as pager in ``patronictl edit-config`` if ``less`` is not available (Pavel Golub)
+
+  On Windows it would be the ``more.com``. In addition to that, ``cdiff`` was changed to ``ydiff`` in ``requirements.txt``, but ``patronictl`` still supports both for compatibility.
+
+- Added support of ``raft`` ``bind_addr`` and ``password`` (Alexander Kukushkin)
+
+  ``raft.bind_addr`` might be useful when running behind NAT. ``raft.password`` enables traffic encryption (requires the ``cryptography`` module).
+
+- Added ``sslpassword`` connection parameter support (Kostiantyn Nemchenko)
+
+  The connection parameter was introduced in PostgreSQL 13.
+
+**Stability improvements**
+
+- Changed the behavior in pause (Alexander)
+
+  1. Patroni will not call the ``bootstrap`` method if the ``PGDATA`` directory is missing/empty.
+  2. Patroni will not exit on sysid mismatch in pause, only log a warning.
+  3. The node will not try to grab the leader key in pause mode if Postgres is running not in recovery (accepting writes) but the sysid doesn't match with the initialize key.
+
+- Apply ``master_start_timeout`` when executing crash recovery (Alexander)
+
+  If Postgres crashed on the leader node, Patroni does a crash-recovery by starting Postgres in single-user mode. During the crash-recovery the leader lock is being updated. If the crash-recovery didn't finish in ``master_start_timeout`` seconds, Patroni will stop it forcefully and release the leader lock.
+
+- Removed the ``secure`` extra from the ``urllib3`` requirements (Alexander)
+
+  The only reason for adding it there was the ``ipaddress`` dependency for python 2.7.
+
+**Bugfixes**
+
+- Fixed a bug in the ``Kubernetes.update_leader()`` (Alexander)
+
+  An unhandled exception was preventing demoting the primary when the update of the leader object failed.
+
+- Fixed hanging ``patronictl`` when RAFT is being used (Alexander)
+
+  When using ``patronictl`` with Patroni config, ``self_addr`` should be added to the ``partner_addrs``.
+
+- Fixed bug in ``get_guc_value()`` (Alexander)
+
+  Patroni was failing to get the value of ``restore_command`` on PostgreSQL 12, therefore fetching missing WALs for ``pg_rewind`` didn't work.
+
+
+Version 2.0.0
+-------------
+
+This version enhances compatibility with PostgreSQL 13, adds support of multiple synchronous standbys, has significant improvements in handling of ``pg_rewind``, adds support of Etcd v3 and Patroni on pure RAFT (without Etcd, Consul, or Zookeeper), and makes it possible to optionally call the ``pre_promote`` (fencing) script.
+
+**PostgreSQL 13 support**
+
+- Don't fire ``on_reload`` when promoting to ``standby_leader`` on PostgreSQL 13+ (Alexander Kukushkin)
+
+  When promoting to ``standby_leader`` we change ``primary_conninfo``, update the role and reload Postgres. Since ``on_role_change`` and ``on_reload`` effectively duplicate each other, Patroni will call only ``on_role_change``.
+
+- Added support for ``gssencmode`` and ``channel_binding`` connection parameters (Alexander)
+
+  PostgreSQL 12 introduced ``gssencmode`` and 13 ``channel_binding`` connection parameters and now they can be used if defined in the ``postgresql.authentication`` section.
+
+- Handle renaming of ``wal_keep_segments`` to ``wal_keep_size`` (Alexander)
+
+  In case of misconfiguration (``wal_keep_segments`` on 13 and ``wal_keep_size`` on older versions) Patroni will automatically adjust the configuration.
+
+- Use ``pg_rewind`` with ``--restore-target-wal`` on 13 if possible (Alexander)
+
+  On PostgreSQL 13 Patroni checks if ``restore_command`` is configured and tells ``pg_rewind`` to use it.
+
+
+**New features**
+
+- [BETA] Implemented support of Patroni on pure RAFT (Alexander)
+
+  This makes it possible to run Patroni without 3rd party dependencies, like Etcd, Consul, or Zookeeper. For HA you will have to run either three Patroni nodes or two nodes with Patroni and one node with ``patroni_raft_controller``. For more information please check the :ref:`documentation <raft_settings>`.
+
+- [BETA] Implemented support for Etcd v3 protocol via gPRC-gateway (Alexander)
+
+  Etcd 3.0 was released more than four years ago and Etcd 3.4 has v2 disabled by default. There are also chances that v2 will be completely removed from Etcd, therefore we implemented support of Etcd v3 in Patroni. In order to start using it you have to explicitly create the ``etcd3`` section is the Patroni configuration file.
+
+- Supporting multiple synchronous standbys (Krishna Sarabu)
+
+  It allows running a cluster with more than one synchronous replicas. The maximum number of synchronous replicas is controlled by the new parameter ``synchronous_node_count``. It is set to 1 by default and has no effect when the ``synchronous_mode`` is set to ``off``.
+
+- Added possibility to call the ``pre_promote`` script (Sergey Dudoladov)
+
+  Unlike callbacks, the ``pre_promote`` script is called synchronously after acquiring the leader lock, but before promoting Postgres. If the script fails or exits with a non-zero exitcode, the current node will release the leader lock.
+
+- Added support for configuration directories (Floris van Nee)
+
+  YAML files in the directory loaded and applied in alphabetical order.
+
+- Advanced validation of PostgreSQL parameters (Alexander)
+
+  In case the specific parameter is not supported by the current PostgreSQL version or when its value is incorrect, Patroni will remove the parameter completely or try to fix the value.
+
+- Wake up the main thread when the forced checkpoint after promote completed (Alexander)
+
+  Replicas are waiting for checkpoint indication via member key of the leader in DCS. The key is normally updated only once per HA loop. Without waking the main thread up, replicas will have to wait up to ``loop_wait`` seconds longer than necessary.
+
+- Use of ``pg_stat_wal_recevier`` view on 9.6+ (Alexander)
+
+  The view contains up-to-date values of ``primary_conninfo`` and ``primary_slot_name``, while the contents of ``recovery.conf`` could be stale.
+
+- Improved handing of IPv6 addresses in the Patroni config file (Mateusz Kowalski)
+
+  The IPv6 address is supposed to be enclosed into square brackets, but Patroni was expecting to get it plain. Now both formats are supported.
+
+- Added Consul ``service_tags`` configuration parameter (Robert Edström)
+
+  They are useful for dynamic service discovery, for example by load balancers.
+
+- Implemented SSL support for Zookeeper (Kostiantyn Nemchenko)
+
+  It requires ``kazoo>=2.6.0``.
+
+- Implemented ``no_params`` option for custom bootstrap method (Kostiantyn)
+
+  It allows calling ``wal-g``, ``pgBackRest`` and other backup tools without wrapping them into shell scripts.
+
+- Move WAL and tablespaces after a failed init (Feike Steenbergen)
+
+  When doing ``reinit``, Patroni was already removing not only ``PGDATA`` but also the symlinked WAL directory and tablespaces. Now the ``move_data_directory()`` method will do a similar job, i.e. rename WAL directory and tablespaces and update symlinks in PGDATA.
+
+
+**Improved in pg_rewind support**
+
+- Improved timeline divergence check (Alexander)
+
+  We don't need to rewind when the replayed location on the replica is not ahead of the switchpoint or the end of the checkpoint record on the former primary is the same as the switchpoint. In order to get the end of the checkpoint record we use ``pg_waldump`` and parse its output.
+
+- Try to fetch missing WAL if ``pg_rewind`` complains about it (Alexander)
+
+  It could happen that the WAL segment required for ``pg_rewind`` doesn't exist in the ``pg_wal`` directory anymore and therefore ``pg_rewind`` can't find the checkpoint location before the divergence point. Starting from PostgreSQL 13 ``pg_rewind`` could use ``restore_command`` for fetching missing WALs. For older PostgreSQL versions Patroni parses the errors of a failed rewind attempt and tries to fetch the missing WAL by calling the ``restore_command`` on its own.
+
+- Detect a new timeline in the standby cluster and trigger rewind/reinitialize if necessary (Alexander)
+
+  The ``standby_cluster`` is decoupled from the primary cluster and therefore doesn't immediately know about leader elections and timeline switches. In order to detect the fact, the ``standby_leader`` periodically checks for new history files in ``pg_wal``.
+
+- Shorten and beautify history log output (Alexander)
+
+  When Patroni is trying to figure out the necessity of ``pg_rewind``, it could write the content of the history file from the primary into the log. The history file is growing with every failover/switchover and eventually starts taking up too many lines, most of which are not so useful. Instead of showing the raw data, Patroni will show only 3 lines before the current replica timeline and 2 lines after.
+
+
+**Improvements on K8s**
+
+- Get rid of ``kubernetes`` python module (Alexander)
+
+  The official python kubernetes client contains a lot of auto-generated code and therefore very heavy. Patroni uses only a small fraction of K8s API endpoints and implementing support for them wasn't hard.
+
+- Make it possible to bypass the ``kubernetes`` service (Alexander)
+
+  When running on K8s, Patroni is usually communicating with the K8s API via the ``kubernetes`` service, the address of which is exposed in the ``KUBERNETES_SERVICE_HOST`` environment variable. Like any other service, the ``kubernetes`` service is handled by ``kube-proxy``, which in turn, depending on the configuration, is either relying on a userspace program or ``iptables`` for traffic routing. Skipping the intermediate component and connecting directly to the K8s master nodes allows us to implement a better retry strategy and mitigate risks of demoting Postgres when K8s master nodes are upgraded.
+
+- Sync HA loops of all pods of a Patroni cluster (Alexander)
+
+  Not doing so was increasing failure detection time from ``ttl`` to ``ttl + loop_wait``.
+
+- Populate ``references`` and ``nodename`` in the subsets addresses on K8s (Alexander)
+
+  Some load-balancers are relying on this information.
+
+- Fix possible race conditions in the ``update_leader()`` (Alexander)
+
+  The concurrent update of the leader configmap or endpoint happening outside of Patroni might cause the ``update_leader()`` call to fail. In this case Patroni rechecks that the current node is still owning the leader lock and repeats the update.
+
+- Explicitly disallow patching non-existent config (Alexander)
+
+  For DCS other than ``kubernetes`` the PATCH call is failing with an exception due to ``cluster.config`` being ``None``, but on Kubernetes it was happily creating the config annotation and preventing writing bootstrap configuration after the bootstrap finished.
+
+- Fix bug in ``pause`` (Alexander)
+
+  Replicas were removing ``primary_conninfo`` and restarting Postgres when the leader key was absent, but they should do nothing.
+
+
+**Improvements in REST API**
+
+- Defer TLS handshake until worker thread has started (Alexander, Ben Harris)
+
+  If the TLS handshake was done in the API thread and the client-side didn't send any data, the API thread was blocked (risking DoS).
+
+- Check ``basic-auth`` independently from client certificate in REST API (Alexander)
+
+  Previously only the client certificate was validated. Doing two checks independently is an absolutely valid use-case.
+
+- Write double ``CRLF`` after HTTP headers of the ``OPTIONS`` request (Sergey Burladyan)
+
+  HAProxy was happy with a single ``CRLF``, while Consul health-check complained about broken connection and unexpected EOF.
+
+- ``GET /cluster`` was showing stale members info for Zookeeper (Alexander)
+
+  The endpoint was using the Patroni internal cluster view. For Patroni itself it didn't cause any issues, but when exposed to the outside world we need to show up-to-date information, especially replication lag.
+
+- Fixed health-checks for standby cluster (Alexander)
+
+  The ``GET /standby-leader`` for a master and ``GET /master`` for a ``standby_leader`` were incorrectly responding with 200.
+
+- Implemented ``DELETE /switchover`` (Alexander)
+
+  The REST API call deletes the scheduled switchover.
+
+- Created ``/readiness`` and ``/liveness`` endpoints (Alexander)
+
+  They could be useful to eliminate "unhealthy" pods from subsets addresses when the K8s service is used with label selectors.
+
+- Enhanced ``GET /replica`` and ``GET /async`` REST API health-checks (Krishna, Alexander)
+
+  Checks now support optional keyword ``?lag=<max-lag>`` and will respond with 200 only if the lag is smaller than the supplied value. If relying on this feature please keep in mind that information about WAL position on the leader is updated only every ``loop_wait`` seconds!
+
+- Added support for user defined HTTP headers in the REST API response (Yogesh Sharma)
+
+  This feature might be useful if requests are made from a browser.
+
+
+**Improvements in patronictl**
+
+- Don't try to call non-existing leader in ``patronictl pause`` (Alexander)
+
+  While pausing a cluster without a leader on K8s, ``patronictl`` was showing warnings that member "None" could not be accessed.
+
+- Handle the case when member ``conn_url`` is missing (Alexander)
+
+  On K8s it is possible that the pod doesn't have the necessary annotations because Patroni is not yet running. It was making ``patronictl`` to fail.
+
+- Added ability to print ASCII cluster topology (Maxim Fedotov, Alexander)
+
+  It is very useful to get overview of the cluster with cascading replication.
+
+- Implement ``patronictl flush switchover`` (Alexander)
+
+  Before that ``patronictl flush`` only supported cancelling scheduled restarts.
+
+
+**Bugfixes**
+
+- Attribute error during bootstrap of the cluster with existing PGDATA (Krishna)
+
+  When trying to create/update the ``/history`` key, Patroni was accessing the ``ClusterConfig`` object which wasn't created in DCS yet.
+
+- Improved exception handling in Consul (Alexander)
+
+  Unhandled exception in the ``touch_member()`` method caused the whole Patroni process to crash.
+
+- Enforce ``synchronous_commit=local`` for the ``post_init`` script (Alexander)
+
+  Patroni was already doing that when creating users (``replication``, ``rewind``), but missing it in the case of ``post_init`` was an oversight. As a result, if the script wasn't doing it internally on it's own the bootstrap in ``synchronous_mode`` wasn't able to finish.
+
+- Increased ``maxsize`` in the Consul pool manager (ponvenkates)
+
+  With the default ``size=1`` some warnings were generated.
+
+- Patroni was wrongly reporting Postgres as running (Alexander)
+
+  The state wasn't updated when for example Postgres crashed due to an out-of-disk error.
+
+- Put ``*`` into ``pgpass`` instead of missing or empty values (Alexander)
+
+  If for example the ``standby_cluster.port`` is not specified, the ``pgpass`` file was incorrectly generated.
+
+- Skip physical replication slot creation on the leader node with special characters (Krishna)
+
+  Patroni appeared to be creating a dormant slot (when ``slots`` defined) for the leader node when the name contained special chars such as '-'  (for e.g. "abc-us-1").
+
+- Avoid removing non-existent ``pg_hba.conf`` in the custom bootstrap (Krishna)
+
+  Patroni was failing if ``pg_hba.conf`` happened to be located outside of the ``pgdata`` dir after custom bootstrap.
+
+
+Version 1.6.5
+-------------
+
+**New features**
+
+- Master stop timeout (Krishna Sarabu)
+
+  The number of seconds Patroni is allowed to wait when stopping Postgres. Effective only when ``synchronous_mode`` is enabled. When set to value greater than 0 and the ``synchronous_mode`` is enabled, Patroni sends ``SIGKILL`` to the postmaster if the stop operation is running for more than the value set by ``master_stop_timeout``. Set the value according to your durability/availability tradeoff. If the parameter is not set or set to non-positive value, ``master_stop_timeout`` does not have an effect.
+
+- Don't create permanent physical slot with name of the primary (Alexander Kukushkin)
+
+  It is a common problem that the primary recycles WAL segments while the replica is down. Now we have a good solution for static clusters, with a fixed number of nodes and names that never change. You just need to list the names of all nodes in the ``slots`` so the primary will not remove the slot when the node is down (not registered in DCS).
+
+- First draft of Config Validator (Igor Yanchenko)
+
+  Use ``patroni --validate-config patroni.yaml`` in order to validate Patroni configuration.
+
+- Possibility to configure max length of timelines history (Krishna)
+
+  Patroni writes the history of failovers/switchovers into the ``/history`` key in DCS. Over time the size of this key becomes big, but in most cases only the last few lines are interesting. The ``max_timelines_history`` parameter allows to specify the maximum number of timeline history items to be kept in DCS.
+
+- Kazoo 2.7.0 compatibility (Danyal Prout)
+
+  Some non-public methods in Kazoo changed their signatures, but Patroni was relying on them.
+
+
+**Improvements in patronictl**
+
+- Show member tags (Kostiantyn Nemchenko, Alexander)
+
+  Tags are configured individually for every node and there was no easy way to get an overview of them
+
+- Improve members output (Alexander)
+
+  The redundant cluster name won't be shown anymore on every line, only in the table header.
+
+.. code-block:: bash
+
+    $ patronictl list
+    + Cluster: batman (6813309862653668387) +---------+----+-----------+---------------------+
+    |    Member   |      Host      |  Role  |  State  | TL | Lag in MB | Tags                |
+    +-------------+----------------+--------+---------+----+-----------+---------------------+
+    | postgresql0 | 127.0.0.1:5432 | Leader | running |  3 |           | clonefrom: true     |
+    |             |                |        |         |    |           | noloadbalance: true |
+    |             |                |        |         |    |           | nosync: true        |
+    +-------------+----------------+--------+---------+----+-----------+---------------------+
+    | postgresql1 | 127.0.0.1:5433 |        | running |  3 |       0.0 |                     |
+    +-------------+----------------+--------+---------+----+-----------+---------------------+
+
+- Fail if a config file is specified explicitly but not found (Kaarel Moppel)
+
+  Previously ``patronictl`` was only reporting a ``DEBUG`` message.
+
+- Solved the problem of not initialized K8s pod breaking patronictl (Alexander)
+
+  Patroni is relying on certain pod annotations on K8s. When one of the Patroni pods is stopping or starting there is no valid annotation yet and ``patronictl`` was failing with an exception.
+
+
+**Stability improvements**
+
+- Apply 1 second backoff if LIST call to K8s API server failed (Alexander)
+
+  It is mostly necessary to avoid flooding logs, but also helps to prevent starvation of the main thread.
+
+- Retry if the ``retry-after`` HTTP header is returned by K8s API (Alexander)
+
+  If the K8s API server is overwhelmed with requests it might ask to retry.
+
+- Scrub ``KUBERNETES_`` environment from the postmaster (Feike Steenbergen)
+
+  The ``KUBERNETES_`` environment variables are not required for PostgreSQL, yet having them exposed to the postmaster will also expose them to backends and to regular database users (using pl/perl for example).
+
+- Clean up tablespaces on reinitialize (Krishna)
+
+  During reinit, Patroni was removing only ``PGDATA`` and leaving user-defined tablespace directories. This is causing Patroni to loop in reinit. The previous workarond for the problem was implementing the :ref:`custom bootstrap <custom_bootstrap>` script.
+
+- Explicitly execute ``CHECKPOINT`` after promote happened (Alexander)
+
+  It helps to reduce the time before the new primary is usable for ``pg_rewind``.
+
+- Smart refresh of Etcd members (Alexander)
+
+  In case Patroni failed to execute a request on all members of the Etcd cluster, Patroni will re-check ``A`` or ``SRV`` records for changes of IPs/hosts before retrying the next time.
+
+- Skip missing values from ``pg_controldata`` (Feike)
+
+  Values are missing when trying to use binaries of a version that doesn't match PGDATA. Patroni will try to start Postgres anyway, and Postgres will complain that the major version doesn't match and abort with an error.
+
+
+**Bugfixes**
+
+- Disable SSL verification for Consul when required (Julien Riou)
+
+  Starting from a certain version of ``urllib3``, the ``cert_reqs`` must be explicitly set to ``ssl.CERT_NONE`` in order to effectively disable SSL verification.
+
+- Avoid opening replication connection on every cycle of HA loop (Alexander)
+
+  Regression was introduced in 1.6.4.
+
+- Call ``on_role_change`` callback on failed primary (Alexander)
+
+  In certain cases it could lead to the virtual IP remaining attached to the old primary. Regression was introduced in 1.4.5.
+
+- Reset rewind state if postgres started after successful pg_rewind (Alexander)
+
+  As a result of this bug Patroni was starting up manually shut down postgres in the pause mode.
+
+- Convert ``recovery_min_apply_delay`` to ``ms`` when checking ``recovery.conf``
+
+  Patroni was indefinitely restarting replica if ``recovery_min_apply_delay`` was configured on PostgreSQL older than 12.
+
+- PyInstaller compatibility (Alexander)
+
+  PyInstaller freezes (packages) Python applications into stand-alone executables. The compatibility was broken when we switched to the ``spawn`` method instead of ``fork`` for ``multiprocessing``.
+
+
 Version 1.6.4
 -------------
 

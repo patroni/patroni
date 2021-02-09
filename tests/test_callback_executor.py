@@ -14,6 +14,7 @@ class TestCallbackExecutor(unittest.TestCase):
 
         ce = CallbackExecutor()
         ce._kill_children = Mock(side_effect=Exception)
+        ce._invoke_excepthook = Mock()
         self.assertIsNone(ce.call([]))
         ce.join()
 
@@ -30,5 +31,6 @@ class TestCallbackExecutor(unittest.TestCase):
         mock_popen.side_effect = Exception
         ce = CallbackExecutor()
         ce._condition.wait = Mock(side_effect=[None, Exception])
+        ce._invoke_excepthook = Mock()
         self.assertIsNone(ce.call([]))
         ce.join()

@@ -63,13 +63,18 @@ class ZooKeeper(AbstractDCS):
         if isinstance(hosts, list):
             hosts = ','.join(hosts)
 
+        mapping = {'use_ssl': 'use_ssl', 'verify': 'verify_certs', 'cacert': 'ca',
+                   'cert': 'certfile', 'key': 'keyfile', 'key_password': 'keyfile_password'}
+        kwargs = {v: config[k] for k, v in mapping.items() if k in config}
+
         self._client = KazooClient(hosts, handler=PatroniSequentialThreadingHandler(config['retry_timeout']),
                                    timeout=config['ttl'], connection_retry=KazooRetry(max_delay=1, max_tries=-1,
                                    sleep_func=time.sleep), command_retry=KazooRetry(deadline=config['retry_timeout'],
-                                   max_delay=1, max_tries=-1, sleep_func=time.sleep))
+                                   max_delay=1, max_tries=-1, sleep_func=time.sleep), **kwargs)
         self._client.add_listener(self.session_listener)
 
         self._fetch_cluster = True
+        self._fetch_optime = True
 
         self._orig_kazoo_connect = self._client._connection._connect
         self._client._connection._connect = self._kazoo_connect
@@ -95,9 +100,13 @@ class ZooKeeper(AbstractDCS):
         if state in [KazooState.SUSPENDED, KazooState.LOST]:
             self.cluster_watcher(None)
 
+    def optime_watcher(self, event):
+        self._fetch_optime = True
+        self.event.set()
+
     def cluster_watcher(self, event):
         self._fetch_cluster = True
-        self.event.set()
+        self.optime_watcher(event)
 
     def reload_config(self, config):
         self.set_retry_timeout(config['retry_timeout'])
@@ -114,13 +123,14 @@ class ZooKeeper(AbstractDCS):
         # the same time, set_ttl method will reestablish connection and return
         # `!True`, otherwise we will close existing connection and let kazoo
         # open the new one.
-        if not self.set_ttl(int(config['ttl'] * 1000)) and loop_wait_changed:
+        if not self.set_ttl(config['ttl']) and loop_wait_changed:
             self._client._connection._socket.close()
 
     def set_ttl(self, ttl):
         """It is not possible to change ttl (session_timeout) in zookeeper without
         destroying old session and creating the new one. This method returns `!True`
         if session_timeout has been changed (`restart()` has been called)."""
+        ttl = int(ttl * 1000)
         if self._client._session_timeout != ttl:
             self._client._session_timeout = ttl
             self._client.restart()
@@ -128,7 +138,7 @@ class ZooKeeper(AbstractDCS):
 
     @property
     def ttl(self):
-        return self._client._session_timeout
+        return self._client._session_timeout / 1000.0
 
     def set_retry_timeout(self, retry_timeout):
         retry = self._client.retry if isinstance(self._client.retry, KazooRetry) else self._client._retry
@@ -140,6 +150,12 @@ class ZooKeeper(AbstractDCS):
             return (ret[0].decode('utf-8'), ret[1])
         except NoNodeError:
             return None
+
+    def get_leader_optime(self, leader):
+        watch = self.optime_watcher if not leader or leader.name != self._name else None
+        optime = self.get_node(self.leader_optime_path, watch)
+        self._fetch_optime = False
+        return optime and int(optime[0]) or 0
 
     @staticmethod
     def member(name, value, znode):
@@ -154,7 +170,7 @@ class ZooKeeper(AbstractDCS):
     def load_members(self, sync_standby):
         members = []
         for member in self.get_children(self.members_path, self.cluster_watcher):
-            watch = member == sync_standby and self.cluster_watcher or None
+            watch = member in sync_standby and self.cluster_watcher or None
             data = self.get_node(self.members_path + member, watch)
             if data is not None:
                 members.append(self.member(member, *data))
@@ -178,16 +194,12 @@ class ZooKeeper(AbstractDCS):
         history = self.get_node(self.history_path, watch=self.cluster_watcher) if self._HISTORY in nodes else None
         history = history and TimelineHistory.from_node(history[1].mzxid, history[0])
 
-        # get last leader operation
-        last_leader_operation = self._OPTIME in nodes and self._fetch_cluster and self.get_node(self.leader_optime_path)
-        last_leader_operation = last_leader_operation and int(last_leader_operation[0]) or 0
-
         # get synchronization state
         sync = self.get_node(self.sync_path, watch=self.cluster_watcher) if self._SYNC in nodes else None
         sync = SyncState.from_node(sync and sync[1].version, sync and sync[0])
 
         # get list of members
-        sync_standby = sync.leader == self._name and sync.sync_standby or None
+        sync_standby = sync.leader == self._name and sync.members or []
         members = self.load_members(sync_standby) if self._MEMBERS[:-1] in nodes else []
 
         # get leader
@@ -206,6 +218,9 @@ class ZooKeeper(AbstractDCS):
                 leader = Leader(leader[1].version, leader[1].ephemeralOwner, member)
                 self._fetch_cluster = member.index == -1
 
+        # get last leader operation
+        last_leader_operation = self._OPTIME in nodes and self.get_leader_optime(leader)
+
         # failover key
         failover = self.get_node(self.failover_path, watch=self.cluster_watcher) if self._FAILOVER in nodes else None
         failover = failover and Failover.from_node(failover[1].version, failover[0])
@@ -221,7 +236,19 @@ class ZooKeeper(AbstractDCS):
                 logger.exception('get_cluster')
                 self.cluster_watcher(None)
                 raise ZooKeeperError('ZooKeeper in not responding properly')
+        # Optime ZNode was updated or doesn't exist and we are not leader
+        elif (self._fetch_optime and not self._fetch_cluster or not cluster.last_leader_operation) and\
+                not (cluster.leader and cluster.leader.name == self._name):
+            try:
+                optime = self.get_leader_optime(cluster.leader)
+                cluster = Cluster(cluster.initialize, cluster.config, cluster.leader, optime,
+                                  cluster.members, cluster.failover, cluster.sync, cluster.history)
+            except Exception:
+                pass
         return cluster
+
+    def _bypass_caches(self):
+        self._fetch_cluster = True
 
     def _create(self, path, value, retry=False, ephemeral=False):
         try:
@@ -315,7 +342,7 @@ class ZooKeeper(AbstractDCS):
     def _update_leader(self):
         return True
 
-    def delete_leader(self):
+    def _delete_leader(self):
         self._client.restart()
         return True
 
@@ -346,6 +373,7 @@ class ZooKeeper(AbstractDCS):
         return self.set_sync_state_value("{}", index)
 
     def watch(self, leader_index, timeout):
-        if super(ZooKeeper, self).watch(leader_index, timeout):
+        ret = super(ZooKeeper, self).watch(leader_index, timeout)
+        if ret and not self._fetch_optime:
             self._fetch_cluster = True
-        return self._fetch_cluster
+        return ret or self._fetch_cluster

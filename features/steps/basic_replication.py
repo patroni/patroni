@@ -33,6 +33,37 @@ def add_table(context, table_name, pg_name):
         assert False, "Error creating table {0} on {1}: {2}".format(table_name, pg_name, e)
 
 
+@step('I {action:w} wal replay on {pg_name:w}')
+def toggle_wal_replay(context, action, pg_name):
+    # pause or resume the wal replay process
+    try:
+       version = context.pctl.query(pg_name, "select pg_catalog.pg_read_file('PG_VERSION', 0, 2)").fetchone()
+       wal = version and version[0] and int(version[0].split('.')[0]) < 10 and "xlog" or "wal"
+       context.pctl.query(pg_name, "SELECT pg_{0}_replay_{1}()".format(wal, action))
+    except pg.Error as e:
+        assert False, "Error during {0} wal recovery on {1}: {2}".format(action, pg_name, e)
+
+
+@step('I {action:w} table on {pg_name:w}')
+def crdr_mytest(context, action, pg_name):
+    try:
+       if (action == "create"):
+           context.pctl.query(pg_name, "create table if not exists mytest(id Numeric)")
+       else:
+           context.pctl.query(pg_name, "drop table if exists mytest")
+    except pg.Error as e:
+        assert False, "Error {0} table mytest on {1}: {2}".format(action, pg_name, e)
+
+
+@step('I load data on {pg_name:w}')
+def initiate_load(context, pg_name):
+    # perform dummy load
+    try:
+       context.pctl.query(pg_name, "begin; insert into mytest select r::numeric from generate_series(1, 350000) r; commit;")
+    except pg.Error as e:
+        assert False, "Error loading test data on {0}: {1}".format(pg_name, e)
+
+
 @then('Table {table_name:w} is present on {pg_name:w} after {max_replication_delay:d} seconds')
 def table_is_present_on(context, table_name, pg_name, max_replication_delay):
     max_replication_delay *= context.timeout_multiplier

@@ -6,11 +6,12 @@ import socket
 import stat
 import time
 
-from patroni.exceptions import PatroniException
 from six.moves.urllib_parse import urlparse, parse_qsl, unquote
-from urllib3.response import HTTPHeaderDict
 
+from .validator import CaseInsensitiveDict, recovery_parameters,\
+        transform_postgresql_parameter_value, transform_recovery_parameter_value
 from ..dcs import slot_name_from_member_name, RemoteMember
+from ..exceptions import PatroniFatalException
 from ..utils import compare_values, parse_bool, parse_int, split_host_port, uri, \
         validate_directory, is_subpath
 
@@ -113,17 +114,17 @@ def parse_dsn(value):
     Very simple equivalent of `psycopg2.extensions.parse_dsn` introduced in 2.7.0.
     We are not using psycopg2 function in order to remain compatible with 2.5.4+.
     There is one minor difference though, this function removes `dbname` from the result
-    and sets the sslmode` to `prefer` if it is not present in the connection string.
-    This is necessary to simplify comparison of the old and the new values.
+    and sets the `sslmode`, 'gssencmode', and `channel_binding` to `prefer` if it is not present in
+    the connection string. This is necessary to simplify comparison of the old and the new values.
 
     >>> r = parse_dsn('postgresql://u%2Fse:pass@:%2f123,[%2Fhost2]/db%2Fsdf?application_name=mya%2Fpp&ssl=true')
     >>> r == {'application_name': 'mya/pp', 'host': ',/host2', 'sslmode': 'require',\
-              'password': 'pass', 'port': '/123', 'user': 'u/se'}
+              'password': 'pass', 'port': '/123', 'user': 'u/se', 'gssencmode': 'prefer', 'channel_binding': 'prefer'}
     True
     >>> r = parse_dsn(" host = 'host' dbname = db\\\\ name requiressl=1 ")
-    >>> r == {'host': 'host', 'sslmode': 'require'}
+    >>> r == {'host': 'host', 'sslmode': 'require', 'gssencmode': 'prefer', 'channel_binding': 'prefer'}
     True
-    >>> parse_dsn('requiressl = 0\\\\') == {'sslmode': 'prefer'}
+    >>> parse_dsn('requiressl = 0\\\\') == {'sslmode': 'prefer', 'gssencmode': 'prefer', 'channel_binding': 'prefer'}
     True
     >>> parse_dsn("host=a foo = '") is None
     True
@@ -147,6 +148,8 @@ def parse_dsn(value):
             ret.setdefault('sslmode', 'prefer')
         if 'dbname' in ret:
             del ret['dbname']
+        ret.setdefault('gssencmode', 'prefer')
+        ret.setdefault('channel_binding', 'prefer')
     return ret
 
 
@@ -252,21 +255,6 @@ class ConfigWriter(object):
         self.writeline("{0} = '{1}'".format(param, self.escape(value)))
 
 
-class CaseInsensitiveDict(HTTPHeaderDict):
-
-    def add(self, key, val):
-        self[key] = val
-
-    def __getitem__(self, key):
-        return self._container[key.lower()][1]
-
-    def __repr__(self):
-        return str(dict(self.items()))
-
-    def copy(self):
-        return CaseInsensitiveDict(self._container.values())
-
-
 class ConfigHandler(object):
 
     # List of parameters which must be always passed to postmaster as command line options
@@ -292,6 +280,7 @@ class ConfigHandler(object):
         'max_connections': (100, lambda v: int(v) >= 25, 90100),
         'max_wal_senders': (10, lambda v: int(v) >= 3, 90100),
         'wal_keep_segments': (8, lambda v: int(v) >= 1, 90100),
+        'wal_keep_size': ('128MB', lambda v: parse_int(v, 'MB') >= 16, 130000),
         'max_prepared_transactions': (0, lambda v: int(v) >= 0, 90100),
         'max_locks_per_transaction': (64, lambda v: int(v) >= 32, 90100),
         'track_commit_timestamp': ('off', lambda v: parse_bool(v) is not None, 90500),
@@ -300,24 +289,7 @@ class ConfigHandler(object):
         'wal_log_hints': ('on', lambda _: False, 90400)
     })
 
-    _RECOVERY_PARAMETERS = {
-        'archive_cleanup_command',
-        'restore_command',
-        'recovery_end_command',
-        'recovery_target',
-        'recovery_target_name',
-        'recovery_target_time',
-        'recovery_target_xid',
-        'recovery_target_lsn',
-        'recovery_target_inclusive',
-        'recovery_target_timeline',
-        'recovery_target_action',
-        'recovery_min_apply_delay',
-        'primary_conninfo',
-        'primary_slot_name',
-        'promote_trigger_file',
-        'trigger_file'
-    }
+    _RECOVERY_PARAMETERS = set(recovery_parameters.keys())
 
     def __init__(self, postgresql, config):
         self._postgresql = postgresql
@@ -337,8 +309,8 @@ class ConfigHandler(object):
         self._auto_conf_mtime = None
         self._pgpass = os.path.abspath(config.get('pgpass') or os.path.join(os.path.expanduser('~'), 'pgpass'))
         if os.path.exists(self._pgpass) and not os.path.isfile(self._pgpass):
-            raise PatroniException("'{}' exists and it's not a file, check your `postgresql.pgpass` configuration"
-                                   .format(self._pgpass))
+            raise PatroniFatalException("'{0}' exists and it's not a file, check your `postgresql.pgpass` configuration"
+                                        .format(self._pgpass))
         self._passfile = None
         self._passfile_mtime = None
         self._synchronous_standby_names = None
@@ -374,7 +346,7 @@ class ConfigHandler(object):
             configuration.append(os.path.basename(self._postgresql_base_conf_name))
         if not self.hba_file:
             configuration.append('pg_hba.conf')
-        if not self._server_parameters.get('ident_file'):
+        if not self.ident_file:
             configuration.append('pg_ident.conf')
         return configuration
 
@@ -415,12 +387,18 @@ class ConfigHandler(object):
         if 'custom_conf' not in self._config and not os.path.exists(self._postgresql_base_conf):
             os.rename(self._postgresql_conf, self._postgresql_base_conf)
 
+        # In case we are using custom bootstrap from spilo image with PITR it fails if it contains increasing
+        # values like Max_connections. We disable hot_standby so it will accept increasing values.
+        if self._postgresql.bootstrap.running_custom_bootstrap:
+            configuration['hot_standby'] = 'off'
+
         with ConfigWriter(self._postgresql_conf) as f:
             include = self._config.get('custom_conf') or self._postgresql_base_conf_name
             f.writeline("include '{0}'\n".format(ConfigWriter.escape(include)))
             for name, value in sorted((configuration or self._server_parameters).items()):
+                value = transform_postgresql_parameter_value(self._postgresql.major_version, name, value)
                 if (not self._postgresql.bootstrap.running_custom_bootstrap or name != 'hba_file') \
-                        and name not in self._RECOVERY_PARAMETERS:
+                        and name not in self._RECOVERY_PARAMETERS and value is not None:
                     f.write_param(name, value)
             # when we are doing custom bootstrap we assume that we don't know superuser password
             # and in order to be able to change it, we are opening trust access from a certain address
@@ -481,7 +459,7 @@ class ConfigHandler(object):
         :returns: True if pg_ident.conf was rewritten.
         """
 
-        if not self._server_parameters.get('ident_file') and self._config.get('pg_ident'):
+        if not self.ident_file and self._config.get('pg_ident'):
             with ConfigWriter(self._pg_ident_conf) as f:
                 f.writelines(self._config['pg_ident'])
             return True
@@ -492,6 +470,10 @@ class ConfigHandler(object):
         ret = member.conn_kwargs(self.replication)
         ret['application_name'] = self._postgresql.name
         ret.setdefault('sslmode', 'prefer')
+        if self._postgresql.major_version >= 120000:
+            ret.setdefault('gssencmode', 'prefer')
+        if self._postgresql.major_version >= 130000:
+            ret.setdefault('channel_binding', 'prefer')
         if self._krbsrvname:
             ret['krbsrvname'] = self._krbsrvname
         if 'database' in ret:
@@ -500,8 +482,9 @@ class ConfigHandler(object):
 
     def format_dsn(self, params, include_dbname=False):
         # A list of keywords that can be found in a conninfo string. Follows what is acceptable by libpq
-        keywords = ('dbname', 'user', 'passfile' if params.get('passfile') else 'password', 'host', 'port', 'sslmode',
-                    'sslcompression', 'sslcert', 'sslkey', 'sslrootcert', 'sslcrl', 'application_name', 'krbsrvname')
+        keywords = ('dbname', 'user', 'passfile' if params.get('passfile') else 'password', 'host', 'port',
+                    'sslmode', 'sslcompression', 'sslcert', 'sslkey', 'sslpassword', 'sslrootcert', 'sslcrl',
+                    'application_name', 'krbsrvname', 'gssencmode', 'channel_binding')
         if include_dbname:
             params = params.copy()
             params['dbname'] = params.get('database') or self._postgresql.database
@@ -518,6 +501,13 @@ class ConfigHandler(object):
                         if kw not in skip and params.get(kw) is not None)
 
     def _write_recovery_params(self, fd, recovery_params):
+        if self._postgresql.major_version >= 90500:
+            pause_at_recovery_target = parse_bool(recovery_params.pop('pause_at_recovery_target', None))
+            if pause_at_recovery_target is not None:
+                recovery_params.setdefault('recovery_target_action', 'pause' if pause_at_recovery_target else 'promote')
+        else:
+            if str(recovery_params.pop('recovery_target_action', None)).lower() == 'promote':
+                recovery_params.setdefault('pause_at_recovery_target', 'false')
         for name, value in sorted(recovery_params.items()):
             if name == 'primary_conninfo':
                 if 'password' in value and self._postgresql.major_version >= 100000:
@@ -525,6 +515,10 @@ class ConfigHandler(object):
                     value['passfile'] = self._passfile = self._pgpass
                     self._passfile_mtime = mtime(self._pgpass)
                 value = self.format_dsn(value)
+            else:
+                value = transform_recovery_parameter_value(self._postgresql.major_version, name, value)
+                if value is None:
+                    continue
             fd.write_param(name, value)
 
     def build_recovery_params(self, member):
@@ -568,7 +562,8 @@ class ConfigHandler(object):
 
     @property
     def _recovery_parameters_to_compare(self):
-        skip_params = {'recovery_target_inclusive', 'recovery_target_action', self._triggerfile_wrong_name}
+        skip_params = {'pause_at_recovery_target', 'recovery_target_inclusive',
+                       'recovery_target_action', 'standby_mode', self._triggerfile_wrong_name}
         return self._RECOVERY_PARAMETERS - skip_params
 
     def _read_recovery_params(self):
@@ -645,6 +640,17 @@ class ConfigHandler(object):
         elif not primary_conninfo:
             return False
 
+        wal_receiver_primary_conninfo = self._postgresql.primary_conninfo()
+        if wal_receiver_primary_conninfo:
+            wal_receiver_primary_conninfo = parse_dsn(wal_receiver_primary_conninfo)
+            # when wal receiver is alive use primary_conninfo from pg_stat_wal_receiver for comparison
+            if wal_receiver_primary_conninfo:
+                primary_conninfo = wal_receiver_primary_conninfo
+                # There could be no password in the primary_conninfo or it is masked.
+                # Just copy the "desired" value in order to make comparison succeed.
+                if 'password' in wanted_primary_conninfo:
+                    primary_conninfo['password'] = wanted_primary_conninfo['password']
+
         if 'passfile' in primary_conninfo and 'password' not in primary_conninfo \
                 and 'password' in wanted_primary_conninfo:
             if self._check_passfile(primary_conninfo['passfile'], wanted_primary_conninfo):
@@ -688,6 +694,13 @@ class ConfigHandler(object):
             else:  # empty string, primary_conninfo is not in the config
                 primary_conninfo[0] = {}
 
+        # when wal receiver is alive take primary_slot_name from pg_stat_wal_receiver
+        wal_receiver_primary_slot_name = self._postgresql.primary_slot_name()
+        if not wal_receiver_primary_slot_name and self._postgresql.primary_conninfo():
+            wal_receiver_primary_slot_name = ''
+        if wal_receiver_primary_slot_name is not None:
+            self._current_recovery_params['primary_slot_name'][0] = wal_receiver_primary_slot_name
+
         required = {'restart': 0, 'reload': 0}
 
         def record_missmatch(mtype):
@@ -703,6 +716,9 @@ class ConfigHandler(object):
                 continue
             if param == 'recovery_min_apply_delay':
                 if not compare_values('integer', 'ms', value[0], wanted_recovery_params.get(param, 0)):
+                    record_missmatch(value[1])
+            elif param == 'standby_mode':
+                if not compare_values('bool', None, value[0], wanted_recovery_params.get(param, 'on')):
                     record_missmatch(value[1])
             elif param == 'primary_conninfo':
                 if not self._check_primary_conninfo(value[0], wanted_recovery_params.get('primary_conninfo', {})):
@@ -723,7 +739,7 @@ class ConfigHandler(object):
             def escape(value):
                 return re.sub(r'([:\\])', r'\\\1', str(value))
 
-            record = {n: escape(record.get(n, '*')) for n in ('host', 'port', 'user', 'password')}
+            record = {n: escape(record.get(n) or '*') for n in ('host', 'port', 'user', 'password')}
             return '{host}:{port}:*:{user}:{password}'.format(**record)
 
     def write_pgpass(self, record):
@@ -805,8 +821,20 @@ class ConfigHandler(object):
                     parameters.pop('synchronous_standby_names', None)
             else:
                 parameters['synchronous_standby_names'] = self._synchronous_standby_names
-        if self._postgresql.major_version >= 90600 and parameters['wal_level'] == 'hot_standby':
-            parameters['wal_level'] = 'replica'
+
+        # Handle hot_standby <-> replica rename
+        if parameters.get('wal_level') == ('hot_standby' if self._postgresql.major_version >= 90600 else 'replica'):
+            parameters['wal_level'] = 'replica' if self._postgresql.major_version >= 90600 else 'hot_standby'
+
+        # Try to recalcualte wal_keep_segments <-> wal_keep_size assuming that typical wal_segment_size is 16MB.
+        # The real segment size could be estimated from pg_control, but we don't really care, because the only goal of
+        # this exercise is improving cross version compatibility and user must set the correct parameter in the config.
+        if self._postgresql.major_version >= 130000:
+            wal_keep_segments = parameters.pop('wal_keep_segments', self.CMDLINE_OPTIONS['wal_keep_segments'][0])
+            parameters.setdefault('wal_keep_size', str(wal_keep_segments * 16) + 'MB')
+        elif self._postgresql.major_version:
+            wal_keep_size = parse_int(parameters.pop('wal_keep_size', self.CMDLINE_OPTIONS['wal_keep_size'][0]), 'MB')
+            parameters.setdefault('wal_keep_segments', int((wal_keep_size + 8) / 16))
         ret = CaseInsensitiveDict({k: v for k, v in parameters.items() if not self._postgresql.major_version or
                                    self._postgresql.major_version >= self.CMDLINE_OPTIONS.get(k, (0, 1, 90100))[2]})
         ret.update({k: os.path.join(self._config_dir, ret[k]) for k in ('hba_file', 'ident_file') if k in ret})
@@ -938,10 +966,12 @@ class ConfigHandler(object):
                         logger.warning('Removing invalid parameter `%s` from postgresql.parameters', param)
                         server_parameters.pop(param)
 
-            if not server_parameters.get('hba_file') and config.get('pg_hba'):
+            if (not server_parameters.get('hba_file') or server_parameters['hba_file'] == self._pg_hba_conf) \
+                    and config.get('pg_hba'):
                 hba_changed = self._config.get('pg_hba', []) != config['pg_hba']
 
-            if not server_parameters.get('ident_file') and config.get('pg_ident'):
+            if (not server_parameters.get('ident_file') or server_parameters['ident_file'] == self._pg_hba_conf) \
+                    and config.get('pg_ident'):
                 ident_changed = self._config.get('pg_ident', []) != config['pg_ident']
 
         self._config = config
@@ -980,16 +1010,20 @@ class ConfigHandler(object):
         else:
             logger.info('No PostgreSQL configuration items changed, nothing to reload.')
 
-    def set_synchronous_standby(self, name):
+    def set_synchronous_standby(self, sync_members):
         """Sets a node to be synchronous standby and if changed does a reload for PostgreSQL."""
-        if name and name != '*':
-            name = quote_ident(name)
-        if name != self._synchronous_standby_names:
-            if name is None:
+        if sync_members and sync_members != ['*']:
+            sync_members = [quote_ident(x) for x in sync_members]
+        if self._postgresql.major_version >= 90600 and len(sync_members) > 1:
+            sync_param = '{0} ({1})'.format(len(sync_members), ','.join(sync_members))
+        else:
+            sync_param = next(iter(sync_members), None)
+        if sync_param != self._synchronous_standby_names:
+            if sync_param is None:
                 self._server_parameters.pop('synchronous_standby_names', None)
             else:
-                self._server_parameters['synchronous_standby_names'] = name
-            self._synchronous_standby_names = name
+                self._server_parameters['synchronous_standby_names'] = sync_param
+            self._synchronous_standby_names = sync_param
             if self._postgresql.state == 'running':
                 self.write_postgresql_conf()
                 self._postgresql.reload()
@@ -1025,6 +1059,10 @@ class ConfigHandler(object):
 
         for name, cname in options_mapping.items():
             value = parse_int(effective_configuration[name])
+            if cname not in data:
+                logger.warning('%s is missing from pg_controldata output', cname)
+                continue
+
             cvalue = parse_int(data[cname])
             if cvalue > value:
                 effective_configuration[name] = cvalue
@@ -1045,8 +1083,14 @@ class ConfigHandler(object):
                 if self._postgresql.major_version >= 110000 else self._superuser
 
     @property
+    def ident_file(self):
+        ident_file = self._server_parameters.get('ident_file')
+        return None if ident_file == self._pg_ident_conf else ident_file
+
+    @property
     def hba_file(self):
-        return self._server_parameters.get('hba_file')
+        hba_file = self._server_parameters.get('hba_file')
+        return None if hba_file == self._pg_hba_conf else hba_file
 
     @property
     def pg_hba_conf(self):

@@ -1,0 +1,8 @@
+psycopg2-binary
+behave
+coverage
+flake8
+mock
+pytest-cov
+pytest
+setuptools

@@ -1,9 +1,10 @@
 import os
 import sys
 import unittest
+import io
 
 from mock import MagicMock, Mock, patch
-from patroni.config import Config
+from patroni.config import Config, ConfigParseError
 from six.moves import builtins
 
 
@@ -55,6 +56,7 @@ class TestConfig(unittest.TestCase):
             'PATRONI_ZOOKEEPER_HOSTS': "'host1:2181','host2:2181'",
             'PATRONI_EXHIBITOR_HOSTS': 'host1,host2',
             'PATRONI_EXHIBITOR_PORT': '8181',
+            'PATRONI_RAFT_PARTNER_ADDRS': "'host1:1234','host2:1234'",
             'PATRONI_foo_HOSTS': '[host1,host2',  # Exception in parse_list
             'PATRONI_SUPERUSER_USERNAME': 'postgres',
             'PATRONI_SUPERUSER_PASSWORD': 'zalando',
@@ -94,3 +96,46 @@ class TestConfig(unittest.TestCase):
         self.config.set_dynamic_configuration(dynamic_configuration)
         for name, value in dynamic_configuration['standby_cluster'].items():
             self.assertEqual(self.config['standby_cluster'][name], value)
+
+    @patch('os.path.exists', Mock(return_value=True))
+    @patch('os.path.isfile', Mock(side_effect=lambda fname: fname != 'postgres0'))
+    @patch('os.path.isdir', Mock(return_value=True))
+    @patch('os.listdir', Mock(return_value=['01-specific.yml', '00-base.yml']))
+    def test_configuration_directory(self):
+        def open_mock(fname, *args, **kwargs):
+            if fname.endswith('00-base.yml'):
+                return io.StringIO(
+                    u'''
+                    test: True
+                    test2:
+                      child-1: somestring
+                      child-2: 5
+                      child-3: False
+                    test3: True
+                    test4:
+                     - abc: 3
+                     - abc: 4
+                    ''')
+            elif fname.endswith('01-specific.yml'):
+                return io.StringIO(
+                    u'''
+                    test: False
+                    test2:
+                      child-2: 10
+                      child-3: !!null
+                    test4:
+                     - ab: 5
+                    new-attr: True
+                    ''')
+
+        with patch.object(builtins, 'open', MagicMock(side_effect=open_mock)):
+            config = Config('postgres0')
+            self.assertEqual(config._local_configuration,
+                             {'test': False, 'test2': {'child-1': 'somestring', 'child-2': 10},
+                              'test3': True, 'test4': [{'ab': 5}], 'new-attr': True})
+
+    @patch('os.path.exists', Mock(return_value=True))
+    @patch('os.path.isfile', Mock(return_value=False))
+    @patch('os.path.isdir', Mock(return_value=False))
+    def test_invalid_path(self):
+        self.assertRaises(ConfigParseError, Config, 'postgres0')

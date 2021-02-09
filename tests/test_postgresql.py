@@ -93,12 +93,11 @@ class TestPostgresql(BaseTestPostgresql):
     @patch('subprocess.call', Mock(return_value=0))
     @patch('os.rename', Mock())
     @patch('patroni.postgresql.CallbackExecutor', Mock())
-    @patch.object(Postgresql, 'get_major_version', Mock(return_value=120000))
+    @patch.object(Postgresql, 'get_major_version', Mock(return_value=130000))
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def setUp(self):
         super(TestPostgresql, self).setUp()
         self.p.config.write_postgresql_conf()
-        self.p._callback_executor = Mock()
 
     @patch('subprocess.Popen')
     @patch.object(Postgresql, 'wait_for_startup')
@@ -250,6 +249,10 @@ class TestPostgresql(BaseTestPostgresql):
             self.p.config.write_recovery_conf({'standby_mode': 'on', 'primary_conninfo': conninfo.copy()})
             self.p.config.write_postgresql_conf()
             self.assertEqual(self.p.config.check_recovery_conf(None), (False, False))
+            with patch.object(Postgresql, 'primary_conninfo', Mock(return_value='host=1')):
+                mock_get_pg_settings.return_value['primary_slot_name'] = [
+                    'primary_slot_name', '', '', 'string', 'postmaster', self.p.config._postgresql_conf]
+                self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
 
     @patch.object(Postgresql, 'major_version', PropertyMock(return_value=120000))
     @patch.object(Postgresql, 'is_running', MockPostmaster)
@@ -267,11 +270,12 @@ class TestPostgresql(BaseTestPostgresql):
             self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
 
     @patch.object(Postgresql, 'major_version', PropertyMock(return_value=100000))
+    @patch.object(Postgresql, 'primary_conninfo', Mock(return_value='host=1'))
     def test__read_recovery_params_pre_v12(self):
-        self.p.config.write_recovery_conf({'standby_mode': 'on', 'primary_conninfo': {'password': 'foo'}})
+        self.p.config.write_recovery_conf({'standby_mode': 'off', 'primary_conninfo': {'password': 'foo'}})
         self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
         self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
-        self.p.config.write_recovery_conf({'standby_mode': '\n'})
+        self.p.config.write_recovery_conf({'restore_command': '\n'})
         with patch('patroni.postgresql.config.mtime', mock_mtime):
             self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
 
@@ -302,7 +306,8 @@ class TestPostgresql(BaseTestPostgresql):
     def test_sync_replication_slots(self):
         self.p.start()
         config = ClusterConfig(1, {'slots': {'test_3': {'database': 'a', 'plugin': 'b'},
-                                             'A': 0, 'ls': 0, 'b': {'type': 'logical', 'plugin': '1'}}}, 1)
+                                             'A': 0, 'ls': 0, 'b': {'type': 'logical', 'plugin': '1'}},
+                                   'ignore_slots': [{'name': 'blabla'}]}, 1)
         cluster = Cluster(True, config, self.leader, 0, [self.me, self.other, self.leadermem], None, None, None)
         with mock.patch('patroni.postgresql.Postgresql._query', Mock(side_effect=psycopg2.OperationalError)):
             self.p.slots_handler.sync_replication_slots(cluster)
@@ -338,6 +343,11 @@ class TestPostgresql(BaseTestPostgresql):
         with patch.object(Postgresql, '_query', Mock(side_effect=RetryFailedError(''))):
             self.assertRaises(PostgresConnectionException, self.p.is_leader)
 
+    @patch.object(Postgresql, 'controldata',
+                  Mock(return_value={'Database cluster state': 'shut down', 'Latest checkpoint location': 'X/678'}))
+    def test_latest_checkpoint_location(self):
+        self.assertIsNone(self.p.latest_checkpoint_location())
+
     def test_reload(self):
         self.assertTrue(self.p.reload())
 
@@ -348,10 +358,22 @@ class TestPostgresql(BaseTestPostgresql):
         mock_is_running.return_value = False
         self.assertFalse(self.p.is_healthy())
 
-    def test_promote(self):
+    @patch('psutil.Popen')
+    def test_promote(self, mock_popen):
+        mock_popen.return_value.wait.return_value = 0
+        task = CriticalTask()
+        self.assertTrue(self.p.promote(0, task))
+
         self.p.set_role('replica')
-        self.assertIsNone(self.p.promote(0))
-        self.assertTrue(self.p.promote(0))
+        self.p.config._config['pre_promote'] = 'test'
+        with patch('patroni.postgresql.cancellable.CancellableSubprocess.is_cancelled', PropertyMock(return_value=1)):
+            self.assertFalse(self.p.promote(0, task))
+
+        mock_popen.side_effect = Exception
+        self.assertFalse(self.p.promote(0, task))
+        task.reset()
+        task.cancel()
+        self.assertFalse(self.p.promote(0, task))
 
     def test_timeline_wal_position(self):
         self.assertEqual(self.p.timeline_wal_position(), (1, 2, 1))
@@ -392,6 +414,10 @@ class TestPostgresql(BaseTestPostgresql):
 
     @patch('os.rename', Mock())
     @patch('os.path.isdir', Mock(return_value=True))
+    @patch('os.unlink', Mock())
+    @patch('os.symlink', Mock())
+    @patch('patroni.postgresql.Postgresql.pg_wal_realpath', Mock(return_value={'pg_wal': '/mnt/pg_wal'}))
+    @patch('patroni.postgresql.Postgresql.pg_tblspc_realpaths', Mock(return_value={'42': '/mnt/tablespaces/archive'}))
     def test_move_data_directory(self):
         self.p.move_data_directory()
         with patch('os.rename', Mock(side_effect=OSError)):
@@ -405,13 +431,15 @@ class TestPostgresql(BaseTestPostgresql):
 
     def test_remove_data_directory(self):
         def _symlink(src, dst):
-            try:
+            if os.name != 'nt':  # os.symlink under Windows needs admin rights skip it
                 os.symlink(src, dst)
-            except OSError:
-                if os.name == 'nt':  # os.symlink under Windows needs admin rights skip it
-                    pass
+
         os.makedirs(os.path.join(self.p.data_dir, 'foo'))
         _symlink('foo', os.path.join(self.p.data_dir, 'pg_wal'))
+        os.makedirs(os.path.join(self.p.data_dir, 'foo_tsp'))
+        pg_tblspc = os.path.join(self.p.data_dir, 'pg_tblspc')
+        os.makedirs(pg_tblspc)
+        _symlink('../foo_tsp', os.path.join(pg_tblspc, '12345'))
         self.p.remove_data_directory()
         open(self.p.data_dir, 'w').close()
         self.p.remove_data_directory()
@@ -582,36 +610,43 @@ class TestPostgresql(BaseTestPostgresql):
     def test_pick_sync_standby(self):
         cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None,
                           SyncState(0, self.me.name, self.leadermem.name), None)
+        mock_cursor = Mock()
+        mock_cursor.fetchone.return_value = ('remote_apply',)
 
-        with patch.object(Postgresql, "query", return_value=[
-                    (self.leadermem.name, 'streaming', 'sync'),
-                    (self.me.name, 'streaming', 'async'),
-                    (self.other.name, 'streaming', 'async'),
+        with patch.object(Postgresql, "query", side_effect=[
+                    mock_cursor,
+                    [(self.leadermem.name, 'sync', 1),
+                     (self.me.name, 'async', 2),
+                     (self.other.name, 'async', 2)]
                 ]):
-            self.assertEqual(self.p.pick_synchronous_standby(cluster), (self.leadermem.name, True))
+            self.assertEqual(self.p.pick_synchronous_standby(cluster), ([self.leadermem.name], [self.leadermem.name]))
 
-        with patch.object(Postgresql, "query", return_value=[
-                    (self.me.name, 'streaming', 'async'),
-                    (self.leadermem.name, 'streaming', 'potential'),
-                    (self.other.name, 'streaming', 'async'),
+        with patch.object(Postgresql, "query", side_effect=[
+                    mock_cursor,
+                    [(self.leadermem.name, 'potential', 1),
+                     (self.me.name, 'async', 2),
+                     (self.other.name, 'async', 2)]
                 ]):
-            self.assertEqual(self.p.pick_synchronous_standby(cluster), (self.leadermem.name, False))
+            self.assertEqual(self.p.pick_synchronous_standby(cluster), ([self.leadermem.name], []))
 
-        with patch.object(Postgresql, "query", return_value=[
-                    (self.me.name, 'streaming', 'async'),
-                    (self.other.name, 'streaming', 'async'),
+        with patch.object(Postgresql, "query", side_effect=[
+                    mock_cursor,
+                    [(self.me.name, 'async', 1),
+                     (self.other.name, 'async', 2)]
                 ]):
-            self.assertEqual(self.p.pick_synchronous_standby(cluster), (self.me.name, False))
+            self.assertEqual(self.p.pick_synchronous_standby(cluster), ([self.me.name], []))
 
-        with patch.object(Postgresql, "query", return_value=[
-                    ('missing', 'streaming', 'sync'),
-                    (self.me.name, 'streaming', 'async'),
-                    (self.other.name, 'streaming', 'async'),
+        with patch.object(Postgresql, "query", side_effect=[
+                    mock_cursor,
+                    [('missing', 'sync', 1),
+                     (self.me.name, 'async', 2),
+                     (self.other.name, 'async', 3)]
                 ]):
-            self.assertEqual(self.p.pick_synchronous_standby(cluster), (self.me.name, False))
+            self.assertEqual(self.p.pick_synchronous_standby(cluster), ([self.me.name], []))
 
-        with patch.object(Postgresql, "query", return_value=[]):
-            self.assertEqual(self.p.pick_synchronous_standby(cluster), (None, False))
+        with patch.object(Postgresql, "query", side_effect=[mock_cursor, []]):
+            self.p._major_version = 90400
+            self.assertEqual(self.p.pick_synchronous_standby(cluster), ([], []))
 
     def test_set_sync_standby(self):
         def value_in_conf():
@@ -621,21 +656,21 @@ class TestPostgresql(BaseTestPostgresql):
                         return line.strip()
 
         mock_reload = self.p.reload = Mock()
-        self.p.config.set_synchronous_standby('n1')
+        self.p.config.set_synchronous_standby(['n1'])
         self.assertEqual(value_in_conf(), "synchronous_standby_names = 'n1'")
         mock_reload.assert_called()
 
         mock_reload.reset_mock()
-        self.p.config.set_synchronous_standby('n1')
+        self.p.config.set_synchronous_standby(['n1'])
         mock_reload.assert_not_called()
         self.assertEqual(value_in_conf(), "synchronous_standby_names = 'n1'")
 
-        self.p.config.set_synchronous_standby('n2')
+        self.p.config.set_synchronous_standby(['n1', 'n2'])
         mock_reload.assert_called()
-        self.assertEqual(value_in_conf(), "synchronous_standby_names = 'n2'")
+        self.assertEqual(value_in_conf(), "synchronous_standby_names = '2 (n1,n2)'")
 
         mock_reload.reset_mock()
-        self.p.config.set_synchronous_standby(None)
+        self.p.config.set_synchronous_standby([])
         mock_reload.assert_called()
         self.assertEqual(value_in_conf(), None)
 
@@ -665,44 +700,8 @@ class TestPostgresql(BaseTestPostgresql):
         mock_postmaster.signal_stop.assert_called()
         mock_postmaster.wait.assert_called()
 
-    def test_read_postmaster_opts(self):
-        m = mock_open(read_data='/usr/lib/postgres/9.6/bin/postgres "-D" "data/postgresql0" \
-"--listen_addresses=127.0.0.1" "--port=5432" "--hot_standby=on" "--wal_level=hot_standby" \
-"--wal_log_hints=on" "--max_wal_senders=5" "--max_replication_slots=5"\n')
-        with patch.object(builtins, 'open', m):
-            data = self.p.read_postmaster_opts()
-            self.assertEqual(data['wal_level'], 'hot_standby')
-            self.assertEqual(int(data['max_replication_slots']), 5)
-            self.assertEqual(data.get('D'), None)
-
-            m.side_effect = IOError
-            data = self.p.read_postmaster_opts()
-            self.assertEqual(data, dict())
-
-    @patch('psutil.Popen')
-    def test_single_user_mode(self, subprocess_popen_mock):
-        subprocess_popen_mock.return_value.wait.return_value = 0
-        self.assertEqual(self.p.single_user_mode('CHECKPOINT', {'archive_mode': 'on'}), 0)
-
-    @patch('os.listdir', Mock(side_effect=[OSError, ['a', 'b']]))
-    @patch('os.unlink', Mock(side_effect=OSError))
-    @patch('os.remove', Mock())
-    @patch('os.path.islink', Mock(side_effect=[True, False]))
-    @patch('os.path.isfile', Mock(return_value=True))
-    def test_cleanup_archive_status(self):
-        self.p.cleanup_archive_status()
-        self.p.cleanup_archive_status()
-
-    @patch('os.unlink', Mock())
-    @patch('os.listdir', Mock(return_value=[]))
-    @patch('os.path.isfile', Mock(return_value=True))
-    @patch.object(Postgresql, 'read_postmaster_opts', Mock(return_value={}))
-    @patch.object(Postgresql, 'single_user_mode', Mock(return_value=0))
-    def test_fix_cluster_state(self):
-        self.assertTrue(self.p.fix_cluster_state())
-
     def test_replica_cached_timeline(self):
-        self.assertEqual(self.p.replica_cached_timeline(1), 2)
+        self.assertEqual(self.p.replica_cached_timeline(2), 3)
 
     def test_get_master_timeline(self):
         self.assertEqual(self.p.get_master_timeline(), 1)
@@ -712,7 +711,6 @@ class TestPostgresql(BaseTestPostgresql):
         with patch.object(Postgresql, 'controldata',
                           Mock(return_value={'max_connections setting': '200',
                                              'max_worker_processes setting': '20',
-                                             'max_prepared_xacts setting': '100',
                                              'max_locks_per_xact setting': '100',
                                              'max_wal_senders setting': 10})):
             self.p.cancellable.cancel()
@@ -723,3 +721,14 @@ class TestPostgresql(BaseTestPostgresql):
     @patch('os.path.isfile', Mock(return_value=False))
     def test_pgpass_is_dir(self):
         self.assertRaises(PatroniException, self.setUp)
+
+    @patch.object(Postgresql, '_query', Mock(side_effect=RetryFailedError('')))
+    def test_received_timeline(self):
+        self.p.set_role('standby_leader')
+        self.p.reset_cluster_info_state()
+        self.assertRaises(PostgresConnectionException, self.p.received_timeline)
+
+    def test__write_recovery_params(self):
+        self.p.config._write_recovery_params(Mock(), {'pause_at_recovery_target': 'false'})
+        with patch.object(Postgresql, 'major_version', PropertyMock(return_value=90400)):
+            self.p.config._write_recovery_params(Mock(), {'recovery_target_action': 'PROMOTE'})

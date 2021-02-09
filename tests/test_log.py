@@ -43,7 +43,8 @@ class TestPatroniLogger(unittest.TestCase):
         _LOG.exception('test')
         logger.start()
 
-        with patch.object(logging.Handler, 'format', Mock(side_effect=Exception)):
+        with patch.object(logging.Handler, 'format', Mock(side_effect=Exception)),\
+                patch('_pytest.logging.LogCaptureHandler.emit', Mock()):
             logging.error('test')
 
         self.assertEqual(logger.log_handler.maxBytes, config['log']['file_size'])

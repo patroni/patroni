@@ -1,8 +1,11 @@
+import json.decoder as json_decoder
 import logging
 import os
 import platform
 import random
 import re
+import socket
+import sys
 import tempfile
 import time
 
@@ -357,6 +360,8 @@ def polling_loop(timeout, interval=1):
 
 def split_host_port(value, default_port):
     t = value.rsplit(':', 1)
+    if ':' in t[0]:
+        t[0] = t[0].strip('[]')
     t.append(default_port)
     return t[0], int(t[1])
 
@@ -369,6 +374,27 @@ def uri(proto, netloc, path='', user=None):
     path = '/{0}'.format(path) if path and not path.startswith('/') else path
     user = '{0}@'.format(user) if user else ''
     return '{0}://{1}{2}{3}{4}'.format(proto, user, host, port, path)
+
+
+def iter_response_objects(response):
+    prev = ''
+    decoder = json_decoder.JSONDecoder()
+    for chunk in response.read_chunked(decode_content=False):
+        if isinstance(chunk, bytes):
+            chunk = chunk.decode('utf-8')
+        chunk = prev + chunk
+
+        length = len(chunk)
+        idx = json_decoder.WHITESPACE.match(chunk, 0).end()
+        while idx < length:
+            try:
+                message, idx = decoder.raw_decode(chunk, idx)
+            except ValueError:  # malformed or incomplete JSON, unlikely to happen
+                break
+            else:
+                yield message
+                idx = json_decoder.WHITESPACE.match(chunk, idx).end()
+        prev = chunk[idx:]
 
 
 def is_standby_cluster(config):
@@ -385,7 +411,7 @@ def cluster_as_json(cluster):
         if m.name == leader_name:
             config = cluster.config.data if cluster.config and cluster.config.modify_index else {}
             role = 'standby_leader' if is_standby_cluster(config.get('standby_cluster')) else 'leader'
-        elif m.name == cluster.sync.sync_standby:
+        elif m.name in cluster.sync.members:
             role = 'sync_standby'
         else:
             role = 'replica'
@@ -451,3 +477,56 @@ def data_directory_is_empty(data_dir):
     if not os.path.exists(data_dir):
         return True
     return all(os.name != 'nt' and (n.startswith('.') or n == 'lost+found') for n in os.listdir(data_dir))
+
+
+def keepalive_intvl(timeout, idle, cnt=3):
+    return max(1, int(float(timeout - idle) / cnt))
+
+
+def keepalive_socket_options(timeout, idle, cnt=3):
+    yield (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+
+    if sys.platform.startswith('linux'):
+        yield (socket.SOL_TCP, 18, int(timeout * 1000))  # TCP_USER_TIMEOUT
+        TCP_KEEPIDLE = getattr(socket, 'TCP_KEEPIDLE', None)
+        TCP_KEEPINTVL = getattr(socket, 'TCP_KEEPINTVL', None)
+        TCP_KEEPCNT = getattr(socket, 'TCP_KEEPCNT', None)
+    elif sys.platform.startswith('darwin'):
+        TCP_KEEPIDLE = 0x10  # (named "TCP_KEEPALIVE" in C)
+        TCP_KEEPINTVL = 0x101
+        TCP_KEEPCNT = 0x102
+    else:
+        return
+
+    intvl = keepalive_intvl(timeout, idle, cnt)
+    yield (socket.IPPROTO_TCP, TCP_KEEPIDLE, idle)
+    yield (socket.IPPROTO_TCP, TCP_KEEPINTVL, intvl)
+    yield (socket.IPPROTO_TCP, TCP_KEEPCNT, cnt)
+
+
+def enable_keepalive(sock, timeout, idle, cnt=3):
+    SIO_KEEPALIVE_VALS = getattr(socket, 'SIO_KEEPALIVE_VALS', None)
+    if SIO_KEEPALIVE_VALS is not None:  # Windows
+        intvl = keepalive_intvl(timeout, idle, cnt)
+        return sock.ioctl(SIO_KEEPALIVE_VALS, (1, idle * 1000, intvl * 1000))
+
+    for opt in keepalive_socket_options(timeout, idle, cnt):
+        sock.setsockopt(*opt)
+
+
+def find_executable(executable, path=None):
+    _, ext = os.path.splitext(executable)
+
+    if (sys.platform == 'win32') and (ext != '.exe'):
+        executable = executable + '.exe'
+
+    if os.path.isfile(executable):
+        return executable
+
+    if path is None:
+        path = os.environ.get('PATH', os.defpath)
+
+    for p in path.split(os.pathsep):
+        f = os.path.join(p, executable)
+        if os.path.isfile(f):
+            return f

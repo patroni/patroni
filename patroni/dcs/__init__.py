@@ -13,7 +13,7 @@ import time
 
 from collections import defaultdict, namedtuple
 from copy import deepcopy
-from patroni.exceptions import PatroniException
+from patroni.exceptions import PatroniFatalException
 from patroni.utils import parse_bool, uri
 from random import randint
 from six.moves.urllib_parse import urlparse, urlunparse, parse_qsl
@@ -102,7 +102,7 @@ def get_dcs(config):
                                              and inspect.isclass(item) and issubclass(item, AbstractDCS))
         except ImportError:
             logger.info('Failed to import %s', module_name)
-    raise PatroniException("""Can not find suitable configuration of distributed configuration store
+    raise PatroniFatalException("""Can not find suitable configuration of distributed configuration store
 Available implementations: """ + ', '.join(sorted(set(available_implementations))))
 
 
@@ -342,6 +342,10 @@ class ClusterConfig(namedtuple('ClusterConfig', 'index,data,modify_index')):
         ) or {}
 
     @property
+    def ignore_slots_matchers(self):
+        return isinstance(self.data, dict) and self.data.get('ignore_slots') or []
+
+    @property
     def max_timelines_history(self):
         return self.data.get('max_timelines_history', 0)
 
@@ -351,7 +355,7 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
 
     :param index: modification index of a synchronization key in a Configuration Store
     :param leader: reference to member that was leader
-    :param sync_standby: standby that was last synchronized to leader
+    :param sync_standby: synchronous standby list (comma delimited) which are last synchronized to leader
     """
 
     @staticmethod
@@ -383,14 +387,21 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
             data = {}
         return SyncState(index, data.get('leader'), data.get('sync_standby'))
 
+    @property
+    def members(self):
+        """ Returns sync_standby in list """
+        return self.sync_standby and self.sync_standby.split(',') or []
+
     def matches(self, name):
         """
         Returns if a node name matches one of the nodes in the sync state
 
-        >>> s = SyncState(1, 'foo', 'bar')
+        >>> s = SyncState(1, 'foo', 'bar,zoo')
         >>> s.matches('foo')
         True
         >>> s.matches('bar')
+        True
+        >>> s.matches('zoo')
         True
         >>> s.matches('baz')
         False
@@ -399,7 +410,7 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
         >>> SyncState(1, None, None).matches('foo')
         False
         """
-        return name is not None and name in (self.leader, self.sync_standby)
+        return name is not None and name in [self.leader] + self.members
 
 
 class TimelineHistory(namedtuple('TimelineHistory', 'index,value,lines')):
@@ -500,7 +511,8 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
                     value['type'] = 'logical' if value.get('database') and value.get('plugin') else 'physical'
 
                 if value['type'] == 'physical':
-                    if name != my_name:  # Don't try to create permanent physical replication slot for yourself
+                    # Don't try to create permanent physical replication slot for yourself
+                    if name != slot_name_from_member_name(my_name):
                         slots[name] = value
                     continue
                 elif value['type'] == 'logical' and value.get('database') and value.get('plugin'):
@@ -642,7 +654,12 @@ class AbstractDCS(object):
            If the current node was running as a master and exception raised,
            instance would be demoted."""
 
-    def get_cluster(self):
+    def _bypass_caches(self):
+        """Used only in zookeeper"""
+
+    def get_cluster(self, force=False):
+        if force:
+            self._bypass_caches()
         try:
             cluster = self._load_cluster()
         except Exception:
@@ -758,9 +775,18 @@ class AbstractDCS(object):
         otherwise it should return `!False`"""
 
     @abc.abstractmethod
-    def delete_leader(self):
-        """Voluntarily remove leader key from DCS
+    def _delete_leader(self):
+        """Remove leader key from DCS.
         This method should remove leader key if current instance is the leader"""
+
+    def delete_leader(self, last_operation=None):
+        """Update optime/leader and voluntarily remove leader key from DCS.
+        This method should remove leader key if current instance is the leader.
+        :param last_operation: latest checkpoint location in bytes"""
+
+        if last_operation:
+            self.write_leader_optime(last_operation)
+        return self._delete_leader()
 
     @abc.abstractmethod
     def cancel_initialization(self):
@@ -772,8 +798,10 @@ class AbstractDCS(object):
 
     @staticmethod
     def sync_state(leader, sync_standby):
-        """Build sync_state dict"""
-        return {'leader': leader, 'sync_standby': sync_standby}
+        """Build sync_state dict
+           sync_standby dictionary key being kept for backward compatibility
+        """
+        return {'leader': leader, 'sync_standby': sync_standby and ','.join(sorted(sync_standby)) or None}
 
     def write_sync_state(self, leader, sync_standby, index=None):
         sync_value = self.sync_state(leader, sync_standby)

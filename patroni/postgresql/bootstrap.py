@@ -98,7 +98,8 @@ class Bootstrap(object):
 
     def _custom_bootstrap(self, config):
         self._postgresql.set_state('running custom bootstrap script')
-        params = ['--scope=' + self._postgresql.scope, '--datadir=' + self._postgresql.data_dir]
+        params = [] if config.get('no_params') else ['--scope=' + self._postgresql.scope,
+                                                     '--datadir=' + self._postgresql.data_dir]
         try:
             logger.info('Running custom bootstrap script: %s', config['command'])
             if self._postgresql.cancellable.call(shlex.split(config['command']) + params) != 0:
@@ -129,7 +130,8 @@ class Bootstrap(object):
                 # (pghost empty or the default socket directory) connections coming from the local machine.
                 r['host'] = 'localhost'  # set it to localhost to write into pgpass
 
-            env = self._postgresql.config.write_pgpass(r) if 'password' in r else None
+            env = self._postgresql.config.write_pgpass(r)
+            env['PGOPTIONS'] = '-c synchronous_commit=local'
 
             try:
                 ret = self._postgresql.cancellable.call(shlex.split(cmd) + [connstring], env=env)
@@ -354,7 +356,8 @@ END;$$""".format(f, rewind['username'])
                     self._running_custom_bootstrap = False
                     # If we don't have custom configuration for pg_hba.conf we need to restore original file
                     if not postgresql.config.get('pg_hba'):
-                        os.unlink(postgresql.config.pg_hba_conf)
+                        if os.path.exists(postgresql.config.pg_hba_conf):
+                            os.unlink(postgresql.config.pg_hba_conf)
                         postgresql.config.restore_configuration_files()
                     postgresql.config.write_postgresql_conf()
                     postgresql.config.replace_pg_ident()
@@ -362,7 +365,7 @@ END;$$""".format(f, rewind['username'])
                     # at this point there should be no recovery.conf
                     postgresql.config.remove_recovery_conf()
 
-                    if postgresql.config.hba_file and postgresql.config.hba_file != postgresql.config.pg_hba_conf:
+                    if postgresql.config.hba_file:
                         postgresql.restart()
                     else:
                         postgresql.config.replace_pg_hba()
