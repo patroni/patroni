@@ -26,7 +26,7 @@ def mock_list_namespaced_config_map(*args, **kwargs):
     return k8s_client.V1ConfigMapList(metadata=metadata, items=items, kind='ConfigMapList')
 
 
-def mock_list_namespaced_endpoints(*args, **kwargs):
+def mock_read_namespaced_endpoints(*args, **kwargs):
     target_ref = k8s_client.V1ObjectReference(kind='Pod', resource_version='10', name='p-0',
                                               namespace='default', uid='964dfeae-e79b-4476-8a5a-1920b5c2a69d')
     address0 = k8s_client.V1EndpointAddress(ip='10.0.0.0', target_ref=target_ref)
@@ -35,9 +35,12 @@ def mock_list_namespaced_endpoints(*args, **kwargs):
     subset = k8s_client.V1EndpointSubset(addresses=[address1, address0], ports=[port])
     metadata = k8s_client.V1ObjectMeta(resource_version='1', labels={'f': 'b'}, name='test',
                                        annotations={'optime': '1234', 'leader': 'p-0', 'ttl': '30s'})
-    endpoint = k8s_client.V1Endpoints(subsets=[subset], metadata=metadata)
-    metadata = k8s_client.V1ObjectMeta(resource_version='1')
-    return k8s_client.V1EndpointsList(metadata=metadata, items=[endpoint], kind='V1EndpointsList')
+    return k8s_client.V1Endpoints(subsets=[subset], metadata=metadata)
+
+
+def mock_list_namespaced_endpoints(*args, **kwargs):
+    return k8s_client.V1EndpointsList(metadata=k8s_client.V1ObjectMeta(resource_version='1'),
+                                      items=[mock_read_namespaced_endpoints()], kind='V1EndpointsList')
 
 
 def mock_list_namespaced_pod(*args, **kwargs):
@@ -261,20 +264,25 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
     def test_update_leader_with_restricted_access(self):
         self.assertIsNotNone(self.k.update_leader('123', True))
 
+    @patch.object(k8s_client.CoreV1Api, 'read_namespaced_endpoints', create=True)
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints', create=True)
-    def test__update_leader_with_retry(self, mock_patch):
+    def test__update_leader_with_retry(self, mock_patch, mock_read):
+        mock_read.return_value = mock_read_namespaced_endpoints()
         mock_patch.side_effect = k8s_client.rest.ApiException(502, '')
         self.assertFalse(self.k.update_leader('123'))
         mock_patch.side_effect = RetryFailedError('')
         self.assertFalse(self.k.update_leader('123'))
         mock_patch.side_effect = k8s_client.rest.ApiException(409, '')
-        with patch('time.time', Mock(side_effect=[0, 100, 200])):
+        with patch('time.time', Mock(side_effect=[0, 100, 200, 0, 0, 0, 0, 100, 200])):
             self.assertFalse(self.k.update_leader('123'))
-        with patch('time.sleep', Mock()):
             self.assertFalse(self.k.update_leader('123'))
-            mock_patch.side_effect = [k8s_client.rest.ApiException(409, ''), mock_namespaced_kind()]
-            self.k._kinds._object_cache['test'].metadata.resource_version = '2'
-            self.assertIsNotNone(self.k._update_leader_with_retry({}, '1', []))
+        self.assertFalse(self.k.update_leader('123'))
+        mock_patch.side_effect = [k8s_client.rest.ApiException(409, ''), mock_namespaced_kind()]
+        mock_read.return_value.metadata.resource_version = '2'
+        self.assertIsNotNone(self.k._update_leader_with_retry({}, '1', []))
+        mock_patch.side_effect = k8s_client.rest.ApiException(409, '')
+        mock_read.side_effect = Exception
+        self.assertFalse(self.k.update_leader('123'))
 
     @patch.object(k8s_client.CoreV1Api, 'create_namespaced_endpoints',
                   Mock(side_effect=[k8s_client.rest.ApiException(500, ''),

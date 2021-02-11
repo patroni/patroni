@@ -905,13 +905,23 @@ class Kubernetes(AbstractDCS):
         except (RetryFailedError, K8sException):
             return False
 
-        deadline = retry.stoptime - time.time()
-        if deadline < 2:
+        retry.deadline = retry.stoptime - time.time()
+        if retry.deadline < 1:
             return False
 
-        retry.sleep_func(1)  # Give a chance for ObjectCache to receive the latest version
+        # Try to get the latest version directly from K8s API instead of relying on async cache
+        try:
+            kind = retry(self._api.read_namespaced_kind, self.leader_path, self._namespace)
+        except Exception as e:
+            logger.error('Failed to get the leader object "%s": %r', self.leader_path, e)
+            return False
 
-        kind = self._kinds.get(self.leader_path)
+        self._kinds.set(self.leader_path, kind)
+
+        retry.deadline = retry.stoptime - time.time()
+        if retry.deadline < 0.5:
+            return False
+
         kind_annotations = kind and kind.metadata.annotations or {}
         kind_resource_version = kind and kind.metadata.resource_version
 
@@ -919,7 +929,6 @@ class Kubernetes(AbstractDCS):
         if kind and (kind_annotations.get(self._LEADER) != self._name or kind_resource_version == resource_version):
             return False
 
-        retry.deadline = deadline - 1  # Update deadline and retry
         return self.patch_or_create(self.leader_path, annotations, kind_resource_version, ips=ips, retry=_retry)
 
     def update_leader(self, last_operation, access_is_restricted=False):
