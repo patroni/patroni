@@ -40,6 +40,7 @@ def install_packages(what):
     packages['exhibitor'] = packages['zookeeper']
     packages = packages.get(what, [])
     ver = str({'etcd': '9.6', 'etcd3': '9.6', 'consul': 10, 'exhibitor': 11, 'kubernetes': 12, 'raft': 13}.get(what))
+    subprocess.call(['sudo', 'apt-get', 'update', '-y'])
     return subprocess.call(['sudo', 'apt-get', 'install', '-y', 'postgresql-' + ver, 'expect-dev', 'wget'] + packages)
 
 
