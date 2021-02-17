@@ -1,3 +1,4 @@
+import errno
 import json
 import logging
 import os
@@ -274,6 +275,21 @@ class Raft(AbstractDCS):
             if self_addr:
                 partner_addrs.append(self_addr)
             self_addr = None
+
+        # Create raft data_dir if necessary
+        raft_data_dir = config.get('data_dir', '')
+        if raft_data_dir != '':
+            if not os.path.exists(raft_data_dir):
+                try:
+                    os.makedirs(raft_data_dir, mode=0o700)  # Err on the side of caution with mode 700
+                    logger.info('created raft data_dir {0}'.format(raft_data_dir))
+                except OSError as e:
+                    if e.errno != errno.EEXIST:
+                        raise RuntimeError("Exception when creating raft data_dir: {0}".format(e))
+                except Exception as e:
+                    raise RuntimeError("Cannot create raft data_dir: {0}".format(e))
+        else:
+            raise RuntimeError("Raft data_dir is undefined")
 
         ready_event = threading.Event()
         file_template = os.path.join(config.get('data_dir', ''), (self_addr or ''))
