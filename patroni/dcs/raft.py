@@ -288,8 +288,6 @@ class Raft(AbstractDCS):
                         raise RuntimeError("Exception when creating raft data_dir: {0}".format(e))
                 except Exception as e:
                     raise RuntimeError("Cannot create raft data_dir: {0}".format(e))
-        else:
-            raise RuntimeError("Raft data_dir is undefined")
 
         ready_event = threading.Event()
         file_template = os.path.join(config.get('data_dir', ''), (self_addr or ''))
