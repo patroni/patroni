@@ -45,10 +45,30 @@ class MockPostgresql(object):
     def replica_cached_timeline(_):
         return 2
 
-
 class MockWatchdog(object):
     is_healthy = False
 
+
+class MockLiveness(object):
+    livenesscheck = Mock()
+    is_healthy = False
+
+    @property
+    @staticmethod
+    def is_healthy():
+        return True
+
+    @staticmethod
+    def is_running():
+        return False
+
+    @staticmethod
+    def activate():
+        pass
+
+    @staticmethod
+    def disable():
+        pass
 
 class MockHa(object):
 
@@ -120,6 +140,7 @@ class MockPatroni(object):
     logger = MockLogger()
     tags = {}
     version = '0.00'
+    liveness = MockLiveness()
     noloadbalance = PropertyMock(return_value=False)
     scheduled_restart = {'schedule': future_restart_time,
                          'postmaster_start_time': postgresql.postmaster_start_time()}
