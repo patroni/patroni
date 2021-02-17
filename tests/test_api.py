@@ -45,6 +45,7 @@ class MockPostgresql(object):
     def replica_cached_timeline(_):
         return 2
 
+
 class MockWatchdog(object):
     is_healthy = False
 
@@ -69,6 +70,7 @@ class MockLiveness(object):
     @staticmethod
     def disable():
         pass
+
 
 class MockHa(object):
 
