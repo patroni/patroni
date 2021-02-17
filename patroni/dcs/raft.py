@@ -1,4 +1,3 @@
-import errno
 import json
 import logging
 import os
@@ -6,6 +5,7 @@ import threading
 import time
 
 from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
+from ..utils import validate_directory
 from pysyncobj import SyncObj, SyncObjConf, replicated, FAIL_REASON
 from pysyncobj.transport import Node, TCPTransport, CONNECTION_STATE
 
@@ -279,15 +279,7 @@ class Raft(AbstractDCS):
         # Create raft data_dir if necessary
         raft_data_dir = config.get('data_dir', '')
         if raft_data_dir != '':
-            if not os.path.exists(raft_data_dir):
-                try:
-                    os.makedirs(raft_data_dir, mode=0o700)  # Err on the side of caution with mode 700
-                    logger.info('created raft data_dir {0}'.format(raft_data_dir))
-                except OSError as e:
-                    if e.errno != errno.EEXIST:
-                        raise RuntimeError("Exception when creating raft data_dir: {0}".format(e))
-                except Exception as e:
-                    raise RuntimeError("Cannot create raft data_dir: {0}".format(e))
+            validate_directory(raft_data_dir)
 
         ready_event = threading.Event()
         file_template = os.path.join(config.get('data_dir', ''), (self_addr or ''))
