@@ -186,9 +186,7 @@ class Config(object):
         pval = {}
         pval['max_failures'] = parse_int(value.get('max_failures', -1))
         pval['interval'] = max(parse_int(value.get('interval', 300)), int(_loop_wait))
-        pval['timeout'] = parse_int(value.get('timeout'))
-        if not pval['timeout'] or int(pval['timeout']) > int(_loop_wait/2):
-            pval['timeout'] = int(_loop_wait/2)
+        pval['timeout'] = parse_int(value.get('timeout', int(_loop_wait/2)))
         pval['probe'] = value.get('probe')
         return pval
 

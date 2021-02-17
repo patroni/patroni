@@ -106,13 +106,6 @@ class Postgresql(object):
         # Last known running process
         self._postmaster_proc = None
 
-        self._liveness_executor = CallbackExecutor()
-        self.__lv_called = False
-        self.__lv_failures = 0
-        self._lv_lock = Lock()
-        self.stop_retry = Retry(max_tries=10, deadline=config['retry_timeout']*10,
-                                max_delay=1, retry_exceptions=(psycopg2.Error, TimeoutExpired))
-
         if self.is_running():
             self.set_state('running')
             self.set_role('master' if self.is_leader() else 'replica')
@@ -143,17 +136,6 @@ class Postgresql(object):
     @property
     def callback(self):
         return self.config.get('callbacks') or {}
-
-    @property
-    def liveness(self):
-        return self.config.get('liveness') or {}
-
-    @property
-    def liveness_cmd(self):
-        return self.liveness and shlex.split(self.liveness['probe']) + \
-               [self.config.local_connect_kwargs['host'],
-                self.config.local_connect_kwargs['port'],
-                self.config.local_connect_kwargs['database']] or []
 
     @property
     def wal_dir(self):
@@ -390,25 +372,6 @@ class Postgresql(object):
     def cb_called(self):
         return self.__cb_called
 
-    @property
-    def lv_called(self):
-        return self.__lv_called if self.liveness else True
-
-    @property
-    def lv_failures(self):
-        return self.__lv_failures
-
-    def lv_failures_incr(self):
-        if self.liveness['max_failures'] > 0:
-            self.__lv_failures += 1
-        self.__lv_called = False
-        return None
-
-    def reset_lv_failures(self):
-        self.__lv_failures = 0
-        self.__lv_called = False
-        return None
-
     def call_nowait(self, cb_name):
         """ pick a callback command and call it without waiting for it to finish """
         if self.bootstrapping:
@@ -448,39 +411,6 @@ class Postgresql(object):
 
     def is_starting(self):
         return self.state == 'starting'
-
-    def liveness_terminate(self):
-        """Terminate Liveness plugin async probe."""
-        if self._liveness_executor._process is not None and self._liveness_executor._process.is_running():
-            logger.info('Terminating liveness process')
-            self._liveness_executor._kill_process()
-            self._liveness_executor._kill_children()
-
-    def liveness_check(self):
-        """Liveness plugin probe async call."""
-        try:
-            if self.lv_called or (self.role != 'master' and self.state != 'running'):
-                return None
-            with self._lv_lock:
-                if self.lv_called:
-                    return None
-                self.__lv_called = True
-            with self._liveness_executor._lock:
-                if not self._liveness_executor._start_process(self.liveness_cmd, close_fds=True):
-                    logger.error('Unable to start process for liveness probe')
-                    return self.reset_lv_failures()
-            if self._liveness_executor._process.wait(timeout=self.liveness['timeout']) != 0:
-                logger.error('Liveness Probe failed')
-                return self.lv_failures_incr()
-            return self.reset_lv_failures()
-        except TimeoutExpired:
-            logger.error("Timeout during liveness probe")
-            self.liveness_terminate()
-            return self.lv_failures_incr()
-        except Exception:
-            logger.error("Exception during liveness probe")
-            self.liveness_terminate()
-            return self.reset_lv_failures()
 
     def wait_for_port_open(self, postmaster, timeout):
         """Waits until PostgreSQL opens ports."""
