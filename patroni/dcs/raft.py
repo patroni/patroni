@@ -5,6 +5,7 @@ import threading
 import time
 
 from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
+from ..utils import validate_directory
 from pysyncobj import SyncObj, SyncObjConf, replicated, FAIL_REASON
 from pysyncobj.transport import Node, TCPTransport, CONNECTION_STATE
 
@@ -274,6 +275,11 @@ class Raft(AbstractDCS):
             if self_addr:
                 partner_addrs.append(self_addr)
             self_addr = None
+
+        # Create raft data_dir if necessary
+        raft_data_dir = config.get('data_dir', '')
+        if raft_data_dir != '':
+            validate_directory(raft_data_dir)
 
         ready_event = threading.Event()
         file_template = os.path.join(config.get('data_dir', ''), (self_addr or ''))
