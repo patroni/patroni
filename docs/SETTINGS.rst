@@ -236,7 +236,7 @@ Raft
 
   - Q: It is possible to run Patroni and PostgreSQL only on two nodes?
 
-    A: Yes, on the third node you can run ``patroni_raft_controller`` (without Patroni and PostgreSQL). In such setup one can temporary loose one node without affecting the primary.
+    A: Yes, on the third node you can run ``patroni_raft_controller`` (without Patroni and PostgreSQL). In such a setup, one can temporarily lose one node without affecting the primary.
 
 
 .. _postgresql_settings:
