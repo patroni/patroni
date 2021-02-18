@@ -6,6 +6,7 @@ import time
 import traceback
 import dateutil.parser
 import datetime
+import hmac
 import os
 import six
 import socket
@@ -558,7 +559,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             fcntl.fcntl(fd, fcntl.F_SETFD, flags | fcntl.FD_CLOEXEC)
 
     def check_basic_auth_key(self, key):
-        return self.__auth_key == key
+        return hmac.compare_digest(self.__auth_key, key)
 
     def check_auth_header(self, auth_header):
         if self.__auth_key:
