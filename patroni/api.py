@@ -1,4 +1,5 @@
 import base64
+import hmac
 import json
 import logging
 import psycopg2
@@ -558,7 +559,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             fcntl.fcntl(fd, fcntl.F_SETFD, flags | fcntl.FD_CLOEXEC)
 
     def check_basic_auth_key(self, key):
-        return self.__auth_key == key
+        return hmac.compare_digest(self.__auth_key, key.encode('utf-8'))
 
     def check_auth_header(self, auth_header):
         if self.__auth_key:
@@ -688,7 +689,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         if self.__listen != config['listen'] or self.__ssl_options != ssl_options:
             self.__initialize(config['listen'], ssl_options)
 
-        self.__auth_key = base64.b64encode(config['auth'].encode('utf-8')).decode('utf-8') if 'auth' in config else None
+        self.__auth_key = base64.b64encode(config['auth'].encode('utf-8')) if 'auth' in config else None
         self.connection_string = uri(self.__protocol, config.get('connect_address') or self.__listen, 'patroni')
 
     @staticmethod
