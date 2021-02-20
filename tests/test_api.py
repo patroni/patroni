@@ -199,8 +199,14 @@ class TestRestApiHandler(unittest.TestCase):
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={
             'state': 'running', 'postmaster_start_time': '2021-02-20 02:07:35.662 UTC',
             'role': 'master', 'server_version': '100015', 'cluster_unlocked': 'false',
-            'timeline': '14', 'xlog': { 'location': '50337208' }
-            })):
+            'timeline': '14', 'xlog': {'location': '50337208'}}
+        )):
+            MockRestApiServer(RestApiHandler, 'GET /metrics')
+        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={
+            'state': 'running', 'postmaster_start_time': '2021-02-20 02:07:35.662 UTC',
+            'role': 'replica', 'server_version': '100015', 'cluster_unlocked': 'false',
+            'timeline': '14', 'xlog': {'received_location': '50337208'}}
+        )):
             MockRestApiServer(RestApiHandler, 'GET /metrics')
 
     def test_do_OPTIONS(self):

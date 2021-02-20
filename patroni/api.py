@@ -207,14 +207,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
             metrics.append("# HELP patroni_master Value is 1 if this node is the leader, 0 otherwise.")
             metrics.append("# TYPE patroni_master gauge")
             metrics.append("patroni_master 1")
-            metrics.append("# HELP patroni_xlog_location Current location of the Postgres transaction log, 0 if this node is not the leader.")
+            metrics.append("# HELP patroni_xlog_location Current location of the Postgres transaction log, 0 if this node is not the leader.")  # noqa: E501
             metrics.append("# TYPE patroni_xlog_location counter")
             metrics.append("patroni_xlog_location {0}".format(postgres['xlog']['location']))
         else:
             metrics.append("# HELP patroni_master Value is 1 if this node is the leader, 0 otherwise.")
             metrics.append("# TYPE patroni_master gauge")
             metrics.append("patroni_master 0")
-            metrics.append("# HELP patroni_xlog_location Current location of the Postgres transaction log, 0 if this node is not the leader.")
+            metrics.append("# HELP patroni_xlog_location Current location of the Postgres transaction log, 0 if this node is not the leader.")  # noqa: E501
             metrics.append("# TYPE patroni_xlog_location counter")
             metrics.append("patroni_xlog_location 0")
 
@@ -222,14 +222,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
             metrics.append("# HELP patroni_replica Value is 1 if this node is a replica, 0 otherwise.")
             metrics.append("# TYPE patroni_replica gauge")
             metrics.append("patroni_replica 1")
-            metrics.append("# HELP patroni_xlog_received_location Current location of the received Postgres transaction log, 0 if this node is not a replica.")
+            metrics.append("# HELP patroni_xlog_received_location Current location of the received Postgres transaction log, 0 if this node is not a replica.")  # noqa: E501
             metrics.append("# TYPE patroni_xlog_received_location counter")
             metrics.append("patroni_xlog_received_location {0}".format(postgres['xlog']['received_location']))
         else:
             metrics.append("# HELP patroni_replica Value is 1 if this node is a replica, 0 otherwise.")
             metrics.append("# TYPE patroni_replica gauge")
             metrics.append("patroni_replica 0")
-            metrics.append("# HELP patroni_xlog_received_location Current location of the received Postgres transaction log, 0 if this node is not a replica.")
+            metrics.append("# HELP patroni_xlog_received_location Current location of the received Postgres transaction log, 0 if this node is not a replica.")  # noqa: E501
             metrics.append("# TYPE patroni_xlog_received_location counter")
             metrics.append("patroni_xlog_received_location 0")
 
