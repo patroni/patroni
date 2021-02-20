@@ -180,6 +180,69 @@ class RestApiHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(502)
 
+    def do_GET_metrics(self):
+        postgres = self.get_postgresql_status(True)
+        metrics = []
+
+        metrics.append("HELP patroni_running Value is 1 if Patroni/Postgres is up, 0 otherwise.")
+        metrics.append("TYPE patroni_running gauge")
+        if postgres['state'] == 'running':
+            metrics.append("patroni_running 1")
+        else:
+            metrics.append("patroni_running 0")
+
+        postmaster_epoch_start_time = int(datetime.datetime.strptime(postgres['postmaster_start_time'], "%Y-%m-%d %H:%M:%S.%f %Z").timestamp())
+        metrics.append("HELP patroni_postmaster_start_time Epoch seconds since Patroni/Postgres started.")
+        metrics.append("TYPE patroni_postmaster_start_time counter")
+        metrics.append("patroni_postmaster_start_time {0}".format(postmaster_epoch_start_time))
+
+        if postgres['role'] == 'master':
+            metrics.append("HELP patroni_master Value is 1 if this node is the leader, 0 otherwise.")
+            metrics.append("TYPE patroni_master gauge")
+            metrics.append("patroni_master 1")
+            metrics.append("HELP patroni_xlog_location Current location of the Postgres transaction log, 0 if this node is not the leader.")
+            metrics.append("TYPE patroni_xlog_location counter")
+            metrics.append("patroni_xlog_location {0}".format(postgres['xlog']['location']))
+        else:
+            metrics.append("HELP patroni_master Value is 1 if this node is the leader, 0 otherwise.")
+            metrics.append("TYPE patroni_master gauge")
+            metrics.append("patroni_master 0")
+            metrics.append("HELP patroni_xlog_location Current location of the Postgres transaction log, 0 if this node is not the leader.")
+            metrics.append("TYPE patroni_xlog_location counter")
+            metrics.append("patroni_xlog_location 0")
+
+        if postgres['role'] == 'replica':
+            metrics.append("HELP patroni_replica Value is 1 if this node is a replica, 0 otherwise.")
+            metrics.append("TYPE patroni_replica gauge")
+            metrics.append("patroni_replica 1")
+            metrics.append("HELP patroni_xlog_received_location Current location of the received Postgres transaction log, 0 if this node is not a replica.")
+            metrics.append("TYPE patroni_xlog_received_location counter")
+            metrics.append("patroni_xlog_received_location {0}".format(postgres['xlog']['received_location']))
+        else:
+            metrics.append("HELP patroni_replica Value is 1 if this node is a replica, 0 otherwise.")
+            metrics.append("TYPE patroni_replica gauge")
+            metrics.append("patroni_replica 0")
+            metrics.append("HELP patroni_xlog_received_location Current location of the received Postgres transaction log, 0 if this node is not a replica.")
+            metrics.append("TYPE patroni_xlog_received_location counter")
+            metrics.append("patroni_xlog_received_location 0")
+
+        metrics.append("HELP patroni_server_version Version of Patroni.")
+        metrics.append("TYPE patroni_server_version gauge")
+        metrics.append("patroni_server_version {0}".format(postgres['server_version']))
+
+        metrics.append("HELP patroni_cluster_unlocked Value is 1 if the cluster is unlocked, 0 if locked.")
+        metrics.append("TYPE patroni_cluster_unlocked gauge")
+        if postgres['cluster_unlocked']:
+            metrics.append("patroni_cluster_unlocked 1")
+        else:
+            metrics.append("patroni_cluster_unlocked 0")
+
+        metrics.append("HELP patroni_timeline Current Postgres timeline number of this node.")
+        metrics.append("TYPE patroni_timeline counter")
+        metrics.append("patroni_timeline {0}".format(postgres['timeline']))
+
+        self._write_response(200, '\n'.join(metrics)+'\n', content_type='text/plain')
+
     def _read_json_content(self, body_is_optional=False):
         if 'content-length' not in self.headers:
             return self.send_error(411) if not body_is_optional else {}
