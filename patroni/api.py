@@ -191,10 +191,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
         else:
             metrics.append("patroni_running 0")
 
-        postmaster_epoch_start_time = int(datetime.datetime.strptime(postgres['postmaster_start_time'], "%Y-%m-%d %H:%M:%S.%f %Z").timestamp())
-        metrics.append("# HELP patroni_postmaster_start_time Epoch seconds since Patroni/Postgres started.")
-        metrics.append("# TYPE patroni_postmaster_start_time counter")
-        metrics.append("patroni_postmaster_start_time {0}".format(postmaster_epoch_start_time))
+        try:
+            postmaster_epoch_start_time = int(datetime.datetime.strptime(
+                postgres['postmaster_start_time'], "%Y-%m-%d %H:%M:%S.%f %Z").timestamp())
+            metrics.append("# HELP patroni_postmaster_start_time Epoch seconds since Patroni/Postgres started.")
+            metrics.append("# TYPE patroni_postmaster_start_time counter")
+            metrics.append("patroni_postmaster_start_time {0}".format(postmaster_epoch_start_time))
+        except ValueError:
+            pass
 
         if postgres['role'] == 'master':
             metrics.append("# HELP patroni_master Value is 1 if this node is the leader, 0 otherwise.")

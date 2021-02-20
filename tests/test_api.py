@@ -196,8 +196,12 @@ class TestRestApiHandler(unittest.TestCase):
             self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /patroni'))
         with patch.object(MockHa, 'is_standby_cluster', Mock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /standby_leader')
-        with patch.object(RestApiServer, 'query', Mock(return_value="# HELP patroni_running Value is 1 or 0.\n# TYPE patroni_running gauge\npatroni_running 1")):
-            self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /patroni'))
+        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={
+            'state': 'running', 'postmaster_start_time': '2021-02-20 02:07:35.662 UTC',
+            'role': 'master', 'server_version': '100015', 'cluster_unlocked': 'false',
+            'timeline': '14', 'xlog': { 'location': '50337208' }
+            })):
+            MockRestApiServer(RestApiHandler, 'GET /metrics')
 
     def test_do_OPTIONS(self):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'OPTIONS / HTTP/1.0'))
