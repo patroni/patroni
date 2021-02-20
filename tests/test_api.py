@@ -196,6 +196,8 @@ class TestRestApiHandler(unittest.TestCase):
             self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /patroni'))
         with patch.object(MockHa, 'is_standby_cluster', Mock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /standby_leader')
+        with patch.object(RestApiServer, 'query', Mock(return_value="# HELP patroni_running Value is 1 or 0.\n# TYPE patroni_running gauge\npatroni_running 1")):
+            self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /patroni'))
 
     def test_do_OPTIONS(self):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'OPTIONS / HTTP/1.0'))
@@ -235,6 +237,10 @@ class TestRestApiHandler(unittest.TestCase):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /config'))
         mock_dcs.cluster.config = None
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /config'))
+
+    @patch.object(MockPatroni, 'dcs')
+    def test_do_GET_metrics(self, mock_dcs):
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /metrics'))
 
     @patch.object(MockPatroni, 'dcs')
     def test_do_PATCH_config(self, mock_dcs):
