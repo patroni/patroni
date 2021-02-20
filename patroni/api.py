@@ -192,8 +192,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
             metrics.append("patroni_running 0")
 
         try:
-            postmaster_epoch_start_time = int(datetime.datetime.strptime(
-                postgres['postmaster_start_time'], "%Y-%m-%d %H:%M:%S.%f %Z").timestamp())
+            postmaster_epoch_start_time = int(
+                datetime.datetime.strptime(
+                    postgres['postmaster_start_time'], "%Y-%m-%d %H:%M:%S.%f %Z"
+                ).strftime('%s')
+            )
             metrics.append("# HELP patroni_postmaster_start_time Epoch seconds since Patroni/Postgres started.")
             metrics.append("# TYPE patroni_postmaster_start_time counter")
             metrics.append("patroni_postmaster_start_time {0}".format(postmaster_epoch_start_time))
