@@ -188,17 +188,15 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("# TYPE patroni_running gauge")
         metrics.append("patroni_running {0}".format(int(postgres['state'] == 'running')))
 
+        metrics.append("# HELP patroni_postmaster_start_time Epoch seconds since Patroni/Postgres started.")
+        metrics.append("# TYPE patroni_postmaster_start_time counter")
         try:
-            postmaster_epoch_start_time = int(
-                datetime.datetime.strptime(
-                    postgres['postmaster_start_time'], "%Y-%m-%d %H:%M:%S.%f %Z"
-                ).strftime('%s')
-            )
-            metrics.append("# HELP patroni_postmaster_start_time Epoch seconds since Patroni/Postgres started.")
-            metrics.append("# TYPE patroni_postmaster_start_time counter")
+            postmaster_epoch_start_time = int(datetime.datetime.strptime(
+                postgres['postmaster_start_time'], "%Y-%m-%d %H:%M:%S.%f %Z"
+            ).strftime('%s'))
             metrics.append("patroni_postmaster_start_time {0}".format(postmaster_epoch_start_time))
         except ValueError:
-            pass
+            metrics.append("patroni_postmaster_start_time 0")
 
         metrics.append("# HELP patroni_master Value is 1 if this node is the leader, 0 otherwise.")
         metrics.append("# TYPE patroni_master gauge")
