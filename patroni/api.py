@@ -208,6 +208,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("# TYPE patroni_xlog_location counter")
         metrics.append("patroni_xlog_location {0}".format(postgres.get('xlog', {}).get('location', 0)))
 
+        metrics.append("# HELP patroni_standby_leader Value is 1 if this node is the leader, 0 otherwise.")
+        metrics.append("# TYPE patroni_standby_leader gauge")
+        metrics.append("patroni_standby_leader {0}".format(int(postgres['role'] == 'standby_leader')))
+
         metrics.append("# HELP patroni_replica Value is 1 if this node is a replica, 0 otherwise.")
         metrics.append("# TYPE patroni_replica gauge")
         metrics.append("patroni_replica {0}".format(int(postgres['role'] == 'replica')))
