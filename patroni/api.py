@@ -210,7 +210,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         metrics.append("# HELP patroni_replica Value is 1 if this node is a replica, 0 otherwise.")
         metrics.append("# TYPE patroni_replica gauge")
-        metrics.append("patroni_replica 1")
+        metrics.append("patroni_replica {0}".format(int(postgres['role'] == 'replica')))
         metrics.append("# HELP patroni_xlog_received_location Current location of the received"
                        " PostgreSQL transaction log, 0 if this node is not a replica.")
         metrics.append("# TYPE patroni_xlog_received_location counter")
