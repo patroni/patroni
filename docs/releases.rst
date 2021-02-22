@@ -130,7 +130,7 @@ Version 2.0.1
 
 - Removed the ``secure`` extra from the ``urllib3`` requirements (Alexander)
 
-  `The only reason for adding it there was the ``ipaddress`` dependency for python 2.7.
+  The only reason for adding it there was the ``ipaddress`` dependency for python 2.7.
 
 **Bugfixes**
 
