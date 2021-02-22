@@ -12,13 +12,13 @@ Version 2.0.2
 
   Patroni is trying to remove any replication slot which is unknown to it, but there are certainly cases when replication slots should be managed externally. From now on it is possible to configure slots that should not be removed.
 
-- Added support fo cipher suite limitation for REST API (Gunnar "Nick" Bluth)
+- Added support for cipher suite limitation for REST API (Gunnar "Nick" Bluth)
 
-  It could be configured via ``restapi.ciphers`` or ``PATRONI_RESTAPI_CIPHERS`` environment variable.
+  It could be configured via ``restapi.ciphers`` or the ``PATRONI_RESTAPI_CIPHERS`` environment variable.
 
 - Added support for encrypted TLS keys for REST API (Jonathan S. Katz)
 
-  It could be configured via ``restapi.keyfile_password`` or ``PATRONI_RESTAPI_KEYFILE_PASSWORD`` environment variable.
+  It could be configured via ``restapi.keyfile_password`` or the ``PATRONI_RESTAPI_KEYFILE_PASSWORD`` environment variable.
 
 - Constant time comparison of REST API authentication credentials (Alex Brasetvik)
 
@@ -26,14 +26,14 @@ Version 2.0.2
 
 - Choose synchronous nodes based on replication lag (Krishna Sarabu)
 
-  If the replication lag on the synchronous node starts exceeding the configured threshold it could be demoted to asynchronous and/or replaced the other node. Behaviour is controlled with ``maximum_lag_on_syncnode``.
+  If the replication lag on the synchronous node starts exceeding the configured threshold it could be demoted to asynchronous and/or replaced by the other node. Behaviour is controlled with ``maximum_lag_on_syncnode``.
 
 
 **Stability improvements**
 
 - Start postgres with ``hot_standby = off`` when doing custom bootstrap (Igor Yanchenko)
 
-  In custom bootstrap Patroni restoring the basebackup, starting postgres up, and waiting until recovery finishes. Some of PostgreSQL parameters on the standby can't be smaller than on the primary and if the new value (restored from WAL) is higher than the configured one, postgres panics and stops. In order to avoid such behavior we will do custom bootstrap without ``hot_standby`` mode.
+  During custom bootstrap Patroni is restoring the basebackup, starting Postgres up, and waiting until recovery finishes. Some PostgreSQL parameters on the standby can't be smaller than on the primary and if the new value (restored from WAL) is higher than the configured one, Postgres panics and stops. In order to avoid such behavior we will do custom bootstrap without ``hot_standby`` mode.
 
 - Warn the user if the required watchdog is not healthy (Nicolas Thauvin)
 
@@ -41,15 +41,15 @@ Version 2.0.2
 
 - Better verbosity for single-user mode recovery (Alexander Kukushkin)
 
-  If Patroni notice that PostgreSQL wasn't shutdown clearly in certain cases the crash-recovery is executed by starting postgres in the single-user mode. It could happen that the recovery failed (for example due, to the lack of space on disk) but errors were swallowed.
+  If Patroni notices that PostgreSQL wasn't shutdown clearly, in certain cases the crash-recovery is executed by starting Postgres in single-user mode. It could happen that the recovery failed (for example due to the lack of space on disk) but errors were swallowed.
 
 - Added compatibility with ``python-consul2`` module (Alexander, Wilfried Roset)
 
-  The good old ``python-consul`` is not maintained for a few years, therefore someone created a fork with new features and bug-fixes.
+  The good old ``python-consul`` is not maintained since a few years, therefore someone created a fork with new features and bug-fixes.
 
-- Don't use ``bypass_api_service`` when running patronictl (Alexander)
+- Don't use ``bypass_api_service`` when running ``patronictl`` (Alexander)
 
-  When K8s pod is running in the not ``default`` namespace it is not necessarily has enough permissions to query the ``kubernetes`` endpoint. In this case Patroni shows the warning and ignores ``bypass_api_service`` setting. In case of ``patronictl`` the warning was a bit annoying.
+  When a K8s pod is running in a non-``default`` namespace it does not necessarily have enough permissions to query the ``kubernetes`` endpoint. In this case Patroni shows the warning and ignores the ``bypass_api_service`` setting. In case of ``patronictl`` the warning was a bit annoying.
 
 - Create ``raft.data_dir`` if it doesn't exists or make sure that it is writable (Mark Mercado)
 
@@ -62,9 +62,9 @@ Version 2.0.2
 
   In pause it is allowed to run postgres as primary without lock.
 
-- Fixed issue with shutdown_request() in the REST API (Nicolas Limage)
+- Fixed issue with ``shutdown_request()`` in the REST API (Nicolas Limage)
 
-  In order to improve handling of SSL connections and delay the handshake until thread is started Patroni overrides a few methods in the ``HTTPServer``. The shutdown_request() method was forgotten.
+  In order to improve handling of SSL connections and delay the handshake until thread is started Patroni overrides a few methods in the ``HTTPServer``. The ``shutdown_request()`` method was forgotten.
 
 - Fixed issue with sleep time when using Zookeeper (Alexander)
 
@@ -80,7 +80,7 @@ Version 2.0.2
 
 - Fixed an issues with pg_rewind in the standby cluster (Alexander)
 
-  If the superuser name is different from postgres, the ``pg_rewind`` in the standby cluster was failing because the connection string didn't contain the database name.
+  If the superuser name is different from Postgres, the ``pg_rewind`` in the standby cluster was failing because the connection string didn't contain the database name.
 
 - Exit only if authentication with Etcd v3 explicitly failed (Alexander)
 
