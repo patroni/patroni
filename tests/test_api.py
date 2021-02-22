@@ -446,10 +446,12 @@ class TestRestApiHandler(unittest.TestCase):
 class TestRestApiServer(unittest.TestCase):
 
     @patch('ssl.SSLContext.load_cert_chain', Mock())
+    @patch('ssl.SSLContext.set_ciphers', Mock())
     @patch('ssl.SSLContext.wrap_socket', Mock(return_value=0))
     @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
     def setUp(self):
-        self.srv = MockRestApiServer(Mock(), '', {'listen': '*:8008', 'certfile': 'a', 'verify_client': 'required'})
+        self.srv = MockRestApiServer(Mock(), '', {'listen': '*:8008', 'certfile': 'a', 'verify_client': 'required',
+                                                  'ciphers': '!SSLv1:!SSLv2:!SSLv3:!TLSv1:!TLSv1.1'})
 
     @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
     def test_reload_config(self):

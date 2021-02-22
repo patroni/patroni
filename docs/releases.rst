@@ -3,6 +3,102 @@
 Release notes
 =============
 
+Version 2.0.2
+-------------
+
+**New features**
+
+- Ability to ignore externally managed replication slots (James Coleman)
+
+  Patroni is trying to remove any replication slot which is unknown to it, but there are certainly cases when replication slots should be managed externally. From now on it is possible to configure slots that should not be removed.
+
+- Added support for cipher suite limitation for REST API (Gunnar "Nick" Bluth)
+
+  It could be configured via ``restapi.ciphers`` or the ``PATRONI_RESTAPI_CIPHERS`` environment variable.
+
+- Added support for encrypted TLS keys for REST API (Jonathan S. Katz)
+
+  It could be configured via ``restapi.keyfile_password`` or the ``PATRONI_RESTAPI_KEYFILE_PASSWORD`` environment variable.
+
+- Constant time comparison of REST API authentication credentials (Alex Brasetvik)
+
+  Use ``hmac.compare_digest()`` instead of ``==``, which is vulnerable to timing attack.
+
+- Choose synchronous nodes based on replication lag (Krishna Sarabu)
+
+  If the replication lag on the synchronous node starts exceeding the configured threshold it could be demoted to asynchronous and/or replaced by the other node. Behaviour is controlled with ``maximum_lag_on_syncnode``.
+
+
+**Stability improvements**
+
+- Start postgres with ``hot_standby = off`` when doing custom bootstrap (Igor Yanchenko)
+
+  During custom bootstrap Patroni is restoring the basebackup, starting Postgres up, and waiting until recovery finishes. Some PostgreSQL parameters on the standby can't be smaller than on the primary and if the new value (restored from WAL) is higher than the configured one, Postgres panics and stops. In order to avoid such behavior we will do custom bootstrap without ``hot_standby`` mode.
+
+- Warn the user if the required watchdog is not healthy (Nicolas Thauvin)
+
+  When the watchdog device is not writable or missing in required mode, the member cannot be promoted. Added a warning to show the user where to search for this misconfiguration.
+
+- Better verbosity for single-user mode recovery (Alexander Kukushkin)
+
+  If Patroni notices that PostgreSQL wasn't shutdown clearly, in certain cases the crash-recovery is executed by starting Postgres in single-user mode. It could happen that the recovery failed (for example due to the lack of space on disk) but errors were swallowed.
+
+- Added compatibility with ``python-consul2`` module (Alexander, Wilfried Roset)
+
+  The good old ``python-consul`` is not maintained since a few years, therefore someone created a fork with new features and bug-fixes.
+
+- Don't use ``bypass_api_service`` when running ``patronictl`` (Alexander)
+
+  When a K8s pod is running in a non-``default`` namespace it does not necessarily have enough permissions to query the ``kubernetes`` endpoint. In this case Patroni shows the warning and ignores the ``bypass_api_service`` setting. In case of ``patronictl`` the warning was a bit annoying.
+
+- Create ``raft.data_dir`` if it doesn't exists or make sure that it is writable (Mark Mercado)
+
+  Improves user-friendliness and usability.
+
+
+**Bugfixes**
+
+- Don't interrupt restart or promote if lost leader lock in pause (Alexander)
+
+  In pause it is allowed to run postgres as primary without lock.
+
+- Fixed issue with ``shutdown_request()`` in the REST API (Nicolas Limage)
+
+  In order to improve handling of SSL connections and delay the handshake until thread is started Patroni overrides a few methods in the ``HTTPServer``. The ``shutdown_request()`` method was forgotten.
+
+- Fixed issue with sleep time when using Zookeeper (Alexander)
+
+  There were chances that Patroni was sleeping up to twice longer between running HA code.
+
+- Fixed invalid ``os.symlink()`` calls when moving data directory after failed bootstrap (Andrew L'Ecuyer)
+
+  If the bootstrap failed Patroni is renaming data directory, pg_wal, and all tablespaces. After that it updates symlinks so filesystem remains consistent. The symlink creation was failing due to the ``src`` and ``dst`` arguments being swapped.
+
+- Fixed bug in the post_bootstrap() method (Alexander)
+
+  If the superuser password wasn't configured Patroni was failing to call the ``post_init`` script and therefore the whole bootstrap was failing.
+
+- Fixed an issues with pg_rewind in the standby cluster (Alexander)
+
+  If the superuser name is different from Postgres, the ``pg_rewind`` in the standby cluster was failing because the connection string didn't contain the database name.
+
+- Exit only if authentication with Etcd v3 explicitly failed (Alexander)
+
+  On start Patroni performs discovery of Etcd cluster topology and authenticates if it is necessarily. It could happen that one of etcd servers is not accessible, Patroni was trying to perform authentication on this server and failing instead of retrying with the next node.
+
+- Handle case with psutil cmdline() returning empty list (Alexander)
+
+  Zombie processes are still postmasters children, but they don't have cmdline()
+
+- Treat ``PATRONI_KUBERNETES_USE_ENDPOINTS`` environment variable as boolean (Alexander)
+
+  Not doing so was making impossible disabling ``kubernetes.use_endpoints`` via environment.
+
+- Improve handling of concurrent endpoint update errors (Alexander)
+
+  Patroni will explicitly query the current endpoint object, verify that the current pod still holds the leader lock and repeat the update.
+
+
 Version 2.0.1
 -------------
 
