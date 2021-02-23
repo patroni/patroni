@@ -499,7 +499,8 @@ class TestPostgresql(BaseTestPostgresql):
         parameters = self._PARAMETERS.copy()
         parameters.pop('f.oo')
         parameters['wal_buffers'] = '512'
-        config = {'pg_hba': [''], 'pg_ident': [''], 'use_unix_socket': True, 'authentication': {},
+        config = {'pg_hba': [''], 'pg_ident': [''], 'use_unix_socket': True, 'use_unix_socket_repl': True,
+                  'authentication': {},
                   'retry_timeout': 10, 'listen': '*', 'krbsrvname': 'postgres', 'parameters': parameters}
         self.p.reload_config(config)
         mock_fetchone.side_effect = Exception

@@ -876,25 +876,23 @@ class ConfigHandler(object):
     def resolve_connection_addresses(self):
         port = self._server_parameters['port']
         tcp_local_address = self._get_tcp_local_address()
-
-        local_address = {'port': port}
-        if self._config.get('use_unix_socket'):
-            unix_socket_directories = self._server_parameters.get('unix_socket_directories')
-            if unix_socket_directories is not None:
-                # fallback to tcp if unix_socket_directories is set, but there are no sutable values
-                local_address['host'] = self._get_unix_local_address(unix_socket_directories) or tcp_local_address
-
-            # if unix_socket_directories is not specified, but use_unix_socket is set to true - do our best
-            # to use default value, i.e. don't specify a host neither in connection url nor arguments
+        unix_socket_directories = self._server_parameters.get('unix_socket_directories')
+        if unix_socket_directories is not None and self._config.get('use_unix_socket'):
+            # fallback to tcp if unix_socket_directories is set, but there are no sutable values
+            self._local_address = {
+                'host': self._get_unix_local_address(unix_socket_directories) or tcp_local_address, 'port': port}
         else:
-            local_address['host'] = tcp_local_address
+            self._local_address = {'host': tcp_local_address, 'port': port}
 
-        self._local_address = local_address
-        self.local_replication_address = {'host': tcp_local_address, 'port': port}
+        if unix_socket_directories is not None and self._config.get('use_unix_socket_repl'):
+            # fallback to tcp if unix_socket_directories is set, but there are no sutable values
+            self.local_replication_address = {
+                'host': self._get_unix_local_address(unix_socket_directories) or tcp_local_address, 'port': port}
+        else:
+            self.local_replication_address = {'host': tcp_local_address, 'port': port}
 
         netloc = self._config.get('connect_address') or tcp_local_address + ':' + port
         self._postgresql.connection_string = uri('postgres', netloc, self._postgresql.database)
-
         self._postgresql.set_connection_kwargs(self.local_connect_kwargs)
 
     def _get_pg_settings(self, names):
