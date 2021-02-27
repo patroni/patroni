@@ -182,7 +182,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     def do_GET_metrics(self):
         postgres = self.get_postgresql_status(True)
+        patroni = self.server.patroni
+
         metrics = []
+
+        # This obviously doesn't scale; maybe we do 2.0.2 => 002 000 002
+        metrics.append("# HELP patroni_version Patroni semver without periods.")
+        metrics.append("# TYPE patroni_version gauge")
+        metrics.append("patroni_version {0}".format(patroni.version).replace('.', ''))
 
         metrics.append("# HELP patroni_postgres_running Value is 1 if Postgres is running, 0 otherwise.")
         metrics.append("# TYPE patroni_postgres_running gauge")
