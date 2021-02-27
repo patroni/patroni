@@ -201,7 +201,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("# HELP patroni_master Value is 1 if this node is the leader, 0 otherwise.")
         metrics.append("# TYPE patroni_master gauge")
         metrics.append("patroni_master {0}".format(int(postgres['role'] == 'master')))
-        metrics.append("# HELP patroni_xlog_location Current location of the PostgreSQL"
+
+        metrics.append("# HELP patroni_xlog_location Current location of the Postgres"
                        " transaction log, 0 if this node is not the leader.")
         metrics.append("# TYPE patroni_xlog_location counter")
         metrics.append("patroni_xlog_location {0}".format(postgres.get('xlog', {}).get('location', 0)))
@@ -213,8 +214,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("# HELP patroni_replica Value is 1 if this node is a replica, 0 otherwise.")
         metrics.append("# TYPE patroni_replica gauge")
         metrics.append("patroni_replica {0}".format(int(postgres['role'] == 'replica')))
+
         metrics.append("# HELP patroni_xlog_received_location Current location of the received"
-                       " PostgreSQL transaction log, 0 if this node is not a replica.")
+                       " Postgres transaction log, 0 if this node is not a replica.")
         metrics.append("# TYPE patroni_xlog_received_location counter")
         metrics.append("patroni_xlog_received_location {0}".format(
                         postgres.get('xlog', {}).get('received_location', 0)))
