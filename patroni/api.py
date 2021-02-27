@@ -239,9 +239,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("patroni_xlog_paused {0}".format(
                         int(postgres.get('xlog', {}).get('paused', False) is True)))
 
-        metrics.append("# HELP patroni_server_version Version of Patroni.")
-        metrics.append("# TYPE patroni_server_version gauge")
-        metrics.append("patroni_server_version {0}".format(postgres['server_version']))
+        metrics.append("# HELP patroni_postgres_server_version Version of Postgres.")
+        metrics.append("# TYPE patroni_postgres_server_version gauge")
+        metrics.append("patroni_postgres_server_version {0}".format(postgres['server_version']))
 
         metrics.append("# HELP patroni_cluster_unlocked Value is 1 if the cluster is unlocked, 0 if locked.")
         metrics.append("# TYPE patroni_cluster_unlocked gauge")
