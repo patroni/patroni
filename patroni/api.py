@@ -545,8 +545,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def get_postgresql_start_time_epoch(self, retry=False):
         postgresql = self.server.patroni.postgresql
         try:
-            cluster = self.server.patroni.dcs.cluster
-
             if postgresql.state not in ('running', 'restarting', 'starting'):
                 raise RetryFailedError('')
 
