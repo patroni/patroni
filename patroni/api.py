@@ -227,6 +227,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("patroni_xlog_replayed_location {0}".format(
                         postgres.get('xlog', {}).get('replayed_location', 0)))
 
+        metrics.append("# HELP patroni_xlog_paused Value is 1 if the Postgres xlog is paused, 0 otherwise.")
+        metrics.append("# TYPE patroni_xlog_paused gauge")
+        metrics.append("patroni_xlog_paused {0}".format(
+                        int(postgres.get('xlog', {}).get('paused', 0))))
+
         metrics.append("# HELP patroni_server_version Version of Patroni.")
         metrics.append("# TYPE patroni_server_version gauge")
         metrics.append("patroni_server_version {0}".format(postgres['server_version']))
