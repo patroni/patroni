@@ -184,9 +184,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
         postgres = self.get_postgresql_status(True)
         metrics = []
 
-        metrics.append("# HELP patroni_running Value is 1 if Patroni/Postgres is up, 0 otherwise.")
-        metrics.append("# TYPE patroni_running gauge")
-        metrics.append("patroni_running {0}".format(int(postgres['state'] == 'running')))
+        metrics.append("# HELP patroni_postgres_running Value is 1 if Postgres is running, 0 otherwise.")
+        metrics.append("# TYPE patroni_postgres_running gauge")
+        metrics.append("patroni_postgres_running {0}".format(int(postgres['state'] == 'running')))
 
         metrics.append("# HELP patroni_postmaster_start_time Epoch seconds since Patroni/Postgres started.")
         metrics.append("# TYPE patroni_postmaster_start_time counter")
