@@ -188,7 +188,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("# TYPE patroni_postgres_running gauge")
         metrics.append("patroni_postgres_running {0}".format(int(postgres['state'] == 'running')))
 
-        metrics.append("# HELP patroni_postmaster_start_time Epoch seconds since Patroni/Postgres started.")
+        metrics.append("# HELP patroni_postmaster_start_time Epoch seconds since Postgres started.")
         metrics.append("# TYPE patroni_postmaster_start_time counter")
         try:
             postmaster_epoch_start_time = int(datetime.datetime.strptime(
