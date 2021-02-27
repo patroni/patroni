@@ -197,13 +197,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         metrics.append("# HELP patroni_postmaster_start_time Epoch seconds since Postgres started.")
         metrics.append("# TYPE patroni_postmaster_start_time counter")
-        try:
-            postmaster_epoch_start_time = int(datetime.datetime.strptime(
-                postgres['postmaster_start_time'], "%Y-%m-%d %H:%M:%S.%f %Z"
-            ).strftime('%s'))
-            metrics.append("patroni_postmaster_start_time {0}".format(postmaster_epoch_start_time))
-        except ValueError:
-            metrics.append("patroni_postmaster_start_time 0")
+        metrics.append("patroni_postmaster_start_time {0}".format(int(self.get_postgresql_start_time_epoch(False))))
 
         metrics.append("# HELP patroni_master Value is 1 if this node is the leader, 0 otherwise.")
         metrics.append("# TYPE patroni_master gauge")
@@ -547,6 +541,26 @@ class RestApiHandler(BaseHTTPRequestHandler):
             return self.server.query(sql, *params)
         retry = Retry(delay=1, retry_exceptions=PostgresConnectionException)
         return retry(self.server.query, sql, *params)
+
+    def get_postgresql_start_time_epoch(self, retry=False):
+        postgresql = self.server.patroni.postgresql
+        try:
+            cluster = self.server.patroni.dcs.cluster
+
+            if postgresql.state not in ('running', 'restarting', 'starting'):
+                raise RetryFailedError('')
+
+            stmt = ("SELECT extract(epoch from pg_catalog.pg_postmaster_start_time())")
+
+            row = self.query(stmt, retry=retry)[0]
+
+            if row[0]:
+                return row[0]
+            else:
+                return 0
+
+        except (psycopg2.Error, RetryFailedError, PostgresConnectionException):
+            return 0
 
     def get_postgresql_status(self, retry=False):
         postgresql = self.server.patroni.postgresql
