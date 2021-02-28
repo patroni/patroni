@@ -196,7 +196,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("patroni_postgres_running {0}".format(int(postgres['state'] == 'running')))
 
         metrics.append("# HELP patroni_postmaster_start_time Epoch seconds since Postgres started.")
-        metrics.append("# TYPE patroni_postmaster_start_time counter")
+        metrics.append("# TYPE patroni_postmaster_start_time gauge")
         metrics.append("patroni_postmaster_start_time {0}".format(int(self.get_postgresql_start_time_epoch(False))))
 
         metrics.append("# HELP patroni_master Value is 1 if this node is the leader, 0 otherwise.")
