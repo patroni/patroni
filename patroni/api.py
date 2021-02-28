@@ -246,7 +246,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         metrics.append("# HELP patroni_cluster_unlocked Value is 1 if the cluster is unlocked, 0 if locked.")
         metrics.append("# TYPE patroni_cluster_unlocked gauge")
-        metrics.append("patroni_cluster_unlocked {0}".format(int(postgres['cluster_unlocked'] == 'true')))
+        metrics.append("patroni_cluster_unlocked {0}".format(int(postgres['cluster_unlocked'])))
 
         metrics.append("# HELP patroni_timeline Current Postgres timeline number of this node.")
         metrics.append("# TYPE patroni_timeline counter")
