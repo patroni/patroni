@@ -230,7 +230,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         metrics.append("# HELP patroni_xlog_replayed_timestamp Current timestamp of the replayed"
                        " Postgres transaction log, 0 if null.")
-        metrics.append("# TYPE patroni_xlog_received_timestamp counter")
+        metrics.append("# TYPE patroni_xlog_replayed_timestamp counter")
         xlog_replayed_timestamp = postgres.get('xlog', {}).get('replayed_timestamp', 0)
         metrics.append("patroni_xlog_replayed_timestamp {0}".format(
                         xlog_replayed_timestamp if xlog_replayed_timestamp is not None else 0))
