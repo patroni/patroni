@@ -224,7 +224,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         metrics.append("# HELP patroni_xlog_replayed_location Current location of the replayed"
                        " Postgres transaction log, 0 if this node is not a replica.")
-        metrics.append("# TYPE patroni_xlog_received_location counter")
+        metrics.append("# TYPE patroni_xlog_replayed_location counter")
         metrics.append("patroni_xlog_replayed_location {0}".format(
                         postgres.get('xlog', {}).get('replayed_location', 0)))
 
