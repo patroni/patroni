@@ -186,10 +186,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         metrics = []
 
-        # This obviously doesn't scale; maybe we do 2.0.2 => 002 000 002
         metrics.append("# HELP patroni_version Patroni semver without periods.")
         metrics.append("# TYPE patroni_version gauge")
-        metrics.append("patroni_version {0}".format(patroni.version).replace('.', ''))
+        padded_semver = ''.join([x.zfill(2) for x in patroni.version.split('.')]) # 2.0.2 => 020002
+        metrics.append("patroni_version {0}".format(padded_semver).replace('.', ''))
 
         metrics.append("# HELP patroni_postgres_running Value is 1 if Postgres is running, 0 otherwise.")
         metrics.append("# TYPE patroni_postgres_running gauge")
