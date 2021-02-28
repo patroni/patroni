@@ -183,13 +183,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_GET_metrics(self):
         postgres = self.get_postgresql_status(True)
         patroni = self.server.patroni
+        epoch = datetime.datetime(1970, 1, 1, tzinfo=tzutc)
 
         metrics = []
 
         metrics.append("# HELP patroni_version Patroni semver without periods.")
         metrics.append("# TYPE patroni_version gauge")
         padded_semver = ''.join([x.zfill(2) for x in patroni.version.split('.')])  # 2.0.2 => 020002
-        metrics.append("patroni_version {0}".format(padded_semver).replace('.', ''))
+        metrics.append("patroni_version {0}".format(padded_semver))
 
         metrics.append("# HELP patroni_postgres_running Value is 1 if Postgres is running, 0 otherwise.")
         metrics.append("# TYPE patroni_postgres_running gauge")
@@ -197,7 +198,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         metrics.append("# HELP patroni_postmaster_start_time Epoch seconds since Postgres started.")
         metrics.append("# TYPE patroni_postmaster_start_time gauge")
-        metrics.append("patroni_postmaster_start_time {0}".format(postgres['postmaster_start_time'].strftime('%s.%f')))
+        postmaster_start_time = postgres.get('postmaster_start_time')
+        postmaster_start_time = (postmaster_start_time - epoch).total_seconds() if postmaster_start_time else 0
+        metrics.append("patroni_postmaster_start_time {0}".format(postmaster_start_time))
 
         metrics.append("# HELP patroni_master Value is 1 if this node is the leader, 0 otherwise.")
         metrics.append("# TYPE patroni_master gauge")
@@ -231,26 +234,26 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("# HELP patroni_xlog_replayed_timestamp Current timestamp of the replayed"
                        " Postgres transaction log, 0 if null.")
         metrics.append("# TYPE patroni_xlog_replayed_timestamp gauge")
-        xlog_replayed_timestamp = postgres.get('xlog', {}).get('replayed_timestamp')
-        metrics.append("patroni_xlog_replayed_timestamp {0}".format(
-                        xlog_replayed_timestamp.strftime('%s.%f') if xlog_replayed_timestamp is not None else 0))
+        replayed_timestamp = postgres.get('xlog', {}).get('replayed_timestamp')
+        replayed_timestamp = (replayed_timestamp - epoch).total_seconds() if replayed_timestamp else 0
+        metrics.append("patroni_xlog_replayed_timestamp {0}".format(replayed_timestamp))
 
         metrics.append("# HELP patroni_xlog_paused Value is 1 if the Postgres xlog is paused, 0 otherwise.")
         metrics.append("# TYPE patroni_xlog_paused gauge")
         metrics.append("patroni_xlog_paused {0}".format(
                         int(postgres.get('xlog', {}).get('paused', False) is True)))
 
-        metrics.append("# HELP patroni_postgres_server_version Version of Postgres.")
+        metrics.append("# HELP patroni_postgres_server_version Version of Postgres (if running), 0 otherwise.")
         metrics.append("# TYPE patroni_postgres_server_version gauge")
-        metrics.append("patroni_postgres_server_version {0}".format(postgres['server_version']))
+        metrics.append("patroni_postgres_server_version {0}".format(postgres.get('server_version', 0)))
 
         metrics.append("# HELP patroni_cluster_unlocked Value is 1 if the cluster is unlocked, 0 if locked.")
         metrics.append("# TYPE patroni_cluster_unlocked gauge")
         metrics.append("patroni_cluster_unlocked {0}".format(int(postgres['cluster_unlocked'])))
 
-        metrics.append("# HELP patroni_timeline Current Postgres timeline number of this node.")
+        metrics.append("# HELP patroni_timeline Current Postgres timeline of this node (if running), 0 otherwise.")
         metrics.append("# TYPE patroni_timeline counter")
-        metrics.append("patroni_timeline {0}".format(postgres['timeline']))
+        metrics.append("patroni_timeline {0}".format(postgres.get('timeline', 0)))
 
         self._write_response(200, '\n'.join(metrics)+'\n', content_type='text/plain')
 
