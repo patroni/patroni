@@ -1,3 +1,4 @@
+import datetime
 import os
 import shutil
 import unittest
@@ -95,10 +96,11 @@ class MockCursor(object):
             self.results = [(1, 2, 1, 0, False, 1, 1, None, None)]
         elif sql.startswith('SELECT pg_catalog.pg_is_in_recovery()'):
             self.results = [(False, 2)]
-        elif sql.startswith('SELECT pg_catalog.to_char'):
+        elif sql.startswith('SELECT pg_catalog.pg_postmaster_start_time'):
             replication_info = '[{"application_name":"walreceiver","client_addr":"1.2.3.4",' +\
                                '"state":"streaming","sync_state":"async","sync_priority":0}]'
-            self.results = [('', 0, '', 0, '', '', False, replication_info)]
+            now = datetime.datetime.now()
+            self.results = [(now, 0, '', 0, '', False, now, replication_info)]
         elif sql.startswith('SELECT name, setting'):
             self.results = [('wal_segment_size', '2048', '8kB', 'integer', 'internal'),
                             ('wal_block_size', '8192', None, 'integer', 'internal'),

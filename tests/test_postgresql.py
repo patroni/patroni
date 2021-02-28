@@ -1,3 +1,4 @@
+import datetime
 import mock  # for the mock.call method, importing it without a namespace breaks python3
 import os
 import psutil
@@ -522,8 +523,9 @@ class TestPostgresql(BaseTestPostgresql):
             self.assertEqual(self.p.get_major_version(), 0)
 
     def test_postmaster_start_time(self):
-        with patch.object(MockCursor, "fetchone", Mock(return_value=('foo', True, '', '', '', '', False))):
-            self.assertEqual(self.p.postmaster_start_time(), 'foo')
+        now = datetime.datetime.now()
+        with patch.object(MockCursor, "fetchone", Mock(return_value=(now, True, '', '', '', '', False))):
+            self.assertEqual(self.p.postmaster_start_time(), now.isoformat(sep=' '))
             t = Thread(target=self.p.postmaster_start_time)
             t.start()
             t.join()

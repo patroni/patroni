@@ -45,7 +45,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self.wfile.write(body.encode('utf-8'))
 
     def _write_json_response(self, status_code, response):
-        self._write_response(status_code, json.dumps(response), content_type='application/json')
+        self._write_response(status_code, json.dumps(response, default=str), content_type='application/json')
 
     def check_auth(func):
         """Decorator function to check authorization header or client certificates
@@ -550,7 +550,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             if postgresql.state not in ('running', 'restarting', 'starting'):
                 raise RetryFailedError('')
             stmt = ("SELECT " + postgresql.POSTMASTER_START_TIME + ", " + postgresql.TL_LSN + ","
-                    " pg_catalog.to_char(pg_catalog.pg_last_xact_replay_timestamp(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),"
+                    " pg_catalog.pg_last_xact_replay_timestamp(),"
                     " pg_catalog.array_to_json(pg_catalog.array_agg(pg_catalog.row_to_json(ri))) "
                     "FROM (SELECT (SELECT rolname FROM pg_authid WHERE oid = usesysid) AS usename,"
                     " application_name, client_addr, w.state, sync_state, sync_priority"
