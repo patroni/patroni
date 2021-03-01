@@ -11,7 +11,7 @@ import urllib3
 from patroni.dcs import Leader, Member
 from patroni.postgresql import Postgresql
 from patroni.postgresql.config import ConfigHandler
-from patroni.utils import RetryFailedError
+from patroni.utils import RetryFailedError, tzutc
 
 
 class SleepException(Exception):
@@ -99,7 +99,7 @@ class MockCursor(object):
         elif sql.startswith('SELECT pg_catalog.pg_postmaster_start_time'):
             replication_info = '[{"application_name":"walreceiver","client_addr":"1.2.3.4",' +\
                                '"state":"streaming","sync_state":"async","sync_priority":0}]'
-            now = datetime.datetime.now()
+            now = datetime.datetime.now(tzutc)
             self.results = [(now, 0, '', 0, '', False, now, replication_info)]
         elif sql.startswith('SELECT name, setting'):
             self.results = [('wal_segment_size', '2048', '8kB', 'integer', 'internal'),
