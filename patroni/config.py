@@ -60,6 +60,7 @@ class Config(object):
     __DEFAULT_CONFIG = {
         'ttl': 30, 'loop_wait': 10, 'retry_timeout': 10,
         'maximum_lag_on_failover': 1048576,
+        'maximum_lag_on_syncnode': -1,
         'check_timeline': False,
         'master_start_timeout': 300,
         'master_stop_timeout': 0,
@@ -265,8 +266,9 @@ class Config(object):
                 if value:
                     ret[section][param] = value
 
-        _set_section_values('restapi', ['listen', 'connect_address', 'certfile', 'keyfile', 'cafile', 'verify_client',
-                                        'http_extra_headers', 'https_extra_headers'])
+        _set_section_values('restapi', ['listen', 'connect_address', 'certfile', 'keyfile', 'keyfile_password',
+                                        'cafile', 'ciphers', 'verify_client', 'http_extra_headers',
+                                        'https_extra_headers'])
         _set_section_values('ctl', ['insecure', 'cacert', 'certfile', 'keyfile'])
         _set_section_values('postgresql', ['listen', 'connect_address', 'config_dir', 'data_dir', 'pgpass', 'bin_dir'])
         _set_section_values('log', ['level', 'traceback_level', 'format', 'dateformat', 'max_queue_size',
@@ -337,7 +339,7 @@ class Config(object):
                         value = value and _parse_list(value)
                     elif suffix == 'LABELS':
                         value = _parse_dict(value)
-                    elif suffix in ('USE_PROXIES', 'REGISTER_SERVICE', 'BYPASS_API_SERVICE'):
+                    elif suffix in ('USE_PROXIES', 'REGISTER_SERVICE', 'USE_ENDPOINTS', 'BYPASS_API_SERVICE'):
                         value = parse_bool(value)
                     if value:
                         ret[name.lower()][suffix.lower()] = value
@@ -412,6 +414,7 @@ class Config(object):
             'synchronous_mode',
             'synchronous_mode_strict',
             'synchronous_node_count',
+            'maximum_lag_on_syncnode'
         )
 
         pg_config.update({p: config[p] for p in updated_fields if p in config})

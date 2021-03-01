@@ -98,6 +98,10 @@ class UserEmpty(InvalidArgument):
     error = "etcdserver: user name is empty"
 
 
+class AuthFailed(InvalidArgument):
+    error = "etcdserver: authentication failed, invalid user ID or password"
+
+
 class PermissionDenied(Etcd3ClientError):
     code = GRPCCode.PermissionDenied
     error = "etcdserver: permission denied"
@@ -186,7 +190,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
 
         try:
             self.authenticate()
-        except Exception as e:
+        except AuthFailed as e:
             logger.fatal('Etcd3 authentication failed: %r', e)
             sys.exit(1)
 

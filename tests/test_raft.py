@@ -1,5 +1,6 @@
 import os
 import unittest
+import tempfile
 import time
 
 from mock import Mock, patch
@@ -86,8 +87,6 @@ class TestKVStoreTTL(unittest.TestCase):
         self.so.set('foo', 'bar')
         self.so.set('fooo', 'bar')
         self.assertFalse(self.so.delete('foo', prevValue='buz'))
-        self.assertFalse(self.so.delete('foo', prevValue='bar', timeout=0.00001))
-        self.assertFalse(self.so.delete('foo', prevValue='bar'))
         self.assertTrue(self.so.delete('foo', recursive=True))
         self.assertFalse(self.so.retry(self.so._delete, 'foo', prevValue=''))
 
@@ -99,10 +98,14 @@ class TestKVStoreTTL(unittest.TestCase):
 
     @patch('time.sleep', Mock())
     def test_retry(self):
-        return_values = [FAIL_REASON.QUEUE_FULL, FAIL_REASON.SUCCESS, FAIL_REASON.REQUEST_DENIED]
+        return_values = [FAIL_REASON.QUEUE_FULL] * 2 + [FAIL_REASON.SUCCESS, FAIL_REASON.REQUEST_DENIED]
 
         def test(callback):
             callback(True, return_values.pop(0))
+
+        with patch('time.time', Mock(side_effect=[1, 100])):
+            self.assertFalse(self.so.retry(test))
+
         self.assertTrue(self.so.retry(test))
         self.assertFalse(self.so.retry(test))
 
@@ -119,8 +122,11 @@ class TestKVStoreTTL(unittest.TestCase):
 
 class TestRaft(unittest.TestCase):
 
+    _TMP = tempfile.gettempdir()
+
     def test_raft(self):
-        raft = Raft({'ttl': 30, 'scope': 'test', 'name': 'pg', 'self_addr': '127.0.0.1:1234', 'retry_timeout': 10})
+        raft = Raft({'ttl': 30, 'scope': 'test', 'name': 'pg', 'self_addr': '127.0.0.1:1234',
+                     'retry_timeout': 10, 'data_dir': self._TMP})
         raft.set_retry_timeout(20)
         raft.set_ttl(60)
         self.assertTrue(raft._sync_obj.set(raft.members_path + 'legacy', '{"version":"2.0.0"}'))
@@ -147,7 +153,7 @@ class TestRaft(unittest.TestCase):
         raft._sync_obj._SyncObj__thread.join()
 
     def tearDown(self):
-        remove_files('127.0.0.1:1234.')
+        remove_files(os.path.join(self._TMP, '127.0.0.1:1234.'))
 
     def setUp(self):
         self.tearDown()
@@ -157,4 +163,5 @@ class TestRaft(unittest.TestCase):
     def test_init(self, mock_event, mock_kvstore):
         mock_kvstore.return_value.applied_local_log = False
         mock_event.return_value.isSet.side_effect = [False, True]
-        self.assertIsNotNone(Raft({'ttl': 30, 'scope': 'test', 'name': 'pg', 'patronictl': True, 'self_addr': '1'}))
+        self.assertIsNotNone(Raft({'ttl': 30, 'scope': 'test', 'name': 'pg', 'patronictl': True,
+                                   'self_addr': '1', 'data_dir': self._TMP}))

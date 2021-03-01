@@ -112,6 +112,7 @@ postgresql:
   basebackup:
       - verbose
       - max-rate: 100M
+#      - waldir: /pg-wal-mount/external-waldir # only needed in case pg_wal is symlinked outside of data_dir
   # Additional fencing script executed after acquiring the leader lock but before promoting the replica
   #pre_promote: /path/to/pre_promote.sh
 

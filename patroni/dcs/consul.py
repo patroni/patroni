@@ -8,6 +8,7 @@ import ssl
 import time
 import urllib3
 
+from collections import namedtuple
 from consul import ConsulException, NotFound, base
 from urllib3.exceptions import HTTPError
 from six.moves.urllib.parse import urlencode, urlparse, quote
@@ -34,6 +35,9 @@ class InvalidSessionTTL(ConsulException):
 
 class InvalidSession(ConsulException):
     """invalid session"""
+
+
+Response = namedtuple('Response', 'code,headers,body,content')
 
 
 class HTTPClient(object):
@@ -71,16 +75,17 @@ class HTTPClient(object):
 
     @staticmethod
     def response(response):
-        data = response.data.decode('utf-8')
+        content = response.data
+        body = content.decode('utf-8')
         if response.status == 500:
-            msg = '{0} {1}'.format(response.status, data)
-            if data.startswith('Invalid Session TTL'):
+            msg = '{0} {1}'.format(response.status, body)
+            if body.startswith('Invalid Session TTL'):
                 raise InvalidSessionTTL(msg)
-            elif data.startswith('invalid session'):
+            elif body.startswith('invalid session'):
                 raise InvalidSession(msg)
             else:
                 raise ConsulInternalError(msg)
-        return base.Response(response.status, response.headers, data)
+        return Response(response.status, response.headers, body, content)
 
     def uri(self, path, params=None):
         return '{0}{1}{2}'.format(self.base_uri, path, params and '?' + urlencode(params) or '')
@@ -89,7 +94,7 @@ class HTTPClient(object):
         if method not in ('get', 'post', 'put', 'delete'):
             raise AttributeError("HTTPClient instance has no attribute '{0}'".format(method))
 
-        def wrapper(callback, path, params=None, data=''):
+        def wrapper(callback, path, params=None, data='', headers=None):
             # python-consul doesn't allow to specify ttl smaller then 10 seconds
             # because session_ttl_min defaults to 10s, so we have to do this ugly dirty hack...
             if method == 'put' and path == '/v1/session/create':
@@ -110,8 +115,9 @@ class HTTPClient(object):
                 kwargs['timeout'] = timeout + max(timeout/15.0, 1)
             else:
                 kwargs['timeout'] = self._read_timeout
+            kwargs['headers'] = (headers or {}).copy()
+            kwargs['headers'].update(urllib3.make_headers(user_agent=USER_AGENT))
             token = params.pop('token', self.token) if isinstance(params, dict) else self.token
-            kwargs['headers'] = urllib3.make_headers(user_agent=USER_AGENT)
             if token:
                 kwargs['headers']['X-Consul-Token'] = token
             return callback(self.response(self.http.request(method.upper(), self.uri(path, params), **kwargs)))
@@ -126,7 +132,7 @@ class ConsulClient(base.Consul):
         self.token = kwargs.get('token')
         super(ConsulClient, self).__init__(*args, **kwargs)
 
-    def connect(self, *args, **kwargs):
+    def http_connect(self, *args, **kwargs):
         kwargs.update(dict(zip(['host', 'port', 'scheme', 'verify'], args)))
         if self._cert:
             kwargs['cert'] = self._cert
@@ -135,6 +141,9 @@ class ConsulClient(base.Consul):
         if self.token:
             kwargs['token'] = self.token
         return HTTPClient(**kwargs)
+
+    def connect(self, *args, **kwargs):
+        return self.http_connect(*args, **kwargs)
 
     def reload_config(self, config):
         self.http.token = self.token = config.get('token')

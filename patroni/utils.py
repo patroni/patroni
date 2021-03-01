@@ -1,3 +1,4 @@
+import errno
 import json.decoder as json_decoder
 import logging
 import os
@@ -461,7 +462,8 @@ def validate_directory(d, msg="{} {}"):
             os.makedirs(d)
         except OSError as e:
             logger.error(e)
-            raise PatroniException(msg.format(d, "couldn't create the directory"))
+            if e.errno != errno.EEXIST:
+                raise PatroniException(msg.format(d, "couldn't create the directory"))
     elif os.path.isdir(d):
         try:
             fd, tmpfile = tempfile.mkstemp(dir=d)

@@ -86,7 +86,7 @@ jobs:
         COVERALLS_FLAG_NAME: unit-${{ matrix.os }}
         COVERALLS_PARALLEL: 'true'
         GITHUB_TOKEN: ${{ secrets.github_token }}
-      run: python -m coveralls
+      run: python -m coveralls --service=github
 
     - name: Run codacy-coverage-reporter
       uses: codacy/codacy-coverage-reporter-action@master
@@ -129,7 +129,7 @@ jobs:
         COVERALLS_FLAG_NAME: behave-${{ matrix.os }}-${{ matrix.dcs }}-${{ matrix.python-version }}
         COVERALLS_PARALLEL: 'true'
         GITHUB_TOKEN: ${{ secrets.github_token }}
-      run: python -m coveralls
+      run: python -m coveralls --service=github
 
   behavem:
     runs-on: ${{ matrix.os }}-latest
@@ -161,7 +161,7 @@ jobs:
         COVERALLS_FLAG_NAME: behave-${{ matrix.os }}-${{ matrix.dcs }}-${{ matrix.python-version }}
         COVERALLS_PARALLEL: 'true'
         GITHUB_TOKEN: ${{ secrets.github_token }}
-      run: python -m coveralls
+      run: python -m coveralls --service=github
 
   coveralls-finish:
     name: Finalize coveralls.io
@@ -170,6 +170,6 @@ jobs:
     steps:
     - uses: actions/setup-python@v2
     - run: python -m pip install coveralls
-    - run: python -m coveralls --finish
+    - run: python -m coveralls --service=github --finish
       env:
         GITHUB_TOKEN: ${{ secrets.github_token }}

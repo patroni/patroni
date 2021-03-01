@@ -28,6 +28,25 @@ Feature: basic replication
     When I issue a GET request to http://127.0.0.1:8009/async
     Then I receive a response code 200
 
+  Scenario: check stuck sync replica
+    Given I issue a PATCH request to http://127.0.0.1:8008/config with {"maximum_lag_on_syncnode": 15000000, "postgresql": {"parameters": {"synchronous_commit": "remote_apply"}}}
+    Then I receive a response code 200
+    And I create table on postgres0
+    And table mytest is present on postgres1 after 2 seconds
+    And table mytest is present on postgres2 after 2 seconds
+    When I pause wal replay on postgres2
+    And I load data on postgres0
+    Then "sync" key in DCS has sync_standby=postgres1 after 15 seconds
+    And I resume wal replay on postgres2
+    And I sleep for 2 seconds
+    And I issue a GET request to http://127.0.0.1:8009/sync
+    Then I receive a response code 200
+    When I issue a GET request to http://127.0.0.1:8010/async
+    Then I receive a response code 200
+    When I issue a PATCH request to http://127.0.0.1:8008/config with {"maximum_lag_on_syncnode": -1, "postgresql": {"parameters": {"synchronous_commit": "on"}}}
+    Then I receive a response code 200
+    And I drop table on postgres0
+
   Scenario: check multi sync replication
     Given I issue a PATCH request to http://127.0.0.1:8008/config with {"synchronous_node_count": 2}
     Then I receive a response code 200

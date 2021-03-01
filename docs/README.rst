@@ -163,3 +163,20 @@ When connecting from an application, always use a non-superuser. Patroni require
    :target: https://travis-ci.org/zalando/patroni
 .. |Coverage Status| image:: https://coveralls.io/repos/zalando/patroni/badge.svg?branch=master
    :target: https://coveralls.io/r/zalando/patroni?branch=master
+
+Testing Your HA Solution
+--------------------------------------
+Testing an HA solution is a time consuming process, with many variables. This is particularly true considering a cross-platform application. You need a trained system administrator or a consultant to do this work. It is not something we can cover in depth in the documentaiton.
+
+That said, here are some pieces of your infrastructure you should be sure to test:
+
+* Network (the network in front of your system as well as the NICs [physical or virtual] themselves)
+* Disk IO 
+* file limits (nofile in Linux)
+* RAM. Even if you have oomkiller turned off as suggested, the unavailability of RAM could cause issues.
+* CPU
+* Virtualization Contention (overcommitting the hypervisor)
+* Any cgroup limitation (likely to be related to the above)
+* ``kill -9`` of any postgres process (except postmaster!). This is a decent simulation of a segfault.
+
+One thing that you should not do is run ``kill -9`` on a postmaster process. This is because doing so does not mimic any real life scenario. If you are concerned your infrastructure is insecure and an attacker could run ``kill -9``, no amount of HA process is going to fix that. The attacker will simply kill the process again, or cause chaos in another way.

@@ -1,4 +1,5 @@
 import base64
+import hmac
 import json
 import logging
 import psycopg2
@@ -197,7 +198,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_PATCH_config(self):
         request = self._read_json_content()
         if request:
-            cluster = self.server.patroni.dcs.get_cluster()
+            cluster = self.server.patroni.dcs.get_cluster(True)
             if not (cluster.config and cluster.config.modify_index):
                 return self.send_error(503)
             data = cluster.config.data.copy()
@@ -558,7 +559,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             fcntl.fcntl(fd, fcntl.F_SETFD, flags | fcntl.FD_CLOEXEC)
 
     def check_basic_auth_key(self, key):
-        return self.__auth_key == key
+        return hmac.compare_digest(self.__auth_key, key.encode('utf-8'))
 
     def check_auth_header(self, auth_header):
         if self.__auth_key:
@@ -634,7 +635,10 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         if self.__protocol == 'https':
             import ssl
             ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH, cafile=ssl_options.get('cafile'))
-            ctx.load_cert_chain(certfile=ssl_options['certfile'], keyfile=ssl_options.get('keyfile'))
+            if ssl_options.get('ciphers'):
+                ctx.set_ciphers(ssl_options['ciphers'])
+            ctx.load_cert_chain(certfile=ssl_options['certfile'], keyfile=ssl_options.get('keyfile'),
+                                password=ssl_options.get('keyfile_password'))
             verify_client = ssl_options.get('verify_client')
             if verify_client:
                 modes = {'none': ssl.CERT_NONE, 'optional': ssl.CERT_OPTIONAL, 'required': ssl.CERT_REQUIRED}
@@ -673,7 +677,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         if 'listen' not in config:  # changing config in runtime
             raise ValueError('Can not find "restapi.listen" config')
 
-        ssl_options = {n: config[n] for n in ('certfile', 'keyfile', 'cafile') if n in config}
+        ssl_options = {n: config[n] for n in ('certfile', 'keyfile', 'keyfile_password',
+                                              'cafile', 'ciphers') if n in config}
 
         self.http_extra_headers = config.get('http_extra_headers') or {}
         self.http_extra_headers.update((config.get('https_extra_headers') or {}) if ssl_options.get('certfile') else {})
@@ -684,7 +689,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         if self.__listen != config['listen'] or self.__ssl_options != ssl_options:
             self.__initialize(config['listen'], ssl_options)
 
-        self.__auth_key = base64.b64encode(config['auth'].encode('utf-8')).decode('utf-8') if 'auth' in config else None
+        self.__auth_key = base64.b64encode(config['auth'].encode('utf-8')) if 'auth' in config else None
         self.connection_string = uri(self.__protocol, config.get('connect_address') or self.__listen, 'patroni')
 
     @staticmethod
