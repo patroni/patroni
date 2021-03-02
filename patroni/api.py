@@ -561,28 +561,16 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
             row = self.query(stmt.format(postgresql.wal_name, postgresql.lsn_name), retry=retry)[0]
 
-            try:
-                postmaster_start_time = datetime.datetime.strptime(row[0], '%Y-%m-%d %H:%M:%S.%f %Z')
-                postmaster_start_time = postmaster_start_time.replace(tzinfo=tzutc)
-            except (TypeError, ValueError):
-                postmaster_start_time = row[0]
-
-            try:
-                replayed_timestamp = datetime.datetime.strptime(row[6], '%Y-%m-%d %H:%M:%S.%f %Z')
-                replayed_timestamp = replayed_timestamp.replace(tzinfo=tzutc)
-            except (TypeError, ValueError):
-                replayed_timestamp = row[6]
-
             result = {
                 'state': postgresql.state,
-                'postmaster_start_time': postmaster_start_time,
+                'postmaster_start_time': row[0],
                 'role': 'replica' if row[1] == 0 else 'master',
                 'server_version': postgresql.server_version,
                 'cluster_unlocked': bool(not cluster or cluster.is_unlocked()),
                 'xlog': ({
                     'received_location': row[4] or row[3],
                     'replayed_location': row[3],
-                    'replayed_timestamp': replayed_timestamp,
+                    'replayed_timestamp': row[6],
                     'paused': row[5]} if row[1] == 0 else {
                     'location': row[2]
                 })
