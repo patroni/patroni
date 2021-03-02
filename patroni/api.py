@@ -251,9 +251,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("# TYPE patroni_cluster_unlocked gauge")
         metrics.append("patroni_cluster_unlocked {0}".format(int(postgres['cluster_unlocked'])))
 
-        metrics.append("# HELP patroni_timeline Current Postgres timeline of this node (if running), 0 otherwise.")
-        metrics.append("# TYPE patroni_timeline counter")
-        metrics.append("patroni_timeline {0}".format(postgres.get('timeline', 0)))
+        metrics.append("# HELP patroni_postgres_timeline Current Postgres timeline of this node (if running), 0 otherwise.")
+        metrics.append("# TYPE patroni_postgres_timeline counter")
+        metrics.append("patroni_postgres_timeline {0}".format(postgres.get('timeline', 0)))
 
         self._write_response(200, '\n'.join(metrics)+'\n', content_type='text/plain')
 
