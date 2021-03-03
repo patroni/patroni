@@ -351,6 +351,11 @@ class Consul(AbstractDCS):
                 last_lsn = last_lsn and last_lsn['Value']
                 slots = None
 
+            try:
+                last_lsn = int(last_lsn)
+            except Exception:
+                last_lsn = 0
+
             # get list of members
             members = [self.member(n) for k, n in nodes.items() if k.startswith(self._MEMBERS) and k.count('/') == 1]
 

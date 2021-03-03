@@ -726,7 +726,10 @@ class Kubernetes(AbstractDCS):
 
             # get last known leader lsn
             last_lsn = annotations.get(self._OPTIME)
-            last_lsn = 0 if last_lsn is None else int(last_lsn)
+            try:
+                last_lsn = 0 if last_lsn is None else int(last_lsn)
+            except Exception:
+                last_lsn = 0
 
             # get permanent slots state (confirmed_flush_lsn)
             slots = annotations.get('slots')

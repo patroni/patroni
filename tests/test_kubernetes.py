@@ -17,7 +17,7 @@ def mock_list_namespaced_config_map(*args, **kwargs):
                 'annotations': {'initialize': '123', 'config': '{}'}}
     items = [k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata))]
     metadata.update({'name': 'test-leader',
-                     'annotations': {'optime': '1234', 'leader': 'p-0', 'ttl': '30s', 'slots': '{'}})
+                     'annotations': {'optime': '1234x', 'leader': 'p-0', 'ttl': '30s', 'slots': '{'}})
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
     metadata.update({'name': 'test-failover', 'annotations': {'leader': 'p-0'}})
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
