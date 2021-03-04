@@ -45,7 +45,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self.wfile.write(body.encode('utf-8'))
 
     def _write_json_response(self, status_code, response):
-        self._write_response(status_code, json.dumps(response), content_type='application/json')
+        self._write_response(status_code, json.dumps(response, default=str), content_type='application/json')
 
     def check_auth(func):
         """Decorator function to check authorization header or client certificates
@@ -179,6 +179,83 @@ class RestApiHandler(BaseHTTPRequestHandler):
             self._write_json_response(200, cluster.config.data)
         else:
             self.send_error(502)
+
+    def do_GET_metrics(self):
+        postgres = self.get_postgresql_status(True)
+        patroni = self.server.patroni
+        epoch = datetime.datetime(1970, 1, 1, tzinfo=tzutc)
+
+        metrics = []
+
+        metrics.append("# HELP patroni_version Patroni semver without periods.")
+        metrics.append("# TYPE patroni_version gauge")
+        padded_semver = ''.join([x.zfill(2) for x in patroni.version.split('.')])  # 2.0.2 => 020002
+        metrics.append("patroni_version {0}".format(padded_semver))
+
+        metrics.append("# HELP patroni_postgres_running Value is 1 if Postgres is running, 0 otherwise.")
+        metrics.append("# TYPE patroni_postgres_running gauge")
+        metrics.append("patroni_postgres_running {0}".format(int(postgres['state'] == 'running')))
+
+        metrics.append("# HELP patroni_postmaster_start_time Epoch seconds since Postgres started.")
+        metrics.append("# TYPE patroni_postmaster_start_time gauge")
+        postmaster_start_time = postgres.get('postmaster_start_time')
+        postmaster_start_time = (postmaster_start_time - epoch).total_seconds() if postmaster_start_time else 0
+        metrics.append("patroni_postmaster_start_time {0}".format(postmaster_start_time))
+
+        metrics.append("# HELP patroni_master Value is 1 if this node is the leader, 0 otherwise.")
+        metrics.append("# TYPE patroni_master gauge")
+        metrics.append("patroni_master {0}".format(int(postgres['role'] == 'master')))
+
+        metrics.append("# HELP patroni_xlog_location Current location of the Postgres"
+                       " transaction log, 0 if this node is not the leader.")
+        metrics.append("# TYPE patroni_xlog_location counter")
+        metrics.append("patroni_xlog_location {0}".format(postgres.get('xlog', {}).get('location', 0)))
+
+        metrics.append("# HELP patroni_standby_leader Value is 1 if this node is the standby_leader, 0 otherwise.")
+        metrics.append("# TYPE patroni_standby_leader gauge")
+        metrics.append("patroni_standby_leader {0}".format(int(postgres['role'] == 'standby_leader')))
+
+        metrics.append("# HELP patroni_replica Value is 1 if this node is a replica, 0 otherwise.")
+        metrics.append("# TYPE patroni_replica gauge")
+        metrics.append("patroni_replica {0}".format(int(postgres['role'] == 'replica')))
+
+        metrics.append("# HELP patroni_xlog_received_location Current location of the received"
+                       " Postgres transaction log, 0 if this node is not a replica.")
+        metrics.append("# TYPE patroni_xlog_received_location counter")
+        metrics.append("patroni_xlog_received_location {0}".format(
+                        postgres.get('xlog', {}).get('received_location', 0)))
+
+        metrics.append("# HELP patroni_xlog_replayed_location Current location of the replayed"
+                       " Postgres transaction log, 0 if this node is not a replica.")
+        metrics.append("# TYPE patroni_xlog_replayed_location counter")
+        metrics.append("patroni_xlog_replayed_location {0}".format(
+                        postgres.get('xlog', {}).get('replayed_location', 0)))
+
+        metrics.append("# HELP patroni_xlog_replayed_timestamp Current timestamp of the replayed"
+                       " Postgres transaction log, 0 if null.")
+        metrics.append("# TYPE patroni_xlog_replayed_timestamp gauge")
+        replayed_timestamp = postgres.get('xlog', {}).get('replayed_timestamp')
+        replayed_timestamp = (replayed_timestamp - epoch).total_seconds() if replayed_timestamp else 0
+        metrics.append("patroni_xlog_replayed_timestamp {0}".format(replayed_timestamp))
+
+        metrics.append("# HELP patroni_xlog_paused Value is 1 if the Postgres xlog is paused, 0 otherwise.")
+        metrics.append("# TYPE patroni_xlog_paused gauge")
+        metrics.append("patroni_xlog_paused {0}".format(
+                        int(postgres.get('xlog', {}).get('paused', False) is True)))
+
+        metrics.append("# HELP patroni_postgres_server_version Version of Postgres (if running), 0 otherwise.")
+        metrics.append("# TYPE patroni_postgres_server_version gauge")
+        metrics.append("patroni_postgres_server_version {0}".format(postgres.get('server_version', 0)))
+
+        metrics.append("# HELP patroni_cluster_unlocked Value is 1 if the cluster is unlocked, 0 if locked.")
+        metrics.append("# TYPE patroni_cluster_unlocked gauge")
+        metrics.append("patroni_cluster_unlocked {0}".format(int(postgres['cluster_unlocked'])))
+
+        metrics.append("# HELP patroni_postgres_timeline Postgres timeline of this node (if running), 0 otherwise.")
+        metrics.append("# TYPE patroni_postgres_timeline counter")
+        metrics.append("patroni_postgres_timeline {0}".format(postgres.get('timeline', 0)))
+
+        self._write_response(200, '\n'.join(metrics)+'\n', content_type='text/plain')
 
     def _read_json_content(self, body_is_optional=False):
         if 'content-length' not in self.headers:
@@ -476,7 +553,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             if postgresql.state not in ('running', 'restarting', 'starting'):
                 raise RetryFailedError('')
             stmt = ("SELECT " + postgresql.POSTMASTER_START_TIME + ", " + postgresql.TL_LSN + ","
-                    " pg_catalog.to_char(pg_catalog.pg_last_xact_replay_timestamp(), 'YYYY-MM-DD HH24:MI:SS.MS TZ'),"
+                    " pg_catalog.pg_last_xact_replay_timestamp(),"
                     " pg_catalog.array_to_json(pg_catalog.array_agg(pg_catalog.row_to_json(ri))) "
                     "FROM (SELECT (SELECT rolname FROM pg_authid WHERE oid = usesysid) AS usename,"
                     " application_name, client_addr, w.state, sync_state, sync_priority"
