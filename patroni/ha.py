@@ -594,22 +594,18 @@ class Ha(object):
                     self._async_response.reset()
                     return 'Promotion cancelled because the pre-promote script failed'
 
-            if self.state_handler.is_leader() and self.state_handler.role == 'master':
-                if self.is_synchronous_mode() and self.liveness.config and self.liveness.is_running and \
-                        not self.liveness.is_healthy:
+            if self.state_handler.is_leader() and self.state_handler.role == 'master' and \
+                    not self.is_paused() and self.liveness.config and self.liveness.is_running:
+                if not self.liveness.is_healthy:
                     logger.info("Leader is in unhealthy state, Demoting")
                     members = self.cluster.members
-                    if self.is_synchronous_mode():
-                        members = [m for m in members if self.cluster.sync.matches(m.name)]
-                    if self.is_failover_possible(members) and not self.cluster.failover:
-                        self.dcs.manual_failover(leader=self.cluster.leader.name, candidate='', scheduled_at=None,
-                                                 index=self.cluster.failover)
-                        return 'Demoting self because Liveness Checks returned Leader in unhealthy state'
+                    if not self.cluster.failover and self.is_failover_possible(members):
+                        ret = self._async_executor.try_run_async('healthcheck failure: demote', self.demote,
+                                                                 ('graceful',))
+                        return ret or 'Demoting self because Liveness Checks returned Leader in unhealthy state'
                     else:
-                        logger.info("Aborting Liveness Failure Demote operation, failover not possible OR failover "
+                        logger.info("Skipping Liveness Failure Demote operation, failover not possible OR failover "
                                     "already scheduled")
-                elif not self.liveness.is_healthy and not self.is_synchronous_mode():
-                    logger.info("Skipping Liveness Failure Demote operation due to asynchronous replication mode")
 
         if self.state_handler.is_leader():
             # Inform the state handler about its master role.
@@ -649,7 +645,7 @@ class Ha(object):
         if not self.is_paused() and self.liveness.config and not self.liveness.is_running and \
                 self.state_handler.is_running() and self.state_handler.is_leader() and \
                 not self.cluster.failover:
-            self.liveness.activate()
+            self.liveness.activate(self.state_handler.bootstrap.get_local_connect_kwargs())
 
     def fetch_node_status(self, member):
         """This function perform http get request on member.api_url and fetches its status

@@ -139,7 +139,7 @@ zookeeper:
         self.scheduled_restart = {'schedule': future_restart_time,
                                   'postmaster_start_time': str(postmaster_start_time)}
         self.watchdog = Watchdog(self.config)
-        self.liveness = Liveness(self.config)
+        self.liveness = Liveness(self.config['postgresql'].get('liveness', {}))
         self.request = lambda member, **kwargs: requests_get(member.api_url, **kwargs)
 
 

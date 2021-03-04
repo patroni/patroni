@@ -29,7 +29,7 @@ class Patroni(AbstractPatroniDaemon):
         self.version = __version__
         self.dcs = get_dcs(self.config)
         self.watchdog = Watchdog(self.config)
-        self.liveness = Liveness(self.config)
+        self.liveness = Liveness(self.config['postgresql'].get('liveness', {}))
         self.load_dynamic_configuration()
 
         self.postgresql = Postgresql(self.config['postgresql'])
@@ -50,7 +50,7 @@ class Patroni(AbstractPatroniDaemon):
                     if self.config.set_dynamic_configuration(cluster.config):
                         self.dcs.reload_config(self.config)
                         self.watchdog.reload_config(self.config)
-                        self.liveness.reload_config(self.config)
+                        self.liveness.reload_config(self.config['postgresql'].get('liveness', {}))
                 elif not self.config.dynamic_configuration and 'bootstrap' in self.config:
                     if self.config.set_dynamic_configuration(self.config['bootstrap']['dcs']):
                         self.dcs.reload_config(self.config)
@@ -79,7 +79,7 @@ class Patroni(AbstractPatroniDaemon):
                 self.request.reload_config(self.config)
                 self.api.reload_config(self.config['restapi'])
             self.watchdog.reload_config(self.config)
-            self.liveness.reload_config(self.config)
+            self.liveness.reload_config(self.config['postgresql'].get('liveness', {}))
             self.postgresql.reload_config(self.config['postgresql'], sighup)
             self.dcs.reload_config(self.config)
         except Exception:
