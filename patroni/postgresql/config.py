@@ -876,22 +876,20 @@ class ConfigHandler(object):
     def resolve_connection_addresses(self):
         port = self._server_parameters['port']
         tcp_local_address = self._get_tcp_local_address()
-        unix_socket_directories = self._server_parameters.get('unix_socket_directories')
-        if unix_socket_directories is not None and self._config.get('use_unix_socket'):
-            # fallback to tcp if unix_socket_directories is set, but there are no sutable values
-            self._local_address = {
-                'host': self._get_unix_local_address(unix_socket_directories) or tcp_local_address, 'port': port}
-        else:
-            self._local_address = {'host': tcp_local_address, 'port': port}
-
-        if unix_socket_directories is not None and self._config.get('use_unix_socket_repl'):
-            # fallback to tcp if unix_socket_directories is set, but there are no sutable values
-            self.local_replication_address = {
-                'host': self._get_unix_local_address(unix_socket_directories) or tcp_local_address, 'port': port}
-        else:
-            self.local_replication_address = {'host': tcp_local_address, 'port': port}
-
         netloc = self._config.get('connect_address') or tcp_local_address + ':' + port
+
+        unix_socket_directories = self._server_parameters.get('unix_socket_directories')
+        # fallback to tcp if unix_socket_directories is set, but there are no sutable values
+        unix_local_address = unix_socket_directories and\
+            self._get_unix_local_address(unix_socket_directories) or tcp_local_address
+
+        tcp_local_address = {'host': tcp_local_address, 'port': port}
+        unix_local_address = {'host': unix_local_address, 'port': port}
+
+        self._local_address = unix_local_address if self._config.get('use_unix_socket') else tcp_local_address
+        self.local_replication_address = unix_local_address\
+            if self._config.get('use_unix_socket_repl') else tcp_local_address
+
         self._postgresql.connection_string = uri('postgres', netloc, self._postgresql.database)
         self._postgresql.set_connection_kwargs(self.local_connect_kwargs)
 
