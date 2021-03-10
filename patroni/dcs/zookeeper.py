@@ -241,6 +241,7 @@ class ZooKeeper(AbstractDCS):
                 not (cluster.leader and cluster.leader.name == self._name):
             try:
                 optime = self.get_leader_optime(cluster.leader)
+                self.event.clear()
                 cluster = Cluster(cluster.initialize, cluster.config, cluster.leader, optime,
                                   cluster.members, cluster.failover, cluster.sync, cluster.history)
             except Exception:
@@ -373,7 +374,7 @@ class ZooKeeper(AbstractDCS):
         return self.set_sync_state_value("{}", index)
 
     def watch(self, leader_index, timeout):
-        ret = super(ZooKeeper, self).watch(leader_index, timeout)
+        ret = super(ZooKeeper, self).watch(leader_index, timeout + 0.5)
         if ret and not self._fetch_optime:
             self._fetch_cluster = True
         return ret or self._fetch_cluster
