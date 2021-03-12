@@ -167,11 +167,10 @@ class ZooKeeper(AbstractDCS):
         except NoNodeError:
             return []
 
-    def load_members(self, sync_standby):
+    def load_members(self):
         members = []
         for member in self.get_children(self.members_path, self.cluster_watcher):
-            watch = member in sync_standby and self.cluster_watcher or None
-            data = self.get_node(self.members_path + member, watch)
+            data = self.get_node(self.members_path + member)
             if data is not None:
                 members.append(self.member(member, *data))
         return members
@@ -199,8 +198,7 @@ class ZooKeeper(AbstractDCS):
         sync = SyncState.from_node(sync and sync[1].version, sync and sync[0])
 
         # get list of members
-        sync_standby = sync.leader == self._name and sync.members or []
-        members = self.load_members(sync_standby) if self._MEMBERS[:-1] in nodes else []
+        members = self.load_members() if self._MEMBERS[:-1] in nodes else []
 
         # get leader
         leader = self.get_node(self.leader_path) if self._LEADER in nodes else None
