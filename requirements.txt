@@ -12,4 +12,4 @@ python-dateutil
 pysyncobj>=0.3.7
 psutil>=2.0.0
 ydiff>=1.2.0
-cryptography>=3.3.2
+cryptography>=3.2.1
