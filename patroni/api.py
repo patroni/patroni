@@ -616,6 +616,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self.http_extra_headers = {}
         self.reload_config(config)
         self.daemon = True
+        self.__ssl_serial_number = None
+        self._received_new_cert = False
 
     def query(self, sql, *params):
         cursor = None
@@ -723,6 +725,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
                     ctx.verify_mode = modes[verify_client]
                 else:
                     logger.error('Bad value in the "restapi.verify_client": %s', verify_client)
+            self.__ssl_serial_number = self.get_certificate_serial_number()
             self.socket = ctx.wrap_socket(self.socket, server_side=True)
         if reloading_config:
             self.start()
@@ -750,6 +753,24 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             _, request = request  # SSLSocket
         return super(RestApiServer, self).shutdown_request(request)
 
+    def get_certificate_serial_number(self):
+        from cryptography import x509, hazmat
+        with open(self.__ssl_options['certfile'], "rb") as f:
+            crt = x509.load_pem_x509_certificate(f.read(), hazmat.backends.default_backend())
+            return crt.serial_number
+
+    def reload_local_certificate(self):
+        if self.__protocol == 'https':
+            on_disk_cert_serial_number = self.get_certificate_serial_number()
+            if on_disk_cert_serial_number != self.__ssl_serial_number:
+                self._received_new_cert = True
+                self.__ssl_serial_number = on_disk_cert_serial_number
+                return True
+            else:
+                return False
+        else:
+            return False
+
     def reload_config(self, config):
         if 'listen' not in config:  # changing config in runtime
             raise ValueError('Can not find "restapi.listen" config')
@@ -763,7 +784,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         if isinstance(config.get('verify_client'), six.string_types):
             ssl_options['verify_client'] = config['verify_client'].lower()
 
-        if self.__listen != config['listen'] or self.__ssl_options != ssl_options:
+        if self.__listen != config['listen'] or self.__ssl_options != ssl_options or self._received_new_cert:
             self.__initialize(config['listen'], ssl_options)
 
         self.__auth_key = base64.b64encode(config['auth'].encode('utf-8')) if 'auth' in config else None

@@ -54,7 +54,8 @@ class AbstractPatroniDaemon(object):
         while not self.received_sigterm:
             if self._received_sighup:
                 self._received_sighup = False
-                self.reload_config(True, self.config.reload_local_configuration())
+                local = self.config.reload_local_configuration() | self.api.reload_local_certificate()
+                self.reload_config(True, local)
 
             self._run_cycle()
 
