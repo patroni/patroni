@@ -209,7 +209,6 @@ class Config(object):
                     return True
                 else:
                     logger.info('No local configuration items changed.')
-                    return False
             except Exception:
                 logger.exception('Exception when reloading local configuration from %s', self.config_file)
 
