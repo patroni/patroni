@@ -755,9 +755,12 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
     def get_certificate_serial_number(self):
         from cryptography import x509, hazmat
-        with open(self.__ssl_options['certfile'], "rb") as f:
-            crt = x509.load_pem_x509_certificate(f.read(), hazmat.backends.default_backend())
-            return crt.serial_number
+        try:
+            with open(self.__ssl_options['certfile'], "rb") as f:
+                crt = x509.load_pem_x509_certificate(f.read(), hazmat.backends.default_backend())
+                return crt.serial_number
+        except EnvironmentError:
+            logger.exception("Failed to get serial number from certificate %s", self.__ssl_options['certfile'])
 
     def reload_local_certificate(self):
         if self.__protocol == 'https':
