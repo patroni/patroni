@@ -754,13 +754,13 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         return super(RestApiServer, self).shutdown_request(request)
 
     def get_certificate_serial_number(self):
-        from cryptography import x509, hazmat
-        try:
-            with open(self.__ssl_options['certfile'], "rb") as f:
-                crt = x509.load_pem_x509_certificate(f.read(), hazmat.backends.default_backend())
-                return crt.serial_number
-        except EnvironmentError:
-            logger.exception("Failed to get serial number from certificate %s", self.__ssl_options['certfile'])
+        if self.__ssl_options.get('certfile'):
+            import ssl
+            try:
+                crt = ssl._ssl._test_decode_cert(self.__ssl_options['certfile'])
+                return crt.get('serialNumber')
+            except ssl.SSLError as e:
+                logger.error('Failed to get serial number from certificate %s: %r', self.__ssl_options['certfile'], e)
 
     def reload_local_certificate(self):
         if self.__protocol == 'https':
@@ -769,10 +769,6 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
                 self._received_new_cert = True
                 self.__ssl_serial_number = on_disk_cert_serial_number
                 return True
-            else:
-                return False
-        else:
-            return False
 
     def reload_config(self, config):
         if 'listen' not in config:  # changing config in runtime

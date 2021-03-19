@@ -71,7 +71,7 @@ class Patroni(AbstractPatroniDaemon):
     def reload_config(self, sighup=False, local=False):
         try:
             super(Patroni, self).reload_config(sighup, local)
-            if local:
+            if local or self.api.reload_local_certificate():
                 self.tags = self.get_tags()
                 self.request.reload_config(self.config)
                 self.api.reload_config(self.config['restapi'])
