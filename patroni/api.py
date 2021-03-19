@@ -703,6 +703,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
         self.__listen = listen
         self.__ssl_options = ssl_options
+        self._received_new_cert = False # reset to False after reload_config()
 
         self.__httpserver_init(host, port)
         Thread.__init__(self, target=self.serve_forever)
