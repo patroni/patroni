@@ -24,7 +24,7 @@ RUN set -ex \
     && apt-cache depends patroni | sed -n -e 's/.*Depends: \(python3-.\+\)$/\1/p' \
             | grep -Ev '^python3-(sphinx|etcd|consul|kazoo|kubernetes)' \
             | xargs apt-get install -y vim curl less jq locales haproxy sudo \
-                            python3-etcd python3-kazoo python3-pip python3-cryptography busybox \
+                            python3-etcd python3-kazoo python3-pip busybox \
                             net-tools iputils-ping --fix-missing \
     && pip3 install dumb-init \
 \
