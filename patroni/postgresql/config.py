@@ -336,7 +336,7 @@ class ConfigHandler(object):
         if "stats_temp_directory" in self._server_parameters:
             self.try_to_create_dir(self._server_parameters["stats_temp_directory"],
                                    "'{}' is defined in stats_temp_directory, {}")
-        if "krbsrvname" not in self._config:
+        if not self._krbsrvname:
             self.try_to_create_dir(os.path.dirname(self._pgpass),
                                    "'{}' is defined in `postgresql.pgpass`, {}")
 
