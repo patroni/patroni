@@ -1148,7 +1148,13 @@ class TestHa(PostgresInit):
         self.assertEqual(self.ha.run_cycle(), 'PAUSE: released leader key voluntarily due to the system ID mismatch')
 
     @patch('psycopg2.connect', psycopg2_connect)
+    @patch('os.path.exists', Mock(return_value=True))
+    @patch('shutil.rmtree', Mock())
     @patch('os.makedirs', Mock())
+    @patch('os.open', Mock())
+    @patch('os.fsync', Mock())
+    @patch('os.close', Mock())
+    @patch('os.rename', Mock())
     @patch('patroni.postgresql.Postgresql.is_starting', Mock(return_value=False))
     @patch.object(builtins, 'open', mock_open())
     @patch.object(SlotsHandler, 'sync_replication_slots', Mock(return_value=['foo']))

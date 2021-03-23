@@ -1,5 +1,7 @@
+import errno
 import logging
 import os
+import shutil
 
 from collections import defaultdict
 from contextlib import contextmanager
@@ -13,6 +15,18 @@ logger = logging.getLogger(__name__)
 def compare_slots(s1, s2, dbid='database'):
     return s1['type'] == s2['type'] and (s1['type'] == 'physical' or
                                          s1.get(dbid) == s2.get(dbid) and s1['plugin'] == s2['plugin'])
+
+
+def fsync_dir(path):
+    fd = os.open(path, os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    except OSError as e:
+        # Some filesystems don't like fsyncing directories and raise EINVAL. Ignoring it is usually safe.
+        if e.errno != errno.EINVAL:
+            raise
+    finally:
+        os.close(fd)
 
 
 class SlotsHandler(object):
@@ -253,12 +267,22 @@ class SlotsHandler(object):
                 logger.error("Failed to copy logical slots from the %s via postgresql connection: %r", leader.name, e)
 
         if isinstance(slots, dict) and self._postgresql.stop():
+            pg_replslot_dir = os.path.join(self._postgresql.data_dir, 'pg_replslot')
             for name, value in slots.items():
-                slot_dir = os.path.join(self._postgresql.data_dir, 'pg_replslot', name)
-                os.makedirs(slot_dir)
-                with open(os.path.join(slot_dir, 'state'), 'wb') as f:
+                slot_dir = os.path.join(pg_replslot_dir, name)
+                slot_tmp_dir = slot_dir + '.tmp'
+                if os.path.exists(slot_tmp_dir):
+                    shutil.rmtree(slot_tmp_dir)
+                os.makedirs(slot_tmp_dir)
+                fsync_dir(slot_tmp_dir)
+                with open(os.path.join(slot_tmp_dir, 'state'), 'wb') as f:
                     f.write(value['data'])
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.rename(slot_tmp_dir, slot_dir)
+                fsync_dir(slot_dir)
                 self._unready_logical_slots.add(name)
+            fsync_dir(pg_replslot_dir)
             self._postgresql.start()
 
     def schedule(self, value=None):

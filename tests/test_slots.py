@@ -5,7 +5,7 @@ from mock import Mock, PropertyMock, patch
 
 from patroni.dcs import Cluster, ClusterConfig, Member
 from patroni.postgresql import Postgresql
-from patroni.postgresql.slots import SlotsHandler
+from patroni.postgresql.slots import SlotsHandler, fsync_dir
 
 from . import BaseTestPostgresql, psycopg2_connect, MockCursor
 
@@ -112,3 +112,9 @@ class TestSlotsHandler(BaseTestPostgresql):
     def test_on_promote(self):
         self.s.copy_logical_slots(self.leader, ['ls'])
         self.s.on_promote()
+
+    @patch('os.open', Mock())
+    @patch('os.close', Mock())
+    @patch('os.fsync', Mock(side_effect=OSError))
+    def test_fsync_dir(self):
+        self.assertRaises(OSError, fsync_dir, 'foo')
