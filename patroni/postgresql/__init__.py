@@ -49,7 +49,7 @@ def null_context():
 
 class Postgresql(object):
 
-    POSTMASTER_START_TIME = "pg_catalog.to_char(pg_catalog.pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ')"
+    POSTMASTER_START_TIME = "pg_catalog.pg_postmaster_start_time()"
     TL_LSN = ("CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
               "ELSE ('x' || pg_catalog.substr(pg_catalog.pg_{0}file_name("
               "pg_catalog.pg_current_{0}_{1}()), 1, 8))::bit(32)::int END, "  # master timeline
@@ -896,10 +896,10 @@ class Postgresql(object):
         try:
             query = "SELECT " + self.POSTMASTER_START_TIME
             if current_thread().ident == self.__thread_ident:
-                return self.query(query).fetchone()[0]
+                return self.query(query).fetchone()[0].isoformat(sep=' ')
             with self.connection().cursor() as cursor:
                 cursor.execute(query)
-                return cursor.fetchone()[0]
+                return cursor.fetchone()[0].isoformat(sep=' ')
         except psycopg2.Error:
             return None
 

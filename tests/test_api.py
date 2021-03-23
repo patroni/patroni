@@ -30,7 +30,7 @@ class MockPostgresql(object):
     pending_restart = True
     wal_name = 'wal'
     lsn_name = 'lsn'
-    POSTMASTER_START_TIME = 'pg_catalog.to_char(pg_catalog.pg_postmaster_start_time'
+    POSTMASTER_START_TIME = 'pg_catalog.pg_postmaster_start_time()'
     TL_LSN = 'CASE WHEN pg_catalog.pg_is_in_recovery()'
 
     @staticmethod
@@ -39,7 +39,7 @@ class MockPostgresql(object):
 
     @staticmethod
     def postmaster_start_time():
-        return str(postmaster_start_time)
+        return postmaster_start_time
 
     @staticmethod
     def replica_cached_timeline(_):
@@ -235,6 +235,10 @@ class TestRestApiHandler(unittest.TestCase):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /config'))
         mock_dcs.cluster.config = None
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /config'))
+
+    @patch.object(MockPatroni, 'dcs')
+    def test_do_GET_metrics(self, mock_dcs):
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /metrics'))
 
     @patch.object(MockPatroni, 'dcs')
     def test_do_PATCH_config(self, mock_dcs):
