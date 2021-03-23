@@ -18,15 +18,16 @@ def compare_slots(s1, s2, dbid='database'):
 
 
 def fsync_dir(path):
-    fd = os.open(path, os.O_DIRECTORY)
-    try:
-        os.fsync(fd)
-    except OSError as e:
-        # Some filesystems don't like fsyncing directories and raise EINVAL. Ignoring it is usually safe.
-        if e.errno != errno.EINVAL:
-            raise
-    finally:
-        os.close(fd)
+    if os.name != 'nt':
+        fd = os.open(path, os.O_DIRECTORY)
+        try:
+            os.fsync(fd)
+        except OSError as e:
+            # Some filesystems don't like fsyncing directories and raise EINVAL. Ignoring it is usually safe.
+            if e.errno != errno.EINVAL:
+                raise
+        finally:
+            os.close(fd)
 
 
 class SlotsHandler(object):

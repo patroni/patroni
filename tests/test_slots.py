@@ -1,5 +1,8 @@
 import mock
+import os
 import psycopg2
+import unittest
+
 
 from mock import Mock, PropertyMock, patch
 
@@ -113,6 +116,7 @@ class TestSlotsHandler(BaseTestPostgresql):
         self.s.copy_logical_slots(self.leader, ['ls'])
         self.s.on_promote()
 
+    @unittest.skipIf(os.name == 'nt', "Windows not supported")
     @patch('os.open', Mock())
     @patch('os.close', Mock())
     @patch('os.fsync', Mock(side_effect=OSError))
