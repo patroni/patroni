@@ -405,7 +405,7 @@ def is_standby_cluster(config):
 
 def cluster_as_json(cluster):
     leader_name = cluster.leader.name if cluster.leader else None
-    xlog_location_cluster = cluster.last_leader_operation or 0
+    cluster_lsn = cluster.last_lsn or 0
 
     ret = {'members': []}
     for m in cluster.members:
@@ -427,11 +427,11 @@ def cluster_as_json(cluster):
         member.update({n: m.data[n] for n in optional_attributes if n in m.data})
 
         if m.name != leader_name:
-            xlog_location = m.data.get('xlog_location')
-            if xlog_location is None:
+            lsn = m.data.get('xlog_location')
+            if lsn is None:
                 member['lag'] = 'unknown'
-            elif xlog_location_cluster >= xlog_location:
-                member['lag'] = xlog_location_cluster - xlog_location
+            elif cluster_lsn >= lsn:
+                member['lag'] = cluster_lsn - lsn
             else:
                 member['lag'] = 0
 

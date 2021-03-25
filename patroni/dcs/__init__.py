@@ -13,11 +13,12 @@ import time
 
 from collections import defaultdict, namedtuple
 from copy import deepcopy
-from patroni.exceptions import PatroniFatalException
-from patroni.utils import parse_bool, uri
 from random import randint
 from six.moves.urllib_parse import urlparse, urlunparse, parse_qsl
 from threading import Event, Lock
+
+from ..exceptions import PatroniFatalException
+from ..utils import deep_compare, parse_bool, uri
 
 slot_name_re = re.compile('^[a-z0-9_]{1,63}$')
 logger = logging.getLogger(__name__)
@@ -133,6 +134,8 @@ class Member(namedtuple('Member', 'index,name,session,data')):
         else:
             try:
                 data = json.loads(data)
+                if not isinstance(data, dict):
+                    data = {}
             except (TypeError, ValueError):
                 data = {}
         return Member(index, name, session, data)
@@ -206,6 +209,15 @@ class Member(namedtuple('Member', 'index,name,session,data')):
     def is_running(self):
         return self.state == 'running'
 
+    @property
+    def version(self):
+        version = self.data.get('version')
+        if version:
+            try:
+                return tuple(map(int, version.split('.')))
+            except Exception:
+                logger.debug('Failed to parse Patroni version %s', version)
+
 
 class RemoteMember(Member):
     """ Represents a remote master for a standby cluster
@@ -259,14 +271,10 @@ class Leader(namedtuple('Leader', 'index,session,member')):
         """
         >>> Leader(1, '', Member.from_node(1, '', '', '{"version":"z"}')).checkpoint_after_promote
         """
-        version = self.data.get('version')
-        if version:
-            try:
-                # 1.5.6 is the last version which doesn't expose checkpoint_after_promote: false
-                if tuple(map(int, version.split('.'))) > (1, 5, 6):
-                    return self.data['role'] == 'master' and 'checkpoint_after_promote' not in self.data
-            except Exception:
-                logger.debug('Failed to parse Patroni version %s', version)
+        version = self.member.version
+        # 1.5.6 is the last version which doesn't expose checkpoint_after_promote: false
+        if version and version > (1, 5, 6):
+            return self.data.get('role') == 'master' and 'checkpoint_after_promote' not in self.data
 
 
 class Failover(namedtuple('Failover', 'index,leader,candidate,scheduled_at')):
@@ -432,19 +440,20 @@ class TimelineHistory(namedtuple('TimelineHistory', 'index,value,lines')):
         return TimelineHistory(index, value, lines)
 
 
-class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operation,members,failover,sync,history')):
+class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,failover,sync,history,slots')):
 
     """Immutable object (namedtuple) which represents PostgreSQL cluster.
     Consists of the following fields:
     :param initialize: shows whether this cluster has initialization key stored in DC or not.
     :param config: global dynamic configuration, reference to `ClusterConfig` object
     :param leader: `Leader` object which represents current leader of the cluster
-    :param last_leader_operation: int or long object containing position of last known leader operation.
-        This value is stored in `/optime/leader` key
+    :param last_lsn: int or long object containing position of last known leader LSN.
+        This value is stored in the `/status` key or `/optime/leader` (legacy) key
     :param members: list of Member object, all PostgreSQL cluster members including leader
     :param failover: reference to `Failover` object
     :param sync: reference to `SyncState` object, last observed synchronous replication state.
     :param history: reference to `TimelineHistory` object
+    :param slots: state of permanent logical replication slots on the primary in the format: {"slot_name": int}
     """
 
     def is_unlocked(self):
@@ -470,22 +479,41 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
     def is_synchronous_mode(self):
         return self.check_mode('synchronous_mode')
 
-    def get_replication_slots(self, my_name, role):
+    @property
+    def __permanent_slots(self):
+        return self.config and self.config.permanent_slots or {}
+
+    @property
+    def __permanent_physical_slots(self):
+        return {name: value for name, value in self.__permanent_slots.items()
+                if not value or isinstance(value, dict) and value.get('type', 'physical') == 'physical'}
+
+    @property
+    def __permanent_logical_slots(self):
+        return {name: value for name, value in self.__permanent_slots.items() if isinstance(value, dict)
+                and value.get('type', 'logical') == 'logical' and value.get('database') and value.get('plugin')}
+
+    @property
+    def use_slots(self):
+        return self.config and self.config.data.get('postgresql', {}).get('use_slots', True)
+
+    def get_replication_slots(self, my_name, role, nofailover, major_version, show_error=False):
         # if the replicatefrom tag is set on the member - we should not create the replication slot for it on
         # the current master, because that member would replicate from elsewhere. We still create the slot if
         # the replicatefrom destination member is currently not a member of the cluster (fallback to the
         # master), or if replicatefrom destination member happens to be the current master
-        use_slots = self.config and self.config.data.get('postgresql', {}).get('use_slots', True)
+        use_slots = self.use_slots
         if role in ('master', 'standby_leader'):
             slot_members = [m.name for m in self.members if use_slots and m.name != my_name and
                             (m.replicatefrom is None or m.replicatefrom == my_name or
                              not self.has_member(m.replicatefrom))]
-            permanent_slots = (self.config and self.config.permanent_slots or {}).copy()
+            permanent_slots = self.__permanent_slots if use_slots and \
+                role == 'master' else self.__permanent_physical_slots
         else:
             # only manage slots for replicas that replicate from this one, except for the leader among them
             slot_members = [m.name for m in self.members if use_slots and
                             m.replicatefrom == my_name and m.name != self.leader.name]
-            permanent_slots = {}
+            permanent_slots = self.__permanent_logical_slots if use_slots and not nofailover else {}
 
         slots = {slot_name_from_member_name(name): {'type': 'physical'} for name in slot_members}
 
@@ -499,6 +527,7 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
                                    for k, v in slot_conflicts.items() if len(v) > 1))
 
         # "merge" replication slots for members with permanent_replication_slots
+        disabled_permanent_logical_slots = []
         for name, value in permanent_slots.items():
             if not slot_name_re.match(name):
                 logger.error("Invalid permanent replication slot name '%s'", name)
@@ -516,7 +545,9 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
                         slots[name] = value
                     continue
                 elif value['type'] == 'logical' and value.get('database') and value.get('plugin'):
-                    if name in slots:
+                    if major_version < 110000:
+                        disabled_permanent_logical_slots.append(name)
+                    elif name in slots:
                         logger.error("Permanent logical replication slot {'%s': %s} is conflicting with" +
                                      " physical replication slot for cluster member", name, value)
                     else:
@@ -525,20 +556,53 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
 
             logger.error("Bad value for slot '%s' in permanent_slots: %s", name, permanent_slots[name])
 
+        if disabled_permanent_logical_slots and show_error:
+            logger.error("Permanent logical replication slots supported by Patroni only starting from PostgreSQL 11. "
+                         "Following slots will not be created: %s.", disabled_permanent_logical_slots)
+
         return slots
 
-    def has_permanent_logical_slots(self, name):
-        slots = self.get_replication_slots(name, 'master').values()
+    def has_permanent_logical_slots(self, my_name, nofailover, major_version=110000):
+        if major_version < 110000:
+            return False
+        slots = self.get_replication_slots(my_name, 'replica', nofailover, major_version).values()
         return any(v for v in slots if v.get("type") == "logical")
+
+    def should_enforce_hot_standby_feedback(self, my_name, nofailover, major_version):
+        """
+        The hot_standby_feedback must be enabled if the current replica has logical slots
+        or it is working as a cascading replica for the other node that has logical slots.
+        """
+
+        if major_version < 110000:
+            return False
+
+        if self.has_permanent_logical_slots(my_name, nofailover, major_version):
+            return True
+
+        if self.use_slots:
+            members = [m for m in self.members if m.replicatefrom == my_name and m.name != self.leader.name]
+            return any(self.should_enforce_hot_standby_feedback(m.name, m.nofailover, major_version) for m in members)
+        return False
+
+    def get_my_slot_name_on_primary(self, my_name, replicatefrom):
+        """
+        P <-- I <-- L
+        In case of cascading replication we have to check not our physical slot,
+        but slot of the replica that connects us to the primary.
+        """
+
+        m = self.get_member(replicatefrom, False) if replicatefrom else None
+        return self.get_my_slot_name_on_primary(m.name, m.replicatefrom) if m else slot_name_from_member_name(my_name)
 
     @property
     def timeline(self):
         """
-        >>> Cluster(0, 0, 0, 0, 0, 0, 0, 0).timeline
+        >>> Cluster(0, 0, 0, 0, 0, 0, 0, 0, 0).timeline
         0
-        >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[]')).timeline
+        >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[]'), 0).timeline
         1
-        >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[["a"]]')).timeline
+        >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[["a"]]'), 0).timeline
         0
         """
         if self.history:
@@ -551,6 +615,10 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_leader_operat
                 return 1
         return 0
 
+    @property
+    def min_version(self):
+        return next(iter(sorted(filter(lambda v: v, [m.version for m in self.members])) + [None]))
+
 
 @six.add_metaclass(abc.ABCMeta)
 class AbstractDCS(object):
@@ -562,7 +630,8 @@ class AbstractDCS(object):
     _HISTORY = 'history'
     _MEMBERS = 'members/'
     _OPTIME = 'optime'
-    _LEADER_OPTIME = _OPTIME + '/' + _LEADER
+    _STATUS = 'status'  # JSON, containts "leader_lsn" and confirmed_flush_lsn of logical "slots" on the leader
+    _LEADER_OPTIME = _OPTIME + '/' + _LEADER  # legacy
     _SYNC = 'sync'
 
     def __init__(self, config):
@@ -578,7 +647,8 @@ class AbstractDCS(object):
         self._cluster = None
         self._cluster_valid_till = 0
         self._cluster_thread_lock = Lock()
-        self._last_leader_operation = ''
+        self._last_lsn = ''
+        self._last_status = {}
         self.event = Event()
 
     def client_path(self, path):
@@ -611,6 +681,10 @@ class AbstractDCS(object):
     @property
     def history_path(self):
         return self.client_path(self._HISTORY)
+
+    @property
+    def status_path(self):
+        return self.client_path(self._STATUS)
 
     @property
     def leader_optime_path(self):
@@ -682,14 +756,30 @@ class AbstractDCS(object):
             self._cluster_valid_till = 0
 
     @abc.abstractmethod
-    def _write_leader_optime(self, last_operation):
-        """write current xlog location into `/optime/leader` key in DCS
-        :param last_operation: absolute xlog location in bytes
+    def _write_leader_optime(self, last_lsn):
+        """write current WAL LSN into `/optime/leader` key in DCS
+
+        :param last_lsn: absolute WAL LSN in bytes
         :returns: `!True` on success."""
 
-    def write_leader_optime(self, last_operation):
-        if self._last_leader_operation != last_operation and self._write_leader_optime(last_operation):
-            self._last_leader_operation = last_operation
+    def write_leader_optime(self, last_lsn):
+        if self._last_lsn != last_lsn and self._write_leader_optime(last_lsn):
+            self._last_lsn = last_lsn
+
+    @abc.abstractmethod
+    def _write_status(self, value):
+        """write current WAL LSN and confirmed_flush_lsn of permanent slots into the `/status` key in DCS
+
+        :param value: status serialized in JSON forman
+        :returns: `!True` on success."""
+
+    def write_status(self, value):
+        if not deep_compare(self._last_status, value) and self._write_status(json.dumps(value, separators=(',', ':'))):
+            self._last_status = value
+        cluster = self.cluster
+        min_version = cluster and cluster.min_version
+        if min_version and min_version < (2, 0, 3):
+            self._write_leader_optime(str(value[self._OPTIME]))
 
     @abc.abstractmethod
     def _update_leader(self):
@@ -701,16 +791,20 @@ class AbstractDCS(object):
         You have to use CAS (Compare And Swap) operation in order to update leader key,
         for example for etcd `prevValue` parameter must be used."""
 
-    def update_leader(self, last_operation, access_is_restricted=False):
+    def update_leader(self, last_lsn, slots=None):
         """Update leader key (or session) ttl and optime/leader
 
-        :param last_operation: absolute xlog location in bytes
+        :param last_lsn: absolute WAL LSN in bytes
+        :param slots: dict with permanent slots confirmed_flush_lsn
         :returns: `!True` if leader key (or session) has been updated successfully.
             If not, `!False` must be returned and current instance would be demoted."""
 
         ret = self._update_leader()
-        if ret and last_operation:
-            self.write_leader_optime(last_operation)
+        if ret and last_lsn:
+            status = {self._OPTIME: last_lsn}
+            if slots:
+                status['slots'] = slots
+            self.write_status(status)
         return ret
 
     @abc.abstractmethod
@@ -779,13 +873,13 @@ class AbstractDCS(object):
         """Remove leader key from DCS.
         This method should remove leader key if current instance is the leader"""
 
-    def delete_leader(self, last_operation=None):
+    def delete_leader(self, last_lsn=None):
         """Update optime/leader and voluntarily remove leader key from DCS.
         This method should remove leader key if current instance is the leader.
-        :param last_operation: latest checkpoint location in bytes"""
+        :param last_lsn: latest checkpoint location in bytes"""
 
-        if last_operation:
-            self.write_leader_optime(last_operation)
+        if last_lsn:
+            self.write_leader_optime(last_lsn)
         return self._delete_leader()
 
     @abc.abstractmethod

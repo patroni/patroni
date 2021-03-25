@@ -1,3 +1,4 @@
+import datetime
 import os
 import shutil
 import unittest
@@ -10,7 +11,7 @@ import urllib3
 from patroni.dcs import Leader, Member
 from patroni.postgresql import Postgresql
 from patroni.postgresql.config import ConfigHandler
-from patroni.utils import RetryFailedError
+from patroni.utils import RetryFailedError, tzutc
 
 
 class SleepException(Exception):
@@ -89,16 +90,21 @@ class MockCursor(object):
             raise psycopg2.OperationalError()
         elif sql.startswith('RetryFailedError'):
             raise RetryFailedError('retry')
+        elif sql.startswith('SELECT catalog_xmin'):
+            self.results = [(100, 501)]
+        elif sql.startswith('SELECT slot_name, catalog_xmin'):
+            self.results = [('ls', 100, 500, b'123456')]
         elif sql.startswith('SELECT slot_name'):
-            self.results = [('blabla', 'physical'), ('foobar', 'physical'), ('ls', 'logical', 'a', 'b')]
+            self.results = [('blabla', 'physical'), ('foobar', 'physical'), ('ls', 'logical', 'a', 'b', 5, 100, 500)]
         elif sql.startswith('SELECT CASE WHEN pg_catalog.pg_is_in_recovery()'):
-            self.results = [(1, 2, 1, 0, False, 1, 1, None, None)]
+            self.results = [(1, 2, 1, 0, False, 1, 1, None, None, [{"slot_name": "ls", "confirmed_flush_lsn": 12345}])]
         elif sql.startswith('SELECT pg_catalog.pg_is_in_recovery()'):
             self.results = [(False, 2)]
-        elif sql.startswith('SELECT pg_catalog.to_char'):
+        elif sql.startswith('SELECT pg_catalog.pg_postmaster_start_time'):
             replication_info = '[{"application_name":"walreceiver","client_addr":"1.2.3.4",' +\
                                '"state":"streaming","sync_state":"async","sync_priority":0}]'
-            self.results = [('', 0, '', 0, '', '', False, replication_info)]
+            now = datetime.datetime.now(tzutc)
+            self.results = [(now, 0, '', 0, '', False, now, replication_info)]
         elif sql.startswith('SELECT name, setting'):
             self.results = [('wal_segment_size', '2048', '8kB', 'integer', 'internal'),
                             ('wal_block_size', '8192', None, 'integer', 'internal'),

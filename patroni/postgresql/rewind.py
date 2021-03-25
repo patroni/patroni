@@ -7,7 +7,7 @@ import subprocess
 from threading import Lock, Thread
 
 from .connection import get_connection_cursor
-from .misc import parse_history, parse_lsn
+from .misc import format_lsn, parse_history, parse_lsn
 from ..async_executor import CriticalTask
 from ..dcs import Leader
 
@@ -15,11 +15,6 @@ logger = logging.getLogger(__name__)
 
 REWIND_STATUS = type('Enum', (), {'INITIAL': 0, 'CHECKPOINT': 1, 'CHECK': 2, 'NEED': 3,
                                   'NOT_NEED': 4, 'SUCCESS': 5, 'FAILED': 6})
-
-
-def format_lsn(lsn, full=False):
-    template = '{0:X}/{1:08X}' if full else '{0:X}/{1:X}'
-    return template.format(lsn >> 32, lsn & 0xFFFFFFFF)
 
 
 class Rewind(object):

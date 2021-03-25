@@ -66,7 +66,13 @@ def etcd_read(self, key, **kwargs):
                         "?application_name=http://127.0.0.1:8008/patroni",
                      "expiration": "2015-05-15T09:11:09.611860899Z", "ttl": 30,
                      "modifiedIndex": 20730, "createdIndex": 20730}],
-                 "modifiedIndex": 1581, "createdIndex": 1581}], "modifiedIndex": 1581, "createdIndex": 1581}}
+                 "modifiedIndex": 1581, "createdIndex": 1581},
+                {"key": "/service/batman5/status", "value": '{"optime":2164261704,"slots":{"ls":12345}}',
+                 "modifiedIndex": 1582, "createdIndex": 1582}], "modifiedIndex": 1581, "createdIndex": 1581}}
+    if key == '/service/legacy/':
+        response['node']['nodes'].pop()
+    if key == '/service/broken/':
+        response['node']['nodes'][-1]['value'] = '{'
     result = etcd.EtcdResult(**response)
     result.etcd_index = 0
     return result
@@ -246,6 +252,10 @@ class TestEtcd(unittest.TestCase):
         cluster = self.etcd.get_cluster()
         self.assertIsInstance(cluster, Cluster)
         self.assertFalse(cluster.is_synchronous_mode())
+        self.etcd._base_path = '/service/legacy'
+        self.assertIsInstance(self.etcd.get_cluster(), Cluster)
+        self.etcd._base_path = '/service/broken'
+        self.assertIsInstance(self.etcd.get_cluster(), Cluster)
         self.etcd._base_path = '/service/nocluster'
         cluster = self.etcd.get_cluster()
         self.assertIsInstance(cluster, Cluster)
