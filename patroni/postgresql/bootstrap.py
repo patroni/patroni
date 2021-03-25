@@ -90,8 +90,8 @@ class Bootstrap(object):
         self._postgresql.configure_server_parameters()
 
         # make sure there is no trigger file or postgres will be automatically promoted
-        trigger_file = 'promote_trigger_file' if self._postgresql.major_version >= 120000 else 'trigger_file'
-        trigger_file = self._postgresql.config.get('recovery_conf', {}).get(trigger_file) or 'promote'
+        trigger_file = self._postgresql.config.triggerfile_good_name
+        trigger_file = (self._postgresql.config.get('recovery_conf') or {}).get(trigger_file) or 'promote'
         trigger_file = os.path.abspath(os.path.join(self._postgresql.data_dir, trigger_file))
         if os.path.exists(trigger_file):
             os.unlink(trigger_file)

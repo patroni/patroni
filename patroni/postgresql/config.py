@@ -387,11 +387,6 @@ class ConfigHandler(object):
         if 'custom_conf' not in self._config and not os.path.exists(self._postgresql_base_conf):
             os.rename(self._postgresql_conf, self._postgresql_base_conf)
 
-        # In case we are using custom bootstrap from spilo image with PITR it fails if it contains increasing
-        # values like Max_connections. We disable hot_standby so it will accept increasing values.
-        if self._postgresql.bootstrap.running_custom_bootstrap:
-            configuration['hot_standby'] = 'off'
-
         with ConfigWriter(self._postgresql_conf) as f:
             include = self._config.get('custom_conf') or self._postgresql_base_conf_name
             f.writeline("include '{0}'\n".format(ConfigWriter.escape(include)))
@@ -553,7 +548,7 @@ class ConfigHandler(object):
         return os.path.exists(self._recovery_conf)
 
     @property
-    def _triggerfile_good_name(self):
+    def triggerfile_good_name(self):
         return 'trigger_file' if self._postgresql.major_version < 120000 else 'promote_trigger_file'
 
     @property
@@ -756,13 +751,13 @@ class ConfigHandler(object):
         return env
 
     def write_recovery_conf(self, recovery_params):
+        self._recovery_params = recovery_params
         if self._postgresql.major_version >= 120000:
             if parse_bool(recovery_params.pop('standby_mode', None)):
                 open(self._standby_signal, 'w').close()
             else:
                 self._remove_file_if_exists(self._standby_signal)
                 open(self._recovery_signal, 'w').close()
-            self._recovery_params = recovery_params
         else:
             with ConfigWriter(self._recovery_conf) as f:
                 os.chmod(self._recovery_conf, stat.S_IWRITE | stat.S_IREAD)
@@ -806,8 +801,8 @@ class ConfigHandler(object):
 
         if self.get('recovery_conf'):
             value = self._config['recovery_conf'].pop(self._triggerfile_wrong_name, None)
-            if self._triggerfile_good_name not in self._config['recovery_conf'] and value:
-                self._config['recovery_conf'][self._triggerfile_good_name] = value
+            if self.triggerfile_good_name not in self._config['recovery_conf'] and value:
+                self._config['recovery_conf'][self.triggerfile_good_name] = value
 
     def get_server_parameters(self, config):
         parameters = config['parameters'].copy()
@@ -1067,6 +1062,14 @@ class ConfigHandler(object):
             if cvalue > value:
                 effective_configuration[name] = cvalue
                 self._postgresql.set_pending_restart(True)
+
+        # If we are using custom bootstrap with PITR it could fail when values
+        # like max_connections are increased, therefore we disable hot_standby.
+        if self._postgresql.bootstrap.running_custom_bootstrap and \
+                (self._postgresql.bootstrap.keep_existing_recovery_conf or self._recovery_conf):
+            effective_configuration['hot_standby'] = 'off'
+            self._postgresql.set_pending_restart(True)
+
         return effective_configuration
 
     @property

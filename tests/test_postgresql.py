@@ -12,6 +12,7 @@ from patroni.async_executor import CriticalTask
 from patroni.dcs import Cluster, ClusterConfig, Member, RemoteMember, SyncState
 from patroni.exceptions import PostgresConnectionException, PatroniException
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
+from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.slots import SlotsHandler
 from patroni.utils import RetryFailedError
@@ -709,6 +710,8 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertEqual(self.p.get_master_timeline(), 1)
 
     @patch.object(Postgresql, 'get_postgres_role_from_data_directory', Mock(return_value='replica'))
+    @patch.object(Bootstrap, 'running_custom_bootstrap', PropertyMock(return_value=True))
+    @patch.object(Bootstrap, 'keep_existing_recovery_conf', PropertyMock(return_value=True))
     def test__build_effective_configuration(self):
         with patch.object(Postgresql, 'controldata',
                           Mock(return_value={'max_connections setting': '200',
