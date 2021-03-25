@@ -68,3 +68,8 @@ def parse_history(data):
                 yield values
             except (IndexError, ValueError):
                 logger.exception('Exception when parsing timeline history line "%s"', values)
+
+
+def format_lsn(lsn, full=False):
+    template = '{0:X}/{1:08X}' if full else '{0:X}/{1:X}'
+    return template.format(lsn >> 32, lsn & 0xFFFFFFFF)

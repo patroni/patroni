@@ -38,7 +38,7 @@ def get_cluster(initialize, leader, members, failover, sync, cluster_config=None
     history = TimelineHistory(1, '[[1,67197376,"no recovery target specified","' + t + '"]]',
                               [(1, 67197376, 'no recovery target specified', t)])
     cluster_config = cluster_config or ClusterConfig(1, {'check_timeline': True}, 1)
-    return Cluster(initialize, cluster_config, leader, 10, members, failover, sync, history)
+    return Cluster(initialize, cluster_config, leader, 10, members, failover, sync, history, None)
 
 
 def get_cluster_not_initialized_without_leader(cluster_config=None):
@@ -66,7 +66,7 @@ def get_cluster_initialized_with_leader(failover=None, sync=None):
 
 def get_cluster_initialized_with_only_leader(failover=None, cluster_config=None):
     leader = get_cluster_initialized_without_leader(leader=True, failover=failover).leader
-    return get_cluster(True, leader, [leader], failover, None, cluster_config)
+    return get_cluster(True, leader, [leader.member], failover, None, cluster_config)
 
 
 def get_standby_cluster_initialized_with_only_leader(failover=None, sync=None):
@@ -152,13 +152,13 @@ def run_async(self, func, args=()):
 @patch.object(Postgresql, 'is_running', Mock(return_value=MockPostmaster()))
 @patch.object(Postgresql, 'is_leader', Mock(return_value=True))
 @patch.object(Postgresql, 'timeline_wal_position', Mock(return_value=(1, 10, 1)))
-@patch.object(Postgresql, '_cluster_info_state_get', Mock(return_value=3))
+@patch.object(Postgresql, '_cluster_info_state_get', Mock(return_value=10))
 @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=False))
 @patch.object(Postgresql, 'controldata', Mock(return_value={
     'Database system identifier': SYSID,
     'Database cluster state': 'shut down',
     'Latest checkpoint location': '0/12345678'}))
-@patch.object(SlotsHandler, 'sync_replication_slots', Mock())
+@patch.object(SlotsHandler, 'load_replication_slots', Mock(side_effect=Exception))
 @patch.object(ConfigHandler, 'append_pg_hba', Mock())
 @patch.object(ConfigHandler, 'write_pgpass', Mock(return_value={}))
 @patch.object(ConfigHandler, 'write_recovery_conf', Mock())
@@ -384,13 +384,21 @@ class TestHa(PostgresInit):
         self.p.is_leader = false
         self.assertEqual(self.ha.run_cycle(), 'not promoting because failed to update leader lock in DCS')
 
+    @patch.object(Postgresql, 'major_version', PropertyMock(return_value=130000))
     def test_follow(self):
         self.ha.cluster.is_unlocked = false
         self.p.is_leader = false
         self.assertEqual(self.ha.run_cycle(), 'no action.  i am a secondary and i am following a leader')
         self.ha.patroni.replicatefrom = "foo"
         self.p.config.check_recovery_conf = Mock(return_value=(True, False))
+        self.ha.cluster.config.data.update({'slots': {'l': {'database': 'a', 'plugin': 'b'}}})
+        self.ha.cluster.members[1].data['tags']['replicatefrom'] = 'postgresql0'
+        self.ha.patroni.nofailover = True
         self.assertEqual(self.ha.run_cycle(), 'no action.  i am a secondary and i am following a leader')
+        del self.ha.cluster.config.data['slots']
+        self.ha.cluster.config.data.update({'postgresql': {'use_slots': False}})
+        self.assertEqual(self.ha.run_cycle(), 'no action.  i am a secondary and i am following a leader')
+        del self.ha.cluster.config.data['postgresql']['use_slots']
 
     def test_follow_in_pause(self):
         self.ha.cluster.is_unlocked = false
@@ -634,7 +642,7 @@ class TestHa(PostgresInit):
         # in synchronous_mode consider itself healthy if the former leader is accessible in read-only and ahead of us
         with patch.object(Ha, 'is_synchronous_mode', Mock(return_value=True)):
             self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
-        with patch('patroni.postgresql.Postgresql.timeline_wal_position', return_value=(1, 1, 1)):
+        with patch('patroni.postgresql.Postgresql.last_operation', return_value=1):
             self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         with patch('patroni.postgresql.Postgresql.replica_cached_timeline', return_value=1):
             self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
@@ -1110,6 +1118,7 @@ class TestHa(PostgresInit):
     @patch('psycopg2.connect', psycopg2_connect)
     def test_permanent_logical_slots_after_promote(self):
         config = ClusterConfig(1, {'slots': {'l': {'database': 'postgres', 'plugin': 'test_decoding'}}}, 1)
+        self.p.name = 'other'
         self.ha.cluster = get_cluster_initialized_without_leader(cluster_config=config)
         self.assertEqual(self.ha.run_cycle(), 'acquired session lock as a leader')
         self.ha.cluster = get_cluster_initialized_without_leader(leader=True, cluster_config=config)
@@ -1137,3 +1146,19 @@ class TestHa(PostgresInit):
 
         self.ha.has_lock = true
         self.assertEqual(self.ha.run_cycle(), 'PAUSE: released leader key voluntarily due to the system ID mismatch')
+
+    @patch('psycopg2.connect', psycopg2_connect)
+    @patch('os.path.exists', Mock(return_value=True))
+    @patch('shutil.rmtree', Mock())
+    @patch('os.makedirs', Mock())
+    @patch('os.open', Mock())
+    @patch('os.fsync', Mock())
+    @patch('os.close', Mock())
+    @patch('os.rename', Mock())
+    @patch('patroni.postgresql.Postgresql.is_starting', Mock(return_value=False))
+    @patch.object(builtins, 'open', mock_open())
+    @patch.object(SlotsHandler, 'sync_replication_slots', Mock(return_value=['foo']))
+    def test_follow_copy(self):
+        self.ha.cluster.is_unlocked = false
+        self.p.is_leader = false
+        self.assertTrue(self.ha.run_cycle().startswith('Copying logical slots'))

@@ -4,10 +4,11 @@ import os
 import threading
 import time
 
-from patroni.dcs import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
-from ..utils import validate_directory
 from pysyncobj import SyncObj, SyncObjConf, replicated, FAIL_REASON
 from pysyncobj.transport import Node, TCPTransport, CONNECTION_STATE
+
+from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
+from ..utils import validate_directory
 
 logger = logging.getLogger(__name__)
 
@@ -328,7 +329,7 @@ class Raft(AbstractDCS):
         prefix = self.client_path('')
         response = self._sync_obj.get(prefix, recursive=True)
         if not response:
-            return Cluster(None, None, None, None, [], None, None, None)
+            return Cluster(None, None, None, None, [], None, None, None, None)
         nodes = {os.path.relpath(key, prefix).replace('\\', '/'): value for key, value in response.items()}
 
         # get initialize flag
@@ -343,9 +344,24 @@ class Raft(AbstractDCS):
         history = nodes.get(self._HISTORY)
         history = history and TimelineHistory.from_node(history['index'], history['value'])
 
-        # get last leader operation
-        last_leader_operation = nodes.get(self._LEADER_OPTIME)
-        last_leader_operation = 0 if last_leader_operation is None else int(last_leader_operation['value'])
+        # get last know leader lsn and slots
+        status = nodes.get(self._STATUS)
+        if status:
+            try:
+                status = json.loads(status['value'])
+                last_lsn = status.get(self._OPTIME)
+                slots = status.get('slots')
+            except Exception:
+                slots = last_lsn = None
+        else:
+            last_lsn = nodes.get(self._LEADER_OPTIME)
+            last_lsn = last_lsn and last_lsn['value']
+            slots = None
+
+        try:
+            last_lsn = int(last_lsn)
+        except Exception:
+            last_lsn = 0
 
         # get list of members
         members = [self.member(k, n) for k, n in nodes.items() if k.startswith(self._MEMBERS) and k.count('/') == 1]
@@ -366,10 +382,13 @@ class Raft(AbstractDCS):
         sync = nodes.get(self._SYNC)
         sync = SyncState.from_node(sync and sync['index'], sync and sync['value'])
 
-        return Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
+        return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots)
 
-    def _write_leader_optime(self, last_operation):
-        return self._sync_obj.set(self.leader_optime_path, last_operation, timeout=1)
+    def _write_leader_optime(self, last_lsn):
+        return self._sync_obj.set(self.leader_optime_path, last_lsn, timeout=1)
+
+    def _write_status(self, value):
+        return self._sync_obj.set(self.status_path, value, timeout=1)
 
     def _update_leader(self):
         ret = self._sync_obj.set(self.leader_path, self._name, ttl=self._ttl, prevValue=self._name)

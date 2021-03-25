@@ -23,18 +23,19 @@ def main():
 
     env = os.environ.copy()
     if sys.platform.startswith('linux'):
-        version = {'etcd': '9.6', 'etcd3': '9.6', 'consul': 10, 'exhibitor': 11, 'kubernetes': 12, 'raft': 13}.get(what)
+        version = {'etcd': '9.6', 'etcd3': '13', 'consul': 12, 'exhibitor': 11, 'kubernetes': 13, 'raft': 12}.get(what)
         path = '/usr/lib/postgresql/{0}/bin:.'.format(version)
         unbuffer = ['timeout', '600', 'unbuffer']
+        args = ['--tags=-skip'] if what == 'etcd' else []
     else:
         path = os.path.abspath(os.path.join('pgsql', 'bin'))
         if sys.platform == 'darwin':
             path += ':.'
-        unbuffer = []
+        args = unbuffer = []
     env['PATH'] = path + os.pathsep + env['PATH']
     env['DCS'] = what
 
-    ret = subprocess.call(unbuffer + [sys.executable, '-m', 'behave'], env=env)
+    ret = subprocess.call(unbuffer + [sys.executable, '-m', 'behave'] + args, env=env)
 
     if ret != 0:
         if subprocess.call('grep . features/output/*_failed/*postgres?.*', shell=True) != 0:

@@ -66,7 +66,6 @@ class Ha(object):
         self.old_cluster = None
         self._is_leader = False
         self._is_leader_lock = RLock()
-        self._leader_access_is_restricted = False
         self._was_paused = False
         self._leader_timeline = None
         self.recovering = False
@@ -121,15 +120,11 @@ class Ha(object):
 
     def is_leader(self):
         with self._is_leader_lock:
-            return self._is_leader > time.time() and not self._leader_access_is_restricted
+            return self._is_leader > time.time()
 
     def set_is_leader(self, value):
         with self._is_leader_lock:
             self._is_leader = time.time() + self.dcs.ttl if value else 0
-
-    def set_leader_access_is_restricted(self, value):
-        with self._is_leader_lock:
-            self._leader_access_is_restricted = value
 
     def load_cluster_from_dcs(self):
         cluster = self.dcs.get_cluster()
@@ -145,20 +140,20 @@ class Ha(object):
         self._leader_timeline = None if cluster.is_unlocked() else cluster.leader.timeline
 
     def acquire_lock(self):
-        self.set_leader_access_is_restricted(self.cluster.has_permanent_logical_slots(self.state_handler.name))
         ret = self.dcs.attempt_to_acquire_leader()
         self.set_is_leader(ret)
         return ret
 
     def update_lock(self, write_leader_optime=False):
-        last_operation = None
+        last_lsn = slots = None
         if write_leader_optime:
             try:
-                last_operation = self.state_handler.last_operation()
+                last_lsn = self.state_handler.last_operation()
+                slots = self.state_handler.slots()
             except Exception:
                 logger.exception('Exception when called state_handler.last_operation()')
         try:
-            ret = self.dcs.update_leader(last_operation, self._leader_access_is_restricted)
+            ret = self.dcs.update_leader(last_lsn, slots)
         except Exception:
             logger.exception('Unexpected exception raised from update_leader, please report it as a BUG')
             ret = False
@@ -613,8 +608,6 @@ class Ha(object):
                     return 'Postponing promotion because synchronous replication state was updated by somebody else'
                 self.state_handler.config.set_synchronous_standby(['*'] if self.is_synchronous_mode_strict() else [])
             if self.state_handler.role != 'master':
-                self.set_leader_access_is_restricted(self.cluster.has_permanent_logical_slots(self.state_handler.name))
-
                 def on_success():
                     self._rewind.reset_state()
                     logger.info("cleared rewind state after becoming the leader")
@@ -622,8 +615,7 @@ class Ha(object):
                 with self._async_response:
                     self._async_response.reset()
                 self._async_executor.try_run_async('promote', self.state_handler.promote,
-                                                   args=(self.dcs.loop_wait, self._async_response, on_success,
-                                                         self._leader_access_is_restricted))
+                                                   args=(self.dcs.loop_wait, self._async_response, on_success))
             return promote_message
 
     def fetch_node_status(self, member):
@@ -653,14 +645,13 @@ class Ha(object):
         :param wal_position: Current wal position.
         :returns True when node is lagging
         """
-        lag = (self.cluster.last_leader_operation or 0) - wal_position
+        lag = (self.cluster.last_lsn or 0) - wal_position
         return lag > self.patroni.config.get('maximum_lag_on_failover', 0)
 
     def _is_healthiest_node(self, members, check_replication_lag=True):
         """This method tries to determine whether I am healthy enough to became a new leader candidate or not."""
 
-        # We don't call `last_operation()` here because it returns a string
-        _, my_wal_position, _ = self.state_handler.timeline_wal_position()
+        my_wal_position = self.state_handler.last_operation()
         if check_replication_lag and self.is_lagging(my_wal_position):
             logger.info('My wal position exceeds maximum replication lag')
             return False  # Too far behind last reported wal position on master
@@ -802,13 +793,13 @@ class Ha(object):
 
         return self._is_healthiest_node(members.values())
 
-    def _delete_leader(self, last_operation=None):
+    def _delete_leader(self, last_lsn=None):
         self.set_is_leader(False)
-        self.dcs.delete_leader(last_operation)
+        self.dcs.delete_leader(last_lsn)
         self.dcs.reset_cluster()
 
-    def release_leader_key_voluntarily(self, last_operation=None):
-        self._delete_leader(last_operation)
+    def release_leader_key_voluntarily(self, last_lsn=None):
+        self._delete_leader(last_lsn)
         self.touch_member()
         logger.info("Leader key released")
 
@@ -988,11 +979,6 @@ class Ha(object):
 
                 self._delete_leader()
                 return 'removed leader lock because postgres is not running as master'
-
-            if self.state_handler.is_leader() and self._leader_access_is_restricted:
-                self.state_handler.slots_handler.sync_replication_slots(self.cluster)
-                self.state_handler.call_nowait(ACTION_ON_ROLE_CHANGE)
-                self.set_leader_access_is_restricted(False)
 
             if self.update_lock(True):
                 msg = self.process_manual_failover_from_leader()
@@ -1261,7 +1247,6 @@ class Ha(object):
             self.cancel_initialization()
         self.dcs.initialize(create_new=(self.cluster.initialize is None), sysid=self.state_handler.sysid)
         self.dcs.set_config_value(json.dumps(self.patroni.config.dynamic_configuration, separators=(',', ':')))
-        self.state_handler.slots_handler.sync_replication_slots(self.cluster)
         self.dcs.take_leader()
         self.set_is_leader(True)
         self.state_handler.call_nowait(ACTION_ON_START)
@@ -1317,8 +1302,8 @@ class Ha(object):
     def _run_cycle(self):
         dcs_failed = False
         try:
-            self.state_handler.reset_cluster_info_state()
             self.load_cluster_from_dcs()
+            self.state_handler.reset_cluster_info_state(self.cluster, self.patroni.nofailover)
 
             if self.is_paused():
                 self.watchdog.disable()
@@ -1424,20 +1409,28 @@ class Ha(object):
 
             try:
                 if self.cluster.is_unlocked():
-                    return self.process_unhealthy_cluster()
+                    ret = self.process_unhealthy_cluster()
                 else:
                     msg = self.process_healthy_cluster()
-                    return self.evaluate_scheduled_restart() or msg
+                    ret = self.evaluate_scheduled_restart() or msg
             finally:
                 # we might not have a valid PostgreSQL connection here if another thread
                 # stops PostgreSQL, therefore, we only reload replication slots if no
                 # asynchronous processes are running (should be always the case for the master)
                 if not self._async_executor.busy and not self.state_handler.is_starting():
-                    self.state_handler.slots_handler.sync_replication_slots(self.cluster)
+                    create_slots = self.state_handler.slots_handler.sync_replication_slots(self.cluster,
+                                                                                           self.patroni.nofailover)
                     if not self.state_handler.cb_called:
                         if not self.state_handler.is_leader():
                             self._rewind.trigger_check_diverged_lsn()
                         self.state_handler.call_nowait(ACTION_ON_START)
+                    if create_slots and self.cluster.leader:
+                        err = self._async_executor.try_run_async('copy_logical_slots',
+                                                                 self.state_handler.slots_handler.copy_logical_slots,
+                                                                 args=(self.cluster.leader, create_slots))
+                        if not err:
+                            ret = 'Copying logical slots {0} from the primary'.format(create_slots)
+            return ret
         except DCSError:
             dcs_failed = True
             logger.error('Error communicating with DCS')
@@ -1468,7 +1461,7 @@ class Ha(object):
             self.watchdog.disable()
         elif not self._join_aborted:
             # FIXME: If stop doesn't reach safepoint quickly enough keepalive is triggered. If shutdown checkpoint
-            # takes longer than ttl, then leader key is lost and replication might not have sent out all xlog.
+            # takes longer than ttl, then leader key is lost and replication might not have sent out all WAL.
             # This might not be the desired behavior of users, as a graceful shutdown of the host can mean lost data.
             # We probably need to something smarter here.
             disable_wd = self.watchdog.disable if self.watchdog.is_running else None
