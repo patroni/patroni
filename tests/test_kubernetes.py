@@ -16,7 +16,8 @@ def mock_list_namespaced_config_map(*args, **kwargs):
     metadata = {'resource_version': '1', 'labels': {'f': 'b'}, 'name': 'test-config',
                 'annotations': {'initialize': '123', 'config': '{}'}}
     items = [k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata))]
-    metadata.update({'name': 'test-leader', 'annotations': {'optime': '1234', 'leader': 'p-0', 'ttl': '30s'}})
+    metadata.update({'name': 'test-leader',
+                     'annotations': {'optime': '1234x', 'leader': 'p-0', 'ttl': '30s', 'slots': '{'}})
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
     metadata.update({'name': 'test-failover', 'annotations': {'leader': 'p-0'}})
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
@@ -259,10 +260,6 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
         self.assertIsNotNone(self.k.update_leader('123'))
         self.k._kinds._object_cache['test'].metadata.annotations['leader'] = 'p-1'
         self.assertFalse(self.k.update_leader('123'))
-
-    @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints', mock_namespaced_kind, create=True)
-    def test_update_leader_with_restricted_access(self):
-        self.assertIsNotNone(self.k.update_leader('123', True))
 
     @patch.object(k8s_client.CoreV1Api, 'read_namespaced_endpoints', create=True)
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints', create=True)

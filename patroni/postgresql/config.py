@@ -387,15 +387,21 @@ class ConfigHandler(object):
         if 'custom_conf' not in self._config and not os.path.exists(self._postgresql_base_conf):
             os.rename(self._postgresql_conf, self._postgresql_base_conf)
 
+        configuration = configuration or self._server_parameters.copy()
+
         # In case we are using custom bootstrap from spilo image with PITR it fails if it contains increasing
         # values like Max_connections. We disable hot_standby so it will accept increasing values.
         if self._postgresql.bootstrap.running_custom_bootstrap:
             configuration['hot_standby'] = 'off'
 
+        # Due to the permanent logical replication slots configured we have to enable hot_standby_feedback
+        if self._postgresql.enforce_hot_standby_feedback:
+            configuration['hot_standby_feedback'] = 'on'
+
         with ConfigWriter(self._postgresql_conf) as f:
             include = self._config.get('custom_conf') or self._postgresql_base_conf_name
             f.writeline("include '{0}'\n".format(ConfigWriter.escape(include)))
-            for name, value in sorted((configuration or self._server_parameters).items()):
+            for name, value in sorted((configuration).items()):
                 value = transform_postgresql_parameter_value(self._postgresql.major_version, name, value)
                 if (not self._postgresql.bootstrap.running_custom_bootstrap or name != 'hba_file') \
                         and name not in self._RECOVERY_PARAMETERS and value is not None:

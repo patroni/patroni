@@ -10,18 +10,19 @@ from contextlib import contextmanager
 from copy import deepcopy
 from dateutil import tz
 from datetime import datetime
-from patroni.postgresql.callback_executor import CallbackExecutor
-from patroni.postgresql.bootstrap import Bootstrap
-from patroni.postgresql.cancellable import CancellableSubprocess
-from patroni.postgresql.config import ConfigHandler, mtime
-from patroni.postgresql.connection import Connection, get_connection_cursor
-from patroni.postgresql.misc import parse_history, parse_lsn, postgres_major_version_to_int
-from patroni.postgresql.postmaster import PostmasterProcess
-from patroni.postgresql.slots import SlotsHandler
-from patroni.exceptions import PostgresConnectionException
-from patroni.utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty, parse_int
 from psutil import TimeoutExpired
 from threading import current_thread, Lock
+
+from .callback_executor import CallbackExecutor
+from .bootstrap import Bootstrap
+from .cancellable import CancellableSubprocess
+from .config import ConfigHandler, mtime
+from .connection import Connection, get_connection_cursor
+from .misc import parse_history, parse_lsn, postgres_major_version_to_int
+from .postmaster import PostmasterProcess
+from .slots import SlotsHandler
+from ..exceptions import PostgresConnectionException
+from ..utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty, parse_int
 
 
 logger = logging.getLogger(__name__)
@@ -48,13 +49,13 @@ def null_context():
 
 class Postgresql(object):
 
-    POSTMASTER_START_TIME = "pg_catalog.to_char(pg_catalog.pg_postmaster_start_time(), 'YYYY-MM-DD HH24:MI:SS.MS TZ')"
+    POSTMASTER_START_TIME = "pg_catalog.pg_postmaster_start_time()"
     TL_LSN = ("CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
               "ELSE ('x' || pg_catalog.substr(pg_catalog.pg_{0}file_name("
               "pg_catalog.pg_current_{0}_{1}()), 1, 8))::bit(32)::int END, "  # master timeline
               "CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
               "ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), '0/0')::bigint END, "  # write_lsn
-              "pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint,  "
+              "pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint, "
               "pg_catalog.pg_{0}_{1}_diff(COALESCE(pg_catalog.pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint, "
               "pg_catalog.pg_is_in_recovery() AND pg_catalog.pg_is_{0}_replay_paused()")
 
@@ -101,6 +102,8 @@ class Postgresql(object):
         self._state_entry_timestamp = None
 
         self._cluster_info_state = {}
+        self._has_permanent_logical_slots = True
+        self._enforce_hot_standby_feedback = False
         self._cached_replica_timeline = None
 
         # Last known running process
@@ -152,14 +155,18 @@ class Postgresql(object):
     @property
     def cluster_info_query(self):
         if self._major_version >= 90600:
+            extra = "(SELECT pg_catalog.json_agg(s.*) FROM (SELECT slot_name, slot_type as type, datoid::bigint, " +\
+                    "plugin, catalog_xmin, pg_catalog.pg_wal_lsn_diff(confirmed_flush_lsn, '0/0')::bigint" + \
+                    " AS confirmed_flush_lsn FROM pg_catalog.pg_get_replication_slots()) AS s)"\
+                            if self._has_permanent_logical_slots and self._major_version >= 110000 else "NULL"
             extra = (", CASE WHEN latest_end_lsn IS NULL THEN NULL ELSE received_tli END,"
-                     " slot_name, conninfo FROM pg_catalog.pg_stat_get_wal_receiver()")
+                     " slot_name, conninfo, {0} FROM pg_catalog.pg_stat_get_wal_receiver()").format(extra)
             if self.role == 'standby_leader':
                 extra = "timeline_id" + extra + ", pg_catalog.pg_control_checkpoint()"
             else:
                 extra = "0" + extra
         else:
-            extra = "0, NULL, NULL, NULL"
+            extra = "0, NULL, NULL, NULL, NULL"
 
         return ("SELECT " + self.TL_LSN + ", {2}").format(self.wal_name, self.lsn_name, extra)
 
@@ -299,16 +306,36 @@ class Postgresql(object):
             replica_methods = self.create_replica_methods
         return any(self.replica_method_can_work_without_replication_connection(m) for m in replica_methods)
 
-    def reset_cluster_info_state(self):
+    @property
+    def enforce_hot_standby_feedback(self):
+        return self._enforce_hot_standby_feedback
+
+    def set_enforce_hot_standby_feedback(self, value):
+        # If we enable or disable the hot_standby_feedback we need to update postgresql.conf and reload
+        if self._enforce_hot_standby_feedback != value:
+            self._enforce_hot_standby_feedback = value
+            if self.is_running():
+                self.config.write_postgresql_conf()
+                self.reload()
+
+    def reset_cluster_info_state(self, cluster, nofailover=None):
         self._cluster_info_state = {}
+        if cluster and cluster.config and cluster.config.modify_index:
+            self._has_permanent_logical_slots =\
+                cluster.has_permanent_logical_slots(self.name, nofailover, self.major_version)
+            self.set_enforce_hot_standby_feedback(
+                self._has_permanent_logical_slots or
+                cluster.should_enforce_hot_standby_feedback(self.name, nofailover, self.major_version))
 
     def _cluster_info_state_get(self, name):
         if not self._cluster_info_state:
             try:
                 result = self._is_leader_retry(self._query, self.cluster_info_query).fetchone()
-                self._cluster_info_state = dict(zip(['timeline', 'wal_position', 'replayed_location',
-                                                     'received_location', 'replay_paused', 'pg_control_timeline',
-                                                     'received_tli', 'slot_name', 'conninfo'], result))
+                cluster_info_state = dict(zip(['timeline', 'wal_position', 'replayed_location',
+                                               'received_location', 'replay_paused', 'pg_control_timeline',
+                                               'received_tli', 'slot_name', 'conninfo', 'slots'], result))
+                cluster_info_state['slots'] = self.slots_handler.process_permanent_slots(cluster_info_state['slots'])
+                self._cluster_info_state = cluster_info_state
             except RetryFailedError as e:  # SELECT failed two times
                 self._cluster_info_state = {'error': str(e)}
                 if not self.is_starting() and self.pg_isready() == STATE_REJECT:
@@ -324,6 +351,9 @@ class Postgresql(object):
 
     def received_location(self):
         return self._cluster_info_state_get('received_location')
+
+    def slots(self):
+        return self._cluster_info_state_get('slots')
 
     def primary_slot_name(self):
         return self._cluster_info_state_get('slot_name')
@@ -362,7 +392,7 @@ class Postgresql(object):
                 return self._postmaster_proc
             self._postmaster_proc = None
 
-        # we noticed that postgres was restarted, force syncing of replication
+        # we noticed that postgres was restarted, force syncing of replication slots and check of logical slots
         self.slots_handler.schedule()
 
         self._postmaster_proc = PostmasterProcess.from_pidfile(self._data_dir)
@@ -812,7 +842,7 @@ class Postgresql(object):
             logger.info('pre_promote script `%s` exited with %s', cmd, ret)
         return ret == 0
 
-    def promote(self, wait_seconds, task, on_success=None, access_is_restricted=False):
+    def promote(self, wait_seconds, task, on_success=None):
         if self.role == 'master':
             return True
 
@@ -829,13 +859,14 @@ class Postgresql(object):
             logger.info("PostgreSQL promote cancelled.")
             return False
 
+        self.slots_handler.on_promote()
+
         ret = self.pg_ctl('promote', '-W')
         if ret:
             self.set_role('master')
             if on_success is not None:
                 on_success()
-            if not access_is_restricted:
-                self.call_nowait(ACTION_ON_ROLE_CHANGE)
+            self.call_nowait(ACTION_ON_ROLE_CHANGE)
             ret = self._wait_promote(wait_seconds)
         return ret
 
@@ -865,16 +896,16 @@ class Postgresql(object):
         try:
             query = "SELECT " + self.POSTMASTER_START_TIME
             if current_thread().ident == self.__thread_ident:
-                return self.query(query).fetchone()[0]
+                return self.query(query).fetchone()[0].isoformat(sep=' ')
             with self.connection().cursor() as cursor:
                 cursor.execute(query)
-                return cursor.fetchone()[0]
+                return cursor.fetchone()[0].isoformat(sep=' ')
         except psycopg2.Error:
             return None
 
     def last_operation(self):
-        return str(self._wal_position(self.is_leader(), self._cluster_info_state_get('wal_position'),
-                                      self.received_location(), self.replayed_location()))
+        return self._wal_position(self.is_leader(), self._cluster_info_state_get('wal_position'),
+                                  self.received_location(), self.replayed_location())
 
     def configure_server_parameters(self):
         self._major_version = self.get_major_version()

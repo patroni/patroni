@@ -602,9 +602,24 @@ class Etcd(AbstractEtcd):
             history = nodes.get(self._HISTORY)
             history = history and TimelineHistory.from_node(history.modifiedIndex, history.value)
 
-            # get last leader operation
-            last_leader_operation = nodes.get(self._LEADER_OPTIME)
-            last_leader_operation = 0 if last_leader_operation is None else int(last_leader_operation.value)
+            # get last know leader lsn and slots
+            status = nodes.get(self._STATUS)
+            if status:
+                try:
+                    status = json.loads(status.value)
+                    last_lsn = status.get(self._OPTIME)
+                    slots = status.get('slots')
+                except Exception:
+                    slots = last_lsn = None
+            else:
+                last_lsn = nodes.get(self._LEADER_OPTIME)
+                last_lsn = last_lsn and last_lsn.value
+                slots = None
+
+            try:
+                last_lsn = int(last_lsn)
+            except Exception:
+                last_lsn = 0
 
             # get list of members
             members = [self.member(n) for k, n in nodes.items() if k.startswith(self._MEMBERS) and k.count('/') == 1]
@@ -626,9 +641,9 @@ class Etcd(AbstractEtcd):
             sync = nodes.get(self._SYNC)
             sync = SyncState.from_node(sync and sync.modifiedIndex, sync and sync.value)
 
-            cluster = Cluster(initialize, config, leader, last_leader_operation, members, failover, sync, history)
+            cluster = Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots)
         except etcd.EtcdKeyNotFound:
-            cluster = Cluster(None, None, None, None, [], None, None, None)
+            cluster = Cluster(None, None, None, None, [], None, None, None, None)
         except Exception as e:
             self._handle_exception(e, 'get_cluster', raise_ex=EtcdError('Etcd is not responding properly'))
         self._has_failed = False
@@ -665,8 +680,12 @@ class Etcd(AbstractEtcd):
         return self._client.write(self.config_path, value, prevIndex=index or 0)
 
     @catch_etcd_errors
-    def _write_leader_optime(self, last_operation):
-        return self._client.set(self.leader_optime_path, last_operation)
+    def _write_leader_optime(self, last_lsn):
+        return self._client.set(self.leader_optime_path, last_lsn)
+
+    @catch_etcd_errors
+    def _write_status(self, value):
+        return self._client.set(self.status_path, value)
 
     @catch_etcd_errors
     def _update_leader(self):

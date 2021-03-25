@@ -93,7 +93,7 @@ class TestRewind(BaseTestPostgresql):
             self.r.rewind_or_reinitialize_needed_and_possible(self.leader)
 
         with patch.object(Postgresql, 'is_running', Mock(return_value=True)):
-            with patch.object(MockCursor, 'fetchone', Mock(side_effect=[(0, 0, 1, 1,), Exception])):
+            with patch.object(MockCursor, 'fetchone', Mock(side_effect=[(0, 0, 1, 1, 0, 0, 0, 0, 0, None), Exception])):
                 self.r.rewind_or_reinitialize_needed_and_possible(self.leader)
 
     @patch.object(CancellableSubprocess, 'call', mock_cancellable_call)
