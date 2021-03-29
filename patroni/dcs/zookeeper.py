@@ -186,11 +186,10 @@ class ZooKeeper(AbstractDCS):
         except NoNodeError:
             return []
 
-    def load_members(self, sync_standby):
+    def load_members(self):
         members = []
         for member in self.get_children(self.members_path, self.cluster_watcher):
-            watch = member in sync_standby and self.cluster_watcher or None
-            data = self.get_node(self.members_path + member, watch)
+            data = self.get_node(self.members_path + member)
             if data is not None:
                 members.append(self.member(member, *data))
         return members
@@ -218,8 +217,7 @@ class ZooKeeper(AbstractDCS):
         sync = SyncState.from_node(sync and sync[1].version, sync and sync[0])
 
         # get list of members
-        sync_standby = sync.leader == self._name and sync.members or []
-        members = self.load_members(sync_standby) if self._MEMBERS[:-1] in nodes else []
+        members = self.load_members() if self._MEMBERS[:-1] in nodes else []
 
         # get leader
         leader = self.get_node(self.leader_path) if self._LEADER in nodes else None
@@ -255,12 +253,13 @@ class ZooKeeper(AbstractDCS):
                 logger.exception('get_cluster')
                 self.cluster_watcher(None)
                 raise ZooKeeperError('ZooKeeper in not responding properly')
-        # Optime ZNode was updated or doesn't exist and we are not leader
+        # The /status ZNode was updated or doesn't exist and we are not leader
         elif (self._fetch_status and not self._fetch_cluster or not cluster.last_lsn
               or cluster.has_permanent_logical_slots(self._name, False) and not cluster.slots) and\
                 not (cluster.leader and cluster.leader.name == self._name):
             try:
                 last_lsn, slots = self.get_status(cluster.leader)
+                self.event.clear()
                 cluster = Cluster(cluster.initialize, cluster.config, cluster.leader, last_lsn,
                                   cluster.members, cluster.failover, cluster.sync, cluster.history, slots)
             except Exception:
@@ -396,7 +395,7 @@ class ZooKeeper(AbstractDCS):
         return self.set_sync_state_value("{}", index)
 
     def watch(self, leader_index, timeout):
-        ret = super(ZooKeeper, self).watch(leader_index, timeout)
+        ret = super(ZooKeeper, self).watch(leader_index, timeout + 0.5)
         if ret and not self._fetch_status:
             self._fetch_cluster = True
         return ret or self._fetch_cluster
