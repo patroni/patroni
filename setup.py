@@ -23,7 +23,7 @@ KEYWORDS = 'etcd governor patroni postgresql postgres ha haproxy confd' +\
     ' zookeeper exhibitor consul streaming replication kubernetes k8s'
 
 EXTRAS_REQUIRE = {'aws': ['boto'], 'etcd': ['python-etcd'], 'etcd3': ['python-etcd'], 'consul': ['python-consul'],
-                  'exhibitor': ['kazoo'], 'zookeeper': ['kazoo'], 'kubernetes': ['ipaddress'], 'raft': ['pysyncobj']}
+                  'exhibitor': ['kazoo'], 'zookeeper': ['kazoo'], 'kubernetes': [], 'raft': ['pysyncobj']}
 COVERAGE_XML = True
 COVERAGE_HTML = False
 
@@ -173,7 +173,7 @@ def setup_package(version):
         extra = False
         for e, v in EXTRAS_REQUIRE.items():
             if v and r.startswith(v[0]):
-                EXTRAS_REQUIRE[e] = [r] if e != 'kubernetes' or sys.version_info < (3, 0, 0) else []
+                EXTRAS_REQUIRE[e] = [r]
                 extra = True
         if not extra:
             install_requires.append(r)

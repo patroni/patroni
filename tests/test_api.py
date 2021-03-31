@@ -455,7 +455,9 @@ class TestRestApiServer(unittest.TestCase):
     @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
     def setUp(self):
         self.srv = MockRestApiServer(Mock(), '', {'listen': '*:8008', 'certfile': 'a', 'verify_client': 'required',
-                                                  'ciphers': '!SSLv1:!SSLv2:!SSLv3:!TLSv1:!TLSv1.1'})
+                                                  'ciphers': '!SSLv1:!SSLv2:!SSLv3:!TLSv1:!TLSv1.1',
+                                                  'allowlist': ['127.0.0.1', '::1/128', '::1/zxc'],
+                                                  'allowlist_include_members': True})
 
     @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
     def test_reload_config(self):
@@ -466,10 +468,17 @@ class TestRestApiServer(unittest.TestCase):
         with patch.object(socket.socket, 'setsockopt', Mock(side_effect=socket.error)):
             self.srv.reload_config({'listen': ':8008'})
 
-    def test_check_auth(self):
+    @patch.object(MockPatroni, 'dcs')
+    def test_check_access(self, mock_dcs):
+        mock_dcs.cluster = get_cluster_initialized_without_leader()
+        mock_dcs.cluster.members[1].data['api_url'] = 'http://127.0.0.1z:8011/patroni'
+        mock_dcs.cluster.members.append(Member(0, 'bad-api-url', 30, {'api_url': 123}))
         mock_rh = Mock()
+        mock_rh.client_address = ('127.0.0.2',)
+        self.assertIsNot(self.srv.check_access(mock_rh), True)
+        mock_rh.client_address = ('127.0.0.1',)
         mock_rh.request.getpeercert.return_value = None
-        self.assertIsNot(self.srv.check_auth(mock_rh), True)
+        self.assertIsNot(self.srv.check_access(mock_rh), True)
 
     def test_handle_error(self):
         try:
@@ -507,3 +516,7 @@ class TestRestApiServer(unittest.TestCase):
                 Mock(return_value=(mock_request, mock_address))
             ):
                 self.srv._handle_request_noblock()
+
+    @patch('ssl._ssl._test_decode_cert', Mock())
+    def test_reload_local_certificate(self):
+        self.assertTrue(self.srv.reload_local_certificate())

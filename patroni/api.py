@@ -12,6 +12,7 @@ import six
 import socket
 import sys
 
+from ipaddress import ip_address, ip_network as _ip_network
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from six.moves.socketserver import ThreadingMixIn
 from six.moves.urllib_parse import urlparse, parse_qs
@@ -23,6 +24,10 @@ from .utils import deep_compare, enable_keepalive, parse_bool, patch_config, Ret
     RetryFailedError, parse_int, split_host_port, tzutc, uri, cluster_as_json
 
 logger = logging.getLogger(__name__)
+
+
+def ip_network(value):
+    return _ip_network(value.decode('utf-8') if six.PY2 else value, False)
 
 
 class RestApiHandler(BaseHTTPRequestHandler):
@@ -47,17 +52,17 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def _write_json_response(self, status_code, response):
         self._write_response(status_code, json.dumps(response, default=str), content_type='application/json')
 
-    def check_auth(func):
-        """Decorator function to check authorization header or client certificates
+    def check_access(func):
+        """Decorator function to check the source ip, authorization header. or client certificates
 
         Usage example:
-        @check_auth
+        @check_access
         def do_PUT_foo():
             pass
         """
 
         def wrapper(self, *args, **kwargs):
-            if self.server.check_auth(self):
+            if self.server.check_access(self):
                 return func(self, *args, **kwargs)
 
         return wrapper
@@ -271,7 +276,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             logger.exception('Bad request')
         self.send_error(400)
 
-    @check_auth
+    @check_access
     def do_PATCH_config(self):
         request = self._read_json_content()
         if request:
@@ -286,7 +291,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             self.server.patroni.ha.wakeup()
             self._write_json_response(200, data)
 
-    @check_auth
+    @check_access
     def do_PUT_config(self):
         request = self._read_json_content()
         if request:
@@ -297,7 +302,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     return self.send_error(502)
             self._write_json_response(200, request)
 
-    @check_auth
+    @check_access
     def do_POST_reload(self):
         self.server.patroni.sighup_handler()
         self._write_response(202, 'reload scheduled')
@@ -323,7 +328,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             status_code = 422
         return (status_code, error, scheduled_at)
 
-    @check_auth
+    @check_access
     def do_POST_restart(self):
         status_code = 500
         data = 'restart failed'
@@ -384,7 +389,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     status_code = 409
         self._write_response(status_code, data)
 
-    @check_auth
+    @check_access
     def do_DELETE_restart(self):
         if self.server.patroni.ha.delete_future_restart():
             data = "scheduled restart deleted"
@@ -394,7 +399,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             code = 404
         self._write_response(code, data)
 
-    @check_auth
+    @check_access
     def do_DELETE_switchover(self):
         failover = self.server.patroni.dcs.get_cluster().failover
         if failover and failover.scheduled_at:
@@ -408,7 +413,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             code = 404
         self._write_response(code, data)
 
-    @check_auth
+    @check_access
     def do_POST_reinitialize(self):
         request = self._read_json_content(body_is_optional=True)
 
@@ -465,7 +470,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 return None
         return action + ' is not possible: no good candidates have been found'
 
-    @check_auth
+    @check_access
     def do_POST_failover(self, action='failover'):
         request = self._read_json_content()
         (status_code, data) = (400, '')
@@ -613,7 +618,6 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self.patroni = patroni
         self.__listen = None
         self.__ssl_options = None
-        self.http_extra_headers = {}
         self.reload_config(config)
         self.daemon = True
         self.__ssl_serial_number = None
@@ -647,7 +651,35 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             if not auth_header.startswith('Basic ') or not self.check_basic_auth_key(auth_header[6:]):
                 return 'not authenticated'
 
-    def check_auth(self, rh):
+    @staticmethod
+    def __resolve_ips(host, port):
+        try:
+            for _, _, _, _, sa in socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM, socket.IPPROTO_TCP):
+                yield ip_network(sa[0])
+        except Exception as e:
+            logger.error('Failed to resolve %s: %r', host, e)
+
+    def __members_ips(self):
+        cluster = self.patroni.dcs.cluster
+        if self.__allowlist_include_members and cluster:
+            for member in cluster.members:
+                if member.api_url:
+                    try:
+                        r = urlparse(member.api_url)
+                        host = r.hostname
+                        port = r.port or (443 if r.scheme == 'https' else 80)
+                        for ip in self.__resolve_ips(host, port):
+                            yield ip
+                    except Exception as e:
+                        logger.debug('Failed to parse url %s: %r', member.api_url, e)
+
+    def check_access(self, rh):
+        if self.__allowlist or self.__allowlist_include_members:
+            incoming_ip = rh.client_address[0]
+            incoming_ip = ip_address(incoming_ip.decode('utf-8') if six.PY2 else incoming_ip)
+            if not any(incoming_ip in net for net in self.__allowlist + tuple(self.__members_ips())):
+                return rh._write_response(403, 'Access is denied')
+
         if not hasattr(rh.request, 'getpeercert') or not rh.request.getpeercert():  # valid client cert isn't present
             if self.__protocol == 'https' and self.__ssl_options.get('verify_client') in ('required', 'optional'):
                 return rh._write_response(403, 'client certificate required')
@@ -771,9 +803,24 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
                 self.__ssl_serial_number = on_disk_cert_serial_number
                 return True
 
+    def _build_allowlist(self, value):
+        if isinstance(value, list):
+            for v in value:
+                if '/' in v:  # netmask
+                    try:
+                        yield ip_network(v)
+                    except Exception as e:
+                        logger.error('Invalid value "%s" in the allowlist: %r', v, e)
+                else:  # ip or hostname, try to resolve it
+                    for ip in self.__resolve_ips(v, 8080):
+                        yield ip
+
     def reload_config(self, config):
         if 'listen' not in config:  # changing config in runtime
             raise ValueError('Can not find "restapi.listen" config')
+
+        self.__allowlist = tuple(self._build_allowlist(config.get('allowlist')))
+        self.__allowlist_include_members = config.get('allowlist_include_members')
 
         ssl_options = {n: config[n] for n in ('certfile', 'keyfile', 'keyfile_password',
                                               'cafile', 'ciphers') if n in config}
