@@ -111,6 +111,9 @@ class Config(object):
         self._load_cache()
         self._cache_needs_saving = False
 
+    def __get_permission_for_data_dir(self):
+        return int(oct(os.stat(self._data_dir).st_mode), base=8)
+
     @property
     def config_file(self):
         return self._config_file
@@ -166,6 +169,7 @@ class Config(object):
                     fd = None
                     json.dump(self.dynamic_configuration, f)
                 tmpfile = shutil.move(tmpfile, self._cache_file)
+                os.chmod(self._cache_file, self.__get_permission_for_data_dir())
                 self._cache_needs_saving = False
             except Exception:
                 logger.exception('Exception when saving file: %s', self._cache_file)

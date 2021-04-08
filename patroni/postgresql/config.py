@@ -320,6 +320,9 @@ class ConfigHandler(object):
         self._recovery_params = {}
         self.reload_config(config)
 
+    def __get_permission_for_data_dir(self):
+        return int(oct(os.stat(self._postgresql.data_dir).st_mode), base=8)
+
     def setup_server_parameters(self):
         self._server_parameters = self.get_server_parameters(self._config)
         self._adjust_recovery_parameters()
@@ -364,6 +367,7 @@ class ConfigHandler(object):
                     backup_file = os.path.join(self._postgresql.data_dir, f + '.backup')
                     if os.path.isfile(config_file):
                         shutil.copy(config_file, backup_file)
+                        os.chmod(backup_file, self.__get_permission_for_data_dir())
             except IOError:
                 logger.exception('unable to create backup copies of configuration files')
         return True
@@ -766,7 +770,7 @@ class ConfigHandler(object):
                 open(self._recovery_signal, 'w').close()
         else:
             with ConfigWriter(self._recovery_conf) as f:
-                os.chmod(self._recovery_conf, stat.S_IWRITE | stat.S_IREAD)
+                os.chmod(self._recovery_conf, self.__get_permission_for_data_dir())
                 self._write_recovery_params(f, recovery_params)
 
     def remove_recovery_conf(self):
