@@ -398,8 +398,8 @@ class ConfigHandler(object):
             f.writeline("include '{0}'\n".format(ConfigWriter.escape(include)))
             for name, value in sorted((configuration).items()):
                 value = transform_postgresql_parameter_value(self._postgresql.major_version, name, value)
-                if (not self._postgresql.bootstrap.running_custom_bootstrap or name != 'hba_file') \
-                        and name not in self._RECOVERY_PARAMETERS and value is not None:
+                if value is not None and\
+                        (name != 'hba_file' or not self._postgresql.bootstrap.running_custom_bootstrap):
                     f.write_param(name, value)
             # when we are doing custom bootstrap we assume that we don't know superuser password
             # and in order to be able to change it, we are opening trust access from a certain address
