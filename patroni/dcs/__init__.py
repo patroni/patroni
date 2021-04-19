@@ -89,7 +89,7 @@ def get_dcs(config):
                     if key.lower() == name and inspect.isclass(item) and issubclass(item, AbstractDCS):
                         # propagate some parameters
                         config[name].update({p: config[p] for p in ('namespace', 'name', 'scope', 'loop_wait',
-                                             'patronictl', 'ttl', 'retry_timeout') if p in config})
+                                             'patronictl', 'ttl', 'retry_timeout', 'token') if p in config})
                         return item(config[name])
             except ImportError:
                 logger.debug('Failed to import %s', module_name)
