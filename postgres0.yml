@@ -57,10 +57,15 @@ bootstrap:
       parameters:
 #        wal_level: hot_standby
 #        hot_standby: "on"
+#        max_connections: 100
+#        max_worker_processes: 8
 #        wal_keep_segments: 8
 #        max_wal_senders: 10
 #        max_replication_slots: 10
+#        max_prepared_transactions: 0
+#        max_locks_per_transaction: 64
 #        wal_log_hints: "on"
+#        track_commit_timestamp: "off"
 #        archive_mode: "on"
 #        archive_timeout: 1800s
 #        archive_command: mkdir -p ../wal_archive && test ! -f ../wal_archive/%f && cp %p ../wal_archive/%f
