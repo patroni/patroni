@@ -108,9 +108,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
             response.get('role') == 'replica' and response.get('state') == 'running' else 503
 
         if not cluster and patroni.ha.is_paused():
+            leader_status_code = 200 if response.get('role') in ('master', 'standby_leader') else 503
             primary_status_code = 200 if response.get('role') == 'master' else 503
             standby_leader_status_code = 200 if response.get('role') == 'standby_leader' else 503
         elif patroni.ha.is_leader():
+            leader_status_code = 200
             if patroni.ha.is_standby_cluster():
                 primary_status_code = replica_status_code = 503
                 standby_leader_status_code = 200 if response.get('role') in ('replica', 'standby_leader') else 503
@@ -118,12 +120,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 primary_status_code = 200
                 standby_leader_status_code = 503
         else:
-            primary_status_code = standby_leader_status_code = 503
+            leader_status_code = primary_status_code = standby_leader_status_code = 503
 
         status_code = 503
 
         if 'standby_leader' in path or 'standby-leader' in path:
             status_code = standby_leader_status_code
+        elif 'leader' in path:
+            status_code = leader_status_code
         elif 'master' in path or 'leader' in path or 'primary' in path or 'read-write' in path:
             status_code = primary_status_code
         elif 'replica' in path:
