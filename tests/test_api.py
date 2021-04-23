@@ -507,3 +507,7 @@ class TestRestApiServer(unittest.TestCase):
                 Mock(return_value=(mock_request, mock_address))
             ):
                 self.srv._handle_request_noblock()
+
+    @patch('ssl._ssl._test_decode_cert', Mock())
+    def test_reload_local_certificate(self):
+        self.assertTrue(self.srv.reload_local_certificate())
