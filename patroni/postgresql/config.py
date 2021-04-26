@@ -245,7 +245,8 @@ class ConfigWriter(object):
 
     def writelines(self, lines):
         for line in lines:
-            self.writeline(line)
+            if line is not None: #Yaml import interprets empty strings (for example, comment lines) as None.
+                self.writeline(line)
 
     @staticmethod
     def escape(value):  # Escape (by doubling) any single quotes or backslashes in given string
