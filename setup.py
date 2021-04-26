@@ -22,8 +22,9 @@ AUTHOR_EMAIL = 'alexander.kukushkin@zalando.de, dmitrii.dolgov@zalando.de, alexk
 KEYWORDS = 'etcd governor patroni postgresql postgres ha haproxy confd' +\
     ' zookeeper exhibitor consul streaming replication kubernetes k8s'
 
-EXTRAS_REQUIRE = {'aws': ['boto'], 'etcd': ['python-etcd'], 'etcd3': ['python-etcd'], 'consul': ['python-consul'],
-                  'exhibitor': ['kazoo'], 'zookeeper': ['kazoo'], 'kubernetes': ['ipaddress'], 'raft': ['pysyncobj']}
+EXTRAS_REQUIRE = {'aws': ['boto'], 'etcd': ['python-etcd'], 'etcd3': ['python-etcd'],
+                  'consul': ['python-consul'], 'exhibitor': ['kazoo'], 'zookeeper': ['kazoo'],
+                  'kubernetes': ['ipaddress'], 'raft': ['pysyncobj', 'cryptography']}
 COVERAGE_XML = True
 COVERAGE_HTML = False
 
@@ -171,10 +172,16 @@ def setup_package(version):
         if r == '':
             continue
         extra = False
-        for e, v in EXTRAS_REQUIRE.items():
-            if v and r.startswith(v[0]):
-                EXTRAS_REQUIRE[e] = [r] if e != 'kubernetes' or sys.version_info < (3, 0, 0) else []
-                extra = True
+        for e, deps in EXTRAS_REQUIRE.items():
+            for i, v in enumerate(deps):
+                if r.startswith(v):
+                    if e != 'kubernetes' or sys.version_info < (3, 0, 0):
+                        deps[i] = r
+                    else:
+                        deps = []
+                    EXTRAS_REQUIRE[e] = deps
+                    extra = True
+                    break
         if not extra:
             install_requires.append(r)
 
