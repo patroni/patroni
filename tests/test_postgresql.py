@@ -717,3 +717,8 @@ class TestPostgresql(BaseTestPostgresql):
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def test_set_enforce_hot_standby_feedback(self):
         self.p.set_enforce_hot_standby_feedback(True)
+
+    @patch.object(Postgresql, 'major_version', PropertyMock(return_value=140000))
+    @patch.object(Postgresql, '_cluster_info_state_get', Mock(return_value=True))
+    def test_handle_parameter_change(self):
+        self.p.handle_parameter_change()
