@@ -426,7 +426,8 @@ class Ha(object):
             change_required, restart_required = self.state_handler.config.check_recovery_conf(node_to_follow)
             if change_required:
                 if restart_required:
-                    self._async_executor.try_run_async('changing primary_conninfo and restarting',
+                    self._async_executor.try_run_async('replication-related parameters (such as primary_conninfo, restore_command) has recently changed, '
+                                                       'restarting PostgreSQL to apply the changes',
                                                        self.state_handler.follow, args=(node_to_follow, role))
                 else:
                     self.state_handler.follow(node_to_follow, role, do_reload=True)
