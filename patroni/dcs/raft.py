@@ -30,11 +30,11 @@ class _TCPTransport(TCPTransport):
             return False
 
 
-class _TCPNode(TCPNode):
+def resolve_host(self):
+    return globalDnsResolver().resolve(self.host)
 
-    @property
-    def ip(self):
-        return globalDnsResolver().resolve(self.host)
+
+setattr(TCPNode, 'ip', property(resolve_host))
 
 
 class SyncObjUtility(object):
@@ -68,8 +68,7 @@ class DynMemberSyncObj(SyncObj):
 
         partnerAddrs = [member for member in (members or partnerAddrs) if member != selfAddress]
 
-        super(DynMemberSyncObj, self).__init__(selfAddress, partnerAddrs, conf,
-                                               nodeClass=_TCPNode, transportClass=_TCPTransport)
+        super(DynMemberSyncObj, self).__init__(selfAddress, partnerAddrs, conf, transportClass=_TCPTransport)
 
         if add_self:
             thread = threading.Thread(target=utility.executeCommand, args=(['add', selfAddress],))

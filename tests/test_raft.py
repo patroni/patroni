@@ -4,7 +4,7 @@ import tempfile
 import time
 
 from mock import Mock, PropertyMock, patch
-from patroni.dcs.raft import DynMemberSyncObj, KVStoreTTL, Raft, SyncObjUtility
+from patroni.dcs.raft import DynMemberSyncObj, KVStoreTTL, Raft, SyncObjUtility, TCPTransport
 from pysyncobj import SyncObjConf, FAIL_REASON
 
 
@@ -97,6 +97,7 @@ class TestKVStoreTTL(unittest.TestCase):
         self.assertTrue(self.so.retry(test))
         self.assertFalse(self.so.retry(test))
 
+    @patch.object(TCPTransport, '_connectIfNecessarySingle', Mock(side_effect=Exception))
     def test_on_ready_override(self):
         self.assertTrue(self.so.set('foo', 'bar'))
         self.so.destroy()
@@ -114,8 +115,7 @@ class TestRaft(unittest.TestCase):
     def test_raft(self):
         raft = Raft({'ttl': 30, 'scope': 'test', 'name': 'pg', 'self_addr': '127.0.0.1:1234',
                      'retry_timeout': 10, 'data_dir': self._TMP})
-        raft.set_retry_timeout(20)
-        raft.set_ttl(60)
+        raft.reload_config({'retry_timeout': 20, 'ttl': 60, 'loop_wait': 10})
         self.assertTrue(raft._sync_obj.set(raft.members_path + 'legacy', '{"version":"2.0.0"}'))
         self.assertTrue(raft.touch_member(''))
         self.assertTrue(raft.initialize())
