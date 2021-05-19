@@ -158,7 +158,7 @@ parameters = CaseInsensitiveDict({
     'cluster_name': String(90500, None),
     'commit_delay': Integer(90300, None, 0, 100000, None),
     'commit_siblings': Integer(90300, None, 0, 1000, None),
-    'compute_query_id': Bool(140000, None),
+    'compute_query_id': EnumBool(140000, None, ('auto',)),
     'config_file': String(90300, None),
     'constraint_exclusion': EnumBool(90300, None, ('partition',)),
     'cpu_index_tuple_cost': Real(90300, None, 0, 1.79769e+308, None),
