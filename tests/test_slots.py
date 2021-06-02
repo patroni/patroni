@@ -86,8 +86,8 @@ class TestSlotsHandler(BaseTestPostgresql):
                           [self.me, self.other, self.leadermem], None, None, None, {'ls': 12346})
         self.assertEqual(self.s.sync_replication_slots(cluster, False), [])
         self.s._schedule_load_slots = False
-        with patch.object(MockCursor, 'execute', Mock(side_effect=psycopg2.OperationalError)):
-            self.assertEqual(self.s.sync_replication_slots(cluster, False), [])
+        with patch.object(MockCursor, 'execute', Mock(side_effect=psycopg2.errors.UndefinedFile)):
+            self.assertEqual(self.s.sync_replication_slots(cluster, False), ['ls'])
         cluster.slots['ls'] = 'a'
         self.assertEqual(self.s.sync_replication_slots(cluster, False), [])
         with patch.object(MockCursor, 'rowcount', PropertyMock(return_value=1), create=True):

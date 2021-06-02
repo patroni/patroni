@@ -5,6 +5,7 @@ import shutil
 
 from collections import defaultdict
 from contextlib import contextmanager
+from psycopg2.errors import UndefinedFile
 
 from .connection import get_connection_cursor
 from .misc import format_lsn
@@ -198,7 +199,9 @@ class SlotsHandler(object):
                         cur.execute("SELECT pg_catalog.pg_replication_slot_advance(%s, %s)",
                                     (name, format_lsn(int(cluster.slots[name]))))
                     except Exception as e:
-                        logger.exception("Failed to advance logical replication slot '%s': %r", name, e)
+                        logger.error("Failed to advance logical replication slot '%s': %r", name, e)
+                        if isinstance(e, UndefinedFile):
+                            create_slots.append(name)
                         self._schedule_load_slots = True
         return create_slots
 
@@ -280,6 +283,8 @@ class SlotsHandler(object):
                     f.write(value['data'])
                     f.flush()
                     os.fsync(f.fileno())
+                if os.path.exists(slot_dir):
+                    shutil.rmtree(slot_dir)
                 os.rename(slot_tmp_dir, slot_dir)
                 fsync_dir(slot_dir)
                 self._unready_logical_slots.add(name)
