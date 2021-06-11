@@ -702,7 +702,9 @@ class ConfigHandler(object):
         if wal_receiver_primary_slot_name is not None:
             self._current_recovery_params['primary_slot_name'][0] = wal_receiver_primary_slot_name
 
-        required = {'restart': 0, 'reload': 0}
+        # Increment the 'reload' to enforce write of postgresql.conf when joining the running postgres
+        required = {'restart': 0,
+                    'reload': int(not self._postgresql.cb_called and self._postgresql.major_version >= 120000)}
 
         def record_missmatch(mtype):
             required['restart' if mtype else 'reload'] += 1

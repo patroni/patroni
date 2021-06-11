@@ -224,6 +224,7 @@ class TestPostgresql(BaseTestPostgresql):
     @patch('patroni.postgresql.config.mtime', mock_mtime)
     @patch('patroni.postgresql.config.ConfigHandler._get_pg_settings')
     def test_check_recovery_conf(self, mock_get_pg_settings):
+        self.p.call_nowait('on_start')
         mock_get_pg_settings.return_value = {
             'primary_conninfo': ['primary_conninfo', 'foo=', None, 'string', 'postmaster', self.p.config._auto_conf],
             'recovery_min_apply_delay': ['recovery_min_apply_delay', '0', 'ms', 'integer', 'sighup', 'foo']
@@ -259,6 +260,7 @@ class TestPostgresql(BaseTestPostgresql):
     @patch.object(MockPostmaster, 'create_time', Mock(return_value=1234567), create=True)
     @patch('patroni.postgresql.config.ConfigHandler._get_pg_settings')
     def test__read_recovery_params(self, mock_get_pg_settings):
+        self.p.call_nowait('on_start')
         mock_get_pg_settings.return_value = {'primary_conninfo': ['primary_conninfo', '', None, 'string',
                                                                   'postmaster', self.p.config._postgresql_conf]}
         self.p.config.write_recovery_conf({'standby_mode': 'on', 'primary_conninfo': {'password': 'foo'}})
