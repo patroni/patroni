@@ -426,8 +426,8 @@ class KVCache(Thread):
                 logger.debug('%s changed from %s to %s', key, old_value, new_value)
 
             # We also want to wake up HA loop on replicas if leader optime (or status key) was updated
-            if value_changed and \
-                    (key not in (self._optime_key, self._status_key) or self.get(self._leader_key) != self._name):
+            if value_changed and (key not in (self._optime_key, self._status_key) or
+                                  (self.get(self._leader_key) or {}).get('value') != self._name):
                 self._dcs.event.set()
 
     def _process_message(self, message):
