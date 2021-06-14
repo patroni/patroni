@@ -511,6 +511,8 @@ def _transform_parameter_value(validators, version, name, value):
 def transform_postgresql_parameter_value(version, name, value):
     if '.' in name:
         return value
+    if name in recovery_parameters:
+        return None
     return _transform_parameter_value(parameters, version, name, value)
 
 

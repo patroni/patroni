@@ -398,8 +398,8 @@ class ConfigHandler(object):
             f.writeline("include '{0}'\n".format(ConfigWriter.escape(include)))
             for name, value in sorted((configuration).items()):
                 value = transform_postgresql_parameter_value(self._postgresql.major_version, name, value)
-                if (not self._postgresql.bootstrap.running_custom_bootstrap or name != 'hba_file') \
-                        and name not in self._RECOVERY_PARAMETERS and value is not None:
+                if value is not None and\
+                        (name != 'hba_file' or not self._postgresql.bootstrap.running_custom_bootstrap):
                     f.write_param(name, value)
             # when we are doing custom bootstrap we assume that we don't know superuser password
             # and in order to be able to change it, we are opening trust access from a certain address
@@ -877,25 +877,21 @@ class ConfigHandler(object):
     def resolve_connection_addresses(self):
         port = self._server_parameters['port']
         tcp_local_address = self._get_tcp_local_address()
-
-        local_address = {'port': port}
-        if self._config.get('use_unix_socket'):
-            unix_socket_directories = self._server_parameters.get('unix_socket_directories')
-            if unix_socket_directories is not None:
-                # fallback to tcp if unix_socket_directories is set, but there are no sutable values
-                local_address['host'] = self._get_unix_local_address(unix_socket_directories) or tcp_local_address
-
-            # if unix_socket_directories is not specified, but use_unix_socket is set to true - do our best
-            # to use default value, i.e. don't specify a host neither in connection url nor arguments
-        else:
-            local_address['host'] = tcp_local_address
-
-        self._local_address = local_address
-        self.local_replication_address = {'host': tcp_local_address, 'port': port}
-
         netloc = self._config.get('connect_address') or tcp_local_address + ':' + port
-        self._postgresql.connection_string = uri('postgres', netloc, self._postgresql.database)
 
+        unix_local_address = {'port': port}
+        unix_socket_directories = self._server_parameters.get('unix_socket_directories')
+        if unix_socket_directories is not None:
+            # fallback to tcp if unix_socket_directories is set, but there are no sutable values
+            unix_local_address['host'] = self._get_unix_local_address(unix_socket_directories) or tcp_local_address
+
+        tcp_local_address = {'host': tcp_local_address, 'port': port}
+
+        self._local_address = unix_local_address if self._config.get('use_unix_socket') else tcp_local_address
+        self.local_replication_address = unix_local_address\
+            if self._config.get('use_unix_socket_repl') else tcp_local_address
+
+        self._postgresql.connection_string = uri('postgres', netloc, self._postgresql.database)
         self._postgresql.set_connection_kwargs(self.local_connect_kwargs)
 
     def _get_pg_settings(self, names):

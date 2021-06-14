@@ -22,8 +22,9 @@ AUTHOR_EMAIL = 'alexander.kukushkin@zalando.de, dmitrii.dolgov@zalando.de, alexk
 KEYWORDS = 'etcd governor patroni postgresql postgres ha haproxy confd' +\
     ' zookeeper exhibitor consul streaming replication kubernetes k8s'
 
-EXTRAS_REQUIRE = {'aws': ['boto'], 'etcd': ['python-etcd'], 'etcd3': ['python-etcd'], 'consul': ['python-consul'],
-                  'exhibitor': ['kazoo'], 'zookeeper': ['kazoo'], 'kubernetes': [], 'raft': ['pysyncobj']}
+EXTRAS_REQUIRE = {'aws': ['boto'], 'etcd': ['python-etcd'], 'etcd3': ['python-etcd'],
+                  'consul': ['python-consul'], 'exhibitor': ['kazoo'], 'zookeeper': ['kazoo'],
+                  'kubernetes': [], 'raft': ['pysyncobj', 'cryptography']}
 COVERAGE_XML = True
 COVERAGE_HTML = False
 
@@ -171,10 +172,15 @@ def setup_package(version):
         if r == '':
             continue
         extra = False
-        for e, v in EXTRAS_REQUIRE.items():
-            if v and r.startswith(v[0]):
-                EXTRAS_REQUIRE[e] = [r]
-                extra = True
+        for e, deps in EXTRAS_REQUIRE.items():
+            for i, v in enumerate(deps):
+                if r.startswith(v):
+                    deps[i] = r
+                    EXTRAS_REQUIRE[e] = deps
+                    extra = True
+                    break
+            if extra:
+                break
         if not extra:
             install_requires.append(r)
 

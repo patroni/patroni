@@ -180,6 +180,7 @@ class PatroniController(AbstractController):
         config['postgresql']['data_dir'] = self._data_dir
         config['postgresql']['basebackup'] = [{'checkpoint': 'fast'}]
         config['postgresql']['use_unix_socket'] = os.name != 'nt'  # windows doesn't yet support unix-domain sockets
+        config['postgresql']['use_unix_socket_repl'] = os.name != 'nt'  # windows doesn't yet support unix-domain sockets
         config['postgresql']['pgpass'] = os.path.join(tempfile.gettempdir(), 'pgpass_' + name)
         config['postgresql']['parameters'].update({
             'logging_collector': 'on', 'log_destination': 'csvlog', 'log_directory': self._output_dir,
@@ -590,10 +591,12 @@ class ExhibitorController(ZooKeeperController):
 class RaftController(AbstractDcsController):
 
     CONTROLLER_ADDR = 'localhost:1234'
+    PASSWORD = '12345'
 
     def __init__(self, context):
         super(RaftController, self).__init__(context)
-        os.environ.update(PATRONI_RAFT_PARTNER_ADDRS="'" + self.CONTROLLER_ADDR + "'", RAFT_PORT='1234')
+        os.environ.update(PATRONI_RAFT_PARTNER_ADDRS="'" + self.CONTROLLER_ADDR + "'",
+                          PATRONI_RAFT_PASSWORD=self.PASSWORD, RAFT_PORT='1234')
         self._raft = None
 
     def _start(self):
@@ -614,18 +617,16 @@ class RaftController(AbstractDcsController):
 
     def cleanup_service_tree(self):
         from patroni.dcs.raft import KVStoreTTL
-        from pysyncobj import SyncObjConf
 
         if self._raft:
             self._raft.destroy()
-            self._raft._SyncObj__thread.join()
             self.stop()
             os.makedirs(self._work_directory)
             self.start()
 
         ready_event = threading.Event()
-        conf = SyncObjConf(appendEntriesUseBatch=False, dynamicMembershipChange=True, onReady=ready_event.set)
-        self._raft = KVStoreTTL(None, [self.CONTROLLER_ADDR], conf)
+        self._raft = KVStoreTTL(ready_event.set, None, None, partner_addrs=[self.CONTROLLER_ADDR], password=self.PASSWORD)
+        self._raft.startAutoTick()
         ready_event.wait()
 
 

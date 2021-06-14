@@ -115,6 +115,8 @@ jobs:
       uses: actions/setup-python@v2
       with:
         python-version: ${{ matrix.python-version }}
+    - name: Add postgresql apt repo
+      run: sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
     - name: Install dependencies
       run: python .github/workflows/install_deps.py
     - name: Run behave tests

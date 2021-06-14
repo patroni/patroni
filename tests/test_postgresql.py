@@ -475,7 +475,8 @@ class TestPostgresql(BaseTestPostgresql):
         parameters = self._PARAMETERS.copy()
         parameters.pop('f.oo')
         parameters['wal_buffers'] = '512'
-        config = {'pg_hba': [''], 'pg_ident': [''], 'use_unix_socket': True, 'authentication': {},
+        config = {'pg_hba': [''], 'pg_ident': [''], 'use_unix_socket': True, 'use_unix_socket_repl': True,
+                  'authentication': {},
                   'retry_timeout': 10, 'listen': '*', 'krbsrvname': 'postgres', 'parameters': parameters}
         self.p.reload_config(config)
         mock_fetchone.side_effect = Exception
@@ -490,6 +491,14 @@ class TestPostgresql(BaseTestPostgresql):
         parameters['unix_socket_directories'] = '.'
         self.p.reload_config(config)
         self.p.config.resolve_connection_addresses()
+
+    def test_resolve_connection_addresses(self):
+        self.p.config._config['use_unix_socket'] = self.p.config._config['use_unix_socket_repl'] = True
+        self.p.config.resolve_connection_addresses()
+        self.assertEqual(self.p.config.local_replication_address, {'host': '/tmp', 'port': '5432'})
+        self.p.config._server_parameters.pop('unix_socket_directories')
+        self.p.config.resolve_connection_addresses()
+        self.assertEqual(self.p.config._local_address, {'port': '5432'})
 
     @patch.object(Postgresql, '_version_file_exists', Mock(return_value=True))
     def test_get_major_version(self):
