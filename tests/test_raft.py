@@ -4,7 +4,7 @@ import tempfile
 import time
 
 from mock import Mock, PropertyMock, patch
-from patroni.dcs.raft import DynMemberSyncObj, KVStoreTTL, Raft, SyncObjUtility, TCPTransport
+from patroni.dcs.raft import DynMemberSyncObj, KVStoreTTL, Raft, SyncObjUtility, TCPTransport, _TCPTransport
 from pysyncobj import SyncObjConf, FAIL_REASON
 
 
@@ -21,6 +21,16 @@ def remove_files(prefix):
                         break
                 except Exception:
                     time.sleep(1.0)
+
+
+class TestTCPTransport(unittest.TestCase):
+
+    @patch.object(TCPTransport, '__init__', Mock())
+    @patch.object(TCPTransport, 'setOnUtilityMessageCallback', Mock())
+    @patch.object(TCPTransport, '_connectIfNecessarySingle', Mock(side_effect=Exception))
+    def test__connectIfNecessarySingle(self):
+        t = _TCPTransport(Mock(), None, [])
+        self.assertFalse(t._connectIfNecessarySingle(None))
 
 
 @patch('pysyncobj.tcp_server.TcpServer.bind', Mock())
@@ -97,7 +107,6 @@ class TestKVStoreTTL(unittest.TestCase):
         self.assertTrue(self.so.retry(test))
         self.assertFalse(self.so.retry(test))
 
-    @patch.object(TCPTransport, '_connectIfNecessarySingle', Mock(side_effect=Exception))
     def test_on_ready_override(self):
         self.assertTrue(self.so.set('foo', 'bar'))
         self.so.destroy()
