@@ -373,3 +373,12 @@ Tags
 - **noloadbalance**: ``true`` or ``false``. If set to ``true`` the node will return HTTP Status Code 503 for the ``GET /replica`` REST API health-check and therefore will be excluded from the load-balancing. Defaults to ``false``.
 - **replicatefrom**: The IP address/hostname of another replica. Used to support cascading replication.
 - **nosync**: ``true`` or ``false``. If set to ``true`` the node will never be selected as a synchronous replica.
+
+In addition to these predefined tags, You can also add your own tags to mark instances:
+
+- **key1**: ``true``
+- **key2**: ``false``
+- **key3**: ``1.4``
+- **key4**: ``"RandomString"``
+
+You can get these tags from the rest api. You can also check for an instance health using these tags. If the tag isn't defined for an instance, or if the respective value doesn't match the querying value, it will return HTTP Status Code 503.
