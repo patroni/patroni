@@ -374,7 +374,7 @@ Tags
 - **replicatefrom**: The IP address/hostname of another replica. Used to support cascading replication.
 - **nosync**: ``true`` or ``false``. If set to ``true`` the node will never be selected as a synchronous replica.
 
-In addition to these predefined tags, You can also add your own tags to mark instances:
+In addition to these predefined tags, You can also add your own ones:
 
 - **key1**: ``true``
 - **key2**: ``false``
