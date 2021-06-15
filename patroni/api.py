@@ -88,18 +88,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 response['logger_records_lost'] = lost
         self._write_json_response(status_code, response)
 
-    def cast_query_param(self, qs_value):
-        if qs_value is None:
-            return None
-        if qs_value == "true":
-            return True
-        if qs_value == "false":
-            return False
-        try:
-            return float(qs_value)
-        except ValueError:
-            return qs_value
-
     def do_GET(self, write_status_code_only=False):
         """Default method for processing all GET requests which can not be routed to other methods"""
 
@@ -159,11 +147,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 if not qs_key.startswith(qs_tag_prefix):
                     continue
                 qs_key = qs_key[len(qs_tag_prefix):]
-                qs_value = self.cast_query_param(qs_value[0])
+                qs_value = qs_value[0]
                 instance_tag_value = patroni.tags.get(qs_key)
+                # tag not registered for instance
                 if instance_tag_value is None:
                     status_code = 503
                     break
+                if not isinstance(instance_tag_value, str):
+                    instance_tag_value = str(instance_tag_value).lower()
                 if instance_tag_value != qs_value:
                     status_code = 503
                     break
