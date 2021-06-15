@@ -153,7 +153,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 if instance_tag_value is None:
                     status_code = 503
                     break
-                if not isinstance(instance_tag_value, str):
+                if not isinstance(instance_tag_value, six.string_types):
                     instance_tag_value = str(instance_tag_value).lower()
                 if instance_tag_value != qs_value:
                     status_code = 503
