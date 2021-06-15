@@ -88,6 +88,18 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 response['logger_records_lost'] = lost
         self._write_json_response(status_code, response)
 
+    def cast_query_param(self, qs_value):
+        if qs_value is None:
+            return None
+        if qs_value == "true":
+            return True
+        if qs_value == "false":
+            return False
+        try:
+            return float(qs_value)
+        except ValueError:
+            return qs_value
+
     def do_GET(self, write_status_code_only=False):
         """Default method for processing all GET requests which can not be routed to other methods"""
 
@@ -139,6 +151,22 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 status_code = replica_status_code
             elif path in ('/async', '/asynchronous') and not is_synchronous:
                 status_code = replica_status_code
+
+        # check for user defined tags in query params
+        if status_code == 200:
+            qs_tag_prefix = "tag_"
+            qs_tags = {tag_name[len(qs_tag_prefix):]: tag_values[0]
+                       for tag_name, tag_values in self.path_query.items()
+                       if tag_name.startswith(qs_tag_prefix)}
+            for qs_key, qs_value in qs_tags.items():
+                qs_value = self.cast_query_param(qs_value)
+                instance_tag_value = patroni.tags.get(qs_key)
+                if instance_tag_value is None:
+                    status_code = 503
+                    break
+                if instance_tag_value != qs_value:
+                    status_code = 503
+                    break
 
         if write_status_code_only:  # when haproxy sends OPTIONS request it reads only status code and nothing more
             self._write_status_code_only(status_code)
