@@ -155,11 +155,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
         # check for user defined tags in query params
         if status_code == 200:
             qs_tag_prefix = "tag_"
-            qs_tags = {tag_name[len(qs_tag_prefix):]: tag_values[0]
-                       for tag_name, tag_values in self.path_query.items()
-                       if tag_name.startswith(qs_tag_prefix)}
-            for qs_key, qs_value in qs_tags.items():
-                qs_value = self.cast_query_param(qs_value)
+            for qs_key, qs_value in self.path_query.items():
+                if not qs_key.startswith(qs_tag_prefix):
+                    continue
+                qs_key = qs_key[len(qs_tag_prefix):]
+                qs_value = self.cast_query_param(qs_value[0])
                 instance_tag_value = patroni.tags.get(qs_key)
                 if instance_tag_value is None:
                     status_code = 503
