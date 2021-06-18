@@ -122,14 +122,13 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         status_code = 503
 
-        request_for_master = 'master' in path or \
-                             'leader' in path or \
-                             'primary' in path or \
-                             'read-write' in path
-        if request_for_master:
-            status_code = primary_status_code
-        elif 'standby_leader' in path or 'standby-leader' in path:
+        ignore_tags = False
+        if 'standby_leader' in path or 'standby-leader' in path:
             status_code = standby_leader_status_code
+            ignore_tags = True
+        elif 'master' in path or 'leader' in path or 'primary' in path or 'read-write' in path:
+            status_code = primary_status_code
+            ignore_tags = True
         elif 'replica' in path:
             status_code = replica_status_code
         elif 'read-only' in path:
@@ -145,7 +144,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 status_code = replica_status_code
 
         # check for user defined tags in query params
-        if not request_for_master and status_code == 200:
+        if not ignore_tags and status_code == 200:
             qs_tag_prefix = "tag_"
             for qs_key, qs_value in self.path_query.items():
                 if not qs_key.startswith(qs_tag_prefix):
