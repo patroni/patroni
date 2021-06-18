@@ -374,11 +374,11 @@ Tags
 - **replicatefrom**: The IP address/hostname of another replica. Used to support cascading replication.
 - **nosync**: ``true`` or ``false``. If set to ``true`` the node will never be selected as a synchronous replica.
 
-In addition to these predefined tags, You can also add your own ones:
+In addition to these predefined tags, you can also add your own ones:
 
 - **key1**: ``true``
 - **key2**: ``false``
 - **key3**: ``1.4``
 - **key4**: ``"RandomString"``
 
-You can get these tags from the rest api. You can also check for an instance health using these tags. If the tag isn't defined for an instance, or if the respective value doesn't match the querying value, it will return HTTP Status Code 503.
+Tags are visible in the :ref:`REST API <rest_api>` and ``patronictl list`` You can also check for an instance health using these tags. If the tag isn't defined for an instance, or if the respective value doesn't match the querying value, it will return HTTP Status Code 503.
