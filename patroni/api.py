@@ -128,7 +128,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             status_code = standby_leader_status_code
         elif 'leader' in path:
             status_code = leader_status_code
-        elif 'master' in path or 'leader' in path or 'primary' in path or 'read-write' in path:
+        elif 'master' in path or 'primary' in path or 'read-write' in path:
             status_code = primary_status_code
         elif 'replica' in path:
             status_code = replica_status_code
