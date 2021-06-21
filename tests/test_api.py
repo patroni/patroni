@@ -280,7 +280,6 @@ class TestRestApiHandler(unittest.TestCase):
                                           'tag_key1=true&tag_key2=false&'
                                           'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag&tag_key6=RandomTag2')
 
-
     def test_do_OPTIONS(self):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'OPTIONS / HTTP/1.0'))
 
