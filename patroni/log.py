@@ -166,6 +166,8 @@ class PatroniLogger(Thread):
             self._root_logger.addHandler(self._queue_handler)
             self._root_logger.removeHandler(self._proxy_handler)
 
+        prev_record = None
+
         while True:
             self._close_old_handlers()
 
@@ -173,7 +175,18 @@ class PatroniLogger(Thread):
             if record is None:
                 break
 
-            self.log_handler.handle(record)
+            if self._root_logger.level == logging.INFO:
+                if record.msg.startswith('Lock owner: '):
+                    prev_record, record = record, None
+                else:
+                    if prev_record and prev_record.thread == record.thread:
+                        if not (record.msg.startswith('no action. ') or record.msg.startswith('PAUSE: no action')):
+                            self.log_handler.handle(prev_record)
+                        prev_record = None
+
+            if record:
+                self.log_handler.handle(record)
+
             self._queue_handler.queue.task_done()
 
     def shutdown(self):
