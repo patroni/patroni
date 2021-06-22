@@ -40,7 +40,8 @@ class Connection(object):
 
 @contextmanager
 def get_connection_cursor(**kwargs):
-    with psycopg2.connect(**kwargs) as conn:
-        conn.autocommit = True
-        with conn.cursor() as cur:
-            yield cur
+    conn = psycopg2.connect(**kwargs)
+    conn.autocommit = True
+    with conn.cursor() as cur:
+        yield cur
+    conn.close()

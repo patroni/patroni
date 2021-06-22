@@ -404,7 +404,7 @@ class Ha(object):
                     self.state_handler.set_role('replica')
 
                 if not node_to_follow:
-                    return 'no action'
+                    return 'no action. I am ({0})'.format(self.state_handler.name)
         elif is_leader:
             self.demote('immediate-nolock')
             return demote_reason
@@ -995,13 +995,13 @@ class Ha(object):
                     # in case of standby cluster we don't really need to
                     # enforce anything, since the leader is not a master.
                     # So just remind the role.
-                    msg = 'no action.  i am the standby leader with the lock' \
+                    msg = 'no action. I am ({0}) the standby leader with the lock'.format(self.state_handler.name) \
                           if self.state_handler.role == 'standby_leader' else \
                           'promoted self to a standby leader because i had the session lock'
                     return self.enforce_follow_remote_master(msg)
                 else:
                     return self.enforce_master_role(
-                        'no action.  i am the leader with the lock',
+                        'no action. I am ({0}) the leader with the lock'.format(self.state_handler.name),
                         'promoted self to leader because i had the session lock'
                     )
             else:
@@ -1015,12 +1015,15 @@ class Ha(object):
                 else:
                     return 'not promoting because failed to update leader lock in DCS'
         else:
-            logger.info('does not have lock')
+            logger.debug('does not have lock')
+        lock_owner = self.cluster.leader and self.cluster.leader.name
         if self.is_standby_cluster():
-            return self.follow('cannot be a real master in standby cluster',
-                               'no action.  i am a secondary and i am following a standby leader', refresh=False)
-        return self.follow('demoting self because i do not have the lock and i was a leader',
-                           'no action.  i am a secondary and i am following a leader', refresh=False)
+            return self.follow('cannot be a real primary in a standby cluster',
+                               'no action. I am a secondary ({0}) and following a standby leader ({1})'.format(
+                                    self.state_handler.name, lock_owner), refresh=False)
+        return self.follow('demoting self because I do not have the lock and I was a leader',
+                           'no action. I am a secondary ({0}) and following a leader ({1})'.format(
+                                self.state_handler.name, lock_owner), refresh=False)
 
     def evaluate_scheduled_restart(self):
         if self._async_executor.busy:  # Restart already in progress

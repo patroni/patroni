@@ -22,7 +22,7 @@ def install_requirements(what):
     for r in read('requirements.txt').split('\n'):
         r = r.strip()
         if r != '':
-            extras = {e for e, v in EXTRAS_REQUIRE.items() if v and r.startswith(v[0])}
+            extras = {e for e, v in EXTRAS_REQUIRE.items() if v and any(r.startswith(x) for x in v)}
             if not extras or what == 'all' or what in extras:
                 requirements.append(r)
 

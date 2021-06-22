@@ -9,13 +9,16 @@ Health check endpoints
 ----------------------
 For all health check ``GET`` requests Patroni returns a JSON document with the status of the node, along with the HTTP status code. If you don't want or don't need the JSON document, you might consider using the ``OPTIONS`` method instead of ``GET``.
 
-- The following requests to Patroni REST API will return HTTP status code **200** only when the Patroni node is running as the leader:
+- The following requests to Patroni REST API will return HTTP status code **200** only when the Patroni node is running as the primary with leader lock:
 
   - ``GET /``
   - ``GET /master``
-  - ``GET /leader``
   - ``GET /primary``
   - ``GET /read-write``
+
+- ``GET /standby-leader``: returns HTTP status code **200** only when the Patroni node is running as the leader in a :ref:`standby cluster <standby_cluster>`.
+
+- ``GET /leader``: returns HTTP status code **200** when the Patroni node has the leader lock. The major difference from the two previous endpoints is that it doesn't take into account whether PostgreSQL is running as the ``primary`` or the ``standby_leader``.
 
 - ``GET /replica``: replica health check endpoint. It returns HTTP status code **200** only when the Patroni node is in the state ``running``, the role is ``replica`` and ``noloadbalance`` tag is not set.
 
@@ -27,8 +30,6 @@ For all health check ``GET`` requests Patroni returns a JSON document with the s
   - ``GET /replica?lag=1GB``
 
 - ``GET /read-only``: like the above endpoint, but also includes the primary.
-
-- ``GET /standby-leader``: returns HTTP status code **200** only when the Patroni node is running as the leader in a :ref:`standby cluster <standby_cluster>`.
 
 - ``GET /synchronous`` or ``GET /sync``: returns HTTP status code **200** only when the Patroni node is running as a synchronous standby.
 

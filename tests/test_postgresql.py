@@ -492,6 +492,14 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.reload_config(config)
         self.p.config.resolve_connection_addresses()
 
+    def test_resolve_connection_addresses(self):
+        self.p.config._config['use_unix_socket'] = self.p.config._config['use_unix_socket_repl'] = True
+        self.p.config.resolve_connection_addresses()
+        self.assertEqual(self.p.config.local_replication_address, {'host': '/tmp', 'port': '5432'})
+        self.p.config._server_parameters.pop('unix_socket_directories')
+        self.p.config.resolve_connection_addresses()
+        self.assertEqual(self.p.config._local_address, {'port': '5432'})
+
     @patch.object(Postgresql, '_version_file_exists', Mock(return_value=True))
     def test_get_major_version(self):
         with patch.object(builtins, 'open', mock_open(read_data='9.4')):
