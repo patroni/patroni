@@ -417,7 +417,8 @@ class Ha(object):
         if msg:
             return msg
 
-        self.state_handler.handle_parameter_change()
+        if not self.is_paused():
+            self.state_handler.handle_parameter_change()
 
         role = 'standby_leader' if isinstance(node_to_follow, RemoteMember) and self.has_lock(False) else 'replica'
         # It might happen that leader key in the standby cluster references non-exiting member.
