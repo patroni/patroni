@@ -124,12 +124,16 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         status_code = 503
 
+        ignore_tags = False
         if 'standby_leader' in path or 'standby-leader' in path:
             status_code = standby_leader_status_code
+            ignore_tags = True
         elif 'leader' in path:
             status_code = leader_status_code
+            ignore_tags = True
         elif 'master' in path or 'primary' in path or 'read-write' in path:
             status_code = primary_status_code
+            ignore_tags = True
         elif 'replica' in path:
             status_code = replica_status_code
         elif 'read-only' in path:
@@ -143,6 +147,25 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 status_code = replica_status_code
             elif path in ('/async', '/asynchronous') and not is_synchronous:
                 status_code = replica_status_code
+
+        # check for user defined tags in query params
+        if not ignore_tags and status_code == 200:
+            qs_tag_prefix = "tag_"
+            for qs_key, qs_value in self.path_query.items():
+                if not qs_key.startswith(qs_tag_prefix):
+                    continue
+                qs_key = qs_key[len(qs_tag_prefix):]
+                qs_value = qs_value[0]
+                instance_tag_value = patroni.tags.get(qs_key)
+                # tag not registered for instance
+                if instance_tag_value is None:
+                    status_code = 503
+                    break
+                if not isinstance(instance_tag_value, six.string_types):
+                    instance_tag_value = str(instance_tag_value).lower()
+                if instance_tag_value != qs_value:
+                    status_code = 503
+                    break
 
         if write_status_code_only:  # when haproxy sends OPTIONS request it reads only status code and nothing more
             self._write_status_code_only(status_code)

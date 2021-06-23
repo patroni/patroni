@@ -118,7 +118,7 @@ class MockPatroni(object):
     postgresql = ha.state_handler
     dcs = Mock()
     logger = MockLogger()
-    tags = {}
+    tags = {"key1": True, "key2": False, "key3": 1, "key4": 1.4, "key5": "RandomTag"}
     version = '0.00'
     noloadbalance = PropertyMock(return_value=False)
     scheduled_restart = {'schedule': future_restart_time,
@@ -196,6 +196,89 @@ class TestRestApiHandler(unittest.TestCase):
             self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /patroni'))
         with patch.object(MockHa, 'is_standby_cluster', Mock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /standby_leader')
+
+        # test tags
+        #
+        MockRestApiServer(RestApiHandler, 'GET /master?lag=1M&'
+                                          'tag_key1=true&tag_key2=false&'
+                                          'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag')
+        MockRestApiServer(RestApiHandler, 'GET /master?lag=1M&'
+                                          'tag_key1=true&tag_key2=False&'
+                                          'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag')
+        MockRestApiServer(RestApiHandler, 'GET /master?lag=1M&'
+                                          'tag_key1=true&tag_key2=false&'
+                                          'tag_key3=1.0&tag_key4=1.4&tag_key5=RandomTag')
+        MockRestApiServer(RestApiHandler, 'GET /master?lag=1M&'
+                                          'tag_key1=true&tag_key2=false&'
+                                          'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag&tag_key6=RandomTag2')
+        #
+        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'master'})):
+            MockRestApiServer(RestApiHandler, 'GET /master?lag=1M&'
+                                              'tag_key1=true&tag_key2=false&'
+                                              'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag')
+            MockRestApiServer(RestApiHandler, 'GET /master?lag=1M&'
+                                              'tag_key1=true&tag_key2=False&'
+                                              'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag')
+            MockRestApiServer(RestApiHandler, 'GET /master?lag=1M&'
+                                              'tag_key1=true&tag_key2=false&'
+                                              'tag_key3=1.0&tag_key4=1.4&tag_key5=RandomTag')
+            MockRestApiServer(RestApiHandler, 'GET /master?lag=1M&'
+                                              'tag_key1=true&tag_key2=false&'
+                                              'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag&tag_key6=RandomTag2')
+        #
+        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'standby_leader'})):
+            MockRestApiServer(RestApiHandler, 'GET /standby_leader?lag=1M&'
+                                              'tag_key1=true&tag_key2=false&'
+                                              'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag')
+            MockRestApiServer(RestApiHandler, 'GET /standby_leader?lag=1M&'
+                                              'tag_key1=true&tag_key2=False&'
+                                              'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag')
+            MockRestApiServer(RestApiHandler, 'GET /standby_leader?lag=1M&'
+                                              'tag_key1=true&tag_key2=false&'
+                                              'tag_key3=1.0&tag_key4=1.4&tag_key5=RandomTag')
+            MockRestApiServer(RestApiHandler, 'GET /standby_leader?lag=1M&'
+                                              'tag_key1=true&tag_key2=false&'
+                                              'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag&tag_key6=RandomTag2')
+        #
+        MockRestApiServer(RestApiHandler, 'GET /replica?lag=1M&'
+                                          'tag_key1=true&tag_key2=false&'
+                                          'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag')
+        MockRestApiServer(RestApiHandler, 'GET /replica?lag=1M&'
+                                          'tag_key1=true&tag_key2=False&'
+                                          'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag')
+        MockRestApiServer(RestApiHandler, 'GET /replica?lag=1M&'
+                                          'tag_key1=true&tag_key2=false&'
+                                          'tag_key3=1.0&tag_key4=1.4&tag_key5=RandomTag')
+        MockRestApiServer(RestApiHandler, 'GET /replica?lag=1M&'
+                                          'tag_key1=true&tag_key2=false&'
+                                          'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag&tag_key6=RandomTag2')
+        #
+        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'master'})):
+            MockRestApiServer(RestApiHandler, 'GET /replica?lag=1M&'
+                                              'tag_key1=true&tag_key2=false&'
+                                              'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag')
+            MockRestApiServer(RestApiHandler, 'GET /replica?lag=1M&'
+                                              'tag_key1=true&tag_key2=False&'
+                                              'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag')
+            MockRestApiServer(RestApiHandler, 'GET /replica?lag=1M&'
+                                              'tag_key1=true&tag_key2=false&'
+                                              'tag_key3=1.0&tag_key4=1.4&tag_key5=RandomTag')
+            MockRestApiServer(RestApiHandler, 'GET /replica?lag=1M&'
+                                              'tag_key1=true&tag_key2=false&'
+                                              'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag&tag_key6=RandomTag2')
+        #
+        MockRestApiServer(RestApiHandler, 'GET /read-write?lag=1M&'
+                                          'tag_key1=true&tag_key2=false&'
+                                          'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag')
+        MockRestApiServer(RestApiHandler, 'GET /read-write?lag=1M&'
+                                          'tag_key1=true&tag_key2=False&'
+                                          'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag')
+        MockRestApiServer(RestApiHandler, 'GET /read-write?lag=1M&'
+                                          'tag_key1=true&tag_key2=false&'
+                                          'tag_key3=1.0&tag_key4=1.4&tag_key5=RandomTag')
+        MockRestApiServer(RestApiHandler, 'GET /read-write?lag=1M&'
+                                          'tag_key1=true&tag_key2=false&'
+                                          'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag&tag_key6=RandomTag2')
 
     def test_do_OPTIONS(self):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'OPTIONS / HTTP/1.0'))
