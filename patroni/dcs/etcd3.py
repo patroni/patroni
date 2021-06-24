@@ -262,6 +262,9 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         return self.api_execute(self.version_prefix + method, self._MPOST, fields)
 
     def authenticate(self):
+        if self._use_proxies and self._cluster_version is None:
+            kwargs = self._prepare_common_parameters(1)
+            self._ensure_version_prefix(self._base_uri, **kwargs)
         if self._cluster_version >= (3, 3) and self.username and self.password:
             logger.info('Trying to authenticate on Etcd...')
             old_token, self._token = self._token, None
