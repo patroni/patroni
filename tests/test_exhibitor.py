@@ -24,7 +24,7 @@ class TestExhibitor(unittest.TestCase):
 
     @patch('urllib3.PoolManager.request', Mock(return_value=urllib3.HTTPResponse(
         status=200, body=b'{"servers":["127.0.0.1","127.0.0.2","127.0.0.3"],"port":2181}')))
-    @patch('patroni.dcs.zookeeper.KazooClient', MockKazooClient)
+    @patch('patroni.dcs.zookeeper.PatroniKazooClient', MockKazooClient)
     def setUp(self):
         self.e = Exhibitor({'hosts': ['localhost', 'exhibitor'], 'port': 8181, 'scope': 'test',
                             'name': 'foo', 'ttl': 30, 'retry_timeout': 10})
