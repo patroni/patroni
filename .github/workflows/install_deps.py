@@ -42,7 +42,8 @@ def install_packages(what):
     packages['exhibitor'] = packages['zookeeper']
     packages = packages.get(what, [])
     ver = versions.get(what)
-    subprocess.call(['sudo', 'sed', '-i', 's/pgdg main.*$/pgdg main {0}/'.format(ver)])
+    subprocess.call(['sudo', 'sed', '-i', 's/pgdg main.*$/pgdg main {0}/'.format(ver),
+                     '/etc/apt/sources.list.d/pgdg.list'])
     subprocess.call(['sudo', 'apt-get', 'update', '-y'])
     return subprocess.call(['sudo', 'apt-get', 'install', '-y', 'postgresql-' + ver, 'expect-dev', 'wget'] + packages)
 
