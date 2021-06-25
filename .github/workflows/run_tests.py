@@ -23,7 +23,9 @@ def main():
 
     env = os.environ.copy()
     if sys.platform.startswith('linux'):
-        version = {'etcd': '9.6', 'etcd3': '13', 'consul': 12, 'exhibitor': 11, 'kubernetes': 13, 'raft': 12}.get(what)
+        from mapping import versions
+
+        version = versions.get(what)
         path = '/usr/lib/postgresql/{0}/bin:.'.format(version)
         unbuffer = ['timeout', '600', 'unbuffer']
         args = ['--tags=-skip'] if what == 'etcd' else []
