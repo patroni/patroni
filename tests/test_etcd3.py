@@ -4,8 +4,9 @@ import unittest
 import urllib3
 
 from mock import Mock, patch
-from patroni.dcs.etcd3 import PatroniEtcd3Client, Cluster, Etcd3, Etcd3Error, Etcd3ClientError, RetryFailedError,\
-        InvalidAuthToken, Unavailable, Unknown, UnsupportedEtcdVersion, UserEmpty, AuthFailed, base64_encode
+from patroni.dcs.etcd import DnsCachingResolver
+from patroni.dcs.etcd3 import PatroniEtcd3Client, Cluster, Etcd3Client, Etcd3Error, Etcd3ClientError, RetryFailedError,\
+        InvalidAuthToken, Unavailable, Unknown, UnsupportedEtcdVersion, UserEmpty, AuthFailed, base64_encode, Etcd3
 from threading import Thread
 
 from . import SleepException, MockResponse
@@ -55,6 +56,16 @@ def mock_urlopen(self, method, url, **kwargs):
     elif not url.endswith('/kv/deleterange'):
         raise Exception('Unexpected url: {0} {1} {2}'.format(method, url, kwargs))
     return ret
+
+
+class TestEtcd3Client(unittest.TestCase):
+
+    @patch.object(Thread, 'start', Mock())
+    @patch.object(urllib3.PoolManager, 'urlopen', mock_urlopen)
+    def test_authenticate(self):
+        etcd3 = Etcd3Client({'host': '127.0.0.1', 'port': 2379, 'use_proxies': True, 'retry_timeout': 10},
+                            DnsCachingResolver())
+        self.assertIsNotNone(etcd3._cluster_version)
 
 
 class BaseTestEtcd3(unittest.TestCase):

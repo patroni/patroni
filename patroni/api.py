@@ -124,12 +124,16 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         status_code = 503
 
+        ignore_tags = False
         if 'standby_leader' in path or 'standby-leader' in path:
             status_code = standby_leader_status_code
+            ignore_tags = True
         elif 'leader' in path:
             status_code = leader_status_code
+            ignore_tags = True
         elif 'master' in path or 'primary' in path or 'read-write' in path:
             status_code = primary_status_code
+            ignore_tags = True
         elif 'replica' in path:
             status_code = replica_status_code
         elif 'read-only' in path:
@@ -143,6 +147,25 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 status_code = replica_status_code
             elif path in ('/async', '/asynchronous') and not is_synchronous:
                 status_code = replica_status_code
+
+        # check for user defined tags in query params
+        if not ignore_tags and status_code == 200:
+            qs_tag_prefix = "tag_"
+            for qs_key, qs_value in self.path_query.items():
+                if not qs_key.startswith(qs_tag_prefix):
+                    continue
+                qs_key = qs_key[len(qs_tag_prefix):]
+                qs_value = qs_value[0]
+                instance_tag_value = patroni.tags.get(qs_key)
+                # tag not registered for instance
+                if instance_tag_value is None:
+                    status_code = 503
+                    break
+                if not isinstance(instance_tag_value, six.string_types):
+                    instance_tag_value = str(instance_tag_value).lower()
+                if instance_tag_value != qs_value:
+                    status_code = 503
+                    break
 
         if write_status_code_only:  # when haproxy sends OPTIONS request it reads only status code and nothing more
             self._write_status_code_only(status_code)
@@ -191,73 +214,74 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         metrics = []
 
+        scope_label = '{{scope="{0}"}}'.format(patroni.postgresql.scope)
         metrics.append("# HELP patroni_version Patroni semver without periods.")
         metrics.append("# TYPE patroni_version gauge")
         padded_semver = ''.join([x.zfill(2) for x in patroni.version.split('.')])  # 2.0.2 => 020002
-        metrics.append("patroni_version {0}".format(padded_semver))
+        metrics.append("patroni_version{0} {1}".format(scope_label, padded_semver))
 
         metrics.append("# HELP patroni_postgres_running Value is 1 if Postgres is running, 0 otherwise.")
         metrics.append("# TYPE patroni_postgres_running gauge")
-        metrics.append("patroni_postgres_running {0}".format(int(postgres['state'] == 'running')))
+        metrics.append("patroni_postgres_running{0} {1}".format(scope_label, int(postgres['state'] == 'running')))
 
         metrics.append("# HELP patroni_postmaster_start_time Epoch seconds since Postgres started.")
         metrics.append("# TYPE patroni_postmaster_start_time gauge")
         postmaster_start_time = postgres.get('postmaster_start_time')
         postmaster_start_time = (postmaster_start_time - epoch).total_seconds() if postmaster_start_time else 0
-        metrics.append("patroni_postmaster_start_time {0}".format(postmaster_start_time))
+        metrics.append("patroni_postmaster_start_time{0} {1}".format(scope_label, postmaster_start_time))
 
         metrics.append("# HELP patroni_master Value is 1 if this node is the leader, 0 otherwise.")
         metrics.append("# TYPE patroni_master gauge")
-        metrics.append("patroni_master {0}".format(int(postgres['role'] == 'master')))
+        metrics.append("patroni_master{0} {1}".format(scope_label, int(postgres['role'] == 'master')))
 
         metrics.append("# HELP patroni_xlog_location Current location of the Postgres"
                        " transaction log, 0 if this node is not the leader.")
         metrics.append("# TYPE patroni_xlog_location counter")
-        metrics.append("patroni_xlog_location {0}".format(postgres.get('xlog', {}).get('location', 0)))
+        metrics.append("patroni_xlog_location{0} {1}".format(scope_label, postgres.get('xlog', {}).get('location', 0)))
 
         metrics.append("# HELP patroni_standby_leader Value is 1 if this node is the standby_leader, 0 otherwise.")
         metrics.append("# TYPE patroni_standby_leader gauge")
-        metrics.append("patroni_standby_leader {0}".format(int(postgres['role'] == 'standby_leader')))
+        metrics.append("patroni_standby_leader{0} {1}".format(scope_label, int(postgres['role'] == 'standby_leader')))
 
         metrics.append("# HELP patroni_replica Value is 1 if this node is a replica, 0 otherwise.")
         metrics.append("# TYPE patroni_replica gauge")
-        metrics.append("patroni_replica {0}".format(int(postgres['role'] == 'replica')))
+        metrics.append("patroni_replica{0} {1}".format(scope_label, int(postgres['role'] == 'replica')))
 
         metrics.append("# HELP patroni_xlog_received_location Current location of the received"
                        " Postgres transaction log, 0 if this node is not a replica.")
         metrics.append("# TYPE patroni_xlog_received_location counter")
-        metrics.append("patroni_xlog_received_location {0}".format(
-                        postgres.get('xlog', {}).get('received_location', 0)))
+        metrics.append("patroni_xlog_received_location{0} {1}"
+                       .format(scope_label, postgres.get('xlog', {}).get('received_location', 0)))
 
         metrics.append("# HELP patroni_xlog_replayed_location Current location of the replayed"
                        " Postgres transaction log, 0 if this node is not a replica.")
         metrics.append("# TYPE patroni_xlog_replayed_location counter")
-        metrics.append("patroni_xlog_replayed_location {0}".format(
-                        postgres.get('xlog', {}).get('replayed_location', 0)))
+        metrics.append("patroni_xlog_replayed_location{0} {1}"
+                       .format(scope_label, postgres.get('xlog', {}).get('replayed_location', 0)))
 
         metrics.append("# HELP patroni_xlog_replayed_timestamp Current timestamp of the replayed"
                        " Postgres transaction log, 0 if null.")
         metrics.append("# TYPE patroni_xlog_replayed_timestamp gauge")
         replayed_timestamp = postgres.get('xlog', {}).get('replayed_timestamp')
         replayed_timestamp = (replayed_timestamp - epoch).total_seconds() if replayed_timestamp else 0
-        metrics.append("patroni_xlog_replayed_timestamp {0}".format(replayed_timestamp))
+        metrics.append("patroni_xlog_replayed_timestamp{0} {1}".format(scope_label, replayed_timestamp))
 
         metrics.append("# HELP patroni_xlog_paused Value is 1 if the Postgres xlog is paused, 0 otherwise.")
         metrics.append("# TYPE patroni_xlog_paused gauge")
-        metrics.append("patroni_xlog_paused {0}".format(
-                        int(postgres.get('xlog', {}).get('paused', False) is True)))
+        metrics.append("patroni_xlog_paused{0} {1}"
+                       .format(scope_label, int(postgres.get('xlog', {}).get('paused', False) is True)))
 
         metrics.append("# HELP patroni_postgres_server_version Version of Postgres (if running), 0 otherwise.")
         metrics.append("# TYPE patroni_postgres_server_version gauge")
-        metrics.append("patroni_postgres_server_version {0}".format(postgres.get('server_version', 0)))
+        metrics.append("patroni_postgres_server_version {0} {1}".format(scope_label, postgres.get('server_version', 0)))
 
         metrics.append("# HELP patroni_cluster_unlocked Value is 1 if the cluster is unlocked, 0 if locked.")
         metrics.append("# TYPE patroni_cluster_unlocked gauge")
-        metrics.append("patroni_cluster_unlocked {0}".format(int(postgres['cluster_unlocked'])))
+        metrics.append("patroni_cluster_unlocked{0} {1}".format(scope_label, int(postgres['cluster_unlocked'])))
 
         metrics.append("# HELP patroni_postgres_timeline Postgres timeline of this node (if running), 0 otherwise.")
         metrics.append("# TYPE patroni_postgres_timeline counter")
-        metrics.append("patroni_postgres_timeline {0}".format(postgres.get('timeline', 0)))
+        metrics.append("patroni_postgres_timeline{0} {1}".format(scope_label, postgres.get('timeline', 0)))
 
         self._write_response(200, '\n'.join(metrics)+'\n', content_type='text/plain')
 
