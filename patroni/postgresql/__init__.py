@@ -367,6 +367,17 @@ class Postgresql(object):
     def is_leader(self):
         return bool(self._cluster_info_state_get('timeline'))
 
+    def replay_paused(self):
+        return self._cluster_info_state_get('replay_paused')
+
+    def resume_wal_replay(self):
+        self._query('SELECT pg_catalog.pg_{0}_replay_resume()'.format(self.wal_name))
+
+    def handle_parameter_change(self):
+        if self.major_version >= 140000 and self.replay_paused():
+            logger.info('Resuming paused WAL replay for PostgreSQL 14+')
+            self.resume_wal_replay()
+
     def pg_control_timeline(self):
         try:
             return int(self.controldata().get("Latest checkpoint's TimeLineID"))

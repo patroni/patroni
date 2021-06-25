@@ -33,13 +33,17 @@ def install_requirements(what):
 
 
 def install_packages(what):
+    from mapping import versions
+
     packages = {
         'zookeeper': ['zookeeper', 'zookeeper-bin', 'zookeeperd'],
         'consul': ['consul'],
     }
     packages['exhibitor'] = packages['zookeeper']
     packages = packages.get(what, [])
-    ver = str({'etcd': '9.6', 'etcd3': '13', 'consul': 12, 'exhibitor': 11, 'kubernetes': 13, 'raft': 12}.get(what))
+    ver = versions.get(what)
+    subprocess.call(['sudo', 'sed', '-i', 's/pgdg main.*$/pgdg main {0}/'.format(ver),
+                     '/etc/apt/sources.list.d/pgdg.list'])
     subprocess.call(['sudo', 'apt-get', 'update', '-y'])
     return subprocess.call(['sudo', 'apt-get', 'install', '-y', 'postgresql-' + ver, 'expect-dev', 'wget'] + packages)
 

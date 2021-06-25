@@ -189,7 +189,9 @@ class Rewind(object):
                     need_rewind = False
                 elif master_timeline > 1:
                     cur.execute('TIMELINE_HISTORY %s', (master_timeline,))
-                    history = bytes(cur.fetchone()[1]).decode('utf-8')
+                    history = cur.fetchone()[1]
+                    if not isinstance(history, six.string_types):
+                        history = bytes(history).decode('utf-8')
                     logger.debug('master: history=%s', history)
         except Exception:
             return logger.exception('Exception when working with master via replication connection')

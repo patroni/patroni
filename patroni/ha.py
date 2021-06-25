@@ -417,6 +417,9 @@ class Ha(object):
         if msg:
             return msg
 
+        if not self.is_paused():
+            self.state_handler.handle_parameter_change()
+
         role = 'standby_leader' if isinstance(node_to_follow, RemoteMember) and self.has_lock(False) else 'replica'
         # It might happen that leader key in the standby cluster references non-exiting member.
         # In this case it is safe to continue running without changing recovery.conf
