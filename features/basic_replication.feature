@@ -29,7 +29,7 @@ Feature: basic replication
     Then I receive a response code 200
 
   Scenario: check stuck sync replica
-    Given I issue a PATCH request to http://127.0.0.1:8008/config with {"maximum_lag_on_syncnode": 15000000, "postgresql": {"parameters": {"synchronous_commit": "remote_apply"}}}
+    Given I issue a PATCH request to http://127.0.0.1:8008/config with {"pause": true, "maximum_lag_on_syncnode": 15000000, "postgresql": {"parameters": {"synchronous_commit": "remote_apply"}}}
     Then I receive a response code 200
     And I create table on postgres0
     And table mytest is present on postgres1 after 2 seconds
@@ -43,7 +43,7 @@ Feature: basic replication
     Then I receive a response code 200
     When I issue a GET request to http://127.0.0.1:8010/async
     Then I receive a response code 200
-    When I issue a PATCH request to http://127.0.0.1:8008/config with {"maximum_lag_on_syncnode": -1, "postgresql": {"parameters": {"synchronous_commit": "on"}}}
+    When I issue a PATCH request to http://127.0.0.1:8008/config with {"pause": null, "maximum_lag_on_syncnode": -1, "postgresql": {"parameters": {"synchronous_commit": "on"}}}
     Then I receive a response code 200
     And I drop table on postgres0
 
