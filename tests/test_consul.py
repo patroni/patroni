@@ -215,4 +215,21 @@ class TestConsul(unittest.TestCase):
         self.assertIsNone(self.c.update_service({}, d))
 
     def test_reload_config(self):
-        self.c.reload_config({'consul': {'token': 'foo'}, 'loop_wait': 10, 'ttl': 30, 'retry_timeout': 10})
+        self.assertEqual([], self.c._service_tags)
+        self.c.reload_config({'consul': {'token': 'foo', 'register_service': True, 'service_tags': ['foo']},
+                              'loop_wait': 10, 'ttl': 30, 'retry_timeout': 10})
+        self.assertEqual(["foo"], self.c._service_tags)
+
+        d = {'role': 'replica', 'api_url': 'http://a/t', 'conn_url': 'pg://c:1', 'state': 'running'}
+
+        self.c.reload_config({'consul': {'register_service': False}, 'loop_wait': 10, 'ttl': 30, 'retry_timeout': 10})
+        with patch('consul.Consul.Agent.Service.deregister') as mock_deregister:
+            self.c.update_service({}, d)
+            mock_deregister.assert_called_once_with("test/postgresql1")
+
+        self.c.reload_config({'consul': {'register_service': True}, 'loop_wait': 10, 'ttl': 30, 'retry_timeout': 10})
+        with patch('consul.Consul.Agent.Service.register') as mock_register:
+            self.c.update_service({}, d)
+            mock_register.assert_called_once_with("test/postgresql1")
+
+        self.assertEqual([], self.c._service_tags)

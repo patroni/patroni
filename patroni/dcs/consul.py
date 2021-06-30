@@ -227,12 +227,10 @@ class Consul(AbstractDCS):
         self._last_session_refresh = 0
         self.__session_checks = config.get('checks', [])
         self._register_service = config.get('register_service', False)
+        self._previous_loop_register_service = self._register_service
         if self._register_service:
             self._service_tags = config.get('service_tags', [])
-            self._service_name = service_name_from_scope_name(self._scope)
-            if self._scope != self._service_name:
-                logger.warning('Using %s as consul service name instead of scope name %s', self._service_name,
-                               self._scope)
+            self._set_service_name()
         self._service_check_interval = config.get('service_check_interval', '5s')
         if not self._ctl:
             self.create_session()
@@ -250,7 +248,17 @@ class Consul(AbstractDCS):
 
     def reload_config(self, config):
         super(Consul, self).reload_config(config)
-        self._client.reload_config(config.get('consul', {}))
+
+        consul_config = config.get('consul', {})
+        self._client.reload_config(consul_config)
+        self._service_tags = consul_config.get('service_tags', [])
+
+        should_register_service = consul_config.get('register_service', False)
+        if should_register_service and not self._register_service:
+            self._set_service_name()
+
+        self._previous_loop_register_service = self._register_service
+        self._register_service = should_register_service
 
     def set_ttl(self, ttl):
         if self._client.http.set_ttl(ttl/2.0):  # Consul multiplies the TTL by 2x
@@ -408,7 +416,7 @@ class Consul(AbstractDCS):
         try:
             args = {} if permanent else {'acquire': self._session}
             self._client.kv.put(self.member_path, json.dumps(data, separators=(',', ':')), **args)
-            if self._register_service:
+            if self._register_service or self._previous_loop_register_service:
                 self.update_service(not create_member and member and member.data or {}, data)
             return True
         except InvalidSession:
@@ -417,6 +425,11 @@ class Consul(AbstractDCS):
         except Exception:
             logger.exception('touch_member')
         return False
+
+    def _set_service_name(self):
+        self._service_name = service_name_from_scope_name(self._scope)
+        if self._scope != self._service_name:
+            logger.warning('Using %s as consul service name instead of scope name %s', self._service_name, self._scope)
 
     @catch_consul_errors
     def register_service(self, service_name, **kwargs):
@@ -449,7 +462,8 @@ class Consul(AbstractDCS):
             'tags': tags
         }
 
-        if state == 'stopped':
+        if state == 'stopped' or (not self._register_service and self._previous_loop_register_service):
+            self._previous_loop_register_service = self._register_service
             return self.deregister_service(params['service_id'])
 
         if role in ['master', 'replica', 'standby-leader']:
@@ -470,7 +484,7 @@ class Consul(AbstractDCS):
             if old_data.get(key) != new_data[key]:
                 update = True
 
-        if force or update:
+        if force or update or (self._register_service != self._previous_loop_register_service):
             return self._update_service(new_data)
 
     @catch_consul_errors
