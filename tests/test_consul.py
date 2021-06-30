@@ -222,14 +222,34 @@ class TestConsul(unittest.TestCase):
 
         d = {'role': 'replica', 'api_url': 'http://a/t', 'conn_url': 'pg://c:1', 'state': 'running'}
 
+        # Changing register_service from True to False calls deregister()
         self.c.reload_config({'consul': {'register_service': False}, 'loop_wait': 10, 'ttl': 30, 'retry_timeout': 10})
         with patch('consul.Consul.Agent.Service.deregister') as mock_deregister:
-            self.c.update_service({}, d)
-            mock_deregister.assert_called_once_with("test/postgresql1")
+            self.c.update_service(d, d)
+            mock_deregister.assert_called_once()
 
+        self.assertEqual([], self.c._service_tags)
+
+        # register_service staying False between reloads does not call deregister()
+        self.c.reload_config({'consul': {'register_service': False}, 'loop_wait': 10, 'ttl': 30, 'retry_timeout': 10})
+        with patch('consul.Consul.Agent.Service.deregister') as mock_deregister:
+            self.c.update_service(d, d)
+            self.assertFalse(mock_deregister.called)
+
+        # Changing register_service from False to True calls register()
+        self.c.reload_config({'consul': {'register_service': True}, 'loop_wait': 10, 'ttl': 30, 'retry_timeout': 10})
+        with patch('consul.Consul.Agent.Service.register') as mock_register:
+            self.c.update_service(d, d)
+            mock_register.assert_called_once()
+
+        # register_service staying True between reloads does not call register()
+        self.c.reload_config({'consul': {'register_service': True}, 'loop_wait': 10, 'ttl': 30, 'retry_timeout': 10})
+        with patch('consul.Consul.Agent.Service.register') as mock_register:
+            self.c.update_service(d, d)
+            self.assertFalse(mock_deregister.called)
+
+        # register_service staying True between reloads does calls register() if other service data has changed
         self.c.reload_config({'consul': {'register_service': True}, 'loop_wait': 10, 'ttl': 30, 'retry_timeout': 10})
         with patch('consul.Consul.Agent.Service.register') as mock_register:
             self.c.update_service({}, d)
-            mock_register.assert_called_once_with("test/postgresql1")
-
-        self.assertEqual([], self.c._service_tags)
+            mock_register.assert_called_once()
