@@ -2,12 +2,13 @@ import select
 import six
 import unittest
 
-from kazoo.client import KazooState
+from kazoo.client import KazooClient, KazooState
 from kazoo.exceptions import NoNodeError, NodeExistsError
 from kazoo.handlers.threading import SequentialThreadingHandler
-from kazoo.protocol.states import ZnodeStat
+from kazoo.protocol.states import KeeperState, ZnodeStat
 from mock import Mock, patch
-from patroni.dcs.zookeeper import Leader, PatroniSequentialThreadingHandler, ZooKeeper, ZooKeeperError
+from patroni.dcs.zookeeper import Leader, PatroniKazooClient,\
+        PatroniSequentialThreadingHandler, ZooKeeper, ZooKeeperError
 
 
 class MockKazooClient(Mock):
@@ -128,9 +129,19 @@ class TestPatroniSequentialThreadingHandler(unittest.TestCase):
         self.assertRaises(select.error, self.handler.select)
 
 
+class TestPatroniKazooClient(unittest.TestCase):
+
+    def test__call(self):
+        c = PatroniKazooClient()
+        with patch.object(KazooClient, '_call', Mock()):
+            self.assertIsNotNone(c._call(None, Mock()))
+        c._state = KeeperState.CONNECTING
+        self.assertFalse(c._call(None, Mock()))
+
+
 class TestZooKeeper(unittest.TestCase):
 
-    @patch('patroni.dcs.zookeeper.KazooClient', MockKazooClient)
+    @patch('patroni.dcs.zookeeper.PatroniKazooClient', MockKazooClient)
     def setUp(self):
         self.zk = ZooKeeper({'hosts': ['localhost:2181'], 'scope': 'test',
                              'name': 'foo', 'ttl': 30, 'retry_timeout': 10, 'loop_wait': 10})

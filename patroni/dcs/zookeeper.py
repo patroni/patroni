@@ -4,8 +4,9 @@ import select
 import time
 
 from kazoo.client import KazooClient, KazooState, KazooRetry
-from kazoo.exceptions import NoNodeError, NodeExistsError
+from kazoo.exceptions import NoNodeError, NodeExistsError, SessionExpiredError
 from kazoo.handlers.threading import SequentialThreadingHandler
+from kazoo.protocol.states import KeeperState
 
 from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
 from ..exceptions import DCSError
@@ -55,6 +56,20 @@ class PatroniSequentialThreadingHandler(SequentialThreadingHandler):
             raise select.error(9, str(e))
 
 
+class PatroniKazooClient(KazooClient):
+
+    def _call(self, request, async_object):
+        # Before kazoo==2.7.0 it wasn't possible to send requests to zookeeper if
+        # the connection is in the SUSPENDED state and Patroni was strongly relying on it.
+        # The https://github.com/python-zk/kazoo/pull/588 changed it, and now such requests are queued.
+        # We override the `_call()` method in order to keep the old behavior.
+
+        if self._state == KeeperState.CONNECTING:
+            async_object.set_exception(SessionExpiredError())
+            return False
+        return super(PatroniKazooClient, self)._call(request, async_object)
+
+
 class ZooKeeper(AbstractDCS):
 
     def __init__(self, config):
@@ -68,10 +83,10 @@ class ZooKeeper(AbstractDCS):
                    'cert': 'certfile', 'key': 'keyfile', 'key_password': 'keyfile_password'}
         kwargs = {v: config[k] for k, v in mapping.items() if k in config}
 
-        self._client = KazooClient(hosts, handler=PatroniSequentialThreadingHandler(config['retry_timeout']),
-                                   timeout=config['ttl'], connection_retry=KazooRetry(max_delay=1, max_tries=-1,
-                                   sleep_func=time.sleep), command_retry=KazooRetry(deadline=config['retry_timeout'],
-                                   max_delay=1, max_tries=-1, sleep_func=time.sleep), **kwargs)
+        self._client = PatroniKazooClient(hosts, handler=PatroniSequentialThreadingHandler(config['retry_timeout']),
+                                          timeout=config['ttl'], connection_retry=KazooRetry(max_delay=1, max_tries=-1,
+                                          sleep_func=time.sleep), command_retry=KazooRetry(max_delay=1, max_tries=-1,
+                                          deadline=config['retry_timeout'], sleep_func=time.sleep), **kwargs)
         self._client.add_listener(self.session_listener)
 
         self._fetch_cluster = True

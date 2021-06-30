@@ -1308,8 +1308,12 @@ class Ha(object):
     def _run_cycle(self):
         dcs_failed = False
         try:
-            self.load_cluster_from_dcs()
-            self.state_handler.reset_cluster_info_state(self.cluster, self.patroni.nofailover)
+            try:
+                self.load_cluster_from_dcs()
+                self.state_handler.reset_cluster_info_state(self.cluster, self.patroni.nofailover)
+            except Exception:
+                self.state_handler.reset_cluster_info_state(None, self.patroni.nofailover)
+                raise
 
             if self.is_paused():
                 self.watchdog.disable()
