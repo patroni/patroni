@@ -109,10 +109,12 @@ class Postgresql(object):
         # Last known running process
         self._postmaster_proc = None
 
-        if self.is_running():
+        if self.is_running():  # we are "joining" already running postgres
             self.set_state('running')
             self.set_role('master' if self.is_leader() else 'replica')
-            self.config.write_postgresql_conf()  # we are "joining" already running postgres
+            # postpone writing postgresql.conf for 12+ because recovery parameters are not yet known
+            if self.major_version < 120000 or self.is_leader():
+                self.config.write_postgresql_conf()
             hba_saved = self.config.replace_pg_hba()
             ident_saved = self.config.replace_pg_ident()
             if hba_saved or ident_saved:
