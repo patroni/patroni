@@ -1002,7 +1002,7 @@ class Ha(object):
                 else:
                     return self.enforce_master_role(
                         'no action. I am ({0}) the leader with the lock'.format(self.state_handler.name),
-                        'promoted self to leader because i had the session lock'
+                        'promoted self to leader because I had the session lock'
                     )
             else:
                 # Either there is no connection to DCS or someone else acquired the lock
