@@ -68,7 +68,11 @@ def dcs_modules():
 
     if getattr(sys, 'frozen', False):
         toc = set()
-        for importer in pkgutil.iter_importers(dcs_dirname):
+        # dcs_dirname may contain a dot, which causes pkgutil.iter_importers()
+        # to misinterpret the path as a package name. This can be avoided
+        # altogether by not passing a path at all, because PyInstaller's
+        # FrozenImporter is a singleton and registered as top-level finder.
+        for importer in pkgutil.iter_importers():
             if hasattr(importer, 'toc'):
                 toc |= importer.toc
         return [module for module in toc if module.startswith(module_prefix) and module.count('.') == 2]
