@@ -300,7 +300,7 @@ class TestHa(PostgresInit):
         self.p.is_healthy = true
         self.ha.has_lock = true
         self.p.controldata = lambda: {'Database cluster state': 'in production', 'Database system identifier': SYSID}
-        self.assertEqual(self.ha.run_cycle(), 'promoted self to leader because i had the session lock')
+        self.assertEqual(self.ha.run_cycle(), 'promoted self to leader because I had the session lock')
 
     @patch('psycopg2.connect', psycopg2_connect)
     def test_acquire_lock_as_master(self):
@@ -354,7 +354,7 @@ class TestHa(PostgresInit):
         self.ha.cluster.is_unlocked = false
         self.ha.has_lock = true
         self.p.is_leader = false
-        self.assertEqual(self.ha.run_cycle(), 'promoted self to leader because i had the session lock')
+        self.assertEqual(self.ha.run_cycle(), 'promoted self to leader because I had the session lock')
 
     def test_promote_without_watchdog(self):
         self.ha.cluster.is_unlocked = false
