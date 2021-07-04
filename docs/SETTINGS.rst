@@ -228,7 +228,7 @@ Raft
 
   - Q: Where to get the ``syncobj_admin`` utility?
 
-    A: It is installed together with ``pysyncobj`` module (python RAFT implementation), which is Patroni dependancy.
+    A: It is installed together with ``pysyncobj`` module (python RAFT implementation), which is Patroni dependency.
 
   - Q: it is possible to run Patroni node without adding in to the consensus?
 

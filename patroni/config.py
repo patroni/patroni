@@ -232,7 +232,7 @@ class Config(object):
                 for name, value in (value or {}).items():
                     if name in self.__DEFAULT_CONFIG['standby_cluster']:
                         config['standby_cluster'][name] = deepcopy(value)
-            elif name in config:  # only variables present in __DEFAULT_CONFIG allowed to be overriden from DCS
+            elif name in config:  # only variables present in __DEFAULT_CONFIG allowed to be overridden from DCS
                 if name in ('synchronous_mode', 'synchronous_mode_strict'):
                     config[name] = value
                 else:

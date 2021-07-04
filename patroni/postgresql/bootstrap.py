@@ -53,7 +53,7 @@ class Bootstrap(object):
                     error_handler('Error when parsing {0} option {1}: value should be string value'
                                   ' or a single key-value pair'.format(tool, opt))
         else:
-            error_handler('{0} options must be list ot dict'.format(tool))
+            error_handler('{0} options must be list or dict'.format(tool))
         return user_options
 
     def _initdb(self, config):

@@ -468,7 +468,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 if not cluster.failover:
                     return 503, action.title() + ' failed'
             except Exception as e:
-                logger.debug('Exception occured during polling %s result: %s', action, e)
+                logger.debug('Exception occurred during polling %s result: %s', action, e)
         return 503, action.title() + ' status unknown'
 
     def is_failover_possible(self, cluster, leader, candidate, action):

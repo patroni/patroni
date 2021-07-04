@@ -1011,7 +1011,7 @@ class Postgresql(object):
 
         Current synchronous standby is always preferred, unless it has disconnected or does not want to be a
         synchronous standby any longer.
-        Parameter sync_node_maxlag(maximum_lag_on_syncnode) would help swapping unhealthy sync replica incase
+        Parameter sync_node_maxlag(maximum_lag_on_syncnode) would help swapping unhealthy sync replica in case
         if it stops responding (or hung). Please set the value high enough so it won't unncessarily swap sync
         standbys during high loads. Any less or equal of 0 value keep the behavior backward compatible and
         will not swap. Please note that it will not also swap sync standbys in case where all replicas are hung.

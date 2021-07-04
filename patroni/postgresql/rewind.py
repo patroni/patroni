@@ -68,7 +68,7 @@ class Rewind(object):
     def _get_checkpoint_end(self, timeline, lsn):
         """The checkpoint record size in WAL depends on postgres major version and platform (memory alignment).
         Hence, the only reliable way to figure out where it ends, read the record from file with the help of pg_waldump
-        and parse the output. We are trying to read two records, and expect that it wil fail to read the second one:
+        and parse the output. We are trying to read two records, and expect that it will fail to read the second one:
         `pg_waldump: fatal: error in WAL record at 0/182E220: invalid record length at 0/182E298: wanted 24, got 0`
         The error message contains information about LSN of the next record, which is exactly where checkpoint ends."""
 

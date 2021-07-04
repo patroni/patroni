@@ -681,7 +681,7 @@ class TestHa(PostgresInit):
 
     def test_evaluate_scheduled_restart(self):
         self.p.postmaster_start_time = Mock(return_value=str(postmaster_start_time))
-        # restart already in progres
+        # restart already in progress
         with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)):
             self.assertIsNone(self.ha.evaluate_scheduled_restart())
         # restart while the postmaster has been already restarted, fails

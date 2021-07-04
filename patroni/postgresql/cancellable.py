@@ -36,7 +36,7 @@ class CancellableExecutor(object):
         with self._lock:
             if self._process is not None and self._process.is_running() and not self._process_children:
                 try:
-                    self._process.suspend()  # Suspend the process before getting list of childrens
+                    self._process.suspend()  # Suspend the process before getting list of children
                 except psutil.Error as e:
                     logger.info('Failed to suspend the process: %s', e.msg)
 

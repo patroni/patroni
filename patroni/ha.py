@@ -84,7 +84,7 @@ class Ha(object):
         self._disable_sync = 0
 
         # We need following property to avoid shutdown of postgres when join of Patroni to the postgres
-        # already running as replica was aborted due to cluster not beeing initialized in DCS.
+        # already running as replica was aborted due to cluster not being initialized in DCS.
         self._join_aborted = False
 
         # used only in backoff after failing a pre_promote script
