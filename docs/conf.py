@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 #
 # Patroni documentation build configuration file, created by
 # sphinx-quickstart on Mon Dec 19 16:54:09 2016.
@@ -22,7 +21,7 @@ import os
 import sys
 sys.path.insert(0, os.path.abspath('..'))
 
-from patroni.version import __version__
+from patroni.version import __version__  # noqa: E402
 
 # -- General configuration ------------------------------------------------
 
@@ -165,7 +164,6 @@ texinfo_documents = [
 ]
 
 
-
 # -- Options for Epub output ----------------------------------------------
 
 # Bibliographic Dublin Core info.
@@ -187,9 +185,9 @@ epub_copyright = copyright
 epub_exclude_files = ['search.html']
 
 
-
 # Example configuration for intersphinx: refer to the Python standard library.
 intersphinx_mapping = {'https://docs.python.org/': None}
+
 
 # A possibility to have an own stylesheet, to add new rules or override existing ones
 # For the latter case, the CSS specificity of the rules should be higher than the default ones
