@@ -5,8 +5,10 @@ import threading
 import time
 
 from pysyncobj import SyncObj, SyncObjConf, replicated, FAIL_REASON
+from pysyncobj.dns_resolver import globalDnsResolver
+from pysyncobj.node import TCPNode
 from pysyncobj.transport import TCPTransport, CONNECTION_STATE
-from pysyncobj.utility import TcpUtility, UtilityException
+from pysyncobj.utility import TcpUtility
 
 from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
 from ..utils import validate_directory
@@ -20,6 +22,20 @@ class _TCPTransport(TCPTransport):
         super(_TCPTransport, self).__init__(syncObj, selfNode, otherNodes)
         self.setOnUtilityMessageCallback('members', syncObj.getMembers)
 
+    def _connectIfNecessarySingle(self, node):
+        try:
+            return super(_TCPTransport, self)._connectIfNecessarySingle(node)
+        except Exception as e:
+            logger.debug('Connection to %s failed: %r', node, e)
+            return False
+
+
+def resolve_host(self):
+    return globalDnsResolver().resolve(self.host)
+
+
+setattr(TCPNode, 'ip', property(resolve_host))
+
 
 class SyncObjUtility(object):
 
@@ -30,7 +46,7 @@ class SyncObjUtility(object):
     def executeCommand(self, command):
         try:
             return self._utility.executeCommand(self.__node, command)
-        except UtilityException:
+        except Exception:
             return None
 
     def getMembers(self):
@@ -99,7 +115,8 @@ class KVStoreTTL(DynMemberSyncObj):
         file_template = file_template.replace(':', '_') if os.name == 'nt' else file_template
         file_template = os.path.join(raft_data_dir, file_template)
         conf = SyncObjConf(password=config.get('password'), autoTick=False, appendEntriesUseBatch=False,
-                           bindAddress=config.get('bind_addr'), commandsWaitLeader=config.get('commandsWaitLeader'),
+                           bindAddress=config.get('bind_addr'), dnsFailCacheTime=(config.get('loop_wait') or 10),
+                           dnsCacheTime=(config.get('ttl') or 30), commandsWaitLeader=config.get('commandsWaitLeader'),
                            fullDumpFile=(file_template + '.dump' if self_addr else None),
                            journalFile=(file_template + '.journal' if self_addr else None),
                            onReady=on_ready, dynamicMembershipChange=True)
@@ -280,6 +297,10 @@ class Raft(AbstractDCS):
 
     def set_retry_timeout(self, retry_timeout):
         self._sync_obj.set_retry_timeout(retry_timeout)
+
+    def reload_config(self, config):
+        super(Raft, self).reload_config(config)
+        globalDnsResolver().setTimeouts(self.ttl, self.loop_wait)
 
     @staticmethod
     def member(key, value):

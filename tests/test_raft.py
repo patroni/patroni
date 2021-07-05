@@ -4,7 +4,7 @@ import tempfile
 import time
 
 from mock import Mock, PropertyMock, patch
-from patroni.dcs.raft import DynMemberSyncObj, KVStoreTTL, Raft, SyncObjUtility
+from patroni.dcs.raft import DynMemberSyncObj, KVStoreTTL, Raft, SyncObjUtility, TCPTransport, _TCPTransport
 from pysyncobj import SyncObjConf, FAIL_REASON
 
 
@@ -21,6 +21,16 @@ def remove_files(prefix):
                         break
                 except Exception:
                     time.sleep(1.0)
+
+
+class TestTCPTransport(unittest.TestCase):
+
+    @patch.object(TCPTransport, '__init__', Mock())
+    @patch.object(TCPTransport, 'setOnUtilityMessageCallback', Mock())
+    @patch.object(TCPTransport, '_connectIfNecessarySingle', Mock(side_effect=Exception))
+    def test__connectIfNecessarySingle(self):
+        t = _TCPTransport(Mock(), None, [])
+        self.assertFalse(t._connectIfNecessarySingle(None))
 
 
 @patch('pysyncobj.tcp_server.TcpServer.bind', Mock())
@@ -114,8 +124,7 @@ class TestRaft(unittest.TestCase):
     def test_raft(self):
         raft = Raft({'ttl': 30, 'scope': 'test', 'name': 'pg', 'self_addr': '127.0.0.1:1234',
                      'retry_timeout': 10, 'data_dir': self._TMP})
-        raft.set_retry_timeout(20)
-        raft.set_ttl(60)
+        raft.reload_config({'retry_timeout': 20, 'ttl': 60, 'loop_wait': 10})
         self.assertTrue(raft._sync_obj.set(raft.members_path + 'legacy', '{"version":"2.0.0"}'))
         self.assertTrue(raft.touch_member(''))
         self.assertTrue(raft.initialize())

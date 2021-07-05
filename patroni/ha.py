@@ -1219,9 +1219,6 @@ class Ha(object):
                 self._delete_leader()
                 return 'removed leader key after trying and failing to start postgres'
             return 'failed to start postgres'
-        self._crash_recovery_executed = False
-        if self._rewind.executed and not self._rewind.failed:
-            self._rewind.reset_state()
         return None
 
     def cancel_initialization(self):
@@ -1345,12 +1342,24 @@ class Ha(object):
             if self.state_handler.bootstrapping:
                 return self.post_bootstrap()
 
-            if self.recovering and not self._rewind.is_needed:
+            if self.recovering:
                 self.recovering = False
-                # Check if we tried to recover and failed
-                msg = self.post_recover()
-                if msg is not None:
-                    return msg
+
+                if not self._rewind.is_needed:
+                    # Check if we tried to recover from postgres crash and failed
+                    msg = self.post_recover()
+                    if msg is not None:
+                        return msg
+
+                # Reset some states after postgres successfully started up
+                self._crash_recovery_executed = False
+                if self._rewind.executed and not self._rewind.failed:
+                    self._rewind.reset_state()
+
+                # The Raft cluster without a quorum takes a bit of time to stabilize.
+                # Therefore we want to postpone the leader race if we just started up.
+                if self.cluster.is_unlocked() and self.dcs.__class__.__name__ == 'Raft':
+                    return 'started as a secondary'
 
             # is data directory empty?
             if self.state_handler.data_directory_empty():

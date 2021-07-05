@@ -251,6 +251,15 @@ class TestHa(PostgresInit):
         self.assertEqual(self.ha.run_cycle(), 'starting as a secondary')
         self.assertEqual(self.ha.run_cycle(), 'failed to start postgres')
 
+    def test_recover_raft(self):
+        self.p.controldata = lambda: {'Database cluster state': 'in recovery', 'Database system identifier': SYSID}
+        self.p.is_running = false
+        self.p.follow = true
+        self.assertEqual(self.ha.run_cycle(), 'starting as a secondary')
+        self.p.is_running = true
+        self.ha.dcs.__class__.__name__ = 'Raft'
+        self.assertEqual(self.ha.run_cycle(), 'started as a secondary')
+
     def test_recover_former_master(self):
         self.p.follow = false
         self.p.is_running = false
@@ -279,7 +288,17 @@ class TestHa(PostgresInit):
     def test_recover_with_rewind(self):
         self.p.is_running = false
         self.ha.cluster = get_cluster_initialized_with_leader()
-        self.assertEqual(self.ha.run_cycle(), 'running pg_rewind from leader')
+        self.ha.cluster.leader.member.data.update(version='2.0.2', role='master')
+        self.ha._rewind.pg_rewind = true
+        self.ha._rewind.check_leader_is_not_in_recovery = true
+        with patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True)):
+            self.assertEqual(self.ha.run_cycle(), 'running pg_rewind from leader')
+        with patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=False)):
+            self.p.follow = true
+            self.assertEqual(self.ha.run_cycle(), 'starting as a secondary')
+            self.p.is_running = true
+            self.ha.follow = Mock(return_value='fake')
+            self.assertEqual(self.ha.run_cycle(), 'fake')
 
     @patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
     @patch.object(Bootstrap, 'create_replica', Mock(return_value=1))
