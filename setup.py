@@ -24,7 +24,7 @@ KEYWORDS = 'etcd governor patroni postgresql postgres ha haproxy confd' +\
 
 EXTRAS_REQUIRE = {'aws': ['boto'], 'etcd': ['python-etcd'], 'etcd3': ['python-etcd'],
                   'consul': ['python-consul'], 'exhibitor': ['kazoo'], 'zookeeper': ['kazoo'],
-                  'kubernetes': ['ipaddress'], 'raft': ['pysyncobj', 'cryptography']}
+                  'kubernetes': [], 'raft': ['pysyncobj', 'cryptography']}
 COVERAGE_XML = True
 COVERAGE_HTML = False
 
@@ -175,13 +175,12 @@ def setup_package(version):
         for e, deps in EXTRAS_REQUIRE.items():
             for i, v in enumerate(deps):
                 if r.startswith(v):
-                    if e != 'kubernetes' or sys.version_info < (3, 0, 0):
-                        deps[i] = r
-                    else:
-                        deps = []
+                    deps[i] = r
                     EXTRAS_REQUIRE[e] = deps
                     extra = True
                     break
+            if extra:
+                break
         if not extra:
             install_requires.append(r)
 

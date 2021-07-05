@@ -268,11 +268,42 @@ class Config(object):
 
         _set_section_values('restapi', ['listen', 'connect_address', 'certfile', 'keyfile', 'keyfile_password',
                                         'cafile', 'ciphers', 'verify_client', 'http_extra_headers',
-                                        'https_extra_headers'])
+                                        'https_extra_headers', 'allowlist', 'allowlist_include_members'])
         _set_section_values('ctl', ['insecure', 'cacert', 'certfile', 'keyfile'])
         _set_section_values('postgresql', ['listen', 'connect_address', 'config_dir', 'data_dir', 'pgpass', 'bin_dir'])
         _set_section_values('log', ['level', 'traceback_level', 'format', 'dateformat', 'max_queue_size',
                                     'dir', 'file_size', 'file_num', 'loggers'])
+        _set_section_values('raft', ['data_dir', 'self_addr', 'partner_addrs', 'password', 'bind_addr'])
+
+        for first, second in (('restapi', 'allowlist_include_members'), ('ctl', 'insecure')):
+            value = ret.get(first, {}).pop(second, None)
+            if value:
+                value = parse_bool(value)
+                if value is not None:
+                    ret[first][second] = value
+
+        for second in ('max_queue_size', 'file_size', 'file_num'):
+            value = ret.get('log', {}).pop(second, None)
+            if value:
+                value = parse_int(value)
+                if value is not None:
+                    ret['log'][second] = value
+
+        def _parse_list(value):
+            if not (value.strip().startswith('-') or '[' in value):
+                value = '[{0}]'.format(value)
+            try:
+                return yaml.safe_load(value)
+            except Exception:
+                logger.exception('Exception when parsing list %s', value)
+                return None
+
+        for first, second in (('raft', 'partner_addrs'), ('restapi', 'allowlist')):
+            value = ret.get(first, {}).pop(second, None)
+            if value:
+                value = _parse_list(value)
+                if value:
+                    ret[first][second] = value
 
         def _parse_dict(value):
             if not value.strip().startswith('{'):
@@ -283,11 +314,13 @@ class Config(object):
                 logger.exception('Exception when parsing dict %s', value)
                 return None
 
-        value = ret.get('log', {}).pop('loggers', None)
-        if value:
-            value = _parse_dict(value)
-            if value:
-                ret['log']['loggers'] = value
+        for first, params in (('restapi', ('http_extra_headers', 'https_extra_headers')), ('log', ('loggers',))):
+            for second in params:
+                value = ret.get(first, {}).pop(second, None)
+                if value:
+                    value = _parse_dict(value)
+                    if value:
+                        ret[first][second] = value
 
         def _get_auth(name, params=None):
             ret = {}
@@ -310,19 +343,6 @@ class Config(object):
         if authentication:
             ret['postgresql']['authentication'] = authentication
 
-        def _parse_list(value):
-            if not (value.strip().startswith('-') or '[' in value):
-                value = '[{0}]'.format(value)
-            try:
-                return yaml.safe_load(value)
-            except Exception:
-                logger.exception('Exception when parsing list %s', value)
-                return None
-
-        _set_section_values('raft', ['data_dir', 'self_addr', 'partner_addrs', 'password', 'bind_addr'])
-        if 'raft' in ret and 'partner_addrs' in ret['raft']:
-            ret['raft']['partner_addrs'] = _parse_list(ret['raft']['partner_addrs'])
-
         for param in list(os.environ.keys()):
             if param.startswith(PATRONI_ENV_PREFIX):
                 # PATRONI_(ETCD|CONSUL|ZOOKEEPER|EXHIBITOR|...)_(HOSTS?|PORT|..)
@@ -339,7 +359,7 @@ class Config(object):
                         value = value and _parse_list(value)
                     elif suffix == 'LABELS':
                         value = _parse_dict(value)
-                    elif suffix in ('USE_PROXIES', 'REGISTER_SERVICE', 'USE_ENDPOINTS', 'BYPASS_API_SERVICE'):
+                    elif suffix in ('USE_PROXIES', 'REGISTER_SERVICE', 'USE_ENDPOINTS', 'BYPASS_API_SERVICE', 'VERIFY'):
                         value = parse_bool(value)
                     if value:
                         ret[name.lower()][suffix.lower()] = value
