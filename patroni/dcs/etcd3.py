@@ -375,6 +375,7 @@ class KVCache(Thread):
         self._config_key = base64_encode(dcs.config_path)
         self._leader_key = base64_encode(dcs.leader_path)
         self._optime_key = base64_encode(dcs.leader_optime_path)
+        self._status_key = base64_encode(dcs.status_path)
         self._name = base64_encode(dcs._name)
         self._is_ready = False
         self._response = None
@@ -421,14 +422,15 @@ class KVCache(Thread):
             new_value = kv.get('value')
 
             value_changed = old_value != new_value and \
-                (key == self._leader_key or key == self._optime_key and new_value is not None or
+                (key == self._leader_key or key in (self._optime_key, self._status_key) and new_value is not None or
                  key == self._config_key and old_value is not None and new_value is not None)
 
             if value_changed:
                 logger.debug('%s changed from %s to %s', key, old_value, new_value)
 
-            # We also want to wake up HA loop on replicas if leader optime was updated
-            if value_changed and (key != self._optime_key or self.get(self._leader_key) != self._name):
+            # We also want to wake up HA loop on replicas if leader optime (or status key) was updated
+            if value_changed and (key not in (self._optime_key, self._status_key) or
+                                  (self.get(self._leader_key) or {}).get('value') != self._name):
                 self._dcs.event.set()
 
     def _process_message(self, message):
