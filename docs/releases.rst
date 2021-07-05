@@ -3,6 +3,98 @@
 Release notes
 =============
 
+Version 2.1.0
+-------------
+
+This version adds compatibility with PostgreSQL v14, makes logical replication slots to survive failover/switchover, implements support of allowlist for REST API, and also reducing the number of logs to one line per heart-beat.
+
+**New features**
+
+- Compatibility with PostgreSQL v14 (Alexander Kukushkin)
+
+  Unpause WAL replay if Patroni is not in a "pause" mode itself. It could be "paused" due to the change of certain parameters like for example ``max_connections`` on the primary.
+
+- Failover logical slots (Alexander)
+
+  Make logical replication slots survive failover/switchover on PostgreSQL v11+. The replication slot if copied from the primary to the replica with restart and later the `pg_replication_slot_advance() <https://www.postgresql.org/docs/11/functions-admin.html#id-1.5.8.31.8.5.2.2.8.1.1>`__ function is used to move it forward. As a result, the slot will already exist before the failover and no events should be lost, but, there is a chance that some events could be delivered more than once.
+
+- Implemented allowlist for Patroni REST API (Alexander)
+
+  If configured, only IP's that matching rules would be allowed to call unsafe endpoints. In addition to that, it is possible to automatically include IP's of members of the cluster to the list.
+
+- Added support of replication connections via unix socket (Mohamad El-Rifai)
+
+  Previously Patroni was always using TCP for replication connection what could cause some issues with SSL verification. Using unix sockets allows exempt replication user from SSL verification.
+
+- Health check on user-defined tags (Arman Jafari Tehrani)
+
+  Along with :ref:`predefined tags: <tags_settings>` it is possible to specify any number of custom tags that become visible in the ``patronictl list`` output and in the REST API. From now on it is possible to use custom tags in health checks.
+
+- Added Prometheus ``/metrics`` endpoint (Mark Mercado, Michael Banck)
+
+  The endpoint exposing the same metrics as ``/patroni``.
+
+- Reduced chattiness of Patroni logs (Alexander)
+
+  When everything goes normal, only one line will be written for every run of HA loop.
+
+
+**Breaking chances**
+
+- The old ``permanent logical replication slots`` feature will no longer work with PostgreSQL v10 and older (Alexander)
+
+  The strategy of creating the logical slots after performing a promotion can't guaranty that no logical events are lost and therefore disabled.
+
+- The ``/leader`` always endpoint returns 200 if the node holds the lock (Alexander)
+
+  Promoting the standby cluster requires updating load-balancer health checks, which is not very convenient and easy to forget. To solve it, we change the behavior of the ``/leader`` health check endpoint. It will return 200 without taking into account whether the cluster is normal or the ``standby_cluster``.
+
+
+**Improvements in Raft support**
+
+- Reliable support of Raft traffic encryption (Alexander)
+
+  Due to the different issues in the ``PySyncObj`` the encryption support was very unstable
+
+- Handle DNS issues in Raft implementation (Alexander)
+
+  If ``self_addr`` and/or ``partner_addrs`` are configured using the DNS name instead of IP's the ``PySyncObj`` was effectively doing resolve only once when the object is created. It was causing problems when the same node was coming back online with a different IP.
+
+
+**Stability improvements**
+
+- Compatibility with ``psycopg2-2.9+`` (Alexander)
+
+  In ``psycopg2`` the ``autocommit = True`` is ignored in the ``with connection`` block, which breaks replication protocol connections.
+
+- Fix excessive HA loop runs with Zookeeper (Alexander)
+
+  Update of member ZNodes was causing a chain reaction and resulted in running the HA loops multiple times in a row.
+
+- Reload if REST API certificate is changed on disk (Michael Todorovic)
+
+  If the REST API certificate file was updated in place Patroni didn't perform a reload.
+
+- Don't create pgpass dir if kerberos auth is used (Kostiantyn Nemchenko)
+
+  Kerberos and password authentication are mutually exclusive.
+
+- Fixed little issues with custom bootstrap (Alexander)
+
+  Start Postgres with ``hot_standby=off`` only when we do a PITR and restart it after PITR is done.
+
+
+**Bugfixes**
+
+- Compatibility with ``kazoo-2.7+`` (Alexander)
+
+  Since Patroni is handling retries on its own, it is relying on the old behavior of ``kazoo`` that requests to a Zookeeper cluster are immediately discarded when there are no connections available.
+
+- Explicitly request the version of Etcd v3 cluster when it is known that we are connecting via proxy (Alexander)
+
+  Patroni is working with Etcd v3 cluster via gPRC-gateway and it depending on the cluster version different endpoints (``/v3``, ``/v3beta``, or ``v3alpha``) must be used. The version was resolved only together with the cluster topology, but since the latter was never done when connecting via proxy.
+
+
 Version 2.0.2
 -------------
 
