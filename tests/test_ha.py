@@ -157,7 +157,8 @@ def run_async(self, func, args=()):
 @patch.object(Postgresql, 'controldata', Mock(return_value={
     'Database system identifier': SYSID,
     'Database cluster state': 'shut down',
-    'Latest checkpoint location': '0/12345678'}))
+    'Latest checkpoint location': '0/12345678',
+    "Latest checkpoint's TimeLineID": '2'}))
 @patch.object(SlotsHandler, 'load_replication_slots', Mock(side_effect=Exception))
 @patch.object(ConfigHandler, 'append_pg_hba', Mock())
 @patch.object(ConfigHandler, 'write_pgpass', Mock(return_value={}))

@@ -72,19 +72,10 @@ class Rewind(object):
         `pg_waldump: fatal: error in WAL record at 0/182E220: invalid record length at 0/182E298: wanted 24, got 0`
         The error message contains information about LSN of the next record, which is exactly where checkpoint ends."""
 
-        cmd = self._postgresql.pgcommand('pg_{0}dump'.format(self._postgresql.wal_name))
         lsn8 = format_lsn(lsn, True)
         lsn = format_lsn(lsn)
-        env = os.environ.copy()
-        env.update(LANG='C', LC_ALL='C', PGDATA=self._postgresql.data_dir)
-        try:
-            waldump = subprocess.Popen([cmd, '-t', str(timeline), '-s', lsn, '-n', '2'],
-                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
-            out, err = waldump.communicate()
-            waldump.wait()
-        except Exception as e:
-            logger.error('Failed to execute `%s -t %s -s %s -n 2`: %r', cmd, timeline, lsn, e)
-        else:
+        out, err = self._postgresql.waldump(timeline, lsn, 2)
+        if out is not None and err is not None:
             out = out.decode('utf-8').rstrip().split('\n')
             err = err.decode('utf-8').rstrip().split('\n')
             pattern = 'error in WAL record at {0}: invalid record length at '.format(lsn)
@@ -97,7 +88,7 @@ class Rewind(object):
                         return parse_lsn(err[0][i:j])
                     except Exception as e:
                         logger.error('Failed to parse lsn %s: %r', err[0][i:j], e)
-            logger.error('Failed to parse `%s -t %s -s %s -n 2` output', cmd, timeline, lsn)
+            logger.error('Failed to parse pg_%sdump output', self._postgresql.wal_name)
             logger.error(' stdout=%s', '\n'.join(out))
             logger.error(' stderr=%s', '\n'.join(err))
 

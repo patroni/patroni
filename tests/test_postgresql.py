@@ -322,10 +322,37 @@ class TestPostgresql(BaseTestPostgresql):
         with patch.object(Postgresql, '_query', Mock(side_effect=RetryFailedError(''))):
             self.assertRaises(PostgresConnectionException, self.p.is_leader)
 
-    @patch.object(Postgresql, 'controldata',
-                  Mock(return_value={'Database cluster state': 'shut down', 'Latest checkpoint location': 'X/678'}))
-    def test_latest_checkpoint_location(self):
-        self.assertIsNone(self.p.latest_checkpoint_location())
+    @patch.object(Postgresql, 'controldata', Mock(return_value={'Database cluster state': 'shut down',
+                                                                'Latest checkpoint location': '0/1ADBC18',
+                                                                "Latest checkpoint's TimeLineID": '1'}))
+    @patch('subprocess.Popen')
+    def test_latest_checkpoint_location(self, mock_popen):
+        mock_popen.return_value.communicate.return_value = (None, None)
+        self.assertEqual(self.p.latest_checkpoint_location(), '28163096')
+        # 9.3 and 9.4 format
+        mock_popen.return_value.communicate.side_effect = [
+            (b'rmgr: XLOG        len (rec/tot):     72/   104, tx:          0, lsn: 0/01ADBC18, prev 0/01ADBBB8, ' +
+             b'bkp: 0000, desc: checkpoint: redo 0/1ADBC18; tli 1; prev tli 1; fpw true; xid 0/727; oid 16386; multi' +
+             b' 1; offset 0; oldest xid 715 in DB 1; oldest multi 1 in DB 1; oldest running xid 0; shutdown', None),
+            (b'rmgr: Transaction len (rec/tot):     64/    96, tx:        726, lsn: 0/01ADBBB8, prev 0/01ADBB70, ' +
+             b'bkp: 0000, desc: commit: 2021-02-26 11:19:37.900918 CET; inval msgs: catcache 11 catcache 10', None)]
+        self.assertEqual(self.p.latest_checkpoint_location(), '28163096')
+        mock_popen.return_value.communicate.side_effect = [
+            (b'rmgr: XLOG        len (rec/tot):     72/   104, tx:          0, lsn: 0/01ADBC18, prev 0/01ADBBB8, ' +
+             b'bkp: 0000, desc: checkpoint: redo 0/1ADBC18; tli 1; prev tli 1; fpw true; xid 0/727; oid 16386; multi' +
+             b' 1; offset 0; oldest xid 715 in DB 1; oldest multi 1 in DB 1; oldest running xid 0; shutdown', None),
+            (b'rmgr: XLOG        len (rec/tot):      0/    32, tx:          0, lsn: 0/01ADBBB8, prev 0/01ADBBA0, ' +
+             b'bkp: 0000, desc: xlog switch ', None)]
+        self.assertEqual(self.p.latest_checkpoint_location(), '28163000')
+        # 9.5+ format
+        mock_popen.return_value.communicate.side_effect = [
+            (b'rmgr: XLOG        len (rec/tot):    114/   114, tx:          0, lsn: 0/01ADBC18, prev 0/018260F8, ' +
+             b'desc: CHECKPOINT_SHUTDOWN redo 0/1825ED8; tli 1; prev tli 1; fpw true; xid 0:494; oid 16387; multi 1' +
+             b'; offset 0; oldest xid 479 in DB 1; oldest multi 1 in DB 1; oldest/newest commit timestamp xid: 0/0;' +
+             b' oldest running xid 0; shutdown', None),
+            (b'rmgr: XLOG        len (rec/tot):     24/    24, tx:          0, lsn: 0/018260F8, prev 0/01826080, ' +
+             b'desc: SWITCH ', None)]
+        self.assertEqual(self.p.latest_checkpoint_location(), '25321720')
 
     def test_reload(self):
         self.assertTrue(self.p.reload())

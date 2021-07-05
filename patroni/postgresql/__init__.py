@@ -1,20 +1,22 @@
 import logging
 import os
 import psycopg2
+import re
 import shlex
 import shutil
+import six
 import subprocess
 import time
 
 from contextlib import contextmanager
 from copy import deepcopy
-from dateutil import tz
 from datetime import datetime
+from dateutil import tz
 from psutil import TimeoutExpired
 from threading import current_thread, Lock
 
-from .callback_executor import CallbackExecutor
 from .bootstrap import Bootstrap
+from .callback_executor import CallbackExecutor
 from .cancellable import CancellableSubprocess
 from .config import ConfigHandler, mtime
 from .connection import Connection, get_connection_cursor
@@ -386,16 +388,41 @@ class Postgresql(object):
         except (TypeError, ValueError):
             logger.exception('Failed to parse timeline from pg_controldata output')
 
+    def parse_wal_record(self, timeline, lsn):
+        out, err = self.waldump(timeline, lsn, 1)
+        if out and not err:
+            match = re.match(r'^rmgr:\s+(.+?)\s+len \(rec/tot\):\s+\d+/\s+\d+, tx:\s+\d+, '
+                             r'lsn: ([0-9A-Fa-f]+/[0-9A-Fa-f]+), prev ([0-9A-Fa-f]+/[0-9A-Fa-f]+), '
+                             r'.*?desc: (.+)', out.decode('utf-8'))
+            if match:
+                return match.groups()
+        return None, None, None, None
+
     def latest_checkpoint_location(self):
-        """Returns checkpoint location for the cleanly shut down primary"""
+        """Returns checkpoint location for the cleanly shut down primary.
+           But, if we know that the checkpoint was written to the new WAL
+           due to the archive_mode=on, we will return the LSN of prev wal record (SWITCH)."""
 
         data = self.controldata()
-        lsn = data.get('Latest checkpoint location')
-        if data.get('Database cluster state') == 'shut down' and lsn:
+        timeline = data.get("Latest checkpoint's TimeLineID")
+        lsn = checkpoint_lsn = data.get('Latest checkpoint location')
+        if data.get('Database cluster state') == 'shut down' and lsn and timeline:
             try:
-                return str(parse_lsn(lsn))
-            except (IndexError, ValueError) as e:
-                logger.error('Exception when parsing lsn %s: %r', lsn, e)
+                checkpoint_lsn = parse_lsn(checkpoint_lsn)
+                rm_name, lsn, prev, desc = self.parse_wal_record(timeline, lsn)
+                desc = desc.strip().lower()
+                if rm_name == 'XLOG' and parse_lsn(lsn) == checkpoint_lsn and prev and\
+                        desc.startswith('checkpoint') and desc.endswith('shutdown'):
+                    _, lsn, _, desc = self.parse_wal_record(timeline, prev)
+                    prev = parse_lsn(prev)
+                    # If the cluster is shutdown with archive_mode=on, WAL is switched before writing the checkpoint.
+                    # In this case we want to take the LSN of previous record (switch) as the last known WAL location.
+                    if parse_lsn(lsn) == prev and desc.strip() in ('xlog switch', 'SWITCH'):
+                        return str(prev)
+            except Exception as e:
+                logger.error('Exception when parsing WAL pg_%sdump output: %r', self.wal_name, e)
+            if isinstance(checkpoint_lsn, six.integer_types):
+                return str(checkpoint_lsn)
 
     def is_running(self):
         """Returns PostmasterProcess if one is running on the data directory or None. If most recently seen process
@@ -766,6 +793,20 @@ class Postgresql(object):
             except subprocess.CalledProcessError:
                 logger.exception("Error when calling pg_controldata")
         return {}
+
+    def waldump(self, timeline, lsn, limit):
+        cmd = self.pgcommand('pg_{0}dump'.format(self.wal_name))
+        env = os.environ.copy()
+        env.update(LANG='C', LC_ALL='C', PGDATA=self._data_dir)
+        try:
+            waldump = subprocess.Popen([cmd, '-t', str(timeline), '-s', str(lsn), '-n', str(limit)],
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+            out, err = waldump.communicate()
+            waldump.wait()
+            return out, err
+        except Exception as e:
+            logger.error('Failed to execute `%s -t %s -s %s -n %s`: %r', cmd, timeline, lsn, limit, e)
+            return None, None
 
     @contextmanager
     def get_replication_connection_cursor(self, host='localhost', port=5432, **kwargs):
