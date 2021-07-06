@@ -9,9 +9,9 @@ jobs:
       - run: pip install bandit black codespell flake8 isort mypy pytest pyupgrade safety
       - run: bandit --recursive --skip B101 . || true  # B101 is assert statements
       - run: black --check . || true
-      - run: codespell || true  # --ignore-words-list="" --skip=""
-      - run: flake8 . --count --ignore=E111,E12,E226,E241,W503,W504 --max-complexity=44 --max-line-length=150
-                      --show-source --statistics
+      - run: codespell --ignore-words-list="datas" .
+      - run: flake8 . --count --ignore=E111,E12,E226,E241,W503,W504
+                      --max-complexity=54 --max-line-length=150 --show-source --statistics
       - run: isort --check-only --profile black . || true
       - run: pip install -r requirements.txt -r requirements.dev.txt
       - run: mypy --ignore-missing-imports . || true
