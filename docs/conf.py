@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 #
 # Patroni documentation build configuration file, created by
 # sphinx-quickstart on Mon Dec 19 16:54:09 2016.
@@ -21,7 +22,7 @@ import os
 import sys
 sys.path.insert(0, os.path.abspath('..'))
 
-from patroni.version import __version__  # noqa: E402
+from patroni.version import __version__
 
 # -- General configuration ------------------------------------------------
 
@@ -32,13 +33,11 @@ from patroni.version import __version__  # noqa: E402
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
-extensions = [
-    'sphinx.ext.intersphinx',
+extensions = ['sphinx.ext.intersphinx',
     'sphinx.ext.todo',
     'sphinx.ext.mathjax',
     'sphinx.ext.ifconfig',
-    'sphinx.ext.viewcode'
-]
+    'sphinx.ext.viewcode']
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
@@ -166,6 +165,7 @@ texinfo_documents = [
 ]
 
 
+
 # -- Options for Epub output ----------------------------------------------
 
 # Bibliographic Dublin Core info.
@@ -187,11 +187,11 @@ epub_copyright = copyright
 epub_exclude_files = ['search.html']
 
 
+
 # Example configuration for intersphinx: refer to the Python standard library.
 intersphinx_mapping = {'https://docs.python.org/': None}
-
 
 # A possibility to have an own stylesheet, to add new rules or override existing ones
 # For the latter case, the CSS specificity of the rules should be higher than the default ones
 def setup(app):
-    app.add_stylesheet("custom.css")
+   app.add_stylesheet("custom.css")
