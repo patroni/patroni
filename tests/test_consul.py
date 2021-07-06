@@ -253,3 +253,10 @@ class TestConsul(unittest.TestCase):
         with patch('consul.Consul.Agent.Service.register') as mock_register:
             self.c.update_service({}, d)
             mock_register.assert_called_once()
+
+        # register_service staying True between reloads does calls register() if service_tags have changed
+        self.c.reload_config({'consul': {'register_service': True, 'service_tags': ['foo']}, 'loop_wait': 10,
+                              'ttl': 30, 'retry_timeout': 10})
+        with patch('consul.Consul.Agent.Service.register') as mock_register:
+            self.c.update_service(d, d)
+            mock_register.assert_called_once()

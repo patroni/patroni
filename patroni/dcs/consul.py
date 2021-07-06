@@ -229,7 +229,8 @@ class Consul(AbstractDCS):
         self._register_service = config.get('register_service', False)
         self._previous_loop_register_service = self._register_service
         if self._register_service:
-            self._service_tags = config.get('service_tags', [])
+            self._service_tags = sorted(config.get('service_tags', []))
+            self._previous_loop_service_tags = self._service_tags
             self._set_service_name()
         self._service_check_interval = config.get('service_check_interval', '5s')
         if not self._ctl:
@@ -251,7 +252,8 @@ class Consul(AbstractDCS):
 
         consul_config = config.get('consul', {})
         self._client.reload_config(consul_config)
-        self._service_tags = consul_config.get('service_tags', [])
+        self._previous_loop_register_service = self._service_tags
+        self._service_tags = sorted(consul_config.get('service_tags', []))
 
         should_register_service = consul_config.get('register_service', False)
         if should_register_service and not self._register_service:
@@ -454,6 +456,8 @@ class Consul(AbstractDCS):
                                 deregister='{0}s'.format(self._client.http.ttl * 10))
         tags = self._service_tags[:]
         tags.append(role)
+        self._previous_loop_service_tags = self._service_tags
+
         params = {
             'service_id': '{0}/{1}'.format(self._scope, self._name),
             'address': conn_parts.hostname,
@@ -484,7 +488,10 @@ class Consul(AbstractDCS):
             if old_data.get(key) != new_data[key]:
                 update = True
 
-        if force or update or (self._register_service != self._previous_loop_register_service):
+        if (
+            force or update or self._register_service != self._previous_loop_register_service
+            or self._service_tags != self._previous_loop_service_tags
+        ):
             return self._update_service(new_data)
 
     @catch_consul_errors
