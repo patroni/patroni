@@ -92,7 +92,7 @@ This version adds compatibility with PostgreSQL v14, makes logical replication s
 
 - Explicitly request the version of Etcd v3 cluster when it is known that we are connecting via proxy (Alexander)
 
-  Patroni is working with Etcd v3 cluster via gPRC-gateway and it depending on the cluster version different endpoints (``/v3``, ``/v3beta``, or ``v3alpha``) must be used. The version was resolved only together with the cluster topology, but since the latter was never done when connecting via proxy.
+  Patroni is working with Etcd v3 cluster via gPRC-gateway and it depending on the cluster version different endpoints (``/v3``, ``/v3beta``, or ``/v3alpha``) must be used. The version was resolved only together with the cluster topology, but since the latter was never done when connecting via proxy.
 
 
 Version 2.0.2
