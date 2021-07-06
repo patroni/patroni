@@ -1,0 +1,9 @@
+name: codespell
+on: [pull_request, push]
+jobs:
+  codespell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - run: python3 -m pip install codespell
+      - run: codespell --ignore-words-list="datas" .
