@@ -782,7 +782,7 @@ class AbstractDCS(object):
             self._last_status = value
         cluster = self.cluster
         min_version = cluster and cluster.min_version
-        if min_version and min_version < (2, 0, 3):
+        if min_version and min_version < (2, 1, 0):
             self._write_leader_optime(str(value[self._OPTIME]))
 
     @abc.abstractmethod

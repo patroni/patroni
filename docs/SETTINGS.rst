@@ -368,6 +368,8 @@ Watchdog
 - **device**: Path to watchdog device. Defaults to ``/dev/watchdog``.
 - **safety_margin**: Number of seconds of safety margin between watchdog triggering and leader key expiration.
 
+.. _tags_settings:
+
 Tags
 ----
 - **nofailover**: ``true`` or ``false``, controls whether this node is allowed to participate in the leader race and become a leader. Defaults to ``false``
