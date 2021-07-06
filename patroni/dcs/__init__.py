@@ -634,7 +634,7 @@ class AbstractDCS(object):
     _HISTORY = 'history'
     _MEMBERS = 'members/'
     _OPTIME = 'optime'
-    _STATUS = 'status'  # JSON, containts "leader_lsn" and confirmed_flush_lsn of logical "slots" on the leader
+    _STATUS = 'status'  # JSON, contains "leader_lsn" and confirmed_flush_lsn of logical "slots" on the leader
     _LEADER_OPTIME = _OPTIME + '/' + _LEADER  # legacy
     _SYNC = 'sync'
 

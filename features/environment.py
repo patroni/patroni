@@ -869,7 +869,7 @@ class WatchdogMonitor(object):
         return triggered
 
 
-# actions to execute on start/stop of the tests and before running invidual features
+# actions to execute on start/stop of the tests and before running individual features
 def before_all(context):
     os.environ.update({'PATRONI_RESTAPI_USERNAME': 'username', 'PATRONI_RESTAPI_PASSWORD': 'password'})
     context.ci = any(a in os.environ for a in ('TRAVIS_BUILD_NUMBER', 'BUILD_NUMBER', 'GITHUB_ACTIONS'))

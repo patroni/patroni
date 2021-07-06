@@ -250,7 +250,7 @@ class WALERestore(object):
                 diff_in_bytes = 0
             break
 
-        # if the size of the accumulated WAL segments is more than a certan percentage of the backup size
+        # if the size of the accumulated WAL segments is more than a certain percentage of the backup size
         # or exceeds the pre-determined size - pg_basebackup is chosen instead.
         is_size_thresh_ok = diff_in_bytes < int(threshold_megabytes) * 1048576
         threshold_pct_bytes = backup_size * threshold_percent / 100.0
@@ -308,7 +308,7 @@ class WALERestore(object):
             try:
                 os.mkdir(path)
             except OSError:
-                logger.exception("coud not create missing %s directory path", dirname)
+                logger.exception("could not create missing %s directory path", dirname)
                 return False
         return True
 

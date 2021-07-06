@@ -37,7 +37,7 @@ def postgres_version_to_int(pg_version):
         raise PostgresException('Invalid PostgreSQL version format: X.Y or X.Y.Z is accepted: {0}'.format(pg_version))
 
     if len(components) == 2:
-        # new style verion numbers, i.e. 10.1 becomes 100001
+        # new style version numbers, i.e. 10.1 becomes 100001
         components.insert(1, 0)
 
     return int(''.join('{0:02d}'.format(c) for c in components))

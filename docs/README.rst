@@ -166,7 +166,7 @@ When connecting from an application, always use a non-superuser. Patroni require
 
 Testing Your HA Solution
 --------------------------------------
-Testing an HA solution is a time consuming process, with many variables. This is particularly true considering a cross-platform application. You need a trained system administrator or a consultant to do this work. It is not something we can cover in depth in the documentaiton.
+Testing an HA solution is a time consuming process, with many variables. This is particularly true considering a cross-platform application. You need a trained system administrator or a consultant to do this work. It is not something we can cover in depth in the documentation.
 
 That said, here are some pieces of your infrastructure you should be sure to test:
 

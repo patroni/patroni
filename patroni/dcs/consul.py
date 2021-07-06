@@ -111,7 +111,7 @@ class HTTPClient(object):
                 # According to the documentation a small random amount of additional wait time is added to the
                 # supplied maximum wait time to spread out the wake up time of any concurrent requests. This adds
                 # up to wait / 16 additional time to the maximum duration. Since our goal is actually getting a
-                # response rather read timeout we will add to the timeout a sligtly bigger value.
+                # response rather read timeout we will add to the timeout a slightly bigger value.
                 kwargs['timeout'] = timeout + max(timeout/15.0, 1)
             else:
                 kwargs['timeout'] = self._read_timeout

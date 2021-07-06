@@ -119,7 +119,7 @@ For example, the command in order to install Patroni together with dependencies 
 
     pip install patroni[etcd,aws]
 
-Note that external tools to call in the replica creation or custom bootstap scripts (i.e. WAL-E) should be installed independently of Patroni.
+Note that external tools to call in the replica creation or custom bootstrap scripts (i.e. WAL-E) should be installed independently of Patroni.
 
 =======================
 Running and Configuring

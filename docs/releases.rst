@@ -682,7 +682,7 @@ Version 1.6.1
 
 - Some improvements in logging infrastructure (Alexander Kukushkin)
 
-  Previously threre was a possibility to loose the last few log lines on shutdown because the logging thread was a ``daemon`` thread.
+  Previously there was a possibility to loose the last few log lines on shutdown because the logging thread was a ``daemon`` thread.
 
 - Use ``spawn`` multiprocessing start method on python 3.4+ (Maciej Kowalczyk)
 
@@ -732,7 +732,7 @@ Version 1.6.1
 
   If the method is executed from the REST API thread, it requires a separate cursor object to be created.
 
-- Fix the problem of not promoting the sync standby that had a name contaning upper case letters (Alexander Kukushkin)
+- Fix the problem of not promoting the sync standby that had a name containing upper case letters (Alexander Kukushkin)
 
   We converted the name to the lower case because Postgres was doing the same while comparing the ``application_name`` with the value in ``synchronous_standby_names``.
 
@@ -1008,7 +1008,7 @@ Compatibility and bugfix release.
 
 - Fix broken compatibility with postgres 9.3 (Alexander)
 
-  When opening a replication connection we should specify replication=1, beacuse 9.3 does not understand replication='database'
+  When opening a replication connection we should specify replication=1, because 9.3 does not understand replication='database'
 
 - Make sure we refresh Consul session at least once per HA loop and improve handling of consul sessions exceptions (Alexander)
 
@@ -1093,7 +1093,7 @@ This version enables Patroni HA cluster to operate in a standby mode, introduces
 
 - Immediately reserve the WAL position upon creation of the replication slot (Alexander Kukushkin)
 
-  Starting from 9.6, `pg_create_physical_replication_slot` function provides an additional boolean parameter `immediately_reserve`. When it is set to `false`, which is also the default, the slot doesn't reserve the WAL position until it receives the first client connection, potentially losing some segments required by the client in a time window between the slot creation and the intiial client connection.
+  Starting from 9.6, `pg_create_physical_replication_slot` function provides an additional boolean parameter `immediately_reserve`. When it is set to `false`, which is also the default, the slot doesn't reserve the WAL position until it receives the first client connection, potentially losing some segments required by the client in a time window between the slot creation and the initial client connection.
 
 - Fix bug in strict synchronous replication (Alexander Kukushkin)
 
@@ -1333,7 +1333,7 @@ This version adds support for using Kubernetes as a DCS, allowing to run Patroni
 
 **Upgrade notice**
 
-Installing Patroni via pip will no longer bring in dependencies for (such as libraries for Etcd, Zookeper, Consul or Kubernetes, or support for AWS). In order to enable them one need to list them in pip install command explicitely, for instance `pip install patroni[etcd,kubernetes]`.
+Installing Patroni via pip will no longer bring in dependencies for (such as libraries for Etcd, Zookeper, Consul or Kubernetes, or support for AWS). In order to enable them one need to list them in pip install command explicitly, for instance `pip install patroni[etcd,kubernetes]`.
 
 **Kubernetes support**
 
@@ -1352,7 +1352,7 @@ In addition to using Endpoints, Patroni supports ConfigMaps. You can find more i
 
 - Remove leader key on shutdown only when we have the lock (Ants)
 
-  Unconditional removal was generating unnecessary and missleading exceptions.
+  Unconditional removal was generating unnecessary and misleading exceptions.
 
 **Improvements in patronictl**
 
@@ -1383,7 +1383,7 @@ In addition to using Endpoints, Patroni supports ConfigMaps. You can find more i
 
 - Alter the behavior of ``patronictl failover`` (Alexander)
 
-  It will work even if there is no leader, but in that case you will have to explicitely specify a node which should become the new leader.
+  It will work even if there is no leader, but in that case you will have to explicitly specify a node which should become the new leader.
 
 **Expose information about timeline and history**
 
@@ -1399,7 +1399,7 @@ In addition to using Endpoints, Patroni supports ConfigMaps. You can find more i
 
 - Add new /sync and /async endpoints (Alexander, Oleksii Kliukin)
 
- Those endpoints (also accessible as /synchronous and /asynchronous) return 200 only for synchronous and asynchornous replicas correspondingly (exclusing those marked as `noloadbalance`).
+ Those endpoints (also accessible as /synchronous and /asynchronous) return 200 only for synchronous and asynchronous replicas correspondingly (exclusing those marked as `noloadbalance`).
 
 **Allow multiple hosts for Etcd**
 
@@ -1487,7 +1487,7 @@ Version 1.3.4
 
 - Pass the consul token as a header (Andrew Colin Kissa)
 
-  Headers are now the prefered way to pass the token to the consul `API <https://www.consul.io/api/index.html#authentication>`__.
+  Headers are now the preferred way to pass the token to the consul `API <https://www.consul.io/api/index.html#authentication>`__.
 
 
 - Advanced configuration for Consul (Alexander Kukushkin)
@@ -1805,7 +1805,7 @@ In addition, patronictl supports new ``pause`` and ``resume`` commands to toggle
   Originally, ping_timeout and connect_timeout values were calculated from the negotiated session timeout. Patroni loop_wait was not taken into account. As
   a result, a single retry could take more time than the session timeout, forcing Patroni to release the lock and demote.
 
-  This change set ping and connect timeout to half of the value of loop_wait, speeding up detection of connection issues and  leaving enough time to retry the connection attempt before loosing the lock.
+  This change set ping and connect timeout to half of the value of loop_wait, speeding up detection of connection issues and  leaving enough time to retry the connection attempt before losing the lock.
 
 - Update Etcd topology only after original request succeed (Alexander)
 
@@ -1883,7 +1883,7 @@ When upgrading from v0.90 or below, always upgrade all replicas before the maste
 
   See the :ref:`dynamic configuration <dynamic_configuration>`  for the details on which parameters can be changed and the order of processing difference configuration sources.
 
-  The configuration file format *has changed* since the v0.90. Patroni is still compatible with the old configuration files, but in order to take advantage of the bootstrap parameters one needs to change it. Users are encourage to update them by referring to the :ref:`dynamic configuraton documentation page <dynamic_configuration>`.
+  The configuration file format *has changed* since the v0.90. Patroni is still compatible with the old configuration files, but in order to take advantage of the bootstrap parameters one needs to change it. Users are encourage to update them by referring to the :ref:`dynamic configuration documentation page <dynamic_configuration>`.
 
 **More flexible configuration***
 
