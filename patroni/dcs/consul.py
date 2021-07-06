@@ -252,7 +252,7 @@ class Consul(AbstractDCS):
 
         consul_config = config.get('consul', {})
         self._client.reload_config(consul_config)
-        self._previous_loop_register_service = self._service_tags
+        self._previous_loop_service_tags = self._service_tags
         self._service_tags = sorted(consul_config.get('service_tags', []))
 
         should_register_service = consul_config.get('register_service', False)
