@@ -39,7 +39,7 @@ This version adds compatibility with PostgreSQL v14, makes logical replication s
   When everything goes normal, only one line will be written for every run of HA loop.
 
 
-**Breaking chances**
+**Breaking changes**
 
 - The old ``permanent logical replication slots`` feature will no longer work with PostgreSQL v10 and older (Alexander)
 
