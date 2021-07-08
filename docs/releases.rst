@@ -45,7 +45,7 @@ This version adds compatibility with PostgreSQL v14, makes logical replication s
 
   The strategy of creating the logical slots after performing a promotion can't guaranty that no logical events are lost and therefore disabled.
 
-- The ``/leader`` always endpoint returns 200 if the node holds the lock (Alexander)
+- The ``/leader`` endpoint always returns 200 if the node holds the lock (Alexander)
 
   Promoting the standby cluster requires updating load-balancer health checks, which is not very convenient and easy to forget. To solve it, we change the behavior of the ``/leader`` health check endpoint. It will return 200 without taking into account whether the cluster is normal or the ``standby_cluster``.
 
