@@ -646,10 +646,10 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self.patroni = patroni
         self.__listen = None
         self.__ssl_options = None
-        self.reload_config(config)
-        self.daemon = True
         self.__ssl_serial_number = None
         self._received_new_cert = False
+        self.reload_config(config)
+        self.daemon = True
 
     def query(self, sql, *params):
         cursor = None
