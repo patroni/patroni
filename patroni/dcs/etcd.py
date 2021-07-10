@@ -188,7 +188,8 @@ class AbstractEtcdClientWithFailover(etcd.Client):
                 logger.debug("Retrieved list of machines: %s", machines)
                 if machines:
                     random.shuffle(machines)
-                    self._update_dns_cache(self._dns_resolver.resolve_async, machines)
+                    if not self._use_proxies:
+                        self._update_dns_cache(self._dns_resolver.resolve_async, machines)
                     return machines
             except Exception as e:
                 self.http.clear()

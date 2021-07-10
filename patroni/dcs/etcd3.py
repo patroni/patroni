@@ -617,7 +617,7 @@ class Etcd3(AbstractEtcd):
             return self.retry(self._do_refresh_lease)
         except (Etcd3ClientError, RetryFailedError):
             logger.exception('refresh_lease')
-        raise Etcd3Error('Failed ro keepalive/grant lease')
+        raise Etcd3Error('Failed to keepalive/grant lease')
 
     def create_lease(self):
         while not self._lease:
