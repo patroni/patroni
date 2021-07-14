@@ -463,7 +463,8 @@ class Consul(AbstractDCS):
             'address': conn_parts.hostname,
             'port': conn_parts.port,
             'check': check,
-            'tags': tags
+            'tags': tags,
+            'enable_tag_override': True,
         }
 
         if state == 'stopped' or (not self._register_service and self._previous_loop_register_service):
