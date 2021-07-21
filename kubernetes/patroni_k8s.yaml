@@ -20,6 +20,10 @@ metadata:
 spec:
   replicas: 3
   serviceName: *cluster_name
+  selector:
+    matchLabels:
+      application: patroni
+      cluster-name: *cluster_name
   template:
     metadata:
       labels:
