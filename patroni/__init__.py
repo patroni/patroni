@@ -74,7 +74,7 @@ class Patroni(AbstractPatroniDaemon):
             if local:
                 self.tags = self.get_tags()
                 self.request.reload_config(self.config)
-            if local or self.api.reload_local_certificate():
+            if local or sighup and self.api.reload_local_certificate():
                 self.api.reload_config(self.config['restapi'])
             self.watchdog.reload_config(self.config)
             self.postgresql.reload_config(self.config['postgresql'], sighup)
