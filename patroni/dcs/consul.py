@@ -228,9 +228,9 @@ class Consul(AbstractDCS):
         self.__session_checks = config.get('checks', [])
         self._register_service = config.get('register_service', False)
         self._previous_loop_register_service = self._register_service
+        self._service_tags = sorted(config.get('service_tags', []))
+        self._previous_loop_service_tags = self._service_tags
         if self._register_service:
-            self._service_tags = sorted(config.get('service_tags', []))
-            self._previous_loop_service_tags = self._service_tags
             self._set_service_name()
         self._service_check_interval = config.get('service_check_interval', '5s')
         if not self._ctl:
@@ -412,14 +412,23 @@ class Consul(AbstractDCS):
             self._client.kv.delete(self.member_path)
             create_member = True
 
+        if self._register_service or self._previous_loop_register_service:
+            try:
+                self.update_service(not create_member and member and member.data or {}, data)
+            except InvalidSession:
+                self._session = None
+                logger.error('Our session disappeared from Consul, can not "touch_member"')
+                return False
+            except Exception:
+                logger.exception('touch_member')
+                return False
+
         if not create_member and member and deep_compare(data, member.data):
             return True
 
         try:
             args = {} if permanent else {'acquire': self._session}
             self._client.kv.put(self.member_path, json.dumps(data, separators=(',', ':')), **args)
-            if self._register_service or self._previous_loop_register_service:
-                self.update_service(not create_member and member and member.data or {}, data)
             return True
         except InvalidSession:
             self._session = None
@@ -471,6 +480,7 @@ class Consul(AbstractDCS):
             self._previous_loop_register_service = self._register_service
             return self.deregister_service(params['service_id'])
 
+        self._previous_loop_register_service = self._register_service
         if role in ['master', 'replica', 'standby-leader']:
             if state != 'running':
                 return
