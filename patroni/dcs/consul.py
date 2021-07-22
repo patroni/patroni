@@ -415,13 +415,8 @@ class Consul(AbstractDCS):
         if self._register_service or self._previous_loop_register_service:
             try:
                 self.update_service(not create_member and member and member.data or {}, data)
-            except InvalidSession:
-                self._session = None
-                logger.error('Our session disappeared from Consul, can not "touch_member"')
-                return False
             except Exception:
-                logger.exception('touch_member')
-                return False
+                logger.exception('update_service')
 
         if not create_member and member and deep_compare(data, member.data):
             return True
