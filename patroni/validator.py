@@ -302,10 +302,11 @@ validate_host_port_listen.expected_type = string_types
 validate_host_port_listen_multiple_hosts.expected_type = string_types
 validate_data_dir.expected_type = string_types
 validate_etcd = {
-    Or("host", "hosts", "srv", "url", "proxy"): Case({
+    Or("host", "hosts", "srv", "srv_suffix", "url", "proxy"): Case({
         "host": validate_host_port,
         "hosts": Or(comma_separated_host_port, [validate_host_port]),
         "srv": str,
+        "srv_suffix": str,
         "url": str,
         "proxy": str})
 }

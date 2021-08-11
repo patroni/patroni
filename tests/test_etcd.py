@@ -87,7 +87,8 @@ def dns_query(name, _):
         raise DNSException()
     srv = Mock()
     srv.port = 2380
-    srv.target.to_text.return_value = 'localhost' if name == '_etcd-server._tcp.foobar' else '127.0.0.1'
+    srv.target.to_text.return_value = \
+        'localhost' if name in ['_etcd-server._tcp.foobar' ,'_etcd-server-baz._tcp.foobar'] else '127.0.0.1'
     return [srv]
 
 
@@ -183,6 +184,7 @@ class TestClient(unittest.TestCase):
 
     def test__get_machines_cache_from_srv(self):
         self.client._get_machines_cache_from_srv('foobar')
+        self.client._get_machines_cache_from_srv('foobar', 'baz')
         self.client.get_srv_record = Mock(return_value=[('localhost', 2380)])
         self.client._get_machines_cache_from_srv('blabla')
 

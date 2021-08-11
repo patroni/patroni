@@ -157,6 +157,7 @@ Most of the parameters are optional, but you have to specify one of the **host**
 -  **url**: url for the etcd.
 -  **proxy**: proxy url for the etcd. If you are connecting to the etcd using proxy, use this parameter instead of **url**.
 -  **srv**: Domain to search the SRV record(s) for cluster autodiscovery.
+-  **srv\_suffix**: Configures a suffix to the SRV name that is queried during discovery. Use this flag to differentiate between multiple etcd clusters under the same domain. Works only with conjunction with **srv**. For example, if ``srv_suffix: foo`` and ``srv: example.org`` are set, the following DNS SRV query is made:``_etcd-client-ssl-foo._tcp.example.com`` (and so on for every possible ETCD SRV service name).
 -  **protocol**: (optional) http or https, if not specified http is used. If the **url** or **proxy** is specified - will take protocol from them.
 -  **username**: (optional) username for etcd authentication.
 -  **password**: (optional) password for etcd authentication.

@@ -283,13 +283,14 @@ class AbstractEtcdClientWithFailover(etcd.Client):
         except DNSException:
             return []
 
-    def _get_machines_cache_from_srv(self, srv):
+    def _get_machines_cache_from_srv(self, srv, srv_suffix=None):
         """Fetch list of etcd-cluster member by resolving _etcd-server._tcp. SRV record.
         This record should contain list of host and peer ports which could be used to run
         'GET http://{host}:{port}/members' request (peer protocol)"""
 
         ret = []
         for r in ['-client-ssl', '-client', '-ssl', '', '-server-ssl', '-server']:
+            r = r.format('{0}-{1}', r, srv_suffix) if srv_suffix else r
             protocol = 'https' if '-ssl' in r else 'http'
             endpoint = '/members' if '-server' in r else ''
             for host, port in self.get_srv_record('_etcd{0}._tcp.{1}'.format(r, srv)):
@@ -326,7 +327,7 @@ class AbstractEtcdClientWithFailover(etcd.Client):
 
         machines_cache = []
         if 'srv' in self._config:
-            machines_cache = self._get_machines_cache_from_srv(self._config['srv'])
+            machines_cache = self._get_machines_cache_from_srv(self._config['srv'], self._config.get('srv_suffix'))
 
         if not machines_cache and 'hosts' in self._config:
             machines_cache = list(self._config['hosts'])
