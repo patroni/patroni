@@ -551,7 +551,7 @@ class Ha(object):
         if master_timeline == 1:
             if cluster_history:
                 self.dcs.set_history_value('[]')
-        elif not cluster_history or cluster_history[-1][0] != master_timeline - 1 or len(cluster_history[-1]) != 4:
+        elif not cluster_history or cluster_history[-1][0] != master_timeline - 1 or len(cluster_history[-1]) != 5:
             cluster_history = {line[0]: line for line in cluster_history or []}
             history = self.state_handler.get_history(master_timeline)
             if history and self.cluster.config:
@@ -559,7 +559,7 @@ class Ha(object):
                 for line in history:
                     # enrich current history with promotion timestamps stored in DCS
                     if len(line) == 3 and line[0] in cluster_history \
-                            and len(cluster_history[line[0]]) == 4 \
+                            and len(cluster_history[line[0]]) >= 4 \
                             and cluster_history[line[0]][1] == line[1]:
                         line.append(cluster_history[line[0]][3])
                         if len(cluster_history[line[0]]) == 5:
