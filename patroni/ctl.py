@@ -1299,7 +1299,7 @@ def version(obj, cluster_name, member_names):
 def history(obj, cluster_name, fmt):
     cluster = get_dcs(obj, cluster_name).get_cluster()
     history = cluster.history and cluster.history.lines or []
-    table_header_row = ['TL', 'LSN', 'Reason', 'Timestamp', 'Master']
+    table_header_row = ['TL', 'LSN', 'Reason', 'Timestamp', 'New Leader']
     for line in history:
         if len(line) < len(table_header_row):
             add_coloumn_num = len(table_header_row) - len(line)

@@ -554,16 +554,16 @@ class Ha(object):
         elif not cluster_history or cluster_history[-1][0] != master_timeline - 1 or len(cluster_history[-1]) != 4:
             cluster_history = {line[0]: line for line in cluster_history or []}
             history = self.state_handler.get_history(master_timeline)
-            history[-1].append(self.cluster.leader.name)
             if history and self.cluster.config:
                 history = history[-self.cluster.config.max_timelines_history:]
                 for line in history:
                     # enrich current history with promotion timestamps stored in DCS
                     if len(line) == 3 and line[0] in cluster_history \
-                            and len(cluster_history[line[0]]) == 5 \
+                            and len(cluster_history[line[0]]) == 4 \
                             and cluster_history[line[0]][1] == line[1]:
                         line.append(cluster_history[line[0]][3])
-                        line.append(cluster_history[line[0]][4])
+                        if len(cluster_history[line[0]]) == 5:
+                            line.append(cluster_history[line[0]][4])
                 self.dcs.set_history_value(json.dumps(history, separators=(',', ':')))
 
     def enforce_follow_remote_master(self, message):
