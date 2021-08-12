@@ -88,7 +88,7 @@ def dns_query(name, _):
     srv = Mock()
     srv.port = 2380
     srv.target.to_text.return_value = \
-        'localhost' if name in ['_etcd-server._tcp.foobar' ,'_etcd-server-baz._tcp.foobar'] else '127.0.0.1'
+        'localhost' if name in ['_etcd-server._tcp.foobar', '_etcd-server-baz._tcp.foobar'] else '127.0.0.1'
     return [srv]
 
 
