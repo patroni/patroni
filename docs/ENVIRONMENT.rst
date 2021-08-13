@@ -59,7 +59,8 @@ Etcd
 -  **PATRONI\_ETCD\_USE\_PROXIES**: If this parameter is set to true, Patroni will consider **hosts** as a list of proxies and will not perform a topology discovery of etcd cluster but stick to a fixed list of **hosts**.
 -  **PATRONI\_ETCD\_PROTOCOL**: http or https, if not specified http is used. If the **url** or **proxy** is specified - will take protocol from them.
 -  **PATRONI\_ETCD\_HOST**: the host:port for the etcd endpoint.
--  **PATRONI\_ETCD\_SRV**: Domain to search the SRV record(s) for cluster autodiscovery.
+-  **PATRONI\_ETCD\_SRV**: Domain to search the SRV record(s) for cluster autodiscovery. Patroni will try to query these SRV service names for specified domain (in that order until first success): ``_etcd-client-ssl``, ``_etcd-client``, ``_etcd-ssl``, ``_etcd``, ``_etcd-server-ssl``, ``_etcd-server``. If SRV records for ``_etcd-server-ssl`` or ``_etcd-server`` are retrieved then ETCD peer protocol is used do query ETCD for available members. Otherwise hosts from SRV records will be used.
+-  **PATRONI\_ETCD\_SRV\_SUFFIX**: Configures a suffix to the SRV name that is queried during discovery. Use this flag to differentiate between multiple etcd clusters under the same domain. Works only with conjunction with **PATRONI\_ETCD\_SRV**. For example, if ``PATRONI_ETCD_SRV_SUFFIX=foo`` and ``PATRONI_ETCD_SRV=example.org`` are set, the following DNS SRV query is made:``_etcd-client-ssl-foo._tcp.example.com`` (and so on for every possible ETCD SRV service name).
 -  **PATRONI\_ETCD\_USERNAME**: username for etcd authentication.
 -  **PATRONI\_ETCD\_PASSWORD**: password for etcd authentication.
 -  **PATRONI\_ETCD\_CACERT**: The ca certificate. If present it will enable validation.

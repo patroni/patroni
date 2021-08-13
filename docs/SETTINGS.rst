@@ -156,7 +156,8 @@ Most of the parameters are optional, but you have to specify one of the **host**
 -  **use\_proxies**: If this parameter is set to true, Patroni will consider **hosts** as a list of proxies and will not perform a topology discovery of etcd cluster.
 -  **url**: url for the etcd.
 -  **proxy**: proxy url for the etcd. If you are connecting to the etcd using proxy, use this parameter instead of **url**.
--  **srv**: Domain to search the SRV record(s) for cluster autodiscovery.
+-  **srv**: Domain to search the SRV record(s) for cluster autodiscovery. Patroni will try to query these SRV service names for specified domain (in that order until first success): ``_etcd-client-ssl``, ``_etcd-client``, ``_etcd-ssl``, ``_etcd``, ``_etcd-server-ssl``, ``_etcd-server``. If SRV records for ``_etcd-server-ssl`` or ``_etcd-server`` are retrieved then ETCD peer protocol is used do query ETCD for available members. Otherwise hosts from SRV records will be used.
+-  **srv\_suffix**: Configures a suffix to the SRV name that is queried during discovery. Use this flag to differentiate between multiple etcd clusters under the same domain. Works only with conjunction with **srv**. For example, if ``srv_suffix: foo`` and ``srv: example.org`` are set, the following DNS SRV query is made:``_etcd-client-ssl-foo._tcp.example.com`` (and so on for every possible ETCD SRV service name).
 -  **protocol**: (optional) http or https, if not specified http is used. If the **url** or **proxy** is specified - will take protocol from them.
 -  **username**: (optional) username for etcd authentication.
 -  **password**: (optional) password for etcd authentication.
