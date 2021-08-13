@@ -843,6 +843,7 @@ class Postgresql(object):
                 if history[-1][0] == timeline - 1:
                     history_mtime = datetime.fromtimestamp(history_mtime).replace(tzinfo=tz.tzlocal())
                     history[-1].append(history_mtime.isoformat())
+                    history[-1].append(self.name)
                 return history
             except Exception:
                 logger.exception('Failed to read and parse %s', (history_path,))
