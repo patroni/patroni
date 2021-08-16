@@ -1001,8 +1001,9 @@ class ConfigHandler(object):
             if self._postgresql.major_version >= 90500:
                 time.sleep(1)
                 try:
-                    pending_restart = self._postgresql.query('SELECT COUNT(*) FROM pg_catalog.pg_settings'
-                                                             ' WHERE pending_restart').fetchone()[0] > 0
+                    pending_restart = self._postgresql.query(
+                        'SELECT COUNT(*) FROM pg_catalog.pg_settings WHERE pg_catalog.lower(name) != ALL(%s)'
+                        ' AND pending_restart', [n.lower() for n in self._RECOVERY_PARAMETERS]).fetchone()[0] > 0
                     self._postgresql.set_pending_restart(pending_restart)
                 except Exception as e:
                     logger.warning('Exception %r when running query', e)
