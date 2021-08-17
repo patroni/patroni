@@ -130,8 +130,9 @@ class TestConsul(unittest.TestCase):
     @patch.object(consul.Consul.KV, 'put', Mock(side_effect=[True, ConsulException, InvalidSession]))
     def test_touch_member(self):
         self.c.refresh_session = Mock(return_value=False)
-        self.c.touch_member({'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
-                             'api_url': 'http://127.0.0.1:8009/patroni'})
+        with patch.object(Consul, 'update_service', Mock(side_effect=Exception)):
+            self.c.touch_member({'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
+                                 'api_url': 'http://127.0.0.1:8009/patroni'})
         self.c._register_service = True
         self.c.refresh_session = Mock(return_value=True)
         for _ in range(0, 4):
