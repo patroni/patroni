@@ -55,16 +55,19 @@ class K8sConfig(object):
         if token:
             self._headers['authorization'] = 'Bearer ' + token
 
-    def load_incluster_config(self):
+    def load_incluster_config(self, ca_certs=SERVICE_CERT_FILENAME):
         if SERVICE_HOST_ENV_NAME not in os.environ or SERVICE_PORT_ENV_NAME not in os.environ:
             raise self.ConfigException('Service host/port is not set.')
         if not os.environ[SERVICE_HOST_ENV_NAME] or not os.environ[SERVICE_PORT_ENV_NAME]:
             raise self.ConfigException('Service host/port is set but empty.')
-        if not os.path.isfile(SERVICE_CERT_FILENAME):
+
+        if not os.path.isfile(ca_certs):
             raise self.ConfigException('Service certificate file does not exists.')
-        with open(SERVICE_CERT_FILENAME) as f:
+        with open(ca_certs) as f:
             if not f.read():
                 raise self.ConfigException('Cert file exists but empty.')
+        self.pool_config['ca_certs'] = ca_certs
+
         if not os.path.isfile(SERVICE_TOKEN_FILENAME):
             raise self.ConfigException('Service token file does not exists.')
         with open(SERVICE_TOKEN_FILENAME) as f:
@@ -72,7 +75,6 @@ class K8sConfig(object):
             if not token:
                 raise self.ConfigException('Token file exists but empty.')
             self._make_headers(token=token)
-        self.pool_config['ca_certs'] = SERVICE_CERT_FILENAME
         self._server = uri('https', (os.environ[SERVICE_HOST_ENV_NAME], os.environ[SERVICE_PORT_ENV_NAME]))
 
     @staticmethod
@@ -613,13 +615,14 @@ class Kubernetes(AbstractDCS):
         self._label_selector = ','.join('{0}={1}'.format(k, v) for k, v in self._labels.items())
         self._namespace = config.get('namespace') or 'default'
         self._role_label = config.get('role_label', 'role')
+        self._ca_certs = os.environ.get('PATRONI_KUBERNETES_CACERT', config.get('cacert')) or SERVICE_CERT_FILENAME
         config['namespace'] = ''
         super(Kubernetes, self).__init__(config)
         self._retry = Retry(deadline=config['retry_timeout'], max_delay=1, max_tries=-1,
                             retry_exceptions=KubernetesRetriableException)
         self._ttl = None
         try:
-            k8s_config.load_incluster_config()
+            k8s_config.load_incluster_config(ca_certs=self._ca_certs)
         except k8s_config.ConfigException:
             k8s_config.load_kube_config(context=config.get('context', 'local'))
 
