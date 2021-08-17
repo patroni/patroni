@@ -3,6 +3,42 @@
 Release notes
 =============
 
+Version 2.1.1
+-------------
+
+**New features**
+
+- Support for ETCD SRV name suffix (David Pavlicek)
+
+  Etcd allows to differentiate between multiple etcd clusters under the same domain and from now on Patroni also supports it.
+
+- Enrich history with the new leader (huiyalin525)
+
+  It adds the new column to the ``patronictl history`` output.
+
+- Make the CA bundle configurable for in-cluster Kubernetes config (Aron Parsons)
+
+  By default Patroni is using ``/var/run/secrets/kubernetes.io/serviceaccount/ca.crt`` and this new feature allows specifying the custom ``kubernetes.cacert``.
+
+- Support dynamically registering/deregistering as a Consul service and changing tags (Tommy Li)
+
+  Previously it required Patroni restart.
+
+**Bugfixes**
+
+- Avoid unnecessary reload of REST API (Alexander Kukushkin)
+
+  The previous release added a feature of reloading REST API certificates if changed on disk. Unfortunately, the reload was happening unconditionally right after the start.
+
+- Don't resolve cluster members when ``etcd.use_proxies`` is set (Alexander)
+
+  When starting up Patroni checks the healthiness of Etcd cluster by querying the list of members. In addition to that, it also tried to resolve their hostnames, which is not necessary when working with Etcd via proxy and was causing unnecessary warnings.
+
+- Skip rows with NULL values in the ``pg_stat_replication`` (Alexander)
+
+  It seems that the ``pg_stat_replication`` view could contain NULL values in the ``replay_lsn``, ``flush_lsn``, or ``write_lsn`` fields even when ``state = 'streaming'``.
+
+
 Version 2.1.0
 -------------
 
