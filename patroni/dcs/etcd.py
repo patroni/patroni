@@ -290,7 +290,7 @@ class AbstractEtcdClientWithFailover(etcd.Client):
 
         ret = []
         for r in ['-client-ssl', '-client', '-ssl', '', '-server-ssl', '-server']:
-            r = r.format('{0}-{1}', r, srv_suffix) if srv_suffix else r
+            r = '{0}-{1}'.format(r, srv_suffix) if srv_suffix else r
             protocol = 'https' if '-ssl' in r else 'http'
             endpoint = '/members' if '-server' in r else ''
             for host, port in self.get_srv_record('_etcd{0}._tcp.{1}'.format(r, srv)):
