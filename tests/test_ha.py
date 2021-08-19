@@ -35,8 +35,8 @@ def false(*args, **kwargs):
 
 def get_cluster(initialize, leader, members, failover, sync, cluster_config=None):
     t = datetime.datetime.now().isoformat()
-    history = TimelineHistory(1, '[[1,67197376,"no recovery target specified","' + t + '"]]',
-                              [(1, 67197376, 'no recovery target specified', t)])
+    history = TimelineHistory(1, '[[1,67197376,"no recovery target specified","' + t + '","foo"]]',
+                              [(1, 67197376, 'no recovery target specified', t, 'foo')])
     cluster_config = cluster_config or ClusterConfig(1, {'check_timeline': True}, 1)
     return Cluster(initialize, cluster_config, leader, 10, members, failover, sync, history, None)
 
