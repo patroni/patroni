@@ -116,22 +116,31 @@ class Bootstrap(object):
             self._postgresql.config.remove_recovery_conf()
         return True
 
+    def get_local_connect_kwargs(self):
+        """
+        get local connect kwargs and pgpass
+        returns tuple (connectString, env)
+        """
+        r = self._postgresql.config.local_connect_kwargs
+        connstring = self._postgresql.config.format_dsn(r, True)
+        if 'host' not in r:
+            # https://www.postgresql.org/docs/current/static/libpq-pgpass.html
+            # A host name of localhost matches both TCP (host name localhost) and Unix domain socket
+            # (pghost empty or the default socket directory) connections coming from the local machine.
+            r['host'] = 'localhost'  # set it to localhost to write into pgpass
+
+        env = self._postgresql.config.write_pgpass(r)
+        env['PGOPTIONS'] = '-c synchronous_commit=local'
+
+        return connstring, env
+
     def call_post_bootstrap(self, config):
         """
         runs a script after initdb or custom bootstrap script is called and waits until completion.
         """
         cmd = config.get('post_bootstrap') or config.get('post_init')
         if cmd:
-            r = self._postgresql.config.local_connect_kwargs
-            connstring = self._postgresql.config.format_dsn(r, True)
-            if 'host' not in r:
-                # https://www.postgresql.org/docs/current/static/libpq-pgpass.html
-                # A host name of localhost matches both TCP (host name localhost) and Unix domain socket
-                # (pghost empty or the default socket directory) connections coming from the local machine.
-                r['host'] = 'localhost'  # set it to localhost to write into pgpass
-
-            env = self._postgresql.config.write_pgpass(r)
-            env['PGOPTIONS'] = '-c synchronous_commit=local'
+            connstring, env = self.get_local_connect_kwargs()
 
             try:
                 ret = self._postgresql.cancellable.call(shlex.split(cmd) + [connstring], env=env)

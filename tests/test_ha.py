@@ -17,6 +17,7 @@ from patroni.postgresql.rewind import Rewind
 from patroni.postgresql.slots import SlotsHandler
 from patroni.utils import tzutc
 from patroni.watchdog import Watchdog
+from patroni.liveness_check import Liveness
 from six.moves import builtins
 
 from . import PostgresInit, MockPostmaster, psycopg2_connect, requests_get
@@ -138,6 +139,7 @@ zookeeper:
         self.scheduled_restart = {'schedule': future_restart_time,
                                   'postmaster_start_time': str(postmaster_start_time)}
         self.watchdog = Watchdog(self.config)
+        self.liveness = Liveness(self.config['postgresql'].get('liveness', {}))
         self.request = lambda member, **kwargs: requests_get(member.api_url, **kwargs)
 
 

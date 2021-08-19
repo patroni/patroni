@@ -75,6 +75,7 @@ class Ha(object):
         self._start_timeout = None
         self._async_executor = AsyncExecutor(self.state_handler.cancellable, self.wakeup)
         self.watchdog = patroni.watchdog
+        self.liveness = patroni.liveness
 
         # Each member publishes various pieces of information to the DCS using touch_member. This lock protects
         # the state and publishing procedure to have consistent ordering and avoid publishing stale values.
@@ -307,7 +308,7 @@ class Ha(object):
     def recover(self):
         # Postgres is not running and we will restart in standby mode. Watchdog is not needed until we promote.
         self.watchdog.disable()
-
+        self.liveness.disable()
         if self.has_lock() and self.update_lock():
             timeout = self.patroni.config['master_start_timeout']
             if timeout == 0:
@@ -593,12 +594,26 @@ class Ha(object):
                     self._async_response.reset()
                     return 'Promotion cancelled because the pre-promote script failed'
 
+            if self.state_handler.is_leader() and self.state_handler.role == 'master' and \
+                    not self.is_paused() and self.liveness.config and self.liveness.is_running:
+                if not self.liveness.is_healthy:
+                    logger.info("Leader is in unhealthy state, Demoting")
+                    members = self.cluster.members
+                    if not self.cluster.failover and self.is_failover_possible(members):
+                        ret = self._async_executor.try_run_async('healthcheck failure: demote', self.demote,
+                                                                 ('graceful',))
+                        return ret or 'Demoting self because Liveness Checks returned Leader in unhealthy state'
+                    else:
+                        logger.info("Skipping Liveness Failure Demote operation, failover not possible OR failover "
+                                    "already scheduled")
+
         if self.state_handler.is_leader():
             # Inform the state handler about its master role.
             # It may be unaware of it if postgres is promoted manually.
             self.state_handler.set_role('master')
             self.process_sync_replication()
             self.update_cluster_history()
+            self.process_liveness_check()
             return message
         elif self.state_handler.role == 'master':
             self.process_sync_replication()
@@ -622,6 +637,12 @@ class Ha(object):
                 self._async_executor.try_run_async('promote', self.state_handler.promote,
                                                    args=(self.dcs.loop_wait, self._async_response, on_success))
             return promote_message
+
+    def process_liveness_check(self):
+        if not self.is_paused() and self.liveness.config and not self.liveness.is_running and \
+                self.state_handler.is_running() and self.state_handler.is_leader() and \
+                not self.cluster.failover:
+            self.liveness.activate(self.state_handler.bootstrap.get_local_connect_kwargs())
 
     def fetch_node_status(self, member):
         """This function perform http get request on member.api_url and fetches its status
@@ -826,6 +847,8 @@ class Ha(object):
             'immediate-nolock': dict(stop='immediate', checkpoint=False, release=False, offline=False, async_req=True),
         }[mode]
 
+        if self.liveness.is_running:
+            self.liveness.disable()
         self._rewind.trigger_check_diverged_lsn()
         self.state_handler.stop(mode_control['stop'], checkpoint=mode_control['checkpoint'],
                                 on_safepoint=self.watchdog.disable if self.watchdog.is_running else None,
@@ -1215,6 +1238,7 @@ class Ha(object):
     def post_recover(self):
         if not self.state_handler.is_running():
             self.watchdog.disable()
+            self.liveness.disable()
             if self.has_lock():
                 if self.state_handler.role in ('master', 'standby_leader'):
                     self.state_handler.set_role('demoted')
@@ -1316,6 +1340,7 @@ class Ha(object):
 
             if self.is_paused():
                 self.watchdog.disable()
+                self.liveness.disable()
                 self._was_paused = True
             else:
                 if self._was_paused:
@@ -1369,6 +1394,7 @@ class Ha(object):
                 self.state_handler.stop('immediate', stop_timeout=self.patroni.config['retry_timeout'])
                 # In case datadir went away while we were master.
                 self.watchdog.disable()
+                self.liveness.disable()
 
                 # is this instance the leader?
                 if self.has_lock():
@@ -1477,15 +1503,20 @@ class Ha(object):
                 return 'Unexpected exception raised, please report it as a BUG'
 
     def shutdown(self):
+
         if self.is_paused():
             logger.info('Leader key is not deleted and Postgresql is not stopped due paused state')
             self.watchdog.disable()
+            if self.liveness.is_running:
+                self.liveness.disable()
         elif not self._join_aborted:
             # FIXME: If stop doesn't reach safepoint quickly enough keepalive is triggered. If shutdown checkpoint
             # takes longer than ttl, then leader key is lost and replication might not have sent out all WAL.
             # This might not be the desired behavior of users, as a graceful shutdown of the host can mean lost data.
             # We probably need to something smarter here.
             disable_wd = self.watchdog.disable if self.watchdog.is_running else None
+            if self.liveness.is_running:
+                self.liveness.disable()
             self.while_not_sync_standby(lambda: self.state_handler.stop(checkpoint=False, on_safepoint=disable_wd,
                                                                         stop_timeout=self.master_stop_timeout()))
             if not self.state_handler.is_running():

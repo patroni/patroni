@@ -50,6 +50,28 @@ class MockWatchdog(object):
     is_healthy = False
 
 
+class MockLiveness(object):
+    livenesscheck = Mock()
+    is_healthy = False
+
+    @property
+    @staticmethod
+    def is_healthy():
+        return True
+
+    @staticmethod
+    def is_running():
+        return False
+
+    @staticmethod
+    def activate():
+        pass
+
+    @staticmethod
+    def disable():
+        pass
+
+
 class MockHa(object):
 
     state_handler = MockPostgresql()
@@ -120,6 +142,7 @@ class MockPatroni(object):
     logger = MockLogger()
     tags = {"key1": True, "key2": False, "key3": 1, "key4": 1.4, "key5": "RandomTag"}
     version = '0.00'
+    liveness = MockLiveness()
     noloadbalance = PropertyMock(return_value=False)
     scheduled_restart = {'schedule': future_restart_time,
                          'postmaster_start_time': postgresql.postmaster_start_time()}
