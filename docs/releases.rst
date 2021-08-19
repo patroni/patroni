@@ -10,7 +10,7 @@ Version 2.1.1
 
 - Support for ETCD SRV name suffix (David Pavlicek)
 
-  Etcd allows to differentiate between multiple etcd clusters under the same domain and from now on Patroni also supports it.
+  Etcd allows to differentiate between multiple Etcd clusters under the same domain and from now on Patroni also supports it.
 
 - Enrich history with the new leader (huiyalin525)
 
