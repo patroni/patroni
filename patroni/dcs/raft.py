@@ -283,6 +283,8 @@ class Raft(AbstractDCS):
     def _default_port(self, config):
         # Prepend '1' to the API port, i.e. use '18008' if the API port is '8008'
         port = '1' + config['restapi']['listen'].rsplit(':', 1)[1]
+        if (port > 65535):
+            return
         n = 0
         for addr in config['partner_addrs']:
             if ":" not in addr:
