@@ -205,13 +205,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_GET_cluster-health(self):
         patroni = self.server.patroni
         cluster = patroni.dcs.cluster or patroni.dcs.get_cluster()
-        if is_cluster_healthy(patroni, cluster):
-            self._write_json_response(200, cluster_as_json(cluster))
-        else:
+	if is_cluster_healthy(patroni, cluster):
+            code = 200
+        else
             if cluster.leader:
-                self._write_json_response(500, cluster_as_json(cluster))
-            else:
-                self._write_json_response(503, cluster_as_json(cluster))
+                code = 500
+            else
+                code = 503
+        self._write_json_response(code, cluster_as_json(cluster))
 
     def do_GET_history(self):
         cluster = self.server.patroni.dcs.cluster or self.server.patroni.dcs.get_cluster()
