@@ -80,13 +80,14 @@ def get_standby_cluster_initialized_with_only_leader(failover=None, sync=None):
     )
 
 
-def get_node_status(reachable=True, in_recovery=True, timeline=2,
-                    wal_position=10, nofailover=False, watchdog_failed=False):
+def get_node_status(reachable=True, in_recovery=True, dcs_last_seen=0,
+                    timeline=2, wal_position=10, nofailover=False,
+                    watchdog_failed=False):
     def fetch_node_status(e):
         tags = {}
         if nofailover:
             tags['nofailover'] = True
-        return _MemberStatus(e, reachable, in_recovery, timeline, wal_position, tags, watchdog_failed)
+        return _MemberStatus(e, reachable, in_recovery, dcs_last_seen, timeline, wal_position, tags, watchdog_failed)
     return fetch_node_status
 
 

@@ -21,13 +21,15 @@ from threading import RLock
 logger = logging.getLogger(__name__)
 
 
-class _MemberStatus(namedtuple('_MemberStatus', ['member', 'reachable', 'in_recovery', 'timeline',
-                                                 'wal_position', 'tags', 'watchdog_failed'])):
+class _MemberStatus(namedtuple('_MemberStatus', ['member', 'reachable', 'in_recovery',
+                                                 'dcs_last_seen', 'timeline', 'wal_position',
+                                                 'tags', 'watchdog_failed'])):
     """Node status distilled from API response:
 
         member - dcs.Member object of the node
         reachable - `!False` if the node is not reachable or is not responding with correct JSON
         in_recovery - `!True` if pg_is_in_recovery() == true
+        dcs_last_seen - timestamp from JSON of last succesful communication with DCS
         timeline - timeline value from JSON
         wal_position - maximum value of `replayed_location` or `received_location` from JSON
         tags - dictionary with values of different tags (i.e. nofailover)
@@ -37,12 +39,13 @@ class _MemberStatus(namedtuple('_MemberStatus', ['member', 'reachable', 'in_reco
     def from_api_response(cls, member, json):
         is_master = json['role'] == 'master'
         timeline = json.get('timeline', 0)
+        dcs_last_seen = json.get('dcs_last_seen', 0)
         wal = not is_master and max(json['xlog'].get('received_location', 0), json['xlog'].get('replayed_location', 0))
-        return cls(member, True, not is_master, timeline, wal, json.get('tags', {}), json.get('watchdog_failed', False))
+        return cls(member, True, not is_master, dcs_last_seen, timeline, wal, json.get('tags', {}), json.get('watchdog_failed', False))
 
     @classmethod
     def unknown(cls, member):
-        return cls(member, False, None, 0, 0, {}, False)
+        return cls(member, False, None, 0, 0, 0, {}, False)
 
     def failover_limitation(self):
         """Returns reason why this node can't promote or None if everything is ok."""
@@ -133,6 +136,9 @@ class Ha(object):
         if not cluster.is_unlocked() or not self.old_cluster:
             self.old_cluster = cluster
         self.cluster = cluster
+
+        # Note time we last updated from DCS
+        self.cluster.dcs_last_seen = int(time.time())
 
         if not self.has_lock(False):
             self.set_is_leader(False)
