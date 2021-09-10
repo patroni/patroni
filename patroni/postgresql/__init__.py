@@ -861,20 +861,22 @@ class Postgresql(object):
         if change_role:
             self.__cb_pending = ACTION_NOOP
 
+        ret = True
         if self.is_running():
             if do_reload:
                 self.config.write_postgresql_conf()
-                if self.reload(block_callbacks=change_role) and change_role:
+                ret = self.reload(block_callbacks=change_role)
+                if ret and change_role:
                     self.set_role(role)
             else:
-                self.restart(block_callbacks=change_role, role=role)
+                ret = self.restart(block_callbacks=change_role, role=role)
         else:
-            self.start(timeout=timeout, block_callbacks=change_role, role=role)
+            ret = self.start(timeout=timeout, block_callbacks=change_role, role=role) or None
 
         if change_role:
             # TODO: postpone this until start completes, or maybe do even earlier
             self.call_nowait(ACTION_ON_ROLE_CHANGE)
-        return True
+        return ret
 
     def _wait_promote(self, wait_seconds):
         for _ in polling_loop(wait_seconds):
