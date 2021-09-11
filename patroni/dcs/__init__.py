@@ -652,6 +652,7 @@ class AbstractDCS(object):
         self._cluster_valid_till = 0
         self._cluster_thread_lock = Lock()
         self._last_lsn = ''
+        self._dcs_last_seen = 0
         self._last_status = {}
         self.event = Event()
 
@@ -721,6 +722,10 @@ class AbstractDCS(object):
     @property
     def loop_wait(self):
         return self._loop_wait
+
+    @property
+    def dcs_last_seen(self):
+        return self._dcs_last_seen
 
     @abc.abstractmethod
     def _load_cluster(self):

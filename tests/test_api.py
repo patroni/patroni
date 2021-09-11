@@ -54,6 +54,7 @@ class MockHa(object):
 
     state_handler = MockPostgresql()
     watchdog = MockWatchdog()
+    dcs_last_seen = 0
 
     @staticmethod
     def is_leader():

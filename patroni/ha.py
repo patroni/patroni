@@ -78,6 +78,7 @@ class Ha(object):
         self._start_timeout = None
         self._async_executor = AsyncExecutor(self.state_handler.cancellable, self.wakeup)
         self.watchdog = patroni.watchdog
+        self.dcs_last_seen = 0
 
         # Each member publishes various pieces of information to the DCS using touch_member. This lock protects
         # the state and publishing procedure to have consistent ordering and avoid publishing stale values.
@@ -136,9 +137,6 @@ class Ha(object):
         if not cluster.is_unlocked() or not self.old_cluster:
             self.old_cluster = cluster
         self.cluster = cluster
-
-        # Note time we last updated from DCS
-        self.cluster.dcs_last_seen = int(time.time())
 
         if not self.has_lock(False):
             self.set_is_leader(False)
@@ -232,6 +230,10 @@ class Ha(object):
 
             if self.is_paused():
                 data['pause'] = True
+
+            # Note time we last updated DCS
+            self.dcs_last_seen = int(time.time())
+            data['dcs_last_seen'] = self.dcs_last_seen
 
             return self.dcs.touch_member(data)
 
