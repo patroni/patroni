@@ -997,13 +997,13 @@ class Ha(object):
                     # in case of standby cluster we don't really need to
                     # enforce anything, since the leader is not a master.
                     # So just remind the role.
-                    msg = 'no action. I am ({0}) the standby leader with the lock'.format(self.state_handler.name) \
+                    msg = 'no action. I am ({0}), the standby leader with the lock'.format(self.state_handler.name) \
                           if self.state_handler.role == 'standby_leader' else \
                           'promoted self to a standby leader because i had the session lock'
                     return self.enforce_follow_remote_master(msg)
                 else:
                     return self.enforce_master_role(
-                        'no action. I am ({0}) the leader with the lock'.format(self.state_handler.name),
+                        'no action. I am ({0}), the leader with the lock'.format(self.state_handler.name),
                         'promoted self to leader because I had the session lock'
                     )
             else:
@@ -1021,10 +1021,10 @@ class Ha(object):
         lock_owner = self.cluster.leader and self.cluster.leader.name
         if self.is_standby_cluster():
             return self.follow('cannot be a real primary in a standby cluster',
-                               'no action. I am a secondary ({0}) and following a standby leader ({1})'.format(
+                               'no action. I am ({0}), a secondary, and following a standby leader ({1})'.format(
                                     self.state_handler.name, lock_owner), refresh=False)
         return self.follow('demoting self because I do not have the lock and I was a leader',
-                           'no action. I am a secondary ({0}) and following a leader ({1})'.format(
+                           'no action. I am ({0}), a secondary, and following a leader ({1})'.format(
                                 self.state_handler.name, lock_owner), refresh=False)
 
     def evaluate_scheduled_restart(self):
