@@ -600,7 +600,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 'role': 'replica' if row[1] == 0 else 'master',
                 'server_version': postgresql.server_version,
                 'cluster_unlocked': bool(not cluster or cluster.is_unlocked()),
-                'dcs_last_seen': self.server.patroni.ha.dcs_last_seen,
+                'dcs_last_seen': self.server.patroni.dcs.last_seen,
                 'xlog': ({
                     'received_location': row[4] or row[3],
                     'replayed_location': row[3],
