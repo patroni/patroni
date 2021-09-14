@@ -41,7 +41,8 @@ class _MemberStatus(namedtuple('_MemberStatus', ['member', 'reachable', 'in_reco
         timeline = json.get('timeline', 0)
         dcs_last_seen = json.get('dcs_last_seen', 0)
         wal = not is_master and max(json['xlog'].get('received_location', 0), json['xlog'].get('replayed_location', 0))
-        return cls(member, True, not is_master, dcs_last_seen, timeline, wal, json.get('tags', {}), json.get('watchdog_failed', False))
+        return cls(member, True, not is_master, dcs_last_seen, timeline, wal,
+                   json.get('tags', {}), json.get('watchdog_failed', False))
 
     @classmethod
     def unknown(cls, member):
