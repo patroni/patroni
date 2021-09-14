@@ -288,6 +288,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("# TYPE patroni_postgres_timeline counter")
         metrics.append("patroni_postgres_timeline{0} {1}".format(scope_label, postgres.get('timeline', 0)))
 
+        metrics.append("# HELP patroni_dcs_last_seen Epoch timestamp when DCS was last contacted successfully by Patroni.")
+        metrics.append("# TYPE patroni_dcs_last_seen gauge")
+        metrics.append("patroni_dcs_last_seen{0} {1}".format(scope_label, postgres.get('dcs_last_seen', 0)))
+
         self._write_response(200, '\n'.join(metrics)+'\n', content_type='text/plain')
 
     def _read_json_content(self, body_is_optional=False):
