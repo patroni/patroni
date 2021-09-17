@@ -82,8 +82,9 @@ class SlotsHandler(object):
             replication_slots = {}
             extra = ", catalog_xmin, pg_catalog.pg_wal_lsn_diff(confirmed_flush_lsn, '0/0')::bigint"\
                 if self._postgresql.major_version >= 100000 else ""
+            skip_temp_slots = ' WHERE NOT temporary' if self._postgresql.major_version >= 100000 else ''
             cursor = self._query('SELECT slot_name, slot_type, plugin, database, datoid'
-                                 '{0} FROM pg_catalog.pg_replication_slots'.format(extra))
+                                 '{0} FROM pg_catalog.pg_replication_slots{1}'.format(extra, skip_temp_slots))
             for r in cursor:
                 value = {'type': r[1]}
                 if r[1] == 'logical':
