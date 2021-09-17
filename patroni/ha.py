@@ -826,6 +826,8 @@ class Ha(object):
             'immediate-nolock': dict(stop='immediate', checkpoint=False, release=False, offline=False, async_req=True),
         }[mode]
 
+        logger.info('Demoting self (%s)', mode)
+
         self._rewind.trigger_check_diverged_lsn()
         self.state_handler.stop(mode_control['stop'], checkpoint=mode_control['checkpoint'],
                                 on_safepoint=self.watchdog.disable if self.watchdog.is_running else None,
