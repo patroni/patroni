@@ -142,9 +142,9 @@ class SlotsHandler(object):
                 self._schedule_load_slots = True
 
     @contextmanager
-    def _get_local_connection_cursor(self, database):
+    def _get_local_connection_cursor(self, **kwargs):
         conn_kwargs = self._postgresql.config.local_connect_kwargs
-        conn_kwargs['database'] = database
+        conn_kwargs.update(kwargs)
         with get_connection_cursor(**conn_kwargs) as cur:
             yield cur
 
@@ -161,7 +161,7 @@ class SlotsHandler(object):
 
         # Create new logical slots
         for database, values in logical_slots.items():
-            with self._get_local_connection_cursor(database) as cur:
+            with self._get_local_connection_cursor(database=database) as cur:
                 for name, value in values.items():
                     try:
                         cur.execute("SELECT pg_catalog.pg_create_logical_replication_slot(%s, %s)" +
@@ -193,7 +193,7 @@ class SlotsHandler(object):
 
         # Advance logical slots
         for database, values in advance_slots.items():
-            with self._get_local_connection_cursor(database) as cur:
+            with self._get_local_connection_cursor(database=database, options='-c statement_timeout=0') as cur:
                 for name, value in values.items():
                     try:
                         cur.execute("SELECT pg_catalog.pg_replication_slot_advance(%s, %s)",
