@@ -652,6 +652,7 @@ class AbstractDCS(object):
         self._cluster_valid_till = 0
         self._cluster_thread_lock = Lock()
         self._last_lsn = ''
+        self._last_seen = 0
         self._last_status = {}
         self.event = Event()
 
@@ -722,6 +723,10 @@ class AbstractDCS(object):
     def loop_wait(self):
         return self._loop_wait
 
+    @property
+    def last_seen(self):
+        return self._last_seen
+
     @abc.abstractmethod
     def _load_cluster(self):
         """Internally this method should build  `Cluster` object which
@@ -743,6 +748,8 @@ class AbstractDCS(object):
         except Exception:
             self.reset_cluster()
             raise
+
+        self._last_seen = int(time.time())
 
         with self._cluster_thread_lock:
             self._cluster = cluster

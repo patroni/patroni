@@ -54,6 +54,7 @@ class MockHa(object):
 
     state_handler = MockPostgresql()
     watchdog = MockWatchdog()
+    dcs_last_seen = 0
 
     @staticmethod
     def is_leader():
@@ -77,7 +78,7 @@ class MockHa(object):
 
     @staticmethod
     def fetch_nodes_statuses(members):
-        return [_MemberStatus(None, True, None, 0, None, {}, False)]
+        return [_MemberStatus(None, True, None, 0, 0, None, {}, False)]
 
     @staticmethod
     def schedule_future_restart(data):
