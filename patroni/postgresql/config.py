@@ -834,7 +834,7 @@ class ConfigHandler(object):
         # this exercise is improving cross version compatibility and user must set the correct parameter in the config.
         if self._postgresql.major_version >= 130000:
             wal_keep_segments = parameters.pop('wal_keep_segments', self.CMDLINE_OPTIONS['wal_keep_segments'][0])
-            parameters.setdefault('wal_keep_size', str(wal_keep_segments * 16) + 'MB')
+            parameters.setdefault('wal_keep_size', str(int(wal_keep_segments) * 16) + 'MB')
         elif self._postgresql.major_version:
             wal_keep_size = parse_int(parameters.pop('wal_keep_size', self.CMDLINE_OPTIONS['wal_keep_size'][0]), 'MB')
             parameters.setdefault('wal_keep_segments', int((wal_keep_size + 8) / 16))
