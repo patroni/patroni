@@ -767,8 +767,7 @@ class AbstractDCS(object):
         :returns: `!True` on success."""
 
     def write_leader_optime(self, last_lsn):
-        if self._last_lsn != last_lsn and self._write_leader_optime(last_lsn):
-            self._last_lsn = last_lsn
+        self.write_status({self._OPTIME: last_lsn})
 
     @abc.abstractmethod
     def _write_status(self, value):
@@ -782,7 +781,8 @@ class AbstractDCS(object):
             self._last_status = value
         cluster = self.cluster
         min_version = cluster and cluster.min_version
-        if min_version and min_version < (2, 1, 0):
+        if min_version and min_version < (2, 1, 0) and self._last_lsn != value[self._OPTIME]:
+            self._last_lsn = value[self._OPTIME]
             self._write_leader_optime(str(value[self._OPTIME]))
 
     @abc.abstractmethod
@@ -883,7 +883,7 @@ class AbstractDCS(object):
         :param last_lsn: latest checkpoint location in bytes"""
 
         if last_lsn:
-            self.write_leader_optime(last_lsn)
+            self.write_status({self._OPTIME: last_lsn})
         return self._delete_leader()
 
     @abc.abstractmethod
