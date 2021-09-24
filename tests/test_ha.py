@@ -1098,6 +1098,14 @@ class TestHa(PostgresInit):
     def test_shutdown(self):
         self.p.is_running = false
         self.ha.is_leader = true
+
+        def stop(*args, **kwargs):
+            kwargs['on_shutdown'](123)
+
+        self.p.stop = stop
+        self.ha.shutdown()
+
+        self.ha.is_failover_possible = true
         self.ha.shutdown()
 
     @patch('time.sleep', Mock())
@@ -1185,3 +1193,8 @@ class TestHa(PostgresInit):
         self.ha.cluster.is_unlocked = false
         self.p.is_leader = false
         self.assertTrue(self.ha.run_cycle().startswith('Copying logical slots'))
+
+    def test_is_failover_possible(self):
+        self.ha.fetch_node_status = Mock(return_value=_MemberStatus(self.ha.cluster.members[0],
+                                                                    True, True, 0, 2, None, {}, False))
+        self.assertFalse(self.ha.is_failover_possible(self.ha.cluster.members))

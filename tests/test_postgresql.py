@@ -203,6 +203,21 @@ class TestPostgresql(BaseTestPostgresql):
         mock_postmaster.signal_stop.side_effect = [None, True]
         self.assertTrue(self.p.stop(on_safepoint=mock_callback, stop_timeout=30))
 
+    @patch('time.sleep', Mock())
+    @patch.object(Postgresql, 'is_running', MockPostmaster)
+    @patch.object(Postgresql, '_wait_for_connection_close', Mock())
+    @patch.object(Postgresql, 'latest_checkpoint_location', Mock(return_value='7'))
+    def test__do_stop(self):
+        mock_callback = Mock()
+        with patch.object(Postgresql, 'controldata', Mock(return_value={'Database cluster state': 'shut down'})):
+            self.assertTrue(self.p.stop(on_shutdown=mock_callback, stop_timeout=3))
+            mock_callback.assert_called()
+        with patch.object(Postgresql, 'controldata',
+                          Mock(return_value={'Database cluster state': 'shut down in recovery'})):
+            self.assertTrue(self.p.stop(on_shutdown=mock_callback, stop_timeout=3))
+        with patch.object(Postgresql, 'controldata', Mock(return_value={'Database cluster state': 'shutting down'})):
+            self.assertTrue(self.p.stop(on_shutdown=mock_callback, stop_timeout=3))
+
     def test_restart(self):
         self.p.start = Mock(return_value=False)
         self.assertFalse(self.p.restart())
