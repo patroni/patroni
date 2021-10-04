@@ -688,11 +688,11 @@ class Ha(object):
                         logger.info('Ignoring the former leader being ahead of us')
         return True
 
-    def is_failover_possible(self, members, only_syncronous=False, cluster_lsn=None):
+    def is_failover_possible(self, members, check_synchronous=True, cluster_lsn=None):
         ret = False
         cluster_timeline = self.cluster.timeline
         members = [m for m in members if m.name != self.state_handler.name and not m.nofailover and m.api_url]
-        if only_syncronous and self.is_synchronous_mode():
+        if check_synchronous and self.is_synchronous_mode():
             members = [m for m in members if self.cluster.sync.matches(m.name)]
         if members:
             for st in self.fetch_nodes_statuses(members):
@@ -844,7 +844,7 @@ class Ha(object):
             # It could happen if Postgres is still archiving the backlog of WAL files.
             # If we know that there are replicas that received the shutdown checkpoint
             # location, we can remove the leader key and allow them to start leader race.
-            if self.is_failover_possible(self.cluster.members, True, checkpoint_location):
+            if self.is_failover_possible(self.cluster.members, cluster_lsn=checkpoint_location):
                 self.state_handler.set_role('demoted')
                 with self._async_executor:
                     self.release_leader_key_voluntarily(checkpoint_location)
@@ -1520,7 +1520,7 @@ class Ha(object):
                     # It could happen if Postgres is still archiving the backlog of WAL files.
                     # If we know that there are replicas that received the shutdown checkpoint
                     # location, we can remove the leader key and allow them to start leader race.
-                    if self.is_failover_possible(self.cluster.members, True, checkpoint_location):
+                    if self.is_failover_possible(self.cluster.members, cluster_lsn=checkpoint_location):
                         self.dcs.delete_leader(checkpoint_location)
                         status['deleted'] = True
                     else:
