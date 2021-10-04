@@ -624,6 +624,11 @@ class TestHa(PostgresInit):
         # same as previous, but set the current member to nofailover. In no case it should be elected as a leader
         self.ha.patroni.nofailover = True
         self.assertEqual(self.ha.run_cycle(), 'following a different leader because I am not allowed to promote')
+        # in sync mode only the sync node is allowed to take over
+        self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, 'leader', 'other', None))
+        self.ha.patroni.nofailover = False
+        self.ha.is_synchronous_mode = true
+        self.assertEqual(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
 
     def test_manual_failover_process_no_leader_in_pause(self):
         self.ha.is_paused = true
