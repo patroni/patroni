@@ -317,7 +317,7 @@ class Ha(object):
             if timeout == 0:
                 # We are requested to prefer failing over to restarting master. But see first if there
                 # is anyone to fail over to.
-                if self.is_failover_possible(self.cluster.members, True):
+                if self.is_failover_possible(self.cluster.members):
                     logger.info("Master crashed. Failing over.")
                     self.demote('immediate')
                     return 'stopped PostgreSQL to fail over after a crash'
@@ -782,6 +782,10 @@ class Ha(object):
             return False
 
         if self.cluster.failover:
+            # When doing a switchover in synchronous mode only synchronous nodes and former leader are allowed to race
+            if self.is_synchronous_mode() and self.cluster.failover.leader and \
+                    self.cluster.failover.candidate and not self.cluster.sync.matches(self.state_handler.name):
+                return False
             return self.manual_failover_process_no_leader()
 
         if not self.watchdog.is_healthy:
@@ -925,7 +929,7 @@ class Ha(object):
                     else:
                         members = [m for m in self.cluster.members
                                    if not failover.candidate or m.name == failover.candidate]
-                    if self.is_failover_possible(members):  # check that there are healthy members
+                    if self.is_failover_possible(members, False):  # check that there are healthy members
                         ret = self._async_executor.try_run_async('manual failover: demote', self.demote, ('graceful',))
                         return ret or 'manual failover: demoting myself'
                     else:
@@ -1179,7 +1183,7 @@ class Ha(object):
         if self.has_lock() and self.update_lock():
             if self._async_executor.scheduled_action == 'doing crash recovery in a single user mode':
                 time_left = self.patroni.config['master_start_timeout'] - (time.time() - self._crash_recovery_started)
-                if time_left <= 0 and self.is_failover_possible(self.cluster.members, True):
+                if time_left <= 0 and self.is_failover_possible(self.cluster.members):
                     logger.info("Demoting self because crash recovery is taking too long")
                     self.state_handler.cancellable.cancel(True)
                     self.demote('immediate')
@@ -1286,7 +1290,7 @@ class Ha(object):
             time_left = timeout - self.state_handler.time_in_state()
 
             if time_left <= 0:
-                if self.is_failover_possible(self.cluster.members, True):
+                if self.is_failover_possible(self.cluster.members):
                     logger.info("Demoting self because master startup is taking too long")
                     self.demote('immediate')
                     return 'stopped PostgreSQL because of startup timeout'
