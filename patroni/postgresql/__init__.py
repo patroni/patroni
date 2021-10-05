@@ -598,7 +598,8 @@ class Postgresql(object):
             logger.exception('Exception during CHECKPOINT')
             return 'not accessible or not healty'
 
-    def stop(self, mode='fast', block_callbacks=False, checkpoint=None, on_safepoint=None, stop_timeout=None):
+    def stop(self, mode='fast', block_callbacks=False, checkpoint=None,
+             on_safepoint=None, on_shutdown=None, stop_timeout=None):
         """Stop PostgreSQL
 
         Supports a callback when a safepoint is reached. A safepoint is when no user backend can return a successful
@@ -606,11 +607,12 @@ class Postgresql(object):
         could be added.
 
         :param on_safepoint: This callback is called when no user backends are running.
+        :param on_shutdown: is called when pg_controldata starts reporting `Database cluster state: shut down`
         """
         if checkpoint is None:
             checkpoint = False if mode == 'immediate' else True
 
-        success, pg_signaled = self._do_stop(mode, block_callbacks, checkpoint, on_safepoint, stop_timeout)
+        success, pg_signaled = self._do_stop(mode, block_callbacks, checkpoint, on_safepoint, on_shutdown, stop_timeout)
         if success:
             # block_callbacks is used during restart to avoid
             # running start/stop callbacks in addition to restart ones
@@ -623,7 +625,7 @@ class Postgresql(object):
             self.set_state('stop failed')
         return success
 
-    def _do_stop(self, mode, block_callbacks, checkpoint, on_safepoint, stop_timeout):
+    def _do_stop(self, mode, block_callbacks, checkpoint, on_safepoint, on_shutdown, stop_timeout):
         postmaster = self.is_running()
         if not postmaster:
             if on_safepoint:
@@ -649,6 +651,22 @@ class Postgresql(object):
             self._wait_for_connection_close(postmaster)
             postmaster.wait_for_user_backends_to_close()
             on_safepoint()
+
+        if on_shutdown and mode in ('fast', 'smart'):
+            i = 0
+            # Wait for pg_controldata `Database cluster state:` to change to "shut down"
+            while postmaster.is_running():
+                data = self.controldata()
+                if data.get('Database cluster state', '') == 'shut down':
+                    on_shutdown(int(self.latest_checkpoint_location()))
+                    break
+                elif data.get('Database cluster state', '').startswith('shut down'):  # shut down in recovery
+                    break
+                elif stop_timeout and i >= stop_timeout:
+                    stop_timeout = 0
+                    break
+                time.sleep(STOP_POLLING_INTERVAL)
+                i += STOP_POLLING_INTERVAL
 
         try:
             postmaster.wait(timeout=stop_timeout)
