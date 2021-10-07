@@ -402,6 +402,8 @@ class TestHa(PostgresInit):
         self.ha.has_lock = true
         self.ha.update_lock = false
         self.assertEqual(self.ha.run_cycle(), 'demoted self because failed to update leader lock in DCS')
+        with patch.object(Ha, '_get_node_to_follow', Mock(side_effect=DCSError('foo'))):
+            self.assertEqual(self.ha.run_cycle(), 'demoted self because failed to update leader lock in DCS')
         self.p.is_leader = false
         self.assertEqual(self.ha.run_cycle(), 'not promoting because failed to update leader lock in DCS')
 
