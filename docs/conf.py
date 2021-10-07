@@ -194,4 +194,7 @@ intersphinx_mapping = {'https://docs.python.org/': None}
 # A possibility to have an own stylesheet, to add new rules or override existing ones
 # For the latter case, the CSS specificity of the rules should be higher than the default ones
 def setup(app):
-   app.add_stylesheet("custom.css")
+    if hasattr(app, 'add_css_file'):
+        app.add_css_file('custom.css')
+    else:
+        app.add_stylesheet('custom.css')
