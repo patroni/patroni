@@ -485,7 +485,7 @@ class ConfigHandler(object):
         # A list of keywords that can be found in a conninfo string. Follows what is acceptable by libpq
         keywords = ('dbname', 'user', 'passfile' if params.get('passfile') else 'password', 'host', 'port',
                     'sslmode', 'sslcompression', 'sslcert', 'sslkey', 'sslpassword', 'sslrootcert', 'sslcrl',
-                    'application_name', 'krbsrvname', 'gssencmode', 'channel_binding')
+                    'sslcrldir', 'application_name', 'krbsrvname', 'gssencmode', 'channel_binding')
         if include_dbname:
             params = params.copy()
             params['dbname'] = params.get('database') or self._postgresql.database
