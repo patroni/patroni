@@ -870,8 +870,11 @@ class Ha(object):
         if mode_control['offline']:
             node_to_follow, leader = None, None
         else:
-            cluster = self.dcs.get_cluster()
-            node_to_follow, leader = self._get_node_to_follow(cluster), cluster.leader
+            try:
+                cluster = self.dcs.get_cluster()
+                node_to_follow, leader = self._get_node_to_follow(cluster), cluster.leader
+            except Exception:
+                node_to_follow, leader = None, None
 
         # FIXME: with mode offline called from DCS exception handler and handle_long_action_in_progress
         # there could be an async action already running, calling follow from here will lead
