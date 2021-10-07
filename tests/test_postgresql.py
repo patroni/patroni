@@ -320,7 +320,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertTrue(self.p.is_leader())
         self.p.reset_cluster_info_state(None)
         with patch.object(Postgresql, '_query', Mock(side_effect=RetryFailedError(''))):
-            self.assertRaises(PostgresConnectionException, self.p.is_leader)
+            self.assertFalse(self.p.is_leader())
 
     @patch.object(Postgresql, 'controldata', Mock(return_value={'Database cluster state': 'shut down',
                                                                 'Latest checkpoint location': '0/1ADBC18',
