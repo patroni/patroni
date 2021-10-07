@@ -369,7 +369,11 @@ class Postgresql(object):
         return self._cluster_info_state_get('received_tli')
 
     def is_leader(self):
-        return bool(self._cluster_info_state_get('timeline'))
+        try:
+            return bool(self._cluster_info_state_get('timeline'))
+        except PostgresConnectionException:
+            logger.warning('Failed to determine PostgreSQL state from the connection, falling back to cached role')
+            return bool(self.is_running() and self.role == 'master')
 
     def replay_paused(self):
         return self._cluster_info_state_get('replay_paused')
