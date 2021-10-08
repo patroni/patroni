@@ -345,12 +345,12 @@ class K8sClient(object):
                     try:
                         self._load_api_servers_cache()
                         api_servers_cache = self.api_servers_cache
-                        api_servers = len(api_servers)
+                        api_servers = len(api_servers_cache)
                     except Exception as e:
                         logger.debug('Failed to update list of K8s master nodes: %r', e)
 
                     sleeptime = retry.sleeptime
-                    remaining_time = retry.stoptime - sleeptime - time.time()
+                    remaining_time = (retry.stoptime or time.time()) - sleeptime - time.time()
                     nodes, timeout, retries = self._calculate_timeouts(api_servers, remaining_time)
                     if nodes == 0:
                         self._update_api_servers_cache = True
@@ -927,7 +927,7 @@ class Kubernetes(AbstractDCS):
 
         # Try to get the latest version directly from K8s API instead of relying on async cache
         try:
-            kind = retry(self._api.read_namespaced_kind, self.leader_path, self._namespace)
+            kind = _retry(self._api.read_namespaced_kind, self.leader_path, self._namespace)
         except Exception as e:
             logger.error('Failed to get the leader object "%s": %r', self.leader_path, e)
             return False
