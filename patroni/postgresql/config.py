@@ -477,8 +477,8 @@ class ConfigHandler(object):
             ret.setdefault('channel_binding', 'prefer')
         if self._krbsrvname:
             ret['krbsrvname'] = self._krbsrvname
-        if 'database' in ret:
-            del ret['database']
+        if 'dbname' in ret:
+            del ret['dbname']
         return ret
 
     def format_dsn(self, params, include_dbname=False):
@@ -488,7 +488,8 @@ class ConfigHandler(object):
                     'sslcrldir', 'application_name', 'krbsrvname', 'gssencmode', 'channel_binding')
         if include_dbname:
             params = params.copy()
-            params['dbname'] = params.get('database') or self._postgresql.database
+            if 'dbname' not in params:
+                params['dbname'] = self._postgresql.database
             # we are abusing information about the necessity of dbname
             # dsn should contain passfile or password only if there is no dbname in it (it is used in recovery.conf)
             skip = {'passfile', 'password'}
@@ -870,7 +871,7 @@ class ConfigHandler(object):
             ret['user'] = self._superuser['username']
             del ret['username']
         # ensure certain Patroni configurations are available
-        ret.update({'database': self._postgresql.database,
+        ret.update({'dbname': self._postgresql.database,
                     'fallback_application_name': 'Patroni',
                     'connect_timeout': 3,
                     'options': '-c statement_timeout=2000'})

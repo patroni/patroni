@@ -264,10 +264,10 @@ def get_cursor(cluster, connect_parameters, role='master', member=None):
 
     params = member.conn_kwargs(connect_parameters)
     params.update({'fallback_application_name': 'Patroni ctl', 'connect_timeout': '5'})
-    if 'database' in connect_parameters:
-        params['database'] = connect_parameters['database']
+    if 'dbname' in connect_parameters:
+        params['dbname'] = connect_parameters['dbname']
     else:
-        params.pop('database')
+        params.pop('dbname')
 
     import psycopg2
     conn = psycopg2.connect(**params)
@@ -401,7 +401,7 @@ def query(
     if password:
         connect_parameters['password'] = click.prompt('Password', hide_input=True, type=str)
     if dbname:
-        connect_parameters['database'] = dbname
+        connect_parameters['dbname'] = dbname
 
     if p_file is not None:
         command = p_file.read()

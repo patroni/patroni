@@ -152,8 +152,8 @@ class Rewind(object):
 
     def _conn_kwargs(self, member, auth):
         ret = member.conn_kwargs(auth)
-        if not ret.get('database'):
-            ret['database'] = self._postgresql.database
+        if not ret.get('dbname'):
+            ret['dbname'] = self._postgresql.database
         return ret
 
     def _check_timeline_and_lsn(self, leader):

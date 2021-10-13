@@ -205,10 +205,10 @@ class PatroniController(AbstractController):
 
         user = config['postgresql'].get('authentication', config['postgresql']).get('superuser', {})
         self._connkwargs = {k: user[n] for n, k in [('username', 'user'), ('password', 'password')] if n in user}
-        self._connkwargs.update({'host': host, 'port': self.__PORT, 'database': 'postgres'})
+        self._connkwargs.update({'host': host, 'port': self.__PORT, 'dbname': 'postgres'})
 
         self._replication = config['postgresql'].get('authentication', config['postgresql']).get('replication', {})
-        self._replication.update({'host': host, 'port': self.__PORT, 'database': 'postgres'})
+        self._replication.update({'host': host, 'port': self.__PORT, 'dbname': 'postgres'})
 
         return patroni_config_path
 
@@ -268,7 +268,7 @@ class PatroniController(AbstractController):
 
     @property
     def backup_source(self):
-        return 'postgres://{username}:{password}@{host}:{port}/{database}'.format(**self._replication)
+        return 'postgres://{username}:{password}@{host}:{port}/{dbname}'.format(**self._replication)
 
     def backup(self, dest=os.path.join('data', 'basebackup')):
         subprocess.call(PatroniPoolController.BACKUP_SCRIPT + ['--walmethod=none',

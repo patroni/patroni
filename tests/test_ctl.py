@@ -57,7 +57,7 @@ class TestCtl(unittest.TestCase):
         # MockCursor returns pg_is_in_recovery as false
         self.assertIsNone(get_cursor(get_cluster_initialized_with_leader(), {}, role='replica'))
 
-        self.assertIsNotNone(get_cursor(get_cluster_initialized_with_leader(), {'database': 'foo'}, role='any'))
+        self.assertIsNotNone(get_cursor(get_cluster_initialized_with_leader(), {'dbname': 'foo'}, role='any'))
 
     def test_parse_dcs(self):
         assert parse_dcs(None) is None
