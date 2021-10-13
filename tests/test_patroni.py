@@ -17,7 +17,7 @@ from patroni import Patroni, main as _main, patroni_main, check_psycopg2
 from six.moves import BaseHTTPServer, builtins
 from threading import Thread
 
-from . import psycopg2_connect, SleepException
+from . import psycopg_connect, SleepException
 from .test_etcd import etcd_read, etcd_write
 from .test_postgresql import MockPostmaster
 
@@ -29,7 +29,7 @@ class MockFrozenImporter(object):
 
 @patch('time.sleep', Mock())
 @patch('subprocess.call', Mock(return_value=0))
-@patch('psycopg2.connect', psycopg2_connect)
+@patch('patroni.psycopg.connect', psycopg_connect)
 @patch.object(ConfigHandler, 'append_pg_hba', Mock())
 @patch.object(ConfigHandler, 'write_postgresql_conf', Mock())
 @patch.object(ConfigHandler, 'write_recovery_conf', Mock())

@@ -1,7 +1,6 @@
 import abc
 import datetime
 import os
-import psycopg2
 import json
 import shutil
 import signal
@@ -12,6 +11,8 @@ import tempfile
 import threading
 import time
 import yaml
+
+import patroni.psycopg as psycopg
 
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 
@@ -214,7 +215,7 @@ class PatroniController(AbstractController):
 
     def _connection(self):
         if not self._conn or self._conn.closed != 0:
-            self._conn = psycopg2.connect(**self._connkwargs)
+            self._conn = psycopg.connect(**self._connkwargs)
             self._conn.autocommit = True
         return self._conn
 
@@ -228,7 +229,7 @@ class PatroniController(AbstractController):
             cursor = self._cursor()
             cursor.execute(query)
             return cursor
-        except psycopg2.Error:
+        except psycopg.Error:
             if not fail_ok:
                 raise
 

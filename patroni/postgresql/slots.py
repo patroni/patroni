@@ -5,10 +5,10 @@ import shutil
 
 from collections import defaultdict
 from contextlib import contextmanager
-from psycopg2.errors import UndefinedFile
 
 from .connection import get_connection_cursor
 from .misc import format_lsn
+from ..psycopg import UndefinedFile
 
 logger = logging.getLogger(__name__)
 

@@ -9,11 +9,11 @@ from patroni.ctl import ctl, store_config, load_config, output_members, get_dcs,
     get_all_members, get_any_member, get_cursor, query_member, configure, PatroniCtlException, apply_config_changes, \
     format_config_for_editing, show_diff, invoke_editor, format_pg_version, CONFIG_FILE_PATH
 from patroni.dcs.etcd import AbstractEtcdClientWithFailover, Failover
+from patroni.psycopg import OperationalError
 from patroni.utils import tzutc
-from psycopg2 import OperationalError
 from urllib3 import PoolManager
 
-from . import MockConnect, MockCursor, MockResponse, psycopg2_connect
+from . import MockConnect, MockCursor, MockResponse, psycopg_connect
 from .test_etcd import etcd_read, socket_getaddrinfo
 from .test_ha import get_cluster_initialized_without_leader, get_cluster_initialized_with_leader, \
     get_cluster_initialized_with_only_leader, get_cluster_not_initialized_without_leader, get_cluster, Member
@@ -48,7 +48,7 @@ class TestCtl(unittest.TestCase):
             self.assertRaises(PatroniCtlException, load_config, './non-existing-config-file', None)
             self.assertRaises(PatroniCtlException, load_config, './non-existing-config-file', None)
 
-    @patch('psycopg2.connect', psycopg2_connect)
+    @patch('patroni.psycopg.connect', psycopg_connect)
     def test_get_cursor(self):
         self.assertIsNone(get_cursor(get_cluster_initialized_without_leader(), {}, role='master'))
 
@@ -165,7 +165,7 @@ class TestCtl(unittest.TestCase):
     def test_get_dcs(self):
         self.assertRaises(PatroniCtlException, get_dcs, {'dummy': {}}, 'dummy')
 
-    @patch('psycopg2.connect', psycopg2_connect)
+    @patch('patroni.psycopg.connect', psycopg_connect)
     @patch('patroni.ctl.query_member', Mock(return_value=([['mock column']], None)))
     @patch('patroni.ctl.get_dcs')
     @patch.object(etcd.Client, 'read', etcd_read)

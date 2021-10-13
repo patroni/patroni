@@ -2,7 +2,6 @@ import base64
 import hmac
 import json
 import logging
-import psycopg2
 import time
 import traceback
 import dateutil.parser
@@ -18,6 +17,7 @@ from six.moves.socketserver import ThreadingMixIn
 from six.moves.urllib_parse import urlparse, parse_qs
 from threading import Thread
 
+from . import psycopg
 from .exceptions import PostgresConnectionException, PostgresException
 from .postgresql.misc import postgres_version_to_int
 from .utils import deep_compare, enable_keepalive, parse_bool, patch_config, Retry, \
@@ -628,7 +628,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 result['replication'] = row[7]
 
             return result
-        except (psycopg2.Error, RetryFailedError, PostgresConnectionException):
+        except (psycopg.Error, RetryFailedError, PostgresConnectionException):
             state = postgresql.state
             if state == 'running':
                 logger.exception('get_postgresql_status')
@@ -663,7 +663,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             with self.patroni.postgresql.connection().cursor() as cursor:
                 cursor.execute(sql, params)
                 return [r for r in cursor]
-        except psycopg2.Error as e:
+        except psycopg.Error as e:
             if cursor and cursor.connection.closed == 0:
                 raise e
             raise PostgresConnectionException('connection problems')

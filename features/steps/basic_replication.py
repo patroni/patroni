@@ -1,4 +1,4 @@
-import psycopg2 as pg
+import patroni.psycopg as pg
 
 from behave import step, then
 from time import sleep, time

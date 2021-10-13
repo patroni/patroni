@@ -1,8 +1,9 @@
 import datetime
 import json
-import psycopg2
 import unittest
 import socket
+
+import patroni.psycopg as psycopg
 
 from mock import Mock, PropertyMock, patch
 from patroni.api import RestApiHandler, RestApiServer
@@ -11,7 +12,7 @@ from patroni.ha import _MemberStatus
 from patroni.utils import tzutc
 from six import BytesIO as IO
 from six.moves import BaseHTTPServer
-from . import psycopg2_connect, MockCursor
+from . import psycopg_connect, MockCursor
 from .test_ha import get_cluster_initialized_without_leader
 
 
@@ -35,7 +36,7 @@ class MockPostgresql(object):
 
     @staticmethod
     def connection():
-        return psycopg2_connect()
+        return psycopg_connect()
 
     @staticmethod
     def postmaster_start_time():
@@ -436,9 +437,9 @@ class TestRestApiHandler(unittest.TestCase):
 
     @patch('time.sleep', Mock())
     def test_RestApiServer_query(self):
-        with patch.object(MockCursor, 'execute', Mock(side_effect=psycopg2.OperationalError)):
+        with patch.object(MockCursor, 'execute', Mock(side_effect=psycopg.OperationalError)):
             self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /patroni'))
-        with patch.object(MockPostgresql, 'connection', Mock(side_effect=psycopg2.OperationalError)):
+        with patch.object(MockPostgresql, 'connection', Mock(side_effect=psycopg.OperationalError)):
             self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /patroni'))
 
     @patch('time.sleep', Mock())

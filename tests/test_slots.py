@@ -1,20 +1,20 @@
 import mock
 import os
-import psycopg2
 import unittest
 
 
 from mock import Mock, PropertyMock, patch
 
+from patroni import psycopg
 from patroni.dcs import Cluster, ClusterConfig, Member
 from patroni.postgresql import Postgresql
 from patroni.postgresql.slots import SlotsHandler, fsync_dir
 
-from . import BaseTestPostgresql, psycopg2_connect, MockCursor
+from . import BaseTestPostgresql, psycopg_connect, MockCursor
 
 
 @patch('subprocess.call', Mock(return_value=0))
-@patch('psycopg2.connect', psycopg2_connect)
+@patch('patroni.psycopg.connect', psycopg_connect)
 @patch.object(Postgresql, 'is_running', Mock(return_value=True))
 class TestSlotsHandler(BaseTestPostgresql):
 
@@ -34,7 +34,7 @@ class TestSlotsHandler(BaseTestPostgresql):
                                    'ignore_slots': [{'name': 'blabla'}]}, 1)
         cluster = Cluster(True, config, self.leader, 0,
                           [self.me, self.other, self.leadermem], None, None, None, {'test_3': 10})
-        with mock.patch('patroni.postgresql.Postgresql._query', Mock(side_effect=psycopg2.OperationalError)):
+        with mock.patch('patroni.postgresql.Postgresql._query', Mock(side_effect=psycopg.OperationalError)):
             self.s.sync_replication_slots(cluster, False)
         self.p.set_role('standby_leader')
         self.s.sync_replication_slots(cluster, False)
@@ -86,14 +86,14 @@ class TestSlotsHandler(BaseTestPostgresql):
                           [self.me, self.other, self.leadermem], None, None, None, {'ls': 12346})
         self.assertEqual(self.s.sync_replication_slots(cluster, False), [])
         self.s._schedule_load_slots = False
-        with patch.object(MockCursor, 'execute', Mock(side_effect=psycopg2.errors.UndefinedFile)):
+        with patch.object(MockCursor, 'execute', Mock(side_effect=psycopg.UndefinedFile)):
             self.assertEqual(self.s.sync_replication_slots(cluster, False), ['ls'])
         cluster.slots['ls'] = 'a'
         self.assertEqual(self.s.sync_replication_slots(cluster, False), [])
         with patch.object(MockCursor, 'rowcount', PropertyMock(return_value=1), create=True):
             self.assertEqual(self.s.sync_replication_slots(cluster, False), ['ls'])
 
-    @patch.object(MockCursor, 'execute', Mock(side_effect=psycopg2.OperationalError))
+    @patch.object(MockCursor, 'execute', Mock(side_effect=psycopg.OperationalError))
     def test_copy_logical_slots(self):
         self.s.copy_logical_slots(self.leader, ['foo'])
 
