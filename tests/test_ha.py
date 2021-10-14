@@ -460,6 +460,8 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_not_initialized_without_leader()
         self.assertEqual(self.ha.bootstrap(), 'failed to acquire initialize lock')
 
+    @patch('patroni.psycopg.connect', psycopg_connect)
+    @patch.object(Postgresql, 'connection', Mock(return_value=None))
     def test_bootstrap_initialized_new_cluster(self):
         self.ha.cluster = get_cluster_not_initialized_without_leader()
         self.e.initialize = true
@@ -477,6 +479,8 @@ class TestHa(PostgresInit):
         self.p.is_running = false
         self.assertRaises(PatroniFatalException, self.ha.post_bootstrap)
 
+    @patch('patroni.psycopg.connect', psycopg_connect)
+    @patch.object(Postgresql, 'connection', Mock(return_value=None))
     def test_bootstrap_release_initialize_key_on_watchdog_failure(self):
         self.ha.cluster = get_cluster_not_initialized_without_leader()
         self.e.initialize = true

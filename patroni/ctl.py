@@ -437,7 +437,7 @@ def query_member(cluster, cursor, member, role, command, connect_parameters):
         logging.debug(de)
         if cursor is not None and not cursor.connection.closed:
             cursor.connection.close()
-        message = de.pgcode or de.pgerror or str(de)
+        message = de.diag.sqlstate or str(de)
         message = message.replace('\n', ' ')
         return [[timestamp(0), 'ERROR, SQLSTATE: {0}'.format(message)]], None
 

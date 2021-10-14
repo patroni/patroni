@@ -179,7 +179,7 @@ class Rewind(object):
                 elif local_timeline == master_timeline:
                     need_rewind = False
                 elif master_timeline > 1:
-                    cur.execute('TIMELINE_HISTORY %s', (master_timeline,))
+                    cur.execute('TIMELINE_HISTORY {0}'.format(master_timeline))
                     history = cur.fetchone()[1]
                     if not isinstance(history, six.string_types):
                         history = bytes(history).decode('utf-8')

@@ -12,6 +12,7 @@ from .validator import CaseInsensitiveDict, recovery_parameters,\
         transform_postgresql_parameter_value, transform_recovery_parameter_value
 from ..dcs import slot_name_from_member_name, RemoteMember
 from ..exceptions import PatroniFatalException
+from ..psycopg import quote_ident as _quote_ident
 from ..utils import compare_values, parse_bool, parse_int, split_host_port, uri, \
         validate_directory, is_subpath
 
@@ -23,7 +24,7 @@ PARAMETER_RE = re.compile(r'([a-z_]+)\s*=\s*')
 
 def quote_ident(value):
     """Very simplified version of quote_ident"""
-    return value if SYNC_STANDBY_NAME_RE.match(value) else '"' + value + '"'
+    return value if SYNC_STANDBY_NAME_RE.match(value) else _quote_ident(value)
 
 
 def conninfo_uri_parse(dsn):
