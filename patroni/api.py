@@ -205,7 +205,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_GET_cluster-health(self):
         patroni = self.server.patroni
         cluster = patroni.dcs.cluster or patroni.dcs.get_cluster()
-	if is_cluster_healthy(patroni, cluster):
+        if is_cluster_healthy(patroni, cluster):
             code = 200
         else
             if cluster.leader:
