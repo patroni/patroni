@@ -144,9 +144,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             status_code = replica_status_code
         elif 'read-only' in path:
             status_code = 200 if 200 in (primary_status_code, standby_leader_status_code) else replica_status_code
-        elif 'health' in path:
-            status_code = 200 if response.get('state') == 'running' else 503
-        elif 'cluster-health' in path:
+        elif 'cluster_health' in path or 'cluster-health' in path:
             if is_cluster_healthy(patroni, cluster):
                 status_code = 200
             else:
@@ -154,6 +152,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     status_code = 500
                 else:
                     status_code = 503
+        elif 'health' in path:
+            status_code = 200 if response.get('state') == 'running' else 503
         elif cluster:  # dcs is available
             is_synchronous = cluster.is_synchronous_mode() and cluster.sync \
                     and patroni.postgresql.name in cluster.sync.members
