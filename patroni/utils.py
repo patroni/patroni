@@ -416,7 +416,7 @@ def cluster_as_json(cluster):
         elif m.name in cluster.sync.members:
             role = 'sync_standby'
         else:
-            role = m.data.get('role', '')
+            role = 'replica'
 
         member = {'name': m.name, 'role': role, 'state': m.data.get('state', ''), 'api_url': m.api_url}
         conn_kwargs = m.conn_kwargs()

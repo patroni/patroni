@@ -811,7 +811,7 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
 
         lag = m.get('lag', '')
         m.update(cluster=name, member=m['name'], host=m.get('host', ''), tl=m.get('timeline', ''),
-                 role='Follower' if m['role'] == 'replica' else m['role'].replace('_', ' ').title(),
+                 role=m['role'].replace('_', ' ').title(),
                  lag_in_mb=round(lag/1024/1024) if isinstance(lag, six.integer_types) else lag,
                  pending_restart='*' if m.get('pending_restart') else '')
 

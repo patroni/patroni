@@ -243,11 +243,7 @@ class Postgresql(object):
         if self.data_directory_empty() or not self.controldata():
             return 'uninitialized'
         elif self.config.recovery_conf_exists():
-            data = self.controldata()
-            if not data.get('Database cluster state') == 'in archive recovery':
-                return ''
-            else:
-                return 'replica'
+            return 'replica'
         else:
             return 'master'
 
