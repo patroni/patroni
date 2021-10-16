@@ -566,7 +566,7 @@ def is_cluster_healthy(patroni, cluster):
             logger.warning('cluster is not healthy: timeline mismatch in member %s', m.name)
             return False
         follower_roles = ("replica", "sync_standby")
-        if m.data.get('role', '') not in follower_roles' or m.data.get('state', '') != 'running':
+        if m.data.get('role', '') not in follower_roles or m.data.get('state', '') != 'running':
             logger.warning('cluster is not healthy: member %s does not have follower role or is not in state running', m.name)
             return False
     logger.debug('cluster is healthy')
