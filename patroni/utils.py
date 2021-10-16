@@ -540,14 +540,14 @@ def is_cluster_healthy(patroni, cluster):
         leader_name = cluster.leader.member.name
     else:
         logger.warning('cluster is not healthy: no leader')
-        return False
+        return 503
     for m in cluster.members:
         if m.name == leader_name:
             leader_tl = m.data.get('timeline', '')
             # sanity check
             if m.data.get('role', '') != 'master' or m.data.get('state', '') != 'running':
                 logger.warning('cluster is not healthy: leader does not have role master or is not in state running')
-                return False
+                return 503
             # check replication data from leader and make sure there are as many rows as replicas
             try:
                 response = patroni.request(m, timeout=2, retries=0)
@@ -556,7 +556,7 @@ def is_cluster_healthy(patroni, cluster):
                 logger.warning("Request failed to %s: GET %s (%s)", m.name, m.api_url, e)
             if not 'replication' in data or len(data['replication']) + 1 != len(cluster.members):
                 logger.warning('cluster is not healthy: not all members take part in replication')
-                return False
+                return 500
     if cluster.config:
         maximum_lag_on_failover = cluster.config.data.get('maximum_lag_on_failover', 0)
     for m in cluster.members:
@@ -564,13 +564,13 @@ def is_cluster_healthy(patroni, cluster):
             continue
         if m.data.get('timeline', '') != leader_tl:
             logger.warning('cluster is not healthy: timeline mismatch in member %s', m.name)
-            return False
+            return 500
         if int(m.data.get('lag', 0)) > maximum_lag_on_failover:
             logger.warning('cluster is not healthy: replication lag in member %s', m.name)
-            return False
+            return 500
         follower_roles = ("replica", "sync_standby")
         if m.data.get('role', '') not in follower_roles or m.data.get('state', '') != 'running':
             logger.warning('cluster is not healthy: member %s does not have follower role or is not in state running', m.name)
-            return False
+            return 500
     logger.debug('cluster is healthy')
-    return True
+    return 200

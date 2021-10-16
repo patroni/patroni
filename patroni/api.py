@@ -145,13 +145,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         elif 'read-only' in path:
             status_code = 200 if 200 in (primary_status_code, standby_leader_status_code) else replica_status_code
         elif 'cluster_health' in path or 'cluster-health' in path:
-            if is_cluster_healthy(patroni, cluster):
-                status_code = 200
-            else:
-                if cluster.leader:
-                    status_code = 500
-                else:
-                    status_code = 503
+            status_code = is_cluster_healthy(patroni, cluster)
         elif 'health' in path:
             status_code = 200 if response.get('state') == 'running' else 503
         elif cluster:  # dcs is available
