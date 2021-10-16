@@ -565,7 +565,9 @@ def is_cluster_healthy(patroni, cluster):
         if m.data.get('timeline', '') != leader_tl:
             logger.warning('cluster is not healthy: timeline mismatch in member %s', m.name)
             return 500
-        if int(m.data.get('lag', 0)) > maximum_lag_on_failover:
+        if 'tags' in m.data and 'nofailover' in m.data.get('tags'):#, {}).items():
+            nofailover = True
+        if int(m.data.get('lag', 0)) > maximum_lag_on_failover and not nofailover:
             logger.warning('cluster is not healthy: replication lag in member %s', m.name)
             return 500
         follower_roles = ("replica", "sync_standby")
