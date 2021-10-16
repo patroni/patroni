@@ -146,6 +146,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
             status_code = 200 if 200 in (primary_status_code, standby_leader_status_code) else replica_status_code
         elif 'health' in path:
             status_code = 200 if response.get('state') == 'running' else 503
+        elif 'cluster-health' in path:
+            if is_cluster_healthy(patroni, cluster):
+                status_code = 200
+            else:
+                if cluster.leader:
+                    status_code = 500
+                else:
+                    status_code = 503
         elif cluster:  # dcs is available
             is_synchronous = cluster.is_synchronous_mode() and cluster.sync \
                     and patroni.postgresql.name in cluster.sync.members
@@ -201,18 +209,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_GET_cluster(self):
         cluster = self.server.patroni.dcs.get_cluster(True)
         self._write_json_response(200, cluster_as_json(cluster))
-
-    def do_GET_cluster-health(self):
-        patroni = self.server.patroni
-        cluster = patroni.dcs.cluster or patroni.dcs.get_cluster()
-        if is_cluster_healthy(patroni, cluster):
-            code = 200
-        else:
-            if cluster.leader:
-                code = 500
-            else:
-                code = 503
-        self._write_json_response(code, cluster_as_json(cluster))
 
     def do_GET_history(self):
         cluster = self.server.patroni.dcs.cluster or self.server.patroni.dcs.get_cluster()
