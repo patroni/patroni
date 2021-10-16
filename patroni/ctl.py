@@ -1315,7 +1315,11 @@ def cluster_health(obj, cluster_name):
     cluster = get_dcs(obj, cluster_name).get_cluster()
     if cluster.leader:
         member = cluster.leader.member
-        r = request_patroni(member, 'get', 'cluster-health')
+        try:
+            r = request_patroni(member, 'get', 'cluster-health')
+        except Exception as e:
+            click.echo("{0}: failed to get API response: {1}".format(m.name, e))
+            sys.exit(1)
         if r.status == 200:
             click.echo('cluster is healthy')
             return
