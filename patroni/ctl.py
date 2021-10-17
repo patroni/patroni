@@ -1329,6 +1329,7 @@ def cluster_health(obj, cluster_name):
     click.echo('cluster is not healthy')
     sys.exit(2)
 
+
 def format_pg_version(version):
     if version < 100000:
         return "{0}.{1}.{2}".format(version // 10000, version // 100 % 100, version % 100)
