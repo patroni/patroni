@@ -554,7 +554,15 @@ def is_cluster_healthy(patroni, cluster):
                 data = json.loads(response.data.decode('utf-8'))
             except Exception as e:
                 logger.warning("Request failed to %s: GET %s (%s)", m.name, m.api_url, e)
-            if not 'replication' in data or len(data['replication']) + 1 != len(cluster.members):
+            # get possible cascading standbys that do not take part in direct
+            # replication from the leader
+            cascading_replication_members = 0
+            for m in cluster.members:
+                if ('tags' in m.data and 'replicatefrom' in m.data.get('tags')
+                   and m.data.get('tags', {}).get('replicatefrom') != leader_name):
+                    cascading_replication_members += 1
+            replication_members = len(cluster.members) - cascading_replication_members
+            if not 'replication' in data or len(data['replication']) + 1 != replication_members:
                 logger.warning('cluster is not healthy: not all members take part in replication')
                 return 500
     if cluster.config:
