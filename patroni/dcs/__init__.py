@@ -501,6 +501,16 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,f
     def use_slots(self):
         return self.config and self.config.data.get('postgresql', {}).get('use_slots', True)
 
+    def __addl_check_for_replication_slot(self, member):
+        # if the replica is not running, there is no need to add replication slots
+        # In addition, if the replication lag is higher than a threshold, we don't need to add replication slots
+        # This will help ensure that the master's pg_xlog folder does not bloat, while the replica is in starting state
+        # or having a very large replication lag
+        return member.is_running and \
+                (self.is_synchronous_mode() and \
+                  member.data.get('xlog_location', 'unknown') != 'unknown' and \
+                  self.last_lsn - member.data.get('xlog_location', 0) < self.config.data.get('maximum_lag_on_failover', 1024*1024*1024))
+
     def get_replication_slots(self, my_name, role, nofailover, major_version, show_error=False):
         # if the replicatefrom tag is set on the member - we should not create the replication slot for it on
         # the current master, because that member would replicate from elsewhere. We still create the slot if
@@ -509,6 +519,7 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,f
         use_slots = self.use_slots
         if role in ('master', 'standby_leader'):
             slot_members = [m.name for m in self.members if use_slots and m.name != my_name and
+                            self.__addl_check_for_replication_slot(m) and
                             (m.replicatefrom is None or m.replicatefrom == my_name or
                              not self.has_member(m.replicatefrom))]
             permanent_slots = self.__permanent_slots if use_slots and \
