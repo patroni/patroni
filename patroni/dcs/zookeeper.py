@@ -90,12 +90,12 @@ class ZooKeeper(AbstractDCS):
                 normalizedPermissions = [p.upper() for p in permissions]
                 kwargs['default_acl'].append(make_acl(scheme='x509',
                                                       credential=principal,
-                                                      read=True if 'READ' in normalizedPermissions else False,
-                                                      write=True if 'WRITE' in normalizedPermissions else False,
-                                                      create=True if 'CREATE' in normalizedPermissions else False,
-                                                      delete=True if 'DELETE' in normalizedPermissions else False,
-                                                      admin=True if 'ADMIN' in normalizedPermissions else False,
-                                                      all=True if 'ALL' in normalizedPermissions else False))
+                                                      read='READ' in normalizedPermissions,
+                                                      write='WRITE' in normalizedPermissions,
+                                                      create='CREATE' in normalizedPermissions,
+                                                      delete='DELETE' in normalizedPermissions,
+                                                      admin='ADMIN' in normalizedPermissions,
+                                                      all='ALL' in normalizedPermissions))
 
         self._client = PatroniKazooClient(hosts, handler=PatroniSequentialThreadingHandler(config['retry_timeout']),
                                           timeout=config['ttl'], connection_retry=KazooRetry(max_delay=1, max_tries=-1,
