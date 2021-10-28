@@ -7,6 +7,7 @@ from kazoo.client import KazooClient, KazooState, KazooRetry
 from kazoo.exceptions import NoNodeError, NodeExistsError, SessionExpiredError
 from kazoo.handlers.threading import SequentialThreadingHandler
 from kazoo.protocol.states import KeeperState
+from kazoo.security import make_acl
 
 from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
 from ..exceptions import DCSError
@@ -82,6 +83,19 @@ class ZooKeeper(AbstractDCS):
         mapping = {'use_ssl': 'use_ssl', 'verify': 'verify_certs', 'cacert': 'ca',
                    'cert': 'certfile', 'key': 'keyfile', 'key_password': 'keyfile_password'}
         kwargs = {v: config[k] for k, v in mapping.items() if k in config}
+
+        if 'set_acls' in config:
+            kwargs['default_acl'] = []
+            for principal, permissions in config['set_acls'].items():
+                normalizedPermissions = [p.upper() for p in permissions]
+                kwargs['default_acl'].append(make_acl(scheme='x509',
+                                                      credential=principal,
+                                                      read='READ' in normalizedPermissions,
+                                                      write='WRITE' in normalizedPermissions,
+                                                      create='CREATE' in normalizedPermissions,
+                                                      delete='DELETE' in normalizedPermissions,
+                                                      admin='ADMIN' in normalizedPermissions,
+                                                      all='ALL' in normalizedPermissions))
 
         self._client = PatroniKazooClient(hosts, handler=PatroniSequentialThreadingHandler(config['retry_timeout']),
                                           timeout=config['ttl'], connection_retry=KazooRetry(max_delay=1, max_tries=-1,
