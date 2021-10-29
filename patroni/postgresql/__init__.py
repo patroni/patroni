@@ -831,7 +831,7 @@ class Postgresql(object):
             return None, None
 
     @contextmanager
-    def get_replication_connection_cursor(self, host='localhost', port=5432, **kwargs):
+    def get_replication_connection_cursor(self, host=None, port=5432, **kwargs):
         conn_kwargs = self.config.replication.copy()
         conn_kwargs.update(host=host, port=int(port) if port else None, user=conn_kwargs.pop('username'),
                            connect_timeout=3, replication=1, options='-c statement_timeout=2000')
