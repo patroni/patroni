@@ -1106,11 +1106,12 @@ class Postgresql(object):
                 " ORDER BY sync_state DESC, {0}_{1} DESC".format(sort_col, self.lsn_name, self.wal_name)):
             member = members.get(app_name)
             if member and not member.tags.get('nosync', False):
-                replica_list.append((member.name, sync_state, replica_lsn))
+                replica_list.append((member.name, sync_state, replica_lsn, bool(member.nofailover)))
 
         max_lsn = max(replica_list, key=lambda x: x[2])[2] if len(replica_list) > 1 else int(str(self.last_operation()))
 
-        for app_name, sync_state, replica_lsn in replica_list:
+        # Prefer members without nofailover tag. We are relying on the fact that sorts are guaranteed to be stable.
+        for app_name, sync_state, replica_lsn, _ in sorted(replica_list, key=lambda x: x[3]):
             if sync_node_maxlag <= 0 or max_lsn - replica_lsn <= sync_node_maxlag:
                 candidates.append(app_name)
                 if sync_state == 'sync':
