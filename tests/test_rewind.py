@@ -219,18 +219,20 @@ class TestRewind(BaseTestPostgresql):
     @patch('patroni.postgresql.rewind.Thread', MockThread)
     @patch.object(Postgresql, 'controldata')
     @patch.object(Postgresql, 'checkpoint')
-    def test_ensure_checkpoint_after_promote(self, mock_checkpoint, mock_controldata):
-        mock_checkpoint.return_value = None
-        self.r.ensure_checkpoint_after_promote(Mock())
-        self.r.ensure_checkpoint_after_promote(Mock())
-
-        self.r.reset_state()
+    @patch.object(Postgresql, 'get_master_timeline')
+    def test_ensure_checkpoint_after_promote(self, mock_get_master_timeline, mock_checkpoint, mock_controldata):
         mock_controldata.return_value = {"Latest checkpoint's TimeLineID": 1}
-        mock_checkpoint.side_effect = Exception
+        mock_get_master_timeline.return_value = 1
+        self.r.ensure_checkpoint_after_promote(Mock())
+
+        self.r.reset_state()
+        mock_get_master_timeline.return_value = 2
+        mock_checkpoint.return_value = 0
         self.r.ensure_checkpoint_after_promote(Mock())
         self.r.ensure_checkpoint_after_promote(Mock())
 
         self.r.reset_state()
+
         mock_controldata.side_effect = TypeError
-        self.r.ensure_checkpoint_after_promote(Mock())
+        mock_checkpoint.side_effect = Exception
         self.r.ensure_checkpoint_after_promote(Mock())
