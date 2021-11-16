@@ -189,21 +189,29 @@ class Rewind(object):
 
         if history is not None:
             history = list(parse_history(history))
-            for i, (parent_timeline, switchpoint, _) in enumerate(history):
+            idx = None
+            for i, (parent_timeline, _, _) in enumerate(history):
                 if parent_timeline == local_timeline:
-                    # We don't need to rewind when:
-                    # 1. for replica: replayed location is not ahead of switchpoint
-                    # 2. for the former primary: end of checkpoint record is the same as switchpoint
-                    if in_recovery:
-                        need_rewind = local_lsn > switchpoint
-                    elif local_lsn >= switchpoint:
-                        need_rewind = True
-                    else:
-                        need_rewind = switchpoint != self._get_checkpoint_end(local_timeline, local_lsn)
+                    idx = i
                     break
                 elif parent_timeline > local_timeline:
                     break
-            self._log_master_history(history, i)
+                else:
+                    idx = i
+
+            if idx is not None:
+                switchpoint = history[idx][1]
+
+                # We don't need to rewind when:
+                # 1. for replica: replayed location is not ahead of switchpoint
+                # 2. for the former primary: end of checkpoint record is the same as switchpoint
+                if in_recovery:
+                    need_rewind = local_lsn > switchpoint
+                elif local_lsn >= switchpoint:
+                    need_rewind = True
+                else:
+                    need_rewind = switchpoint != self._get_checkpoint_end(local_timeline, local_lsn)
+            self._log_master_history(history, idx or i)
 
         self._state = need_rewind and REWIND_STATUS.NEED or REWIND_STATUS.NOT_NEED
 
