@@ -162,7 +162,7 @@ class Postgresql(object):
             extra = "(SELECT pg_catalog.json_agg(s.*) FROM (SELECT slot_name, slot_type as type, datoid::bigint, " +\
                     "plugin, catalog_xmin, pg_catalog.pg_wal_lsn_diff(confirmed_flush_lsn, '0/0')::bigint" + \
                     " AS confirmed_flush_lsn FROM pg_catalog.pg_get_replication_slots()) AS s)"\
-                            if self._has_permanent_logical_slots else "NULL"
+                            if self._has_permanent_logical_slots and self._major_version >= 110000 else "NULL"
             extra = (", CASE WHEN latest_end_lsn IS NULL THEN NULL ELSE received_tli END,"
                      " slot_name, conninfo, {0} FROM pg_catalog.pg_stat_get_wal_receiver()").format(extra)
             if self.role == 'standby_leader':
