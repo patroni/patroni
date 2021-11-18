@@ -162,7 +162,7 @@ class Postgresql(object):
             extra = "(SELECT pg_catalog.json_agg(s.*) FROM (SELECT slot_name, slot_type as type, datoid::bigint, " +\
                     "plugin, catalog_xmin, pg_catalog.pg_wal_lsn_diff(confirmed_flush_lsn, '0/0')::bigint" + \
                     " AS confirmed_flush_lsn FROM pg_catalog.pg_get_replication_slots()) AS s)"\
-                            if self._has_permanent_logical_slots and self._major_version >= 110000 else "NULL"
+                            if self._has_permanent_logical_slots else "NULL"
             extra = (", CASE WHEN latest_end_lsn IS NULL THEN NULL ELSE received_tli END,"
                      " slot_name, conninfo, {0} FROM pg_catalog.pg_stat_get_wal_receiver()").format(extra)
             if self.role == 'standby_leader':
@@ -327,6 +327,9 @@ class Postgresql(object):
         if cluster and cluster.config and cluster.config.modify_index:
             self._has_permanent_logical_slots =\
                 cluster.has_permanent_logical_slots(self.name, nofailover, self.major_version)
+
+            # We want to enable hot_standby_feedback if the replica is supposed
+            # to have a logical slot or in case if it is the cascading replica.
             self.set_enforce_hot_standby_feedback(
                 self._has_permanent_logical_slots or
                 cluster.should_enforce_hot_standby_feedback(self.name, nofailover, self.major_version))
@@ -338,7 +341,9 @@ class Postgresql(object):
                 cluster_info_state = dict(zip(['timeline', 'wal_position', 'replayed_location',
                                                'received_location', 'replay_paused', 'pg_control_timeline',
                                                'received_tli', 'slot_name', 'conninfo', 'slots'], result))
-                cluster_info_state['slots'] = self.slots_handler.process_permanent_slots(cluster_info_state['slots'])
+                if self._has_permanent_logical_slots:
+                    cluster_info_state['slots'] =\
+                        self.slots_handler.process_permanent_slots(cluster_info_state['slots'])
                 self._cluster_info_state = cluster_info_state
             except RetryFailedError as e:  # SELECT failed two times
                 self._cluster_info_state = {'error': str(e)}
