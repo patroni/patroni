@@ -1302,8 +1302,8 @@ def history(obj, cluster_name, fmt):
     table_header_row = ['TL', 'LSN', 'Reason', 'Timestamp', 'New Leader']
     for line in history:
         if len(line) < len(table_header_row):
-            add_coloumn_num = len(table_header_row) - len(line)
-            for _ in range(add_coloumn_num):
+            add_column_num = len(table_header_row) - len(line)
+            for _ in range(add_column_num):
                 line.append('')
     print_output(table_header_row, history, {'TL': 'r', 'LSN': 'r'}, fmt)
 

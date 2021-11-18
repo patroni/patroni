@@ -84,6 +84,7 @@ ZooKeeper
 -  **PATRONI\_ZOOKEEPER\_KEY**: (optional) File with the client key.
 -  **PATRONI\_ZOOKEEPER\_KEY\_PASSWORD**: (optional) The client key password.
 -  **PATRONI\_ZOOKEEPER\_VERIFY**: (optional) Whether to verify certificate or not. Defaults to ``true``.
+-  **PATRONI\_ZOOKEEPER\_SET\_ACLS**: (optional) If set, configure Kazoo to apply a default ACL to each ZNode that it creates. ACLs will assume 'x509' schema and should be specified as a dictionary with the principal as the key and one or more permissions as a list in the value.  Permissions may be one of ``CREATE``, ``READ``, ``WRITE``, ``DELETE`` or ``ADMIN``.  For example, ``set_acls: {CN=principal1: [CREATE, READ], CN=principal2: [ALL]}``.
 
 .. note::
     It is required to install ``kazoo>=2.6.0`` to support SSL.

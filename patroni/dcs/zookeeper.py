@@ -7,6 +7,7 @@ from kazoo.client import KazooClient, KazooState, KazooRetry
 from kazoo.exceptions import NoNodeError, NodeExistsError, SessionExpiredError
 from kazoo.handlers.threading import SequentialThreadingHandler
 from kazoo.protocol.states import KeeperState
+from kazoo.security import make_acl
 
 from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
 from ..exceptions import DCSError
@@ -83,6 +84,19 @@ class ZooKeeper(AbstractDCS):
                    'cert': 'certfile', 'key': 'keyfile', 'key_password': 'keyfile_password'}
         kwargs = {v: config[k] for k, v in mapping.items() if k in config}
 
+        if 'set_acls' in config:
+            kwargs['default_acl'] = []
+            for principal, permissions in config['set_acls'].items():
+                normalizedPermissions = [p.upper() for p in permissions]
+                kwargs['default_acl'].append(make_acl(scheme='x509',
+                                                      credential=principal,
+                                                      read='READ' in normalizedPermissions,
+                                                      write='WRITE' in normalizedPermissions,
+                                                      create='CREATE' in normalizedPermissions,
+                                                      delete='DELETE' in normalizedPermissions,
+                                                      admin='ADMIN' in normalizedPermissions,
+                                                      all='ALL' in normalizedPermissions))
+
         self._client = PatroniKazooClient(hosts, handler=PatroniSequentialThreadingHandler(config['retry_timeout']),
                                           timeout=config['ttl'], connection_retry=KazooRetry(max_delay=1, max_tries=-1,
                                           sleep_func=time.sleep), command_retry=KazooRetry(max_delay=1, max_tries=-1,
@@ -91,6 +105,7 @@ class ZooKeeper(AbstractDCS):
 
         self._fetch_cluster = True
         self._fetch_status = True
+        self.__last_member_data = None
 
         self._orig_kazoo_connect = self._client._connection._connect
         self._client._connection._connect = self._kazoo_connect
@@ -334,11 +349,11 @@ class ZooKeeper(AbstractDCS):
     def touch_member(self, data, permanent=False):
         cluster = self.cluster
         member = cluster and cluster.get_member(self._name, fallback_to_leader=False)
-        encoded_data = json.dumps(data, separators=(',', ':')).encode('utf-8')
+        member_data = self.__last_member_data or member and member.data
         if member and (self._client.client_id is not None and member.session != self._client.client_id[0] or
-                       not (deep_compare(member.data.get('tags', {}), data.get('tags', {})) and
-                            member.data.get('version') == data.get('version') and
-                            member.data.get('checkpoint_after_promote') == data.get('checkpoint_after_promote'))):
+                       not (deep_compare(member_data.get('tags', {}), data.get('tags', {})) and
+                            member_data.get('version') == data.get('version') and
+                            member_data.get('checkpoint_after_promote') == data.get('checkpoint_after_promote'))):
             try:
                 self._client.delete_async(self.member_path).get(timeout=1)
             except NoNodeError:
@@ -347,13 +362,15 @@ class ZooKeeper(AbstractDCS):
                 return False
             member = None
 
+        encoded_data = json.dumps(data, separators=(',', ':')).encode('utf-8')
         if member:
-            if deep_compare(data, member.data):
+            if deep_compare(data, member_data):
                 return True
         else:
             try:
                 self._client.create_async(self.member_path, encoded_data, makepath=True,
                                           ephemeral=not permanent).get(timeout=1)
+                self.__last_member_data = data
                 return True
             except Exception as e:
                 if not isinstance(e, NodeExistsError):
@@ -361,6 +378,7 @@ class ZooKeeper(AbstractDCS):
                     return False
         try:
             self._client.set_async(self.member_path, encoded_data).get(timeout=1)
+            self.__last_member_data = data
             return True
         except Exception:
             logger.exception('touch_member')
