@@ -230,8 +230,9 @@ class Rewind(object):
             with self._checkpoint_task_lock:
                 if self._checkpoint_task:
                     with self._checkpoint_task:
-                        if self._checkpoint_task.result:
+                        if self._checkpoint_task.result is not None:
                             self._state = REWIND_STATUS.CHECKPOINT
+                            self._checkpoint_task = None
                 elif self._postgresql.get_master_timeline() == self._postgresql.pg_control_timeline():
                     self._state = REWIND_STATUS.CHECKPOINT
                 else:
