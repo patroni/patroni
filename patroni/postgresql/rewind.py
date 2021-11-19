@@ -232,14 +232,11 @@ class Rewind(object):
                     with self._checkpoint_task:
                         if self._checkpoint_task.result:
                             self._state = REWIND_STATUS.CHECKPOINT
-                        if self._checkpoint_task.result is not False:
-                            return
+                elif self._postgresql.get_master_timeline() == self._postgresql.pg_control_timeline():
+                    self._state = REWIND_STATUS.CHECKPOINT
                 else:
                     self._checkpoint_task = CriticalTask()
-                    return Thread(target=self.__checkpoint, args=(self._checkpoint_task, wakeup)).start()
-
-            if self._postgresql.get_master_timeline() == self._postgresql.pg_control_timeline():
-                self._state = REWIND_STATUS.CHECKPOINT
+                    Thread(target=self.__checkpoint, args=(self._checkpoint_task, wakeup)).start()
 
     def checkpoint_after_promote(self):
         return self._state == REWIND_STATUS.CHECKPOINT

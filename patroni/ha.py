@@ -1283,6 +1283,7 @@ class Ha(object):
         if not self.watchdog.activate():
             logger.error('Cancelling bootstrap because watchdog activation failed')
             self.cancel_initialization()
+        self._rewind.ensure_checkpoint_after_promote(self.wakeup)
         self.dcs.initialize(create_new=(self.cluster.initialize is None), sysid=self.state_handler.sysid)
         self.dcs.set_config_value(json.dumps(self.patroni.config.dynamic_configuration, separators=(',', ':')))
         self.dcs.take_leader()

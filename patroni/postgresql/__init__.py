@@ -388,6 +388,7 @@ class Postgresql(object):
 
     def pg_control_timeline(self):
         try:
+
             return int(self.controldata().get("Latest checkpoint's TimeLineID"))
         except (TypeError, ValueError):
             logger.exception('Failed to parse timeline from pg_controldata output')
