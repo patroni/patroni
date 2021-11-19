@@ -5,8 +5,9 @@ import unittest
 
 from mock import Mock, patch
 
-import psycopg2
 import urllib3
+
+import patroni.psycopg as psycopg
 
 from patroni.dcs import Leader, Member
 from patroni.postgresql import Postgresql
@@ -85,9 +86,9 @@ class MockCursor(object):
 
     def execute(self, sql, *params):
         if sql.startswith('blabla'):
-            raise psycopg2.ProgrammingError()
+            raise psycopg.ProgrammingError()
         elif sql == 'CHECKPOINT' or sql.startswith('SELECT pg_catalog.pg_create_'):
-            raise psycopg2.OperationalError()
+            raise psycopg.OperationalError()
         elif sql.startswith('RetryFailedError'):
             raise RetryFailedError('retry')
         elif sql.startswith('SELECT catalog_xmin'):
@@ -162,7 +163,7 @@ class MockConnect(object):
         pass
 
 
-def psycopg2_connect(*args, **kwargs):
+def psycopg_connect(*args, **kwargs):
     return MockConnect()
 
 
@@ -176,7 +177,7 @@ class PostgresInit(unittest.TestCase):
                    'force_parallel_mode': '1', 'constraint_exclusion': '',
                    'max_stack_depth': 'Z', 'vacuum_cost_limit': -1, 'vacuum_cost_delay': 200}
 
-    @patch('psycopg2.connect', psycopg2_connect)
+    @patch('patroni.psycopg.connect', psycopg_connect)
     @patch('patroni.postgresql.CallbackExecutor', Mock())
     @patch.object(ConfigHandler, 'write_postgresql_conf', Mock())
     @patch.object(ConfigHandler, 'replace_pg_hba', Mock())

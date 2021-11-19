@@ -19,7 +19,7 @@ from patroni.utils import tzutc
 from patroni.watchdog import Watchdog
 from six.moves import builtins
 
-from . import PostgresInit, MockPostmaster, psycopg2_connect, requests_get
+from . import PostgresInit, MockPostmaster, psycopg_connect, requests_get
 from .test_etcd import socket_getaddrinfo, etcd_read, etcd_write
 
 SYSID = '12345678901'
@@ -323,7 +323,7 @@ class TestHa(PostgresInit):
         self.p.controldata = lambda: {'Database cluster state': 'in production', 'Database system identifier': SYSID}
         self.assertEqual(self.ha.run_cycle(), 'promoted self to leader because I had the session lock')
 
-    @patch('psycopg2.connect', psycopg2_connect)
+    @patch('patroni.psycopg.connect', psycopg_connect)
     def test_acquire_lock_as_master(self):
         self.assertEqual(self.ha.run_cycle(), 'acquired session lock as a leader')
 
@@ -460,6 +460,8 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_not_initialized_without_leader()
         self.assertEqual(self.ha.bootstrap(), 'failed to acquire initialize lock')
 
+    @patch('patroni.psycopg.connect', psycopg_connect)
+    @patch.object(Postgresql, 'connection', Mock(return_value=None))
     def test_bootstrap_initialized_new_cluster(self):
         self.ha.cluster = get_cluster_not_initialized_without_leader()
         self.e.initialize = true
@@ -477,6 +479,8 @@ class TestHa(PostgresInit):
         self.p.is_running = false
         self.assertRaises(PatroniFatalException, self.ha.post_bootstrap)
 
+    @patch('patroni.psycopg.connect', psycopg_connect)
+    @patch.object(Postgresql, 'connection', Mock(return_value=None))
     def test_bootstrap_release_initialize_key_on_watchdog_failure(self):
         self.ha.cluster = get_cluster_not_initialized_without_leader()
         self.e.initialize = true
@@ -487,7 +491,7 @@ class TestHa(PostgresInit):
             self.assertEqual(self.ha.post_bootstrap(), 'running post_bootstrap')
             self.assertRaises(PatroniFatalException, self.ha.post_bootstrap)
 
-    @patch('psycopg2.connect', psycopg2_connect)
+    @patch('patroni.psycopg.connect', psycopg_connect)
     def test_reinitialize(self):
         self.assertIsNotNone(self.ha.reinitialize())
 
@@ -1153,7 +1157,7 @@ class TestHa(PostgresInit):
         self.ha.is_paused = false
         self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
 
-    @patch('psycopg2.connect', psycopg2_connect)
+    @patch('patroni.psycopg.connect', psycopg_connect)
     def test_permanent_logical_slots_after_promote(self):
         config = ClusterConfig(1, {'slots': {'l': {'database': 'postgres', 'plugin': 'test_decoding'}}}, 1)
         self.p.name = 'other'
@@ -1185,7 +1189,7 @@ class TestHa(PostgresInit):
         self.ha.has_lock = true
         self.assertEqual(self.ha.run_cycle(), 'PAUSE: released leader key voluntarily due to the system ID mismatch')
 
-    @patch('psycopg2.connect', psycopg2_connect)
+    @patch('patroni.psycopg.connect', psycopg_connect)
     @patch('os.path.exists', Mock(return_value=True))
     @patch('shutil.rmtree', Mock())
     @patch('os.makedirs', Mock())

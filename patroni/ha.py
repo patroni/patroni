@@ -2,7 +2,6 @@ import datetime
 import functools
 import json
 import logging
-import psycopg2
 import six
 import sys
 import time
@@ -10,14 +9,16 @@ import uuid
 
 from collections import namedtuple
 from multiprocessing.pool import ThreadPool
-from patroni.async_executor import AsyncExecutor, CriticalTask
-from patroni.exceptions import DCSError, PostgresConnectionException, PatroniFatalException
-from patroni.postgresql import ACTION_ON_START, ACTION_ON_ROLE_CHANGE
-from patroni.postgresql.misc import postgres_version_to_int
-from patroni.postgresql.rewind import Rewind
-from patroni.utils import polling_loop, tzutc, is_standby_cluster as _is_standby_cluster, parse_int
-from patroni.dcs import RemoteMember
 from threading import RLock
+
+from . import psycopg
+from .async_executor import AsyncExecutor, CriticalTask
+from .exceptions import DCSError, PostgresConnectionException, PatroniFatalException
+from .postgresql import ACTION_ON_START, ACTION_ON_ROLE_CHANGE
+from .postgresql.misc import postgres_version_to_int
+from .postgresql.rewind import Rewind
+from .utils import polling_loop, tzutc, is_standby_cluster as _is_standby_cluster, parse_int
+from .dcs import RemoteMember
 
 logger = logging.getLogger(__name__)
 
@@ -1491,7 +1492,7 @@ class Ha(object):
                 self.demote('offline')
                 return 'demoted self because DCS is not accessible and i was a leader'
             return 'DCS is not accessible'
-        except (psycopg2.Error, PostgresConnectionException):
+        except (psycopg.Error, PostgresConnectionException):
             return 'Error communicating with PostgreSQL. Will try again later'
         finally:
             if not dcs_failed:

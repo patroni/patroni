@@ -13,13 +13,21 @@ from patroni.dcs.etcd import AbstractEtcdClientWithFailover
 from patroni.exceptions import DCSError
 from patroni.postgresql import Postgresql
 from patroni.postgresql.config import ConfigHandler
-from patroni import Patroni, main as _main, patroni_main, check_psycopg2
+from patroni import Patroni, main as _main, patroni_main, check_psycopg
 from six.moves import BaseHTTPServer, builtins
 from threading import Thread
 
-from . import psycopg2_connect, SleepException
+from . import psycopg_connect, SleepException
 from .test_etcd import etcd_read, etcd_write
 from .test_postgresql import MockPostmaster
+
+
+def mock_import(*args, **kwargs):
+    if args[0] == 'psycopg':
+        raise ImportError
+    ret = Mock()
+    ret.__version__ = '2.5.3.dev1 a b c'
+    return ret
 
 
 class MockFrozenImporter(object):
@@ -29,7 +37,7 @@ class MockFrozenImporter(object):
 
 @patch('time.sleep', Mock())
 @patch('subprocess.call', Mock(return_value=0))
-@patch('psycopg2.connect', psycopg2_connect)
+@patch('patroni.psycopg.connect', psycopg_connect)
 @patch.object(ConfigHandler, 'append_pg_hba', Mock())
 @patch.object(ConfigHandler, 'write_postgresql_conf', Mock())
 @patch.object(ConfigHandler, 'write_recovery_conf', Mock())
@@ -181,8 +189,8 @@ class TestPatroni(unittest.TestCase):
         self.p.ha.shutdown = Mock(side_effect=Exception)
         self.p.shutdown()
 
-    def test_check_psycopg2(self):
+    def test_check_psycopg(self):
         with patch.object(builtins, '__import__', Mock(side_effect=ImportError)):
-            self.assertRaises(SystemExit, check_psycopg2)
-        with patch('psycopg2.__version__', '2.5.3.dev1 a b c'):
-            self.assertRaises(SystemExit, check_psycopg2)
+            self.assertRaises(SystemExit, check_psycopg)
+        with patch.object(builtins, '__import__', mock_import):
+            self.assertRaises(SystemExit, check_psycopg)
