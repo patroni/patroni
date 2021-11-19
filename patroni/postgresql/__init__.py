@@ -599,7 +599,6 @@ class Postgresql(object):
                     if cur.fetchone()[0]:
                         return 'is_in_recovery=true'
                 cur.execute('CHECKPOINT')
-                return
         except psycopg.Error:
             logger.exception('Exception during CHECKPOINT')
             return 'not accessible or not healty'
