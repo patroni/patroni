@@ -161,11 +161,11 @@ class Rewind(object):
         if local_timeline is None or local_lsn is None:
             return
 
-        if isinstance(leader, Leader):
-            if leader.member.data.get('role') != 'master':
-                return
-        # standby cluster
-        elif not self.check_leader_is_not_in_recovery(self._conn_kwargs(leader, self._postgresql.config.replication)):
+        if isinstance(leader, Leader) and leader.member.data.get('role') != 'master':
+            return
+
+        if not self.check_leader_is_not_in_recovery(
+                self._conn_kwargs(leader, self._postgresql.config.rewind_credentials)):
             return
 
         history = need_rewind = None
