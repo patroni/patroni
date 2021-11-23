@@ -264,13 +264,13 @@ def get_cursor(cluster, connect_parameters, role='master', member=None):
 
     params = member.conn_kwargs(connect_parameters)
     params.update({'fallback_application_name': 'Patroni ctl', 'connect_timeout': '5'})
-    if 'database' in connect_parameters:
-        params['database'] = connect_parameters['database']
+    if 'dbname' in connect_parameters:
+        params['dbname'] = connect_parameters['dbname']
     else:
-        params.pop('database')
+        params.pop('dbname')
 
-    import psycopg2
-    conn = psycopg2.connect(**params)
+    from . import psycopg
+    conn = psycopg.connect(**params)
     conn.autocommit = True
     cursor = conn.cursor()
     if role == 'any':
@@ -401,7 +401,7 @@ def query(
     if password:
         connect_parameters['password'] = click.prompt('Password', hide_input=True, type=str)
     if dbname:
-        connect_parameters['database'] = dbname
+        connect_parameters['dbname'] = dbname
 
     if p_file is not None:
         command = p_file.read()
@@ -418,7 +418,7 @@ def query(
 
 
 def query_member(cluster, cursor, member, role, command, connect_parameters):
-    import psycopg2
+    from . import psycopg
     try:
         if cursor is None:
             cursor = get_cursor(cluster, connect_parameters, role=role, member=member)
@@ -433,11 +433,11 @@ def query_member(cluster, cursor, member, role, command, connect_parameters):
 
         cursor.execute(command)
         return cursor.fetchall(), [d.name for d in cursor.description]
-    except (psycopg2.OperationalError, psycopg2.DatabaseError) as oe:
-        logging.debug(oe)
+    except psycopg.DatabaseError as de:
+        logging.debug(de)
         if cursor is not None and not cursor.connection.closed:
             cursor.connection.close()
-        message = oe.pgcode or oe.pgerror or str(oe)
+        message = de.diag.sqlstate or str(de)
         message = message.replace('\n', ' ')
         return [[timestamp(0), 'ERROR, SQLSTATE: {0}'.format(message)]], None
 

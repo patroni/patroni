@@ -1,6 +1,7 @@
-import psycopg2
 import subprocess
 import unittest
+
+import patroni.psycopg as psycopg
 
 from mock import Mock, PropertyMock, patch, mock_open
 from patroni.scripts import wale_restore
@@ -8,7 +9,7 @@ from patroni.scripts.wale_restore import WALERestore, main as _main, get_major_v
 from six.moves import builtins
 from threading import current_thread
 
-from . import MockConnect, psycopg2_connect
+from . import MockConnect, psycopg_connect
 
 wale_output_header = (
     b'name\tlast_modified\t'
@@ -34,7 +35,7 @@ WALE_TEST_RETRIES = 2
 @patch('os.makedirs', Mock(return_value=True))
 @patch('os.path.exists', Mock(return_value=True))
 @patch('os.path.isdir', Mock(return_value=True))
-@patch('psycopg2.connect', psycopg2_connect)
+@patch('patroni.psycopg.connect', psycopg_connect)
 @patch('subprocess.check_output', Mock(return_value=wale_output))
 class TestWALERestore(unittest.TestCase):
 
@@ -57,7 +58,7 @@ class TestWALERestore(unittest.TestCase):
         with patch('subprocess.check_output', Mock(return_value=wale_output.replace(b'167772160', b'1'))):
             self.assertFalse(self.wale_restore.should_use_s3_to_create_replica())
 
-        with patch('psycopg2.connect', Mock(side_effect=psycopg2.Error("foo"))):
+        with patch('patroni.psycopg.connect', Mock(side_effect=psycopg.Error("foo"))):
             save_no_master = self.wale_restore.no_master
             save_master_connection = self.wale_restore.master_connection
 

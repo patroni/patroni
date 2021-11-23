@@ -152,8 +152,8 @@ class Rewind(object):
 
     def _conn_kwargs(self, member, auth):
         ret = member.conn_kwargs(auth)
-        if not ret.get('database'):
-            ret['database'] = self._postgresql.database
+        if not ret.get('dbname'):
+            ret['dbname'] = self._postgresql.database
         return ret
 
     def _check_timeline_and_lsn(self, leader):
@@ -179,7 +179,7 @@ class Rewind(object):
                 elif local_timeline == master_timeline:
                     need_rewind = False
                 elif master_timeline > 1:
-                    cur.execute('TIMELINE_HISTORY %s', (master_timeline,))
+                    cur.execute('TIMELINE_HISTORY {0}'.format(master_timeline))
                     history = cur.fetchone()[1]
                     if not isinstance(history, six.string_types):
                         history = bytes(history).decode('utf-8')
@@ -238,16 +238,14 @@ class Rewind(object):
             with self._checkpoint_task_lock:
                 if self._checkpoint_task:
                     with self._checkpoint_task:
-                        if self._checkpoint_task.result:
+                        if self._checkpoint_task.result is not None:
                             self._state = REWIND_STATUS.CHECKPOINT
-                        if self._checkpoint_task.result is not False:
-                            return
+                            self._checkpoint_task = None
+                elif self._postgresql.get_master_timeline() == self._postgresql.pg_control_timeline():
+                    self._state = REWIND_STATUS.CHECKPOINT
                 else:
                     self._checkpoint_task = CriticalTask()
-                    return Thread(target=self.__checkpoint, args=(self._checkpoint_task, wakeup)).start()
-
-            if self._postgresql.get_master_timeline() == self._postgresql.pg_control_timeline():
-                self._state = REWIND_STATUS.CHECKPOINT
+                    Thread(target=self.__checkpoint, args=(self._checkpoint_task, wakeup)).start()
 
     def checkpoint_after_promote(self):
         return self._state == REWIND_STATUS.CHECKPOINT

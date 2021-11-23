@@ -1,8 +1,9 @@
 import logging
-import psycopg2
 
 from contextlib import contextmanager
 from threading import Lock
+
+from .. import psycopg
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,7 @@ class Connection(object):
     def get(self):
         with self._lock:
             if not self._connection or self._connection.closed != 0:
-                self._connection = psycopg2.connect(**self._conn_kwargs)
+                self._connection = psycopg.connect(**self._conn_kwargs)
                 self._connection.autocommit = True
                 self.server_version = self._connection.server_version
         return self._connection
@@ -40,7 +41,7 @@ class Connection(object):
 
 @contextmanager
 def get_connection_cursor(**kwargs):
-    conn = psycopg2.connect(**kwargs)
+    conn = psycopg.connect(**kwargs)
     conn.autocommit = True
     with conn.cursor() as cur:
         yield cur

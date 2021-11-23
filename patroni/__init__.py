@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 PATRONI_ENV_PREFIX = 'PATRONI_'
 KUBERNETES_ENV_PREFIX = 'KUBERNETES_'
+MIN_PSYCOPG2 = (2, 5, 4)
 
 
 class Patroni(AbstractPatroniDaemon):
@@ -144,30 +145,40 @@ def fatal(string, *args):
     sys.exit(1)
 
 
-def check_psycopg2():
-    min_psycopg2 = (2, 5, 4)
-    min_psycopg2_str = '.'.join(map(str, min_psycopg2))
-
-    def parse_version(version):
+def parse_version(version):
+    def _parse_version(version):
         for e in version.split('.'):
             try:
                 yield int(e)
             except ValueError:
                 break
+    return tuple(_parse_version(version.split(' ')[0]))
+
+
+# We pass MIN_PSYCOPG2 and parse_version as arguments to simplify usage of check_psycopg from the setup.py
+def check_psycopg(_min_psycopg2=MIN_PSYCOPG2, _parse_version=parse_version):
+    min_psycopg2_str = '.'.join(map(str, _min_psycopg2))
 
     try:
-        import psycopg2
-        version_str = psycopg2.__version__.split(' ')[0]
-        version = tuple(parse_version(version_str))
-        if version < min_psycopg2:
-            fatal('Patroni requires psycopg2>={0}, but only {1} is available', min_psycopg2_str, version_str)
+        from psycopg2 import __version__
+        if _parse_version(__version__) >= _min_psycopg2:
+            return
+        version_str = __version__.split(' ')[0]
     except ImportError:
-        fatal('Patroni requires psycopg2>={0} or psycopg2-binary', min_psycopg2_str)
+        version_str = None
+
+    try:
+        from psycopg import __version__
+    except ImportError:
+        error = 'Patroni requires psycopg2>={0}, psycopg2-binary, or psycopg>=3.0'.format(min_psycopg2_str)
+        if version_str:
+            error += ', but only psycopg2=={0} is available'.format(version_str)
+        fatal(error)
 
 
 def main():
     if os.getpid() != 1:
-        check_psycopg2()
+        check_psycopg()
         return patroni_main()
 
     # Patroni started with PID=1, it looks like we are in the container

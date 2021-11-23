@@ -5,10 +5,10 @@ import shutil
 
 from collections import defaultdict
 from contextlib import contextmanager
-from psycopg2.errors import UndefinedFile
 
 from .connection import get_connection_cursor
 from .misc import format_lsn
+from ..psycopg import UndefinedFile
 
 logger = logging.getLogger(__name__)
 
@@ -162,7 +162,7 @@ class SlotsHandler(object):
 
         # Create new logical slots
         for database, values in logical_slots.items():
-            with self._get_local_connection_cursor(database=database) as cur:
+            with self._get_local_connection_cursor(dbname=database) as cur:
                 for name, value in values.items():
                     try:
                         cur.execute("SELECT pg_catalog.pg_create_logical_replication_slot(%s, %s)" +
@@ -194,7 +194,7 @@ class SlotsHandler(object):
 
         # Advance logical slots
         for database, values in advance_slots.items():
-            with self._get_local_connection_cursor(database=database, options='-c statement_timeout=0') as cur:
+            with self._get_local_connection_cursor(dbname=database, options='-c statement_timeout=0') as cur:
                 for name, value in values.items():
                     try:
                         cur.execute("SELECT pg_catalog.pg_replication_slot_advance(%s, %s)",
@@ -236,7 +236,7 @@ class SlotsHandler(object):
     @contextmanager
     def _get_leader_connection_cursor(self, leader):
         conn_kwargs = leader.conn_kwargs(self._postgresql.config.rewind_credentials)
-        conn_kwargs['database'] = self._postgresql.database
+        conn_kwargs['dbname'] = self._postgresql.database
         with get_connection_cursor(connect_timeout=3, options="-c statement_timeout=2000", **conn_kwargs) as cur:
             yield cur
 

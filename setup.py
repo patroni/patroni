@@ -216,13 +216,13 @@ def setup_package(version):
 if __name__ == '__main__':
     old_modules = sys.modules.copy()
     try:
-        from patroni import check_psycopg2, fatal, __version__
+        from patroni import check_psycopg, fatal, __version__
     finally:
         sys.modules.clear()
         sys.modules.update(old_modules)
 
     if sys.version_info < (2, 7, 0):
         fatal('Patroni needs to be run with Python 2.7+')
-    check_psycopg2()
+    check_psycopg()
 
     setup_package(__version__)

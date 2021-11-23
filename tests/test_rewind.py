@@ -5,7 +5,7 @@ from patroni.postgresql.cancellable import CancellableSubprocess
 from patroni.postgresql.rewind import Rewind
 from six.moves import builtins
 
-from . import BaseTestPostgresql, MockCursor, psycopg2_connect
+from . import BaseTestPostgresql, MockCursor, psycopg_connect
 
 
 class MockThread(object):
@@ -47,7 +47,7 @@ def mock_single_user_mode(self, communicate, options):
 
 
 @patch('subprocess.call', Mock(return_value=0))
-@patch('psycopg2.connect', psycopg2_connect)
+@patch('patroni.psycopg.connect', psycopg_connect)
 class TestRewind(BaseTestPostgresql):
 
     def setUp(self):
@@ -143,7 +143,7 @@ class TestRewind(BaseTestPostgresql):
         mock_check_leader_is_not_in_recovery.return_value = True
         self.assertFalse(self.r.rewind_or_reinitialize_needed_and_possible(self.leader))
         self.r.trigger_check_diverged_lsn()
-        with patch('psycopg2.connect', Mock(side_effect=Exception)):
+        with patch('patroni.psycopg.connect', Mock(side_effect=Exception)):
             self.assertFalse(self.r.rewind_or_reinitialize_needed_and_possible(self.leader))
         self.r.trigger_check_diverged_lsn()
         with patch.object(MockCursor, 'fetchone', Mock(side_effect=[('', 3, '0/0'), ('', b'3\t0/40159C0\tn\n')])):
@@ -219,18 +219,20 @@ class TestRewind(BaseTestPostgresql):
     @patch('patroni.postgresql.rewind.Thread', MockThread)
     @patch.object(Postgresql, 'controldata')
     @patch.object(Postgresql, 'checkpoint')
-    def test_ensure_checkpoint_after_promote(self, mock_checkpoint, mock_controldata):
-        mock_checkpoint.return_value = None
-        self.r.ensure_checkpoint_after_promote(Mock())
-        self.r.ensure_checkpoint_after_promote(Mock())
-
-        self.r.reset_state()
+    @patch.object(Postgresql, 'get_master_timeline')
+    def test_ensure_checkpoint_after_promote(self, mock_get_master_timeline, mock_checkpoint, mock_controldata):
         mock_controldata.return_value = {"Latest checkpoint's TimeLineID": 1}
-        mock_checkpoint.side_effect = Exception
+        mock_get_master_timeline.return_value = 1
+        self.r.ensure_checkpoint_after_promote(Mock())
+
+        self.r.reset_state()
+        mock_get_master_timeline.return_value = 2
+        mock_checkpoint.return_value = 0
         self.r.ensure_checkpoint_after_promote(Mock())
         self.r.ensure_checkpoint_after_promote(Mock())
 
         self.r.reset_state()
+
         mock_controldata.side_effect = TypeError
-        self.r.ensure_checkpoint_after_promote(Mock())
+        mock_checkpoint.side_effect = Exception
         self.r.ensure_checkpoint_after_promote(Mock())
