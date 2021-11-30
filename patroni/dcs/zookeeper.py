@@ -283,17 +283,20 @@ class ZooKeeper(AbstractDCS):
                 logger.exception('get_cluster')
                 self.cluster_watcher(None)
                 raise ZooKeeperError('ZooKeeper in not responding properly')
-        # The /status ZNode was updated or doesn't exist and we are not leader
-        elif (self._fetch_status and not self._fetch_cluster or not cluster.last_lsn
-              or cluster.has_permanent_logical_slots(self._name, False) and not cluster.slots) and\
-                not (cluster.leader and cluster.leader.name == self._name):
-            try:
-                last_lsn, slots = self.get_status(cluster.leader)
+        # The /status ZNode was updated or doesn't exist
+        elif self._fetch_status and not self._fetch_cluster or not cluster.last_lsn \
+                or cluster.has_permanent_logical_slots(self._name, False) and not cluster.slots:
+            # If current node is the leader just clear the event without fetching anything (we are updating the /status)
+            if cluster.leader and cluster.leader.name == self._name:
                 self.event.clear()
-                cluster = Cluster(cluster.initialize, cluster.config, cluster.leader, last_lsn,
-                                  cluster.members, cluster.failover, cluster.sync, cluster.history, slots)
-            except Exception:
-                pass
+            else:
+                try:
+                    last_lsn, slots = self.get_status(cluster.leader)
+                    self.event.clear()
+                    cluster = Cluster(cluster.initialize, cluster.config, cluster.leader, last_lsn,
+                                      cluster.members, cluster.failover, cluster.sync, cluster.history, slots)
+                except Exception:
+                    pass
         return cluster
 
     def _bypass_caches(self):

@@ -173,6 +173,8 @@ class TestZooKeeper(unittest.TestCase):
         self.assertRaises(ZooKeeperError, self.zk.get_cluster)
         cluster = self.zk.get_cluster(True)
         self.assertIsInstance(cluster.leader, Leader)
+        self.zk.status_watcher(None)
+        self.zk.get_cluster()
         self.zk.touch_member({'foo': 'foo'})
         self.zk._name = 'bar'
         self.zk.status_watcher(None)
