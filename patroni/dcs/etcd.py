@@ -184,7 +184,7 @@ class AbstractEtcdClientWithFailover(etcd.Client):
 
         for base_uri in machines_cache:
             try:
-                machines = list(self._get_members(base_uri, **kwargs))
+                machines = list(set(self._get_members(base_uri, **kwargs)))
                 logger.debug("Retrieved list of machines: %s", machines)
                 if machines:
                     random.shuffle(machines)

@@ -152,8 +152,8 @@ class Rewind(object):
 
     def _conn_kwargs(self, member, auth):
         ret = member.conn_kwargs(auth)
-        if not ret.get('database'):
-            ret['database'] = self._postgresql.database
+        if not ret.get('dbname'):
+            ret['dbname'] = self._postgresql.database
         return ret
 
     def _check_timeline_and_lsn(self, leader):
@@ -161,11 +161,11 @@ class Rewind(object):
         if local_timeline is None or local_lsn is None:
             return
 
-        if isinstance(leader, Leader):
-            if leader.member.data.get('role') != 'master':
-                return
-        # standby cluster
-        elif not self.check_leader_is_not_in_recovery(self._conn_kwargs(leader, self._postgresql.config.replication)):
+        if isinstance(leader, Leader) and leader.member.data.get('role') != 'master':
+            return
+
+        if not self.check_leader_is_not_in_recovery(
+                self._conn_kwargs(leader, self._postgresql.config.rewind_credentials)):
             return
 
         history = need_rewind = None
@@ -179,7 +179,7 @@ class Rewind(object):
                 elif local_timeline == master_timeline:
                     need_rewind = False
                 elif master_timeline > 1:
-                    cur.execute('TIMELINE_HISTORY %s', (master_timeline,))
+                    cur.execute('TIMELINE_HISTORY {0}'.format(master_timeline))
                     history = cur.fetchone()[1]
                     if not isinstance(history, six.string_types):
                         history = bytes(history).decode('utf-8')
@@ -200,9 +200,11 @@ class Rewind(object):
                         need_rewind = True
                     else:
                         need_rewind = switchpoint != self._get_checkpoint_end(local_timeline, local_lsn)
-                    break
                 elif parent_timeline > local_timeline:
+                    need_rewind = True
                     break
+            else:
+                need_rewind = True
             self._log_master_history(history, i)
 
         self._state = need_rewind and REWIND_STATUS.NEED or REWIND_STATUS.NOT_NEED
@@ -230,16 +232,14 @@ class Rewind(object):
             with self._checkpoint_task_lock:
                 if self._checkpoint_task:
                     with self._checkpoint_task:
-                        if self._checkpoint_task.result:
+                        if self._checkpoint_task.result is not None:
                             self._state = REWIND_STATUS.CHECKPOINT
-                        if self._checkpoint_task.result is not False:
-                            return
+                            self._checkpoint_task = None
+                elif self._postgresql.get_master_timeline() == self._postgresql.pg_control_timeline():
+                    self._state = REWIND_STATUS.CHECKPOINT
                 else:
                     self._checkpoint_task = CriticalTask()
-                    return Thread(target=self.__checkpoint, args=(self._checkpoint_task, wakeup)).start()
-
-            if self._postgresql.get_master_timeline() == self._postgresql.pg_control_timeline():
-                self._state = REWIND_STATUS.CHECKPOINT
+                    Thread(target=self.__checkpoint, args=(self._checkpoint_task, wakeup)).start()
 
     def checkpoint_after_promote(self):
         return self._state == REWIND_STATUS.CHECKPOINT

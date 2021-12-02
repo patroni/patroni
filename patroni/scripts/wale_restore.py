@@ -27,12 +27,13 @@ import argparse
 import csv
 import logging
 import os
-import psycopg2
 import subprocess
 import sys
 import time
 
 from collections import namedtuple
+
+from .. import psycopg
 
 logger = logging.getLogger(__name__)
 
@@ -215,7 +216,7 @@ class WALERestore(object):
             if self.master_connection:
                 try:
                     # get the difference in bytes between the current WAL location and the backup start offset
-                    with psycopg2.connect(self.master_connection) as con:
+                    with psycopg.connect(self.master_connection) as con:
                         if con.server_version >= 100000:
                             wal_name = 'wal'
                             lsn_name = 'lsn'
@@ -233,7 +234,7 @@ class WALERestore(object):
                                         (backup_start_lsn, backup_start_lsn, backup_start_lsn))
 
                             diff_in_bytes = int(cur.fetchone()[0])
-                except psycopg2.Error:
+                except psycopg.Error:
                     logger.exception('could not determine difference with the master location')
                     if attempts_no < self.retries:  # retry in case of a temporarily connection issue
                         attempts_no = attempts_no + 1

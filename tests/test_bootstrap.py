@@ -8,11 +8,11 @@ from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.cancellable import CancellableSubprocess
 from patroni.postgresql.config import ConfigHandler
 
-from . import psycopg2_connect, BaseTestPostgresql
+from . import psycopg_connect, BaseTestPostgresql
 
 
 @patch('subprocess.call', Mock(return_value=0))
-@patch('psycopg2.connect', psycopg2_connect)
+@patch('patroni.psycopg.connect', psycopg_connect)
 @patch('os.rename', Mock())
 class TestBootstrap(BaseTestPostgresql):
 
@@ -164,6 +164,7 @@ class TestBootstrap(BaseTestPostgresql):
     @patch('os.unlink', Mock())
     @patch('shutil.copy', Mock())
     @patch('os.path.isfile', Mock(return_value=True))
+    @patch('patroni.postgresql.bootstrap.quote_ident', Mock())
     @patch.object(Bootstrap, 'call_post_bootstrap', Mock(return_value=True))
     @patch.object(Bootstrap, '_custom_bootstrap', Mock(return_value=True))
     @patch.object(Postgresql, 'start', Mock(return_value=True))

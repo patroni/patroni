@@ -71,6 +71,7 @@ Scenario: check API requests for the primary-replica pair in the pause mode
 	When I run patronictl.py restart batman postgres1 --force
 	Then I receive a response returncode 0
 	Then replication works from postgres0 to postgres1 after 20 seconds
+	And I sleep for 2 seconds
 	When I issue a GET request to http://127.0.0.1:8009/replica
 	Then I receive a response code 200
 	And I receive a response state running

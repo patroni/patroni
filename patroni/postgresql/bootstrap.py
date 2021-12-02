@@ -4,9 +4,11 @@ import shlex
 import tempfile
 import time
 
-from patroni.dcs import RemoteMember
-from patroni.utils import deep_compare
 from six import string_types
+
+from ..dcs import RemoteMember
+from ..psycopg import quote_ident, quote_literal
+from ..utils import deep_compare
 
 logger = logging.getLogger(__name__)
 
@@ -297,26 +299,24 @@ class Bootstrap(object):
         if 'NOLOGIN' not in options and 'LOGIN' not in options:
             options.append('LOGIN')
 
-        params = [name]
         if password:
-            options.extend(['PASSWORD', '%s'])
-            params.extend([password, password])
+            options.extend(['PASSWORD', quote_literal(password)])
 
         sql = """DO $$
 BEGIN
     SET local synchronous_commit = 'local';
-    PERFORM * FROM pg_authid WHERE rolname = %s;
+    PERFORM * FROM pg_catalog.pg_authid WHERE rolname = {0};
     IF FOUND THEN
-        ALTER ROLE "{0}" WITH {1};
+        ALTER ROLE {1} WITH {2};
     ELSE
-        CREATE ROLE "{0}" WITH {1};
+        CREATE ROLE {1} WITH {2};
     END IF;
-END;$$""".format(name, ' '.join(options))
+END;$$""".format(quote_literal(name), quote_ident(name, self._postgresql.connection()), ' '.join(options))
         self._postgresql.query('SET log_statement TO none')
         self._postgresql.query('SET log_min_duration_statement TO -1')
         self._postgresql.query("SET log_min_error_statement TO 'log'")
         try:
-            self._postgresql.query(sql, *params)
+            self._postgresql.query(sql)
         finally:
             self._postgresql.query('RESET log_min_error_statement')
             self._postgresql.query('RESET log_min_duration_statement')
@@ -342,8 +342,8 @@ END;$$""".format(name, ' '.join(options))
                         sql = """DO $$
 BEGIN
     SET local synchronous_commit = 'local';
-    GRANT EXECUTE ON function pg_catalog.{0} TO "{1}";
-END;$$""".format(f, rewind['username'])
+    GRANT EXECUTE ON function pg_catalog.{0} TO {1};
+END;$$""".format(f, quote_ident(rewind['username'], self._postgresql.connection()))
                         postgresql.query(sql)
 
                 for name, value in (config.get('users') or {}).items():

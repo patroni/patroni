@@ -2,7 +2,6 @@ import base64
 import hmac
 import json
 import logging
-import psycopg2
 import time
 import traceback
 import dateutil.parser
@@ -18,6 +17,7 @@ from six.moves.socketserver import ThreadingMixIn
 from six.moves.urllib_parse import urlparse, parse_qs
 from threading import Thread
 
+from . import psycopg
 from .exceptions import PostgresConnectionException, PostgresException
 from .postgresql.misc import postgres_version_to_int
 from .utils import deep_compare, enable_keepalive, parse_bool, patch_config, Retry, \
@@ -282,7 +282,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         metrics.append("# HELP patroni_cluster_unlocked Value is 1 if the cluster is unlocked, 0 if locked.")
         metrics.append("# TYPE patroni_cluster_unlocked gauge")
-        metrics.append("patroni_cluster_unlocked{0} {1}".format(scope_label, int(postgres['cluster_unlocked'])))
+        metrics.append("patroni_cluster_unlocked{0} {1}".format(scope_label, int(postgres.get('cluster_unlocked', 0))))
 
         metrics.append("# HELP patroni_postgres_timeline Postgres timeline of this node (if running), 0 otherwise.")
         metrics.append("# TYPE patroni_postgres_timeline counter")
@@ -604,8 +604,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 'postmaster_start_time': row[0],
                 'role': 'replica' if row[1] == 0 else 'master',
                 'server_version': postgresql.server_version,
-                'cluster_unlocked': bool(not cluster or cluster.is_unlocked()),
-                'dcs_last_seen': self.server.patroni.dcs.last_seen,
                 'xlog': ({
                     'received_location': row[4] or row[3],
                     'replayed_location': row[3],
@@ -627,13 +625,17 @@ class RestApiHandler(BaseHTTPRequestHandler):
             if row[7]:
                 result['replication'] = row[7]
 
-            return result
-        except (psycopg2.Error, RetryFailedError, PostgresConnectionException):
+        except (psycopg.Error, RetryFailedError, PostgresConnectionException):
             state = postgresql.state
             if state == 'running':
                 logger.exception('get_postgresql_status')
                 state = 'unknown'
-            return {'state': state, 'role': postgresql.role}
+            result = {'state': state, 'role': postgresql.role}
+
+        if not cluster or cluster.is_unlocked():
+            result['cluster_unlocked'] = True
+        result['dcs_last_seen'] = self.server.patroni.dcs.last_seen
+        return result
 
     def handle_one_request(self):
         self.__start_time = time.time()
@@ -663,7 +665,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             with self.patroni.postgresql.connection().cursor() as cursor:
                 cursor.execute(sql, params)
                 return [r for r in cursor]
-        except psycopg2.Error as e:
+        except psycopg.Error as e:
             if cursor and cursor.connection.closed == 0:
                 raise e
             raise PostgresConnectionException('connection problems')
@@ -873,6 +875,6 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
     @staticmethod
     def handle_error(request, client_address):
-        address, port = client_address
-        logger.warning('Exception happened during processing of request from {}:{}'.format(address, port))
+        logger.warning('Exception happened during processing of request from %s:%s',
+                       client_address[0], client_address[1])
         logger.warning(traceback.format_exc())

@@ -1,7 +1,6 @@
 import abc
 import datetime
 import os
-import psycopg2
 import json
 import shutil
 import signal
@@ -12,6 +11,8 @@ import tempfile
 import threading
 import time
 import yaml
+
+import patroni.psycopg as psycopg
 
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 
@@ -205,16 +206,16 @@ class PatroniController(AbstractController):
 
         user = config['postgresql'].get('authentication', config['postgresql']).get('superuser', {})
         self._connkwargs = {k: user[n] for n, k in [('username', 'user'), ('password', 'password')] if n in user}
-        self._connkwargs.update({'host': host, 'port': self.__PORT, 'database': 'postgres'})
+        self._connkwargs.update({'host': host, 'port': self.__PORT, 'dbname': 'postgres'})
 
         self._replication = config['postgresql'].get('authentication', config['postgresql']).get('replication', {})
-        self._replication.update({'host': host, 'port': self.__PORT, 'database': 'postgres'})
+        self._replication.update({'host': host, 'port': self.__PORT, 'dbname': 'postgres'})
 
         return patroni_config_path
 
     def _connection(self):
         if not self._conn or self._conn.closed != 0:
-            self._conn = psycopg2.connect(**self._connkwargs)
+            self._conn = psycopg.connect(**self._connkwargs)
             self._conn.autocommit = True
         return self._conn
 
@@ -228,7 +229,7 @@ class PatroniController(AbstractController):
             cursor = self._cursor()
             cursor.execute(query)
             return cursor
-        except psycopg2.Error:
+        except psycopg.Error:
             if not fail_ok:
                 raise
 
@@ -268,7 +269,7 @@ class PatroniController(AbstractController):
 
     @property
     def backup_source(self):
-        return 'postgres://{username}:{password}@{host}:{port}/{database}'.format(**self._replication)
+        return 'postgres://{username}:{password}@{host}:{port}/{dbname}'.format(**self._replication)
 
     def backup(self, dest=os.path.join('data', 'basebackup')):
         subprocess.call(PatroniPoolController.BACKUP_SCRIPT + ['--walmethod=none',

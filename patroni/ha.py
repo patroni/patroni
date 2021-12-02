@@ -2,7 +2,6 @@ import datetime
 import functools
 import json
 import logging
-import psycopg2
 import six
 import sys
 import time
@@ -10,14 +9,16 @@ import uuid
 
 from collections import namedtuple
 from multiprocessing.pool import ThreadPool
-from patroni.async_executor import AsyncExecutor, CriticalTask
-from patroni.exceptions import DCSError, PostgresConnectionException, PatroniFatalException
-from patroni.postgresql import ACTION_ON_START, ACTION_ON_ROLE_CHANGE
-from patroni.postgresql.misc import postgres_version_to_int
-from patroni.postgresql.rewind import Rewind
-from patroni.utils import polling_loop, tzutc, is_standby_cluster as _is_standby_cluster, parse_int
-from patroni.dcs import RemoteMember
 from threading import RLock
+
+from . import psycopg
+from .async_executor import AsyncExecutor, CriticalTask
+from .exceptions import DCSError, PostgresConnectionException, PatroniFatalException
+from .postgresql import ACTION_ON_START, ACTION_ON_ROLE_CHANGE
+from .postgresql.misc import postgres_version_to_int
+from .postgresql.rewind import Rewind
+from .utils import polling_loop, tzutc, is_standby_cluster as _is_standby_cluster, parse_int
+from .dcs import RemoteMember
 
 logger = logging.getLogger(__name__)
 
@@ -191,9 +192,6 @@ class Ha(object):
                 'version': self.patroni.version
             }
 
-            # following two lines are mainly necessary for consul, to avoid creation of master service
-            if data['role'] == 'master' and not self.is_leader():
-                data['role'] = 'promoted'
             if self.is_leader() and not self._rewind.checkpoint_after_promote():
                 data['checkpoint_after_promote'] = False
             tags = self.get_effective_tags()
@@ -1282,6 +1280,7 @@ class Ha(object):
         if not self.watchdog.activate():
             logger.error('Cancelling bootstrap because watchdog activation failed')
             self.cancel_initialization()
+        self._rewind.ensure_checkpoint_after_promote(self.wakeup)
         self.dcs.initialize(create_new=(self.cluster.initialize is None), sysid=self.state_handler.sysid)
         self.dcs.set_config_value(json.dumps(self.patroni.config.dynamic_configuration, separators=(',', ':')))
         self.dcs.take_leader()
@@ -1491,7 +1490,7 @@ class Ha(object):
                 self.demote('offline')
                 return 'demoted self because DCS is not accessible and i was a leader'
             return 'DCS is not accessible'
-        except (psycopg2.Error, PostgresConnectionException):
+        except (psycopg.Error, PostgresConnectionException):
             return 'Error communicating with PostgreSQL. Will try again later'
         finally:
             if not dcs_failed:

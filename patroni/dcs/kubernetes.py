@@ -1011,7 +1011,7 @@ class Kubernetes(AbstractDCS):
     def touch_member(self, data, permanent=False):
         cluster = self.cluster
         if cluster and cluster.leader and cluster.leader.name == self._name:
-            role = 'promoted' if data['role'] in ('replica', 'promoted') else 'master'
+            role = 'master'
         elif data['state'] == 'running' and data['role'] != 'master':
             role = data['role']
         else:
