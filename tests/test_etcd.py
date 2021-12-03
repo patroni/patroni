@@ -4,7 +4,7 @@ import socket
 import unittest
 
 from dns.exception import DNSException
-from mock import Mock, patch
+from mock import Mock, PropertyMock, patch
 from patroni.dcs.etcd import AbstractDCS, EtcdClient, Cluster, Etcd, EtcdError, DnsCachingResolver
 from patroni.exceptions import DCSError
 from patroni.utils import Retry
@@ -277,7 +277,9 @@ class TestEtcd(unittest.TestCase):
         self.etcd._base_path = '/service/failed'
         self.assertFalse(self.etcd.attempt_to_acquire_leader())
 
+    @patch.object(Cluster, 'min_version', PropertyMock(return_value=(2, 0)))
     def test_write_leader_optime(self):
+        self.etcd.get_cluster()
         self.etcd.write_leader_optime('0')
 
     def test_update_leader(self):
@@ -321,3 +323,6 @@ class TestEtcd(unittest.TestCase):
 
     def test_set_history_value(self):
         self.assertFalse(self.etcd.set_history_value('{}'))
+
+    def test_last_seen(self):
+        self.assertIsNotNone(self.etcd.last_seen)

@@ -2,7 +2,7 @@ import consul
 import unittest
 
 from consul import ConsulException, NotFound
-from mock import Mock, patch
+from mock import Mock, PropertyMock, patch
 from patroni.dcs.consul import AbstractDCS, Cluster, Consul, ConsulInternalError, \
                                 ConsulError, ConsulClient, HTTPClient, InvalidSessionTTL, InvalidSession
 from . import SleepException
@@ -154,8 +154,10 @@ class TestConsul(unittest.TestCase):
     def test_set_config_value(self):
         self.c.set_config_value('')
 
+    @patch.object(Cluster, 'min_version', PropertyMock(return_value=(2, 0)))
     @patch.object(consul.Consul.KV, 'put', Mock(side_effect=ConsulException))
     def test_write_leader_optime(self):
+        self.c.get_cluster()
         self.c.write_leader_optime('1')
 
     @patch.object(consul.Consul.Session, 'renew', Mock())

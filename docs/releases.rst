@@ -3,6 +3,110 @@
 Release notes
 =============
 
+Version 2.1.2
+-------------
+
+**New features**
+
+- Compatibility with ``psycopg>=3.0`` (Alexander Kukushkin)
+
+  By default ``psycopg2`` is preferred. `psycopg>=3.0` will be used only if ``psycopg2`` is not available or its version is too old.
+
+- Add ``dcs_last_seen`` field to the REST API (Michael Banck)
+
+  This field notes the last time (as unix epoch) a cluster member has successfully communicated with the DCS. This is useful to identify and/or analyze network partitions.
+
+- Release the leader lock when ``pg_controldata`` reports "shut down" (Alexander)
+
+  To solve the problem of slow switchover/shutdown in case ``archive_command`` is slow/failing, Patroni will remove the leader key immediately after ``pg_controldata`` started reporting PGDATA as ``shut down`` cleanly and it verified that there is at least one replica that received all changes. If there are no replicas that fulfill this condition the leader key is not removed and the old behavior is retained, i.e. Patroni will keep updating the lock.
+
+- Add ``sslcrldir`` connection parameter support (Kostiantyn Nemchenko)
+
+  The new connection parameter was introduced in the PostgreSQL v14.
+
+- Allow setting ACLs for ZNodes in Zookeeper (Alwyn Davis)
+
+  Introduce a new configuration option ``zookeeper.set_acls`` so that Kazoo will apply a default ACL for each ZNode that it creates.
+
+
+**Stability improvements**
+
+- Delay the next attempt of recovery till next HA loop (Alexander)
+
+  If Postgres crashed due to out of disk space (for example) and fails to start because of that Patroni is too eagerly trying to recover it flooding logs.
+
+- Add log before demoting, which can take some time (Michael)
+
+  It can take some time for the demote to finish and it might not be obvious from looking at the logs what exactly is going on.
+
+- Improve "I am" status messages (Michael)
+
+  ``no action. I am a secondary ({0})`` vs ``no action. I am ({0}), a secondary``
+
+- Cast to int ``wal_keep_segments`` when converting to ``wal_keep_size`` (Jorge Solórzano)
+
+  It is possible to specify ``wal_keep_segments`` as a string in the global :ref:`dynamic configuration <dynamic_configuration>` and due to Python being a dynamically typed language the string was simply multiplied. Example: ``wal_keep_segments: "100"`` was converted to ``100100100100100100100100100100100100100100100100MB``.
+
+- Allow switchover only to sync nodes when synchronous replication is enabled (Alexander)
+
+  In addition to that do the leader race only against known synchronous nodes.
+
+- Use cached role as a fallback when Postgres is slow (Alexander)
+
+  In some extreme cases Postgres could be so slow that the normal monitoring query does not finish in a few seconds. The ``statement_timeout`` exception not being properly handled could lead to the situation where Postgres was not demoted on time when the leader key expired or the update failed. In case of such exception Patroni will use the cached ``role`` to determine whether Postgres is running as a primary.
+
+- Avoid unnecessary updates of the member ZNode (Alexander)
+
+  If no values have changed in the members data, the update should not happen.
+
+- Optimize checkpoint after promote (Alexander)
+
+  Avoid doing ``CHECKPOINT`` if the latest timeline is already stored in ``pg_control``. It helps to avoid unnecessary ``CHECKPOINT`` right after initializing the new cluster with ``initdb``.
+
+- Prefer members without ``nofailover`` when picking sync nodes (Alexander)
+
+  Previously sync nodes were selected only based on the replication lag, hence the node with ``nofailover`` tag had the same chances to become synchronous as any other node. That behavior was confusing and dangerous at the same time because in case of a failed primary the failover could not happen automatically.
+
+- Remove duplicate hosts from the etcd machine cache (Michael)
+
+  Advertised client URLs in the etcd cluster could be misconfigured. Removing duplicates in Patroni in this case is a low-hanging fruit.
+
+
+**Bugfixes**
+
+- Skip temporary replication slots while doing slot management (Alexander)
+
+  Starting from v10 ``pg_basebackup`` creates a temporary replication slot for WAL streaming and Patroni was trying to drop it because the slot name looks unknown. In order to fix it, we skip all temporary slots when querying ``pg_stat_replication_slots`` view.
+
+- Ensure ``pg_replication_slot_advance()`` doesn't timeout (Alexander)
+
+  Patroni was using the default ``statement_timeout`` in this case and once the call failed there are very high chances that it will never recover, resulting in increased size of ``pg_wal`` and ``pg_catalog`` bloat.
+
+- The ``/status`` wasn't updated on demote (Alexander)
+
+  After demoting PostgreSQL the old leader updates the last LSN in DCS. Starting from ``2.1.0`` the new ``/status`` key was introduced, but the optime was still written to the ``/optime/leader``.
+
+- Handle DCS exceptions when demoting (Alexander)
+
+  While demoting the master due to failure to update the leader lock it could happen that DCS goes completely down and the ``get_cluster()`` call raises an exception. Not being handled properly it results in Postgres remaining stopped until DCS recovers.
+
+- The ``use_unix_socket_repl`` didn't work is some cases (Alexander)
+
+  Specifically, if ``postgresql.unix_socket_directories`` is not set. In this case Patroni is supposed to use the default value from ``libpq``.
+
+- Fix a few issues with Patroni REST API (Alexander)
+
+  The ``clusters_unlocked`` sometimes could be not defined, what resulted in exceptions in the ``GET /metrics`` endpoint. In addition to that the error handling method was assuming that the ``connect_address`` tuple always has two elements, while in fact there could be more in case of IPv6.
+
+- Wait for newly promoted node to finish recovery before deciding to rewind (Alexander)
+
+  It could take some time before the actual promote happens and the new timeline is created. Without waiting replicas could come to the conclusion that rewind isn't required.
+
+- Handle missing timelines in a history file when deciding to rewind (Alexander)
+
+  If the current replica timeline is missing in the history file on the primary the replica was falsely assuming that rewind isn't required.
+
+
 Version 2.1.1
 -------------
 
