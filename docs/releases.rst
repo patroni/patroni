@@ -10,7 +10,7 @@ Version 2.1.2
 
 - Compatibility with ``psycopg>=3.0`` (Alexander Kukushkin)
 
-  By default the ``psycopg2`` is preferred. The `psycopg>=3.0` will be used only if ``psycopg2`` is not available or its version is too old.
+  By default ``psycopg2`` is preferred. `psycopg>=3.0` will be used only if ``psycopg2`` is not available or its version is too old.
 
 - Add ``dcs_last_seen`` field to the REST API (Michael Banck)
 
@@ -18,7 +18,7 @@ Version 2.1.2
 
 - Release the leader lock when ``pg_controldata`` reports "shut down" (Alexander)
 
-  In order to solve this problem of the slow switchover/shutdown in a case when ``archive_command`` is slow/failing, Patroni will remove the leader key immediately after ``pg_controldata`` started reporting PGDATA as ``shut down`` cleanly and it verified that there is at least one replica that received all changes. If there are no replicas that fulfill the condition the leader key isn't removed and the old behavior is retained, i.e. Patroni will keep updating the lock.
+  To solve the problem of slow switchover/shutdown in case ``archive_command`` is slow/failing, Patroni will remove the leader key immediately after ``pg_controldata`` started reporting PGDATA as ``shut down`` cleanly and it verified that there is at least one replica that received all changes. If there are no replicas that fulfill this condition the leader key is not removed and the old behavior is retained, i.e. Patroni will keep updating the lock.
 
 - Add ``sslcrldir`` connection parameter support (Kostiantyn Nemchenko)
 
@@ -45,7 +45,7 @@ Version 2.1.2
 
 - Cast to int ``wal_keep_segments`` when converting to ``wal_keep_size`` (Jorge Solórzano)
 
-  It is possible to specify ``wal_keep_segments`` as a string in the gloabl :ref:`dynamic configuration <dynamic_configuration>` and due to the python being dynamically typed language the string was simply multiplied. Example: ``wal_keep_segments: "100"`` was converted to ``100100100100100100100100100100100100100100100100MB``.
+  It is possible to specify ``wal_keep_segments`` as a string in the global :ref:`dynamic configuration <dynamic_configuration>` and due to Python being a dynamically typed language the string was simply multiplied. Example: ``wal_keep_segments: "100"`` was converted to ``100100100100100100100100100100100100100100100100MB``.
 
 - Allow switchover only to sync nodes when synchronous replication is enabled (Alexander)
 
@@ -53,23 +53,23 @@ Version 2.1.2
 
 - Use cached role as a fallback when Postgres is slow (Alexander)
 
-  In some extreme cases Postgres could be so slow that the normal monitoring query doesn't finish in a few seconds. The ``statement_timeout`` exception not being properly handled could lead to the situation that the Postgres wasn't demoted on time if the leader key expired or the update failed. In case of such exception Patroni will use the cached ``role`` in order to determine whether the Postgres is running as a primary.
+  In some extreme cases Postgres could be so slow that the normal monitoring query does not finish in a few seconds. The ``statement_timeout`` exception not being properly handled could lead to the situation where Postgres was not demoted on time when the leader key expired or the update failed. In case of such exception Patroni will use the cached ``role`` to determine whether Postgres is running as a primary.
 
 - Avoid unnecessary updates of the member ZNode (Alexander)
 
-  If there are no values have changed in the members data, the update shouldn't happen.
+  If no values have changed in the members data, the update should not happen.
 
 - Optimize checkpoint after promote (Alexander)
 
-  Avoid doing ``CHECKPOINT`` if the latest timeline is already stored in the ``pg_control``. It helps to avoid unnecessary ``CHECKPOINT`` right after initializing the new cluster with the ``initdb``.
+  Avoid doing ``CHECKPOINT`` if the latest timeline is already stored in ``pg_control``. It helps to avoid unnecessary ``CHECKPOINT`` right after initializing the new cluster with ``initdb``.
 
 - Prefer members without ``nofailover`` when picking sync nodes (Alexander)
 
-  Previously sync nodes were selected only based on the replication lag and hence the node with ``nofailover`` tag had the same chances to become synchrounous as any other node. That behavior was confusing and dangerous at the same time, because in case of failed primary the failover couldn't happen automatically.
+  Previously sync nodes were selected only based on the replication lag, hence the node with ``nofailover`` tag had the same chances to become synchronous as any other node. That behavior was confusing and dangerous at the same time because in case of a failed primary the failover could not happen automatically.
 
 - Remove duplicate hosts from the etcd machine cache (Michael)
 
-  Advertised client URLs in the etcd cluster could be missconfigured. Removing duplicates in Patroni in this case is a low-hanging fruit.
+  Advertised client URLs in the etcd cluster could be misconfigured. Removing duplicates in Patroni in this case is a low-hanging fruit.
 
 
 **Bugfixes**
@@ -84,11 +84,11 @@ Version 2.1.2
 
 - The ``/status`` wasn't updated on demote (Alexander)
 
-  After demoting PostgreSQL the old leader leader updating the last LSN in DCS. Starting from ``2.1.0`` the new ``/status`` key was introduced, but the optime was still written to the ``/optime/leader``.
+  After demoting PostgreSQL the old leader updates the last LSN in DCS. Starting from ``2.1.0`` the new ``/status`` key was introduced, but the optime was still written to the ``/optime/leader``.
 
 - Handle DCS exceptions when demoting (Alexander)
 
-  While doing demote due to failure to update the leader lock it could happen that DCS goes completely down and the ``get_cluster()`` call raise the exception. Not being properly handled it results in Postgres remaining stopped until DCS recovers.
+  While demoting the master due to failure to update the leader lock it could happen that DCS goes completely down and the ``get_cluster()`` call raises an exception. Not being handled properly it results in Postgres remaining stopped until DCS recovers.
 
 - The ``use_unix_socket_repl`` didn't work is some cases (Alexander)
 
