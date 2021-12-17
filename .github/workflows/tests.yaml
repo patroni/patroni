@@ -132,41 +132,41 @@ jobs:
       run: python -m coveralls --service=github
       if: matrix.python-version != 2.7 || matrix.dcs != 'kubernetes'
 
-  behavem:
-    runs-on: ${{ matrix.os }}-10.15
-    env:
-      DCS: ${{ matrix.dcs }}
-      ETCDVERSION: 3.3.13
-      PGVERSION: 14.1-1  # for windows and macos
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos]  #, windows]
-        python-version: [3.7]
-        dcs: [etcd, etcd3, raft]
-
-    steps:
-    - uses: actions/checkout@v1
-    - name: Set up Python
-      uses: actions/setup-python@v2
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Install dependencies
-      run: python .github/workflows/install_deps.py
-    - name: Run behave tests
-      run: python .github/workflows/run_tests.py
-    - name: Install coveralls
-      run: python -m pip install coveralls
-    - name: Upload Coverage
-      env:
-        COVERALLS_FLAG_NAME: behave-${{ matrix.os }}-${{ matrix.dcs }}-${{ matrix.python-version }}
-        COVERALLS_PARALLEL: 'true'
-        GITHUB_TOKEN: ${{ secrets.github_token }}
-      run: python -m coveralls --service=github
+#  behavem:
+#    runs-on: ${{ matrix.os }}-latest
+#    env:
+#      DCS: ${{ matrix.dcs }}
+#      ETCDVERSION: 3.3.13
+#      PGVERSION: 14.1-1  # for windows and macos
+#    strategy:
+#      fail-fast: false
+#      matrix:
+#        os: [macos]  #, windows]
+#        python-version: [3.7]
+#        dcs: [etcd, etcd3, raft]
+#
+#    steps:
+#    - uses: actions/checkout@v1
+#    - name: Set up Python
+#      uses: actions/setup-python@v2
+#      with:
+#        python-version: ${{ matrix.python-version }}
+#    - name: Install dependencies
+#      run: python .github/workflows/install_deps.py
+#    - name: Run behave tests
+#      run: python .github/workflows/run_tests.py
+#    - name: Install coveralls
+#      run: python -m pip install coveralls
+#    - name: Upload Coverage
+#      env:
+#        COVERALLS_FLAG_NAME: behave-${{ matrix.os }}-${{ matrix.dcs }}-${{ matrix.python-version }}
+#        COVERALLS_PARALLEL: 'true'
+#        GITHUB_TOKEN: ${{ secrets.github_token }}
+#      run: python -m coveralls --service=github
 
   coveralls-finish:
     name: Finalize coveralls.io
-    needs: [unit, behave, behavem]
+    needs: [unit, behave]  #, behavem]
     runs-on: ubuntu-latest
     steps:
     - uses: actions/setup-python@v2
