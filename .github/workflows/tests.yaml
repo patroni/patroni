@@ -88,15 +88,6 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.github_token }}
       run: python -m coveralls --service=github
 
-    - name: Run codacy-coverage-reporter
-      uses: codacy/codacy-coverage-reporter-action@master
-      env:
-        SECRETS_AVAILABLE: ${{ secrets.CODACY_PROJECT_TOKEN != '' }}
-      with:
-        project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
-        coverage-reports: coverage.xml
-      if: ${{ matrix.os == 'ubuntu' && env.SECRETS_AVAILABLE == 'true' }}
-
   behave:
     runs-on: ${{ matrix.os }}-latest
     env:
