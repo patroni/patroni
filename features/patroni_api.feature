@@ -51,11 +51,11 @@ Scenario: check the scheduled restart
 	Given I issue a PATCH request to http://127.0.0.1:8008/config with {"postgresql": {"parameters": {"superuser_reserved_connections": "6"}}}
 	Then I receive a response code 200
 		And Response on GET http://127.0.0.1:8008/patroni contains pending_restart after 5 seconds
-	Given I issue a scheduled restart at http://127.0.0.1:8008 in 3 seconds with {"role": "replica"}
+	Given I issue a scheduled restart at http://127.0.0.1:8008 in 5 seconds with {"role": "replica"}
 	Then I receive a response code 202
 		And I sleep for 4 seconds
 		And Response on GET http://127.0.0.1:8008/patroni contains pending_restart after 10 seconds
-	Given I issue a scheduled restart at http://127.0.0.1:8008 in 3 seconds with {"restart_pending": "True"}
+	Given I issue a scheduled restart at http://127.0.0.1:8008 in 5 seconds with {"restart_pending": "True"}
 	Then I receive a response code 202
 		And Response on GET http://127.0.0.1:8008/patroni does not contain pending_restart after 10 seconds
 		And postgres0 role is the primary after 10 seconds
