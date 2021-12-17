@@ -241,7 +241,7 @@ class Ha(object):
             logger.info('bootstrapped %s', msg)
             cluster = self.dcs.get_cluster()
             node_to_follow = self._get_node_to_follow(cluster)
-            return self.state_handler.follow(node_to_follow)
+            return self.state_handler.follow(node_to_follow) is not False
         else:
             logger.error('failed to bootstrap %s', msg)
             self.state_handler.remove_data_directory()
