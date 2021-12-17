@@ -126,7 +126,7 @@ jobs:
       run: python -m coveralls --service=github
 
   behavem:
-    runs-on: ${{ matrix.os }}-latest
+    runs-on: ${{ matrix.os }}-10.15
     env:
       DCS: ${{ matrix.dcs }}
       ETCDVERSION: 3.3.13
