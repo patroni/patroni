@@ -34,6 +34,9 @@ class PatroniRequest(object):
 
         if self._apply_ssl_file_param(config, 'cert'):
             self._apply_ssl_file_param(config, 'key')
+
+            password = self._get_cfg_value(config, 'keyfile_password')
+            self._apply_pool_param('key_password', password)
         else:
             self._pool.connection_pool_kw.pop('key_file', None)
 
