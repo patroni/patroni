@@ -460,8 +460,12 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,f
     :param slots: state of permanent logical replication slots on the primary in the format: {"slot_name": int}
     """
 
+    @property
+    def leader_name(self):
+        return self.leader and self.leader.name
+
     def is_unlocked(self):
-        return not (self.leader and self.leader.name)
+        return not self.leader_name
 
     def has_member(self, member_name):
         return any(m for m in self.members if m.name == member_name)
@@ -516,7 +520,7 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,f
         else:
             # only manage slots for replicas that replicate from this one, except for the leader among them
             slot_members = [m.name for m in self.members if use_slots and
-                            m.replicatefrom == my_name and m.name != self.leader.name]
+                            m.replicatefrom == my_name and m.name != self.leader_name]
             permanent_slots = self.__permanent_logical_slots if use_slots and not nofailover else {}
 
         slots = {slot_name_from_member_name(name): {'type': 'physical'} for name in slot_members}
@@ -585,7 +589,7 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,f
             return True
 
         if self.use_slots:
-            members = [m for m in self.members if m.replicatefrom == my_name and m.name != self.leader.name]
+            members = [m for m in self.members if m.replicatefrom == my_name and m.name != self.leader_name]
             return any(self.should_enforce_hot_standby_feedback(m.name, m.nofailover, major_version) for m in members)
         return False
 
