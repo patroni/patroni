@@ -51,11 +51,11 @@ Scenario: check the scheduled restart
 	Given I issue a PATCH request to http://127.0.0.1:8008/config with {"postgresql": {"parameters": {"superuser_reserved_connections": "6"}}}
 	Then I receive a response code 200
 		And Response on GET http://127.0.0.1:8008/patroni contains pending_restart after 5 seconds
-	Given I issue a scheduled restart at http://127.0.0.1:8008 in 3 seconds with {"role": "replica"}
+	Given I issue a scheduled restart at http://127.0.0.1:8008 in 5 seconds with {"role": "replica"}
 	Then I receive a response code 202
-		And I sleep for 4 seconds
+		And I sleep for 8 seconds
 		And Response on GET http://127.0.0.1:8008/patroni contains pending_restart after 10 seconds
-	Given I issue a scheduled restart at http://127.0.0.1:8008 in 3 seconds with {"restart_pending": "True"}
+	Given I issue a scheduled restart at http://127.0.0.1:8008 in 5 seconds with {"restart_pending": "True"}
 	Then I receive a response code 202
 		And Response on GET http://127.0.0.1:8008/patroni does not contain pending_restart after 10 seconds
 		And postgres0 role is the primary after 10 seconds
@@ -104,12 +104,12 @@ Scenario: check the switchover via the API in the pause mode
 	Then I receive a response code 503
 
 Scenario: check the scheduled switchover
-	Given I issue a scheduled switchover from postgres1 to postgres0 in 3 seconds
+	Given I issue a scheduled switchover from postgres1 to postgres0 in 10 seconds
 	Then I receive a response returncode 1
 	And I receive a response output "Can't schedule switchover in the paused state"
 	When I run patronictl.py resume batman
 	Then I receive a response returncode 0
-	Given I issue a scheduled switchover from postgres1 to postgres0 in 3 seconds
+	Given I issue a scheduled switchover from postgres1 to postgres0 in 5 seconds
 	Then I receive a response returncode 0
 	And postgres0 is a leader after 20 seconds
 	And postgres0 role is the primary after 10 seconds
