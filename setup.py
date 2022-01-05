@@ -5,6 +5,7 @@
 """
 
 import inspect
+import logging
 import os
 import sys
 
@@ -132,12 +133,8 @@ class PyTest(Command):
         except Exception:
             raise RuntimeError('py.test is not installed, run: pip install pytest')
 
-        import logging
-        silence = logging.WARNING
-        logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=os.getenv('LOGLEVEL', silence))
-
         args = ['--verbose', 'tests', '--doctest-modules', MAIN_PACKAGE] +\
-            ['-s' if logging.getLogger().getEffectiveLevel() < silence else '--capture=fd']
+            ['-s' if logging.getLogger().getEffectiveLevel() < logging.WARNING else '--capture=fd']
         if self.cov:
             args += self.cov
 
@@ -162,6 +159,8 @@ def read(fname):
 
 
 def setup_package(version):
+    logging.basicConfig(format='%(message)s', level=os.getenv('LOGLEVEL', logging.WARNING))
+
     # Assemble additional setup commands
     cmdclass = {'test': PyTest, 'flake8': Flake8}
 

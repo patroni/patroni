@@ -73,7 +73,7 @@ class TestPostmasterProcess(unittest.TestCase):
 
         # all processes successfully stopped
         mock_children.return_value = [Mock()]
-        mock_children.return_value[0].kill.side_effect = psutil.Error
+        mock_children.return_value[0].kill.side_effect = psutil.NoSuchProcess(123)
         self.assertTrue(proc.signal_kill())
 
         # postmaster has gone before suspend
@@ -81,17 +81,17 @@ class TestPostmasterProcess(unittest.TestCase):
         self.assertTrue(proc.signal_kill())
 
         # postmaster has gone before we got a list of children
-        mock_suspend.side_effect = psutil.Error()
+        mock_suspend.side_effect = psutil.AccessDenied()
         mock_children.side_effect = psutil.NoSuchProcess(123)
         self.assertTrue(proc.signal_kill())
 
         # postmaster has gone after we got a list of children
-        mock_children.side_effect = psutil.Error()
+        mock_children.side_effect = psutil.AccessDenied()
         mock_kill.side_effect = psutil.NoSuchProcess(123)
         self.assertTrue(proc.signal_kill())
 
         # failed to kill postmaster
-        mock_kill.side_effect = psutil.AccessDenied(123)
+        mock_kill.side_effect = psutil.AccessDenied()
         self.assertFalse(proc.signal_kill())
 
     @patch('psutil.Process.__init__', Mock())

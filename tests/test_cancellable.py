@@ -27,8 +27,8 @@ class TestCancellableSubprocess(unittest.TestCase):
     def test_cancel(self):
         self.c._process = Mock()
         self.c._process.is_running.return_value = True
-        self.c._process.children.side_effect = psutil.Error()
-        self.c._process.suspend.side_effect = psutil.Error()
+        self.c._process.children.side_effect = psutil.NoSuchProcess(123)
+        self.c._process.suspend.side_effect = psutil.AccessDenied()
         self.c.cancel()
         self.c._process.is_running.side_effect = [True, False]
         self.c.cancel()
