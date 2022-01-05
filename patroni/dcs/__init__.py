@@ -937,4 +937,4 @@ class AbstractDCS(object):
         :returns: `!True` if you would like to reschedule the next run of ha cycle"""
 
         self.event.wait(timeout)
-        return self.event.isSet()
+        return self.event.is_set()

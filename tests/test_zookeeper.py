@@ -245,7 +245,7 @@ class TestZooKeeper(unittest.TestCase):
 
     def test_watch(self):
         self.zk.watch(None, 0)
-        self.zk.event.isSet = Mock(return_value=True)
+        self.zk.event.is_set = Mock(return_value=True)
         self.zk._fetch_status = False
         self.zk.watch(None, 0)
 
