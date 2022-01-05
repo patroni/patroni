@@ -13,7 +13,8 @@ from patroni.dcs.etcd import AbstractEtcdClientWithFailover
 from patroni.exceptions import DCSError
 from patroni.postgresql import Postgresql
 from patroni.postgresql.config import ConfigHandler
-from patroni import Patroni, main as _main, patroni_main, check_psycopg
+from patroni import check_psycopg
+from patroni.__main__ import Patroni, main as _main, patroni_main
 from six.moves import BaseHTTPServer, builtins
 from threading import Thread
 
@@ -97,7 +98,7 @@ class TestPatroni(unittest.TestCase):
 
     @patch('os.getpid')
     @patch('multiprocessing.Process')
-    @patch('patroni.patroni_main', Mock())
+    @patch('patroni.__main__.patroni_main', Mock())
     def test_patroni_main(self, mock_process, mock_getpid):
         mock_getpid.return_value = 2
         _main()

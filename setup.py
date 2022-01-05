@@ -53,7 +53,7 @@ CLASSIFIERS = [
     'Programming Language :: Python :: Implementation :: CPython',
 ]
 
-CONSOLE_SCRIPTS = ['patroni = patroni:main',
+CONSOLE_SCRIPTS = ['patroni = patroni.__main__:main',
                    'patronictl = patroni.ctl:ctl',
                    'patroni_raft_controller = patroni.raft_controller:main',
                    "patroni_wale_restore = patroni.scripts.wale_restore:main",
