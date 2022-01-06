@@ -27,7 +27,6 @@ EXTRAS_REQUIRE = {'aws': ['boto'], 'etcd': ['python-etcd'], 'etcd3': ['python-et
                   'consul': ['python-consul'], 'exhibitor': ['kazoo'], 'zookeeper': ['kazoo'],
                   'kubernetes': [], 'raft': ['pysyncobj', 'cryptography']}
 COVERAGE_XML = True
-COVERAGE_HTML = False
 
 # Add here all kinds of additional classifiers as defined under
 # https://pypi.python.org/pypi?%3Aaction=list_classifiers
@@ -50,28 +49,28 @@ CLASSIFIERS = [
     'Programming Language :: Python :: 3.7',
     'Programming Language :: Python :: 3.8',
     'Programming Language :: Python :: 3.9',
+    'Programming Language :: Python :: 3.10',
     'Programming Language :: Python :: Implementation :: CPython',
 ]
 
-CONSOLE_SCRIPTS = ['patroni = patroni:main',
+CONSOLE_SCRIPTS = ['patroni = patroni.__main__:main',
                    'patronictl = patroni.ctl:ctl',
                    'patroni_raft_controller = patroni.raft_controller:main',
                    "patroni_wale_restore = patroni.scripts.wale_restore:main",
                    "patroni_aws = patroni.scripts.aws:main"]
 
 
-class Flake8(Command):
-
+class _Command(Command):
     user_options = []
 
     def initialize_options(self):
-        from flake8.main import application
-
-        self.flake8 = application.Application()
-        self.flake8.initialize([])
+        pass
 
     def finalize_options(self):
         pass
+
+
+class Flake8(_Command):
 
     def package_files(self):
         seen_package_directories = ()
@@ -94,63 +93,28 @@ class Flake8(Command):
         return [package for package in self.package_files()] + ['tests', 'setup.py']
 
     def run(self):
-        self.flake8.run_checks(self.targets())
-        self.flake8.formatter.start()
-        self.flake8.report_errors()
-        self.flake8.report_statistics()
-        self.flake8.report_benchmarks()
-        self.flake8.formatter.stop()
-        try:
-            self.flake8.exit()
-        except SystemExit as e:
-            # Cause system exit only if exit code is not zero (terminates
-            # other possibly remaining/pending setuptools commands).
-            if e.code:
-                raise
+        from flake8.main import application
+
+        logging.getLogger().setLevel(logging.ERROR)
+        flake8 = application.Application()
+        flake8.run(self.targets())
+        flake8.exit()
 
 
-class PyTest(Command):
+class PyTest(_Command):
 
-    user_options = [('cov=', None, 'Run coverage'), ('cov-xml=', None, 'Generate junit xml report'),
-                    ('cov-html=', None, 'Generate junit html report')]
-
-    def initialize_options(self):
-        self.cov = []
-        self.cov_xml = False
-        self.cov_html = False
-
-    def finalize_options(self):
-        if self.cov_xml or self.cov_html:
-            self.cov = ['--cov', MAIN_PACKAGE, '--cov-report', 'term-missing']
-            if self.cov_xml:
-                self.cov.extend(['--cov-report', 'xml'])
-            if self.cov_html:
-                self.cov.extend(['--cov-report', 'html'])
-
-    def run_tests(self):
+    def run(self):
         try:
             import pytest
         except Exception:
             raise RuntimeError('py.test is not installed, run: pip install pytest')
 
         args = ['--verbose', 'tests', '--doctest-modules', MAIN_PACKAGE] +\
-            ['-s' if logging.getLogger().getEffectiveLevel() < logging.WARNING else '--capture=fd']
-        if self.cov:
-            args += self.cov
+            ['-s' if logging.getLogger().getEffectiveLevel() < logging.WARNING else '--capture=fd'] +\
+            ['--cov', MAIN_PACKAGE, '--cov-report', 'term-missing', '--cov-report', 'xml']
 
         errno = pytest.main(args=args)
         sys.exit(errno)
-
-    def run(self):
-        from pkg_resources import evaluate_marker
-
-        requirements = set(self.distribution.install_requires + ['mock>=2.0.0', 'pytest-cov', 'pytest'])
-        for k, v in self.distribution.extras_require.items():
-            if not k.startswith(':') or evaluate_marker(k[1:]):
-                requirements.update(v)
-
-        self.distribution.fetch_build_eggs(list(requirements))
-        self.run_tests()
 
 
 def read(fname):
@@ -183,12 +147,6 @@ def setup_package(version):
         if not extra:
             install_requires.append(r)
 
-    command_options = {'test': {}}
-    if COVERAGE_XML:
-        command_options['test']['cov_xml'] = 'setup.py', True
-    if COVERAGE_HTML:
-        command_options['test']['cov_html'] = 'setup.py', True
-
     setup(
         name=NAME,
         version=version,
@@ -205,9 +163,7 @@ def setup_package(version):
         python_requires='>=2.7',
         install_requires=install_requires,
         extras_require=EXTRAS_REQUIRE,
-        setup_requires='flake8',
         cmdclass=cmdclass,
-        command_options=command_options,
         entry_points={'console_scripts': CONSOLE_SCRIPTS},
     )
 
@@ -215,7 +171,8 @@ def setup_package(version):
 if __name__ == '__main__':
     old_modules = sys.modules.copy()
     try:
-        from patroni import check_psycopg, fatal, __version__
+        from patroni import check_psycopg, fatal
+        from patroni.version import __version__
     finally:
         sys.modules.clear()
         sys.modules.update(old_modules)

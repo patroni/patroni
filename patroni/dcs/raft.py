@@ -271,7 +271,7 @@ class Raft(AbstractDCS):
 
         while True:
             ready_event.wait(5)
-            if ready_event.isSet() or self._sync_obj.applied_local_log:
+            if ready_event.is_set() or self._sync_obj.applied_local_log:
                 break
             else:
                 logger.info('waiting on raft')

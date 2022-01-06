@@ -157,6 +157,6 @@ class TestRaft(unittest.TestCase):
     @patch('threading.Event')
     def test_init(self, mock_event, mock_kvstore):
         mock_kvstore.return_value.applied_local_log = False
-        mock_event.return_value.isSet.side_effect = [False, True]
+        mock_event.return_value.is_set.side_effect = [False, True]
         self.assertIsNotNone(Raft({'ttl': 30, 'scope': 'test', 'name': 'pg', 'patronictl': True,
                                    'self_addr': '1', 'data_dir': self._TMP}))
