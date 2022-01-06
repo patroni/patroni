@@ -8,7 +8,7 @@ from contextlib import contextmanager
 
 from .connection import get_connection_cursor
 from .misc import format_lsn
-from ..psycopg import UndefinedFile
+from ..psycopg import OperationalError
 
 logger = logging.getLogger(__name__)
 
@@ -201,7 +201,7 @@ class SlotsHandler(object):
                                     (name, format_lsn(int(cluster.slots[name]))))
                     except Exception as e:
                         logger.error("Failed to advance logical replication slot '%s': %r", name, e)
-                        if isinstance(e, UndefinedFile):
+                        if isinstance(e, OperationalError) and e.diag.sqlstate == '58P01':  # WAL file is gone
                             create_slots.append(name)
                         self._schedule_load_slots = True
         return create_slots

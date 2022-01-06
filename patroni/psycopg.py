@@ -1,5 +1,4 @@
-__all__ = ['connect', 'quote_ident', 'quote_literal', 'DatabaseError',
-           'Error', 'OperationalError', 'ProgrammingError', 'UndefinedFile']
+__all__ = ['connect', 'quote_ident', 'quote_literal', 'DatabaseError', 'Error', 'OperationalError', 'ProgrammingError']
 
 _legacy = False
 try:
@@ -8,7 +7,6 @@ try:
     if parse_version(__version__) < MIN_PSYCOPG2:
         raise ImportError
     from psycopg2 import connect, Error, DatabaseError, OperationalError, ProgrammingError
-    from psycopg2.errors import UndefinedFile
     from psycopg2.extensions import adapt
 
     try:
@@ -23,7 +21,6 @@ try:
         return value.getquoted().decode('utf-8')
 except ImportError:
     from psycopg import connect as _connect, sql, Error, DatabaseError, OperationalError, ProgrammingError
-    from psycopg.errors import UndefinedFile
 
     def connect(*args, **kwargs):
         ret = _connect(*args, **kwargs)
