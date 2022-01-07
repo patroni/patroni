@@ -34,6 +34,7 @@ class Patroni(AbstractPatroniDaemon):
         self.tags = self.get_tags()
         self.next_run = time.time()
         self.scheduled_restart = {}
+        self.print_cycle = 0
 
     def load_dynamic_configuration(self):
         from patroni.exceptions import DCSError
@@ -105,7 +106,16 @@ class Patroni(AbstractPatroniDaemon):
         super(Patroni, self).run()
 
     def _run_cycle(self):
-        logger.info(self.ha.run_cycle())
+        ret = self.ha.run_cycle()
+        # Print "no action" at most every minute
+        if ret.startswith('no action') and self.dcs.loop_wait < 300:
+            if self.print_cycle > 0:
+                self.print_cycle = self.print_cycle - 1
+            else:
+                logger.info(ret)
+                self.print_cycle = 60 * (1 / self.dcs.loop_wait) - 1
+        else:
+            logger.info(ret)
 
         if self.dcs.cluster and self.dcs.cluster.config and self.dcs.cluster.config.data \
                 and self.config.set_dynamic_configuration(self.dcs.cluster.config):

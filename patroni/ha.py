@@ -171,7 +171,7 @@ class Ha(object):
     def has_lock(self, info=True):
         lock_owner = self.cluster.leader and self.cluster.leader.name
         if info:
-            logger.info('Lock owner: %s; I am %s', lock_owner, self.state_handler.name)
+            logger.debug('Lock owner: %s; I am %s', lock_owner, self.state_handler.name)
         return lock_owner == self.state_handler.name
 
     def get_effective_tags(self):
