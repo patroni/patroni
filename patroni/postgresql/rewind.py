@@ -165,7 +165,7 @@ class Rewind(object):
             return
 
         if not self.check_leader_is_not_in_recovery(
-                self._conn_kwargs(leader, self._postgresql.config.rewind_credentials)):
+                self._conn_kwargs(leader, self._postgresql.config.replication)):
             return
 
         history = need_rewind = None
