@@ -768,6 +768,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         reloading_config = self.__listen is not None  # changing config in runtime
         if reloading_config:
             self.shutdown()
+            # Rely on ThreadingMixIn.server_close() to have all requests terminate before we continue
+            self.server_close()
 
         self.__listen = listen
         self.__ssl_options = ssl_options

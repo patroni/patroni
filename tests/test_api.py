@@ -549,7 +549,8 @@ class TestRestApiServer(unittest.TestCase):
         self.assertRaises(ValueError, MockRestApiServer, None, '', bad_config)
         self.assertRaises(ValueError, self.srv.reload_config, bad_config)
         self.assertRaises(ValueError, self.srv.reload_config, {})
-        with patch.object(socket.socket, 'setsockopt', Mock(side_effect=socket.error)):
+        with patch.object(socket.socket, 'setsockopt', Mock(side_effect=socket.error)), \
+                patch.object(MockRestApiServer, 'server_close', Mock()):
             self.srv.reload_config({'listen': ':8008'})
 
     @patch.object(MockPatroni, 'dcs')
