@@ -1012,8 +1012,9 @@ class Ha(object):
                 if self.cluster.failover and self.cluster.failover.candidate == self.state_handler.name:
                     return 'waiting to become master after promote...'
 
-                self._delete_leader()
-                return 'removed leader lock because postgres is not running as master'
+                if not self.is_standby_cluster():
+                    self._delete_leader()
+                    return 'removed leader lock because postgres is not running as master'
 
             if self.update_lock(True):
                 msg = self.process_manual_failover_from_leader()
