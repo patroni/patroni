@@ -269,6 +269,7 @@ class AbstractEtcdClientWithFailover(etcd.Client):
                 nodes, timeout, retries = self._calculate_timeouts(etcd_nodes, remaining_time)
                 if nodes == 0:
                     self._update_machines_cache = True
+                    self.set_base_uri(self._base_uri)  # trigger Etcd3 watcher restart
                     raise ex
                 retry.sleep_func(sleeptime)
                 retry.update_delay()
@@ -394,8 +395,9 @@ class AbstractEtcdClientWithFailover(etcd.Client):
         self._machines_cache_updated = time.time()
 
     def set_base_uri(self, value):
-        logger.info('Selected new etcd server %s', value)
-        self._base_uri = value
+        if self._base_uri != value:
+            logger.info('Selected new etcd server %s', value)
+            self._base_uri = value
 
 
 class EtcdClient(AbstractEtcdClientWithFailover):
