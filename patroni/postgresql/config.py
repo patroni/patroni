@@ -480,13 +480,19 @@ class ConfigHandler(object):
             ret['krbsrvname'] = self._krbsrvname
         if 'dbname' in ret:
             del ret['dbname']
+        # Add target_session_attrs in case more than one hostname is specified
+        # (libpq client-side failover) making sure we hit the primary
+        if not 'target_session_attrs' in ret and self._postgresql.major_version >= 100000:
+            ret.setdefault('target_session_attrs', 'read-write')
+        logger.info('primary_conninfo_params, returning %s', ret)
         return ret
 
     def format_dsn(self, params, include_dbname=False):
         # A list of keywords that can be found in a conninfo string. Follows what is acceptable by libpq
         keywords = ('dbname', 'user', 'passfile' if params.get('passfile') else 'password', 'host', 'port',
                     'sslmode', 'sslcompression', 'sslcert', 'sslkey', 'sslpassword', 'sslrootcert', 'sslcrl',
-                    'sslcrldir', 'application_name', 'krbsrvname', 'gssencmode', 'channel_binding')
+                    'sslcrldir', 'application_name', 'krbsrvname', 'gssencmode', 'channel_binding',
+                    'target_session_attrs')
         if include_dbname:
             params = params.copy()
             if 'dbname' not in params:
