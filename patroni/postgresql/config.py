@@ -745,7 +745,12 @@ class ConfigHandler(object):
                 return re.sub(r'([:\\])', r'\\\1', str(value))
 
             record = {n: escape(record.get(n) or '*') for n in ('host', 'port', 'user', 'password')}
-            return '{host}:{port}:*:{user}:{password}'.format(**record)
+            # 'host' could be several comma-separated hostnames, in this case
+            # we need to write on pgpass line per host
+            line = ''
+            for hostname in record.get('host').split(','):
+                line += hostname + ':{port}:*:{user}:{password}'.format(**record) + '\n'
+            return line.rstrip()
 
     def write_pgpass(self, record):
         line = self._pgpass_line(record)
