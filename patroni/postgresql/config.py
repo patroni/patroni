@@ -484,7 +484,6 @@ class ConfigHandler(object):
         # (libpq client-side failover) making sure we hit the primary
         if 'target_session_attrs' not in ret and self._postgresql.major_version >= 100000:
             ret.setdefault('target_session_attrs', 'read-write')
-        logger.info('primary_conninfo_params, returning %s', ret)
         return ret
 
     def format_dsn(self, params, include_dbname=False):
