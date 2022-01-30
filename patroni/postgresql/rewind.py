@@ -156,7 +156,7 @@ class Rewind(object):
             ret['dbname'] = self._postgresql.database
         # Add target_session_attrs in case more than one hostname is specified
         # (libpq client-side failover) making sure we hit the primary
-        if not 'target_session_attrs' in ret and self._postgresql.major_version >= 100000:
+        if 'target_session_attrs' not in ret and self._postgresql.major_version >= 100000:
             ret['target_session_attrs'] = 'read-write'
         return ret
 

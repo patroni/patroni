@@ -482,7 +482,7 @@ class ConfigHandler(object):
             del ret['dbname']
         # Add target_session_attrs in case more than one hostname is specified
         # (libpq client-side failover) making sure we hit the primary
-        if not 'target_session_attrs' in ret and self._postgresql.major_version >= 100000:
+        if 'target_session_attrs' not in ret and self._postgresql.major_version >= 100000:
             ret.setdefault('target_session_attrs', 'read-write')
         logger.info('primary_conninfo_params, returning %s', ret)
         return ret
