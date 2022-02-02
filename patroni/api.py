@@ -293,10 +293,15 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("# TYPE patroni_dcs_last_seen gauge")
         metrics.append("patroni_dcs_last_seen{0} {1}".format(scope_label, postgres.get('dcs_last_seen', 0)))
 
-        metrics.append("# HELP patroni_pending_restart Value is 1 if cluster need a restart, 0 if not.")
+        metrics.append("# HELP patroni_pending_restart Value is 1 if cluster need a restart, 0 otherwise.")
         metrics.append("# TYPE patroni_pending_restart gauge")
         metrics.append("patroni_pending_restart{0} {1}"
                        .format(scope_label, int(patroni.postgresql.pending_restart == True)))
+
+        metrics.append("# HELP patroni_is_paused Value is 1 if auto failover is disabled, 0 otherwise.")
+        metrics.append("# TYPE patroni_is_paused gauge")
+        metrics.append("patroni_is_paused{0} {1}"
+                       .format(scope_label, int(patroni.ha.is_paused() == True)))
 
         self._write_response(200, '\n'.join(metrics)+'\n', content_type='text/plain')
 
