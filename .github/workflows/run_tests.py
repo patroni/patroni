@@ -27,7 +27,7 @@ def main():
 
         version = versions.get(what)
         path = '/usr/lib/postgresql/{0}/bin:.'.format(version)
-        unbuffer = ['timeout', '600', 'unbuffer']
+        unbuffer = ['timeout', '900', 'unbuffer']
         args = ['--tags=-skip'] if what == 'etcd' else []
     else:
         path = os.path.abspath(os.path.join('pgsql', 'bin'))
