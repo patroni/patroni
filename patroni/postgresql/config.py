@@ -480,10 +480,6 @@ class ConfigHandler(object):
             ret['krbsrvname'] = self._krbsrvname
         if 'dbname' in ret:
             del ret['dbname']
-        # Add target_session_attrs in case more than one hostname is specified
-        # (libpq client-side failover) making sure we hit the primary
-        if 'target_session_attrs' not in ret and self._postgresql.major_version >= 100000:
-            ret.setdefault('target_session_attrs', 'read-write')
         return ret
 
     def format_dsn(self, params, include_dbname=False):
@@ -547,6 +543,12 @@ class ConfigHandler(object):
             if use_slots and not (is_remote_master and member.no_replication_slot):
                 primary_slot_name = member.primary_slot_name if is_remote_master else self._postgresql.name
                 recovery_params['primary_slot_name'] = slot_name_from_member_name(primary_slot_name)
+                # We are a standby leader and are using a replication slot. Make sure we connect to
+                # the leader of the main cluster (in case more than one host is specified in the
+                # connstr) by adding 'target_session_attrs=read-write' to primary_conninfo.
+                if is_remote_master and 'target_sesions_attrs' not in primary_conninfo and\
+                        self._postgresql.major_version >= 100000:
+                    primary_conninfo['target_session_attrs'] = 'read-write'
             recovery_params['primary_conninfo'] = primary_conninfo
 
         # standby_cluster config might have different parameters, we want to override them
