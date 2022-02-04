@@ -57,7 +57,7 @@ def start_patroni_standby_cluster(context, name, cluster_name, name2):
 
 @step('{pg_name1:w} is replicating from {pg_name2:w} after {timeout:d} seconds')
 def check_replication_status(context, pg_name1, pg_name2, timeout):
-    bound_time = time.time() + timeout
+    bound_time = time.time() + timeout * context.timeout_multiplier
 
     while time.time() < bound_time:
         cur = context.pctl.query(
