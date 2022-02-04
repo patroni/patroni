@@ -627,7 +627,7 @@ class ConfigHandler(object):
                 with open(passfile) as f:
                     wanted_lines = self._pgpass_line(wanted_primary_conninfo).splitlines()
                     file_lines = f.read().splitlines()
-                    if (wanted_lines == file_lines):
+                    if set(wanted_lines) == set(file_lines):
                         self._passfile = passfile
                         self._passfile_mtime = passfile_mtime
                         return True
