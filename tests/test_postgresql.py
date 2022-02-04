@@ -260,8 +260,8 @@ class TestPostgresql(BaseTestPostgresql):
         with patch('patroni.postgresql.config.ConfigHandler.primary_conninfo_params', Mock(return_value=conninfo)):
             mock_get_pg_settings.return_value['recovery_min_apply_delay'][1] = '1'
             self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
-            mock_get_pg_settings.return_value['primary_conninfo'][1] = 'host=1 passfile='\
-                + re.sub(r'([\'\\ ])', r'\\\1', self.p.config._pgpass)
+            mock_get_pg_settings.return_value['primary_conninfo'][1] = 'host=1 target_session_attrs=read-write'\
+                + ' passfile=' + re.sub(r'([\'\\ ])', r'\\\1', self.p.config._pgpass)
             mock_get_pg_settings.return_value['recovery_min_apply_delay'][1] = '0'
             self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
             self.p.config.write_recovery_conf({'standby_mode': 'on', 'primary_conninfo': conninfo.copy()})
