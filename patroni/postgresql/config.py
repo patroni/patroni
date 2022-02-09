@@ -883,13 +883,13 @@ class ConfigHandler(object):
         tcp_local_address = self._get_tcp_local_address()
         netloc = self._config.get('connect_address') or tcp_local_address + ':' + port
 
+        tcp_local_address = {'host': netloc, 'port': port}
+
         unix_local_address = {'port': port}
         unix_socket_directories = self._server_parameters.get('unix_socket_directories')
         if unix_socket_directories is not None:
             # fallback to tcp if unix_socket_directories is set, but there are no suitable values
             unix_local_address['host'] = self._get_unix_local_address(unix_socket_directories) or tcp_local_address
-
-        tcp_local_address = {'host': tcp_local_address, 'port': port}
 
         self._local_address = unix_local_address if self._config.get('use_unix_socket') else tcp_local_address
         self.local_replication_address = unix_local_address\
