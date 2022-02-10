@@ -660,7 +660,7 @@ class PatroniPoolController(object):
     def output_dir(self):
         return self._output_dir
 
-    def start(self, name, max_wait_limit=20, custom_config=None):
+    def start(self, name, max_wait_limit=40, custom_config=None):
         if name not in self._processes:
             self._processes[name] = PatroniController(self._context, name, self.patroni_path,
                                                       self._output_dir, custom_config)

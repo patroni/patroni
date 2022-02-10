@@ -109,6 +109,8 @@ class PyTest(_Command):
         except Exception:
             raise RuntimeError('py.test is not installed, run: pip install pytest')
 
+        logging.getLogger().setLevel(logging.WARNING)
+
         args = ['--verbose', 'tests', '--doctest-modules', MAIN_PACKAGE] +\
             ['-s' if logging.getLogger().getEffectiveLevel() < logging.WARNING else '--capture=fd'] +\
             ['--cov', MAIN_PACKAGE, '--cov-report', 'term-missing', '--cov-report', 'xml']
