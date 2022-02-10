@@ -1050,7 +1050,7 @@ class Kubernetes(AbstractDCS):
             self.reset_cluster()
 
     def cancel_initialization(self):
-        self.patch_or_create_config({self._INITIALIZE: None}, self._config_resource_version, True)
+        return self.patch_or_create_config({self._INITIALIZE: None}, None, True)
 
     @catch_kubernetes_errors
     def delete_cluster(self):
