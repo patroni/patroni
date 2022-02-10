@@ -281,6 +281,8 @@ class Raft(AbstractDCS):
         self.set_retry_timeout(int(config.get('retry_timeout') or 10))
 
     def _default_port(self, config):
+        if 'restapi' not in config:
+            return
         # Prepend '1' to the API port, i.e. use '18008' if the API port is '8008'
         port = '1' + config['restapi']['listen'].rsplit(':', 1)[1]
         if (port > 65535):
