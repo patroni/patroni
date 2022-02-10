@@ -154,6 +154,10 @@ class Rewind(object):
         ret = member.conn_kwargs(auth)
         if not ret.get('dbname'):
             ret['dbname'] = self._postgresql.database
+        # Add target_session_attrs in case more than one hostname is specified
+        # (libpq client-side failover) making sure we hit the primary
+        if 'target_session_attrs' not in ret and self._postgresql.major_version >= 100000:
+            ret['target_session_attrs'] = 'read-write'
         return ret
 
     def _check_timeline_and_lsn(self, leader):
