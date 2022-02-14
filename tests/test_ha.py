@@ -431,7 +431,6 @@ class TestHa(PostgresInit):
         self.assertEqual(self.ha.run_cycle(), 'PAUSE: no action. I am (postgresql0)')
 
     @patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
-    @patch.object(Rewind, 'check_leader_has_run_checkpoint', Mock(return_value=True))
     @patch.object(Rewind, 'can_rewind', PropertyMock(return_value=True))
     def test_follow_triggers_rewind(self):
         self.p.is_leader = false
@@ -793,7 +792,6 @@ class TestHa(PostgresInit):
         self.assertEqual(self.ha.run_cycle(), 'promoted self to a standby leader by acquiring session lock')
 
     @patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
-    @patch.object(Rewind, 'check_leader_has_run_checkpoint', Mock(return_value=True))
     @patch.object(Rewind, 'can_rewind', PropertyMock(return_value=True))
     def test_process_unhealthy_standby_cluster_as_cascade_replica(self):
         self.p.is_leader = false
