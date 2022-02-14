@@ -82,7 +82,7 @@ bootstrap:
   # Some additional users users which needs to be created after initializing new cluster
   users:
     admin:
-      password: admin
+      password: admin%
       options:
         - createrole
         - createdb

@@ -264,7 +264,7 @@ class Postgresql(object):
         cursor = None
         try:
             cursor = self._connection.cursor()
-            cursor.execute(sql, params)
+            cursor.execute(sql, params or None)
             return cursor
         except psycopg.Error as e:
             if cursor and cursor.connection.closed == 0:
