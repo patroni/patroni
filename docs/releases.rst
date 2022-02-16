@@ -3,6 +3,68 @@
 Release notes
 =============
 
+Version 2.1.3
+-------------
+
+**New features**
+
+- Added support for encrypted TLS keys for ``patronictl`` (Alexander Kukushkin)
+
+  It could be configured via ``ctl.keyfile_password`` or the ``PATRONI_CTL_KEYFILE_PASSWORD`` environment variable.
+
+- Added more metrics to the /metrics endpoint (Alexandre Pereira)
+
+  Specifically, ``patroni_pending_restart`` and ``patroni_is_paused``.
+
+- Make it possible to specify multiple hosts in the standby cluster configuration (Michael Banck)
+
+  If the standby cluster is replicating from the Patroni cluster it might be nice to rely on the client-side failover which is available in the ``libpq`` since PostgreSQL v10. That is, the ``primary_conninfo`` on the standby leader and ``pg_rewind`` will set ``target_session_attrs=read-write`` in the connection string, the ``pgpass`` file will be generated with multiple lines (one line per host), and instead of calling the ``CHECKPOINT`` on the primary cluster nodes in the standby cluster will wait for a ``pg_control`` to be updated instead.
+
+**Stability improvements**
+
+- Compatibility with legacy ``psycopg2`` (Alexander)
+
+  For example, the ``psycopg2`` installed from Ubuntu 18.04 packages doesn't have the ``UndefinedFile`` exception yet.
+
+- Restart ``etcd3`` watcher if all Etcd nodes don't respond (Alexander)
+
+  If the watcher is alive the ``get_cluster()`` method continues returning stale information even if all Etcd nodes are failing.
+
+- Don't remove the leader lock in the standby cluster while paused (Alexander)
+
+  Previously the lock was maintained only the node that is running as a primary.
+
+**Bugfixes**
+
+- Fixed bug in the standby-leader bootstrap (Alexander)
+
+  Paroni was considering bootstrap as failed if Postgres didn't start accepting connections after 60 seconds. The bug was introduced in the 2.1.2
+
+- Fixed bug with failover to a cascading standby (Alexander)
+
+  When figuring out which slots should be created on cascading standby we forgot to take into account that the leader might be absent.
+
+- Fixed small issues in Postgres config validator (Alexander)
+
+  Integer parameters introduced in PostgreSQL v14 were failing to validate because min and max values were quoted in the validator.py
+
+- Use replication credentials when checking leader status (Alexander)
+
+  It could be that the ``remove_data_directory_on_diverged_timelines`` is set, but there is no ``rewind_credentials`` defined and superuser access between nodes is not allowed.
+
+- Fixed port in use error on REST API certificate replacement (Ants Aasma)
+
+  When switching certificates there was a race condition with a concurrent API request. If there is one active during the replacement period then the replacement will error out with a port in use error and Patroni gets stuck in a state without an active API server.
+
+- Fixed a bug in cluster bootstrap if passwords containing ``%`` characters (Bastien Wirtz)
+
+  The bootstrap method executes the ``DO`` block, with all parameters properly quoted, but the ``cursor.execute()`` method didn't like an empty list with parameters passed.
+
+- Fixed the ``AttributeError`` no attribute 'leader' exception (Hrvoje Milković)
+
+  It could happen if the synchronous mode is enabled and the DCS content was wiped out.
+
+
 Version 2.1.2
 -------------
 
