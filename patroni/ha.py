@@ -796,7 +796,7 @@ class Ha(object):
 
         # When in sync mode, only last known master and sync standby are allowed to promote automatically.
         all_known_members = self.cluster.members + self.old_cluster.members
-        if self.is_synchronous_mode() and self.cluster.sync.leader:
+        if self.is_synchronous_mode() and self.cluster.sync and self.cluster.sync.leader:
             if not self.cluster.sync.matches(self.state_handler.name):
                 return False
             # pick between synchronous candidates so we minimize unnecessary failovers/demotions
