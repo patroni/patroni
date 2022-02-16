@@ -102,6 +102,11 @@ class TestRewind(BaseTestPostgresql):
     @patch.object(Postgresql, 'start', Mock())
     def test_execute(self, mock_checkpoint):
         self.r.execute(self.leader)
+        with patch.object(Postgresql, 'major_version', PropertyMock(return_value=130000)):
+            self.r.execute(self.leader)
+            with patch.object(MockCursor, 'fetchone', Mock(side_effect=Exception)):
+                self.r.execute(self.leader)
+
         with patch.object(Rewind, 'pg_rewind', Mock(return_value=False)):
             mock_checkpoint.side_effect = ['1', '', '', '']
             self.r.execute(self.leader)
