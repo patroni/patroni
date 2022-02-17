@@ -3,6 +3,7 @@ import logging
 import os
 import threading
 import time
+import math
 
 from pysyncobj import SyncObj, SyncObjConf, replicated, FAIL_REASON
 from pysyncobj.dns_resolver import globalDnsResolver
@@ -79,6 +80,18 @@ class DynMemberSyncObj(SyncObj):
         callback([{'addr': node.id, 'leader': node == self._getLeader(), 'status': CONNECTION_STATE.CONNECTED
                    if self.isNodeConnected(node) else CONNECTION_STATE.DISCONNECTED} for node in self.otherNodes] +
                  [{'addr': self.selfNode.id, 'leader': self._isLeader(), 'status': CONNECTION_STATE.CONNECTED}], None)
+
+    def isMajorityAvailable(self):
+        majority_of_nodes = math.ceil((len(self.otherNodes)+1)/2)
+        down_nodes_count = 0
+        for node in self.otherNodes:
+            if not self.isNodeConnected(node):
+                down_nodes_count += 1
+
+        if down_nodes_count >= majority_of_nodes:
+           return False
+        
+        return True
 
     def _onTick(self, timeToWait=0.0):
         super(DynMemberSyncObj, self)._onTick(timeToWait)
@@ -271,10 +284,10 @@ class Raft(AbstractDCS):
 
         while True:
             ready_event.wait(5)
-            if ready_event.is_set() or self._sync_obj.applied_local_log:
+            if (ready_event.is_set() or self._sync_obj.applied_local_log) and self.is_majority_available():
                 break
             else:
-                logger.info('waiting on raft')
+                logger.info('waiting on raft majority')
         self.set_retry_timeout(int(config.get('retry_timeout') or 10))
 
     def _on_set(self, key, value):
@@ -306,6 +319,9 @@ class Raft(AbstractDCS):
     @staticmethod
     def member(key, value):
         return Member.from_node(value['index'], os.path.basename(key), None, value['value'])
+
+    def is_majority_available(self):
+        return self._sync_obj.isMajorityAvailable()
 
     def _load_cluster(self):
         prefix = self.client_path('')

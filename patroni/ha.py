@@ -171,7 +171,10 @@ class Ha(object):
     def has_lock(self, info=True):
         lock_owner = self.cluster.leader and self.cluster.leader.name
         if info:
-            logger.info('Lock owner: %s; I am %s', lock_owner, self.state_handler.name)
+            if self.patroni.dcs.__class__.__name__ == 'Raft' and not self.patroni.dcs.is_majority_available():
+                logger.info('Lock owner: %s; I am %s; Raft majority not available', lock_owner, self.state_handler.name)
+            else:
+                logger.info('Lock owner: %s; I am %s', lock_owner, self.state_handler.name)
         return lock_owner == self.state_handler.name
 
     def get_effective_tags(self):
