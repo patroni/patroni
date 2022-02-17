@@ -38,7 +38,7 @@ Version 2.1.3
 
 - Fixed bug in the standby-leader bootstrap (Alexander)
 
-  Paroni was considering bootstrap as failed if Postgres didn't start accepting connections after 60 seconds. The bug was introduced in the 2.1.2
+  Patroni was considering bootstrap as failed if Postgres didn't start accepting connections after 60 seconds. The bug was introduced in the 2.1.2 release.
 
 - Fixed bug with failover to a cascading standby (Alexander)
 
@@ -56,13 +56,17 @@ Version 2.1.3
 
   When switching certificates there was a race condition with a concurrent API request. If there is one active during the replacement period then the replacement will error out with a port in use error and Patroni gets stuck in a state without an active API server.
 
-- Fixed a bug in cluster bootstrap if passwords containing ``%`` characters (Bastien Wirtz)
+- Fixed a bug in cluster bootstrap if passwords contain ``%`` characters (Bastien Wirtz)
 
   The bootstrap method executes the ``DO`` block, with all parameters properly quoted, but the ``cursor.execute()`` method didn't like an empty list with parameters passed.
 
 - Fixed the ``AttributeError`` no attribute 'leader' exception (Hrvoje Milković)
 
   It could happen if the synchronous mode is enabled and the DCS content was wiped out.
+
+- Fix bug in divergence timeline check (Alexander)
+
+  Patroni was falsely assuming that timelines have diverged. For pg_rewind it didn't create any problem, but if pg_rewind is not allowed and the ``remove_data_directory_on_diverged_timelines`` is set, it resulted in reinitializing the former leader.
 
 
 Version 2.1.2
