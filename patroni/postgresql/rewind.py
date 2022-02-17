@@ -218,6 +218,7 @@ class Rewind(object):
                         need_rewind = True
                     else:
                         need_rewind = switchpoint != self._get_checkpoint_end(local_timeline, local_lsn)
+                    break
                 elif parent_timeline > local_timeline:
                     need_rewind = True
                     break
