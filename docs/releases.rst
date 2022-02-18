@@ -32,7 +32,7 @@ Version 2.1.3
 
 - Don't remove the leader lock in the standby cluster while paused (Alexander)
 
-  Previously the lock was maintained only the node that is running as a primary.
+  Previously the lock was maintained only by the node that was running as a primary and not a standby leader.
 
 **Bugfixes**
 
@@ -52,7 +52,7 @@ Version 2.1.3
 
   It could be that the ``remove_data_directory_on_diverged_timelines`` is set, but there is no ``rewind_credentials`` defined and superuser access between nodes is not allowed.
 
-- Fixed port in use error on REST API certificate replacement (Ants Aasma)
+- Fixed "port in use" error on REST API certificate replacement (Ants Aasma)
 
   When switching certificates there was a race condition with a concurrent API request. If there is one active during the replacement period then the replacement will error out with a port in use error and Patroni gets stuck in a state without an active API server.
 
@@ -60,7 +60,7 @@ Version 2.1.3
 
   The bootstrap method executes the ``DO`` block, with all parameters properly quoted, but the ``cursor.execute()`` method didn't like an empty list with parameters passed.
 
-- Fixed the ``AttributeError`` no attribute 'leader' exception (Hrvoje Milković)
+- Fixed the "AttributeError: no attribute 'leader'" exception (Hrvoje Milković)
 
   It could happen if the synchronous mode is enabled and the DCS content was wiped out.
 
