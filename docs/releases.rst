@@ -18,7 +18,7 @@ Version 2.1.3
 
 - Make it possible to specify multiple hosts in the standby cluster configuration (Michael Banck)
 
-  If the standby cluster is replicating from the Patroni cluster it might be nice to rely on the client-side failover which is available in the ``libpq`` since PostgreSQL v10. That is, the ``primary_conninfo`` on the standby leader and ``pg_rewind`` will set ``target_session_attrs=read-write`` in the connection string, the ``pgpass`` file will be generated with multiple lines (one line per host), and instead of calling the ``CHECKPOINT`` on the primary cluster nodes in the standby cluster will wait for a ``pg_control`` to be updated instead.
+  If the standby cluster is replicating from the Patroni cluster it might be nice to rely on client-side failover which is available in ``libpq`` since PostgreSQL v10. That is, the ``primary_conninfo`` on the standby leader and ``pg_rewind`` setting ``target_session_attrs=read-write`` in the connection string. The ``pgpass`` file will be generated with multiple lines (one line per host), and instead of calling ``CHECKPOINT`` on the primary cluster nodes the standby cluster will wait for ``pg_control`` to be updated.
 
 **Stability improvements**
 
