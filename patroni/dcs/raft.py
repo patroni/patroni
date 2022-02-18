@@ -89,8 +89,7 @@ class DynMemberSyncObj(SyncObj):
                 down_nodes_count += 1
 
         if down_nodes_count >= majority_of_nodes:
-           return False
-        
+            return False
         return True
 
     def _onTick(self, timeToWait=0.0):

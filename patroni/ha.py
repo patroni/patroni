@@ -171,10 +171,7 @@ class Ha(object):
     def has_lock(self, info=True):
         lock_owner = self.cluster.leader and self.cluster.leader.name
         if info:
-            if self.patroni.dcs.__class__.__name__ == 'Raft' and not self.patroni.dcs.is_majority_available():
-                logger.info('Lock owner: %s; I am %s; Raft majority not available', lock_owner, self.state_handler.name)
-            else:
-                logger.info('Lock owner: %s; I am %s', lock_owner, self.state_handler.name)
+            logger.info('Lock owner: %s; I am %s', lock_owner, self.state_handler.name)
         return lock_owner == self.state_handler.name
 
     def get_effective_tags(self):
@@ -1043,6 +1040,8 @@ class Ha(object):
             else:
                 # Either there is no connection to DCS or someone else acquired the lock
                 logger.error('failed to update leader lock')
+                if self.dcs.__class__.__name__ == 'Raft' and not self.patroni.dcs.is_majority_available():
+                    logger.warning('raft has lost majority')
                 if self.state_handler.is_leader():
                     if self.is_paused():
                         return 'continue to run as master after failing to update leader lock in DCS'
