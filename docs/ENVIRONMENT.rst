@@ -49,6 +49,7 @@ Consul
 -  **PATRONI\_CONSUL\_CHECKS**: (optional) list of Consul health checks used for the session. By default an empty list is used.
 -  **PATRONI\_CONSUL\_REGISTER\_SERVICE**: (optional) whether or not to register a service with the name defined by the scope parameter and the tag master, replica or standby-leader depending on the node's role. Defaults to **false**
 -  **PATRONI\_CONSUL\_SERVICE\_CHECK\_INTERVAL**: (optional) how often to perform health check against registered url
+-  **PATRONI\_CONSUL\_SERVICE\_CHECK\_TLS\_SERVER\_NAME**: (optional) overide SNI host when connecting via TLS, see also `consul agent check API reference <https://www.consul.io/api-docs/agent/check#tlsservername>`__.
 
 Etcd
 ----
