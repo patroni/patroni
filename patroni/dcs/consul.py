@@ -233,7 +233,7 @@ class Consul(AbstractDCS):
         if self._register_service:
             self._set_service_name()
         self._service_check_interval = config.get('service_check_interval', '5s')
-        self._service_check_tls_server_name = config.get('service_check_tls_server_name', "")
+        self._service_check_tls_server_name = config.get('service_check_tls_server_name', None)
         if not self._ctl:
             self.create_session()
 
@@ -459,7 +459,8 @@ class Consul(AbstractDCS):
         conn_parts = urlparse(data['conn_url'])
         check = base.Check.http(api_parts.geturl(), self._service_check_interval,
                                 deregister='{0}s'.format(self._client.http.ttl * 10))
-        check['TLSServerName'] = self._service_check_tls_server_name
+        if self._service_check_tls_server_name is not None:
+            check['TLSServerName'] = self._service_check_tls_server_name
         tags = self._service_tags[:]
         tags.append(role)
         self._previous_loop_service_tags = self._service_tags
