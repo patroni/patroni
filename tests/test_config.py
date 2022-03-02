@@ -81,7 +81,7 @@ class TestConfig(unittest.TestCase):
     @patch('shutil.move', Mock(return_value=None))
     @patch('json.dump', Mock())
     def test_save_cache(self):
-        self.config.set_dynamic_configuration({'ttl': 30, 'postgresql': {'foo': 'bar'}})
+        self.config.set_dynamic_configuration({'ttl': 30, 'static_primary': 'baz', 'postgresql': {'foo': 'bar'}})
         with patch('os.fdopen', Mock(side_effect=IOError)):
             self.config.save_cache()
         with patch('os.fdopen', MagicMock()):
@@ -98,6 +98,13 @@ class TestConfig(unittest.TestCase):
         self.config.set_dynamic_configuration(dynamic_configuration)
         for name, value in dynamic_configuration['standby_cluster'].items():
             self.assertEqual(self.config['standby_cluster'][name], value)
+
+    def test_static_primary_parameter(self):
+        dynamic_configuration = {
+            'static_primary': 'foobar'
+        }
+        self.config.set_dynamic_configuration(dynamic_configuration)
+        self.assertEqual(self.config['static_primary'], 'foobar')
 
     @patch('os.path.exists', Mock(return_value=True))
     @patch('os.path.isfile', Mock(side_effect=lambda fname: fname != 'postgres0'))

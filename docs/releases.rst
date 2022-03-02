@@ -3,6 +3,15 @@
 Release notes
 =============
 
+Version 2.2.0
+-------------
+
+**New features**
+
+- Added support for ``static_primary`` configuration (Anthony Dodd)
+
+  This can be configured using the ``static_primary=<name>`` config value, which enables a few optimizations to ensure that a cluster configured with a static primary will not unnecessarily demote the cluster primary. This is useful for cases where a cluster is running as a single-node cluster. When this value is set, replicas will refuse to boot until the config value is removed from DCS config.
+
 Version 2.1.4
 -------------
 
@@ -1108,7 +1117,7 @@ Version 1.6.1
 
 - Kill all children along with the callback process before starting the new one (Alexander Kukushkin)
 
-  Not doing so makes it hard to implement callbacks in bash and eventually can lead to the situation when two callbacks are running at the same time. 
+  Not doing so makes it hard to implement callbacks in bash and eventually can lead to the situation when two callbacks are running at the same time.
 
 - Fix 'start failed' issue (Alexander Kukushkin)
 

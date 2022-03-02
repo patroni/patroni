@@ -329,8 +329,9 @@ schema = Schema({
         Optional("ttl"): int,
         Optional("loop_wait"): int,
         Optional("retry_timeout"): int,
-        Optional("maximum_lag_on_failover"): int
-        },
+        Optional("maximum_lag_on_failover"): int,
+        Optional("static_primary"): str
+    },
     "pg_hba": [str],
     "initdb": [Or(str, dict)]
   },

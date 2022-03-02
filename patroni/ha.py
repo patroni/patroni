@@ -128,6 +128,19 @@ class Ha(object):
         with self._is_leader_lock:
             return self._is_leader > time.time()
 
+    def is_static_primary(self):
+        """Check if this node is configured as the static primary of the cluster."""
+        static_primary = self.patroni.config.get('static_primary')
+        name = self.patroni.config.get('name')
+        if static_primary is None or name is None:
+            return False
+        return static_primary == name
+
+    def is_static_primary_configured(self):
+        """Check if the Patroni cluster has been configured with a static primary."""
+        static_primary = self.patroni.config.get('static_primary')
+        return static_primary is not None
+
     def set_is_leader(self, value):
         with self._is_leader_lock:
             self._is_leader = time.time() + self.dcs.ttl if value else 0
@@ -702,6 +715,9 @@ class Ha(object):
     def is_failover_possible(self, members, check_synchronous=True, cluster_lsn=None):
         ret = False
         cluster_timeline = self.cluster.timeline
+        if self.is_static_primary():
+            logger.warning('manual failover: not possible when instance is static primary')
+            return ret
         members = [m for m in members if m.name != self.state_handler.name and not m.nofailover and m.api_url]
         if check_synchronous and self.is_synchronous_mode():
             members = [m for m in members if self.cluster.sync.matches(m.name)]
@@ -984,7 +1000,6 @@ class Ha(object):
 
     def process_unhealthy_cluster(self):
         """Cluster has no leader key"""
-
         if self.is_healthiest_node():
             if self.acquire_lock():
                 failover = self.cluster.failover
@@ -1009,6 +1024,9 @@ class Ha(object):
                         'promoted self to leader by acquiring session lock'
                     )
             else:
+                if self.is_static_primary():
+                    return 'no action as cluster is in static single node config mode'
+
                 return self.follow('demoted self after trying and failing to obtain lock',
                                    'following new leader after trying and failing to obtain lock')
         else:
@@ -1021,6 +1039,8 @@ class Ha(object):
             if self.patroni.nofailover:
                 return self.follow('demoting self because I am not allowed to become master',
                                    'following a different leader because I am not allowed to promote')
+            if self.is_static_primary():
+                return 'no action as cluster is in static single node config mode'
             return self.follow('demoting self because i am not the healthiest node',
                                'following a different leader because i am not the healthiest node')
 
@@ -1061,6 +1081,9 @@ class Ha(object):
                 if self.state_handler.is_leader():
                     if self.is_paused():
                         return 'continue to run as master after failing to update leader lock in DCS'
+                    if self.is_static_primary():
+                        return 'continue to run as master after failing to update leader lock in DCS \
+                                due to static_primary config'
                     self.demote('immediate-nolock')
                     return 'demoted self because failed to update leader lock in DCS'
                 else:
@@ -1364,6 +1387,14 @@ class Ha(object):
                 self.state_handler.reset_cluster_info_state(None, self.patroni.nofailover)
                 raise
 
+            # If the cluster has been configured with a static primary,
+            # and we are not that primary, then do not proceed.
+            if self.is_static_primary_configured() and not self.is_static_primary():
+                self.shutdown()
+                return 'patroni cluster is configured with a static primary, \
+                        and this node is not the primary, shutting down and \
+                        refusing to start'
+
             if self.is_paused():
                 self.watchdog.disable()
                 self._was_paused = True
@@ -1517,7 +1548,8 @@ class Ha(object):
         except DCSError:
             dcs_failed = True
             logger.error('Error communicating with DCS')
-            if not self.is_paused() and self.state_handler.is_running() and self.state_handler.is_leader():
+            if not self.is_paused() and self.state_handler.is_running() \
+                    and self.state_handler.is_leader() and not self.is_static_primary():
                 self.demote('offline')
                 return 'demoted self because DCS is not accessible and i was a leader'
             return 'DCS is not accessible'

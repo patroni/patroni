@@ -667,6 +667,13 @@ class PatroniPoolController(object):
                                                       self._output_dir, custom_config)
         self._processes[name].start(max_wait_limit)
 
+    def start_with_expected_failure(self, name, max_wait_limit=40, custom_config=None):
+        try:
+            self.start(name, max_wait_limit, custom_config)
+            assert False, 'expected startup to fail'
+        except:
+            pass
+
     def __getattr__(self, func):
         if func not in ['stop', 'query', 'write_label', 'read_label', 'check_role_has_changed_to',
                         'add_tag_to_config', 'get_watchdog', 'patroni_hang', 'backup']:

@@ -65,6 +65,7 @@ class Config(object):
         'check_timeline': False,
         'master_start_timeout': 300,
         'master_stop_timeout': 0,
+        'static_primary': None,
         'synchronous_mode': False,
         'synchronous_mode_strict': False,
         'synchronous_node_count': 1,
@@ -234,7 +235,7 @@ class Config(object):
                     if name in self.__DEFAULT_CONFIG['standby_cluster']:
                         config['standby_cluster'][name] = deepcopy(value)
             elif name in config:  # only variables present in __DEFAULT_CONFIG allowed to be overridden from DCS
-                if name in ('synchronous_mode', 'synchronous_mode_strict'):
+                if name in ('synchronous_mode', 'synchronous_mode_strict', 'static_primary'):
                     config[name] = value
                 else:
                     config[name] = int(value)
