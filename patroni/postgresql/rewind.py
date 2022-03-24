@@ -311,8 +311,14 @@ class Rewind(object):
         restore_command = self._postgresql.config.get('recovery_conf', {}).get('restore_command') \
             if self._postgresql.major_version < 120000 else self._postgresql.get_guc_value('restore_command')
 
+        # currently, pg_rewind expects postgresql.conf to be inside $PGDATA, which is not the case on e.g. Debian
+        # Fix this logic if e.g. PG15 receives an update for pg_rewind:
+        pg_rewind_can_restore = self._postgresql.major_version >= 130000 
+            and restore_command 
+            and self._postgresql.config._config_dir == self._postgresql.data_dir
+
         cmd = [self._postgresql.pgcommand('pg_rewind')]
-        if self._postgresql.major_version >= 130000 and restore_command and self._postgresql.config._config_dir == self._postgresql.data_dir:
+        if pg_rewind_can_restore:
             cmd.append('--restore-target-wal')
         cmd.extend(['-D', self._postgresql.data_dir, '--source-server', dsn])
 
@@ -329,7 +335,7 @@ class Rewind(object):
             if ret == 0:
                 return True
 
-            if not restore_command or (self._postgresql.major_version >= 130000 and self._postgresql.config._config_dir == self._postgresql.data_dir):
+            if not restore_command or pg_rewind_can_restore:
                 return False
 
             missing_wal = self._find_missing_wal(results['stderr']) or self._find_missing_wal(results['stdout'])
