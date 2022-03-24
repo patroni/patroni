@@ -112,7 +112,7 @@ class Rewind(object):
         in_recovery = timeline = lsn = None
         data = self._postgresql.controldata()
         try:
-            if data.get('Database cluster state') == 'shut down in recovery':
+            if data.get('Database cluster state') in ('shut down in recovery', 'in archive recovery'):
                 in_recovery = True
                 lsn = data.get('Minimum recovery ending location')
                 timeline = int(data.get("Min recovery ending loc's timeline"))

@@ -293,12 +293,25 @@ class Ha(object):
 
         return result
 
+    def _handle_crash_recovery(self):
+        if not self._crash_recovery_executed and (self.cluster.is_unlocked() or self._rewind.can_rewind):
+            self._crash_recovery_executed = True
+            self._crash_recovery_started = time.time()
+            msg = 'doing crash recovery in a single user mode'
+            return self._async_executor.try_run_async(msg, self._rewind.ensure_clean_shutdown) or msg
+
     def _handle_rewind_or_reinitialize(self):
         leader = self.get_remote_master() if self.is_standby_cluster() else self.cluster.leader
         if not self._rewind.rewind_or_reinitialize_needed_and_possible(leader):
             return None
 
         if self._rewind.can_rewind:
+            # rewind is required, but postgres wasn't shut down cleanly.
+            if self.state_handler.controldata().get('Database cluster state') == 'in archive recovery':
+                msg = self._handle_crash_recovery()
+                if msg:
+                    return msg
+
             msg = 'running pg_rewind from ' + leader.name
             return self._async_executor.try_run_async(msg, self._rewind.execute, args=(leader,)) or msg
 
@@ -325,13 +338,10 @@ class Ha(object):
 
         data = self.state_handler.controldata()
         logger.info('pg_controldata:\n%s\n', '\n'.join('  {0}: {1}'.format(k, v) for k, v in data.items()))
-        if data.get('Database cluster state') in ('in production', 'shutting down', 'in crash recovery') \
-                and not self._crash_recovery_executed and \
-                (self.cluster.is_unlocked() or self._rewind.can_rewind):
-            self._crash_recovery_executed = True
-            self._crash_recovery_started = time.time()
-            msg = 'doing crash recovery in a single user mode'
-            return self._async_executor.try_run_async(msg, self._rewind.ensure_clean_shutdown) or msg
+        if data.get('Database cluster state') in ('in production', 'shutting down', 'in crash recovery'):
+            msg = self._handle_crash_recovery()
+            if msg:
+                return msg
 
         self.load_cluster_from_dcs()
 

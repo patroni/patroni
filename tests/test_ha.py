@@ -284,6 +284,18 @@ class TestHa(PostgresInit):
             self.ha.patroni.config.set_dynamic_configuration({'maximum_lag_on_failover': 10})
             self.assertEqual(self.ha.run_cycle(), 'terminated crash recovery because of startup timeout')
 
+    @patch.object(Rewind, 'ensure_clean_shutdown', Mock())
+    @patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
+    @patch.object(Rewind, 'can_rewind', PropertyMock(return_value=True))
+    def test_crash_recovery_before_rewind(self):
+        self.p.is_leader = false
+        self.p.is_running = false
+        self.p.controldata = lambda: {'Database cluster state': 'in archive recovery',
+                                      'Database system identifier': SYSID}
+        self.ha._rewind.trigger_check_diverged_lsn()
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.assertEqual(self.ha.run_cycle(), 'doing crash recovery in a single user mode')
+
     @patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
     @patch.object(Rewind, 'can_rewind', PropertyMock(return_value=True))
     def test_recover_with_rewind(self):
