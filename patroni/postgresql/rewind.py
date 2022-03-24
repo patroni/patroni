@@ -312,7 +312,7 @@ class Rewind(object):
             if self._postgresql.major_version < 120000 else self._postgresql.get_guc_value('restore_command')
 
         cmd = [self._postgresql.pgcommand('pg_rewind')]
-        if self._postgresql.major_version >= 130000 and restore_command and self._postgresql.config._config_dir == self._postgresql.data_dir):
+        if self._postgresql.major_version >= 130000 and restore_command and self._postgresql.config._config_dir == self._postgresql.data_dir:
             cmd.append('--restore-target-wal')
         cmd.extend(['-D', self._postgresql.data_dir, '--source-server', dsn])
 
