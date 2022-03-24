@@ -79,7 +79,7 @@ Patroni can be installed with pip:
 where dependencies can be either empty, or consist of one or more of the following:
 
 etcd or etcd3
-    `python-etcd` module in order to use Etcd as DCS
+    `python-etcd` module in order to use Etcd as Distributed Configuration Store (DCS)
 consul
     `python-consul` module in order to use Consul as DCS
 zookeeper
