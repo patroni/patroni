@@ -313,8 +313,8 @@ class Rewind(object):
 
         # currently, pg_rewind expects postgresql.conf to be inside $PGDATA, which is not the case on e.g. Debian
         # Fix this logic if e.g. PG15 receives an update for pg_rewind:
-        pg_rewind_can_restore = self._postgresql.major_version >= 130000 
-            and restore_command 
+        pg_rewind_can_restore = self._postgresql.major_version >= 130000 \
+            and restore_command \
             and self._postgresql.config._config_dir == self._postgresql.data_dir
 
         cmd = [self._postgresql.pgcommand('pg_rewind')]
