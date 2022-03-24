@@ -329,7 +329,7 @@ class Rewind(object):
             if ret == 0:
                 return True
 
-            if not restore_command or self._postgresql.major_version >= 130000:
+            if not restore_command or (self._postgresql.major_version >= 130000 and self._postgresql.config._config_dir == self._postgresql.data_dir):
                 return False
 
             missing_wal = self._find_missing_wal(results['stderr']) or self._find_missing_wal(results['stdout'])
