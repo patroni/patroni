@@ -1211,9 +1211,12 @@ class TestHa(PostgresInit):
     @patch('os.rename', Mock())
     @patch('patroni.postgresql.Postgresql.is_starting', Mock(return_value=False))
     @patch.object(builtins, 'open', mock_open())
-    @patch.object(SlotsHandler, 'sync_replication_slots', Mock(return_value=['foo']))
+    @patch.object(ConfigHandler, 'check_recovery_conf', Mock(return_value=(False, False)))
+    @patch.object(Postgresql, 'major_version', PropertyMock(return_value=130000))
+    @patch.object(SlotsHandler, 'sync_replication_slots', Mock(return_value=['ls']))
     def test_follow_copy(self):
         self.ha.cluster.is_unlocked = false
+        self.ha.cluster.config.data['slots'] = {'ls': {'database': 'a', 'plugin': 'b'}}
         self.p.is_leader = false
         self.assertTrue(self.ha.run_cycle().startswith('Copying logical slots'))
 
