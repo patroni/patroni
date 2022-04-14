@@ -252,6 +252,16 @@ class SlotsHandler(object):
                     catalog_xmin = cur.fetchone()[0]
             except Exception as e:
                 return logger.error("Failed to check %s physical slot on the primary: %r", slot_name, e)
+
+            if not catalog_xmin:  # Replica isn't streaming or the hot_standby_feedback isn't enabled
+                try:
+                    cur = self._query("SELECT pg_catalog.current_setting('hot_standby_feedback')::boolean")
+                    if not cur.fetchone()[0]:
+                        return logger.error('Logical slots failover requires "hot_standby_feedback".'
+                                            ' Please check postgresql.auto.conf')
+                except Exception as e:
+                    return logger.error('Failed to check the hot_standby_feedback setting: %r', e)
+
         for name in list(self._unready_logical_slots):
             value = self._replication_slots.get(name)
             if not value or catalog_xmin <= value['catalog_xmin']:

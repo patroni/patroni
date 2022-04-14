@@ -109,6 +109,10 @@ class TestSlotsHandler(BaseTestPostgresql):
         self.s.copy_logical_slots(self.cluster, ['ls'])
         self.assertEqual(self.s.sync_replication_slots(self.cluster, False), [])
         with patch.object(MockCursor, 'rowcount', PropertyMock(return_value=1), create=True):
+            with patch.object(MockCursor, 'fetchone', Mock(side_effect=[(None,), Exception])):
+                self.assertIsNone(self.s.check_logical_slots_readiness(self.cluster, False, None))
+            with patch.object(MockCursor, 'fetchone', Mock(side_effect=[(None,), (False,)])):
+                self.assertIsNone(self.s.check_logical_slots_readiness(self.cluster, False, None))
             self.s.check_logical_slots_readiness(self.cluster, False, None)
 
     @patch.object(Postgresql, 'stop', Mock(return_value=True))
