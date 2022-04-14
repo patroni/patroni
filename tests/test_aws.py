@@ -7,6 +7,7 @@ from mock import Mock, patch
 from collections import namedtuple
 from patroni.scripts.aws import AWSConnection, main as _main
 
+
 class MockVolumes(object):
 
     @staticmethod
