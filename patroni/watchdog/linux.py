@@ -16,10 +16,10 @@ IOC_DIRBITS = 2
 
 # Non-generic platform special cases
 machine = platform.machine()
-if machine in ['mips', 'sparc', 'powerpc', 'ppc64']:  # pragma: no cover
+if machine in ['mips', 'sparc', 'powerpc', 'ppc64', 'ppc64le']:  # pragma: no cover
     IOC_SIZEBITS = 13
     IOC_DIRBITS = 3
-    IOC_NONE, IOC_WRITE, IOC_READ = 1, 2, 4
+    IOC_NONE, IOC_WRITE, IOC_READ = 1, 4, 2
 elif machine == 'parisc':  # pragma: no cover
     IOC_WRITE, IOC_READ = 2, 1
 
