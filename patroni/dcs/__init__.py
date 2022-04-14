@@ -1,5 +1,5 @@
 import abc
-import dateutil
+import dateutil.parser
 import importlib
 import inspect
 import json
