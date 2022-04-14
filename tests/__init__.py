@@ -93,8 +93,8 @@ class MockCursor(object):
             raise RetryFailedError('retry')
         elif sql.startswith('SELECT catalog_xmin'):
             self.results = [(100, 501)]
-        elif sql.startswith('SELECT slot_name, catalog_xmin'):
-            self.results = [('ls', 100, 500, b'123456')]
+        elif sql.startswith('SELECT slot_name, slot_type, datname, plugin, catalog_xmin'):
+            self.results = [('ls', 'logical', 'a', 'b', 100, 500, b'123456')]
         elif sql.startswith('SELECT slot_name'):
             self.results = [('blabla', 'physical'), ('foobar', 'physical'), ('ls', 'logical', 'a', 'b', 5, 100, 500)]
         elif sql.startswith('SELECT CASE WHEN pg_catalog.pg_is_in_recovery()'):

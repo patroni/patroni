@@ -259,21 +259,33 @@ class SlotsHandler(object):
                 if value:
                     logger.info('Logical slot %s is safe to be used after a failover', name)
 
-    def copy_logical_slots(self, leader, slots):
+    def copy_logical_slots(self, cluster, create_slots):
+        leader = cluster.leader
+        slots = cluster.get_replication_slots(self._postgresql.name, 'replica', False, self._postgresql.major_version)
         with self._get_leader_connection_cursor(leader) as cur:
             try:
-                cur.execute("SELECT slot_name, catalog_xmin, "
+                cur.execute("SELECT slot_name, slot_type, datname, plugin, catalog_xmin, "
                             "pg_catalog.pg_wal_lsn_diff(confirmed_flush_lsn, '0/0')::bigint, "
                             "pg_catalog.pg_read_binary_file('pg_replslot/' || slot_name || '/state')"
-                            " FROM pg_catalog.pg_get_replication_slots() WHERE NOT pg_catalog.pg_is_in_recovery()"
-                            " AND slot_name = ANY(%s)", (slots,))
-                slots = {r[0]: {'catalog_xmin': r[1], 'confirmed_flush_lsn': r[2], 'data': r[3]} for r in cur}
+                            " FROM pg_catalog.pg_get_replication_slots() JOIN pg_catalog.pg_database ON datoid = oid"
+                            " WHERE NOT pg_catalog.pg_is_in_recovery() AND slot_name = ANY(%s)", (create_slots,))
+
+                create_slots = {}
+                for r in cur:
+                    if r[0] in slots:  # slot_name is defined in the global configuration
+                        slot = {'type': r[1], 'database': r[2], 'plugin': r[3],
+                                'catalog_xmin': r[4], 'confirmed_flush_lsn': r[5], 'data': r[6]}
+                        if compare_slots(slot, slots[r[0]]):
+                            create_slots[r[0]] = slot
+                        else:
+                            logger.warning('Will not copy the logical slot "%s" due to the configuration mismatch: ' +
+                                           'configuration=%s, slot on the primary=%s', r[0], slots[r[0]], slot)
             except Exception as e:
                 logger.error("Failed to copy logical slots from the %s via postgresql connection: %r", leader.name, e)
 
-        if isinstance(slots, dict) and self._postgresql.stop():
+        if isinstance(create_slots, dict) and create_slots and self._postgresql.stop():
             pg_replslot_dir = os.path.join(self._postgresql.data_dir, 'pg_replslot')
-            for name, value in slots.items():
+            for name, value in create_slots.items():
                 slot_dir = os.path.join(pg_replslot_dir, name)
                 slot_tmp_dir = slot_dir + '.tmp'
                 if os.path.exists(slot_tmp_dir):

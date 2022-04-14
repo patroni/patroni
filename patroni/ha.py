@@ -1490,7 +1490,7 @@ class Ha(object):
                     if create_slots and self.cluster.leader:
                         err = self._async_executor.try_run_async('copy_logical_slots',
                                                                  self.state_handler.slots_handler.copy_logical_slots,
-                                                                 args=(self.cluster.leader, create_slots))
+                                                                 args=(self.cluster, create_slots))
                         if not err:
                             ret = 'Copying logical slots {0} from the primary'.format(create_slots)
             return ret
