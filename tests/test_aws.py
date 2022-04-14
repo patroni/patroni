@@ -1,4 +1,4 @@
-import boto.ec2
+import botocore
 import sys
 import unittest
 import urllib3
@@ -8,21 +8,27 @@ from collections import namedtuple
 from patroni.scripts.aws import AWSConnection, main as _main
 
 
-class MockEc2Connection(object):
+class MockVolumes(object):
 
     @staticmethod
-    def get_all_volumes(*args, **kwargs):
+    def filter(*args, **kwargs):
         oid = namedtuple('Volume', 'id')
         return [oid(id='a'), oid(id='b')]
 
+
+class MockEc2Connection(object):
+
+    volumes = MockVolumes()
+
     @staticmethod
-    def create_tags(objects, *args, **kwargs):
-        if len(objects) == 0:
-            raise boto.exception.BotoServerError(503, 'Service Unavailable', 'Request limit exceeded')
+    def create_tags(Resources, **kwargs):
+        if len(Resources) == 0:
+            raise botocore.exceptions.ClientError({'Error': {'Code': 503, 'Message': 'Request limit exceeded'}},
+                                                  'create_tags')
         return True
 
 
-@patch('boto.ec2.connect_to_region', Mock(return_value=MockEc2Connection()))
+@patch('boto3.resource', Mock(return_value=MockEc2Connection()))
 class TestAWSConnection(unittest.TestCase):
 
     @patch('patroni.scripts.aws.requests_get', Mock(return_value=urllib3.HTTPResponse(
@@ -32,7 +38,7 @@ class TestAWSConnection(unittest.TestCase):
 
     def test_on_role_change(self):
         self.assertTrue(self.conn.on_role_change('master'))
-        with patch.object(MockEc2Connection, 'get_all_volumes', Mock(return_value=[])):
+        with patch.object(MockVolumes, 'filter', Mock(return_value=[])):
             self.conn._retry.max_tries = 1
             self.assertFalse(self.conn.on_role_change('master'))
 
@@ -46,8 +52,7 @@ class TestAWSConnection(unittest.TestCase):
         conn = AWSConnection('test')
         self.assertFalse(conn.aws_available())
 
-    @patch('patroni.scripts.aws.requests_get', Mock(return_value=urllib3.HTTPResponse(
-        status=200, body=b'{"instanceId": "012345", "region": "eu-west-1"}')))
+    @patch('patroni.scripts.aws.requests_get', Mock(return_value=urllib3.HTTPResponse(status=503, body=b'Error')))
     @patch('sys.exit', Mock())
     def test_main(self):
         self.assertIsNone(_main())
