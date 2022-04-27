@@ -17,7 +17,8 @@ Requirements for running behave tests:
 
 1. PostgreSQL packages need to be installed.
 2. PostgreSQL binaries must be available in your `PATH`. You may need to add them to the path with something like `PATH=/usr/lib/postgresql/11/bin:$PATH python -m behave`.
-3. If you'd like to test with external DCSs (e.g., Etcd, Consul, and Zookeeper) you'll need the packages installed and respective services running and accepting unencrypted/unprotected connections on localhost and default port. In the case of Etcd or Consul, the behave test suite could start them up if binaries are available in the `PATH`.
+3. PostgreSQL plugin `test_decoding <https://www.postgresql.org/docs/current/test-decoding.html>` must be installed.
+4. If you'd like to test with external DCSs (e.g., Etcd, Consul, and Zookeeper) you'll need the packages installed and respective services running and accepting unencrypted/unprotected connections on localhost and default port. In the case of Etcd or Consul, the behave test suite could start them up if binaries are available in the `PATH`.
 
  Install dependencies:
 
