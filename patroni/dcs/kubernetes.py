@@ -48,14 +48,29 @@ class K8sConfig(object):
 
     def __init__(self):
         self.pool_config = {'maxsize': 10, 'num_pools': 10}  # configuration for urllib3.PoolManager
+        self._token_expires_at = datetime.datetime.max
         self._make_headers()
+
+    def _set_token(self, token):
+        self._headers['authorization'] = 'Bearer ' + token
 
     def _make_headers(self, token=None, **kwargs):
         self._headers = urllib3.make_headers(user_agent=USER_AGENT, **kwargs)
         if token:
-            self._headers['authorization'] = 'Bearer ' + token
+            self._set_token(token)
 
-    def load_incluster_config(self, ca_certs=SERVICE_CERT_FILENAME):
+    def _read_token_file(self):
+        if not os.path.isfile(SERVICE_TOKEN_FILENAME):
+            raise self.ConfigException('Service token file does not exists.')
+        with open(SERVICE_TOKEN_FILENAME) as f:
+            token = f.read()
+            if not token:
+                raise self.ConfigException('Token file exists but empty.')
+            self._token_expires_at = datetime.datetime.now() + self._token_refresh_interval
+            return token
+
+    def load_incluster_config(self, ca_certs=SERVICE_CERT_FILENAME,
+                              token_refresh_interval=datetime.timedelta(minutes=1)):
         if SERVICE_HOST_ENV_NAME not in os.environ or SERVICE_PORT_ENV_NAME not in os.environ:
             raise self.ConfigException('Service host/port is not set.')
         if not os.environ[SERVICE_HOST_ENV_NAME] or not os.environ[SERVICE_PORT_ENV_NAME]:
@@ -67,14 +82,9 @@ class K8sConfig(object):
             if not f.read():
                 raise self.ConfigException('Cert file exists but empty.')
         self.pool_config['ca_certs'] = ca_certs
-
-        if not os.path.isfile(SERVICE_TOKEN_FILENAME):
-            raise self.ConfigException('Service token file does not exists.')
-        with open(SERVICE_TOKEN_FILENAME) as f:
-            token = f.read()
-            if not token:
-                raise self.ConfigException('Token file exists but empty.')
-            self._make_headers(token=token)
+        self._token_refresh_interval = token_refresh_interval
+        token = self._read_token_file()
+        self._make_headers(token=token)
         self._server = uri('https', (os.environ[SERVICE_HOST_ENV_NAME], os.environ[SERVICE_PORT_ENV_NAME]))
 
     @staticmethod
@@ -109,6 +119,11 @@ class K8sConfig(object):
 
     @property
     def headers(self):
+        if self._token_expires_at <= datetime.datetime.now():
+            try:
+                self._set_token(self._read_token_file())
+            except Exception as e:
+                logger.error('Failed to refresh service account token: %r', e)
         return self._headers.copy()
 
 
