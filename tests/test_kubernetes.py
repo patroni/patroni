@@ -1,3 +1,4 @@
+import datetime
 import json
 import socket
 import time
@@ -79,6 +80,28 @@ class TestK8sConfig(unittest.TestCase):
                 self.assertRaises(k8s_config.ConfigException, k8s_config.load_incluster_config)
             k8s_config.load_incluster_config()
             self.assertEqual(k8s_config.server, 'https://a:1')
+            self.assertEqual(k8s_config.headers.get('authorization'), 'Bearer a')
+
+    def test_refresh_token(self):
+        with patch('os.environ', {SERVICE_HOST_ENV_NAME: 'a', SERVICE_PORT_ENV_NAME: '1'}),\
+                patch('os.path.isfile', Mock(side_effect=[True, True, False, True, True, True])),\
+                patch.object(builtins, 'open', Mock(side_effect=[
+                    mock_open(read_data='cert')(), mock_open(read_data='a')(),
+                    mock_open()(), mock_open(read_data='b')(), mock_open(read_data='c')()])):
+            k8s_config.load_incluster_config(token_refresh_interval=datetime.timedelta(milliseconds=100))
+            self.assertEqual(k8s_config.headers.get('authorization'), 'Bearer a')
+            time.sleep(0.1)
+            # token file doesn't exist
+            self.assertEqual(k8s_config.headers.get('authorization'), 'Bearer a')
+            # token file is empty
+            self.assertEqual(k8s_config.headers.get('authorization'), 'Bearer a')
+            # token refreshed
+            self.assertEqual(k8s_config.headers.get('authorization'), 'Bearer b')
+            time.sleep(0.1)
+            # token refreshed
+            self.assertEqual(k8s_config.headers.get('authorization'), 'Bearer c')
+            # no need to refresh token
+            self.assertEqual(k8s_config.headers.get('authorization'), 'Bearer c')
 
     def test_load_kube_config(self):
         config = {
