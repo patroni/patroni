@@ -1060,7 +1060,7 @@ class Kubernetes(AbstractDCS):
         if kind and (kind.metadata.annotations or {}).get(self._LEADER) == self._name:
             annotations = {self._LEADER: None}
             if last_lsn:
-                annotations[self._OPTIME] = last_lsn
+                annotations[self._OPTIME] = str(last_lsn)
             self.patch_or_create(self.leader_path, annotations, kind.metadata.resource_version, True, False, [])
             self.reset_cluster()
 
