@@ -95,7 +95,7 @@ class TestPostgresql(BaseTestPostgresql):
     @patch('subprocess.call', Mock(return_value=0))
     @patch('os.rename', Mock())
     @patch('patroni.postgresql.CallbackExecutor', Mock())
-    @patch.object(Postgresql, 'get_major_version', Mock(return_value=130000))
+    @patch.object(Postgresql, 'get_major_version', Mock(return_value=140000))
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def setUp(self):
         super(TestPostgresql, self).setUp()
@@ -287,6 +287,8 @@ class TestPostgresql(BaseTestPostgresql):
         mock_get_pg_settings.side_effect = Exception
         with patch('patroni.postgresql.config.mtime', mock_mtime):
             self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
+        with patch.object(Postgresql, 'is_starting', Mock(return_value=True)):
+            self.assertEqual(self.p.config.check_recovery_conf(None), (False, False))
 
     @patch.object(Postgresql, 'major_version', PropertyMock(return_value=100000))
     @patch.object(Postgresql, 'primary_conninfo', Mock(return_value='host=1'))

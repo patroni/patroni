@@ -387,7 +387,7 @@ class Postgresql(object):
         self._query('SELECT pg_catalog.pg_{0}_replay_resume()'.format(self.wal_name))
 
     def handle_parameter_change(self):
-        if self.major_version >= 140000 and self.replay_paused():
+        if self.major_version >= 140000 and not self.is_starting() and self.replay_paused():
             logger.info('Resuming paused WAL replay for PostgreSQL 14+')
             self.resume_wal_replay()
 

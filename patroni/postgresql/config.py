@@ -577,6 +577,9 @@ class ConfigHandler(object):
         return self._RECOVERY_PARAMETERS - skip_params
 
     def _read_recovery_params(self):
+        if self._postgresql.is_starting():
+            return None, False
+
         pg_conf_mtime = mtime(self._postgresql_conf)
         auto_conf_mtime = mtime(self._auto_conf)
         passfile_mtime = mtime(self._passfile) if self._passfile else False
@@ -650,16 +653,17 @@ class ConfigHandler(object):
         elif not primary_conninfo:
             return False
 
-        wal_receiver_primary_conninfo = self._postgresql.primary_conninfo()
-        if wal_receiver_primary_conninfo:
-            wal_receiver_primary_conninfo = parse_dsn(wal_receiver_primary_conninfo)
-            # when wal receiver is alive use primary_conninfo from pg_stat_wal_receiver for comparison
+        if not self._postgresql.is_starting():
+            wal_receiver_primary_conninfo = self._postgresql.primary_conninfo()
             if wal_receiver_primary_conninfo:
-                primary_conninfo = wal_receiver_primary_conninfo
-                # There could be no password in the primary_conninfo or it is masked.
-                # Just copy the "desired" value in order to make comparison succeed.
-                if 'password' in wanted_primary_conninfo:
-                    primary_conninfo['password'] = wanted_primary_conninfo['password']
+                wal_receiver_primary_conninfo = parse_dsn(wal_receiver_primary_conninfo)
+                # when wal receiver is alive use primary_conninfo from pg_stat_wal_receiver for comparison
+                if wal_receiver_primary_conninfo:
+                    primary_conninfo = wal_receiver_primary_conninfo
+                    # There could be no password in the primary_conninfo or it is masked.
+                    # Just copy the "desired" value in order to make comparison succeed.
+                    if 'password' in wanted_primary_conninfo:
+                        primary_conninfo['password'] = wanted_primary_conninfo['password']
 
         if 'passfile' in primary_conninfo and 'password' not in primary_conninfo \
                 and 'password' in wanted_primary_conninfo:
@@ -668,7 +672,7 @@ class ConfigHandler(object):
             else:
                 return False
 
-        return all(primary_conninfo.get(p) == str(v) for p, v in wanted_primary_conninfo.items() if v is not None)
+        return all(str(primary_conninfo.get(p)) == str(v) for p, v in wanted_primary_conninfo.items() if v is not None)
 
     def check_recovery_conf(self, member):
         """Returns a tuple. The first boolean element indicates that recovery params don't match
@@ -704,16 +708,19 @@ class ConfigHandler(object):
             else:  # empty string, primary_conninfo is not in the config
                 primary_conninfo[0] = {}
 
-        # when wal receiver is alive take primary_slot_name from pg_stat_wal_receiver
-        wal_receiver_primary_slot_name = self._postgresql.primary_slot_name()
-        if not wal_receiver_primary_slot_name and self._postgresql.primary_conninfo():
-            wal_receiver_primary_slot_name = ''
-        if wal_receiver_primary_slot_name is not None:
-            self._current_recovery_params['primary_slot_name'][0] = wal_receiver_primary_slot_name
+        if not self._postgresql.is_starting():
+            # when wal receiver is alive take primary_slot_name from pg_stat_wal_receiver
+            wal_receiver_primary_slot_name = self._postgresql.primary_slot_name()
+            if not wal_receiver_primary_slot_name and self._postgresql.primary_conninfo():
+                wal_receiver_primary_slot_name = ''
+            if wal_receiver_primary_slot_name is not None:
+                self._current_recovery_params['primary_slot_name'][0] = wal_receiver_primary_slot_name
 
         # Increment the 'reload' to enforce write of postgresql.conf when joining the running postgres
         required = {'restart': 0,
-                    'reload': int(not self._postgresql.cb_called and self._postgresql.major_version >= 120000)}
+                    'reload': int(self._postgresql.major_version >= 120000
+                                  and not self._postgresql.cb_called
+                                  and not self._postgresql.is_starting())}
 
         def record_missmatch(mtype):
             required['restart' if mtype else 'reload'] += 1
@@ -780,6 +787,15 @@ class ConfigHandler(object):
             else:
                 self._remove_file_if_exists(self._standby_signal)
                 open(self._recovery_signal, 'w').close()
+
+            def restart_required(name):
+                if self._postgresql.major_version >= 140000:
+                    return False
+                return name == 'restore_command' or (self._postgresql.major_version < 130000
+                                                     and name in ('primary_conninfo', 'primary_slot_name'))
+
+            self._current_recovery_params = {n: [v, restart_required(n), self._postgresql_conf]
+                                             for n, v in recovery_params.items()}
         else:
             with ConfigWriter(self._recovery_conf) as f:
                 os.chmod(self._recovery_conf, stat.S_IWRITE | stat.S_IREAD)
@@ -789,6 +805,7 @@ class ConfigHandler(object):
         for name in (self._recovery_conf, self._standby_signal, self._recovery_signal):
             self._remove_file_if_exists(name)
         self._recovery_params = {}
+        self._current_recovery_params = None
 
     def _sanitize_auto_conf(self):
         overwrite = False
