@@ -91,8 +91,8 @@ class MockCursor(object):
             raise psycopg.OperationalError()
         elif sql.startswith('RetryFailedError'):
             raise RetryFailedError('retry')
-        elif sql.startswith('SELECT catalog_xmin'):
-            self.results = [(100, 501)]
+        elif sql.startswith('SELECT slot_name, catalog_xmin'):
+            self.results = [('postgresql0', 100), ('ls', 100)]
         elif sql.startswith('SELECT slot_name, slot_type, datname, plugin, catalog_xmin'):
             self.results = [('ls', 'logical', 'a', 'b', 100, 500, b'123456')]
         elif sql.startswith('SELECT slot_name'):
