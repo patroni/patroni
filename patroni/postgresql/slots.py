@@ -254,9 +254,9 @@ class SlotsHandler(object):
                     catalog_xmin = slots.pop(slot_name)
             except Exception as e:
                 return logger.error("Failed to check %s physical slot on the primary: %r", slot_name, e)
-            # Remember catalog_xmin of logical slots on the primary when catalog_xmin on
-            # physical's slot became valid. Logical slots on replica will be safe to use
-            # after promote when the catalog_xmin of the physical slot overtakes these values.
+            # Remember catalog_xmin of logical slots on the primary when catalog_xmin of
+            # the physical slot became valid. Logical slots on replica will be safe to use after
+            # promote when catalog_xmin of the physical slot overtakes these values.
             if catalog_xmin:
                 for name, value in slots.items():
                     self._unready_logical_slots[name] = value
@@ -264,7 +264,7 @@ class SlotsHandler(object):
                 try:
                     cur = self._query("SELECT pg_catalog.current_setting('hot_standby_feedback')::boolean")
                     if not cur.fetchone()[0]:
-                        return logger.error('Logical slots failover requires "hot_standby_feedback".'
+                        return logger.error('Logical slot failover requires "hot_standby_feedback".'
                                             ' Please check postgresql.auto.conf')
                 except Exception as e:
                     return logger.error('Failed to check the hot_standby_feedback setting: %r', e)
