@@ -99,9 +99,11 @@ class String(namedtuple('String', 'version_from,version_till')):
 #  key - parameter name
 #  value - tuple or multiple tuples if something was changing in GUC across postgres versions
 parameters = CaseInsensitiveDict({
+    'allow_in_place_tablespaces': Bool(150000, None),
     'allow_system_table_mods': Bool(90300, None),
     'application_name': String(90300, None),
     'archive_command': String(90300, None),
+    'archive_library': String(150000, None),
     'archive_mode': (
         Bool(90300, 90500),
         EnumBool(90500, None, ('always',))
@@ -158,7 +160,10 @@ parameters = CaseInsensitiveDict({
     'cluster_name': String(90500, None),
     'commit_delay': Integer(90300, None, 0, 100000, None),
     'commit_siblings': Integer(90300, None, 0, 1000, None),
-    'compute_query_id': EnumBool(140000, None, ('auto',)),
+    'compute_query_id': (
+        EnumBool(140000, 150000, ('auto',)),
+        EnumBool(150000, None, ('auto', 'regress'))
+    ),
     'config_file': String(90300, None),
     'constraint_exclusion': EnumBool(90300, None, ('partition',)),
     'cpu_index_tuple_cost': Real(90300, None, 0, 1.79769e+308, None),
@@ -170,6 +175,7 @@ parameters = CaseInsensitiveDict({
     'DateStyle': String(90300, None),
     'db_user_namespace': Bool(90300, None),
     'deadlock_timeout': Integer(90300, None, 1, 2147483647, 'ms'),
+    'debug_discard_caches': Integer(150000, None, 0, 0, None),
     'debug_pretty_print': Bool(90300, None),
     'debug_print_parse': Bool(90300, None),
     'debug_print_plan': Bool(90300, None),
@@ -194,12 +200,14 @@ parameters = CaseInsensitiveDict({
     'enable_async_append': Bool(140000, None),
     'enable_bitmapscan': Bool(90300, None),
     'enable_gathermerge': Bool(100000, None),
+    'enable_group_by_reordering': Bool(150000, None),
     'enable_hashagg': Bool(90300, None),
     'enable_hashjoin': Bool(90300, None),
     'enable_incremental_sort': Bool(130000, None),
     'enable_indexonlyscan': Bool(90300, None),
     'enable_indexscan': Bool(90300, None),
     'enable_material': Bool(90300, None),
+    'enable_memoize': Bool(150000, None),
     'enable_mergejoin': Bool(90300, None),
     'enable_nestloop': Bool(90300, None),
     'enable_parallel_append': Bool(110000, None),
@@ -294,6 +302,7 @@ parameters = CaseInsensitiveDict({
     'log_replication_commands': Bool(90500, None),
     'log_rotation_age': Integer(90300, None, 0, 35791394, 'min'),
     'log_rotation_size': Integer(90300, None, 0, 2097151, 'kB'),
+    'log_startup_progress_interval': Integer(150000, None, 0, 2147483647, 'ms'),
     'log_statement': Enum(90300, None, ('none', 'ddl', 'mod', 'all')),
     'log_statement_sample_rate': Real(130000, None, 0, 1, None),
     'log_statement_stats': Bool(90300, None),
@@ -368,6 +377,8 @@ parameters = CaseInsensitiveDict({
     'quote_all_identifiers': Bool(90300, None),
     'random_page_cost': Real(90300, None, 0, 1.79769e+308, None),
     'recovery_init_sync_method': Enum(140000, None, ('fsync', 'syncfs')),
+    'recovery_prefetch': EnumBool(150000, None, ('try',)),
+    'recursive_worktable_factor': Real(150000, None, 0.001, 1e+06, None),
     'remove_temp_files_after_crash': Bool(140000, None),
     'replacement_sort_tuples': Integer(90600, 110000, 0, 2147483647, None),
     'restart_after_crash': Bool(90300, None),
@@ -397,7 +408,8 @@ parameters = CaseInsensitiveDict({
     'ssl_renegotiation_limit': Integer(90300, 90500, 0, 2147483647, 'kB'),
     'standard_conforming_strings': Bool(90300, None),
     'statement_timeout': Integer(90300, None, 0, 2147483647, 'ms'),
-    'stats_temp_directory': String(90300, None),
+    'stats_fetch_consistency': Enum(150000, None, ('none', 'cache', 'snapshot')),
+    'stats_temp_directory': String(90300, 150000),
     'superuser_reserved_connections': (
         Integer(90300, 90600, 0, 8388607, None),
         Integer(90600, None, 0, 262143, None)
@@ -463,8 +475,12 @@ parameters = CaseInsensitiveDict({
     'vacuum_multixact_freeze_min_age': Integer(90300, None, 0, 1000000000, None),
     'vacuum_multixact_freeze_table_age': Integer(90300, None, 0, 2000000000, None),
     'wal_buffers': Integer(90300, None, -1, 262143, '8kB'),
-    'wal_compression': Bool(90500, None),
+    'wal_compression': (
+        Bool(90500, 150000),
+        EnumBool(150000, None, ('pglz', 'lz4', 'zstd'))
+    ),
     'wal_consistency_checking': String(100000, None),
+    'wal_decode_buffer_size': Integer(150000, None, 65536, 1073741823, 'B'),
     'wal_init_zero': Bool(120000, None),
     'wal_keep_segments': Integer(90300, 130000, 0, 2147483647, None),
     'wal_keep_size': Integer(130000, None, 0, 2147483647, 'MB'),

@@ -110,7 +110,7 @@ postgresql:
     # Fully qualified kerberos ticket file for the running user
     # same as KRB5CCNAME used by the GSS
 #    krb_server_keyfile: /var/spool/keytabs/postgres
-    unix_socket_directories: '.'
+    unix_socket_directories: '..'  # parent directory of data_dir
 tags:
     nofailover: false
     noloadbalance: false
