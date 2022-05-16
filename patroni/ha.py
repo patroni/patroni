@@ -307,7 +307,8 @@ class Ha(object):
 
         if self._rewind.can_rewind:
             # rewind is required, but postgres wasn't shut down cleanly.
-            if self.state_handler.controldata().get('Database cluster state') == 'in archive recovery':
+            if not self.state_handler.is_running() and \
+                    self.state_handler.controldata().get('Database cluster state') == 'in archive recovery':
                 msg = self._handle_crash_recovery()
                 if msg:
                     return msg
