@@ -66,7 +66,7 @@ class TestRewind(BaseTestPostgresql):
 
     def test_pg_rewind(self):
         r = {'user': '', 'host': '', 'port': '', 'database': '', 'password': ''}
-        with patch.object(Postgresql, 'major_version', PropertyMock(return_value=130000)),\
+        with patch.object(Postgresql, 'major_version', PropertyMock(return_value=150000)),\
                 patch.object(CancellableSubprocess, 'call', Mock(return_value=None)):
             with patch('subprocess.check_output', Mock(return_value=b'boo')):
                 self.assertFalse(self.r.pg_rewind(r))
