@@ -316,8 +316,7 @@ class Ha(object):
             msg = 'running pg_rewind from ' + leader.name
             return self._async_executor.try_run_async(msg, self._rewind.execute, args=(leader,)) or msg
 
-        # remove_data_directory_on_diverged_timelines is set
-        if not self.is_standby_cluster():
+        if self._rewind.should_remove_data_directory_on_diverged_timelines and not self.is_standby_cluster():
             msg = 'reinitializing due to diverged timelines'
             return self._async_executor.try_run_async(msg, self._do_reinitialize, args=(self.cluster,)) or msg
 

@@ -314,6 +314,7 @@ class TestHa(PostgresInit):
             self.assertEqual(self.ha.run_cycle(), 'fake')
 
     @patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
+    @patch.object(Rewind, 'should_remove_data_directory_on_diverged_timelines', PropertyMock(return_value=True))
     @patch.object(Bootstrap, 'create_replica', Mock(return_value=1))
     def test_recover_with_reinitialize(self):
         self.p.is_running = false

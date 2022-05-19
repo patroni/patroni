@@ -47,8 +47,12 @@ class Rewind(object):
         return self.configuration_allows_rewind(self._postgresql.controldata())
 
     @property
+    def should_remove_data_directory_on_diverged_timelines(self):
+        return self._postgresql.config.get('remove_data_directory_on_diverged_timelines')
+
+    @property
     def can_rewind_or_reinitialize_allowed(self):
-        return self._postgresql.config.get('remove_data_directory_on_diverged_timelines') or self.can_rewind
+        return self.should_remove_data_directory_on_diverged_timelines or self.can_rewind
 
     def trigger_check_diverged_lsn(self):
         if self.can_rewind_or_reinitialize_allowed and self._state != REWIND_STATUS.NEED:
@@ -374,19 +378,22 @@ class Rewind(object):
 
         if self.pg_rewind(r):
             self._state = REWIND_STATUS.SUCCESS
-        elif not self.check_leader_is_not_in_recovery(r):
-            logger.warning('Failed to rewind because master %s become unreachable', leader.name)
         else:
-            logger.error('Failed to rewind from healty master: %s', leader.name)
-
-            for name in ('remove_data_directory_on_rewind_failure', 'remove_data_directory_on_diverged_timelines'):
-                if self._postgresql.config.get(name):
-                    logger.warning('%s is set. removing...', name)
-                    self._postgresql.remove_data_directory()
-                    self._state = REWIND_STATUS.INITIAL
-                    break
+            if not self.check_leader_is_not_in_recovery(r):
+                logger.warning('Failed to rewind because master %s become unreachable', leader.name)
+                if not self.can_rewind:  # It is possible that the previous attempt damaged pg_control file!
+                    self._state = REWIND_STATUS.FAILED
             else:
+                logger.error('Failed to rewind from healty master: %s', leader.name)
                 self._state = REWIND_STATUS.FAILED
+
+            if self.failed:
+                for name in ('remove_data_directory_on_rewind_failure', 'remove_data_directory_on_diverged_timelines'):
+                    if self._postgresql.config.get(name):
+                        logger.warning('%s is set. removing...', name)
+                        self._postgresql.remove_data_directory()
+                        self._state = REWIND_STATUS.INITIAL
+                        break
         return False
 
     def reset_state(self):
