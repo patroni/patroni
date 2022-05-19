@@ -976,7 +976,7 @@ class Kubernetes(AbstractDCS):
                        'transitions': leader_observed_record.get('transitions') or '0'}
         if last_lsn:
             annotations[self._OPTIME] = str(last_lsn)
-        annotations['slots'] = json.dumps(slots) if slots else None
+            annotations['slots'] = json.dumps(slots) if slots else None
 
         resource_version = kind and kind.metadata.resource_version
         return self._update_leader_with_retry(annotations, resource_version, self.__ips)
