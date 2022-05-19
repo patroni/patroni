@@ -47,12 +47,12 @@ class Rewind(object):
         return self.configuration_allows_rewind(self._postgresql.controldata())
 
     @property
-    def remove_data_directory_on_diverged_timelines(self):
+    def should_remove_data_directory_on_diverged_timelines(self):
         return self._postgresql.config.get('remove_data_directory_on_diverged_timelines')
 
     @property
     def can_rewind_or_reinitialize_allowed(self):
-        return self.remove_data_directory_on_diverged_timelines or self.can_rewind
+        return self.should_remove_data_directory_on_diverged_timelines or self.can_rewind
 
     def trigger_check_diverged_lsn(self):
         if self.can_rewind_or_reinitialize_allowed and self._state != REWIND_STATUS.NEED:
