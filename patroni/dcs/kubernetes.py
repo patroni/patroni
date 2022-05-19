@@ -518,6 +518,8 @@ class ObjectCache(Thread):
         self._condition = condition
         self._name = name  # name of this pod
         self._is_ready = False
+        self._response = None  # needs to be accessible from the `kill_stream()` method
+        self._response_lock = Lock()  # protect the `self._response` from concurrent access
         self._object_cache = {}
         self._object_cache_lock = Lock()
         self._annotations_map = {self._dcs.leader_path: self._dcs._LEADER, self._dcs.config_path: self._dcs._CONFIG}
@@ -558,63 +560,99 @@ class ObjectCache(Thread):
         with self._object_cache_lock:
             return self._object_cache.get(name)
 
+    def _process_event(self, event):
+        ev_type = event['type']
+        obj = event['object']
+        name = obj['metadata']['name']
+
+        if ev_type in ('ADDED', 'MODIFIED'):
+            obj = K8sObject(obj)
+            success, old_value = self.set(name, obj)
+            if success:
+                new_value = (obj.metadata.annotations or {}).get(self._annotations_map.get(name))
+        elif ev_type == 'DELETED':
+            success, old_value = self.delete(name, obj['metadata']['resourceVersion'])
+            new_value = None
+        else:
+            return logger.warning('Unexpected event type: %s', ev_type)
+
+        if success and obj.get('kind') != 'Pod':
+            if old_value:
+                old_value = (old_value.metadata.annotations or {}).get(self._annotations_map.get(name))
+
+            value_changed = old_value != new_value and \
+                (name != self._dcs.config_path or old_value is not None and new_value is not None)
+
+            if value_changed:
+                logger.debug('%s changed from %s to %s', name, old_value, new_value)
+
+            # Do not wake up HA loop if we run as leader and received leader object update event
+            if value_changed or name == self._dcs.leader_path and self._name != new_value:
+                self._dcs.event.set()
+
+    @staticmethod
+    def _finish_response(response):
+        try:
+            response.close()
+        finally:
+            response.release_conn()
+
+    def _do_watch(self, resource_version):
+        with self._response_lock:
+            self._response = None
+        response = self._watch(resource_version)
+        with self._response_lock:
+            if self._response is None:
+                self._response = response
+
+        if not self._response:
+            return self._finish_response(response)
+
+        for event in iter_response_objects(response):
+            if event['object'].get('code') == 410:
+                break
+            self._process_event(event)
+
     def _build_cache(self):
         objects = self._list()
-        return_type = 'V1' + objects.kind[:-4]
         with self._object_cache_lock:
             self._object_cache = {item.metadata.name: item for item in objects.items}
         with self._condition:
             self._is_ready = True
             self._condition.notify()
 
-        response = self._watch(objects.metadata.resource_version)
         try:
-            for event in iter_response_objects(response):
-                obj = event['object']
-                if obj.get('code') == 410:
-                    break
-
-                ev_type = event['type']
-                name = obj['metadata']['name']
-
-                if ev_type in ('ADDED', 'MODIFIED'):
-                    obj = K8sObject(obj)
-                    success, old_value = self.set(name, obj)
-                    if success:
-                        new_value = (obj.metadata.annotations or {}).get(self._annotations_map.get(name))
-                elif ev_type == 'DELETED':
-                    success, old_value = self.delete(name, obj['metadata']['resourceVersion'])
-                    new_value = None
-                else:
-                    logger.warning('Unexpected event type: %s', ev_type)
-                    continue
-
-                if success and return_type != 'V1Pod':
-                    if old_value:
-                        old_value = (old_value.metadata.annotations or {}).get(self._annotations_map.get(name))
-
-                    value_changed = old_value != new_value and \
-                        (name != self._dcs.config_path or old_value is not None and new_value is not None)
-
-                    if value_changed:
-                        logger.debug('%s changed from %s to %s', name, old_value, new_value)
-
-                    # Do not wake up HA loop if we run as leader and received leader object update event
-                    if value_changed or name == self._dcs.leader_path and self._name != new_value:
-                        self._dcs.event.set()
+            self._do_watch(objects.metadata.resource_version)
         finally:
             with self._condition:
                 self._is_ready = False
-            response.close()
-            response.release_conn()
+            with self._response_lock:
+                response, self._response = self._response, None
+            if response:
+                self._finish_response(response)
+
+    def kill_stream(self):
+        sock = None
+        with self._response_lock:
+            if self._response:
+                try:
+                    sock = self._response.connection.sock
+                except Exception:
+                    sock = None
+            else:
+                self._response = False
+        if sock:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+                sock.close()
+            except Exception as e:
+                logger.debug('Error on socket.shutdown: %r', e)
 
     def run(self):
         while True:
             try:
                 self._build_cache()
             except Exception as e:
-                with self._condition:
-                    self._is_ready = False
                 logger.error('ObjectCache.run %r', e)
 
     def is_ready(self):
@@ -889,7 +927,14 @@ class Kubernetes(AbstractDCS):
     def patch_or_create(self, name, annotations, resource_version=None, patch=False, retry=True, ips=None):
         if retry is True:
             retry = self.retry
-        return self._patch_or_create(name, annotations, resource_version, patch, retry, ips)
+        try:
+            return self._patch_or_create(name, annotations, resource_version, patch, retry, ips)
+        except k8s_client.rest.ApiException as e:
+            if e.status == 409 and resource_version:  # Conflict in resource_version
+                # Terminate watchers, it could be a sign that K8s API is in a failed state
+                self._kinds.kill_stream()
+                self._pods.kill_stream()
+            raise e
 
     def patch_or_create_config(self, annotations, resource_version=None, patch=False, retry=True):
         # SCOPE-config endpoint requires corresponding service otherwise it might be "cleaned" by k8s master

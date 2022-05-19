@@ -4,7 +4,7 @@ import socket
 import time
 import unittest
 
-from mock import Mock, mock_open, patch
+from mock import Mock, PropertyMock, mock_open, patch
 from patroni.dcs.kubernetes import k8s_client, k8s_config, K8sConfig, K8sConnectionFailed,\
         K8sException, K8sObject, Kubernetes, KubernetesError, KubernetesRetriableException,\
         Retry, RetryFailedError, SERVICE_HOST_ENV_NAME, SERVICE_PORT_ENV_NAME
@@ -235,7 +235,9 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
             self.k.manual_failover('foo', 'bar')
 
     def test_set_config_value(self):
-        self.k.set_config_value('{}')
+        with patch.object(k8s_client.CoreV1Api, 'patch_namespaced_config_map',
+                          Mock(side_effect=k8s_client.rest.ApiException(409, '')), create=True):
+            self.k.set_config_value('{}', 1)
 
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_pod', create=True)
     def test_touch_member(self, mock_patch_namespaced_pod):
@@ -345,3 +347,18 @@ class TestCacheBuilder(BaseTestKubernetes):
     def test__list(self):
         self.k._pods._func = Mock(side_effect=Exception)
         self.assertRaises(Exception, self.k._pods._list)
+
+    @patch('patroni.dcs.kubernetes.ObjectCache._watch', Mock(return_value=None))
+    def test__do_watch(self):
+        self.assertRaises(AttributeError, self.k._kinds._do_watch, '1')
+
+    @patch.object(k8s_client.CoreV1Api, 'list_namespaced_config_map', mock_list_namespaced_config_map, create=True)
+    @patch('patroni.dcs.kubernetes.ObjectCache._watch')
+    def test_kill_stream(self, mock_watch):
+        self.k._kinds.kill_stream()
+        mock_watch.return_value.read_chunked.return_value = []
+        mock_watch.return_value.connection.sock.close.side_effect = Exception
+        self.k._kinds._do_watch('1')
+        self.k._kinds.kill_stream()
+        type(mock_watch.return_value).connection = PropertyMock(side_effect=Exception)
+        self.k._kinds.kill_stream()
