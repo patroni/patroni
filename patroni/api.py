@@ -153,7 +153,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             elif path in ('/async', '/asynchronous') and not is_synchronous:
                 status_code = replica_status_code
             elif path in ('/read-only-sync', '/read-only-synchronous'):
-                if primary_status_code == 200:
+                if 200 in (primary_status_code, standby_leader_status_code):
                     status_code = 200
                 elif is_synchronous:
                     status_code = replica_status_code
