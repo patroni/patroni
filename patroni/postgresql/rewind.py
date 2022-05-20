@@ -29,12 +29,16 @@ class Rewind(object):
         return data.get('wal_log_hints setting', 'off') == 'on' or data.get('Data page checksum version', '0') != '0'
 
     @property
+    def enabled(self):
+        return self._postgresql.config.get('use_pg_rewind')
+
+    @property
     def can_rewind(self):
         """ check if pg_rewind executable is there and that pg_controldata indicates
             we have either wal_log_hints or checksums turned on
         """
         # low-hanging fruit: check if pg_rewind configuration is there
-        if not self._postgresql.config.get('use_pg_rewind'):
+        if not self.enabled:
             return False
 
         cmd = [self._postgresql.pgcommand('pg_rewind'), '--help']
@@ -186,8 +190,14 @@ class Rewind(object):
         if isinstance(leader, Leader) and leader.member.data.get('role') != 'master':
             return
 
-        if not self.check_leader_is_not_in_recovery(
-                self._conn_kwargs(leader, self._postgresql.config.replication)):
+        # We want to use replication credentials when connecting to the "postgres" database in case if
+        # `use_pg_rewind` isn't enabled and only `remove_data_directory_on_diverged_timelines` is set
+        # for Postgresql older than v11 (where Patroni can't use a dedicated user for rewind).
+        # In all other cases we will use rewind or superuser credentials.
+        check_credentials = self._postgresql.config.replication if not self.enabled and\
+            self.should_remove_data_directory_on_diverged_timelines and\
+            self._postgresql.major_version < 110000 else self._postgresql.config.rewind_credentials
+        if not self.check_leader_is_not_in_recovery(self._conn_kwargs(leader, check_credentials)):
             return
 
         history = need_rewind = None
