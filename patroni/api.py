@@ -152,6 +152,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 status_code = replica_status_code
             elif path in ('/async', '/asynchronous') and not is_synchronous:
                 status_code = replica_status_code
+            elif path in ('/read-only-sync', '/read-only-synchronous'):
+                if 200 in (primary_status_code, standby_leader_status_code):
+                    status_code = 200
+                elif is_synchronous:
+                    status_code = replica_status_code
 
         # check for user defined tags in query params
         if not ignore_tags and status_code == 200:
