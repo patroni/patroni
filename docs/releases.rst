@@ -3,6 +3,78 @@
 Release notes
 =============
 
+Version 2.1.4
+-------------
+
+**New features**
+
+- Improve ``pg_rewind`` behavior on typical Debian/Ubuntu systems (Gunnar "Nick" Bluth)
+
+  On Postgres setups that keep `postgresql.conf` outside of the data directory (e.g. Ubuntu/Debian packages), ``pg_rewind --restore-target-wal``  fails to figure out the value of the ``restore_command``.
+
+- Allow setting ``TLSServerName`` on Consul service checks (Michael Gmelin)
+
+  Useful when checks are performed by IP and the Consul ``node_name`` is not a FQDN.
+
+- Added ``ppc64le`` support in watchdog (Jean-Michel Scheiwiler)
+
+  And fixed watchdog support on some non-x86 platforms.
+
+- Switched aws.py callback from ``boto`` to ``boto3`` (Alexander Kukushkin)
+
+ ``boto``  2.x is abandoned since 2018 and fails with python 3.9.
+
+- Periodically refresh service account token on K8s (Haitao Li)
+
+  Since Kubernetes v1.21 service account tokens expire in 1 hour.
+
+- Added ``/read-only-sync`` monitoring endpoint (Dennis4b)
+
+  It is similar to the ``/read-only`` but includes only synchronous replicas.
+
+
+**Stability improvements**
+
+- Don't copy the logical replication slot to a replica if there is a configuration mismatch in the logical decoding setup with the primary (Alexander)
+
+  A replica won't copy a logical replication slot from the primary anymore if the slot doesn't match the ``plugin`` or ``database`` configuration options. Previously, the check for whether the slot matches those configuration options was not performed until after the replica copied the slot and started with it, resulting in unnecessary and repeated restarts.
+
+- Special handling of recovery configuration parameters for PostgreSQL v12+ (Alexander)
+
+  While starting as replica Patroni should be able to update ``postgresql.conf`` and restart/reload if the leader address has changed by caching current parameters values instead of querying them from ``pg_settings``.
+
+- Better handling of IPv6 addresses in the ``postgresql.listen`` parameters (Alexander)
+
+  Since the ``listen`` parameter has a port, people try to put IPv6 addresses into square brackets, which were not correctly stripped when there is more than one IP in the list.
+
+- Use ``replication`` credentials when performing divergence check only on PostgreSQL v10 and older (Alexander)
+
+  If ``rewind`` is enabled, Patroni will again use either ``superuser`` or ``rewind`` credentials on newer Postgres versions.
+
+
+**Bugfixes**
+
+- Fixed missing import of ``dateutil.parser`` (Wesley Mendes)
+
+  Tests weren't failing only because it was also imported from other modules.
+
+- Ensure that ``optime`` annotation is a string (Sebastian Hasler)
+
+  In certain cases Patroni was trying to pass it as numeric.
+
+- Better handling of failed ``pg_rewind`` attempt (Alexander)
+
+  If the primary becomes unavailable during ``pg_rewind``, ``$PGDATA`` will be left in a broken state. Following that,  Patroni will remove the data directory even if this is not allowed by the configuration.
+
+- Don't remove ``slots`` annotations from the leader ``ConfigMap``/``Endpoint`` when PostgreSQL isn't ready (Alexander)
+
+  If ``slots`` value isn't passed the annotation will keep the current value.
+
+- Handle concurrency problem with K8s API watchers (Alexander)
+
+  Under certain (unknown) conditions watchers might become stale; as a result, ``attempt_to_acquire_leader()`` method could fail due to the HTTP status code 409. In that case we reset watchers connections and restart from scratch.
+
+
 Version 2.1.3
 -------------
 

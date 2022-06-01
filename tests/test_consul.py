@@ -91,7 +91,7 @@ class TestConsul(unittest.TestCase):
         Consul({'ttl': 30, 'scope': 't_', 'name': 'p', 'url': 'https://l:1', 'retry_timeout': 10,
                 'verify': 'on', 'cert': 'bar', 'cacert': 'buz', 'register_service': True})
         self.c = Consul({'ttl': 30, 'scope': 'test', 'name': 'postgresql1', 'host': 'localhost:1', 'retry_timeout': 10,
-                         'register_service': True})
+                         'register_service': True, 'service_check_tls_server_name': True})
         self.c._base_path = '/service/good'
         self.c.get_cluster()
 
