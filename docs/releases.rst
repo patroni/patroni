@@ -37,7 +37,7 @@ Version 2.1.4
 
 - Don't copy the logical replication slot to a replica if there is a configuration mismatch in the logical decoding setup with the primary (Alexander)
 
-  Previously Patroni was copying a logical slot to a replica with restart, noticing that ``plugin`` or ``database`` are different from the config and immediately removing it.
+  A replica won't copy a logical replication slot from the primary anymore if the slot doesn't match the ``plugin`` or ``database`` configuration options. Previously, the check for whether the slot matches those configuration options was not performed until after the replica copied the slot and started with it, resulting in unnecessary and repeated restarts.
 
 - Special handling of recovery configuration parameters for PostgreSQL v12+ (Alexander)
 
