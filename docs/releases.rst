@@ -64,7 +64,7 @@ Version 2.1.4
 
 - Better handling of failed ``pg_rewind`` attempt (Alexander)
 
-  If the primary becomes unavailable during ``pg_rewind``, ``$PGDATA`` will be left a broken state. Following that,  Patroni will remove the data directory even if this is not allowed by the configuration.
+  If the primary becomes unavailable during ``pg_rewind``, ``$PGDATA`` will be left in a broken state. Following that,  Patroni will remove the data directory even if this is not allowed by the configuration.
 
 - Don't remove ``slots`` annotations from the leader ``ConfigMap``/``Endpoint`` when PostgreSQL isn't ready (Alexander)
 
