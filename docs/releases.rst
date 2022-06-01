@@ -10,11 +10,11 @@ Version 2.1.4
 
 - Improve ``pg_rewind`` behavior on typical Debian/Ubuntu systems (Gunnar "Nick" Bluth)
 
-  On Debian/Ubuntu systems it is common to keep Postgres config files outside of the data directory. That makes ``pg_rewind --restore-target-wal`` to fail because it can't find ``postgresql.conf`` when trying to figure out``resolve_command``.
+  On Postgres setups that keep `postgresql.conf` outside of the data directory (e.g. Ubuntu/Debian packages), ``pg_rewind --restore-target-wal``  fails to figure out the value of the ``restore_command``.
 
 - Allow setting ``TLSServerName`` on Consul service checks (Michael Gmelin)
 
-  Useful in case checks are done by IP and the Consul ``node_name`` is not an FQDN.
+  Useful when checks are performed by IP and the Consul ``node_name`` is not a FQDN.
 
 - Added ``ppc64le`` support in watchdog (Jean-Michel Scheiwiler)
 
@@ -22,7 +22,7 @@ Version 2.1.4
 
 - Switched aws.py callback from ``boto`` to ``boto3`` (Alexander Kukushkin)
 
-  The ``boto`` is abandoned since 2018 and fails in python 3.9.
+ ``boto``  2.x is abandoned since 2018 and fails with python 3.9.
 
 - Periodically refresh service account token on K8s (Haitao Li)
 
@@ -35,21 +35,21 @@ Version 2.1.4
 
 **Stability improvements**
 
-- Don't copy the logical slot if there is a mismatch with the config (Alexander)
+- Don't copy the logical replication slot to a replica if there is a configuration mismatch in the logical decoding setup with the primary (Alexander)
 
   Previously Patroni was copying a logical slot to a replica with restart, noticing that ``plugin`` or ``database`` are different from the config and immediately removing it.
 
 - Special handling of recovery configuration parameters for PostgreSQL v12+ (Alexander)
 
-  While starting as replica Patroni is be able to update ``postgresql.conf`` and restart/reload if the leader address has changed by caching current parameters values instead of querying them from ``pg_settings``.
+  While starting as replica Patroni should be able to update ``postgresql.conf`` and restart/reload if the leader address has changed by caching current parameters values instead of querying them from ``pg_settings``.
 
 - Better handling of IPv6 addresses in the ``postgresql.listen`` parameters (Alexander)
 
-  Since the ``listen`` parameter has a port people try to put IPv6 addresses into square braces which were not correctly stripped when there is more than one IP in the list.
+  Since the ``listen`` parameter has a port, people try to put IPv6 addresses into square brackets, which were not correctly stripped when there is more than one IP in the list.
 
 - Use ``replication`` credentials when performing divergence check only on PostgreSQL v10 and older (Alexander)
 
-  If ``rewind`` is allowed Patroni will use either ``superuser`` or ``rewind`` credentials as before.
+  If ``rewind`` is enabled, Patroni will again use either ``superuser`` or ``rewind`` credentials on newer Postgres versions.
 
 
 **Bugfixes**
@@ -64,7 +64,7 @@ Version 2.1.4
 
 - Better handling of failed ``pg_rewind`` attempt (Alexander)
 
-  If the primary becomes unavailable during ``pg_rewind`` the last one may leave ``$PGDATA`` in a broken state, what was causing removal of the data directory even if it wasn't allowed by configuration
+  If the primary becomes unavailable during ``pg_rewind``, ``$PGDATA`` will be left a broken state. Following that,  Patroni will remove the data directory even if this is not allowed by the configuration.
 
 - Don't remove ``slots`` annotations from the leader ``ConfigMap``/``Endpoint`` when PostgreSQL isn't ready (Alexander)
 
@@ -72,7 +72,7 @@ Version 2.1.4
 
 - Handle concurrency problem with K8s API watchers (Alexander)
 
-  Under certain (unknown) conditions watchers might become stale, which was causing ``attempt_to_acquire_leader()`` method to fail due to the HTTP status code 409. In this case we reset watchers connections and restart from scratch.
+  Under certain (unknown) conditions watchers might become stale; as a result, ``attempt_to_acquire_leader()`` method could fail due to the HTTP status code 409. In that case we reset watchers connections and restart from scratch.
 
 
 Version 2.1.3
