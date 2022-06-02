@@ -131,7 +131,7 @@ class Ha(object):
     def is_static_primary(self):
         """Check if this node is configured as the static primary of the cluster."""
         static_primary = self.patroni.config.get('static_primary')
-        name = self.patroni.config.get('name')
+        name = self.state_handler.name
         if static_primary is None or name is None:
             return False
         return static_primary == name
@@ -716,7 +716,6 @@ class Ha(object):
         ret = False
         cluster_timeline = self.cluster.timeline
         if self.is_static_primary():
-            logger.warning('manual failover: not possible when instance is static primary')
             return ret
         members = [m for m in members if m.name != self.state_handler.name and not m.nofailover and m.api_url]
         if check_synchronous and self.is_synchronous_mode():
@@ -1000,6 +999,7 @@ class Ha(object):
 
     def process_unhealthy_cluster(self):
         """Cluster has no leader key"""
+
         if self.is_healthiest_node():
             if self.acquire_lock():
                 failover = self.cluster.failover

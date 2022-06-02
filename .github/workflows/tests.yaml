@@ -15,8 +15,6 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu, windows, macos]
-    env:
-      PYTHONWARNINGS: ignore
 
     steps:
     - uses: actions/checkout@v1
