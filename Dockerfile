@@ -1,6 +1,6 @@
 ## This Dockerfile is meant to aid in the building and debugging patroni whilst developing on your local machine
 ## It has all the necessary components to play/debug with a single node appliance, running etcd
-ARG PG_MAJOR=10
+ARG PG_MAJOR=14
 ARG COMPRESS=false
 ARG PGHOME=/home/postgres
 ARG PGDATA=$PGHOME/data
@@ -24,7 +24,7 @@ RUN set -ex \
     && apt-cache depends patroni | sed -n -e 's/.*Depends: \(python3-.\+\)$/\1/p' \
             | grep -Ev '^python3-(sphinx|etcd|consul|kazoo|kubernetes)' \
             | xargs apt-get install -y vim curl less jq locales haproxy sudo \
-                            python3-etcd python3-setuptools g++ python3-kazoo python3-pip busybox \
+                            python3-etcd python3-kazoo python3-pip busybox \
                             net-tools iputils-ping --fix-missing \
     && pip3 install dumb-init \
 \
