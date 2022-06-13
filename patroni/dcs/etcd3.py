@@ -315,6 +315,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
     def prefix(self, key, retry=None):
         return self.range(key, prefix_range_end(key), retry)
 
+    @_handle_auth_errors
     def lease_grant(self, ttl, retry=None):
         return self.call_rpc('/lease/grant', {'TTL': ttl}, retry)['ID']
 
