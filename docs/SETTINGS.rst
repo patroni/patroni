@@ -224,7 +224,7 @@ Raft
 
   - Q: How to list all the nodes providing consensus?
 
-    A: ``syncobj_admin -conn host:port`` -status where the host:port is the address of one of the cluster nodes
+    A: ``syncobj_admin -conn host:port -status`` where the host:port is the address of one of the cluster nodes
 
   - Q: Node that was a part of consensus and has gone and I can't reuse the same IP for other node. How to remove this node from the consensus?
 
