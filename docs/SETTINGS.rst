@@ -131,7 +131,7 @@ Most of the parameters are optional, but you have to specify one of the **host**
 -  **checks**: (optional) list of Consul health checks used for the session. By default an empty list is used.
 -  **register\_service**: (optional) whether or not to register a service with the name defined by the scope parameter and the tag master, replica or standby-leader depending on the node's role. Defaults to **false**.
 -  **service\_tags**: (optional) additional static tags to add to the Consul service apart from the role (``master``/``replica``/``standby-leader``).  By default an empty list is used.
--  **service\_check\_interval**: (optional) how often to perform health check against registered url.
+-  **service\_check\_interval**: (optional) how often to perform health check against registered url. Defaults to '5s'.
 -  **service\_check\_tls\_server\_name**: (optional) overide SNI host when connecting via TLS, see also `consul agent check API reference <https://www.consul.io/api-docs/agent/check#tlsservername>`__.
 
 The ``token`` needs to have the following ACL permissions:
