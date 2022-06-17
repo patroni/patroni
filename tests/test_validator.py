@@ -141,14 +141,14 @@ class TestValidator(unittest.TestCase):
         del directories[:]
 
     def test_empty_config(self, mock_out, mock_err):
-        schema({})
-        output = mock_out.getvalue()
+        errors = schema({})
+        output = "\n".join(errors)
         expected = list(sorted(['name', 'postgresql', 'restapi', 'scope'] + available_dcs))
         self.assertEqual(expected, parse_output(output))
 
     def test_complete_config(self, mock_out, mock_err):
-        schema(config)
-        output = mock_out.getvalue()
+        errors = schema(config)
+        output = "\n".join(errors)
         self.assertEqual(['postgresql.bin_dir', 'raft.bind_addr', 'raft.self_addr'], parse_output(output))
 
     def test_bin_dir_is_file(self, mock_out, mock_err):
@@ -158,8 +158,8 @@ class TestValidator(unittest.TestCase):
         c["restapi"]["connect_address"] = 'False:blabla'
         c["etcd"]["hosts"] = ["127.0.0.1:2379", "1244.0.0.1:2379", "127.0.0.1:invalidport"]
         c["kubernetes"]["pod_ip"] = "127.0.0.1111"
-        schema(c)
-        output = mock_out.getvalue()
+        errors = schema(c)
+        output = "\n".join(errors)
         self.assertEqual(['etcd.hosts.1', 'etcd.hosts.2', 'kubernetes.pod_ip', 'postgresql.bin_dir',
                           'postgresql.data_dir', 'raft.bind_addr', 'raft.self_addr',
                           'restapi.connect_address'], parse_output(output))
@@ -176,8 +176,8 @@ class TestValidator(unittest.TestCase):
         c["etcd"]["host"] = "127.0.0.1:237"
         c["postgresql"]["listen"] = "127.0.0.1:5432"
         with patch('patroni.validator.open', mock_open(read_data='9')):
-            schema(c)
-        output = mock_out.getvalue()
+            errors = schema(c)
+        output = "\n".join(errors)
         self.assertEqual(['consul.host', 'etcd.host', 'postgresql.bin_dir', 'postgresql.data_dir', 'postgresql.listen',
                           'raft.bind_addr', 'raft.self_addr', 'restapi.connect_address'], parse_output(output))
 
@@ -195,8 +195,8 @@ class TestValidator(unittest.TestCase):
         files.append(os.path.join(config["postgresql"]["bin_dir"], "postgres"))
         files.append(os.path.join(config["postgresql"]["bin_dir"], "pg_isready"))
         with patch('patroni.validator.open', mock_open(read_data='12')):
-            schema(config)
-        output = mock_out.getvalue()
+            errors = schema(config)
+        output = "\n".join(errors)
         self.assertEqual(['raft.bind_addr', 'raft.self_addr'], parse_output(output))
 
     @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
@@ -210,8 +210,8 @@ class TestValidator(unittest.TestCase):
         c["etcd"]["hosts"] = []
         del c["postgresql"]["bin_dir"]
         with patch('patroni.validator.open', mock_open(read_data='11')):
-            schema(c)
-        output = mock_out.getvalue()
+            errors = schema(c)
+        output = "\n".join(errors)
         self.assertEqual(['etcd.hosts', 'postgresql.data_dir',
                           'raft.bind_addr', 'raft.self_addr'], parse_output(output))
 
@@ -224,8 +224,8 @@ class TestValidator(unittest.TestCase):
         c = copy.deepcopy(config)
         del c["postgresql"]["bin_dir"]
         with patch('patroni.validator.open', mock_open(read_data='11')):
-            schema(c)
-        output = mock_out.getvalue()
+            errors = schema(c)
+        output = "\n".join(errors)
         self.assertEqual(['postgresql.data_dir', 'raft.bind_addr', 'raft.self_addr'], parse_output(output))
 
     def test_data_dir_is_empty_string(self, mock_out, mock_err):
@@ -236,7 +236,7 @@ class TestValidator(unittest.TestCase):
         c["postgresql"]["pg_hba"] = ""
         c["postgresql"]["data_dir"] = ""
         c["postgresql"]["bin_dir"] = ""
-        schema(c)
-        output = mock_out.getvalue()
+        errors = schema(c)
+        output = "\n".join(errors)
         self.assertEqual(['kubernetes', 'postgresql.bin_dir', 'postgresql.data_dir',
                           'postgresql.pg_hba', 'raft.bind_addr', 'raft.self_addr'], parse_output(output))

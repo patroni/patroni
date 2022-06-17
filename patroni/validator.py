@@ -178,9 +178,11 @@ class Schema(object):
         self.validator = validator
 
     def __call__(self, data):
+        errors = []
         for i in self.validate(data):
             if not i.status:
-                print(i)
+                errors.append(str(i))
+        return errors
 
     def validate(self, data):
         self.data = data
