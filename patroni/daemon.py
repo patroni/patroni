@@ -1,3 +1,5 @@
+from __future__ import print_function
+
 import abc
 import os
 import signal
@@ -92,7 +94,7 @@ def abstract_main(cls, validator=None):
         config = Config(args.configfile)
     except ConfigParseError as e:
         if e.value:
-            print(e.value)
+            print(e.value, file=sys.stderr)
         if not validate_config:
             parser.print_help()
         sys.exit(1)
