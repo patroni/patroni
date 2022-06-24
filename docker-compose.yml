@@ -15,6 +15,7 @@ services:
             ETCD_INITIAL_CLUSTER: etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
             ETCD_INITIAL_CLUSTER_STATE: new
             ETCD_INITIAL_CLUSTER_TOKEN: tutorial
+            ETCD_UNSUPPORTED_ARCH: arm64
         container_name: demo-etcd1
         hostname: etcd1
         command: etcd -name etcd1 -initial-advertise-peer-urls http://etcd1:2380

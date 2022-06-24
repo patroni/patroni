@@ -14,7 +14,7 @@ ARG PGDATA
 ARG LC_ALL
 ARG LANG
 
-ENV ETCDVERSION=3.3.13 CONFDVERSION=0.16.0
+ENV ETCDVERSION=3.5.4 CONFDVERSION=0.16.0
 
 RUN set -ex \
     && export DEBIAN_FRONTEND=noninteractive \
@@ -50,11 +50,11 @@ RUN set -ex \
     && chown -R postgres:postgres /var/log \
 \
     # Download etcd
-    && curl -sL https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v${ETCDVERSION}-linux-amd64.tar.gz \
+    && curl -L https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v${ETCDVERSION}-linux-$(dpkg --print-architecture).tar.gz \
             | tar xz -C /usr/local/bin --strip=1 --wildcards --no-anchored etcd etcdctl \
 \
     # Download confd
-    && curl -sL https://github.com/kelseyhightower/confd/releases/download/v${CONFDVERSION}/confd-${CONFDVERSION}-linux-amd64 \
+    && curl -sL https://github.com/kelseyhightower/confd/releases/download/v${CONFDVERSION}/confd-${CONFDVERSION}-linux-$(dpkg --print-architecture) \
             > /usr/local/bin/confd && chmod +x /usr/local/bin/confd \
 \
     # Clean up all useless packages and some files
@@ -89,30 +89,7 @@ RUN set -ex \
 #        /var/lib/dpkg/info/* \
     && find /usr/bin -xtype l -delete \
     && find /var/log -type f -exec truncate --size 0 {} \; \
-    && find /usr/lib/python3/dist-packages -name '*test*' | xargs rm -fr \
-    && find /lib/x86_64-linux-gnu/security -type f ! -name pam_env.so ! -name pam_permit.so ! -name pam_unix.so -delete
-
-# perform compression if it is necessary
-ARG COMPRESS
-RUN if [ "$COMPRESS" = "true" ]; then \
-        set -ex \
-        # Allow certain sudo commands from postgres
-        && echo 'postgres ALL=(ALL) NOPASSWD: /bin/tar xpJf /a.tar.xz -C /, /bin/rm /a.tar.xz, /bin/ln -snf dash /bin/sh' >> /etc/sudoers \
-        && ln -snf busybox /bin/sh \
-        && files="/bin/sh /usr/bin/sudo /usr/lib/sudo/sudoers.so /lib/x86_64-linux-gnu/security/pam_*.so" \
-        && libs="$(ldd $files | awk '{print $3;}' | grep '^/' | sort -u) /lib/x86_64-linux-gnu/ld-linux-x86-64.so.* /lib/x86_64-linux-gnu/libnsl.so.* /lib/x86_64-linux-gnu/libnss_compat.so.*" \
-        && (echo /var/run $files $libs | tr ' ' '\n' && realpath $files $libs) | sort -u | sed 's/^\///' > /exclude \
-        && find /etc/alternatives -xtype l -delete \
-        && save_dirs="usr lib var bin sbin etc/ssl etc/init.d etc/alternatives etc/apt" \
-        && XZ_OPT=-e9v tar -X /exclude -cpJf a.tar.xz $save_dirs \
-        # we call "cat /exclude" to avoid including files from the $save_dirs that are also among
-        # the exceptions listed in the /exclude, as "uniq -u" eliminates all non-unique lines.
-        # By calling "cat /exclude" a second time we guarantee that there will be at least two lines
-        # for each exception and therefore they will be excluded from the output passed to 'rm'.
-        && /bin/busybox sh -c "(find $save_dirs -not -type d && cat /exclude /exclude && echo exclude) | sort | uniq -u | xargs /bin/busybox rm" \
-        && /bin/busybox --install -s \
-        && /bin/busybox sh -c "find $save_dirs -type d -depth -exec rmdir -p {} \; 2> /dev/null"; \
-    fi
+    && find /usr/lib/python3/dist-packages -name '*test*' | xargs rm -fr
 
 FROM scratch
 COPY --from=builder / /
