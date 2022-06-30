@@ -102,9 +102,9 @@ class Config(object):
             config_env = os.environ.pop(self.PATRONI_CONFIG_VARIABLE, None)
             self._local_configuration = config_env and yaml.safe_load(config_env) or self.__environment_configuration
         if validator:
-            error = validator(self._local_configuration)
-            if error:
-                raise ConfigParseError(error)
+            errors = validator(self._local_configuration)
+            if errors:
+                raise ConfigParseError("\n".join(errors))
 
         self.__effective_configuration = self._build_effective_configuration({}, self._local_configuration)
         self._data_dir = self.__effective_configuration.get('postgresql', {}).get('data_dir', "")
