@@ -428,11 +428,11 @@ class Postgresql(object):
                     # If the cluster is shutdown with archive_mode=on, WAL is switched before writing the checkpoint.
                     # In this case we want to take the LSN of previous record (switch) as the last known WAL location.
                     if parse_lsn(lsn) == prev and desc.strip() in ('xlog switch', 'SWITCH'):
-                        return str(prev)
+                        return prev
             except Exception as e:
                 logger.error('Exception when parsing WAL pg_%sdump output: %r', self.wal_name, e)
             if isinstance(checkpoint_lsn, six.integer_types):
-                return str(checkpoint_lsn)
+                return checkpoint_lsn
 
     def is_running(self):
         """Returns PostmasterProcess if one is running on the data directory or None. If most recently seen process
@@ -668,7 +668,7 @@ class Postgresql(object):
             while postmaster.is_running():
                 data = self.controldata()
                 if data.get('Database cluster state', '') == 'shut down':
-                    on_shutdown(int(self.latest_checkpoint_location()))
+                    on_shutdown(self.latest_checkpoint_location())
                     break
                 elif data.get('Database cluster state', '').startswith('shut down'):  # shut down in recovery
                     break
