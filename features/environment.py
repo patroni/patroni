@@ -906,8 +906,8 @@ def after_feature(context, feature):
 
 
 def before_scenario(context, scenario):
-    if 'skip-legacy' in scenario.effective_tags:
+    if 'slot-advance' in scenario.effective_tags:
         for p in context.pctl._processes.values():
             if p._conn and p._conn.server_version < 110000:
-                scenario.skip('Unsupported PostgreSQL version {0}'.format(p._conn.server_version))
+                scenario.skip('pg_replication_slot_advance() is not supported on {0}'.format(p._conn.server_version))
                 break
