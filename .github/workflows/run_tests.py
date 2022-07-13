@@ -28,16 +28,15 @@ def main():
         version = versions.get(what)
         path = '/usr/lib/postgresql/{0}/bin:.'.format(version)
         unbuffer = ['timeout', '900', 'unbuffer']
-        args = ['--tags=-skip'] if what == 'etcd' else []
     else:
         path = os.path.abspath(os.path.join('pgsql', 'bin'))
         if sys.platform == 'darwin':
             path += ':.'
-        args = unbuffer = []
+        unbuffer = []
     env['PATH'] = path + os.pathsep + env['PATH']
     env['DCS'] = what
 
-    ret = subprocess.call(unbuffer + [sys.executable, '-m', 'behave'] + args, env=env)
+    ret = subprocess.call(unbuffer + [sys.executable, '-m', 'behave'], env=env)
 
     if ret != 0:
         if subprocess.call('grep . features/output/*_failed/*postgres?.*', shell=True) != 0:
