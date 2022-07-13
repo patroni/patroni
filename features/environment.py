@@ -903,3 +903,11 @@ def after_feature(context, feature):
     context.dcs_ctl.cleanup_service_tree()
     if feature.status == 'failed':
         shutil.copytree(context.pctl.output_dir, context.pctl.output_dir + '_failed')
+
+
+def before_scenario(context, scenario):
+    if 'slot-advance' in scenario.effective_tags:
+        for p in context.pctl._processes.values():
+            if p._conn and p._conn.server_version < 110000:
+                scenario.skip('pg_replication_slot_advance() is not supported on {0}'.format(p._conn.server_version))
+                break
