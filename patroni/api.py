@@ -141,7 +141,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             ignore_tags = True
         elif 'replica' in path:
             status_code = replica_status_code
-        elif 'read-only' in path:
+        elif 'read-only' in path and 'sync' not in path:
             status_code = 200 if 200 in (primary_status_code, standby_leader_status_code) else replica_status_code
         elif 'health' in path:
             status_code = 200 if response.get('state') == 'running' else 503
