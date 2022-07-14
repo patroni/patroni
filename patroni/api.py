@@ -38,7 +38,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self.log_request(status_code)
 
     def _write_response(self, status_code, body, content_type='text/html', headers=None):
-        # TODO: try-catch ConnectionResetError: [Errno 104] Connection reset by peer and log it in DEBUG level 
+        # TODO: try-catch ConnectionResetError: [Errno 104] Connection reset by peer and log it in DEBUG level
         self.send_response(status_code)
         headers = headers or {}
         if content_type:
@@ -185,7 +185,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self):
         self.do_GET(write_status_code_only=True)
-        
     def do_HEAD(self):
         self.do_GET(write_status_code_only=True)
 
