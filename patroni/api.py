@@ -185,6 +185,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self):
         self.do_GET(write_status_code_only=True)
+
     def do_HEAD(self):
         self.do_GET(write_status_code_only=True)
 
