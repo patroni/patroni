@@ -181,7 +181,7 @@ class PatroniController(AbstractController):
         config['postgresql']['data_dir'] = self._data_dir
         config['postgresql']['basebackup'] = [{'checkpoint': 'fast'}]
         config['postgresql']['use_unix_socket'] = os.name != 'nt'  # windows doesn't yet support unix-domain sockets
-        config['postgresql']['use_unix_socket_repl'] = os.name != 'nt'  # windows doesn't yet support unix-domain sockets
+        config['postgresql']['use_unix_socket_repl'] = os.name != 'nt'
         config['postgresql']['pgpass'] = os.path.join(tempfile.gettempdir(), 'pgpass_' + name)
         config['postgresql']['parameters'].update({
             'logging_collector': 'on', 'log_destination': 'csvlog', 'log_directory': self._output_dir,
@@ -197,7 +197,7 @@ class PatroniController(AbstractController):
             self.recursive_update(config, custom_config)
 
         self.recursive_update(config, {
-            'bootstrap': {'dcs': {'postgresql': {'parameters': {'wal_keep_segments': 100}}}}})
+            'bootstrap': {'dcs': {'loop_wait': 2, 'postgresql': {'parameters': {'wal_keep_segments': 100}}}}})
         if config['postgresql'].get('callbacks', {}).get('on_role_change'):
             config['postgresql']['callbacks']['on_role_change'] += ' ' + str(self.__PORT)
 
@@ -626,7 +626,8 @@ class RaftController(AbstractDcsController):
             self.start()
 
         ready_event = threading.Event()
-        self._raft = KVStoreTTL(ready_event.set, None, None, partner_addrs=[self.CONTROLLER_ADDR], password=self.PASSWORD)
+        self._raft = KVStoreTTL(ready_event.set, None, None,
+                                partner_addrs=[self.CONTROLLER_ADDR], password=self.PASSWORD)
         self._raft.startAutoTick()
         ready_event.wait()
 
