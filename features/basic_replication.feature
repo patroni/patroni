@@ -5,7 +5,7 @@ Feature: basic replication
     Given I start postgres0
     Then postgres0 is a leader after 10 seconds
     And there is a non empty initialize key in DCS after 15 seconds
-    When I issue a PATCH request to http://127.0.0.1:8008/config with {"ttl": 20, "loop_wait": 2, "synchronous_mode": true}
+    When I issue a PATCH request to http://127.0.0.1:8008/config with {"ttl": 20, "synchronous_mode": true}
     Then I receive a response code 200
     When I start postgres1
     And I configure and start postgres2 with a tag replicatefrom postgres0

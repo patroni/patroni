@@ -3,7 +3,7 @@ Feature: ignored slots
     Given I start postgres1
     Then postgres1 is a leader after 10 seconds
     And there is a non empty initialize key in DCS after 15 seconds
-    When I issue a PATCH request to http://127.0.0.1:8009/config with {"loop_wait": 2, "ignore_slots": [{"name": "unmanaged_slot_0", "database": "postgres", "plugin": "test_decoding", "type": "logical"}, {"name": "unmanaged_slot_1", "database": "postgres", "plugin": "test_decoding"}, {"name": "unmanaged_slot_2", "database": "postgres"}, {"name": "unmanaged_slot_3"}], "postgresql": {"parameters": {"wal_level": "logical"}}}
+    When I issue a PATCH request to http://127.0.0.1:8009/config with {"ignore_slots": [{"name": "unmanaged_slot_0", "database": "postgres", "plugin": "test_decoding", "type": "logical"}, {"name": "unmanaged_slot_1", "database": "postgres", "plugin": "test_decoding"}, {"name": "unmanaged_slot_2", "database": "postgres"}, {"name": "unmanaged_slot_3"}], "postgresql": {"parameters": {"wal_level": "logical"}}}
     Then I receive a response code 200
     And Response on GET http://127.0.0.1:8009/config contains ignore_slots after 10 seconds
     # Make sure the wal_level has been changed.
