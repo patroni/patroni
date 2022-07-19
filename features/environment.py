@@ -187,6 +187,12 @@ class PatroniController(AbstractController):
             'logging_collector': 'on', 'log_destination': 'csvlog', 'log_directory': self._output_dir,
             'log_filename': name + '.log', 'log_statement': 'all', 'log_min_messages': 'debug1',
             'unix_socket_directories': tempfile.gettempdir()})
+        config['postgresql']['pg_hba'] = [
+            'local all all trust',
+            'local replication all trust',
+            'host replication replicator all md5',
+            'host all all all md5'
+        ]
 
         if 'bootstrap' in config:
             config['bootstrap']['post_bootstrap'] = 'psql -w -c "SELECT 1"'
@@ -197,7 +203,22 @@ class PatroniController(AbstractController):
             self.recursive_update(config, custom_config)
 
         self.recursive_update(config, {
-            'bootstrap': {'dcs': {'loop_wait': 2, 'postgresql': {'parameters': {'wal_keep_segments': 100}}}}})
+            'bootstrap': {
+                'dcs': {
+                    'loop_wait': 2,
+                    'postgresql': {
+                        'parameters': {
+                            'wal_keep_segments': 100,
+                            'archive_mode': 'on',
+                            'archive_command': (PatroniPoolController.ARCHIVE_RESTORE_SCRIPT +
+                                                ' --mode archive ' +
+                                                '--dirname {} --filename %f --pathname %p').format(
+                                                    os.path.join(self._work_directory, 'data', 'wal_archive'))
+                        }
+                    }
+                }
+            }
+        })
         if config['postgresql'].get('callbacks', {}).get('on_role_change'):
             config['postgresql']['callbacks']['on_role_change'] += ' ' + str(self.__PORT)
 
@@ -308,6 +329,7 @@ class AbstractDcsController(AbstractController):
 
     def __init__(self, context, mktemp=True):
         work_directory = mktemp and tempfile.mkdtemp() or None
+        self._paused = False
         super(AbstractDcsController, self).__init__(context, self.name(), work_directory, context.pctl.output_dir)
 
     def _is_accessible(self):
@@ -318,6 +340,16 @@ class AbstractDcsController(AbstractController):
         super(AbstractDcsController, self).stop(kill=kill, timeout=timeout)
         if self._work_directory:
             shutil.rmtree(self._work_directory)
+
+    def start_outage(self):
+        if not self._paused and self._handle:
+            self._handle.send_signal(signal.SIGSTOP)
+            self._paused = True
+
+    def stop_outage(self):
+        if self._paused and self._handle:
+            self._handle.send_signal(signal.SIGCONT)
+            self._paused = False
 
     def path(self, key=None, scope='batman'):
         return self._CLUSTER_NODE.format(scope) + (key and '/' + key or '')
@@ -394,7 +426,7 @@ class AbstractEtcdController(AbstractDcsController):
         self._client_cls = client_cls
 
     def _start(self):
-        return subprocess.Popen(["etcd", "--debug", "--data-dir", self._work_directory],
+        return subprocess.Popen(["etcd", "--enable-v2=true", "--data-dir", self._work_directory],
                                 stdout=self._log, stderr=subprocess.STDOUT)
 
     def _is_running(self):
@@ -711,7 +743,7 @@ class PatroniPoolController(object):
                     'archive_mode': 'on',
                     'archive_command': (self.ARCHIVE_RESTORE_SCRIPT + ' --mode archive ' +
                                         '--dirname {} --filename %f --pathname %p').format(
-                                        os.path.join(self.patroni_path, 'data', 'wal_archive'))
+                                        os.path.join(self.patroni_path, 'data', 'wal_archive_clone'))
                 },
                 'authentication': {
                     'superuser': {'password': 'zalando1'},
@@ -734,7 +766,7 @@ class PatroniPoolController(object):
                         'recovery_target_timeline': 'latest',
                         'restore_command': (self.ARCHIVE_RESTORE_SCRIPT + ' --mode restore ' +
                                             '--dirname {} --filename %f --pathname %p').format(
-                                            os.path.join(self.patroni_path, 'data', 'wal_archive'))
+                                            os.path.join(self.patroni_path, 'data', 'wal_archive_clone'))
                     }
                 }
             },
@@ -742,6 +774,25 @@ class PatroniPoolController(object):
                 'authentication': {
                     'superuser': {'password': 'zalando2'},
                     'replication': {'password': 'rep-pass2'}
+                }
+            }
+        }
+        self.start(name, custom_config=custom_config)
+
+    def bootstrap_from_backup_no_master(self, name, cluster_name):
+        custom_config = {
+            'scope': cluster_name,
+            'postgresql': {
+                'recovery_conf': {
+                    'restore_command': (self.ARCHIVE_RESTORE_SCRIPT + ' --mode restore ' +
+                                        '--dirname {} --filename %f --pathname %p').format(
+                                        os.path.join(self.patroni_path, 'data', 'wal_archive'))
+                },
+                'create_replica_methods': ['no_master_bootstrap'],
+                'no_master_bootstrap': {
+                    'command': (sys.executable + ' features/backup_restore.py --sourcedir=' +
+                                os.path.join(self.patroni_path, 'data', 'basebackup')),
+                    'no_master': '1'
                 }
             }
         }
@@ -898,7 +949,9 @@ def before_feature(context, feature):
 
 
 def after_feature(context, feature):
-    """ stop all Patronis, remove their data directory and cleanup the keys in etcd """
+    """ send SIGCONT to a dcs if neccessary,
+    stop all Patronis remove their data directory and cleanup the keys in etcd """
+    context.dcs_ctl.stop_outage()
     context.pctl.stop_all()
     shutil.rmtree(os.path.join(context.pctl.patroni_path, 'data'))
     context.dcs_ctl.cleanup_service_tree()
@@ -912,3 +965,5 @@ def before_scenario(context, scenario):
             if p._conn and p._conn.server_version < 110000:
                 scenario.skip('pg_replication_slot_advance() is not supported on {0}'.format(p._conn.server_version))
                 break
+    if 'dcs-failsafe' in scenario.effective_tags and not context.dcs_ctl._handle:
+        scenario.skip('it is not possible to control state of {0} from tests'.format(context.dcs_ctl.name()))
