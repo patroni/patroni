@@ -29,7 +29,7 @@ case "$1" in
         fi
         ;;
     etcd)
-        exec "$@" -advertise-client-urls http://$DOCKER_IP:2379
+        exec "$@"
         ;;
     zookeeper)
         exec /usr/share/zookeeper/bin/zkServer.sh start-foreground
