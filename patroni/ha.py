@@ -114,6 +114,13 @@ class Ha(object):
     def check_timeline(self):
         return self.check_mode('check_timeline')
 
+    def get_static_primary_config(self):
+        if self.cluster and self.cluster.config and self.cluster.config.modify_index:
+            config = self.cluster.config.data
+        else:
+            config = self.patroni.config.dynamic_configuration
+        return config.get('static_primary')
+
     def get_standby_cluster_config(self):
         if self.cluster and self.cluster.config and self.cluster.config.modify_index:
             config = self.cluster.config.data
@@ -130,23 +137,15 @@ class Ha(object):
 
     def is_static_primary(self):
         """Check if this node is configured as the static primary of the cluster."""
-        if self.cluster and self.cluster.config and self.cluster.config.modify_index:
-            config = self.cluster.config.data
-        else:
-            config = self.patroni.config.dynamic_configuration
-        static_primary = config.get('static_primary')
         name = self.state_handler.name
+        static_primary = self.get_static_primary_config()
         if static_primary is None or name is None:
             return False
         return static_primary == name
 
     def is_static_primary_configured(self):
         """Check if the Patroni cluster has been configured with a static primary."""
-        if self.cluster and self.cluster.config and self.cluster.config.modify_index:
-            config = self.cluster.config.data
-        else:
-            config = self.patroni.config.dynamic_configuration
-        return config.get('static_primary') is not None
+        return self.get_static_primary_config() is not None
 
     def set_is_leader(self, value):
         with self._is_leader_lock:
