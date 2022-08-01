@@ -35,7 +35,7 @@ def mock_ioctl(fd, op, arg=None, mutate_flag=False):
     sys.stderr.write("Ioctl %d %d %r\n" % (fd, op, arg))
     if op == linuxwd.WDIOC_GETSUPPORT:
         sys.stderr.write("Get support\n")
-        assert(mutate_flag is True)
+        assert (mutate_flag is True)
         arg.options = sum(map(linuxwd.WDIOF.get, ['SETTIMEOUT', 'KEEPALIVEPING']))
         arg.identity = (ctypes.c_ubyte*32)(*map(ord, 'Mock Watchdog'))
     elif op == linuxwd.WDIOC_GETTIMEOUT:
