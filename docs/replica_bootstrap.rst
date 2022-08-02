@@ -187,6 +187,13 @@ Standby leader holds and updates a leader lock in DCS. If the leader lock
 expires, cascade replicas will perform an election to choose another leader
 from the standbys.
 
+There is no further relationship between the standby cluster and the primary
+cluster it replicates from, in particular, they must not share the same DCS
+scope if they use the same DCS. They do not know anything else from each other
+apart from replication information. Also, the standby cluster is not being
+displayed in ``patronictl list`` or ``patronictl topology`` output on the
+primary cluster.
+
 For the sake of flexibility, you can specify methods of creating a replica and
 recovery WAL records when a cluster is in the "standby mode" by providing
 `create_replica_methods` key in `standby_cluster` section. It is distinct from
