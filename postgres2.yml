@@ -38,6 +38,9 @@ etcd:
 #  - 127.0.0.1:2223
 
 bootstrap:
+  # execute db setup if required!
+  post_bootstrap: /post_bootstrap.sh
+
   # this section will be written into Etcd:/<namespace>/<scope>/config after initializing new cluster
   # and all other cluster members will use it as a `global configuration`
   dcs:

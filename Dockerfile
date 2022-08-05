@@ -136,6 +136,8 @@ COPY extras/confd/conf.d/haproxy.toml /etc/confd/conf.d/
 COPY extras/confd/templates/haproxy.tmpl /etc/confd/templates/
 COPY patroni*.py docker/entrypoint.sh /
 COPY postgres?.yml $PGHOME/
+COPY docker/post_bootstrap.sh /
+
 
 WORKDIR $PGHOME
 
