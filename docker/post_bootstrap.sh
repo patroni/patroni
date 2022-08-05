@@ -5,7 +5,10 @@
 #  POSTRES_USER
 #  POSTGRES_PASSWD
 
-connectstring=$1
+connectstring=$*
+
+
+echo Connecting: $connectstring
 
 createdb="SELECT 'CREATE DATABASE "$POSTGRES_DB"' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '"$POSTGRES_DB"')\gexec"
 createuser="SELECT 'CREATE USER "$POSTGRES_USER"' where not exists (select from pg_user where usename = '"$POSTGRES_USER"')\gexec"
