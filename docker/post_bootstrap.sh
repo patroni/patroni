@@ -12,9 +12,9 @@ createuser="SELECT 'CREATE USER "$POSTGRES_USER"' where not exists (select from 
 createpasswd="ALTER USER "$POSTGRES_USER" PASSWORD '"$POSTGRES_PASSWORD"';"
 giveowner="ALTER DATABASE "$POSTGRES_DB" OWNER TO "$POSTGRES_USER";"
 
-echo $createdb | psql -d $connectstring
-echo $createuser | psql -d $connectstring
-echo $createpasswd | psql -d $connectstring
-echo $giveowner | psql -d $connectstring
+echo $createdb | psql $connectstring
+echo $createuser | psql $connectstring
+echo $createpasswd | psql $connectstring
+echo $giveowner | psql $connectstring
 
 exit 0
