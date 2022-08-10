@@ -628,6 +628,20 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,f
         return next(iter(sorted(filter(lambda v: v, [m.version for m in self.members])) + [None]))
 
 
+class ReturnFalseException(Exception):
+    pass
+
+
+def catch_return_false_exception(func):
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except ReturnFalseException:
+            return False
+
+    return wrapper
+
+
 @six.add_metaclass(abc.ABCMeta)
 class AbstractDCS(object):
 
@@ -801,18 +815,18 @@ class AbstractDCS(object):
         """Update leader key (or session) ttl
 
         :returns: `!True` if leader key (or session) has been updated successfully.
-            If not, `!False` must be returned and current instance would be demoted.
 
         You have to use CAS (Compare And Swap) operation in order to update leader key,
-        for example for etcd `prevValue` parameter must be used."""
+        for example for etcd `prevValue` parameter must be used.
+        If update fails due to DCS not being accessible or because it is not able to
+        process requests (hopefuly temporary), the ~DCSError exception should be raised."""
 
     def update_leader(self, last_lsn, slots=None):
         """Update leader key (or session) ttl and optime/leader
 
         :param last_lsn: absolute WAL LSN in bytes
         :param slots: dict with permanent slots confirmed_flush_lsn
-        :returns: `!True` if leader key (or session) has been updated successfully.
-            If not, `!False` must be returned and current instance would be demoted."""
+        :returns: `!True` if leader key (or session) has been updated successfully."""
 
         ret = self._update_leader()
         if ret and last_lsn:
@@ -831,7 +845,10 @@ class AbstractDCS(object):
         :returns: `!True` if key has been created successfully.
 
         Key must be created atomically. In case if key already exists it should not be
-        overwritten and `!False` must be returned"""
+        overwritten and `!False` must be returned.
+
+        If key creation fails due to DCS not being accessible or because it is not able to
+        process requests (hopefuly temporary), the ~DCSError exception should be raised"""
 
     @abc.abstractmethod
     def set_failover_value(self, value, index=None):

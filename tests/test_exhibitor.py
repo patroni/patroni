@@ -30,5 +30,6 @@ class TestExhibitor(unittest.TestCase):
                             'name': 'foo', 'ttl': 30, 'retry_timeout': 10})
 
     @patch.object(ExhibitorEnsembleProvider, 'poll', Mock(return_value=True))
+    @patch.object(MockKazooClient, 'get_children', Mock(side_effect=Exception))
     def test_get_cluster(self):
         self.assertRaises(ZooKeeperError, self.e.get_cluster)

@@ -202,7 +202,8 @@ class TestHa(PostgresInit):
 
     def test_update_lock(self):
         self.p.last_operation = Mock(side_effect=PostgresConnectionException(''))
-        self.ha.dcs.update_leader = Mock(side_effect=Exception)
+        self.ha.dcs.update_leader = Mock(side_effect=[DCSError(''), Exception])
+        self.assertRaises(DCSError, self.ha.update_lock)
         self.assertFalse(self.ha.update_lock(True))
 
     @patch.object(Postgresql, 'received_timeline', Mock(return_value=None))
@@ -453,7 +454,9 @@ class TestHa(PostgresInit):
 
     def test_no_etcd_connection_master_demote(self):
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
-        self.assertEqual(self.ha.run_cycle(), 'demoted self because DCS is not accessible and i was a leader')
+        self.assertEqual(self.ha.run_cycle(), 'demoting self because DCS is not accessible and I was a leader')
+        self.ha._async_executor.schedule('dummy')
+        self.assertEqual(self.ha.run_cycle(), 'demoted self because DCS is not accessible and I was a leader')
 
     @patch('time.sleep', Mock())
     def test_bootstrap_from_another_member(self):
@@ -1225,3 +1228,8 @@ class TestHa(PostgresInit):
         self.ha.fetch_node_status = Mock(return_value=_MemberStatus(self.ha.cluster.members[0],
                                                                     True, True, 0, 2, None, {}, False))
         self.assertFalse(self.ha.is_failover_possible(self.ha.cluster.members))
+
+    def test_acquire_lock(self):
+        self.ha.dcs.attempt_to_acquire_leader = Mock(side_effect=[DCSError('foo'), Exception])
+        self.assertRaises(DCSError, self.ha.acquire_lock)
+        self.assertFalse(self.ha.acquire_lock())

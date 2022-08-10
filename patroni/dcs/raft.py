@@ -11,9 +11,14 @@ from pysyncobj.transport import TCPTransport, CONNECTION_STATE
 from pysyncobj.utility import TcpUtility
 
 from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
+from ..exceptions import DCSError
 from ..utils import validate_directory
 
 logger = logging.getLogger(__name__)
+
+
+class RaftError(DCSError):
+    pass
 
 
 class _TCPTransport(TCPTransport):
@@ -156,7 +161,7 @@ class KVStoreTTL(DynMemberSyncObj):
             elif deadline:
                 timeout = deadline - time.time()
                 if timeout <= 0:
-                    break
+                    raise RaftError('timeout')
             time.sleep(1)
         return False
 
@@ -175,7 +180,7 @@ class KVStoreTTL(DynMemberSyncObj):
             self.__on_set(key, value)
         return True
 
-    def set(self, key, value, ttl=None, **kwargs):
+    def set(self, key, value, ttl=None, handle_raft_error=True, **kwargs):
         old_value = self.__data.get(key, {})
         if not self.__check_requirements(old_value, **kwargs):
             return False
@@ -184,7 +189,12 @@ class KVStoreTTL(DynMemberSyncObj):
         value['created'] = old_value.get('created', value['updated'])
         if ttl:
             value['expire'] = value['updated'] + ttl
-        return self.retry(self._set, key, value, **kwargs)
+        try:
+            return self.retry(self._set, key, value, **kwargs)
+        except RaftError:
+            if not handle_raft_error:
+                raise
+            return False
 
     def __pop(self, key):
         self.__data.pop(key)
@@ -206,7 +216,10 @@ class KVStoreTTL(DynMemberSyncObj):
     def delete(self, key, recursive=False, **kwargs):
         if not recursive and not self.__check_requirements(self.__data.get(key, {}), **kwargs):
             return False
-        return self.retry(self._delete, key, recursive=recursive, **kwargs)
+        try:
+            return self.retry(self._delete, key, recursive=recursive, **kwargs)
+        except RaftError:
+            return False
 
     @staticmethod
     def __values_match(old, new):
@@ -373,14 +386,15 @@ class Raft(AbstractDCS):
         return self._sync_obj.set(self.status_path, value, timeout=1)
 
     def _update_leader(self):
-        ret = self._sync_obj.set(self.leader_path, self._name, ttl=self._ttl, prevValue=self._name)
+        ret = self._sync_obj.set(self.leader_path, self._name, ttl=self._ttl,
+                                 handle_raft_error=False, prevValue=self._name)
         if not ret and self._sync_obj.get(self.leader_path) is None:
             ret = self.attempt_to_acquire_leader()
         return ret
 
     def attempt_to_acquire_leader(self, permanent=False):
-        return self._sync_obj.set(self.leader_path, self._name, prevExist=False,
-                                  ttl=None if permanent else self._ttl)
+        return self._sync_obj.set(self.leader_path, self._name, ttl=None if permanent else self._ttl,
+                                  handle_raft_error=False, prevExist=False)
 
     def set_failover_value(self, value, index=None):
         return self._sync_obj.set(self.failover_path, value, prevIndex=index)

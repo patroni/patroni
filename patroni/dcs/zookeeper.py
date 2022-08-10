@@ -4,9 +4,10 @@ import select
 import time
 
 from kazoo.client import KazooClient, KazooState, KazooRetry
-from kazoo.exceptions import NoNodeError, NodeExistsError, SessionExpiredError
+from kazoo.exceptions import ConnectionClosedError, NoNodeError, NodeExistsError, SessionExpiredError
 from kazoo.handlers.threading import SequentialThreadingHandler
 from kazoo.protocol.states import KeeperState
+from kazoo.retry import RetryFailedError
 from kazoo.security import make_acl
 
 from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
@@ -252,18 +253,10 @@ class ZooKeeper(AbstractDCS):
         # get leader
         leader = self.get_node(self.leader_path) if self._LEADER in nodes else None
         if leader:
-            client_id = self._client.client_id
-            if not self._ctl and leader[0] == self._name and client_id is not None \
-                    and client_id[0] != leader[1].ephemeralOwner:
-                logger.info('I am leader but not owner of the session. Removing leader node')
-                self._client.delete(self.leader_path)
-                leader = None
-
-            if leader:
-                member = Member(-1, leader[0], None, {})
-                member = ([m for m in members if m.name == leader[0]] or [member])[0]
-                leader = Leader(leader[1].version, leader[1].ephemeralOwner, member)
-                self._fetch_cluster = member.index == -1
+            member = Member(-1, leader[0], None, {})
+            member = ([m for m in members if m.name == leader[0]] or [member])[0]
+            leader = Leader(leader[1].version, leader[1].ephemeralOwner, member)
+            self._fetch_cluster = member.index == -1
 
         # get last known leader lsn and slots
         last_lsn, slots = self.get_status(leader)
@@ -314,10 +307,17 @@ class ZooKeeper(AbstractDCS):
         return False
 
     def attempt_to_acquire_leader(self, permanent=False):
-        ret = self._create(self.leader_path, self._name.encode('utf-8'), retry=True, ephemeral=not permanent)
-        if not ret:
-            logger.info('Could not take out TTL lock')
-        return ret
+        try:
+            self._client.retry(self._client.create, self.leader_path, self._name.encode('utf-8'),
+                               makepath=True, ephemeral=not permanent)
+            return True
+        except (ConnectionClosedError, RetryFailedError) as e:
+            raise ZooKeeperError(e)
+        except Exception as e:
+            if not isinstance(e, NodeExistsError):
+                logger.error('Failed to create %s: %r', self.leader_path, e)
+        logger.info('Could not take out TTL lock')
+        return False
 
     def _set_or_create(self, key, value, index=None, retry=False, do_not_create_empty=False):
         value = value.encode('utf-8')
@@ -398,6 +398,28 @@ class ZooKeeper(AbstractDCS):
         return self._set_or_create(self.status_path, value)
 
     def _update_leader(self):
+        cluster = self.cluster
+        session = cluster and isinstance(cluster.leader, Leader) and cluster.leader.session
+        if self._client.client_id and self._client.client_id[0] != session:
+            logger.warning('Recreating the leader ZNode due to ownership mismatch')
+            try:
+                self._client.retry(self._client.delete, self.leader_path)
+            except NoNodeError:
+                pass
+            except (ConnectionClosedError, RetryFailedError) as e:
+                raise ZooKeeperError(e)
+            except Exception as e:
+                logger.error('Failed to remove %s: %r', self.leader_path, e)
+                return False
+
+            try:
+                self._client.retry(self._client.create, self.leader_path,
+                                   self._name.encode('utf-8'), makepath=True, ephemeral=True)
+            except (ConnectionClosedError, RetryFailedError) as e:
+                raise ZooKeeperError(e)
+            except Exception as e:
+                logger.error('Failed to create %s: %r', self.leader_path, e)
+                return False
         return True
 
     def _delete_leader(self):

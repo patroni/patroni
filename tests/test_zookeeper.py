@@ -6,6 +6,7 @@ from kazoo.client import KazooClient, KazooState
 from kazoo.exceptions import NoNodeError, NodeExistsError
 from kazoo.handlers.threading import SequentialThreadingHandler
 from kazoo.protocol.states import KeeperState, ZnodeStat
+from kazoo.retry import RetryFailedError
 from mock import Mock, PropertyMock, patch
 from patroni.dcs.zookeeper import Cluster, Leader, PatroniKazooClient,\
         PatroniSequentialThreadingHandler, ZooKeeper, ZooKeeperError
@@ -171,7 +172,6 @@ class TestZooKeeper(unittest.TestCase):
         self.zk._inner_load_cluster()
 
     def test_get_cluster(self):
-        self.assertRaises(ZooKeeperError, self.zk.get_cluster)
         cluster = self.zk.get_cluster(True)
         self.assertIsInstance(cluster.leader, Leader)
         self.zk.status_watcher(None)
@@ -220,13 +220,25 @@ class TestZooKeeper(unittest.TestCase):
         self.zk.touch_member({'conn_url': 'postgres://repuser:rep-pass@localhost:5434/postgres',
                               'api_url': 'http://127.0.0.1:8009/patroni'})
 
+    @patch.object(MockKazooClient, 'create', Mock(side_effect=[RetryFailedError, Exception]))
+    def test_attempt_to_acquire_leader(self):
+        self.assertRaises(ZooKeeperError, self.zk.attempt_to_acquire_leader)
+        self.assertFalse(self.zk.attempt_to_acquire_leader())
+
     def test_take_leader(self):
         self.zk.take_leader()
         with patch.object(MockKazooClient, 'create', Mock(side_effect=Exception)):
             self.zk.take_leader()
 
     def test_update_leader(self):
-        self.assertTrue(self.zk.update_leader(12345))
+        self.assertFalse(self.zk.update_leader(12345))
+        with patch.object(MockKazooClient, 'delete', Mock(side_effect=RetryFailedError)):
+            self.assertRaises(ZooKeeperError, self.zk.update_leader, 12345)
+        with patch.object(MockKazooClient, 'delete', Mock(side_effect=NoNodeError)):
+            self.assertTrue(self.zk.update_leader(12345))
+            with patch.object(MockKazooClient, 'create', Mock(side_effect=[RetryFailedError, Exception])):
+                self.assertRaises(ZooKeeperError, self.zk.update_leader, 12345)
+                self.assertFalse(self.zk.update_leader(12345))
 
     @patch.object(Cluster, 'min_version', PropertyMock(return_value=(2, 0)))
     def test_write_leader_optime(self):

@@ -223,6 +223,13 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
         with patch.object(Kubernetes, '_wait_caches', Mock(side_effect=Exception)):
             self.assertRaises(KubernetesError, self.k.get_cluster)
 
+    def test_attempt_to_acquire_leader(self):
+        with patch.object(k8s_client.CoreV1Api, 'patch_namespaced_config_map', create=True) as mock_patch:
+            mock_patch.side_effect = K8sException
+            self.assertRaises(KubernetesError, self.k.attempt_to_acquire_leader)
+            mock_patch.side_effect = k8s_client.rest.ApiException(409, '')
+            self.assertFalse(self.k.attempt_to_acquire_leader())
+
     def test_take_leader(self):
         self.k.take_leader()
         self.k._leader_observed_record['leader'] = 'test'
@@ -293,7 +300,7 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
         mock_patch.side_effect = k8s_client.rest.ApiException(502, '')
         self.assertFalse(self.k.update_leader('123'))
         mock_patch.side_effect = RetryFailedError('')
-        self.assertFalse(self.k.update_leader('123'))
+        self.assertRaises(KubernetesError, self.k.update_leader, '123')
         mock_patch.side_effect = k8s_client.rest.ApiException(409, '')
         with patch('time.time', Mock(side_effect=[0, 100, 200, 0, 0, 0, 0, 100, 200])):
             self.assertFalse(self.k.update_leader('123'))
@@ -303,6 +310,8 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
         mock_read.return_value.metadata.resource_version = '2'
         self.assertIsNotNone(self.k._update_leader_with_retry({}, '1', []))
         mock_patch.side_effect = k8s_client.rest.ApiException(409, '')
+        mock_read.side_effect = RetryFailedError('')
+        self.assertRaises(KubernetesError, self.k.update_leader, '123')
         mock_read.side_effect = Exception
         self.assertFalse(self.k.update_leader('123'))
 

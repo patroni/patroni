@@ -493,16 +493,10 @@ class CoreV1ApiProxy(object):
 
 
 def catch_kubernetes_errors(func):
-    def wrapper(*args, **kwargs):
+    def wrapper(self, *args, **kwargs):
         try:
-            return func(*args, **kwargs)
-        except k8s_client.rest.ApiException as e:
-            if e.status == 403:
-                logger.exception('Permission denied')
-            elif e.status != 409:  # Object exists or conflict in resource_version
-                logger.exception('Unexpected error from Kubernetes API')
-            return False
-        except (RetryFailedError, K8sException):
+            return self._run_and_handle_exceptions(func, self, *args, **kwargs)
+        except KubernetesError:
             return False
     return wrapper
 
@@ -711,6 +705,19 @@ class Kubernetes(AbstractDCS):
         retry = self._retry.copy()
         kwargs['_retry'] = retry
         return retry(*args, **kwargs)
+
+    @staticmethod
+    def _run_and_handle_exceptions(method, *args, **kwargs):
+        try:
+            return method(*args, **kwargs)
+        except k8s_client.rest.ApiException as e:
+            if e.status == 403:
+                logger.exception('Permission denied')
+            elif e.status != 409:  # Object exists or conflict in resource_version
+                logger.exception('Unexpected error from Kubernetes API')
+            return False
+        except (RetryFailedError, K8sException) as e:
+            raise KubernetesError(e)
 
     def client_path(self, path):
         return super(Kubernetes, self).client_path(path)[1:].replace('/', '-')
@@ -978,16 +985,19 @@ class Kubernetes(AbstractDCS):
             else:
                 logger.exception('Permission denied' if e.status == 403 else 'Unexpected error from Kubernetes API')
                 return False
-        except (RetryFailedError, K8sException):
-            return False
+        except (RetryFailedError, K8sException) as e:
+            raise KubernetesError(e)
 
+        # if we are here, that means update failed with 409
         retry.deadline = retry.stoptime - time.time()
         if retry.deadline < 1:
-            return False
+            return False  # No time for retry. Tell ha.py that we have to demote due to failed update.
 
         # Try to get the latest version directly from K8s API instead of relying on async cache
         try:
             kind = _retry(self._api.read_namespaced_kind, self.leader_path, self._namespace)
+        except (RetryFailedError, K8sException) as e:
+            raise KubernetesError(e)
         except Exception as e:
             logger.error('Failed to get the leader object "%s": %r', self.leader_path, e)
             return False
@@ -1005,7 +1015,8 @@ class Kubernetes(AbstractDCS):
         if kind and (kind_annotations.get(self._LEADER) != self._name or kind_resource_version == resource_version):
             return False
 
-        return self.patch_or_create(self.leader_path, annotations, kind_resource_version, ips=ips, retry=_retry)
+        return self._run_and_handle_exceptions(self._patch_or_create, self.leader_path, annotations,
+                                               kind_resource_version, ips=ips, retry=_retry)
 
     def update_leader(self, last_lsn, slots=None):
         kind = self._kinds.get(self.leader_path)
@@ -1042,7 +1053,19 @@ class Kubernetes(AbstractDCS):
                 annotations['acquireTime'] = self._leader_observed_record.get('acquireTime') or now
             annotations['transitions'] = str(transitions)
         ips = [] if self._api.use_endpoints else None
-        ret = self.patch_or_create(self.leader_path, annotations, self._leader_resource_version, ips=ips)
+
+        try:
+            ret = self._patch_or_create(self.leader_path, annotations,
+                                        self._leader_resource_version, retry=self.retry, ips=ips)
+        except k8s_client.rest.ApiException as e:
+            if e.status == 409 and self._leader_resource_version:  # Conflict in resource_version
+                # Terminate watchers, it could be a sign that K8s API is in a failed state
+                self._kinds.kill_stream()
+                self._pods.kill_stream()
+            ret = False
+        except (RetryFailedError, K8sException) as e:
+            raise KubernetesError(e)
+
         if not ret:
             logger.info('Could not take out TTL lock')
         return ret

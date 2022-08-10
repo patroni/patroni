@@ -146,7 +146,13 @@ class Ha(object):
         self._leader_timeline = None if cluster.is_unlocked() else cluster.leader.timeline
 
     def acquire_lock(self):
-        ret = self.dcs.attempt_to_acquire_leader()
+        try:
+            ret = self.dcs.attempt_to_acquire_leader()
+        except DCSError:
+            raise
+        except Exception:
+            logger.exception('Unexpected exception raised from attempt_to_acquire_leader, please report it as a BUG')
+            ret = False
         self.set_is_leader(ret)
         return ret
 
@@ -160,6 +166,8 @@ class Ha(object):
                 logger.exception('Exception when called state_handler.last_operation()')
         try:
             ret = self.dcs.update_leader(last_lsn, slots)
+        except DCSError:
+            raise
         except Exception:
             logger.exception('Unexpected exception raised from update_leader, please report it as a BUG')
             ret = False
@@ -1499,8 +1507,12 @@ class Ha(object):
             dcs_failed = True
             logger.error('Error communicating with DCS')
             if not self.is_paused() and self.state_handler.is_running() and self.state_handler.is_leader():
+                msg = 'demoting self because DCS is not accessible and I was a leader'
+                if not self._async_executor.try_run_async(msg, self.demote, ('offline',)):
+                    return msg
+                logger.warning('AsyncExecutor is busy, demoting from the main thread')
                 self.demote('offline')
-                return 'demoted self because DCS is not accessible and i was a leader'
+                return 'demoted self because DCS is not accessible and I was a leader'
             return 'DCS is not accessible'
         except (psycopg.Error, PostgresConnectionException):
             return 'Error communicating with PostgreSQL. Will try again later'

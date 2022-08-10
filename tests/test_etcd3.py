@@ -216,11 +216,26 @@ class TestEtcd3(BaseTestEtcd3):
     def test__update_leader(self):
         self.etcd3._lease = None
         self.etcd3.update_leader('123')
+        self.etcd3._last_lease_refresh = 0
         self.etcd3.update_leader('124')
+        with patch.object(PatroniEtcd3Client, 'lease_keepalive', Mock(return_value=True)),\
+                patch('time.time', Mock(side_effect=[0, 100, 200, 300])):
+            self.assertRaises(Etcd3Error, self.etcd3.update_leader, '126')
+        self.etcd3._last_lease_refresh = 0
+        with patch.object(PatroniEtcd3Client, 'lease_keepalive', Mock(side_effect=Unknown)):
+            self.assertFalse(self.etcd3.update_leader('125'))
+
+    def test_take_leader(self):
+        self.assertFalse(self.etcd3.take_leader())
 
     def test_attempt_to_acquire_leader(self):
-        self.etcd3._lease = None
         self.assertFalse(self.etcd3.attempt_to_acquire_leader())
+        with patch('time.time', Mock(side_effect=[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100, 200])):
+            self.assertRaises(Etcd3Error, self.etcd3.attempt_to_acquire_leader)
+        with patch('time.time', Mock(side_effect=[0, 100, 200, 300, 400])):
+            self.assertRaises(Etcd3Error, self.etcd3.attempt_to_acquire_leader)
+        with patch.object(PatroniEtcd3Client, 'put', Mock(return_value=False)):
+            self.assertFalse(self.etcd3.attempt_to_acquire_leader())
 
     def test_set_ttl(self):
         self.etcd3.set_ttl(20)
