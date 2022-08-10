@@ -484,7 +484,39 @@ class Etcd3Controller(AbstractEtcdController):
             assert False, "exception when cleaning up etcd contents: {0}".format(e)
 
 
-class KubernetesController(AbstractDcsController):
+class AbstractExternalController(AbstractDcsController):
+
+    def _start(self):
+        return self._external_pid
+
+    def start_outage(self):
+        if not self._paused:
+            subprocess.call(['sudo', 'kill', '-SIGSTOP', self._external_pid])
+            self._paused = True
+
+    def stop_outage(self):
+        if self._paused:
+            subprocess.call(['sudo', 'kill', '-SIGCONT', self._external_pid])
+            self._paused = False
+
+    def _has_started(self):
+        return True
+
+    @abc.abstractmethod
+    def process_name():
+        """process name to search with pgrep"""
+
+    def _is_running(self):
+        if not self._handle:
+            self._external_pid = subprocess.check_output(['pgrep', '-nf', self.process_name()]).decode('utf-8').strip()
+            return False
+        return True
+
+    def stop(self):
+        pass
+
+
+class KubernetesController(AbstractExternalController):
 
     def __init__(self, context):
         super(KubernetesController, self).__init__(context)
@@ -500,10 +532,11 @@ class KubernetesController(AbstractDcsController):
         self._client = k8s_client
         self._api = self._client.CoreV1Api()
 
-    def _start(self):
-        pass
+    def process_name(self):
+        return "localkube"
 
     def create_pod(self, name, scope):
+        self.delete_pod(name)
         labels = self._labels.copy()
         labels['cluster-name'] = scope
         metadata = self._client.V1ObjectMeta(namespace=self._namespace, name=name, labels=labels)
@@ -552,11 +585,8 @@ class KubernetesController(AbstractDcsController):
             if len(result.items) < 1:
                 break
 
-    def _is_running(self):
-        return True
 
-
-class ZooKeeperController(AbstractDcsController):
+class ZooKeeperController(AbstractExternalController):
 
     """ handles all zookeeper related tasks, used for the tests setup and cleanup """
 
@@ -568,8 +598,8 @@ class ZooKeeperController(AbstractDcsController):
         import kazoo.client
         self._client = kazoo.client.KazooClient()
 
-    def _start(self):
-        pass  # TODO: implement later
+    def process_name(self):
+        return "zookeeper"
 
     def query(self, key, scope='batman'):
         import kazoo.exceptions
@@ -588,6 +618,9 @@ class ZooKeeperController(AbstractDcsController):
             assert False, "exception when cleaning up zookeeper contents: {0}".format(e)
 
     def _is_running(self):
+        if not super(ZooKeeperController, self)._is_running():
+            return False
+
         # if zookeeper is running, but we didn't start it
         if self._client.connected:
             return True
