@@ -21,6 +21,7 @@ Currently supported PostgreSQL versions: 9.3 to 14.
 
    README
    dynamic_configuration
+   dcs_failsafe_mode
    rest_api
    existing_data
    ENVIRONMENT
