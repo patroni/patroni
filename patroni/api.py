@@ -355,6 +355,23 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self.server.patroni.sighup_handler()
         self._write_response(202, 'reload scheduled')
 
+    def do_GET_failsafe(self):
+        failsafe = self.server.patroni.dcs.failsafe
+        if isinstance(failsafe, dict):
+            self._write_json_response(200, failsafe)
+        else:
+            self.send_error(502)
+
+    @check_access
+    def do_POST_failsafe(self):
+        if self.server.patroni.ha.is_failsafe_mode():
+            request = self._read_json_content()
+            message = self.server.patroni.ha.update_failsafe(request) or 'Accepted'
+            code = 200 if message == 'Accepted' else 500
+            self._write_response(code, message)
+        else:
+            self.send_error(502)
+
     @staticmethod
     def parse_schedule(schedule, action):
         """ parses the given schedule and validates at """

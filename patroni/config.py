@@ -68,6 +68,7 @@ class Config(object):
         'synchronous_mode': False,
         'synchronous_mode_strict': False,
         'synchronous_node_count': 1,
+        'failsafe_mode': False,
         'standby_cluster': {
             'create_replica_methods': '',
             'host': '',
@@ -234,7 +235,7 @@ class Config(object):
                     if name in self.__DEFAULT_CONFIG['standby_cluster']:
                         config['standby_cluster'][name] = deepcopy(value)
             elif name in config:  # only variables present in __DEFAULT_CONFIG allowed to be overridden from DCS
-                if name in ('synchronous_mode', 'synchronous_mode_strict'):
+                if name in ('synchronous_mode', 'synchronous_mode_strict', 'failsafe_mode'):
                     config[name] = value
                 else:
                     config[name] = int(value)

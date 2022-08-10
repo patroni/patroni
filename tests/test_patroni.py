@@ -139,7 +139,8 @@ class TestPatroni(unittest.TestCase):
         self.p.api.start = Mock()
         self.p.logger.start = Mock()
         self.p.config._dynamic_configuration = {}
-        self.assertRaises(SleepException, self.p.run)
+        with patch('patroni.dcs.Cluster.is_unlocked', Mock(return_value=True)):
+            self.assertRaises(SleepException, self.p.run)
         with patch('patroni.config.Config.reload_local_configuration', Mock(return_value=False)):
             self.p.sighup_handler()
             self.assertRaises(SleepException, self.p.run)

@@ -830,6 +830,10 @@ class AbstractDCS(object):
                 and self._write_failsafe(json.dumps(value, separators=(',', ':'))):
             self._last_failsafe = value
 
+    @property
+    def failsafe(self):
+        return self._last_failsafe
+
     @abc.abstractmethod
     def _update_leader(self):
         """Update leader key (or session) ttl

@@ -43,11 +43,13 @@ class MockResponse(object):
         return {'content-type': 'json'}
 
 
-def requests_get(url, **kwargs):
+def requests_get(url, method='GET', endpoint=None, data='', **kwargs):
     members = '[{"id":14855829450254237642,"peerURLs":["http://localhost:2380","http://localhost:7001"],' +\
               '"name":"default","clientURLs":["http://localhost:2379","http://localhost:4001"]}]'
     response = MockResponse()
-    if url.startswith('http://local'):
+    if endpoint == 'failsafe':
+        response.content = 'Accepted'
+    elif url.startswith('http://local'):
         raise urllib3.exceptions.HTTPError()
     elif ':8011/patroni' in url:
         response.content = '{"role": "replica", "xlog": {"received_location": 0}, "tags": {}}'
@@ -56,7 +58,6 @@ def requests_get(url, **kwargs):
     elif url.startswith('http://exhibitor'):
         response.content = '{"servers":["127.0.0.1","127.0.0.2","127.0.0.3"],"port":2181}'
     elif url.endswith(':8011/reinitialize'):
-        data = kwargs.get('data', '')
         if ' false}' in data:
             response.status_code = 503
             response.content = 'restarting after failure already in progress'

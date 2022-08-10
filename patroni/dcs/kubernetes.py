@@ -821,7 +821,8 @@ class Kubernetes(AbstractDCS):
             except (TypeError, ValueError):
                 ttl = self._ttl
 
-            if not metadata or not self._leader_observed_time or self._leader_observed_time + ttl < time.time():
+            if not metadata or not self._leader_observed_time or self._leader_observed_time + ttl < time.time() \
+                    and (self._name != leader or not isinstance(failsafe, dict) or leader not in failsafe):
                 leader = None
 
             if metadata:

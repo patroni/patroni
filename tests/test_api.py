@@ -57,6 +57,10 @@ class MockHa(object):
     watchdog = MockWatchdog()
 
     @staticmethod
+    def update_failsafe(*args):
+        return 'foo'
+
+    @staticmethod
     def is_leader():
         return False
 
@@ -356,6 +360,20 @@ class TestRestApiHandler(unittest.TestCase):
         MockRestApiServer(RestApiHandler, request)
         mock_dcs.get_cluster.return_value.config = ClusterConfig.from_node(1, config)
         MockRestApiServer(RestApiHandler, request)
+
+    @patch.object(MockPatroni, 'dcs')
+    def test_do_GET_failsafe(self, mock_dcs):
+        type(mock_dcs).failsafe = PropertyMock(return_value={'node1': 'http://foo:8080/patroni'})
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /failsafe'))
+        type(mock_dcs).failsafe = PropertyMock(return_value=None)
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /failsafe'))
+
+    def test_do_POST_failsafe(self):
+        with patch.object(MockHa, 'is_failsafe_mode', Mock(return_value=False), create=True):
+            self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'POST /failsafe HTTP/1.0' + self._authorization))
+        with patch.object(MockHa, 'is_failsafe_mode', Mock(return_value=True), create=True):
+            self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'POST /failsafe HTTP/1.0' + self._authorization +
+                                                                   '\nContent-Length: 9\n\n{"a":"b"}'))
 
     @patch.object(MockPatroni, 'sighup_handler', Mock())
     def test_do_POST_reload(self):
