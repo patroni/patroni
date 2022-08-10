@@ -444,7 +444,7 @@ class TimelineHistory(namedtuple('TimelineHistory', 'index,value,lines')):
         return TimelineHistory(index, value, lines)
 
 
-class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,failover,sync,history,slots')):
+class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,failover,sync,history,slots,failsafe')):
 
     """Immutable object (namedtuple) which represents PostgreSQL cluster.
     Consists of the following fields:
@@ -606,11 +606,11 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,f
     @property
     def timeline(self):
         """
-        >>> Cluster(0, 0, 0, 0, 0, 0, 0, 0, 0).timeline
+        >>> Cluster(0, 0, 0, 0, 0, 0, 0, 0, 0, None).timeline
         0
-        >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[]'), 0).timeline
+        >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[]'), 0, None).timeline
         1
-        >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[["a"]]'), 0).timeline
+        >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[["a"]]'), 0, None).timeline
         0
         """
         if self.history:
@@ -655,6 +655,7 @@ class AbstractDCS(object):
     _STATUS = 'status'  # JSON, contains "leader_lsn" and confirmed_flush_lsn of logical "slots" on the leader
     _LEADER_OPTIME = _OPTIME + '/' + _LEADER  # legacy
     _SYNC = 'sync'
+    _FAILSAFE = 'failsafe'
 
     def __init__(self, config):
         """
@@ -672,6 +673,7 @@ class AbstractDCS(object):
         self._last_lsn = ''
         self._last_seen = 0
         self._last_status = {}
+        self._last_failsafe = {}
         self.event = Event()
 
     def client_path(self, path):
@@ -716,6 +718,10 @@ class AbstractDCS(object):
     @property
     def sync_path(self):
         return self.client_path(self._SYNC)
+
+    @property
+    def failsafe_path(self):
+        return self.client_path(self._FAILSAFE)
 
     @abc.abstractmethod
     def set_ttl(self, ttl):
@@ -768,6 +774,8 @@ class AbstractDCS(object):
             raise
 
         self._last_seen = int(time.time())
+        self._last_status = {self._OPTIME: cluster.last_lsn, 'slots': cluster.slots}
+        self._last_failsafe = cluster.failsafe
 
         with self._cluster_thread_lock:
             self._cluster = cluster
@@ -811,6 +819,18 @@ class AbstractDCS(object):
             self._write_leader_optime(str(value[self._OPTIME]))
 
     @abc.abstractmethod
+    def _write_failsafe(self, value):
+        """Write current cluster topology to DCS that will be used by failsafe mechanism (if enabled).
+
+        :param value: failsafe topology serialized in JSON format
+        :returns: `!True` on success."""
+
+    def write_failsafe(self, value):
+        if not (isinstance(self._last_failsafe, dict) and deep_compare(self._last_failsafe, value))\
+                and self._write_failsafe(json.dumps(value, separators=(',', ':'))):
+            self._last_failsafe = value
+
+    @abc.abstractmethod
     def _update_leader(self):
         """Update leader key (or session) ttl
 
@@ -821,7 +841,7 @@ class AbstractDCS(object):
         If update fails due to DCS not being accessible or because it is not able to
         process requests (hopefuly temporary), the ~DCSError exception should be raised."""
 
-    def update_leader(self, last_lsn, slots=None):
+    def update_leader(self, last_lsn, slots=None, failsafe=None):
         """Update leader key (or session) ttl and optime/leader
 
         :param last_lsn: absolute WAL LSN in bytes
@@ -834,6 +854,10 @@ class AbstractDCS(object):
             if slots:
                 status['slots'] = slots
             self.write_status(status)
+
+        if ret and failsafe is not None:
+            self.write_failsafe(failsafe)
+
         return ret
 
     @abc.abstractmethod

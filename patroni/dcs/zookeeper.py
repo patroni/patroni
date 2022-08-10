@@ -265,7 +265,14 @@ class ZooKeeper(AbstractDCS):
         failover = self.get_node(self.failover_path, watch=self.cluster_watcher) if self._FAILOVER in nodes else None
         failover = failover and Failover.from_node(failover[1].version, failover[0])
 
-        return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots)
+        # get failsafe topology
+        failsafe = self.get_node(self.failsafe_path, watch=self.cluster_watcher) if self._FAILSAFE in nodes else None
+        try:
+            failsafe = json.loads(failsafe[0]) if failsafe else None
+        except Exception:
+            failsafe = None
+
+        return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots, failsafe)
 
     def _load_cluster(self):
         cluster = self.cluster
@@ -286,8 +293,8 @@ class ZooKeeper(AbstractDCS):
                 try:
                     last_lsn, slots = self.get_status(cluster.leader)
                     self.event.clear()
-                    cluster = Cluster(cluster.initialize, cluster.config, cluster.leader, last_lsn,
-                                      cluster.members, cluster.failover, cluster.sync, cluster.history, slots)
+                    cluster = Cluster(cluster.initialize, cluster.config, cluster.leader, last_lsn, cluster.members,
+                                      cluster.failover, cluster.sync, cluster.history, slots, cluster.failsafe)
                 except Exception:
                     pass
         return cluster
@@ -396,6 +403,9 @@ class ZooKeeper(AbstractDCS):
 
     def _write_status(self, value):
         return self._set_or_create(self.status_path, value)
+
+    def _write_failsafe(self, value):
+        return self._set_or_create(self.failsafe_path, value)
 
     def _update_leader(self):
         cluster = self.cluster

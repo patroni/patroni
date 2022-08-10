@@ -801,6 +801,13 @@ class Kubernetes(AbstractDCS):
             except Exception:
                 slots = None
 
+            # get failsafe topology
+            failsafe = annotations.get(self._FAILSAFE)
+            try:
+                failsafe = json.loads(failsafe) if failsafe else None
+            except Exception:
+                failsafe = None
+
             # get leader
             leader_record = {n: annotations.get(n) for n in (self._LEADER, 'acquireTime',
                              'ttl', 'renewTime', 'transitions') if n in annotations}
@@ -833,7 +840,7 @@ class Kubernetes(AbstractDCS):
             metadata = sync and sync.metadata
             sync = SyncState.from_node(metadata and metadata.resource_version,  metadata and metadata.annotations)
 
-            return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots)
+            return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots, failsafe)
         except Exception:
             logger.exception('get_cluster')
             raise KubernetesError('Kubernetes API is not responding properly')
@@ -967,6 +974,9 @@ class Kubernetes(AbstractDCS):
     def _write_status(self, value):
         """Unused"""
 
+    def _write_failsafe(self, value):
+        """Unused"""
+
     def _update_leader(self):
         """Unused"""
 
@@ -1018,7 +1028,7 @@ class Kubernetes(AbstractDCS):
         return self._run_and_handle_exceptions(self._patch_or_create, self.leader_path, annotations,
                                                kind_resource_version, ips=ips, retry=_retry)
 
-    def update_leader(self, last_lsn, slots=None):
+    def update_leader(self, last_lsn, slots=None, failsafe=None):
         kind = self._kinds.get(self.leader_path)
         kind_annotations = kind and kind.metadata.annotations or {}
 
@@ -1032,7 +1042,10 @@ class Kubernetes(AbstractDCS):
                        'transitions': leader_observed_record.get('transitions') or '0'}
         if last_lsn:
             annotations[self._OPTIME] = str(last_lsn)
-            annotations['slots'] = json.dumps(slots) if slots else None
+            annotations['slots'] = json.dumps(slots, separators=(',', ':')) if slots else None
+
+        if failsafe is not None:
+            annotations[self._FAILSAFE] = json.dumps(failsafe, separators=(',', ':')) if failsafe else None
 
         resource_version = kind and kind.metadata.resource_version
         return self._update_leader_with_retry(annotations, resource_version, self.__ips)

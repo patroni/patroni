@@ -702,7 +702,14 @@ class Etcd3(AbstractEtcd):
             sync = nodes.get(self._SYNC)
             sync = SyncState.from_node(sync and sync['mod_revision'], sync and sync['value'])
 
-            cluster = Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots)
+            # get failsafe topology
+            failsafe = nodes.get(self._FAILSAFE)
+            try:
+                failsafe = json.loads(failsafe['value']) if failsafe else None
+            except Exception:
+                failsafe = None
+
+            cluster = Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots, failsafe)
         except UnsupportedEtcdVersion:
             raise
         except Exception as e:
@@ -790,6 +797,10 @@ class Etcd3(AbstractEtcd):
     @catch_etcd_errors
     def _write_status(self, value):
         return self._client.put(self.status_path, value)
+
+    @catch_etcd_errors
+    def _write_failsafe(self, value):
+        return self._client.put(self.failsafe_path, value)
 
     @catch_return_false_exception
     def _update_leader(self):

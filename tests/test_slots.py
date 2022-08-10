@@ -29,14 +29,14 @@ class TestSlotsHandler(BaseTestPostgresql):
         self.p.start()
         config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'}}}, 1)
         self.cluster = Cluster(True, config, self.leader, 0,
-                               [self.me, self.other, self.leadermem], None, None, None, {'ls': 12345})
+                               [self.me, self.other, self.leadermem], None, None, None, {'ls': 12345}, None)
 
     def test_sync_replication_slots(self):
         config = ClusterConfig(1, {'slots': {'test_3': {'database': 'a', 'plugin': 'b'},
                                              'A': 0, 'ls': 0, 'b': {'type': 'logical', 'plugin': '1'}},
                                    'ignore_slots': [{'name': 'blabla'}]}, 1)
         cluster = Cluster(True, config, self.leader, 0,
-                          [self.me, self.other, self.leadermem], None, None, None, {'test_3': 10})
+                          [self.me, self.other, self.leadermem], None, None, None, {'test_3': 10}, None)
         with mock.patch('patroni.postgresql.Postgresql._query', Mock(side_effect=psycopg.OperationalError)):
             self.s.sync_replication_slots(cluster, False)
         self.p.set_role('standby_leader')
@@ -63,7 +63,8 @@ class TestSlotsHandler(BaseTestPostgresql):
     def test_process_permanent_slots(self):
         config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'}},
                                    'ignore_slots': [{'name': 'blabla'}]}, 1)
-        cluster = Cluster(True, config, self.leader, 0, [self.me, self.other, self.leadermem], None, None, None, None)
+        cluster = Cluster(True, config, self.leader, 0,
+                          [self.me, self.other, self.leadermem], None, None, None, None, None)
 
         self.s.sync_replication_slots(cluster, False)
         with patch.object(Postgresql, '_query') as mock_query:

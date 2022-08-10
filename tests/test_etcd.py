@@ -67,6 +67,7 @@ def etcd_read(self, key, **kwargs):
                      "expiration": "2015-05-15T09:11:09.611860899Z", "ttl": 30,
                      "modifiedIndex": 20730, "createdIndex": 20730}],
                  "modifiedIndex": 1581, "createdIndex": 1581},
+                {"key": "/service/batman5/failsafe", "value": '{', "modifiedIndex": 1582, "createdIndex": 1582},
                 {"key": "/service/batman5/status", "value": '{"optime":2164261704,"slots":{"ls":12345}}',
                  "modifiedIndex": 1582, "createdIndex": 1582}], "modifiedIndex": 1581, "createdIndex": 1581}}
     if key == '/service/legacy/':
@@ -286,7 +287,7 @@ class TestEtcd(unittest.TestCase):
         self.etcd.write_leader_optime('0')
 
     def test_update_leader(self):
-        self.assertTrue(self.etcd.update_leader(None))
+        self.assertTrue(self.etcd.update_leader(12345, failsafe={'foo': 'bar'}))
         with patch.object(etcd.Client, 'write',
                           Mock(side_effect=[etcd.EtcdConnectionFailed, etcd.EtcdClusterIdChanged, Exception])):
             self.assertRaises(EtcdError, self.etcd.update_leader, None)

@@ -388,9 +388,16 @@ class Consul(AbstractDCS):
             sync = nodes.get(self._SYNC)
             sync = SyncState.from_node(sync and sync['ModifyIndex'], sync and sync['Value'])
 
-            return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots)
+            # get failsafe topology
+            failsafe = nodes.get(self._FAILSAFE)
+            try:
+                failsafe = json.loads(failsafe['Value']) if failsafe else None
+            except Exception:
+                failsafe = None
+
+            return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots, failsafe)
         except NotFound:
-            return Cluster(None, None, None, None, [], None, None, None, None)
+            return Cluster(None, None, None, None, [], None, None, None, None, None)
         except Exception:
             logger.exception('get_cluster')
             raise ConsulError('Consul is not responding properly')
@@ -550,6 +557,10 @@ class Consul(AbstractDCS):
     @catch_consul_errors
     def _write_status(self, value):
         return self._client.kv.put(self.status_path, value)
+
+    @catch_consul_errors
+    def _write_failsafe(self, value):
+        return self._client.kv.put(self.failsafe_path, value)
 
     @staticmethod
     def _run_and_handle_exceptions(method, *args, **kwargs):

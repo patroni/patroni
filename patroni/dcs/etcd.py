@@ -658,9 +658,16 @@ class Etcd(AbstractEtcd):
             sync = nodes.get(self._SYNC)
             sync = SyncState.from_node(sync and sync.modifiedIndex, sync and sync.value)
 
-            cluster = Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots)
+            # get failsafe topology
+            failsafe = nodes.get(self._FAILSAFE)
+            try:
+                failsafe = json.loads(failsafe.value) if failsafe else None
+            except Exception:
+                failsafe = None
+
+            cluster = Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots, failsafe)
         except etcd.EtcdKeyNotFound:
-            cluster = Cluster(None, None, None, None, [], None, None, None, None)
+            cluster = Cluster(None, None, None, None, [], None, None, None, None, None)
         except Exception as e:
             self._handle_exception(e, 'get_cluster', raise_ex=EtcdError('Etcd is not responding properly'))
         self._has_failed = False
@@ -712,6 +719,10 @@ class Etcd(AbstractEtcd):
                               prevValue=self._name, ttl=self._ttl) is not None
         except etcd.EtcdKeyNotFound:
             return self._do_attempt_to_acquire_leader()
+
+    @catch_etcd_errors
+    def _write_failsafe(self, value):
+        return self._client.set(self.failsafe_path, value)
 
     @catch_return_false_exception
     def _update_leader(self):

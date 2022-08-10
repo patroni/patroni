@@ -51,6 +51,8 @@ class MockKazooClient(Mock):
             return (b'foo', ZnodeStat(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
         elif path.endswith('/status'):
             return (b'{"optime":500,"slots":{"ls":1234567}}', ZnodeStat(0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0))
+        elif path.endswith('/failsafe'):
+            return (b'{a}', ZnodeStat(0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0))
         return (b'', ZnodeStat(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
 
     @staticmethod
@@ -60,7 +62,7 @@ class MockKazooClient(Mock):
         if path.startswith('/no_node'):
             raise NoNodeError
         elif path in ['/service/bla/', '/service/test/']:
-            return ['initialize', 'leader', 'members', 'optime', 'failover', 'sync']
+            return ['initialize', 'leader', 'members', 'optime', 'failover', 'sync', 'failsafe']
         return ['foo', 'bar', 'buzz']
 
     def create(self, path, value=b"", acl=None, ephemeral=False, sequence=False, makepath=False):
@@ -235,7 +237,7 @@ class TestZooKeeper(unittest.TestCase):
         with patch.object(MockKazooClient, 'delete', Mock(side_effect=RetryFailedError)):
             self.assertRaises(ZooKeeperError, self.zk.update_leader, 12345)
         with patch.object(MockKazooClient, 'delete', Mock(side_effect=NoNodeError)):
-            self.assertTrue(self.zk.update_leader(12345))
+            self.assertTrue(self.zk.update_leader(12345, failsafe={'foo': 'bar'}))
             with patch.object(MockKazooClient, 'create', Mock(side_effect=[RetryFailedError, Exception])):
                 self.assertRaises(ZooKeeperError, self.zk.update_leader, 12345)
                 self.assertFalse(self.zk.update_leader(12345))

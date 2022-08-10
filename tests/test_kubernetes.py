@@ -18,7 +18,7 @@ def mock_list_namespaced_config_map(*args, **kwargs):
                 'annotations': {'initialize': '123', 'config': '{}'}}
     items = [k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata))]
     metadata.update({'name': 'test-leader',
-                     'annotations': {'optime': '1234x', 'leader': 'p-0', 'ttl': '30s', 'slots': '{'}})
+                     'annotations': {'optime': '1234x', 'leader': 'p-0', 'ttl': '30s', 'slots': '{', 'failsafe': '{'}})
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
     metadata.update({'name': 'test-failover', 'annotations': {'leader': 'p-0'}})
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
@@ -285,7 +285,7 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
 
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints', create=True)
     def test_update_leader(self, mock_patch_namespaced_endpoints):
-        self.assertIsNotNone(self.k.update_leader('123'))
+        self.assertIsNotNone(self.k.update_leader('123', failsafe={'foo': 'bar'}))
         args = mock_patch_namespaced_endpoints.call_args[0]
         self.assertEqual(args[2].subsets[0].addresses[0].target_ref.resource_version, '10')
         self.k._kinds._object_cache['test'].subsets[:] = []

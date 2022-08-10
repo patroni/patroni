@@ -34,6 +34,8 @@ def kv_get(self, key, **kwargs):
                   'ModifyIndex': 6429, 'Value': b'4496294792'},
                  {'CreateIndex': 1085, 'Flags': 0, 'Key': key + 'sync', 'LockIndex': 0,
                   'ModifyIndex': 6429, 'Value': b'{"leader": "leader", "sync_standby": null}'},
+                 {'CreateIndex': 1085, 'Flags': 0, 'Key': key + 'failsafe', 'LockIndex': 0,
+                  'ModifyIndex': 6429, 'Value': b'{'},
                  {'CreateIndex': 1085, 'Flags': 0, 'Key': key + 'status', 'LockIndex': 0,
                   'ModifyIndex': 6429, 'Value': b'{"optime":4496294792, "slots":{"ls":12345}}'}])
     if key == 'service/good/':
@@ -166,7 +168,7 @@ class TestConsul(unittest.TestCase):
         self.c._session = 'fd4f44fe-2cac-bba5-a60b-304b51ff39b8'
         with patch.object(consul.Consul.KV, 'delete', Mock(return_value=True)):
             with patch.object(consul.Consul.KV, 'put', Mock(return_value=True)):
-                self.assertTrue(self.c.update_leader(12345))
+                self.assertTrue(self.c.update_leader(12345, failsafe={'foo': 'bar'}))
             with patch.object(consul.Consul.KV, 'put', Mock(side_effect=ConsulException)):
                 self.assertFalse(self.c.update_leader(12345))
             with patch('time.time', Mock(side_effect=[0, 0, 0, 0, 0, 100, 200, 300])):

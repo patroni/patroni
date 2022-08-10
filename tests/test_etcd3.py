@@ -36,7 +36,8 @@ def mock_urlopen(self, method, url, **kwargs):
                  "value": base64_encode('{}'), "lease": "123", "mod_revision": '1'},
                 {"key": base64_encode('/patroni/test/members/bar'),
                  "value": base64_encode('{"version":"1.6.5"}'), "lease": "123", "mod_revision": '1'},
-                {"key": base64_encode('/patroni/test/failover'), "value": base64_encode('{}'), "mod_revision": '1'}
+                {"key": base64_encode('/patroni/test/failover'), "value": base64_encode('{}'), "mod_revision": '1'},
+                {"key": base64_encode('/patroni/test/failsafe'), "value": base64_encode('{'), "mod_revision": '1'}
             ]
         })
     elif url.endswith('/watch'):
@@ -215,7 +216,7 @@ class TestEtcd3(BaseTestEtcd3):
 
     def test__update_leader(self):
         self.etcd3._lease = None
-        self.etcd3.update_leader('123')
+        self.etcd3.update_leader('123', failsafe={'foo': 'bar'})
         self.etcd3._last_lease_refresh = 0
         self.etcd3.update_leader('124')
         with patch.object(PatroniEtcd3Client, 'lease_keepalive', Mock(return_value=True)),\

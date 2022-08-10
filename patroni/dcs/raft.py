@@ -324,7 +324,7 @@ class Raft(AbstractDCS):
         prefix = self.client_path('')
         response = self._sync_obj.get(prefix, recursive=True)
         if not response:
-            return Cluster(None, None, None, None, [], None, None, None, None)
+            return Cluster(None, None, None, None, [], None, None, None, None, None)
         nodes = {os.path.relpath(key, prefix).replace('\\', '/'): value for key, value in response.items()}
 
         # get initialize flag
@@ -377,13 +377,23 @@ class Raft(AbstractDCS):
         sync = nodes.get(self._SYNC)
         sync = SyncState.from_node(sync and sync['index'], sync and sync['value'])
 
-        return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots)
+        # get failsafe topology
+        failsafe = nodes.get(self._FAILSAFE)
+        try:
+            failsafe = json.loads(failsafe['value']) if failsafe else None
+        except Exception:
+            failsafe = None
+
+        return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots, failsafe)
 
     def _write_leader_optime(self, last_lsn):
         return self._sync_obj.set(self.leader_optime_path, last_lsn, timeout=1)
 
     def _write_status(self, value):
         return self._sync_obj.set(self.status_path, value, timeout=1)
+
+    def _write_failsafe(self, value):
+        return self._sync_obj.set(self.failsafe_path, value, timeout=1)
 
     def _update_leader(self):
         ret = self._sync_obj.set(self.leader_path, self._name, ttl=self._ttl,
