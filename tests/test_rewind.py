@@ -218,6 +218,19 @@ class TestRewind(BaseTestPostgresql):
         self.r.cleanup_archive_status()
         self.r.cleanup_archive_status()
 
+    @patch('os.listdir', Mock(side_effect=[OSError,
+                                           ['000000000000000000000000.ready'],
+                                           ['000000000000000000000001.ready']]))
+    @patch('os.path.isfile', Mock(return_value=True))
+    @patch('shutil.move', Mock(side_effect=OSError))
+    @patch.object(Postgresql, 'get_guc_value', Mock(return_value='on'))
+    def test_archive_ready_wals(self):
+        self.r._archive_ready_wals()
+        with patch.object(CancellableSubprocess, 'call', mock_cancellable_call0):
+            self.r._archive_ready_wals()
+        with patch.object(CancellableSubprocess, 'call', mock_cancellable_call1):
+            self.r._archive_ready_wals()
+
     @patch('os.unlink', Mock())
     @patch('os.listdir', Mock(return_value=[]))
     @patch('os.path.isfile', Mock(return_value=True))
