@@ -659,7 +659,7 @@ class Postgresql(object):
         if on_safepoint:
             # Wait for our connection to terminate so we can be sure that no new connections are being initiated
             self._wait_for_connection_close(postmaster)
-            postmaster.wait_for_user_backends_to_close()
+            postmaster.wait_for_user_backends_to_close(stop_timeout)
             on_safepoint()
 
         if on_shutdown and mode in ('fast', 'smart'):
