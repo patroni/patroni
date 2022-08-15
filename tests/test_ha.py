@@ -1133,17 +1133,19 @@ class TestHa(PostgresInit):
         self.ha.shutdown()
 
     @patch('time.sleep', Mock())
-    def test_leader_with_empty_directory(self):
+    def test_leader_with_not_accessible_data_directory(self):
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.ha.has_lock = true
-        self.p.data_directory_empty = true
-        self.assertEqual(self.ha.run_cycle(), 'released leader key voluntarily as data dir empty and currently leader')
+        self.p.data_directory_empty = Mock(side_effect=OSError(5, "Input/output error: '{}'".format(self.p.data_dir)))
+        self.assertEqual(self.ha.run_cycle(),
+                         'released leader key voluntarily as data dir not accessible and currently leader')
         self.assertEqual(self.p.role, 'uninitialized')
 
         # as has_lock is mocked out, we need to fake the leader key release
         self.ha.has_lock = false
-        # will not say bootstrap from leader as replica can't self elect
-        self.assertEqual(self.ha.run_cycle(), "trying to bootstrap from replica 'other'")
+        # will not say bootstrap because data directory is not accessible
+        self.assertEqual(self.ha.run_cycle(),
+                         "data directory is not accessible: [Errno 5] Input/output error: '{}'".format(self.p.data_dir))
 
     @patch('patroni.postgresql.mtime', Mock(return_value=1588316884))
     @patch.object(builtins, 'open', mock_open(read_data=('1\t0/40159C0\tno recovery target specified\n\n'

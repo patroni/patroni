@@ -1407,7 +1407,14 @@ class Ha(object):
                     return 'started as a secondary'
 
             # is data directory empty?
-            if self.state_handler.data_directory_empty():
+            try:
+                data_directory_is_empty = self.state_handler.data_directory_empty()
+                data_directory_is_accessible = True
+            except OSError as e:
+                data_directory_is_accessible = False
+                data_directory_error = e
+
+            if not data_directory_is_accessible or data_directory_is_empty:
                 self.state_handler.set_role('uninitialized')
                 self.state_handler.stop('immediate', stop_timeout=self.patroni.config['retry_timeout'])
                 # In case datadir went away while we were master.
@@ -1416,8 +1423,11 @@ class Ha(object):
                 # is this instance the leader?
                 if self.has_lock():
                     self.release_leader_key_voluntarily()
-                    return 'released leader key voluntarily as data dir empty and currently leader'
+                    return 'released leader key voluntarily as data dir {0} and currently leader'.format(
+                                'empty' if data_directory_is_accessible else 'not accessible')
 
+                if not data_directory_is_accessible:
+                    return 'data directory is not accessible: {0}'.format(data_directory_error)
                 if self.is_paused():
                     return 'running with empty data directory'
                 return self.bootstrap()  # new node
