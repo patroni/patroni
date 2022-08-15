@@ -198,7 +198,7 @@ class PostmasterProcess(psutil.Process):
             gone, live = psutil.wait_procs(user_backends, stop_timeout)
             if stop_timeout and live:
                 live = [user_backends_cmdlines[b.pid] for b in live]
-                logger.debug('Backends still alive after %s: %s', stop_timeout, ', '.join(live))
+                logger.warning('Backends still alive after %s: %s', stop_timeout, ', '.join(live))
             else:
                 logger.debug("Backends closed")
 
