@@ -112,10 +112,10 @@ class SlotsHandler(object):
         # In normal situation rowcount should be 1, otherwise either slot doesn't exists or it is still active
         return cursor.rowcount == 1
 
-    def _drop_incorrect_slots(self, cluster, slots):
+    def _drop_incorrect_slots(self, cluster, slots, paused):
         # drop old replication slots which are not presented in desired slots
         for name in set(self._replication_slots) - set(slots):
-            if not self.ignore_replication_slot(cluster, name) and not self.drop_replication_slot(name):
+            if not paused and not self.ignore_replication_slot(cluster, name) and not self.drop_replication_slot(name):
                 logger.error("Failed to drop replication slot '%s'", name)
                 self._schedule_load_slots = True
 
@@ -206,7 +206,7 @@ class SlotsHandler(object):
                         self._schedule_load_slots = True
         return create_slots
 
-    def sync_replication_slots(self, cluster, nofailover, replicatefrom=None):
+    def sync_replication_slots(self, cluster, nofailover, replicatefrom=None, paused=False):
         ret = None
         if self._postgresql.major_version >= 90400 and cluster.config:
             try:
@@ -215,7 +215,7 @@ class SlotsHandler(object):
                 slots = cluster.get_replication_slots(self._postgresql.name, self._postgresql.role,
                                                       nofailover, self._postgresql.major_version, True)
 
-                self._drop_incorrect_slots(cluster, slots)
+                self._drop_incorrect_slots(cluster, slots, paused)
 
                 self._ensure_physical_slots(slots)
 

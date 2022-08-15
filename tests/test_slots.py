@@ -42,8 +42,10 @@ class TestSlotsHandler(BaseTestPostgresql):
         self.p.set_role('standby_leader')
         self.s.sync_replication_slots(cluster, False)
         self.p.set_role('replica')
-        with patch.object(Postgresql, 'is_leader', Mock(return_value=False)):
-            self.s.sync_replication_slots(cluster, False)
+        with patch.object(Postgresql, 'is_leader', Mock(return_value=False)),\
+                patch.object(SlotsHandler, 'drop_replication_slot') as mock_drop:
+            self.s.sync_replication_slots(cluster, False, paused=True)
+            mock_drop.assert_not_called()
         self.p.set_role('master')
         with mock.patch('patroni.postgresql.Postgresql.role', new_callable=PropertyMock(return_value='replica')):
             self.s.sync_replication_slots(cluster, False)

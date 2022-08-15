@@ -1483,7 +1483,9 @@ class Ha(object):
                 # asynchronous processes are running (should be always the case for the master)
                 if not self._async_executor.busy and not self.state_handler.is_starting():
                     create_slots = self.state_handler.slots_handler.sync_replication_slots(self.cluster,
-                                                                                           self.patroni.nofailover)
+                                                                                           self.patroni.nofailover,
+                                                                                           self.patroni.replicatefrom,
+                                                                                           self.is_paused())
                     if not self.state_handler.cb_called:
                         if not self.state_handler.is_leader():
                             self._rewind.trigger_check_diverged_lsn()
