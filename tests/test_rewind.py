@@ -232,8 +232,8 @@ class TestRewind(BaseTestPostgresql):
             '', 'command %f',
             'on', '',
         ]
-        with (patch.object(Postgresql, 'get_guc_value', Mock(side_effect=get_guc_value_res))):
-            for _ in range(int(len(get_guc_value_res)/2)):
+        with patch.object(Postgresql, 'get_guc_value', Mock(side_effect=get_guc_value_res)):
+            for _ in range(len(get_guc_value_res)//2):
                 self.r._archive_ready_wals()
                 mock_logger_info.assert_not_called()
 
@@ -245,7 +245,7 @@ class TestRewind(BaseTestPostgresql):
                     'always', 'command %f',
                 ]
                 with patch.object(Postgresql, 'get_guc_value', Mock(side_effect=get_guc_value_res)):
-                    for _ in range(int(len(get_guc_value_res)/2)):
+                    for _ in range(len(get_guc_value_res)//2):
                         self.r._archive_ready_wals()
                         mock_logger_info.assert_called_once()
                         self.assertEqual(('Trying to archive %s: %s',
@@ -270,10 +270,9 @@ class TestRewind(BaseTestPostgresql):
             '002.ready',
             'U00000000000000000000001.ready',
         ]
-        with (patch('os.listdir', Mock(side_effect=wal_files_to_skip))):
-            for _ in range(len(wal_files_to_skip)):
-                self.r._archive_ready_wals()
-                mock_logger_info.assert_not_called()
+        with patch('os.listdir', Mock(return_value=wal_files_to_skip)):
+            self.r._archive_ready_wals()
+            mock_logger_info.assert_not_called()
 
     @patch('os.unlink', Mock())
     @patch('os.listdir', Mock(return_value=[]))
