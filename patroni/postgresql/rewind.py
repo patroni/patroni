@@ -346,13 +346,14 @@ class Rewind(object):
 
         # skip fsync, as postgres --single or pg_rewind will anyway run it
         for wal in sorted(wals_to_archive):
-            if os.path.isfile(os.path.join(self._postgresql.wal_dir, wal)):
+            old_name = os.path.join(status_dir, wal + '.ready')
+            # wal file might have alredy been archived
+            if os.path.isfile(old_name) and os.path.isfile(os.path.join(self._postgresql.wal_dir, wal)):
                 cmd = self._buid_archiver_command(archive_cmd, wal)
                 # it is the author of archive_command, who is responsible
                 # for not overriding the WALs already present in archive
                 logger.info('Trying to archive %s: %s', wal, cmd)
                 if self._postgresql.cancellable.call(shlex.split(cmd)) == 0:
-                    old_name = os.path.join(status_dir, wal + '.ready')
                     new_name = os.path.join(status_dir, wal + '.done')
                     try:
                         shutil.move(old_name, new_name)
