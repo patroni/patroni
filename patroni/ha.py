@@ -1648,7 +1648,10 @@ class Ha(object):
             elif self.is_failsafe_mode():
                 cluster = self._failsafe.update_cluster(self.cluster)
                 if cluster:
-                    self.state_handler.slots_handler.sync_replication_slots(cluster, self.patroni.nofailover)
+                    self.state_handler.slots_handler.sync_replication_slots(cluster,
+                                                                            self.patroni.nofailover,
+                                                                            self.patroni.replicatefrom,
+                                                                            self.is_paused())
 
         return 'DCS is not accessible'
 
