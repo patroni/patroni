@@ -671,7 +671,7 @@ class PatroniPoolController(object):
         try:
             self.start(name, max_wait_limit, custom_config)
             assert False, 'expected startup to fail'
-        except:
+        except Exception:
             pass
 
     def __getattr__(self, func):
