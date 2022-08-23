@@ -1,6 +1,8 @@
 import logging
 import os
+import re
 import shlex
+import shutil
 import six
 import subprocess
 
@@ -277,27 +279,36 @@ class Rewind(object):
     def checkpoint_after_promote(self):
         return self._state == REWIND_STATUS.CHECKPOINT
 
-    def _fetch_missing_wal(self, restore_command, wal_filename):
+    def _buid_archiver_command(self, command, wal_filename):
+        """Replace placeholders in the given archiver command's template.
+        Applicable for archive_command and restore_command.
+        Can also be used for archive_cleanup_command and recovery_end_command,
+        however %r value is always set to 000000010000000000000001."""
         cmd = ''
-        length = len(restore_command)
+        length = len(command)
         i = 0
         while i < length:
-            if restore_command[i] == '%' and i + 1 < length:
+            if command[i] == '%' and i + 1 < length:
                 i += 1
-                if restore_command[i] == 'p':
+                if command[i] == 'p':
                     cmd += os.path.join(self._postgresql.wal_dir, wal_filename)
-                elif restore_command[i] == 'f':
+                elif command[i] == 'f':
                     cmd += wal_filename
-                elif restore_command[i] == 'r':
+                elif command[i] == 'r':
                     cmd += '000000010000000000000001'
-                elif restore_command[i] == '%':
+                elif command[i] == '%':
                     cmd += '%'
                 else:
                     cmd += '%'
                     i -= 1
             else:
-                cmd += restore_command[i]
+                cmd += command[i]
             i += 1
+
+        return cmd
+
+    def _fetch_missing_wal(self, restore_command, wal_filename):
+        cmd = self._buid_archiver_command(restore_command, wal_filename)
 
         logger.info('Trying to fetch the missing wal: %s', cmd)
         return self._postgresql.cancellable.call(shlex.split(cmd)) == 0
@@ -314,6 +325,42 @@ class Rewind(object):
                     waldir, wal_filename = line[b:e].rsplit('/', 1)
                     if waldir.endswith('/pg_' + self._postgresql.wal_name) and len(wal_filename) == 24:
                         return wal_filename
+
+    def _archive_ready_wals(self):
+        """Try to archive WALs that have .ready files just in case
+        archive_mode was not set to 'always' before promote, while
+        after it the WALs were recycled on the promoted replica.
+        With this we prevent the entire loss of such WALs and the
+        consequent old leader's start failure."""
+        archive_mode = self._postgresql.get_guc_value('archive_mode')
+        archive_cmd = self._postgresql.get_guc_value('archive_command')
+        if archive_mode not in ('on', 'always') or not archive_cmd:
+            return
+
+        walseg_regex = re.compile(r'^[0-9A-F]{24}(\.partial){0,1}\.ready$')
+        status_dir = os.path.join(self._postgresql.wal_dir, 'archive_status')
+        try:
+            wals_to_archive = [f[:-6] for f in os.listdir(status_dir) if walseg_regex.match(f)]
+        except OSError as e:
+            return logger.error('Unable to list %s: %r', status_dir, e)
+
+        # skip fsync, as postgres --single or pg_rewind will anyway run it
+        for wal in sorted(wals_to_archive):
+            old_name = os.path.join(status_dir, wal + '.ready')
+            # wal file might have alredy been archived
+            if os.path.isfile(old_name) and os.path.isfile(os.path.join(self._postgresql.wal_dir, wal)):
+                cmd = self._buid_archiver_command(archive_cmd, wal)
+                # it is the author of archive_command, who is responsible
+                # for not overriding the WALs already present in archive
+                logger.info('Trying to archive %s: %s', wal, cmd)
+                if self._postgresql.cancellable.call(shlex.split(cmd)) == 0:
+                    new_name = os.path.join(status_dir, wal + '.done')
+                    try:
+                        shutil.move(old_name, new_name)
+                    except Exception as e:
+                        logger.error('Unable to rename %s to %s: %r', old_name, new_name, e)
+                else:
+                    logger.info('Failed to archive WAL segment %s', wal)
 
     def pg_rewind(self, r):
         # prepare pg_rewind connection
@@ -366,6 +413,8 @@ class Rewind(object):
     def execute(self, leader):
         if self._postgresql.is_running() and not self._postgresql.stop(checkpoint=False):
             return logger.warning('Can not run pg_rewind because postgres is still running')
+
+        self._archive_ready_wals()
 
         # prepare pg_rewind connection
         r = self._conn_kwargs(leader, self._postgresql.config.rewind_credentials)
@@ -465,6 +514,7 @@ class Rewind(object):
             logger.exception('Unable to list %s', status_dir)
 
     def ensure_clean_shutdown(self):
+        self._archive_ready_wals()
         self.cleanup_archive_status()
 
         # Start in a single user mode and stop to produce a clean shutdown

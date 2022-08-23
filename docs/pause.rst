@@ -27,6 +27,8 @@ When Patroni runs in a paused mode, it does not change the state of PostgreSQL, 
 
 - When Postgres is stopped, Patroni does not try to start it. When Patroni is stopped, it does not try to stop the Postgres instance it is managing.
 
+- Patroni will not try to remove replication slots that don't represent the other cluster member or are not listed in the configuration of the permanent slots.
+
 User guide
 ----------
 
