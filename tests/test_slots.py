@@ -4,14 +4,14 @@ import unittest
 
 
 from mock import Mock, PropertyMock, patch
-from threading import Condition, Thread
+from threading import Thread
 
 from patroni import psycopg
 from patroni.dcs import Cluster, ClusterConfig, Member
 from patroni.postgresql import Postgresql
 from patroni.postgresql.slots import SlotsAdvanceThread, SlotsHandler, fsync_dir
 
-from . import BaseTestPostgresql, psycopg_connect, SleepException, MockCursor
+from . import BaseTestPostgresql, psycopg_connect, MockCursor
 
 
 @patch('subprocess.call', Mock(return_value=0))
@@ -137,13 +137,15 @@ class TestSlotsHandler(BaseTestPostgresql):
         self.assertRaises(OSError, fsync_dir, 'foo')
 
     def test_slots_advance_thread(self):
-        with patch.object(Condition, 'wait', Mock(side_effect=[None, SleepException])),\
-                patch.object(MockCursor, 'execute', Mock(side_effect=psycopg.OperationalError)),\
+        with patch.object(MockCursor, 'execute', Mock(side_effect=psycopg.OperationalError)),\
                 patch.object(psycopg.OperationalError, 'diag') as mock_diag:
             type(mock_diag).sqlstate = PropertyMock(return_value='58P01')
             self.s.schedule_advance_slots({'foo': {'bar': 100}})
-            self.assertRaises(SleepException, self.s._advance.run)
-        with patch.object(SlotsHandler, 'get_local_connection_cursor', Mock(side_effect=Exception)),\
-                patch.object(Condition, 'wait', Mock(side_effect=[None, SleepException])):
+            self.s._advance.sync_slots()
+        with patch.object(SlotsHandler, 'get_local_connection_cursor', Mock(side_effect=Exception)):
             self.s.schedule_advance_slots({'foo': {'bar': 100}})
-            self.assertRaises(SleepException, self.s._advance.run)
+            self.s._advance.sync_slots()
+
+        with patch.object(SlotsAdvanceThread, 'sync_slots', Mock(side_effect=Exception)):
+            self.s._advance._condition.wait = Mock()
+            self.assertRaises(Exception, self.s._advance.run)
