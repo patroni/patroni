@@ -92,7 +92,8 @@ class SlotsAdvanceThread(Thread):
     def run(self):
         while True:
             with self._condition:
-                self._condition.wait()
+                if not self._scheduled:
+                    self._condition.wait()
 
             self.sync_slots()
 
@@ -106,6 +107,10 @@ class SlotsAdvanceThread(Thread):
             self._condition.notify()
 
         return ret
+
+    def on_promote(self):
+        with self._condition:
+            self._scheduled.clear()
 
 
 class SlotsHandler(object):
@@ -405,6 +410,9 @@ class SlotsHandler(object):
         self._schedule_load_slots = self._force_readiness_check = value
 
     def on_promote(self):
+        if self._advance:
+            self._advance.on_promote()
+
         if self._unready_logical_slots:
             logger.warning('Logical replication slots that might be unsafe to use after promote: %s',
                            set(self._unready_logical_slots))
