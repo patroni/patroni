@@ -4,17 +4,19 @@ import unittest
 
 
 from mock import Mock, PropertyMock, patch
+from threading import Thread
 
 from patroni import psycopg
 from patroni.dcs import Cluster, ClusterConfig, Member
 from patroni.postgresql import Postgresql
-from patroni.postgresql.slots import SlotsHandler, fsync_dir
+from patroni.postgresql.slots import SlotsAdvanceThread, SlotsHandler, fsync_dir
 
 from . import BaseTestPostgresql, psycopg_connect, MockCursor
 
 
 @patch('subprocess.call', Mock(return_value=0))
 @patch('patroni.psycopg.connect', psycopg_connect)
+@patch.object(Thread, 'start', Mock())
 @patch.object(Postgresql, 'is_running', Mock(return_value=True))
 class TestSlotsHandler(BaseTestPostgresql):
 
@@ -91,6 +93,7 @@ class TestSlotsHandler(BaseTestPostgresql):
             self.assertEqual(self.s.sync_replication_slots(self.cluster, False), [])
         self.s._schedule_load_slots = False
         with patch.object(MockCursor, 'execute', Mock(side_effect=psycopg.OperationalError)),\
+                patch.object(SlotsAdvanceThread, 'schedule', Mock(return_value=(True, ['ls']))),\
                 patch.object(psycopg.OperationalError, 'diag') as mock_diag:
             type(mock_diag).sqlstate = PropertyMock(return_value='58P01')
             self.assertEqual(self.s.sync_replication_slots(self.cluster, False), ['ls'])
@@ -123,6 +126,7 @@ class TestSlotsHandler(BaseTestPostgresql):
     @patch.object(Postgresql, 'start', Mock(return_value=True))
     @patch.object(Postgresql, 'is_leader', Mock(return_value=False))
     def test_on_promote(self):
+        self.s.schedule_advance_slots({'foo': {'bar': 100}})
         self.s.copy_logical_slots(self.cluster, ['ls'])
         self.s.on_promote()
 
@@ -132,3 +136,18 @@ class TestSlotsHandler(BaseTestPostgresql):
     @patch('os.fsync', Mock(side_effect=OSError))
     def test_fsync_dir(self):
         self.assertRaises(OSError, fsync_dir, 'foo')
+
+    def test_slots_advance_thread(self):
+        with patch.object(MockCursor, 'execute', Mock(side_effect=psycopg.OperationalError)),\
+                patch.object(psycopg.OperationalError, 'diag') as mock_diag:
+            type(mock_diag).sqlstate = PropertyMock(return_value='58P01')
+            self.s.schedule_advance_slots({'foo': {'bar': 100}})
+            self.s._advance.sync_slots()
+
+        with patch.object(SlotsAdvanceThread, 'sync_slots', Mock(side_effect=Exception)):
+            self.s._advance._condition.wait = Mock()
+            self.assertRaises(Exception, self.s._advance.run)
+
+        with patch.object(SlotsHandler, 'get_local_connection_cursor', Mock(side_effect=Exception)):
+            self.s.schedule_advance_slots({'foo': {'bar': 100}})
+            self.s._advance.sync_slots()

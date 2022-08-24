@@ -5,6 +5,7 @@ import shutil
 
 from collections import defaultdict
 from contextlib import contextmanager
+from threading import Condition, Thread
 
 from .connection import get_connection_cursor
 from .misc import format_lsn
@@ -31,10 +32,94 @@ def fsync_dir(path):
             os.close(fd)
 
 
+class SlotsAdvanceThread(Thread):
+
+    def __init__(self, slots_handler):
+        super(SlotsAdvanceThread, self).__init__()
+        self.daemon = True
+        self._slots_handler = slots_handler
+
+        # _copy_slots and _failed are used to asynchronously give some feedback to the main thread
+        self._copy_slots = []
+        self._failed = False
+
+        self._scheduled = defaultdict(dict)  # {'dbname1': {'slot1': 100, 'slot2': 100}, 'dbname2': {'slot3': 100}}
+        self._condition = Condition()  # protect self._scheduled from concurrent access and to wakeup the run() method
+
+        self.start()
+
+    def sync_slot(self, cur, database, slot, lsn):
+        failed = copy = False
+        try:
+            cur.execute("SELECT pg_catalog.pg_replication_slot_advance(%s, %s)", (slot, format_lsn(lsn)))
+        except Exception as e:
+            logger.error("Failed to advance logical replication slot '%s': %r", slot, e)
+            failed = True
+            copy = isinstance(e, OperationalError) and e.diag.sqlstate == '58P01'  # WAL file is gone
+        with self._condition:
+            if self._scheduled and failed:
+                if copy and slot not in self._copy_slots:
+                    self._copy_slots.append(slot)
+                self._failed = True
+
+            new_lsn = self._scheduled.get(database, {}).get(slot, 0)
+            # remove slot from the self._scheduled structure only if it wasn't changed
+            if new_lsn == lsn and database in self._scheduled:
+                self._scheduled[database].pop(slot)
+                if not self._scheduled[database]:
+                    self._scheduled.pop(database)
+
+    def sync_slots_in_database(self, database, slots):
+        with self._slots_handler.get_local_connection_cursor(dbname=database, options='-c statement_timeout=0') as cur:
+            for slot in slots:
+                with self._condition:
+                    lsn = self._scheduled.get(database, {}).get(slot, 0)
+                if lsn:
+                    self.sync_slot(cur, database, slot, lsn)
+
+    def sync_slots(self):
+        with self._condition:
+            databases = list(self._scheduled.keys())
+        for database in databases:
+            with self._condition:
+                slots = list(self._scheduled.get(database, {}).keys())
+            if slots:
+                try:
+                    self.sync_slots_in_database(database, slots)
+                except Exception as e:
+                    logger.error('Failed to advance replication slots in database %s: %r', database, e)
+
+    def run(self):
+        while True:
+            with self._condition:
+                if not self._scheduled:
+                    self._condition.wait()
+
+            self.sync_slots()
+
+    def schedule(self, advance_slots):
+        with self._condition:
+            for database, values in advance_slots.items():
+                self._scheduled[database].update(values)
+            ret = (self._failed, self._copy_slots)
+            self._copy_slots = []
+            self._failed = False
+            self._condition.notify()
+
+        return ret
+
+    def on_promote(self):
+        with self._condition:
+            self._scheduled.clear()
+            self._failed = False
+            self._copy_slots = []
+
+
 class SlotsHandler(object):
 
     def __init__(self, postgresql):
         self._postgresql = postgresql
+        self._advance = None
         self._replication_slots = {}  # already existing replication slots
         self._unready_logical_slots = {}
         self.schedule()
@@ -143,7 +228,7 @@ class SlotsHandler(object):
                 self._schedule_load_slots = True
 
     @contextmanager
-    def _get_local_connection_cursor(self, **kwargs):
+    def get_local_connection_cursor(self, **kwargs):
         conn_kwargs = self._postgresql.config.local_connect_kwargs
         conn_kwargs.update(kwargs)
         with get_connection_cursor(**conn_kwargs) as cur:
@@ -162,7 +247,7 @@ class SlotsHandler(object):
 
         # Create new logical slots
         for database, values in logical_slots.items():
-            with self._get_local_connection_cursor(dbname=database) as cur:
+            with self.get_local_connection_cursor(dbname=database) as cur:
                 for name, value in values.items():
                     try:
                         cur.execute("SELECT pg_catalog.pg_create_logical_replication_slot(%s, %s)" +
@@ -175,6 +260,11 @@ class SlotsHandler(object):
                         slots.pop(name)
                     self._schedule_load_slots = True
 
+    def schedule_advance_slots(self, slots):
+        if not self._advance:
+            self._advance = SlotsAdvanceThread(self)
+        return self._advance.schedule(slots)
+
     def _ensure_logical_slots_replica(self, cluster, slots):
         advance_slots = defaultdict(dict)  # Group logical slots to be advanced by database name
         create_slots = []  # And collect logical slots to be created on the replica
@@ -186,25 +276,16 @@ class SlotsHandler(object):
                     if name in cluster.slots:
                         try:  # Skip slots that doesn't need to be advanced
                             if value['confirmed_flush_lsn'] < int(cluster.slots[name]):
-                                advance_slots[value['database']][name] = value
+                                advance_slots[value['database']][name] = int(cluster.slots[name])
                         except Exception as e:
                             logger.error('Failed to parse "%s": %r', cluster.slots[name], e)
                 elif name in cluster.slots:  # We want to copy only slots with feedback in a DCS
                     create_slots.append(name)
 
-        # Advance logical slots
-        for database, values in advance_slots.items():
-            with self._get_local_connection_cursor(dbname=database, options='-c statement_timeout=0') as cur:
-                for name, value in values.items():
-                    try:
-                        cur.execute("SELECT pg_catalog.pg_replication_slot_advance(%s, %s)",
-                                    (name, format_lsn(int(cluster.slots[name]))))
-                    except Exception as e:
-                        logger.error("Failed to advance logical replication slot '%s': %r", name, e)
-                        if isinstance(e, OperationalError) and e.diag.sqlstate == '58P01':  # WAL file is gone
-                            create_slots.append(name)
-                        self._schedule_load_slots = True
-        return create_slots
+        error, copy_slots = self.schedule_advance_slots(advance_slots)
+        if error:
+            self._schedule_load_slots = True
+        return create_slots + copy_slots
 
     def sync_replication_slots(self, cluster, nofailover, replicatefrom=None, paused=False):
         ret = None
@@ -331,6 +412,9 @@ class SlotsHandler(object):
         self._schedule_load_slots = self._force_readiness_check = value
 
     def on_promote(self):
+        if self._advance:
+            self._advance.on_promote()
+
         if self._unready_logical_slots:
             logger.warning('Logical replication slots that might be unsafe to use after promote: %s',
                            set(self._unready_logical_slots))
