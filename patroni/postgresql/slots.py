@@ -57,7 +57,7 @@ class SlotsAdvanceThread(Thread):
             failed = True
             copy = isinstance(e, OperationalError) and e.diag.sqlstate == '58P01'  # WAL file is gone
         with self._condition:
-            if failed:
+            if self._scheduled and failed:
                 if copy and slot not in self._copy_slots:
                     self._copy_slots.append(slot)
                 self._failed = True
@@ -111,6 +111,8 @@ class SlotsAdvanceThread(Thread):
     def on_promote(self):
         with self._condition:
             self._scheduled.clear()
+            self._failed = False
+            self._copy_slots = []
 
 
 class SlotsHandler(object):
