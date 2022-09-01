@@ -46,6 +46,10 @@ class MockPostgresql(object):
     def replica_cached_timeline(_):
         return 2
 
+    @staticmethod
+    def is_running():
+        return True
+
 
 class MockWatchdog(object):
     is_healthy = False
@@ -289,7 +293,9 @@ class TestRestApiHandler(unittest.TestCase):
     def test_do_HEAD(self):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'HEAD / HTTP/1.0'))
 
-    def test_do_GET_liveness(self):
+    @patch.object(MockPatroni, 'dcs')
+    def test_do_GET_liveness(self, mock_dcs):
+        mock_dcs.ttl.return_value = PropertyMock(30)
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /liveness HTTP/1.0'))
 
     def test_do_GET_readiness(self):
