@@ -648,16 +648,33 @@ class TestHa(PostgresInit):
         # in sync mode only the sync node is allowed to take over
         self.p.is_leader = false
         self.ha.is_synchronous_mode = true
+
+        # switchover to a specific node, which name doesn't match our name (postgresql0)
         self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, 'leader', 'other', None))
         self.assertEqual(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
+
+        # switchover to from a specific leader, but our name (postgresql0) in not in the sync nodes list
         self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, 'leader', '', None),
                                                                  sync=('leader', 'blabla'))
         self.assertEqual(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
+
+        # our name (postgresql0) isn't in the /sync key and the `other` node is not available
+        self.ha.fetch_node_status = get_node_status(nofailover=True)  # accessible, in_recovery
         self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', 'other', None),
                                                                  sync=('leader1', 'blabla'))
-        self.ha.fetch_node_status = get_node_status(nofailover=True)  # accessible, in_recovery
+        self.assertEqual(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
+
+        # the `other` node isn't available but our name is in the /sync key
+        self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', 'other', None),
+                                                                 sync=('leader1', 'postgresql0'))
         self.p.pick_synchronous_standby = Mock(return_value=([], []))
         self.ha.dcs.write_sync_state = true
+        self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
+
+        # the manual failover to the unsync node (the leader and all sync nodes are not available)
+        self.p.set_role('replica')
+        self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', 'postgresql0', None),
+                                                                 sync=('leader1', 'other'))
         self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
 
     def test_manual_failover_process_no_leader_in_pause(self):
