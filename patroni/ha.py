@@ -797,7 +797,7 @@ class Ha(object):
         if self.cluster.failover:
             # When doing a switchover in synchronous mode only synchronous nodes and former leader are allowed to race
             if self.is_synchronous_mode() and self.cluster.failover.leader and \
-                    self.cluster.failover.candidate and not self.cluster.sync.matches(self.state_handler.name):
+                    not self.cluster.sync.matches(self.state_handler.name):
                 return False
             return self.manual_failover_process_no_leader()
 

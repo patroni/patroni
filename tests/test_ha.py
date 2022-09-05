@@ -643,11 +643,22 @@ class TestHa(PostgresInit):
         # same as previous, but set the current member to nofailover. In no case it should be elected as a leader
         self.ha.patroni.nofailover = True
         self.assertEqual(self.ha.run_cycle(), 'following a different leader because I am not allowed to promote')
+
+    def test_manual_failover_process_no_leader_in_synchronous_mode(self):
         # in sync mode only the sync node is allowed to take over
-        self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, 'leader', 'other', None))
-        self.ha.patroni.nofailover = False
+        self.p.is_leader = false
         self.ha.is_synchronous_mode = true
+        self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, 'leader', 'other', None))
         self.assertEqual(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
+        self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, 'leader', '', None),
+                                                                 sync=('leader', 'blabla'))
+        self.assertEqual(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
+        self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', 'other', None),
+                                                                 sync=('leader1', 'blabla'))
+        self.ha.fetch_node_status = get_node_status(nofailover=True)  # accessible, in_recovery
+        self.p.pick_synchronous_standby = Mock(return_value=([], []))
+        self.ha.dcs.write_sync_state = true
+        self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
 
     def test_manual_failover_process_no_leader_in_pause(self):
         self.ha.is_paused = true
