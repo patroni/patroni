@@ -115,7 +115,9 @@ class Ha(object):
         return self.check_mode('check_timeline')
 
     def get_standby_cluster_config(self):
-        if self.cluster and self.cluster.config and self.cluster.config.modify_index:
+        if self.patroni.multisite.is_active:
+            config = {'standby_cluster': self.patroni.multisite.get_active_standby_config()}
+        elif self.cluster and self.cluster.config and self.cluster.config.modify_index:
             config = self.cluster.config.data
         else:
             config = self.patroni.config.dynamic_configuration
@@ -148,6 +150,11 @@ class Ha(object):
     def acquire_lock(self):
         ret = self.dcs.attempt_to_acquire_leader()
         self.set_is_leader(ret)
+        multisite_ret = self.patroni.multisite.resolve_leader()
+        if multisite_ret:
+            logger.error("Releasing leader lock because multi site status is: "+multisite_ret)
+            self.dcs.delete_leader()
+            return False
         return ret
 
     def update_lock(self, write_leader_optime=False):
@@ -166,6 +173,7 @@ class Ha(object):
         self.set_is_leader(ret)
         if ret:
             self.watchdog.keepalive()
+            self.patroni.multisite.heartbeat()
         return ret
 
     def has_lock(self, info=True):
@@ -257,6 +265,10 @@ class Ha(object):
         # no initialize key and node is allowed to be master and has 'bootstrap' section in a configuration file
         elif self.cluster.initialize is None and not self.patroni.nofailover and 'bootstrap' in self.patroni.config:
             if self.dcs.initialize(create_new=True):  # race for initialization
+                ret = self.patroni.multisite.resolve_leader()
+                if ret:
+                    return "can't resolve multisite status for bootstrapping: {}".format(ret)
+
                 self.state_handler.bootstrapping = True
                 with self._async_response:
                     self._async_response.reset()
@@ -1251,6 +1263,8 @@ class Ha(object):
                 return 'lost leader lock during ' + self._async_executor.scheduled_action
         if self.cluster.is_unlocked():
             logger.info('not healthy enough for leader race')
+        if self.state_handler.bootstrapping:
+            self.patroni.multisite.heartbeat()
 
         return self._async_executor.scheduled_action + ' in progress'
 
@@ -1277,6 +1291,7 @@ class Ha(object):
         self.dcs.cancel_initialization()
         self.state_handler.stop('immediate', stop_timeout=self.patroni.config['retry_timeout'])
         self.state_handler.move_data_directory()
+        self.patroni.multisite.release()
         raise PatroniFatalException('Failed to bootstrap cluster')
 
     def post_bootstrap(self):

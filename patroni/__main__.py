@@ -14,6 +14,7 @@ class Patroni(AbstractPatroniDaemon):
         from .api import RestApiServer
         from .dcs import get_dcs
         from .ha import Ha
+        from .multisite import MultisiteController, SingleSiteController
         from .postgresql import Postgresql
         from .request import PatroniRequest
         from .version import __version__
@@ -30,6 +31,11 @@ class Patroni(AbstractPatroniDaemon):
         self.api = RestApiServer(self, self.config['restapi'])
         self.request = PatroniRequest(self.config, True)
         self.ha = Ha(self)
+
+        if self.config.get('multisite'):
+            self.multisite = MultisiteController(self.config, on_change=self.ha.wakeup)
+        else:
+            self.multisite = SingleSiteController()
 
         self.tags = self.get_tags()
         self.next_run = time.time()
@@ -101,6 +107,7 @@ class Patroni(AbstractPatroniDaemon):
 
     def run(self):
         self.api.start()
+        self.multisite.start()
         self.next_run = time.time()
         super(Patroni, self).run()
 
@@ -121,6 +128,10 @@ class Patroni(AbstractPatroniDaemon):
             self.api.shutdown()
         except Exception:
             logger.exception('Exception during RestApi.shutdown')
+        try:
+            self.multisite.shutdown()
+        except Exception:
+            logger.exception('Exception during Multisite.shutdown')
         try:
             self.ha.shutdown()
         except Exception:
