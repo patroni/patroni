@@ -653,7 +653,7 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, 'leader', 'other', None))
         self.assertEqual(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
 
-        # switchover to from a specific leader, but our name (postgresql0) in not in the sync nodes list
+        # switchover from a specific leader, but our name (postgresql0) is not in the sync nodes list
         self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, 'leader', '', None),
                                                                  sync=('leader', 'blabla'))
         self.assertEqual(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')

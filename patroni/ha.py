@@ -737,8 +737,8 @@ class Ha(object):
                     return None
                 return False
 
-            # in synchronous mode we shouldn't take any action if the candidate
-            # is unhealthy but our name is not in the /sync key
+            # in synchronous mode when our name is not in the /sync key
+            # we shouldn't take any action even if the candidate is unhealthy 
             if self.is_synchronous_mode() and not self.cluster.sync.matches(self.state_handler.name):
                 return False
 
