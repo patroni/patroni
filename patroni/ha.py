@@ -737,6 +737,11 @@ class Ha(object):
                     return None
                 return False
 
+            # in synchronous mode when our name is not in the /sync key
+            # we shouldn't take any action even if the candidate is unhealthy
+            if self.is_synchronous_mode() and not self.cluster.sync.matches(self.state_handler.name):
+                return False
+
             # find specific node and check that it is healthy
             member = self.cluster.get_member(failover.candidate, fallback_to_leader=False)
             if member:
@@ -797,7 +802,7 @@ class Ha(object):
         if self.cluster.failover:
             # When doing a switchover in synchronous mode only synchronous nodes and former leader are allowed to race
             if self.is_synchronous_mode() and self.cluster.failover.leader and \
-                    self.cluster.failover.candidate and not self.cluster.sync.matches(self.state_handler.name):
+                    not self.cluster.sync.matches(self.state_handler.name):
                 return False
             return self.manual_failover_process_no_leader()
 
