@@ -262,7 +262,7 @@ PostgreSQL
             -  **gssencmode**: (optional) maps to the `gssencmode <https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNECT-GSSENCMODE>`__ connection parameter, which determines whether or with what priority a secure GSS TCP/IP connection will be negotiated with the server
             -  **channel_binding**: (optional) maps to the `channel_binding <https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNECT-CHANNEL-BINDING>`__ connection parameter, which controls the client's use of channel binding.
         -  **replication**:
-            -  **username**: replication username; the user will be created during initialization. Replicas will use this user to access primary via streaming replication
+            -  **username**: replication username; the user will be created during initialization. Replicas will use this user to access the primary via streaming replication
             -  **password**: replication password; the user will be created during initialization.
             -  **sslmode**: (optional) maps to the `sslmode <https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNECT-SSLMODE>`__ connection parameter, which allows a client to specify the type of TLS negotiation mode with the server. For more information on how each mode works, please visit the `PostgreSQL documentation <https://www.postgresql.org/docs/current/libpq-ssl.html#LIBPQ-SSL-SSLMODE-STATEMENTS>`__. The default mode is ``prefer``.
             -  **sslkey**: (optional) maps to the `sslkey <https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNECT-SSLKEY>`__ connection parameter, which specifies the location of the secret key used with the client's certificate.

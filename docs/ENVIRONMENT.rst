@@ -47,7 +47,7 @@ Consul
 -  **PATRONI\_CONSUL\_DC**: (optional) Datacenter to communicate with. By default the datacenter of the host is used.
 -  **PATRONI\_CONSUL\_CONSISTENCY**: (optional) Select consul consistency mode. Possible values are ``default``, ``consistent``, or ``stale`` (more details in `consul API reference <https://www.consul.io/api/features/consistency.html/>`__)
 -  **PATRONI\_CONSUL\_CHECKS**: (optional) list of Consul health checks used for the session. By default an empty list is used.
--  **PATRONI\_CONSUL\_REGISTER\_SERVICE**: (optional) whether or not to register a service with the name defined by the scope parameter and the tag primary, replica or standby-leader depending on the node's role. Defaults to **false**
+-  **PATRONI\_CONSUL\_REGISTER\_SERVICE**: (optional) whether or not to register a service with the name defined by the scope parameter and the tag master, replica or standby-leader depending on the node's role. Defaults to **false**
 -  **PATRONI\_CONSUL\_SERVICE\_CHECK\_INTERVAL**: (optional) how often to perform health check against registered url
 -  **PATRONI\_CONSUL\_SERVICE\_CHECK\_TLS\_SERVER\_NAME**: (optional) overide SNI host when connecting via TLS, see also `consul agent check API reference <https://www.consul.io/api-docs/agent/check#tlsservername>`__.
 
@@ -127,7 +127,7 @@ PostgreSQL
 -  **PATRONI\_POSTGRESQL\_CONFIG\_DIR**: The location of the Postgres configuration directory, defaults to the data directory. Must be writable by Patroni.
 -  **PATRONI\_POSTGRESQL\_BIN_DIR**: Path to PostgreSQL binaries. (pg_ctl, pg_rewind, pg_basebackup, postgres) The  default value is an empty string meaning that PATH environment variable will be used to find the executables.
 -  **PATRONI\_POSTGRESQL\_PGPASS**: path to the `.pgpass <https://www.postgresql.org/docs/current/static/libpq-pgpass.html>`__ password file. Patroni creates this file before executing pg\_basebackup and under some other circumstances. The location must be writable by Patroni.
--  **PATRONI\_REPLICATION\_USERNAME**: replication username; the user will be created during initialization. Replicas will use this user to access primary via streaming replication
+-  **PATRONI\_REPLICATION\_USERNAME**: replication username; the user will be created during initialization. Replicas will use this user to access the primary via streaming replication
 -  **PATRONI\_REPLICATION\_PASSWORD**: replication password; the user will be created during initialization.
 -  **PATRONI\_REPLICATION\_SSLMODE**: (optional) maps to the `sslmode <https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNECT-SSLMODE>`__ connection parameter, which allows a client to specify the type of TLS negotiation mode with the server. For more information on how each mode works, please visit the `PostgreSQL documentation <https://www.postgresql.org/docs/current/libpq-ssl.html#LIBPQ-SSL-SSLMODE-STATEMENTS>`__. The default mode is ``prefer``.
 -  **PATRONI\_REPLICATION\_SSLKEY**: (optional) maps to the `sslkey <https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNECT-SSLKEY>`__ connection parameter, which specifies the location of the secret key used with the client's certificate.
