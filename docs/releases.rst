@@ -226,7 +226,7 @@ Version 2.1.2
 
 - Handle DCS exceptions when demoting (Alexander)
 
-  While demoting the master due to failure to update the leader lock it could happen that DCS goes completely down and the ``get_cluster()`` call raises an exception. Not being handled properly it results in Postgres remaining stopped until DCS recovers.
+  While demoting the leader due to failure to update the leader lock it could happen that DCS goes completely down and the ``get_cluster()`` call raises an exception. Not being handled properly it results in Postgres remaining stopped until DCS recovers.
 
 - The ``use_unix_socket_repl`` didn't work is some cases (Alexander)
 
@@ -623,7 +623,7 @@ This version enhances compatibility with PostgreSQL 13, adds support of multiple
 
 - Make it possible to bypass the ``kubernetes`` service (Alexander)
 
-  When running on K8s, Patroni is usually communicating with the K8s API via the ``kubernetes`` service, the address of which is exposed in the ``KUBERNETES_SERVICE_HOST`` environment variable. Like any other service, the ``kubernetes`` service is handled by ``kube-proxy``, which in turn, depending on the configuration, is either relying on a userspace program or ``iptables`` for traffic routing. Skipping the intermediate component and connecting directly to the K8s master nodes allows us to implement a better retry strategy and mitigate risks of demoting Postgres when K8s master nodes are upgraded.
+  When running on K8s, Patroni is usually communicating with the K8s API via the ``kubernetes`` service, the address of which is exposed in the ``KUBERNETES_SERVICE_HOST`` environment variable. Like any other service, the ``kubernetes`` service is handled by ``kube-proxy``, which in turn, depending on the configuration, is either relying on a userspace program or ``iptables`` for traffic routing. Skipping the intermediate component and connecting directly to the K8s leader nodes allows us to implement a better retry strategy and mitigate risks of demoting Postgres when K8s leader nodes are upgraded.
 
 - Sync HA loops of all pods of a Patroni cluster (Alexander)
 
@@ -666,7 +666,7 @@ This version enhances compatibility with PostgreSQL 13, adds support of multiple
 
 - Fixed health-checks for standby cluster (Alexander)
 
-  The ``GET /standby-leader`` for a master and ``GET /master`` for a ``standby_leader`` were incorrectly responding with 200.
+  The ``GET /standby-leader`` for a leader and ``GET /master`` for a ``standby_leader`` were incorrectly responding with 200.
 
 - Implemented ``DELETE /switchover`` (Alexander)
 
@@ -744,7 +744,7 @@ Version 1.6.5
 
 **New features**
 
-- Master stop timeout (Krishna Sarabu)
+- Primary stop timeout (Krishna Sarabu)
 
   The number of seconds Patroni is allowed to wait when stopping Postgres. Effective only when ``synchronous_mode`` is enabled. When set to value greater than 0 and the ``synchronous_mode`` is enabled, Patroni sends ``SIGKILL`` to the postmaster if the stop operation is running for more than the value set by ``master_stop_timeout``. Set the value according to your durability/availability tradeoff. If the parameter is not set or set to non-positive value, ``master_stop_timeout`` does not have an effect.
 
@@ -1040,7 +1040,7 @@ Version 1.6.1
 
 - Use LIST + WATCH when working with K8s API (Alexander Kukushkin)
 
-  It allows to efficiently receive object changes (pods, endpoints/configmaps) and makes less stress on K8s master nodes.
+  It allows to efficiently receive object changes (pods, endpoints/configmaps) and makes less stress on K8s leader nodes.
 
 - Improve the workflow when PGDATA is not empty during bootstrap (Alexander Kukushkin)
 
@@ -1273,7 +1273,7 @@ Version 1.5.6
 Version 1.5.5
 -------------
 
-This version introduces the possibility of automatic reinit of the former master, improves patronictl list output and fixes a number of bugs.
+This version introduces the possibility of automatic reinit of the former leader, improves patronictl list output and fixes a number of bugs.
 
 **New features**
 
@@ -1281,9 +1281,9 @@ This version introduces the possibility of automatic reinit of the former master
 
   Before it was possible to configure them only in the config file or as a part of `PATRONI_ETCD_URL`, which is not always convenient.
 
-- Make it possible to automatically reinit the former master (Alexander Kukushkin)
+- Make it possible to automatically reinit the former leader (Alexander Kukushkin)
 
-  If the pg_rewind is disabled or can't be used, the former master could fail to start as a new replica due to diverged timelines. In this case, the only way to fix it is wiping the data directory and reinitializing. This behavior could be changed by setting `postgresql.remove_data_directory_on_diverged_timelines`. When it is set, Patroni will wipe the data directory and reinitialize the former master automatically.
+  If the pg_rewind is disabled or can't be used, the former leader could fail to start as a new replica due to diverged timelines. In this case, the only way to fix it is wiping the data directory and reinitializing. This behavior could be changed by setting `postgresql.remove_data_directory_on_diverged_timelines`. When it is set, Patroni will wipe the data directory and reinitialize the former leader automatically.
 
 - Show information about timelines in patronictl list (Alexander)
 
@@ -1291,7 +1291,7 @@ This version introduces the possibility of automatic reinit of the former master
 
 - Create a headless service associated with the $SCOPE-config endpoint (Alexander)
 
-  The "config" endpoint keeps information about the cluster-wide Patroni and Postgres configuration, history file, and last but the most important, it holds the `initialize` key. When the Kubernetes master node is restarted or upgraded, it removes endpoints without services. The headless service will prevent it from being removed.
+  The "config" endpoint keeps information about the cluster-wide Patroni and Postgres configuration, history file, and last but the most important, it holds the `initialize` key. When the Kubernetes leader node is restarted or upgraded, it removes endpoints without services. The headless service will prevent it from being removed.
 
 **Bug fixes**
 
@@ -1431,7 +1431,7 @@ This version enables Patroni HA cluster to operate in a standby mode, introduces
 
 - Standby cluster (Dmitry Dolgov)
 
-  One or more Patroni nodes can form a standby cluster that runs alongside the primary one (i.e. in another datacenter) and consists of standby nodes that replicate from the master in the primary cluster. All PostgreSQL nodes in the standby cluster are replicas; one of those replicas elects itself to replicate directly from the remote master, while the others replicate from it in a cascading manner. More detailed description of this feature and some configuration examples can be found at :ref:`here <standby_cluster>`.
+  One or more Patroni nodes can form a standby cluster that runs alongside the primary one (i.e. in another datacenter) and consists of standby nodes that replicate from the primary of the other cluster. All PostgreSQL nodes in the standby cluster are replicas; one of those replicas elects itself to replicate directly from the remote primary, while the others replicate from it in a cascading manner. More detailed description of this feature and some configuration examples can be found at :ref:`here <standby_cluster>`.
 
 - Register Services in Consul (Pavel Kirillov, Alexander Kukushkin)
 
@@ -1484,7 +1484,7 @@ reporting issue, no actual split-brain, but under certain circumstances clients 
 
 - Add new "cluster_unlocked" field to the API output (Dmitry Dolgov)
 
-  This field indicates whether the cluster has the master running. It can be used when it is not possible to query any
+  This field indicates whether the cluster has the leader running. It can be used when it is not possible to query any
   other node but one of the replicas.
 
 Version 1.4.5
@@ -1530,9 +1530,9 @@ Version 1.4.5
 
   Avoid starting the replica that had already executed pg_rewind before.
 
-- Respond 200 to the master health-check only if update_lock has been successful (Alexander)
+- Respond 200 to the primary health-check only if update_lock has been successful (Alexander)
 
-  Prevent Patroni from reporting itself a master on the former (demoted) master if DCS is partitioned.
+  Prevent Patroni from reporting itself a leader on the former (demoted) leader if DCS is partitioned.
 
 - Fix compatibility with the new consul module (Alexander)
 
@@ -1542,7 +1542,7 @@ Version 1.4.5
 
   Those uncaught exceptions kept PostgreSQL running at shutdown.
 
-- Do crash recovery only when Postgres runs as the master (Alexander)
+- Do crash recovery only when Postgres runs as the primary (Alexander)
 
   Require `pg_controldata` to report  'in production' or 'shutting down' or 'in crash recovery'. In all other cases no crash recovery is necessary.
 
@@ -1566,15 +1566,15 @@ Version 1.4.4
 
 - Abort start if attaching to running postgres and cluster not initialized (Alexander)
 
-  Patroni can attach itself to an already running Postgres instance. It is imperative to start running Patroni on the master node before getting to the replicas.
+  Patroni can attach itself to an already running Postgres instance. It is imperative to start running Patroni on the leader node before getting to the replicas.
 
 - Fix behavior of patronictl scaffold (Alexander)
 
   Pass dict object to touch_member instead of json encoded string, DCS implementation will take care of encoding it.
 
-- Don't demote master if failed to update leader key in pause (Alexander)
+- Don't demote leader if failed to update leader key in pause (Alexander)
 
-  During maintenance a DCS may start failing write requests while continuing to responds to read ones. In that case, Patroni used to put the Postgres master node to a read-only mode after failing to update the leader lock in DCS.
+  During maintenance a DCS may start failing write requests while continuing to responds to read ones. In that case, Patroni used to put the Postgres primary node to a read-only mode after failing to update the leader lock in DCS.
 
 - Sync replication slots when Patroni notices a new postmaster process (Alexander)
 
@@ -1718,7 +1718,7 @@ In addition to using Endpoints, Patroni supports ConfigMaps. You can find more i
 
 - Minimize the amount of SELECT's issued by Patroni on every loop of HA cylce (Alexander Kukushkin)
 
-  On every iteration of HA loop Patroni needs to know recovery status and absolute wal position. From now on Patroni will run only single SELECT to get this information instead of two on the replica and three on the master.
+  On every iteration of HA loop Patroni needs to know recovery status and absolute wal position. From now on Patroni will run only single SELECT to get this information instead of two on the replica and three on the primary.
 
 - Remove leader key on shutdown only when we have the lock (Ants)
 
@@ -1789,13 +1789,13 @@ Version 1.3.6
 
 - Shutdown postgresql before bootstrap when we lost data directory (ainlolcat)
 
-  When data directory on the master is forcefully removed, postgres process can still stay alive for some time and prevent the replica created in place of that former master from starting or replicating.
+  When data directory on the primary is forcefully removed, postgres process can still stay alive for some time and prevent the replica created in place of that former primary from starting or replicating.
   The fix makes Patroni cache the postmaster pid and its start time and let it terminate the old postmaster in case it is still running after the corresponding data directory has been removed.
 
-- Perform crash recovery in a single user mode if postgres master dies (Alexander Kukushkin)
+- Perform crash recovery in a single user mode if postgres primary dies (Alexander Kukushkin)
 
   It is unsafe to start immediately as a standby and not possible to run ``pg_rewind`` if postgres hasn't been shut down cleanly.
-  The single user crash recovery only kicks in if ``pg_rewind`` is enabled or there is no master at the moment.
+  The single user crash recovery only kicks in if ``pg_rewind`` is enabled or there is no primary at the moment.
 
 **Consul improvements**
 
@@ -1832,7 +1832,7 @@ Version 1.3.5
 
 - Try to run postmaster in a single-user mode if we tried and failed to start postgres (Alexander)
 
-  Usually such problem happens when node running as a master was terminated and timelines were diverged.
+  Usually such problem happens when node running as a primary was terminated and timelines were diverged.
   If ``recovery.conf`` has ``restore_command`` defined, there are really high chances that postgres will abort startup and leave controldata unchanged.
   It makes impossible to use ``pg_rewind``, which requires a clean shutdown.
 
@@ -1840,7 +1840,7 @@ Version 1.3.5
 
 - Make it possible to specify health checks when creating session (Alexander)
 
-  If not specified, Consul will use "serfHealth". From one side it allows fast detection of isolated master, but from another side it makes it impossible for Patroni to tolerate short network lags.
+  If not specified, Consul will use "serfHealth". From one side it allows fast detection of isolated leader, but from another side it makes it impossible for Patroni to tolerate short network lags.
 
 **Bugfix**
 
@@ -1940,23 +1940,23 @@ at the end.
 
 **Smarter pg_rewind support**
 
--  Decide on whether to run pg_rewind by looking at the timeline differences from the current master (Alexander)
+-  Decide on whether to run pg_rewind by looking at the timeline differences from the current primary (Alexander)
 
-   Previously, Patroni had a fixed set of conditions to trigger pg_rewind, namely when starting a former master, when
+   Previously, Patroni had a fixed set of conditions to trigger pg_rewind, namely when starting a former primary, when
    doing a switchover to the designated node for every other node in the cluster or when there is a replica with the
-   nofailover tag. All those cases have in common a chance that some replica may be ahead of the new master. In some cases,
+   nofailover tag. All those cases have in common a chance that some replica may be ahead of the new primary. In some cases,
    pg_rewind did nothing, in some other ones it was not running when necessary. Instead of relying on this limited list
-   of rules make Patroni compare the master and the replica WAL positions (using the streaming replication protocol)
+   of rules make Patroni compare the primary and the replica WAL positions (using the streaming replication protocol)
    in order to reliably decide if rewind is necessary for the replica.
 
 **Synchronous replication mode strict**
 
 -  Enhance synchronous replication support by adding the strict mode (James Sewell, Alexander)
 
-   Normally, when ``synchronous_mode`` is enabled and there are no replicas attached to the master, Patroni will disable
-   synchronous replication in order to keep the master available for writes. The ``synchronous_mode_strict`` option
+   Normally, when ``synchronous_mode`` is enabled and there are no replicas attached to the leader, Patroni will disable
+   synchronous replication in order to keep the leader available for writes. The ``synchronous_mode_strict`` option
    changes that, when it is set Patroni will not disable the synchronous replication in a lack of replicas, effectively
-   blocking all clients writing data to the master. In addition to the synchronous mode guarantee of preventing any data
+   blocking all clients writing data to the leader. In addition to the synchronous mode guarantee of preventing any data
    loss due to automatic failover, the strict mode ensures that each write is either durably stored on two nodes or not
    happening altogether if there is only one node in the cluster.
 
@@ -2039,7 +2039,7 @@ at the end.
 - Improve WAL-E replica creation method (Joar Wandborg, Alexander).
 
   - Use csv.DictReader when parsing WAL-E base backup, accepting ISO dates with space-delimited date and time.
-  - Support fetching current WAL position from the replica to estimate the amount of WAL to restore. Previously, the code used to call system information functions that were available only on the master node.
+  - Support fetching current WAL position from the replica to estimate the amount of WAL to restore. Previously, the code used to call system information functions that were available only on the primary node.
 
 
 Version 1.2
@@ -2085,18 +2085,18 @@ In addition, the documentation, including these release notes, has been moved to
 
 - Fix WAL-E restore. (Oleksii Kliukin)
 
-  Previously WAL-E restore used the ``no_master`` flag to avoid consulting with the master altogether, making Patroni always choose restoring
-  from WAL over the ``pg_basebackup``. This change reverts it to the original meaning of ``no_master``, namely Patroni WAL-E restore may be selected as a replication method if the master is not running.
+  Previously WAL-E restore used the ``no_master`` flag to avoid consulting with the primary altogether, making Patroni always choose restoring
+  from WAL over the ``pg_basebackup``. This change reverts it to the original meaning of ``no_master``, namely Patroni WAL-E restore may be selected as a replication method if the primary is not running.
   The latter is checked by examining the connection string passed to the method. In addition, it makes the retry mechanism more robust and handles other minutia.
 
 - Implement asynchronous DNS resolver cache. (Alexander)
 
   Avoid failing when DNS is temporary unavailable (for instance, due to an excessive traffic received by the node).
 
-- Implement starting state and master start timeout. (Ants, Alexander)
+- Implement starting state and primary start timeout. (Ants, Alexander)
 
   Previously ``pg_ctl`` waited for a timeout and then happily trodded on considering PostgreSQL to be running. This caused PostgreSQL to show up in listings as running when it was actually not and caused a race condition that   resulted in either a failover, or a crash recovery, or a crash recovery interrupted by failover and a missed rewind.
-  This change adds a ``master_start_timeout`` parameter and introduces a new state for the main HA loop: ``starting``. When ``master_start_timeout`` is 0 we will failover immediately when the master crashes as soon as there is a failover candidate. Otherwise, Patroni will wait after attempting to start PostgreSQL on the master for the duration of the timeout; when it expires, it will failover if possible. Manual failover requests will be honored during the crash of the master even before the timeout expiration.
+  This change adds a ``master_start_timeout`` parameter and introduces a new state for the main HA loop: ``starting``. When ``master_start_timeout`` is 0 we will failover immediately when the primary crashes as soon as there is a failover candidate. Otherwise, Patroni will wait after attempting to start PostgreSQL on the primary for the duration of the timeout; when it expires, it will failover if possible. Manual failover requests will be honored during the crash of the primary even before the timeout expiration.
 
   Introduce the ``timeout`` parameter to the ``restart`` API endpoint and ``patronictl``. When it is set and restart takes longer than the timeout, PostgreSQL is considered unhealthy and the other nodes becomes eligible to take the leader lock.
 
@@ -2106,9 +2106,9 @@ In addition, the documentation, including these release notes, has been moved to
 
 - Serialize callback execution. Kill the previous callback of the same type when the new one is about to run. Fix the issue of spawning zombie processes when running callbacks. (Alexander)
 
-- Avoid promoting a former master when the leader key is set in DCS but update to this leader key fails. (Alexander)
+- Avoid promoting a former leader when the leader key is set in DCS but update to this leader key fails. (Alexander)
 
-  This avoids the issue of a current master continuing to keep its role when it is partitioned together with the minority of nodes in Etcd and other DCSs that allow "inconsistent reads".
+  This avoids the issue of a current leader continuing to keep its role when it is partitioned together with the minority of nodes in Etcd and other DCSs that allow "inconsistent reads".
 
 **Miscellaneous**
 
@@ -2158,7 +2158,7 @@ In addition, patronictl supports new ``pause`` and ``resume`` commands to toggle
 
 - Add conditions to the restart API command (Oleksii)
 
-  This change enhances Patroni restarts by adding a couple of conditions that can be verified in order to do the restart. Among the conditions are restarting when PostgreSQL role is either a master or a replica, checking the PostgreSQL version number or restarting only when restart is necessary in order to apply configuration changes.
+  This change enhances Patroni restarts by adding a couple of conditions that can be verified in order to do the restart. Among the conditions are restarting when PostgreSQL role is either a primary or a replica, checking the PostgreSQL version number or restarting only when restart is necessary in order to apply configuration changes.
 
 - Add scheduled restarts (Oleksii)
 
@@ -2191,9 +2191,9 @@ Previously, there was no reliable way to query Patroni about PostgreSQL instance
 
 - Add patronictl scaffold command (Oleksii)
 
-  Add a command to create cluster structure in Etcd. The cluster is created with user-specified sysid and leader, and both leader and member keys are made persistent. This command is useful to create so-called master-less configurations, where Patroni cluster consisting of only replicas replicate  from the external master node that is unaware of Patroni. Subsequently, one
+  Add a command to create cluster structure in Etcd. The cluster is created with user-specified sysid and leader, and both leader and member keys are made persistent. This command is useful to create so-called master-less configurations, where Patroni cluster consisting of only replicas replicate  from the external leader node that is unaware of Patroni. Subsequently, one
   may remove the leader key, promoting one of the Patroni nodes and replacing
-  the original master with the Patroni-based HA cluster.
+  the original leader with the Patroni-based HA cluster.
 
 - Add configuration option ``bin_dir`` to locate PostgreSQL binaries (Ants Aasma)
 
@@ -2222,9 +2222,9 @@ Previously, there was no reliable way to query Patroni about PostgreSQL instance
 
 - Do not drop active replication slots (Murat, Oleksii)
 
-  Avoid dropping active physical replication slots on master. PostgreSQL cannot
+  Avoid dropping active physical replication slots on primary. PostgreSQL cannot
   drop such slots anyway. This change makes possible to run non-Patroni managed
-  replicas/consumers on the master.
+  replicas/consumers on the primary.
 
 - Close Patroni connections during start of the PostgreSQL instance (Alexander)
 
@@ -2241,13 +2241,13 @@ This release introduces the global dynamic configuration that allows dynamic cha
 
 **Upgrade notice**
 
-When upgrading from v0.90 or below, always upgrade all replicas before the master. Since we don't store replication credentials in DCS anymore, an old replica won't be able to connect to the new master.
+When upgrading from v0.90 or below, always upgrade all replicas before the leader. Since we don't store replication credentials in DCS anymore, an old replica won't be able to connect to the new leader.
 
 **Dynamic Configuration**
 
 - Implement the dynamic global configuration (Alexander Kukushkin)
 
-  Introduce new REST API endpoint /config to provide PostgreSQL and Patroni configuration parameters that should be set globally for the entire HA cluster (master and all the replicas). Those parameters are set in DCS and in many cases can be applied without disrupting PostgreSQL or Patroni. Patroni sets a special flag called "pending restart" visible via the API when some of the values require the PostgreSQL restart. In that case, restart should be issued manually via the API.
+  Introduce new REST API endpoint /config to provide PostgreSQL and Patroni configuration parameters that should be set globally for the entire HA cluster (leader and all the replicas). Those parameters are set in DCS and in many cases can be applied without disrupting PostgreSQL or Patroni. Patroni sets a special flag called "pending restart" visible via the API when some of the values require the PostgreSQL restart. In that case, restart should be issued manually via the API.
 
   Patroni SIGHUP or POST to /reload will make it re-read the configuration file.
 
@@ -2287,7 +2287,7 @@ When upgrading from v0.90 or below, always upgrade all replicas before the maste
 
 - Fix a bunch of pg_rewind corner-cases (Alexander)
 
-  Avoid running pg_rewind if the source cluster is not the master.
+  Avoid running pg_rewind if the source cluster is not the primary.
 
   In addition, avoid removing the data directory on an unsuccessful rewind, unless the new parameter *remove_data_directory_on_rewind_failure* is set to true. By default it is false.
 
@@ -2354,11 +2354,11 @@ This releases adds support for Consul, includes a new *noloadbalance* tag, chang
 
 - Improve systems script to avoid killing Patroni children on stop (Jan Keirse, Alexander Kukushkin)
 
-  Previously, when stopping Patroni, *systemd* also sent a signal to PostgreSQL. Since Patroni also tried to stop PostgreSQL by itself, it resulted in sending to different shutdown requests (the smart shutdown, followed by the fast shutdown). That resulted in replicas disconnecting too early and a former master not being able to rejoin after demote. Fix by Jan with prior research by Alexander.
+  Previously, when stopping Patroni, *systemd* also sent a signal to PostgreSQL. Since Patroni also tried to stop PostgreSQL by itself, it resulted in sending to different shutdown requests (the smart shutdown, followed by the fast shutdown). That resulted in replicas disconnecting too early and a former primary not being able to rejoin after demote. Fix by Jan with prior research by Alexander.
 
-- Eliminate some cases where the former master was unable to call pg_rewind before rejoining as a replica (Oleksii Kliukin)
+- Eliminate some cases where the former primary was unable to call pg_rewind before rejoining as a replica (Oleksii Kliukin)
 
-  Previously, we only called *pg_rewind* if the former master had crashed. Change this to always run pg_rewind for the former master as long as pg_rewind is present in the system. This fixes the case when the master is shut down before the replicas managed to get the latest changes (i.e. during the "smart" shutdown).
+  Previously, we only called *pg_rewind* if the former primary had crashed. Change this to always run pg_rewind for the former primary as long as pg_rewind is present in the system. This fixes the case when the primary is shut down before the replicas managed to get the latest changes (i.e. during the "smart" shutdown).
 
 - Numerous improvements to unit- and acceptance- tests, in particular, enable support for Zookeeper and Consul (Alexander).
 
@@ -2396,7 +2396,7 @@ This release adds support for *cascading replication* and simplifies Patroni man
 
  - Add support for the *replicatefrom* and *clonefrom* tags for the patroni node (Oleksii Kliukin).
 
- The tag *replicatefrom*  allows a replica to use an arbitrary node a source, not necessary the master. The *clonefrom* does the same for the initial backup. Together, they enable Patroni to fully support cascading replication.
+ The tag *replicatefrom*  allows a replica to use an arbitrary node a source, not necessary the leader. The *clonefrom* does the same for the initial backup. Together, they enable Patroni to fully support cascading replication.
 
 - Add support for running replication methods to initialize the replica even without a running replication connection (Oleksii).
 
