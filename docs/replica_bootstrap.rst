@@ -63,7 +63,7 @@ Building replicas
 -----------------
 
 Patroni uses tried and proven ``pg_basebackup`` in order to create new replicas. One downside of it is that it requires
-a running primary node. Another one is the lack of 'on-the-fly' compression for the backup data and no built-in cleanup
+a running leader node. Another one is the lack of 'on-the-fly' compression for the backup data and no built-in cleanup
 for outdated backup files. Some people prefer other backup solutions, such as ``WAL-E``, ``pgBackRest``, ``Barman`` and
 others, or simply roll their own scripts. In order to accommodate all those use-cases Patroni supports running custom
 scripts to clone a new replica. Those are configured in the ``postgresql`` configuration block:
@@ -176,10 +176,10 @@ Standby cluster
 ---------------
 
 Another available option is to run a "standby cluster", that contains only of
-standby nodes replicating from some remote primary. This type of clusters has:
+standby nodes replicating from some remote node. This type of clusters has:
 
 * "standby leader", that behaves pretty much like a regular cluster leader,
-  except it replicates from a remote leader.
+  except it replicates from a remote node.
 
 * cascade replicas, that are replicating from standby leader.
 
