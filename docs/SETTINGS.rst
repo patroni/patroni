@@ -27,11 +27,11 @@ Dynamic configuration is stored in the DCS (Distributed Configuration Store) and
     -  **recovery\_conf**: additional configuration settings written to recovery.conf when configuring follower. There is no recovery.conf anymore in PostgreSQL 12, but you may continue using this section, because Patroni handles it transparently.
     -  **parameters**: list of configuration settings for Postgres.
 -  **standby\_cluster**: if this section is defined, we want to bootstrap a standby cluster.
-    -  **host**: an address of remote primary
-    -  **port**: a port of remote primary
-    -  **primary\_slot\_name**: which slot on the remote primary to use for replication. This parameter is optional, the default value is derived from the instance name (see function `slot_name_from_member_name`).
-    -  **create\_replica\_methods**: an ordered list of methods that can be used to bootstrap standby leader from the remote primary, can be different from the list defined in :ref:`postgresql_settings`
-    -  **restore\_command**: command to restore WAL records from the remote primary to standby leader, can be different from the list defined in :ref:`postgresql_settings`
+    -  **host**: an address of remote node
+    -  **port**: a port of remote node
+    -  **primary\_slot\_name**: which slot on the remote node to use for replication. This parameter is optional, the default value is derived from the instance name (see function `slot_name_from_member_name`).
+    -  **create\_replica\_methods**: an ordered list of methods that can be used to bootstrap standby node from the remote primary, can be different from the list defined in :ref:`postgresql_settings`
+    -  **restore\_command**: command to restore WAL records from the remote primary to standby node, can be different from the list defined in :ref:`postgresql_settings`
     -  **archive\_cleanup\_command**: cleanup command for standby leader
     -  **recovery\_min\_apply\_delay**: how long to wait before actually apply WAL records on a standby leader
 -  **slots**: define permanent replication slots. These slots will be preserved during switchover/failover. The logical slots are copied from the primary to a standby with restart, and after that their position advanced every **loop_wait** seconds (if necessary). Copying logical slot files performed via ``libpq`` connection and using either rewind or superuser credentials (see **postgresql.authentication** section). There is always a chance that the logical slot position on the replica is a bit behind the former primary, therefore application should be prepared that some messages could be received the second time after the failover. The easiest way of doing so - tracking ``confirmed_flush_lsn``. Enabling permanent logical replication slots requires **postgresql.use_slots** to be set and will also automatically enable the ``hot_standby_feedback``. Since the failover of logical replication slots is unsafe on PostgreSQL 9.6 and older and PostgreSQL version 10 is missing some important functions, the feature only works with PostgreSQL 11+.
@@ -262,7 +262,7 @@ PostgreSQL
             -  **gssencmode**: (optional) maps to the `gssencmode <https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNECT-GSSENCMODE>`__ connection parameter, which determines whether or with what priority a secure GSS TCP/IP connection will be negotiated with the server
             -  **channel_binding**: (optional) maps to the `channel_binding <https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNECT-CHANNEL-BINDING>`__ connection parameter, which controls the client's use of channel binding.
         -  **replication**:
-            -  **username**: replication username; the user will be created during initialization. Replicas will use this user to access the primary via streaming replication
+            -  **username**: replication username; the user will be created during initialization. Replicas will use this user to access the replication source via streaming replication
             -  **password**: replication password; the user will be created during initialization.
             -  **sslmode**: (optional) maps to the `sslmode <https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNECT-SSLMODE>`__ connection parameter, which allows a client to specify the type of TLS negotiation mode with the server. For more information on how each mode works, please visit the `PostgreSQL documentation <https://www.postgresql.org/docs/current/libpq-ssl.html#LIBPQ-SSL-SSLMODE-STATEMENTS>`__. The default mode is ``prefer``.
             -  **sslkey**: (optional) maps to the `sslkey <https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNECT-SSLKEY>`__ connection parameter, which specifies the location of the secret key used with the client's certificate.
