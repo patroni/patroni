@@ -23,7 +23,7 @@ When Patroni runs in a paused mode, it does not change the state of PostgreSQL, 
 
 - If 'parallel' primaries are detected by Patroni, it emits a warning, but does not demote the primary without the leader lock.
 
-- If there is no primary lock in the cluster, the running primary acquires the lock. If there is more than one primary node, then the first primary to acquire the lock wins. If there are no primary altogether, Patroni does not try to promote any replicas. There is an exception in this rule: if there is no primary lock because the old primary has demoted itself due to the manual promotion, then only the candidate node mentioned in the promotion request may take the primary lock. When the new primary lock is granted (i.e. after promoting a replica manually), Patroni makes sure the replicas that were streaming from the previous primary will switch to the new one.
+- If there is no leader lock in the cluster, the running primary acquires the lock. If there is more than one primary node, then the first primary to acquire the lock wins. If there are no primary altogether, Patroni does not try to promote any replicas. There is an exception in this rule: if there is no leader lock because the old primary has demoted itself due to the manual promotion, then only the candidate node mentioned in the promotion request may take the leader lock. When the new leader lock is granted (i.e. after promoting a replica manually), Patroni makes sure the replicas that were streaming from the previous leader will switch to the new one.
 
 - When Postgres is stopped, Patroni does not try to start it. When Patroni is stopped, it does not try to stop the Postgres instance it is managing.
 
