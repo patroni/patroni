@@ -156,6 +156,7 @@ class TestValidator(unittest.TestCase):
         files.append(config["postgresql"]["bin_dir"])
         c = copy.deepcopy(config)
         c["restapi"]["connect_address"] = 'False:blabla'
+        c["postgresql"]["listen"] = '*:543'
         c["etcd"]["hosts"] = ["127.0.0.1:2379", "1244.0.0.1:2379", "127.0.0.1:invalidport"]
         c["kubernetes"]["pod_ip"] = "127.0.0.1111"
         errors = schema(c)
@@ -208,11 +209,12 @@ class TestValidator(unittest.TestCase):
         files.append(os.path.join(config["postgresql"]["data_dir"], "PG_VERSION"))
         c = copy.deepcopy(config)
         c["etcd"]["hosts"] = []
+        c["postgresql"]["listen"] = '127.0.0.2,*:543'
         del c["postgresql"]["bin_dir"]
         with patch('patroni.validator.open', mock_open(read_data='11')):
             errors = schema(c)
         output = "\n".join(errors)
-        self.assertEqual(['etcd.hosts', 'postgresql.data_dir',
+        self.assertEqual(['etcd.hosts', 'postgresql.data_dir', 'postgresql.listen',
                           'raft.bind_addr', 'raft.self_addr'], parse_output(output))
 
     @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))

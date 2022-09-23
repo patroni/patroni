@@ -190,7 +190,16 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self.do_GET(write_status_code_only=True)
 
     def do_GET_liveness(self):
-        self._write_status_code_only(200)
+        patroni = self.server.patroni
+        is_primary = patroni.postgresql.role == 'master' and patroni.postgresql.is_running()
+        # We can tolerate Patroni problems longer on the replica.
+        # On the primary the liveness probe most likely will start failing only after the leader key expired.
+        # It should not be a big problem because replicas will see that the primary is still alive via REST API call.
+        liveness_threshold = patroni.dcs.ttl * (1 if is_primary else 2)
+
+        # In maintenance mode (pause) we are fine if heartbeat loop stuck.
+        status_code = 200 if patroni.ha.is_paused() or patroni.next_run + liveness_threshold > time.time() else 503
+        self._write_status_code_only(status_code)
 
     def do_GET_readiness(self):
         patroni = self.server.patroni
