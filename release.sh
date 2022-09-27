@@ -1,31 +1,28 @@
-#!/bin/sh
+#!/bin/bash
 
-if [ $# -ne 1 ]; then
-    >&2 echo "usage: $0 <version>"
-    exit 1
-fi
-
-readonly VERSIONFILE="patroni/version.py"
+# Release process:
+# 1. Open a PR that updates release notes and Patroni version
+# 2. Merge it
+# 3. Run release.sh
 
 ## Bail out on any non-zero exitcode from the called processes
 set -xe
 
-python3 --version
+if python3 --version &> /dev/null; then
+    alias python=python3
+    shopt -s expand_aliases
+fi
+
+python --version
 git --version
 
-version=$1
+version=$(python -c 'from patroni.version import __version__; print(__version__)')
 
-sed -i "s/__version__ = .*/__version__ = '${version}'/"  "${VERSIONFILE}"
-python3 setup.py clean
-python3 setup.py test
-python3 setup.py flake8
+python setup.py clean
+python setup.py test
+python setup.py flake8
 
-git add "${VERSIONFILE}"
+python setup.py sdist bdist_wheel upload
 
-git commit -m "Bumped version to $version"
-git push
-
-python3 setup.py sdist bdist_wheel upload
-
-git tag v${version}
+git tag "v$version"
 git push --tags
