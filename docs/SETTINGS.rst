@@ -30,7 +30,7 @@ Dynamic configuration is stored in the DCS (Distributed Configuration Store) and
     -  **host**: an address of remote node
     -  **port**: a port of remote node
     -  **primary\_slot\_name**: which slot on the remote node to use for replication. This parameter is optional, the default value is derived from the instance name (see function `slot_name_from_member_name`).
-    -  **create\_replica\_methods**: an ordered list of methods that can be used to bootstrap standby node from the remote primary, can be different from the list defined in :ref:`postgresql_settings`
+    -  **create\_replica\_methods**: an ordered list of methods that can be used to bootstrap standby leader from the remote primary, can be different from the list defined in :ref:`postgresql_settings`
     -  **restore\_command**: command to restore WAL records from the remote primary to standby node, can be different from the list defined in :ref:`postgresql_settings`
     -  **archive\_cleanup\_command**: cleanup command for standby leader
     -  **recovery\_min\_apply\_delay**: how long to wait before actually apply WAL records on a standby leader
