@@ -33,7 +33,7 @@ The only possible way to do a major upgrade currently is:
 3. Update patroni.yml
 4. Remove the initialize key from DCS or wipe complete cluster state from DCS. The second one could be achieved by running ``patronictl remove <cluster-name>``. It is necessary because pg_upgrade runs initdb which actually creates a new database with a new PostgreSQL system identifier.
 5. If you wiped the cluster state in the previous step, you may wish to copy patroni.dynamic.json from old data dir to the new one.  It will help you to retain some PostgreSQL parameters you had set before.
-6. Start Patroni on the leader node.
+6. Start Patroni on the primary node.
 7. Upgrade PostgreSQL binaries, update patroni.yml and wipe the data_dir on standby nodes.
 8. Start Patroni on the standby nodes and wait for the replication to complete.
 
