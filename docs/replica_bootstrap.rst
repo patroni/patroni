@@ -137,7 +137,7 @@ A special ``no_params`` parameter, if defined, restricts passing parameters to c
 A ``basebackup`` method is a special case: it will be used if
 ``create_replica_methods`` is empty, although it is possible
 to list it explicitly among the ``create_replica_methods`` methods. This method initializes a new replica with the
-``pg_basebackup``, the base backup is taken from the primary unless there are replicas with ``clonefrom`` tag, in which case one
+``pg_basebackup``, the base backup is taken from the leader unless there are replicas with ``clonefrom`` tag, in which case one
 of such replicas will be used as the origin for pg_basebackup. It works without any configuration; however, it is
 possible to specify a ``basebackup`` configuration section. Same rules as with the other method configuration apply,
 namely, only long (with --) options should be specified there. Not all parameters make sense, if you override a connection
