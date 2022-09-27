@@ -127,7 +127,7 @@ to execute and any custom parameters that should be passed to that command. All 
     connection string can execute SQL and replication protocol commands.
 
 A special ``no_master`` parameter, if defined, allows Patroni to call the replica creation method even if there is no
-running primary or replicas. In that case, an empty string will be passed in a connection string. This is useful for
+running leader or replicas. In that case, an empty string will be passed in a connection string. This is useful for
 restoring the formerly running cluster from the binary backup.
 
 A special ``keep_data`` parameter, if defined, will instruct Patroni to  not clean PGDATA folder before calling restore.
