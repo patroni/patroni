@@ -950,8 +950,8 @@ class Kubernetes(AbstractDCS):
             if not self._api.create_namespaced_service(self._namespace, body):
                 return
         except Exception as e:
-            if not isinstance(e, k8s_client.rest.ApiException) or e.status != 409 or e.status != 403:
-                # Service already exists
+            # 409 - service already exists, 403 - creation forbidden
+            if not isinstance(e, k8s_client.rest.ApiException) or e.status not in (409, 403):
                 return logger.exception('create_config_service failed')
         self._should_create_config_service = False
 
