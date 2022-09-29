@@ -45,6 +45,10 @@ def get_cluster_not_initialized_without_leader(cluster_config=None):
     return get_cluster(None, None, [], None, SyncState(None, None, None), cluster_config)
 
 
+def get_cluster_bootstrapping_without_leader(cluster_config=None):
+    return get_cluster("", None, [], None, SyncState(None, None, None), cluster_config)
+
+
 def get_cluster_initialized_without_leader(leader=False, failover=None, sync=None, cluster_config=None):
     m1 = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
                                   'api_url': 'http://127.0.0.1:8008/patroni', 'xlog_location': 4})
@@ -468,6 +472,11 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_initialized_without_leader()
         self.p.can_create_replica_without_replication_connection = MagicMock(return_value=True)
         self.assertEqual(self.ha.bootstrap(), 'trying to bootstrap (without leader)')
+
+    def test_bootstrap_not_running_concurrently(self):
+        self.ha.cluster = get_cluster_bootstrapping_without_leader()
+        self.p.can_create_replica_without_replication_connection = MagicMock(return_value=True)
+        self.assertEqual(self.ha.bootstrap(), 'waiting for leader to bootstrap')
 
     def test_bootstrap_initialize_lock_failed(self):
         self.ha.cluster = get_cluster_not_initialized_without_leader()
