@@ -23,7 +23,7 @@ Use ConfigMaps
 In this mode, Patroni will create ConfigMaps instead of Endpoints and store keys inside meta-data of those ConfigMaps.
 Changing the leader takes at least two updates, one to the leader ConfigMap and another to the respective Endpoint.
 
-There are two ways to direct the traffic to the Postgres master:
+There are two ways to direct the traffic to the Postgres leader:
 
 - use the `callback script <https://github.com/zalando/patroni/blob/master/kubernetes/callback.py>`_ provided by Patroni
 - configure the Kubernetes Postgres service to use the label selector with the `role_label` (configured in patroni configuration).
