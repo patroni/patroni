@@ -63,7 +63,7 @@ Building replicas
 -----------------
 
 Patroni uses tried and proven ``pg_basebackup`` in order to create new replicas. One downside of it is that it requires
-a running master node. Another one is the lack of 'on-the-fly' compression for the backup data and no built-in cleanup
+a running leader node. Another one is the lack of 'on-the-fly' compression for the backup data and no built-in cleanup
 for outdated backup files. Some people prefer other backup solutions, such as ``WAL-E``, ``pgBackRest``, ``Barman`` and
 others, or simply roll their own scripts. In order to accommodate all those use-cases Patroni supports running custom
 scripts to clone a new replica. Those are configured in the ``postgresql`` configuration block:
@@ -123,11 +123,11 @@ to execute and any custom parameters that should be passed to that command. All 
 --role
     Always 'replica'
 --connstring
-    Connection string to connect to the cluster member to clone from (master or other replica). The user in the
+    Connection string to connect to the cluster member to clone from (primary or other replica). The user in the
     connection string can execute SQL and replication protocol commands.
 
 A special ``no_master`` parameter, if defined, allows Patroni to call the replica creation method even if there is no
-running master or replicas. In that case, an empty string will be passed in a connection string. This is useful for
+running leader or replicas. In that case, an empty string will be passed in a connection string. This is useful for
 restoring the formerly running cluster from the binary backup.
 
 A special ``keep_data`` parameter, if defined, will instruct Patroni to  not clean PGDATA folder before calling restore.
@@ -137,7 +137,7 @@ A special ``no_params`` parameter, if defined, restricts passing parameters to c
 A ``basebackup`` method is a special case: it will be used if
 ``create_replica_methods`` is empty, although it is possible
 to list it explicitly among the ``create_replica_methods`` methods. This method initializes a new replica with the
-``pg_basebackup``, the base backup is taken from the master unless there are replicas with ``clonefrom`` tag, in which case one
+``pg_basebackup``, the base backup is taken from the leader unless there are replicas with ``clonefrom`` tag, in which case one
 of such replicas will be used as the origin for pg_basebackup. It works without any configuration; however, it is
 possible to specify a ``basebackup`` configuration section. Same rules as with the other method configuration apply,
 namely, only long (with --) options should be specified there. Not all parameters make sense, if you override a connection
@@ -176,10 +176,10 @@ Standby cluster
 ---------------
 
 Another available option is to run a "standby cluster", that contains only of
-standby nodes replicating from some remote master. This type of clusters has:
+standby nodes replicating from some remote node. This type of clusters has:
 
 * "standby leader", that behaves pretty much like a regular cluster leader,
-  except it replicates from a remote master.
+  except it replicates from a remote node.
 
 * cascade replicas, that are replicating from standby leader.
 
@@ -220,8 +220,8 @@ Note, that these options will be applied only once during cluster bootstrap,
 and the only way to change them afterwards is through DCS.
 
 Patroni expects to find `postgresql.conf` or `postgresql.conf.backup` in PGDATA
-of the remote master and will not start if it does not find it after a
-basebackup. If the remote master keeps its `postgresql.conf` elsewhere, it is
+of the remote primary and will not start if it does not find it after a
+basebackup. If the remote primary keeps its `postgresql.conf` elsewhere, it is
 your responsibility to copy it to PGDATA.
 
 If you use replication slots on the standby cluster, you must also create the corresponding replication slot on the primary cluster.  It will not be done automatically by the standby cluster implementation.  You can use Patroni's permanent replication slots feature on the primary cluster to maintain a replication slot with the same name as ``primary_slot_name``, or its default value if ``primary_slot_name`` is not provided.
