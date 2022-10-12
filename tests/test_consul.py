@@ -161,6 +161,7 @@ class TestConsul(unittest.TestCase):
         self.c.write_leader_optime('1')
 
     @patch.object(consul.Consul.Session, 'renew', Mock())
+    @patch.object(consul.Consul.KV, 'put', Mock(side_effect=ConsulException))
     def test_update_leader(self):
         self.c.update_leader(12345)
 
@@ -217,6 +218,7 @@ class TestConsul(unittest.TestCase):
         d['role'] = 'bla'
         self.assertIsNone(self.c.update_service({}, d))
 
+    @patch.object(consul.Consul.KV, 'put', Mock(side_effect=ConsulException))
     def test_reload_config(self):
         self.assertEqual([], self.c._service_tags)
         self.c.reload_config({'consul': {'token': 'foo', 'register_service': True, 'service_tags': ['foo']},
