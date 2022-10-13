@@ -51,7 +51,15 @@ class PatroniSequentialThreadingHandler(SequentialThreadingHandler):
         return super(PatroniSequentialThreadingHandler, self).create_connection(*args, **kwargs)
 
     def select(self, *args, **kwargs):
-        """Python3 raises `ValueError` if socket is closed, because fd == -1"""
+        """
+        Python 3.XY may raise following exceptions if select/poll are called with an invalid socket:
+        - `ValueError`: because fd == -1
+        - `TypeError`: Invalid file descriptor: -1 (starting from kazoo 2.9)
+        Python 2.7 may raise the `IOError` instead of `socket.error` (starting from kazoo 2.9)
+
+        When it is appropriate we map these exceptions to `socket.error`.
+        """
+
         try:
             return super(PatroniSequentialThreadingHandler, self).select(*args, **kwargs)
         except IOError as e:
