@@ -124,9 +124,11 @@ class TestPatroniSequentialThreadingHandler(unittest.TestCase):
         self.assertIsNotNone(self.handler.create_connection((), 40))
         self.assertIsNotNone(self.handler.create_connection(timeout=40))
 
-    @patch.object(SequentialThreadingHandler, 'select', Mock(side_effect=ValueError))
     def test_select(self):
-        self.assertRaises(select.error, self.handler.select)
+        with patch.object(SequentialThreadingHandler, 'select', Mock(side_effect=ValueError)):
+            self.assertRaises(select.error, self.handler.select)
+        with patch.object(SequentialThreadingHandler, 'select', Mock(side_effect=IOError)):
+            self.assertRaises(Exception, self.handler.select)
 
 
 class TestPatroniKazooClient(unittest.TestCase):
