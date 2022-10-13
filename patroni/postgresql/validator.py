@@ -200,7 +200,6 @@ parameters = CaseInsensitiveDict({
     'enable_async_append': Bool(140000, None),
     'enable_bitmapscan': Bool(90300, None),
     'enable_gathermerge': Bool(100000, None),
-    'enable_group_by_reordering': Bool(150000, None),
     'enable_hashagg': Bool(90300, None),
     'enable_hashjoin': Bool(90300, None),
     'enable_incremental_sort': Bool(130000, None),
