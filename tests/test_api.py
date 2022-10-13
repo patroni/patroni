@@ -12,6 +12,7 @@ from patroni.ha import _MemberStatus
 from patroni.utils import tzutc
 from six import BytesIO as IO
 from six.moves import BaseHTTPServer
+from six.moves.socketserver import ThreadingMixIn
 from . import psycopg_connect, MockCursor
 from .test_ha import get_cluster_initialized_without_leader
 
@@ -586,32 +587,14 @@ class TestRestApiServer(unittest.TestCase):
     def test_socket_error(self):
         self.assertRaises(socket.error, MockRestApiServer, Mock(), '', {'listen': '*:8008'})
 
-    @patch.object(MockRestApiServer, 'finish_request', Mock())
+    @patch.object(ThreadingMixIn, 'process_request_thread', Mock())
     def test_process_request_thread(self):
-        mock_socket = Mock()
-        self.srv.process_request_thread((mock_socket, 1), '2')
-        mock_socket.context.wrap_socket.side_effect = socket.error
-        self.srv.process_request_thread((mock_socket, 1), '2')
-
-    @patch.object(socket.socket, 'accept')
-    def test_get_request(self, mock_accept):
-        newsock = Mock()
-        mock_accept.return_value = (newsock, '2')
-        self.srv.socket = Mock()
-        self.assertEqual(self.srv.get_request(), ((self.srv.socket, newsock), '2'))
+        self.srv.process_request_thread(Mock(), '2')
 
     @patch.object(MockRestApiServer, 'process_request', Mock(side_effect=RuntimeError))
+    @patch.object(MockRestApiServer, 'get_request', Mock(return_value=(Mock(), ('127.0.0.1', 55555))))
     def test_process_request_error(self):
-        mock_address = ('127.0.0.1', 55555)
-        mock_socket = Mock()
-        mock_ssl_socket = (Mock(), Mock())
-        for mock_request in (mock_socket, mock_ssl_socket):
-            with patch.object(
-                MockRestApiServer,
-                'get_request',
-                Mock(return_value=(mock_request, mock_address))
-            ):
-                self.srv._handle_request_noblock()
+        self.srv._handle_request_noblock()
 
     @patch('ssl._ssl._test_decode_cert', Mock())
     def test_reload_local_certificate(self):
