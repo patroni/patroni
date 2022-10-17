@@ -1,17 +1,12 @@
 import os
-import sys
 import time
 
 from behave import step
 
 
-select_replication_query = """
-SELECT * FROM pg_catalog.pg_stat_replication
-WHERE application_name = '{0}'
-"""
-
-executable = sys.executable if os.name != 'nt' else sys.executable.replace('\\', '/')
-callback = executable + " features/callback2.py "
+def callbacks(context, name):
+    return {c: '{0} features/callback2.py {1}'.format(context.pctl.PYTHON, name)
+            for c in ('on_start', 'on_stop', 'on_restart', 'on_role_change')}
 
 
 @step('I start {name:w} in a cluster {cluster_name:w}')
@@ -19,10 +14,10 @@ def start_patroni(context, name, cluster_name):
     return context.pctl.start(name, custom_config={
         "scope": cluster_name,
         "postgresql": {
-            "callbacks": {c: callback + name for c in ('on_start', 'on_stop', 'on_restart', 'on_role_change')},
+            "callbacks": callbacks(context, name),
             "backup_restore": {
-                "command": (executable + " features/backup_restore.py --sourcedir=" +
-                            os.path.join(context.pctl.patroni_path, 'data', 'basebackup'))}
+                "command": (context.pctl.PYTHON + " features/backup_restore.py --sourcedir=" +
+                            os.path.join(context.pctl.patroni_path, 'data', 'basebackup').replace('\\', '/'))}
         }
     })
 
@@ -49,7 +44,7 @@ def start_patroni_standby_cluster(context, name, cluster_name, name2):
             }
         },
         "postgresql": {
-            "callbacks": {c: callback + name for c in ('on_start', 'on_stop', 'on_restart', 'on_role_change')}
+            "callbacks": callbacks(context, name)
         }
     })
     return context.pctl.start(name)
@@ -62,7 +57,7 @@ def check_replication_status(context, pg_name1, pg_name2, timeout):
     while time.time() < bound_time:
         cur = context.pctl.query(
             pg_name2,
-            select_replication_query.format(pg_name1),
+            "SELECT * FROM pg_catalog.pg_stat_replication WHERE application_name = '{0}'".format(pg_name1),
             fail_ok=True
         )
 

@@ -10,10 +10,8 @@ import yaml
 from behave import register_type, step, then
 from dateutil import tz
 from datetime import datetime, timedelta
-from patroni.request import PatroniRequest
 
 tzutc = tz.tzutc()
-request_executor = PatroniRequest({'ctl': {'auth': 'username:password'}})
 
 
 @parse.with_pattern(r'https?://(?:\w|\.|:|/)+')
@@ -75,9 +73,9 @@ def do_post_empty(context, url):
 def do_request(context, request_method, url, data):
     data = data and json.loads(data)
     try:
-        r = request_executor.request(request_method, url, data)
+        r = context.request_executor.request(request_method, url, data)
         if request_method == 'PATCH' and r.status == 409:
-            r = request_executor.request(request_method, url, data)
+            r = context.request_executor.request(request_method, url, data)
     except Exception:
         context.status_code = context.response = None
     else:
@@ -139,7 +137,7 @@ def add_tag_to_config(context, tag, value, pg_name):
 def check_http_response(context, url, value, timeout, negate=False):
     timeout *= context.timeout_multiplier
     for _ in range(int(timeout)):
-        r = request_executor.request('GET', url)
+        r = context.request_executor.request('GET', url)
         if (value in r.data.decode('utf-8')) != negate:
             break
         time.sleep(1)

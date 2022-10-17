@@ -14,6 +14,7 @@ import yaml
 
 import patroni.psycopg as psycopg
 
+from patroni.request import PatroniRequest
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 
 
@@ -138,12 +139,24 @@ class PatroniController(AbstractController):
     def _start(self):
         if self.watchdog:
             self.watchdog.start()
+        env = os.environ.copy()
         if isinstance(self._context.dcs_ctl, KubernetesController):
             self._context.dcs_ctl.create_pod(self._name[8:], self._scope)
-            os.environ['PATRONI_KUBERNETES_POD_IP'] = '10.0.0.' + self._name[-1]
-        return subprocess.Popen([sys.executable, '-m', 'coverage', 'run',
-                                '--source=patroni', '-p', 'patroni.py', self._config],
-                                stdout=self._log, stderr=subprocess.STDOUT, cwd=self._work_directory)
+            env['PATRONI_KUBERNETES_POD_IP'] = '10.0.0.' + self._name[-1]
+        if os.name == 'nt':
+            env['BEHAVE_DEBUG'] = 'true'
+        patroni = subprocess.Popen([sys.executable, '-m', 'coverage', 'run',
+                                   '--source=patroni', '-p', 'patroni.py', self._config], env=env,
+                                   stdout=self._log, stderr=subprocess.STDOUT, cwd=self._work_directory)
+        if os.name == 'nt':
+            patroni.terminate = self.terminate
+        return patroni
+
+    def terminate(self):
+        try:
+            self._context.request_executor.request('POST', self._restapi_url + '/sigterm')
+        except Exception:
+            pass
 
     def stop(self, kill=False, timeout=15, postgres=False):
         if postgres:
@@ -178,15 +191,16 @@ class PatroniController(AbstractController):
         config['postgresql']['listen'] = config['postgresql']['connect_address'] = '{0}:{1}'.format(host, self.__PORT)
 
         config['name'] = name
-        config['postgresql']['data_dir'] = self._data_dir
+        config['postgresql']['data_dir'] = self._data_dir.replace('\\', '/')
         config['postgresql']['basebackup'] = [{'checkpoint': 'fast'}]
         config['postgresql']['use_unix_socket'] = os.name != 'nt'  # windows doesn't yet support unix-domain sockets
         config['postgresql']['use_unix_socket_repl'] = os.name != 'nt'
-        config['postgresql']['pgpass'] = os.path.join(tempfile.gettempdir(), 'pgpass_' + name)
+        config['postgresql']['pgpass'] = os.path.join(tempfile.gettempdir(), 'pgpass_' + name).replace('\\', '/')
         config['postgresql']['parameters'].update({
-            'logging_collector': 'on', 'log_destination': 'csvlog', 'log_directory': self._output_dir,
+            'logging_collector': 'on', 'log_destination': 'csvlog',
+            'log_directory': self._output_dir.replace('\\', '/'),
             'log_filename': name + '.log', 'log_statement': 'all', 'log_min_messages': 'debug1',
-            'unix_socket_directories': tempfile.gettempdir()})
+            'unix_socket_directories': tempfile.gettempdir().replace('\\', '/')})
 
         if 'bootstrap' in config:
             config['bootstrap']['post_bootstrap'] = 'psql -w -c "SELECT 1"'
@@ -210,6 +224,7 @@ class PatroniController(AbstractController):
 
         self._replication = config['postgresql'].get('authentication', config['postgresql']).get('replication', {})
         self._replication.update({'host': host, 'port': self.__PORT, 'dbname': 'postgres'})
+        self._restapi_url = 'http://{0}'.format(config['restapi']['connect_address'])
 
         return patroni_config_path
 
@@ -394,7 +409,7 @@ class AbstractEtcdController(AbstractDcsController):
         self._client_cls = client_cls
 
     def _start(self):
-        return subprocess.Popen(["etcd", "--debug", "--data-dir", self._work_directory],
+        return subprocess.Popen(["etcd", "--data-dir", self._work_directory],
                                 stdout=self._log, stderr=subprocess.STDOUT)
 
     def _is_running(self):
@@ -634,8 +649,9 @@ class RaftController(AbstractDcsController):
 
 class PatroniPoolController(object):
 
-    BACKUP_SCRIPT = [sys.executable, 'features/backup_create.py']
-    ARCHIVE_RESTORE_SCRIPT = ' '.join((sys.executable, os.path.abspath('features/archive-restore.py')))
+    PYTHON = sys.executable.replace('\\', '/')
+    BACKUP_SCRIPT = [PYTHON, 'features/backup_create.py']
+    ARCHIVE_RESTORE_SCRIPT = ' '.join((PYTHON, os.path.abspath('features/archive-restore.py')))
 
     def __init__(self, context):
         self._context = context
@@ -711,7 +727,7 @@ class PatroniPoolController(object):
                     'archive_mode': 'on',
                     'archive_command': (self.ARCHIVE_RESTORE_SCRIPT + ' --mode archive ' +
                                         '--dirname {} --filename %f --pathname %p').format(
-                                        os.path.join(self.patroni_path, 'data', 'wal_archive'))
+                                        os.path.join(self.patroni_path, 'data', 'wal_archive').replace('\\', '/'))
                 },
                 'authentication': {
                     'superuser': {'password': 'zalando1'},
@@ -727,14 +743,14 @@ class PatroniPoolController(object):
             'bootstrap': {
                 'method': 'backup_restore',
                 'backup_restore': {
-                    'command': (sys.executable + ' features/backup_restore.py --sourcedir=' +
-                                os.path.join(self.patroni_path, 'data', 'basebackup')),
+                    'command': (self.PYTHON + ' features/backup_restore.py --sourcedir=' +
+                                os.path.join(self.patroni_path, 'data', 'basebackup').replace('\\', '/')),
                     'recovery_conf': {
                         'recovery_target_action': 'promote',
                         'recovery_target_timeline': 'latest',
                         'restore_command': (self.ARCHIVE_RESTORE_SCRIPT + ' --mode restore ' +
                                             '--dirname {} --filename %f --pathname %p').format(
-                                            os.path.join(self.patroni_path, 'data', 'wal_archive'))
+                                            os.path.join(self.patroni_path, 'data', 'wal_archive')).replace('\\', '/')
                     }
                 }
             },
@@ -874,7 +890,10 @@ class WatchdogMonitor(object):
 # actions to execute on start/stop of the tests and before running individual features
 def before_all(context):
     os.environ.update({'PATRONI_RESTAPI_USERNAME': 'username', 'PATRONI_RESTAPI_PASSWORD': 'password'})
-    context.ci = any(a in os.environ for a in ('TRAVIS_BUILD_NUMBER', 'BUILD_NUMBER', 'GITHUB_ACTIONS'))
+    context.request_executor = PatroniRequest({'ctl': {'auth': os.environ['PATRONI_RESTAPI_USERNAME'] +
+                                               ':' + os.environ['PATRONI_RESTAPI_PASSWORD']}})
+    context.ci = os.name == 'nt' or\
+        any(a in os.environ for a in ('TRAVIS_BUILD_NUMBER', 'BUILD_NUMBER', 'GITHUB_ACTIONS'))
     context.timeout_multiplier = 5 if context.ci else 1  # MacOS sometimes is VERY slow
     context.pctl = PatroniPoolController(context)
     context.dcs_ctl = context.pctl.known_dcs[context.pctl.dcs](context)
@@ -894,13 +913,18 @@ def after_all(context):
 
 def before_feature(context, feature):
     """ create per-feature output directory to collect Patroni and PostgreSQL logs """
-    context.pctl.create_and_set_output_directory(feature.name)
+    if feature.name == 'watchdog' and os.name == 'nt':
+        feature.skip("Watchdog isn't supported on Windows")
+    else:
+        context.pctl.create_and_set_output_directory(feature.name)
 
 
 def after_feature(context, feature):
     """ stop all Patronis, remove their data directory and cleanup the keys in etcd """
     context.pctl.stop_all()
-    shutil.rmtree(os.path.join(context.pctl.patroni_path, 'data'))
+    data = os.path.join(context.pctl.patroni_path, 'data')
+    if os.path.exists(data):
+        shutil.rmtree(data)
     context.dcs_ctl.cleanup_service_tree()
     if feature.status == 'failed':
         shutil.copytree(context.pctl.output_dir, context.pctl.output_dir + '_failed')

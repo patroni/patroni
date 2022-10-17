@@ -109,7 +109,7 @@ Scenario: check the scheduled switchover
 	And I receive a response output "Can't schedule switchover in the paused state"
 	When I run patronictl.py resume batman
 	Then I receive a response returncode 0
-	Given I issue a scheduled switchover from postgres1 to postgres0 in 5 seconds
+	Given I issue a scheduled switchover from postgres1 to postgres0 in 10 seconds
 	Then I receive a response returncode 0
 	And postgres0 is a leader after 20 seconds
 	And postgres0 role is the primary after 10 seconds
