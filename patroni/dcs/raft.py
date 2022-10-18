@@ -39,9 +39,9 @@ setattr(TCPNode, 'ip', property(resolve_host))
 
 class SyncObjUtility(object):
 
-    def __init__(self, otherNodes, conf):
+    def __init__(self, otherNodes, conf, retry_timeout=10):
         self._nodes = otherNodes
-        self._utility = TcpUtility(conf.password)
+        self._utility = TcpUtility(conf.password, retry_timeout/max(1, len(otherNodes)))
 
     def executeCommand(self, command):
         try:
@@ -58,11 +58,11 @@ class SyncObjUtility(object):
 
 class DynMemberSyncObj(SyncObj):
 
-    def __init__(self, selfAddress, partnerAddrs, conf):
+    def __init__(self, selfAddress, partnerAddrs, conf, retry_timeout=10):
         self.__early_apply_local_log = selfAddress is not None
         self.applied_local_log = False
 
-        utility = SyncObjUtility(partnerAddrs, conf)
+        utility = SyncObjUtility(partnerAddrs, conf, retry_timeout)
         members = utility.getMembers()
         add_self = members and selfAddress not in members
 
@@ -121,7 +121,8 @@ class KVStoreTTL(DynMemberSyncObj):
                            journalFile=(file_template + '.journal' if self_addr else None),
                            onReady=on_ready, dynamicMembershipChange=True)
 
-        super(KVStoreTTL, self).__init__(self_addr, partner_addrs, conf)
+        retry_timeout = int(config.get('retry_timeout') or 10)
+        super(KVStoreTTL, self).__init__(self_addr, partner_addrs, conf, retry_timeout)
         self.__data = {}
 
     @staticmethod
@@ -275,7 +276,6 @@ class Raft(AbstractDCS):
                 break
             else:
                 logger.info('waiting on raft')
-        self.set_retry_timeout(int(config.get('retry_timeout') or 10))
 
     def _on_set(self, key, value):
         leader = (self._sync_obj.get(self.leader_path) or {}).get('value')
