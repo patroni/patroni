@@ -60,6 +60,18 @@ class PatronictlPrettyTable(PrettyTable):
         self.__hline_num = 0
         self.__hline = None
 
+    def __build_header(self, line):
+        header = self.__table_header[:len(line) - 2]
+        return "".join([line[0], header, line[1 + len(header):]])
+
+    def _stringify_hrule(self, *args, **kwargs):
+        ret = super(PatronictlPrettyTable, self)._stringify_hrule(*args, **kwargs)
+        where = args[1] if len(args) > 1 else kwargs.get('where')
+        if where == 'top_' and self.__table_header:
+            ret = self.__build_header(ret)
+            self.__hline_num += 1
+        return ret
+
     def _is_first_hline(self):
         return self.__hline_num == 0
 
@@ -71,8 +83,7 @@ class PatronictlPrettyTable(PrettyTable):
 
         # Inject nice table header
         if self._is_first_hline() and self.__table_header:
-            header = self.__table_header[:len(ret) - 2]
-            ret = "".join([ret[0], header, ret[1 + len(header):]])
+            ret = self.__build_header(ret)
 
         self.__hline_num += 1
         return ret
