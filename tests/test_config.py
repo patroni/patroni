@@ -40,6 +40,7 @@ class TestConfig(unittest.TestCase):
             'PATRONI_RESTAPI_ALLOWLIST_INCLUDE_MEMBERS': 'on',
             'PATRONI_POSTGRESQL_LISTEN': '0.0.0.0:5432',
             'PATRONI_POSTGRESQL_CONNECT_ADDRESS': '127.0.0.1:5432',
+            'PATRONI_POSTGRESQL_PROXY_ADDRESS': '127.0.0.1:5433',
             'PATRONI_POSTGRESQL_DATA_DIR': 'data/postgres0',
             'PATRONI_POSTGRESQL_CONFIG_DIR': 'data/postgres0',
             'PATRONI_POSTGRESQL_PGPASS': '/tmp/pgpass0',
