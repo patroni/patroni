@@ -334,7 +334,9 @@ class Ha(object):
         else:
             create_replica_methods = self.get_standby_cluster_config().get('create_replica_methods', []) \
                                      if self.is_standby_cluster() else None
-            if self.state_handler.can_create_replica_without_replication_connection(create_replica_methods):
+            can_bootstrap = self.state_handler.can_create_replica_without_replication_connection(create_replica_methods)
+            concurrent_bootstrap = self.cluster.initialize == ""
+            if can_bootstrap and not concurrent_bootstrap:
                 msg = 'bootstrap (without leader)'
                 return self._async_executor.try_run_async(msg, self.clone) or 'trying to ' + msg
             return 'waiting for {0}leader to bootstrap'.format('standby_' if self.is_standby_cluster() else '')

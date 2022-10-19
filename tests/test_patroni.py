@@ -54,6 +54,7 @@ class TestPatroni(unittest.TestCase):
         self.assertRaises(SystemExit, patroni_main)
 
     @patch('sys.argv', ['patroni.py', '--validate-config', 'postgres0.yml'])
+    @patch('socket.socket.connect_ex', Mock(return_value=1))
     def test_validate_config(self):
         self.assertRaises(SystemExit, patroni_main)
 

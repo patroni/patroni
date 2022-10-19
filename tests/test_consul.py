@@ -163,14 +163,14 @@ class TestConsul(unittest.TestCase):
         self.c.get_cluster()
         self.c.write_leader_optime('1')
 
+    @patch.object(consul.Consul.KV, 'put', Mock(side_effect=ConsulException))
     @patch.object(consul.Consul.Session, 'renew')
     def test_update_leader(self, mock_renew):
         self.c._session = 'fd4f44fe-2cac-bba5-a60b-304b51ff39b8'
         with patch.object(consul.Consul.KV, 'delete', Mock(return_value=True)):
             with patch.object(consul.Consul.KV, 'put', Mock(return_value=True)):
                 self.assertTrue(self.c.update_leader(12345, failsafe={'foo': 'bar'}))
-            with patch.object(consul.Consul.KV, 'put', Mock(side_effect=ConsulException)):
-                self.assertFalse(self.c.update_leader(12345))
+            self.assertFalse(self.c.update_leader(12345))
             with patch('time.time', Mock(side_effect=[0, 0, 0, 0, 0, 100, 200, 300])):
                 self.assertRaises(ConsulError, self.c.update_leader, 12345)
         with patch('time.time', Mock(side_effect=[0, 100, 200, 300])):
@@ -236,6 +236,7 @@ class TestConsul(unittest.TestCase):
         d['role'] = 'bla'
         self.assertIsNone(self.c.update_service({}, d))
 
+    @patch.object(consul.Consul.KV, 'put', Mock(side_effect=ConsulException))
     def test_reload_config(self):
         self.assertEqual([], self.c._service_tags)
         self.c.reload_config({'consul': {'token': 'foo', 'register_service': True, 'service_tags': ['foo']},
