@@ -750,7 +750,7 @@ class PatroniPoolController(object):
                         'recovery_target_timeline': 'latest',
                         'restore_command': (self.ARCHIVE_RESTORE_SCRIPT + ' --mode restore ' +
                                             '--dirname {} --filename %f --pathname %p').format(
-                                            os.path.join(self.patroni_path, 'data', 'wal_archive')).replace('\\', '/')
+                                            os.path.join(self.patroni_path, 'data', 'wal_archive').replace('\\', '/'))
                     }
                 }
             },
