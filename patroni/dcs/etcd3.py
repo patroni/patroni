@@ -455,7 +455,7 @@ class KVCache(Thread):
         # We do most of requests with timeouts. The only exception /watch requests to Etcd v3.
         # In order to interrupt the /watch request we do socket.shutdown() from the main thread,
         # which doesn't work on Windows. Therefore we want to use the last resort, `read_timeout`.
-        # set to to TTL will help to partially mitigate the problem.
+        # Setting it to TTL will help to partially mitigate the problem.
         # Setting it to lower value is not nice because for idling clusters it will increase
         # the numbers of interrupts and reconnects.
         read_timeout = self._dcs.ttl if os.name == 'nt' else None
