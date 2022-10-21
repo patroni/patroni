@@ -655,9 +655,11 @@ class TestPatronictlPrettyTable(unittest.TestCase):
         self.pt = PatronictlPrettyTable(' header', ['foo', 'bar'], hrules=ALL)
 
     def test__get_hline(self):
-        self.pt._hrule = '+-----+-----+'
+        expected = '+-----+-----+'
+        self.pt._hrule = expected
         self.assertEqual(self.pt._hrule, '+ header----+')
         self.assertFalse(self.pt._is_first_hline())
+        self.assertEqual(self.pt._hrule, expected)
 
     @patch.object(PrettyTable, '_stringify_hrule', Mock(return_value='+-----+-----+'))
     def test__stringify_hrule(self):
