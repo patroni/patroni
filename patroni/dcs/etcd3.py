@@ -11,6 +11,7 @@ import time
 import urllib3
 
 from threading import Condition, Lock, Thread
+from urllib3.exceptions import ReadTimeoutError, ProtocolError
 
 from . import ClusterConfig, Cluster, Failover, Leader, Member,\
         SyncState, TimelineHistory, ReturnFalseException, catch_return_false_exception
@@ -351,7 +352,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
     def deleteprefix(self, key, retry=None):
         return self.deleterange(key, prefix_range_end(key), retry=retry)
 
-    def watchrange(self, key, range_end=None, start_revision=None, filters=None):
+    def watchrange(self, key, range_end=None, start_revision=None, filters=None, read_timeout=None):
         """returns: response object"""
         params = build_range_request(key, range_end)
         if start_revision is not None:
@@ -359,11 +360,11 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         params['filters'] = filters or []
         kwargs = self._prepare_common_parameters(1, self.read_timeout)
         request_executor = self._prepare_request(kwargs, {'create_request': params})
-        kwargs.update(timeout=urllib3.Timeout(connect=kwargs['timeout']), retries=0)
+        kwargs.update(timeout=urllib3.Timeout(connect=kwargs['timeout'], read=read_timeout), retries=0)
         return request_executor(self._MPOST, self._base_uri + self.version_prefix + '/watch', **kwargs)
 
-    def watchprefix(self, key, start_revision=None, filters=None):
-        return self.watchrange(key, prefix_range_end(key), start_revision, filters)
+    def watchprefix(self, key, start_revision=None, filters=None, read_timeout=None):
+        return self.watchrange(key, prefix_range_end(key), start_revision, filters, read_timeout)
 
 
 class KVCache(Thread):
@@ -452,7 +453,14 @@ class KVCache(Thread):
     def _do_watch(self, revision):
         with self._response_lock:
             self._response = None
-        response = self._client.watchprefix(self._dcs.cluster_prefix, revision)
+        # We do most of requests with timeouts. The only exception /watch requests to Etcd v3.
+        # In order to interrupt the /watch request we do socket.shutdown() from the main thread,
+        # which doesn't work on Windows. Therefore we want to use the last resort, `read_timeout`.
+        # Setting it to TTL will help to partially mitigate the problem.
+        # Setting it to lower value is not nice because for idling clusters it will increase
+        # the numbers of interrupts and reconnects.
+        read_timeout = self._dcs.ttl if os.name == 'nt' else None
+        response = self._client.watchprefix(self._dcs.cluster_prefix, revision, read_timeout=read_timeout)
         with self._response_lock:
             if self._response is None:
                 self._response = response
@@ -474,7 +482,9 @@ class KVCache(Thread):
         try:
             self._do_watch(result['header']['revision'])
         except Exception as e:
-            logger.error('watchprefix failed: %r', e)
+            # Following exceptions are expected on Windows because the /watch request  is done with `read_timeout`
+            if not (os.name == 'nt' and isinstance(e, (ReadTimeoutError, ProtocolError))):
+                logger.error('watchprefix failed: %r', e)
         finally:
             with self.condition:
                 self._is_ready = False

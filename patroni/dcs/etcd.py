@@ -217,10 +217,13 @@ class AbstractEtcdClientWithFailover(etcd.Client):
                 return response
             except (HTTPError, HTTPException, socket.error, socket.timeout) as e:
                 self.http.clear()
-                # switch to the next etcd node because we don't know exactly what happened,
-                # whether the key didn't received an update or there is a network problem.
-                if not retry and i + 1 < len(machines_cache):
-                    self.set_base_uri(machines_cache[i + 1])
+                if not retry:
+                    if len(machines_cache) == 1:
+                        self.set_base_uri(self._base_uri)  # trigger Etcd3 watcher restart
+                    # switch to the next etcd node because we don't know exactly what happened,
+                    # whether the key didn't received an update or there is a network problem.
+                    elif i + 1 < len(machines_cache):
+                        self.set_base_uri(machines_cache[i + 1])
                 if (isinstance(fields, dict) and fields.get("wait") == "true" and
                         isinstance(e, (ReadTimeoutError, ProtocolError))):
                     logger.debug("Watch timed out.")

@@ -562,7 +562,8 @@ class TestCtl(unittest.TestCase):
 
     @patch('sys.stdout.isatty', return_value=False)
     @patch('patroni.ctl.markup_to_pager')
-    def test_show_diff(self, mock_markup_to_pager, mock_isatty):
+    @patch('patroni.ctl.find_executable', return_value=None)
+    def test_show_diff(self, mock_find_executable, mock_markup_to_pager, mock_isatty):
         show_diff("foo:\n  bar: 1\n", "foo:\n  bar: 2\n")
         mock_markup_to_pager.assert_not_called()
 
@@ -570,10 +571,10 @@ class TestCtl(unittest.TestCase):
         show_diff("foo:\n  bar: 1\n", "foo:\n  bar: 2\n")
         mock_markup_to_pager.assert_called_once()
 
-        with patch('patroni.ctl.find_executable', Mock(return_value=None)):
-            show_diff("foo:\n  bar: 1\n", "foo:\n  bar: 2\n")
+        show_diff("foo:\n  bar: 1\n", "foo:\n  bar: 2\n")
 
         # Test that unicode handling doesn't fail with an exception
+        mock_find_executable.return_value = '/usr/bin/less'
         show_diff(b"foo:\n  bar: \xc3\xb6\xc3\xb6\n".decode('utf-8'),
                   b"foo:\n  bar: \xc3\xbc\xc3\xbc\n".decode('utf-8'))
 
@@ -591,6 +592,7 @@ class TestCtl(unittest.TestCase):
         self.runner.invoke(ctl, ['show-config', 'dummy'])
 
     @patch('patroni.ctl.get_dcs')
+    @patch('subprocess.call', Mock(return_value=0))
     def test_edit_config(self, mock_get_dcs):
         mock_get_dcs.return_value = self.e
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader

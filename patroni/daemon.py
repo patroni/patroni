@@ -24,11 +24,15 @@ class AbstractPatroniDaemon(object):
     def sighup_handler(self, *args):
         self._received_sighup = True
 
-    def sigterm_handler(self, *args):
+    def api_sigterm(self):
         with self._sigterm_lock:
             if not self._received_sigterm:
                 self._received_sigterm = True
-                sys.exit()
+                return True
+
+    def sigterm_handler(self, *args):
+        if self.api_sigterm():
+            sys.exit()
 
     def setup_signal_handlers(self):
         self._received_sighup = False

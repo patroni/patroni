@@ -386,6 +386,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(502)
 
+    @check_access
+    def do_POST_sigterm(self):
+        """Only for behave testing on windows"""
+
+        if os.name == 'nt' and os.getenv('BEHAVE_DEBUG'):
+            self.server.patroni.api_sigterm()
+        self._write_response(202, 'shutdown scheduled')
+
     @staticmethod
     def parse_schedule(schedule, action):
         """ parses the given schedule and validates at """

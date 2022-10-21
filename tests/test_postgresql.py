@@ -454,24 +454,20 @@ class TestPostgresql(BaseTestPostgresql):
     def test_get_postgres_role_from_data_directory(self):
         self.assertEqual(self.p.get_postgres_role_from_data_directory(), 'replica')
 
+    @patch('os.remove', Mock())
+    @patch('shutil.rmtree', Mock())
+    @patch('os.unlink', Mock(side_effect=OSError))
+    @patch('os.path.isdir', Mock(return_value=True))
+    @patch('os.path.exists', Mock(return_value=True))
     def test_remove_data_directory(self):
-        def _symlink(src, dst):
-            if os.name != 'nt':  # os.symlink under Windows needs admin rights skip it
-                os.symlink(src, dst)
-
-        os.makedirs(os.path.join(self.p.data_dir, 'foo'))
-        _symlink('foo', os.path.join(self.p.data_dir, 'pg_wal'))
-        os.makedirs(os.path.join(self.p.data_dir, 'foo_tsp'))
-        pg_tblspc = os.path.join(self.p.data_dir, 'pg_tblspc')
-        os.makedirs(pg_tblspc)
-        _symlink('../foo_tsp', os.path.join(pg_tblspc, '12345'))
-        self.p.remove_data_directory()
-        open(self.p.data_dir, 'w').close()
-        self.p.remove_data_directory()
-        _symlink('unexisting', self.p.data_dir)
-        with patch('os.unlink', Mock(side_effect=OSError)):
+        with patch('os.path.islink', Mock(return_value=True)):
             self.p.remove_data_directory()
-        self.p.remove_data_directory()
+        with patch('os.path.isfile', Mock(return_value=True)):
+            self.p.remove_data_directory()
+        with patch('os.path.islink', Mock(side_effect=[False, False, True, True])),\
+                patch('os.listdir', Mock(return_value=['12345'])),\
+                patch('os.path.realpath', Mock(side_effect=['../foo', '../foo_tsp'])):
+            self.p.remove_data_directory()
 
     @patch('patroni.postgresql.Postgresql._version_file_exists', Mock(return_value=True))
     def test_controldata(self):
