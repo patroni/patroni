@@ -134,6 +134,10 @@ class MockPatroni(object):
     def sighup_handler():
         pass
 
+    @staticmethod
+    def api_sigterm():
+        pass
+
 
 class MockRequest(object):
 
@@ -370,6 +374,11 @@ class TestRestApiHandler(unittest.TestCase):
     @patch.object(MockPatroni, 'sighup_handler', Mock())
     def test_do_POST_reload(self):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'POST /reload HTTP/1.0' + self._authorization))
+
+    @patch('os.environ', {'BEHAVE_DEBUG': 'true'})
+    @patch('os.name', 'nt')
+    def test_do_POST_sigterm(self):
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'POST /sigterm HTTP/1.0' + self._authorization))
 
     @patch.object(MockPatroni, 'dcs')
     def test_do_POST_restart(self, mock_dcs):
