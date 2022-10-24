@@ -345,10 +345,11 @@ class SlotsHandler(object):
                 try:
                     cur = self._query("SELECT pg_catalog.current_setting('hot_standby_feedback')::boolean")
                     if not cur.fetchone()[0]:
-                        return logger.error('Logical slot failover requires "hot_standby_feedback".'
-                                            ' Please check postgresql.auto.conf')
+                        logger.error('Logical slot failover requires "hot_standby_feedback".'
+                                     ' Please check postgresql.auto.conf')
                 except Exception as e:
-                    return logger.error('Failed to check the hot_standby_feedback setting: %r', e)
+                    logger.error('Failed to check the hot_standby_feedback setting: %r', e)
+                return  # since `catalog_xmin` isn't valid further checks don't make any sense
 
         for name in list(self._unready_logical_slots):
             value = self._replication_slots.get(name)
