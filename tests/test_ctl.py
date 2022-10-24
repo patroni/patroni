@@ -7,10 +7,11 @@ from datetime import datetime, timedelta
 from mock import patch, Mock
 from patroni.ctl import ctl, store_config, load_config, output_members, get_dcs, parse_dcs, \
     get_all_members, get_any_member, get_cursor, query_member, configure, PatroniCtlException, apply_config_changes, \
-    format_config_for_editing, show_diff, invoke_editor, format_pg_version, CONFIG_FILE_PATH
+    format_config_for_editing, show_diff, invoke_editor, format_pg_version, CONFIG_FILE_PATH, PatronictlPrettyTable
 from patroni.dcs.etcd import AbstractEtcdClientWithFailover, Failover
 from patroni.psycopg import OperationalError
 from patroni.utils import tzutc
+from prettytable import PrettyTable, ALL
 from urllib3 import PoolManager
 
 from . import MockConnect, MockCursor, MockResponse, psycopg_connect
@@ -648,3 +649,24 @@ class TestCtl(unittest.TestCase):
             result = self.runner.invoke(ctl, ['reinit', 'alpha', 'other', '--wait'], input='y\ny')
         self.assertIn("Waiting for reinitialize to complete on: other", result.output)
         self.assertIn("Reinitialize is completed on: other", result.output)
+
+
+class TestPatronictlPrettyTable(unittest.TestCase):
+
+    def setUp(self):
+        self.pt = PatronictlPrettyTable(' header', ['foo', 'bar'], hrules=ALL)
+
+    def test__get_hline(self):
+        expected = '+-----+-----+'
+        self.pt._hrule = expected
+        self.assertEqual(self.pt._hrule, '+ header----+')
+        self.assertFalse(self.pt._is_first_hline())
+        self.assertEqual(self.pt._hrule, expected)
+
+    @patch.object(PrettyTable, '_stringify_hrule', Mock(return_value='+-----+-----+'))
+    def test__stringify_hrule(self):
+        self.assertEqual(self.pt._stringify_hrule((), 'top_'), '+ header----+')
+        self.assertFalse(self.pt._is_first_hline())
+
+    def test_output(self):
+        self.assertEqual(str(self.pt), '+ header----+\n| foo | bar |\n+-----+-----+')
