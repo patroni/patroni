@@ -227,7 +227,8 @@ class Config(object):
                 for name, value in (value or {}).items():
                     if name == 'parameters':
                         config['postgresql'][name].update(self._process_postgresql_parameters(value))
-                    elif name not in ('connect_address', 'listen', 'data_dir', 'pgpass', 'authentication'):
+                    elif name not in ('connect_address', 'proxy_address', 'listen',
+                                      'config_dir', 'data_dir', 'pgpass', 'authentication'):
                         config['postgresql'][name] = deepcopy(value)
             elif name == 'standby_cluster':
                 for name, value in (value or {}).items():
@@ -271,7 +272,8 @@ class Config(object):
                                         'cafile', 'ciphers', 'verify_client', 'http_extra_headers',
                                         'https_extra_headers', 'allowlist', 'allowlist_include_members'])
         _set_section_values('ctl', ['insecure', 'cacert', 'certfile', 'keyfile', 'keyfile_password'])
-        _set_section_values('postgresql', ['listen', 'connect_address', 'config_dir', 'data_dir', 'pgpass', 'bin_dir'])
+        _set_section_values('postgresql', ['listen', 'connect_address', 'proxy_address',
+                                           'config_dir', 'data_dir', 'pgpass', 'bin_dir'])
         _set_section_values('log', ['level', 'traceback_level', 'format', 'dateformat', 'max_queue_size',
                                     'dir', 'file_size', 'file_num', 'loggers'])
         _set_section_values('raft', ['data_dir', 'self_addr', 'partner_addrs', 'password', 'bind_addr'])

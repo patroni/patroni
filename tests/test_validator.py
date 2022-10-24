@@ -63,6 +63,7 @@ config = {
     "postgresql": {
         "listen": "127.0.0.2,::1:543",
         "connect_address": "127.0.0.2:543",
+        "proxy_address": "127.0.0.2:5433",
         "authentication": {
             "replication": {"username": "user"},
             "superuser": {"username": "user"},
