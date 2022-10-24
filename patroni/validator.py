@@ -370,6 +370,7 @@ schema = Schema({
   "postgresql": {
     "listen": validate_host_port_listen_multiple_hosts,
     "connect_address": validate_connect_address,
+    "proxy_address": validate_connect_address,
     "authentication": {
       "replication": userattributes,
       "superuser": userattributes,

@@ -253,6 +253,10 @@ class Ha(object):
                 'version': self.patroni.version
             }
 
+            proxy_url = self.state_handler.proxy_url
+            if proxy_url:
+                data['proxy_url'] = proxy_url
+
             if self.is_leader() and not self._rewind.checkpoint_after_promote():
                 data['checkpoint_after_promote'] = False
             tags = self.get_effective_tags()

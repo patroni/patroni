@@ -93,6 +93,7 @@ bootstrap:
 postgresql:
   listen: 127.0.0.1:5433
   connect_address: 127.0.0.1:5433
+#  proxy_address: 127.0.0.1:5434  # The address of connection pool (e.g., pgbouncer) running next to Patroni/Postgres. Only for service discovery.
   data_dir: data/postgresql1
 #  bin_dir:
 #  config_dir:

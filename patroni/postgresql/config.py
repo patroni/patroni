@@ -1017,6 +1017,9 @@ class ConfigHandler(object):
         if not local_connection_address_changed:
             self.resolve_connection_addresses()
 
+        proxy_addr = config.get('proxy_address')
+        self._postgresql.proxy_url = uri('postgres', proxy_addr, self._postgresql.database) if proxy_addr else None
+
         if conf_changed:
             self.write_postgresql_conf()
 
