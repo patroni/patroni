@@ -97,7 +97,7 @@ class KVStoreTTL(DynMemberSyncObj):
         self.__on_set = on_set
         self.__on_delete = on_delete
         self.__limb = {}
-        self.__retry_timeout = None
+        self.set_retry_timeout(int(config.get('retry_timeout') or 10))
 
         self_addr = config.get('self_addr')
         partner_addrs = set(config.get('partner_addrs', []))
@@ -121,8 +121,7 @@ class KVStoreTTL(DynMemberSyncObj):
                            journalFile=(file_template + '.journal' if self_addr else None),
                            onReady=on_ready, dynamicMembershipChange=True)
 
-        retry_timeout = int(config.get('retry_timeout') or 10)
-        super(KVStoreTTL, self).__init__(self_addr, partner_addrs, conf, retry_timeout)
+        super(KVStoreTTL, self).__init__(self_addr, partner_addrs, conf, self.__retry_timeout)
         self.__data = {}
 
     @staticmethod
