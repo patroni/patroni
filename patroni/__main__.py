@@ -105,7 +105,11 @@ class Patroni(AbstractPatroniDaemon):
         super(Patroni, self).run()
 
     def _run_cycle(self):
-        logger.info(self.ha.run_cycle())
+        msg = self.ha.run_cycle()
+        if msg.startswith('no action'):
+            logger.debug(msg)
+        else:
+            logger.info(msg)
 
         if self.dcs.cluster and self.dcs.cluster.config and self.dcs.cluster.config.data \
                 and self.config.set_dynamic_configuration(self.dcs.cluster.config):
