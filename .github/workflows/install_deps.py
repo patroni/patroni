@@ -30,6 +30,7 @@ def install_requirements(what):
                 requirements.append(r)
 
     subprocess.call([sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip'])
+    subprocess.call([sys.executable, '-m', 'pip', 'install', '--upgrade', 'wheel'])
     r = subprocess.call([sys.executable, '-m', 'pip', 'install'] + requirements)
     s = subprocess.call([sys.executable, '-m', 'pip', 'install', '--upgrade', 'setuptools'])
     return s | r
