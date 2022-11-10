@@ -236,6 +236,7 @@ class Consul(AbstractDCS):
         self._service_check_tls_server_name = config.get('service_check_tls_server_name', None)
         if not self._ctl:
             self.create_session()
+        self._previous_loop_token = self._client.token
 
     def retry(self, *args, **kwargs):
         return self._retry.copy()(*args, **kwargs)
@@ -464,6 +465,7 @@ class Consul(AbstractDCS):
         tags = self._service_tags[:]
         tags.append(role)
         self._previous_loop_service_tags = self._service_tags
+        self._previous_loop_token = self._client.token
 
         params = {
             'service_id': '{0}/{1}'.format(self._scope, self._name),
@@ -500,6 +502,7 @@ class Consul(AbstractDCS):
         if (
             force or update or self._register_service != self._previous_loop_register_service
             or self._service_tags != self._previous_loop_service_tags
+            or self._client.token != self._previous_loop_token
         ):
             return self._update_service(new_data)
 
