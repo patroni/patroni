@@ -19,8 +19,8 @@ Feature: dcs failsafe mode
   @dcs-failsafe
   Scenario: check one-node cluster is functioning while DCS is down
     Given DCS is down
-    When I sleep for 12 seconds
-    Then postgres0 role is the primary after 10 seconds
+    Then Response on GET http://127.0.0.1:8008/primary contains failsafe_mode_is_active after 12 seconds
+    And postgres0 role is the primary after 10 seconds
 
   @dcs-failsafe
   Scenario: check new replica isn't promoted when leader is down and DCS is up

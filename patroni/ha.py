@@ -101,6 +101,14 @@ class Failsafe(object):
             cluster = Cluster(*cluster)
         return cluster
 
+    def is_active(self):
+        with self._lock:
+            return self._last_update + self._dcs.ttl > time.time()
+
+    def set_is_active(self, value):
+        with self._lock:
+            self._last_update = value
+
 
 class Ha(object):
 
@@ -114,6 +122,7 @@ class Ha(object):
         self._is_leader = False
         self._is_leader_lock = RLock()
         self._failsafe = Failsafe(patroni.dcs)
+        self._failsafe_is_active = False
         self._was_paused = False
         self._leader_timeline = None
         self.recovering = False
@@ -729,6 +738,9 @@ class Ha(object):
         if self.state_handler.state == 'running' and self.state_handler.role == 'master':
             return 'Running as a leader'
         self._failsafe.update(data)
+
+    def failsafe_is_active(self):
+        return self._failsafe.is_active()
 
     def call_failsafe_member(self, data, member):
         try:
@@ -1642,14 +1654,18 @@ class Ha(object):
         finally:
             if not dcs_failed:
                 self.touch_member()
+                if self.state_handler.is_leader():
+                    self._failsafe.set_is_active(0)
 
     def _handle_dcs_error(self):
         if not self.is_paused() and self.state_handler.is_running():
             if self.state_handler.is_leader():
                 if self.is_failsafe_mode() and self.check_failsafe_topology():
                     self.set_is_leader(True)
+                    self._failsafe.set_is_active(time.time())
                     self.watchdog.keepalive()
                     return 'continue to run as a leader because failsafe mode is enabled and all members are accessible'
+                self._failsafe.set_is_active(0)
                 msg = 'demoting self because DCS is not accessible and I was a leader'
                 if not self._async_executor.try_run_async(msg, self.demote, ('offline',)):
                     return msg

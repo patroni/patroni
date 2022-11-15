@@ -302,6 +302,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("# TYPE patroni_cluster_unlocked gauge")
         metrics.append("patroni_cluster_unlocked{0} {1}".format(scope_label, int(postgres.get('cluster_unlocked', 0))))
 
+        metrics.append("# HELP patroni_failsafe_mode_is_active Value is 1 if the cluster is unlocked, 0 if locked.")
+        metrics.append("# TYPE patroni_failsafe_mode_is_active gauge")
+        metrics.append("patroni_failsafe_mode_is_active{0} {1}"
+                       .format(scope_label, int(postgres.get('failsafe_mode_is_active', 0))))
+
         metrics.append("# HELP patroni_postgres_timeline Postgres timeline of this node (if running), 0 otherwise.")
         metrics.append("# TYPE patroni_postgres_timeline counter")
         metrics.append("patroni_postgres_timeline{0} {1}".format(scope_label, postgres.get('timeline', 0)))
@@ -688,6 +693,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         if not cluster or cluster.is_unlocked():
             result['cluster_unlocked'] = True
+        if self.server.patroni.ha.failsafe_is_active():
+            result['failsafe_mode_is_active'] = True
         result['dcs_last_seen'] = self.server.patroni.dcs.last_seen
         return result
 

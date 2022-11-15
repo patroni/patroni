@@ -66,6 +66,10 @@ class MockHa(object):
         return 'foo'
 
     @staticmethod
+    def failsafe_is_active(*args):
+        return True
+
+    @staticmethod
     def is_leader():
         return False
 
