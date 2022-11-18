@@ -458,6 +458,7 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,f
     :param sync: reference to `SyncState` object, last observed synchronous replication state.
     :param history: reference to `TimelineHistory` object
     :param slots: state of permanent logical replication slots on the primary in the format: {"slot_name": int}
+    :param failsafe: failsafe topology. Node is allowed to become the leader only if its name is found in this list.
     """
 
     @property

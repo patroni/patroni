@@ -102,6 +102,16 @@ class Failsafe(object):
         return cluster
 
     def is_active(self):
+        """Is used to report in REST API whether the failsafe mode was activated.
+
+           On primary the self._last_update is set from the
+           set_is_active() method and always returns the correct value.
+
+           On replicas the self._last_update is set at the moment when
+           the primary performs POST /failsafe REST API calls.
+           The side-effect - it is possible that replicas will show
+           failsafe_is_active values different from the primary."""
+
         with self._lock:
             return self._last_update + self._dcs.ttl > time.time()
 
@@ -122,7 +132,6 @@ class Ha(object):
         self._is_leader = False
         self._is_leader_lock = RLock()
         self._failsafe = Failsafe(patroni.dcs)
-        self._failsafe_is_active = False
         self._was_paused = False
         self._leader_timeline = None
         self.recovering = False
