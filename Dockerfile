@@ -117,7 +117,7 @@ RUN if [ "$COMPRESS" = "true" ]; then \
 FROM scratch
 COPY --from=builder / /
 
-LABEL maintainer="Alexander Kukushkin <alexander.kukushkin@zalando.de>"
+LABEL maintainer="Alexander Kukushkin <akukushkin@microsoft.com>"
 
 ARG PG_MAJOR
 ARG COMPRESS
