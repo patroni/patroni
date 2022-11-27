@@ -22,10 +22,6 @@ This version enhances compatibility with PostgreSQL 15 and declares Etcd v3 supp
 
   If used instead of ``GET`` Patroni will return only the HTTP Status Code.
 
-- Call ``pg_replication_slot_advance()`` from a thread (Alexander)
-
-  On busy clusters with many logical replication slots the ``pg_replication_slot_advance()`` call was affecting the main HA loop and could result in the member key expiration.
-
 - Support behave tests on Windows (Alexander)
 
   Emulate graceful Patroni shutdown (``SIGTERM``) on Windows by introduce the new REST API endpoint ``POST /sigterm``.
@@ -37,9 +33,13 @@ This version enhances compatibility with PostgreSQL 15 and declares Etcd v3 supp
 
 **Stability improvements**
 
+- Call ``pg_replication_slot_advance()`` from a thread (Alexander)
+
+  On busy clusters with many logical replication slots the ``pg_replication_slot_advance()`` call was affecting the main HA loop and could result in the member key expiration.
+
 - Archive possibly missing WALs before calling ``pg_rewind`` on the old primary (Polina Bungina)
 
- If the primary crashed and was down during considerable time, some WAL files could be missing from archive and from the new primary. There is a chance that ``pg_rewind`` could remove these WAL files from the old primary making it impossible to start it as a standby. By archiving ``ready`` WAL files we not only mitigate this problem but in general improving continues archiving experience.
+  If the primary crashed and was down during considerable time, some WAL files could be missing from archive and from the new primary. There is a chance that ``pg_rewind`` could remove these WAL files from the old primary making it impossible to start it as a standby. By archiving ``ready`` WAL files we not only mitigate this problem but in general improving continues archiving experience.
 
 - Ignore ``403`` errors when trying to create Kubernetes Service (Nick Hudson, Polina)
 
