@@ -1,5 +1,5 @@
-FROM postgres:11
-MAINTAINER Alexander Kukushkin <alexander.kukushkin@zalando.de>
+FROM postgres:15
+LABEL maintainer="Alexander Kukushkin <akukushkin@microsoft.com>"
 
 RUN export DEBIAN_FRONTEND=noninteractive \
     && echo 'APT::Install-Recommends "0";\nAPT::Install-Suggests "0";' > /etc/apt/apt.conf.d/01norecommend \
