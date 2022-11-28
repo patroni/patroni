@@ -94,7 +94,6 @@ jobs:
       DCS: ${{ matrix.dcs }}
       ETCDVERSION: 3.3.13
       PGVERSION: 12.1-1  # for windows and macos
-      PATRONI_KUBERNETES_CONTEXT: k3d-k3s-default  # for K8s behave tests, default is kind-kind
     strategy:
       fail-fast: false
       matrix:
