@@ -32,7 +32,7 @@ _AUTH_ALLOWED_PARAMETERS = (
 
 def default_validator(conf):
     if not conf:
-        return "Config is empty."
+        raise ConfigParseError("Config is empty.")
 
 
 class Config(object):
