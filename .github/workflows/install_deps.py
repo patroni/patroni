@@ -46,10 +46,14 @@ def install_packages(what):
     packages['exhibitor'] = packages['zookeeper']
     packages = packages.get(what, [])
     ver = versions.get(what)
+    subprocess.call(['sudo', 'apt-get', 'update', '-y'])
+    subprocess.call(['sudo', 'apt-get', 'install', '-y', 'wget', 'ca-certificates', 'gnupg', 'expect-dev'])
+    subprocess.call(['sudo', 'sh', '-c', "wget -qO - https://www.postgresql.org/media/keys/ACCC4CF8.asc"
+                     " | gpg --dearmor > /etc/apt/trusted.gpg.d/apt.postgresql.org.gpg"])
     subprocess.call(['sudo', 'sed', '-i', 's/pgdg main.*$/pgdg main {0}/'.format(ver),
                      '/etc/apt/sources.list.d/pgdg.list'])
     subprocess.call(['sudo', 'apt-get', 'update', '-y'])
-    return subprocess.call(['sudo', 'apt-get', 'install', '-y', 'postgresql-' + ver, 'expect-dev', 'wget'] + packages)
+    return subprocess.call(['sudo', 'apt-get', 'install', '-y', 'postgresql-' + ver] + packages)
 
 
 def get_file(url, name):
