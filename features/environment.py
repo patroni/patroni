@@ -479,7 +479,7 @@ class KubernetesController(AbstractDcsController):
         os.environ['PATRONI_KUBERNETES_BYPASS_API_SERVICE'] = 'true'
 
         from patroni.dcs.kubernetes import k8s_client, k8s_config
-        k8s_config.load_kube_config(context='local')
+        k8s_config.load_kube_config(context=os.environ.setdefault('PATRONI_KUBERNETES_CONTEXT', 'kind-kind'))
         self._client = k8s_client
         self._api = self._client.CoreV1Api()
 
