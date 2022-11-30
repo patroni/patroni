@@ -601,8 +601,11 @@ class TestRestApiServer(unittest.TestCase):
         self.srv.process_request_thread(Mock(), '2')
 
     @patch.object(MockRestApiServer, 'process_request', Mock(side_effect=RuntimeError))
-    @patch.object(MockRestApiServer, 'get_request', Mock(return_value=(Mock(), ('127.0.0.1', 55555))))
-    def test_process_request_error(self):
+    @patch.object(MockRestApiServer, 'get_request')
+    def test_process_request_error(self, mock_get_request):
+        mock_request = Mock()
+        mock_request.unwrap.side_effect = Exception
+        mock_get_request.return_value = (mock_request, ('127.0.0.1', 55555))
         self.srv._handle_request_noblock()
 
     @patch('ssl._ssl._test_decode_cert', Mock())
