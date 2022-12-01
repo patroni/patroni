@@ -215,6 +215,10 @@ class Watchdog(object):
                     self._activate()
                 if self.config.timeout != self.active_config.timeout:
                     self.impl.set_timeout(self.config.timeout)
+                    if self.is_running:
+                        logger.info("{0} updated with {1} second timeout, timing slack {2} seconds"
+                                    .format(self.impl.describe(), self.impl.get_timeout(), self.config.timing_slack))
+                self.active_config = self.config
         except WatchdogError as e:
             logger.error("Error while sending keepalive: %s", e)
 

@@ -23,9 +23,9 @@ class Patroni(AbstractPatroniDaemon):
 
         self.version = __version__
         self.dcs = get_dcs(self.config)
-        self.watchdog = Watchdog(self.config)
         self.load_dynamic_configuration()
 
+        self.watchdog = Watchdog(self.config)
         self.postgresql = Postgresql(self.config['postgresql'])
         self.api = RestApiServer(self, self.config['restapi'])
         self.request = PatroniRequest(self.config, True)
@@ -43,7 +43,8 @@ class Patroni(AbstractPatroniDaemon):
                 if cluster and cluster.config and cluster.config.data:
                     if self.config.set_dynamic_configuration(cluster.config):
                         self.dcs.reload_config(self.config)
-                        self.watchdog.reload_config(self.config)
+                        if getattr(self, "watchdog", None):
+                            self.watchdog.reload_config(self.config)
                 elif not self.config.dynamic_configuration and 'bootstrap' in self.config:
                     if self.config.set_dynamic_configuration(self.config['bootstrap']['dcs']):
                         self.dcs.reload_config(self.config)
