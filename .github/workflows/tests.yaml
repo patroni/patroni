@@ -8,15 +8,14 @@ on:
     tags:
     - v.*
 
-env:
-  os_version_map: '{"ubuntu":"ubuntu-20.04","windows":"windows-latest","macos":"macos-latest"}'
 jobs:
   unit:
-    runs-on: ${{ fromJson(env.os_version_map)[matrix.os] }}
+    runs-on: ${{ fromJson(matrix.os_version_map)[matrix.os] }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu, windows, macos]
+        os_version_map: '{"ubuntu":"ubuntu-20.04","windows":"windows-latest","macos":"macos-latest"}'
 
     steps:
     - uses: actions/checkout@v3
@@ -91,7 +90,7 @@ jobs:
       run: python -m coveralls --service=github
 
   behave:
-    runs-on: ${{ fromJson(env.os_version_map)[matrix.os] }}
+    runs-on: ${{ fromJson(matrix.os_version_map)[matrix.os] }}
     env:
       DCS: ${{ matrix.dcs }}
       ETCDVERSION: 3.3.13
@@ -100,6 +99,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu]
+        os_version_map: '{"ubuntu":"ubuntu-20.04","windows":"windows-latest","macos":"macos-latest"}'
         python-version: [2.7, 3.6, 3.9]
         dcs: [etcd, etcd3, consul, exhibitor, kubernetes, raft]
         exclude:
