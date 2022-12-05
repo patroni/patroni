@@ -8,9 +8,11 @@ on:
     tags:
     - v.*
 
+env:
+  os_version_map: '{"ubuntu":"ubuntu-20.04","windows":"windows-latest","macos":"macos-latest"}'
 jobs:
   unit:
-    runs-on: ${{ matrix.os }}-latest
+    runs-on: ${{ fromJson(env.os_version_map)[matrix.os] }}
     strategy:
       fail-fast: false
       matrix:
@@ -89,7 +91,7 @@ jobs:
       run: python -m coveralls --service=github
 
   behave:
-    runs-on: ${{ matrix.os }}-latest
+    runs-on: ${{ fromJson(env.os_version_map)[matrix.os] }}
     env:
       DCS: ${{ matrix.dcs }}
       ETCDVERSION: 3.3.13
