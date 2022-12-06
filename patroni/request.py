@@ -9,9 +9,9 @@ from .utils import USER_AGENT
 
 class PatroniRequest(object):
 
-    def __init__(self, config, insecure=False):
-        cert_reqs = 'CERT_NONE' if insecure or config.get('ctl', {}).get('insecure', False) else 'CERT_REQUIRED'
-        self._pool = urllib3.PoolManager(num_pools=10, maxsize=10, cert_reqs=cert_reqs)
+    def __init__(self, config, insecure=None):
+        self._insecure = insecure
+        self._pool = urllib3.PoolManager(num_pools=10, maxsize=10)
         self.reload_config(config)
 
     @staticmethod
@@ -32,12 +32,19 @@ class PatroniRequest(object):
     def reload_config(self, config):
         self._pool.headers = urllib3.make_headers(basic_auth=self._get_cfg_value(config, 'auth'), user_agent=USER_AGENT)
 
+        insecure = self._insecure if isinstance(self._insecure, bool) else config.get('ctl', {}).get('insecure', False)
         if self._apply_ssl_file_param(config, 'cert'):
+            #  With client certificate the cert_reqs must be set to CERT_REQUIRED even if insecure option is used
+            self._pool.connection_pool_kw['cert_reqs'] = 'CERT_REQUIRED'
+            #  The assert_hostname = False helps to silence warnings
+            self._pool.connection_pool_kw['assert_hostname'] = False if insecure else None
+
             self._apply_ssl_file_param(config, 'key')
 
             password = self._get_cfg_value(config, 'keyfile_password')
             self._apply_pool_param('key_password', password)
         else:
+            self._pool.connection_pool_kw['cert_reqs'] = 'CERT_NONE' if insecure else 'CERT_REQUIRED'
             self._pool.connection_pool_kw.pop('key_file', None)
 
         cacert = config.get('ctl', {}).get('cacert') or config.get('restapi', {}).get('cafile')
