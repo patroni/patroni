@@ -121,6 +121,7 @@ class TestK8sConfig(unittest.TestCase):
         with patch.object(builtins, 'open', mock_open(read_data=json.dumps(config))):
             k8s_config.load_kube_config()
             self.assertEqual(k8s_config.headers.get('authorization'), 'Bearer token')
+
         config["users"][0]["user"]["client-key-data"] = base64.b64encode(b'foobar').decode('utf-8')
         config["clusters"][0]["cluster"]["certificate-authority-data"] = base64.b64encode(b'foobar').decode('utf-8')
         with patch.object(builtins, 'open', mock_open(read_data=json.dumps(config))),\
