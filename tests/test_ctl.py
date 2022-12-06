@@ -381,7 +381,7 @@ class TestCtl(unittest.TestCase):
             self.runner.invoke(ctl, ['list'])
 
     def test_configure(self):
-        result = self.runner.invoke(configure, ['--dcs-api', 'abc', '-c', 'dummy', '-n', 'bla'])
+        result = self.runner.invoke(configure, ['--dcs-url', 'abc', '-c', 'dummy', '-n', 'bla'])
         assert result.exit_code == 0
 
     @patch('patroni.ctl.get_dcs')
