@@ -35,6 +35,8 @@ def main():
         unbuffer = []
     env['PATH'] = path + os.pathsep + env['PATH']
     env['DCS'] = what
+    if what == 'kubernetes':
+        env['PATRONI_KUBERNETES_CONTEXT'] = 'k3d-k3s-default'
 
     ret = subprocess.call(unbuffer + [sys.executable, '-m', 'behave'], env=env)
 
