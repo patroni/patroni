@@ -5,8 +5,8 @@ import unittest
 from click.testing import CliRunner
 from datetime import datetime, timedelta
 from mock import patch, Mock
-from patroni.ctl import ctl, store_config, load_config, output_members, get_dcs, parse_dcs, \
-    get_all_members, get_any_member, get_cursor, query_member, configure, PatroniCtlException, apply_config_changes, \
+from patroni.ctl import ctl, load_config, output_members, get_dcs, parse_dcs, \
+    get_all_members, get_any_member, get_cursor, query_member, PatroniCtlException, apply_config_changes, \
     format_config_for_editing, show_diff, invoke_editor, format_pg_version, CONFIG_FILE_PATH, PatronictlPrettyTable
 from patroni.dcs.etcd import AbstractEtcdClientWithFailover, Failover
 from patroni.psycopg import OperationalError
@@ -18,17 +18,6 @@ from . import MockConnect, MockCursor, MockResponse, psycopg_connect
 from .test_etcd import etcd_read, socket_getaddrinfo
 from .test_ha import get_cluster_initialized_without_leader, get_cluster_initialized_with_leader, \
     get_cluster_initialized_with_only_leader, get_cluster_not_initialized_without_leader, get_cluster, Member
-
-
-def test_rw_config():
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-        load_config(CONFIG_FILE_PATH, None)
-        CONFIG_PATH = './test-ctl.yaml'
-        store_config({'etcd': {'host': 'localhost:2379'}}, CONFIG_PATH + '/dummy')
-        load_config(CONFIG_PATH + '/dummy', '0.0.0.0')
-        os.remove(CONFIG_PATH + '/dummy')
-        os.rmdir(CONFIG_PATH)
 
 
 @patch('patroni.ctl.load_config', Mock(return_value={
@@ -379,10 +368,6 @@ class TestCtl(unittest.TestCase):
         assert result.exit_code == 0
         with patch('patroni.ctl.load_config', Mock(return_value={})):
             self.runner.invoke(ctl, ['list'])
-
-    def test_configure(self):
-        result = self.runner.invoke(configure, ['--dcs-url', 'abc', '-c', 'dummy', '-n', 'bla'])
-        assert result.exit_code == 0
 
     @patch('patroni.ctl.get_dcs')
     def test_scaffold(self, mock_get_dcs):
