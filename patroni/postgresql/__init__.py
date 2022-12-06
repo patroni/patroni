@@ -1061,7 +1061,7 @@ class Postgresql(object):
                     logger.info('renaming WAL directory and updating symlink: %s', pg_wal_realpath)
                     new_name = '{0}.{1}'.format(pg_wal_realpath, postfix)
                     if os.path.exists(new_name):
-                        os.remove(new_name)
+                        shutil.rmtree(new_name)
                     os.rename(pg_wal_realpath, new_name)
                     os.unlink(source)
                     os.symlink(new_name, source)
@@ -1071,7 +1071,7 @@ class Postgresql(object):
                     logger.info('renaming user defined tablespace directory and updating symlink: %s', pg_tsp_rpath)
                     new_name = '{0}.{1}'.format(pg_tsp_rpath, postfix)
                     if os.path.exists(new_name):
-                        os.remove(new_name)
+                        shutil.rmtree(new_name)
                     os.rename(pg_tsp_rpath, new_name)
                     os.unlink(source)
                     os.symlink(new_name, source)
@@ -1079,7 +1079,7 @@ class Postgresql(object):
                 new_name = '{0}.{1}'.format(self._data_dir, postfix)
                 logger.info('renaming data directory to %s', new_name)
                 if os.path.exists(new_name):
-                    os.remove(new_name)
+                    shutil.rmtree(new_name)
                 os.rename(self._data_dir, new_name)
             except OSError:
                 logger.exception("Could not rename data directory %s", self._data_dir)
