@@ -5,16 +5,18 @@ name: postgresql0
 restapi:
   listen: 127.0.0.1:8008
   connect_address: 127.0.0.1:8008
+#  cafile: /etc/ssl/certs/ssl-cacert-snakeoil.pem
 #  certfile: /etc/ssl/certs/ssl-cert-snakeoil.pem
 #  keyfile: /etc/ssl/private/ssl-cert-snakeoil.key
 #  authentication:
 #    username: username
 #    password: password
 
-# ctl:
-#   insecure: false # Allow connections to SSL sites without certs
-#   certfile: /etc/ssl/certs/ssl-cert-snakeoil.pem
-#   cacert: /etc/ssl/certs/ssl-cacert-snakeoil.pem
+#ctl:
+#  insecure: false # Allow connections to Patroni REST API without verifying certificates
+#  certfile: /etc/ssl/certs/ssl-cert-snakeoil.pem
+#  keyfile: /etc/ssl/private/ssl-cert-snakeoil.key
+#  cacert: /etc/ssl/certs/ssl-cacert-snakeoil.pem
 
 etcd:
   #Provide host to do the initial discovery of the cluster topology:
