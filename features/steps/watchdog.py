@@ -13,9 +13,9 @@ def polling_loop(timeout, interval=1):
         time.sleep(interval)
 
 
-@step('I start {name:w} with watchdog')
-def start_patroni_with_watchdog(context, name):
-    return context.pctl.start(name, custom_config={'watchdog': True})
+@step('I start {name:w} with watchdog and ttl {ttl:w} seconds')
+def start_patroni_with_watchdog(context, name, ttl):
+    return context.pctl.start(name, custom_config={'watchdog': True, 'bootstrap': {'dcs': {'ttl': ttl}}})
 
 
 @step('{name:w} watchdog has been pinged after {timeout:d} seconds')
