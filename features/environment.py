@@ -502,8 +502,8 @@ class Etcd3Controller(AbstractEtcdController):
 
 class AbstractExternalDcsController(AbstractDcsController):
 
-    def __init__(self, context):
-        super(AbstractExternalDcsController, self).__init__(context)
+    def __init__(self, context, mktemp=True):
+        super(AbstractExternalDcsController, self).__init__(context, mktemp)
         self._wrapper = ['sudo']
 
     def _start(self):
@@ -567,11 +567,15 @@ class KubernetesController(AbstractExternalDcsController):
             else:
                 return super(KubernetesController, self)._is_running()
             try:
-                docker = 'podman'
-                if subprocess.call([docker, 'info']) != 0:
-                    raise Exception
-            except Exception:
                 docker = 'docker'
+                with open(os.devnull, 'w') as null:
+                    if subprocess.call([docker, 'info'], stdout=null, stderr=null) != 0:
+                        raise Exception
+            except Exception:
+                docker = 'podman'
+                with open(os.devnull, 'w') as null:
+                    if subprocess.call([docker, 'info'], stdout=null, stderr=null) != 0:
+                        raise Exception
             self._wrapper = [docker, 'exec', container]
             self._external_pid = subprocess.check_output(self._wrapper + ['pidof', api_process]).decode('utf-8').strip()
             return False
