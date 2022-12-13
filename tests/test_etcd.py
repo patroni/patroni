@@ -287,7 +287,7 @@ class TestEtcd(unittest.TestCase):
         self.etcd.write_leader_optime('0')
 
     def test_update_leader(self):
-        self.assertTrue(self.etcd.update_leader(12345, failsafe={'foo': 'bar'}))
+        self.assertTrue(self.etcd.update_leader(None, failsafe={'foo': 'bar'}))
         with patch.object(etcd.Client, 'write',
                           Mock(side_effect=[etcd.EtcdConnectionFailed, etcd.EtcdClusterIdChanged, Exception])):
             self.assertRaises(EtcdError, self.etcd.update_leader, None)

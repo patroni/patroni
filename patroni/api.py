@@ -870,7 +870,10 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
     def shutdown_request(self, request):
         if hasattr(request, 'context'):  # SSLSocket
-            request.unwrap()
+            try:
+                request.unwrap()
+            except Exception as e:
+                logger.debug('Failed to shutdown SSL connection: %r', e)
         super(RestApiServer, self).shutdown_request(request)
 
     def get_certificate_serial_number(self):

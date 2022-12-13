@@ -110,7 +110,7 @@ def parse_dcs(dcs):
     return yaml.safe_load(default['template'].format(host=parsed.hostname or 'localhost', port=port or default['port']))
 
 
-def load_config(path, dcs):
+def load_config(path, dcs_url):
     from patroni.config import Config
 
     if not (os.path.exists(path) and os.access(path, os.R_OK)):
@@ -123,20 +123,12 @@ def load_config(path, dcs):
         logging.debug('Loading configuration from file %s', path)
     config = Config(path, validator=None).copy()
 
-    dcs = parse_dcs(dcs) or parse_dcs(config.get('dcs_api')) or {}
-    if dcs:
+    dcs_url = parse_dcs(dcs_url) or {}
+    if dcs_url:
         for d in DCS_DEFAULTS:
             config.pop(d, None)
-        config.update(dcs)
+        config.update(dcs_url)
     return config
-
-
-def store_config(config, path):
-    dir_path = os.path.dirname(path)
-    if dir_path and not os.path.isdir(dir_path):
-        os.makedirs(dir_path)
-    with open(path, 'w') as fd:
-        yaml.dump(config, fd)
 
 
 option_format = click.option('--format', '-f', 'fmt', help='Output format (pretty, tsv, json, yaml)', default='pretty')
@@ -151,16 +143,16 @@ option_insecure = click.option('-k', '--insecure', is_flag=True, help='Allow con
 @click.group()
 @click.option('--config-file', '-c', help='Configuration file',
               envvar='PATRONICTL_CONFIG_FILE', default=CONFIG_FILE_PATH)
-@click.option('--dcs', '-d', help='Use this DCS', envvar='DCS')
+@click.option('--dcs-url', '--dcs', '-d', help='The DCS connect url', envvar='DCS_URL')
 @option_insecure
 @click.pass_context
-def ctl(ctx, config_file, dcs, insecure):
+def ctl(ctx, config_file, dcs_url, insecure):
     level = 'WARNING'
     for name in ('LOGLEVEL', 'PATRONI_LOGLEVEL', 'PATRONI_LOG_LEVEL'):
         level = os.environ.get(name, level)
     logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=level)
     logging.captureWarnings(True)  # Capture eventual SSL warning
-    ctx.obj = load_config(config_file, dcs)
+    ctx.obj = load_config(config_file, dcs_url)
     # backward compatibility for configuration file where ctl section is not define
     ctx.obj.setdefault('ctl', {})['insecure'] = ctx.obj.get('ctl', {}).get('insecure') or insecure
 
@@ -895,14 +887,6 @@ def topology(ctx, obj, cluster_names, watch, w):
 
 def timestamp(precision=6):
     return datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:precision - 7]
-
-
-@ctl.command('configure', help='Create configuration file')
-@click.option('--config-file', '-c', help='Configuration file', prompt='Configuration file', default=CONFIG_FILE_PATH)
-@click.option('--dcs', '-d', help='The DCS connect url', prompt='DCS connect url', default='etcd://localhost:2379')
-@click.option('--namespace', '-n', help='The namespace', prompt='Namespace', default='/service/')
-def configure(config_file, dcs, namespace):
-    store_config({'dcs_api': str(dcs), 'namespace': str(namespace)}, config_file)
 
 
 def touch_member(config, dcs):

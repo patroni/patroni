@@ -1,10 +1,11 @@
+import base64
 import datetime
 import json
 import socket
 import time
 import unittest
 
-from mock import Mock, PropertyMock, mock_open, patch
+from mock import call, Mock, PropertyMock, mock_open, patch
 from patroni.dcs.kubernetes import k8s_client, k8s_config, K8sConfig, K8sConnectionFailed,\
         K8sException, K8sObject, Kubernetes, KubernetesError, KubernetesRetriableException,\
         Retry, RetryFailedError, SERVICE_HOST_ENV_NAME, SERVICE_PORT_ENV_NAME
@@ -120,6 +121,20 @@ class TestK8sConfig(unittest.TestCase):
         with patch.object(builtins, 'open', mock_open(read_data=json.dumps(config))):
             k8s_config.load_kube_config()
             self.assertEqual(k8s_config.headers.get('authorization'), 'Bearer token')
+
+        config["users"][0]["user"]["client-key-data"] = base64.b64encode(b'foobar').decode('utf-8')
+        config["clusters"][0]["cluster"]["certificate-authority-data"] = base64.b64encode(b'foobar').decode('utf-8')
+        with patch.object(builtins, 'open', mock_open(read_data=json.dumps(config))),\
+                patch('os.write', Mock()), patch('os.close', Mock()),\
+                patch('os.remove') as mock_remove,\
+                patch('atexit.register') as mock_atexit,\
+                patch('tempfile.mkstemp') as mock_mkstemp:
+            mock_mkstemp.side_effect = [(3, '1.tmp'), (4, '2.tmp')]
+            k8s_config.load_kube_config()
+            mock_atexit.assert_called_once()
+            mock_remove.side_effect = OSError
+            mock_atexit.call_args[0][0]()  # call _cleanup_temp_files
+            mock_remove.assert_has_calls([call('1.tmp'), call('2.tmp')])
 
 
 @patch('urllib3.PoolManager.request')
