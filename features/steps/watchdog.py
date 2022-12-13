@@ -13,9 +13,9 @@ def polling_loop(timeout, interval=1):
         time.sleep(interval)
 
 
-@step('I start {name:w} with watchdog and ttl {ttl:w} seconds')
-def start_patroni_with_watchdog(context, name, ttl):
-    return context.pctl.start(name, custom_config={'watchdog': True, 'bootstrap': {'dcs': {'ttl': ttl}}})
+@step('I start {name:w} with watchdog')
+def start_patroni_with_watchdog(context, name):
+    return context.pctl.start(name, custom_config={'watchdog': True, 'bootstrap': {'dcs': {'ttl': 20}}})
 
 
 @step('{name:w} watchdog has been pinged after {timeout:d} seconds')
@@ -29,6 +29,11 @@ def watchdog_was_pinged(context, name, timeout):
 @then('{name:w} watchdog has been closed')
 def watchdog_was_closed(context, name):
     assert context.pctl.get_watchdog(name).was_closed
+
+
+@step('{name:w} watchdog has a {timeout:d} second timeout')
+def watchdog_has_timeout(context, name, timeout):
+    assert context.pctl.get_watchdog(name).timeout == timeout
 
 
 @step('I reset {name:w} watchdog state')
