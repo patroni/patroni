@@ -4,7 +4,7 @@ import tempfile
 import time
 
 from mock import Mock, PropertyMock, patch
-from patroni.dcs.raft import DynMemberSyncObj, KVStoreTTL, Raft, SyncObjUtility, TCPTransport, _TCPTransport
+from patroni.dcs.raft import DynMemberSyncObj, KVStoreTTL, Raft, RaftError, SyncObjUtility, TCPTransport, _TCPTransport
 from pysyncobj import SyncObjConf, FAIL_REASON
 
 
@@ -79,6 +79,9 @@ class TestKVStoreTTL(unittest.TestCase):
         self.assertFalse(self.so.set('foo', 'bar', prevExist=False, ttl=30))
         self.assertFalse(self.so.retry(self.so._set, 'foo', {'value': 'buz', 'created': 1, 'updated': 1}, prevValue=''))
         self.assertTrue(self.so.retry(self.so._set, 'foo', {'value': 'buz', 'created': 1, 'updated': 1}))
+        with patch.object(KVStoreTTL, 'retry', Mock(side_effect=RaftError(''))):
+            self.assertFalse(self.so.set('foo', 'bar'))
+            self.assertRaises(RaftError, self.so.set, 'foo', 'bar', handle_raft_error=False)
 
     def test_delete(self):
         self.so.autoTickPeriod = 0.2
@@ -87,6 +90,8 @@ class TestKVStoreTTL(unittest.TestCase):
         self.assertFalse(self.so.delete('foo', prevValue='buz'))
         self.assertTrue(self.so.delete('foo', recursive=True))
         self.assertFalse(self.so.retry(self.so._delete, 'foo', prevValue=''))
+        with patch.object(KVStoreTTL, 'retry', Mock(side_effect=RaftError(''))):
+            self.assertFalse(self.so.delete('foo'))
 
     def test_expire(self):
         self.so.set('foo', 'bar', ttl=0.001)
@@ -102,7 +107,7 @@ class TestKVStoreTTL(unittest.TestCase):
             callback(True, return_values.pop(0))
 
         with patch('time.time', Mock(side_effect=[1, 100])):
-            self.assertFalse(self.so.retry(test))
+            self.assertRaises(RaftError, self.so.retry, test)
 
         self.assertTrue(self.so.retry(test))
         self.assertFalse(self.so.retry(test))
