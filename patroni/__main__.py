@@ -47,6 +47,7 @@ class Patroni(AbstractPatroniDaemon):
                 elif not self.config.dynamic_configuration and 'bootstrap' in self.config:
                     if self.config.set_dynamic_configuration(self.config['bootstrap']['dcs']):
                         self.dcs.reload_config(self.config)
+                        self.watchdog.reload_config(self.config)
                 break
             except DCSError:
                 logger.warning('Can not get cluster from dcs')
