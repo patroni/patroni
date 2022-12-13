@@ -38,7 +38,7 @@ def get_cluster(initialize, leader, members, failover, sync, cluster_config=None
     history = TimelineHistory(1, '[[1,67197376,"no recovery target specified","' + t + '","foo"]]',
                               [(1, 67197376, 'no recovery target specified', t, 'foo')])
     cluster_config = cluster_config or ClusterConfig(1, {'check_timeline': True}, 1)
-    return Cluster(initialize, cluster_config, leader, 10, members, failover, sync, history, None)
+    return Cluster(initialize, cluster_config, leader, 10, members, failover, sync, history, None, None)
 
 
 def get_cluster_not_initialized_without_leader(cluster_config=None):
