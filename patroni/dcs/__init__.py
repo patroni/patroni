@@ -20,6 +20,7 @@ from threading import Event, Lock
 from ..exceptions import PatroniFatalException
 from ..utils import deep_compare, parse_bool, uri
 
+citus_group_re = re.compile('^(0|[1-9][0-9]*)$')
 slot_name_re = re.compile('^[a-z0-9_]{1,63}$')
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,9 @@ def get_dcs(config):
                         # propagate some parameters
                         config[name].update({p: config[p] for p in ('namespace', 'name', 'scope', 'loop_wait',
                                              'patronictl', 'ttl', 'retry_timeout') if p in config})
+                        # From citus section we only need "group" parameter, but will propagate everything just in case.
+                        if isinstance(config.get('citus'), dict):
+                            config[name].update(config['citus'])
                         return item(config[name])
             except ImportError:
                 logger.debug('Failed to import %s', module_name)
@@ -444,7 +448,8 @@ class TimelineHistory(namedtuple('TimelineHistory', 'index,value,lines')):
         return TimelineHistory(index, value, lines)
 
 
-class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,failover,sync,history,slots,failsafe')):
+class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,'
+                                    'failover,sync,history,slots,failsafe,workers')):
 
     """Immutable object (namedtuple) which represents PostgreSQL cluster.
     Consists of the following fields:
@@ -458,7 +463,14 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,f
     :param sync: reference to `SyncState` object, last observed synchronous replication state.
     :param history: reference to `TimelineHistory` object
     :param slots: state of permanent logical replication slots on the primary in the format: {"slot_name": int}
+    :param workers: workers of the Citus cluster, optional. Format: {int(group): Cluster()}
     """
+
+    def __new__(cls, *args):
+        # Make workers argument optional
+        if len(cls._fields) == len(args) + 1:
+            args = args + ({},)
+        return super(Cluster, cls).__new__(cls, *args)
 
     @property
     def leader_name(self):
@@ -664,6 +676,7 @@ class AbstractDCS(object):
         """
         self._name = config['name']
         self._base_path = re.sub('/+', '/', '/'.join(['', config.get('namespace', 'service'), config['scope']]))
+        self._citus_group = str(config['group']) if isinstance(config.get('group'), six.integer_types) else None
         self._set_loop_wait(config.get('loop_wait', 10))
 
         self._ctl = bool(config.get('patronictl', False))
@@ -677,7 +690,11 @@ class AbstractDCS(object):
         self.event = Event()
 
     def client_path(self, path):
-        return '/'.join([self._base_path, path.lstrip('/')])
+        components = [self._base_path]
+        if self._citus_group:
+            components.append(self._citus_group)
+        components.append(path.lstrip('/'))
+        return '/'.join(components)
 
     @property
     def initialize_path(self):
@@ -752,23 +769,57 @@ class AbstractDCS(object):
         return self._last_seen
 
     @abc.abstractmethod
-    def _load_cluster(self):
-        """Internally this method should build  `Cluster` object which
-           represents current state and topology of the cluster in DCS.
-           this method supposed to be called only by `get_cluster` method.
+    def _cluster_loader(self, path):
+        """Load and build the `Cluster` object from DCS, which
+        represents a single Patroni cluster.
 
-           raise `~DCSError` in case of communication or other problems with DCS.
-           If the current node was running as a master and exception raised,
-           instance would be demoted."""
+        :param path: the path in DCS where to load Cluster(s) from.
+        :returns: `Cluster`"""
+
+    def _citus_cluster_loader(self, path):
+        """Load and build `Cluster` onjects from DCS that represent all
+        Patroni clusters from a single Citus cluster.
+
+        :param path: the path in DCS where to load Cluster(s) from.
+        :returns: all Citus groups as `dict`, with group ids as keys"""
+
+    @abc.abstractmethod
+    def _load_cluster(self, path, loader):
+        """Internally this method should call the `loader` method that
+        will build `Cluster` object which represents current state and
+        topology of the cluster in DCS. This method supposed to be
+        called only by `get_cluster` method.
+
+        :param path: the path in DCS where to load Cluster(s) from.
+        :param loader: one of `_cluster_loader` or `_citus_cluster_loader`
+        :raise: `~DCSError` in case of communication problems with DCS.
+        If the current node was running as a master and exception
+        raised, instance would be demoted."""
 
     def _bypass_caches(self):
         """Used only in zookeeper"""
+
+    def get_citus_coordinator(self):
+        try:
+            return self._load_cluster(self._base_path + '/0/', self._cluster_loader)
+        except Exception as e:
+            logger.error('Failed to load Citus coordinator cluster from %s: %r', self.__class__.__name__, e)
+
+    def _get_citus_cluster(self):
+        groups = self._load_cluster(self._base_path + '/', self._citus_cluster_loader)
+        if isinstance(groups, Cluster):  # Zookeeper could return a cached version
+            cluster = groups
+        else:
+            cluster = groups.pop(0, Cluster(None, None, None, None, [], None, None, None, None, None))
+            cluster.workers.update(groups)
+        return cluster
 
     def get_cluster(self, force=False):
         if force:
             self._bypass_caches()
         try:
-            cluster = self._load_cluster()
+            cluster = self._get_citus_cluster() if self._citus_group == '0'\
+                else self._load_cluster(self.client_path(''), self._cluster_loader)
         except Exception:
             self.reset_cluster()
             raise

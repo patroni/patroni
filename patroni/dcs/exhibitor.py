@@ -68,7 +68,7 @@ class Exhibitor(ZooKeeper):
         config['hosts'] = self._ensemble_provider.zookeeper_hosts
         super(Exhibitor, self).__init__(config)
 
-    def _load_cluster(self):
+    def _load_cluster(self, path, loader):
         if self._ensemble_provider.poll():
             self._client.set_hosts(self._ensemble_provider.zookeeper_hosts)
-        return super(Exhibitor, self)._load_cluster()
+        return super(Exhibitor, self)._load_cluster(path, loader)

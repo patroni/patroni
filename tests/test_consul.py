@@ -18,6 +18,8 @@ def kv_get(self, key, **kwargs):
     good_cls = ('6429',
                 [{'CreateIndex': 1334, 'Flags': 0, 'Key': key + 'failover', 'LockIndex': 0,
                   'ModifyIndex': 1334, 'Value': b''},
+                 {'CreateIndex': 1334, 'Flags': 0, 'Key': key + '1/initialize', 'LockIndex': 0,
+                  'ModifyIndex': 1334, 'Value': b'postgresql0'},
                  {'CreateIndex': 1334, 'Flags': 0, 'Key': key + 'initialize', 'LockIndex': 0,
                   'ModifyIndex': 1334, 'Value': b'postgresql0'},
                  {'CreateIndex': 2621, 'Flags': 0, 'Key': key + 'leader', 'LockIndex': 1,
@@ -124,6 +126,12 @@ class TestConsul(unittest.TestCase):
         self.assertIsInstance(self.c.get_cluster(), Cluster)
         self.c._base_path = '/service/legacy'
         self.assertIsInstance(self.c.get_cluster(), Cluster)
+
+    def test__get_citus_cluster(self):
+        self.c._citus_group = '0'
+        cluster = self.c.get_cluster()
+        self.assertIsInstance(cluster, Cluster)
+        self.assertIsInstance(cluster.workers[1], Cluster)
 
     @patch.object(consul.Consul.KV, 'delete', Mock(side_effect=[ConsulException, True, True, True]))
     @patch.object(consul.Consul.KV, 'put', Mock(side_effect=[True, ConsulException, InvalidSession]))
