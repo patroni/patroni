@@ -99,9 +99,10 @@ RUN if [ "$COMPRESS" = "true" ]; then \
         # Allow certain sudo commands from postgres
         && echo 'postgres ALL=(ALL) NOPASSWD: /bin/tar xpJf /a.tar.xz -C /, /bin/rm /a.tar.xz, /bin/ln -snf dash /bin/sh' >> /etc/sudoers \
         && ln -snf busybox /bin/sh \
+        && arch=$(uname -m) \
         && darch=$(uname -m | sed 's/_/-/') \
-        && files="/bin/sh /usr/bin/sudo /usr/lib/sudo/sudoers.so /lib/$darch-linux-gnu/security/pam_*.so" \
-        && libs="$(ldd $files | awk '{print $3;}' | grep '^/' | sort -u) /lib/ld-linux-$darch.so.* /lib/$darch-linux-gnu/libnsl.so.* /lib/$darch-linux-gnu/libnss_compat.so.* /lib/$darch-linux-gnu/libnss_files.so.*" \
+        && files="/bin/sh /usr/bin/sudo /usr/lib/sudo/sudoers.so /lib/$arch-linux-gnu/security/pam_*.so" \
+        && libs="$(ldd $files | awk '{print $3;}' | grep '^/' | sort -u) /lib/ld-linux-$darch.so.* /lib/$arch-linux-gnu/ld-linux-$darch.so.* /lib/$arch-linux-gnu/libnsl.so.* /lib/$arch-linux-gnu/libnss_compat.so.* /lib/$arch-linux-gnu/libnss_files.so.*" \
         && (echo /var/run $files $libs | tr ' ' '\n' && realpath $files $libs) | sort -u | sed 's/^\///' > /exclude \
         && find /etc/alternatives -xtype l -delete \
         && save_dirs="usr lib var bin sbin etc/ssl etc/init.d etc/alternatives etc/apt" \
