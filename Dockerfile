@@ -50,11 +50,11 @@ RUN set -ex \
     && chown -R postgres:postgres /var/log \
 \
     # Download etcd
-    && curl -sL https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v${ETCDVERSION}-linux-amd64.tar.gz \
+    && curl -sL https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v${ETCDVERSION}-linux-$(dpkg --print-architecture).tar.gz \
             | tar xz -C /usr/local/bin --strip=1 --wildcards --no-anchored etcd etcdctl \
 \
     # Download confd
-    && curl -sL https://github.com/kelseyhightower/confd/releases/download/v${CONFDVERSION}/confd-${CONFDVERSION}-linux-amd64 \
+    && curl -sL https://github.com/kelseyhightower/confd/releases/download/v${CONFDVERSION}/confd-${CONFDVERSION}-linux-$(dpkg --print-architecture) \
             > /usr/local/bin/confd && chmod +x /usr/local/bin/confd \
 \
     # Clean up all useless packages and some files
@@ -90,7 +90,7 @@ RUN set -ex \
     && find /usr/bin -xtype l -delete \
     && find /var/log -type f -exec truncate --size 0 {} \; \
     && find /usr/lib/python3/dist-packages -name '*test*' | xargs rm -fr \
-    && find /lib/x86_64-linux-gnu/security -type f ! -name pam_env.so ! -name pam_permit.so ! -name pam_unix.so -delete
+    && find /lib/$(uname -m)-linux-gnu/security -type f ! -name pam_env.so ! -name pam_permit.so ! -name pam_unix.so -delete
 
 # perform compression if it is necessary
 ARG COMPRESS
@@ -99,8 +99,10 @@ RUN if [ "$COMPRESS" = "true" ]; then \
         # Allow certain sudo commands from postgres
         && echo 'postgres ALL=(ALL) NOPASSWD: /bin/tar xpJf /a.tar.xz -C /, /bin/rm /a.tar.xz, /bin/ln -snf dash /bin/sh' >> /etc/sudoers \
         && ln -snf busybox /bin/sh \
-        && files="/bin/sh /usr/bin/sudo /usr/lib/sudo/sudoers.so /lib/x86_64-linux-gnu/security/pam_*.so" \
-        && libs="$(ldd $files | awk '{print $3;}' | grep '^/' | sort -u) /lib/x86_64-linux-gnu/ld-linux-x86-64.so.* /lib/x86_64-linux-gnu/libnsl.so.* /lib/x86_64-linux-gnu/libnss_compat.so.*" \
+        && arch=$(uname -m) \
+        && darch=$(uname -m | sed 's/_/-/') \
+        && files="/bin/sh /usr/bin/sudo /usr/lib/sudo/sudoers.so /lib/$arch-linux-gnu/security/pam_*.so" \
+        && libs="$(ldd $files | awk '{print $3;}' | grep '^/' | sort -u) /lib/ld-linux-$darch.so.* /lib/$arch-linux-gnu/ld-linux-$darch.so.* /lib/$arch-linux-gnu/libnsl.so.* /lib/$arch-linux-gnu/libnss_compat.so.* /lib/$arch-linux-gnu/libnss_files.so.*" \
         && (echo /var/run $files $libs | tr ' ' '\n' && realpath $files $libs) | sort -u | sed 's/^\///' > /exclude \
         && find /etc/alternatives -xtype l -delete \
         && save_dirs="usr lib var bin sbin etc/ssl etc/init.d etc/alternatives etc/apt" \
