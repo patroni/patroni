@@ -177,7 +177,7 @@ class PostgresInit(unittest.TestCase):
                    'force_parallel_mode': '1', 'constraint_exclusion': '',
                    'max_stack_depth': 'Z', 'vacuum_cost_limit': -1, 'vacuum_cost_delay': 200}
 
-    @patch('patroni.psycopg.connect', psycopg_connect)
+    @patch('patroni.psycopg._connect', psycopg_connect)
     @patch('patroni.postgresql.CallbackExecutor', Mock())
     @patch.object(ConfigHandler, 'write_postgresql_conf', Mock())
     @patch.object(ConfigHandler, 'replace_pg_hba', Mock())

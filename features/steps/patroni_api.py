@@ -1,5 +1,4 @@
 import json
-import os
 import parse
 import shlex
 import subprocess
@@ -86,10 +85,7 @@ def do_request(context, request_method, url, data):
 def do_run(context, cmd):
     cmd = [sys.executable, '-m', 'coverage', 'run', '--source=patroni', '-p'] + shlex.split(cmd)
     try:
-        # XXX: Dirty hack! We need to take name/passwd from the config!
-        env = os.environ.copy()
-        env.update({'PATRONI_RESTAPI_USERNAME': 'username', 'PATRONI_RESTAPI_PASSWORD': 'password'})
-        response = subprocess.check_output(cmd, stderr=subprocess.STDOUT, env=env)
+        response = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
         context.status_code = 0
     except subprocess.CalledProcessError as e:
         response = e.output
