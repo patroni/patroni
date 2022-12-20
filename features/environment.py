@@ -177,7 +177,7 @@ class PatroniController(AbstractController):
         patroni_config_name = self.PATRONI_CONFIG.format(name)
         patroni_config_path = os.path.join(self._output_dir, patroni_config_name)
 
-        with open(patroni_config_name) as f:
+        with open('postgres0.yml') as f:
             config = yaml.safe_load(f)
             config.pop('etcd', None)
 
@@ -186,8 +186,10 @@ class PatroniController(AbstractController):
             os.environ['RAFT_PORT'] = str(int(raft_port) + 1)
             config['raft'] = {'data_dir': self._output_dir, 'self_addr': 'localhost:' + os.environ['RAFT_PORT']}
 
-        host = config['postgresql']['listen'].split(':')[0]
+        host = config['restapi']['listen'].rsplit(':', 1)[0]
+        config['restapi']['listen'] = config['restapi']['connect_address'] = '{0}:{1}'.format(host, 8008+int(name[-1]))
 
+        host = config['postgresql']['listen'].rsplit(':', 1)[0]
         config['postgresql']['listen'] = config['postgresql']['connect_address'] = '{0}:{1}'.format(host, self.__PORT)
 
         config['name'] = name
@@ -231,7 +233,6 @@ class PatroniController(AbstractController):
     def _connection(self):
         if not self._conn or self._conn.closed != 0:
             self._conn = psycopg.connect(**self._connkwargs)
-            self._conn.autocommit = True
         return self._conn
 
     def _cursor(self):
