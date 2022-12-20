@@ -35,7 +35,7 @@ except ImportError:
 
 
 def connect(*args, **kwargs):
-    if kwargs and 'replication' not in kwargs:
+    if kwargs and 'replication' not in kwargs and kwargs.get('fallback_application_name') != 'Patroni ctl':
         options = [kwargs['options']] if 'options' in kwargs else []
         options.append('-c search_path=pg_catalog')
         kwargs['options'] = ' '.join(options)
