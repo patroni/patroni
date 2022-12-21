@@ -274,7 +274,6 @@ def get_cursor(cluster, connect_parameters, role='master', member=None):
 
     from . import psycopg
     conn = psycopg.connect(**params)
-    conn.autocommit = True
     cursor = conn.cursor()
     if role == 'any':
         return cursor

@@ -28,7 +28,7 @@ def stop_postgres(context, name):
 def add_table(context, table_name, pg_name):
     # parse the configuration file and get the port
     try:
-        context.pctl.query(pg_name, "CREATE TABLE {0}()".format(table_name))
+        context.pctl.query(pg_name, "CREATE TABLE public.{0}()".format(table_name))
     except pg.Error as e:
         assert False, "Error creating table {0} on {1}: {2}".format(table_name, pg_name, e)
 
@@ -37,9 +37,9 @@ def add_table(context, table_name, pg_name):
 def toggle_wal_replay(context, action, pg_name):
     # pause or resume the wal replay process
     try:
-       version = context.pctl.query(pg_name, "select pg_catalog.pg_read_file('PG_VERSION', 0, 2)").fetchone()
-       wal = version and version[0] and int(version[0].split('.')[0]) < 10 and "xlog" or "wal"
-       context.pctl.query(pg_name, "SELECT pg_{0}_replay_{1}()".format(wal, action))
+        version = context.pctl.query(pg_name, "SHOW server_version_num").fetchone()[0]
+        wal_name = 'xlog' if int(version)/10000 < 10 else 'wal'
+        context.pctl.query(pg_name, "SELECT pg_{0}_replay_{1}()".format(wal_name, action))
     except pg.Error as e:
         assert False, "Error during {0} wal recovery on {1}: {2}".format(action, pg_name, e)
 
@@ -47,10 +47,10 @@ def toggle_wal_replay(context, action, pg_name):
 @step('I {action:w} table on {pg_name:w}')
 def crdr_mytest(context, action, pg_name):
     try:
-       if (action == "create"):
-           context.pctl.query(pg_name, "create table if not exists mytest(id Numeric)")
-       else:
-           context.pctl.query(pg_name, "drop table if exists mytest")
+        if (action == "create"):
+            context.pctl.query(pg_name, "create table if not exists public.mytest(id numeric)")
+        else:
+            context.pctl.query(pg_name, "drop table if exists public.mytest")
     except pg.Error as e:
         assert False, "Error {0} table mytest on {1}: {2}".format(action, pg_name, e)
 
@@ -59,7 +59,7 @@ def crdr_mytest(context, action, pg_name):
 def initiate_load(context, pg_name):
     # perform dummy load
     try:
-       context.pctl.query(pg_name, "begin; insert into mytest select r::numeric from generate_series(1, 350000) r; commit;")
+        context.pctl.query(pg_name, "insert into public.mytest select r::numeric from generate_series(1, 350000) r")
     except pg.Error as e:
         assert False, "Error loading test data on {0}: {1}".format(pg_name, e)
 
@@ -68,7 +68,7 @@ def initiate_load(context, pg_name):
 def table_is_present_on(context, table_name, pg_name, max_replication_delay):
     max_replication_delay *= context.timeout_multiplier
     for _ in range(int(max_replication_delay)):
-        if context.pctl.query(pg_name, "SELECT 1 FROM {0}".format(table_name), fail_ok=True) is not None:
+        if context.pctl.query(pg_name, "SELECT 1 FROM public.{0}".format(table_name), fail_ok=True) is not None:
             break
         sleep(1)
     else:

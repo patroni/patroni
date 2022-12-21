@@ -214,26 +214,26 @@ class WALERestore(object):
         attempts_no = 0
         while True:
             if self.master_connection:
+                con = None
                 try:
                     # get the difference in bytes between the current WAL location and the backup start offset
-                    with psycopg.connect(self.master_connection) as con:
-                        if con.server_version >= 100000:
-                            wal_name = 'wal'
-                            lsn_name = 'lsn'
-                        else:
-                            wal_name = 'xlog'
-                            lsn_name = 'location'
-                        con.autocommit = True
-                        with con.cursor() as cur:
-                            cur.execute(("SELECT CASE WHEN pg_catalog.pg_is_in_recovery()"
-                                         " THEN GREATEST(pg_catalog.pg_{0}_{1}_diff(COALESCE("
-                                         "pg_last_{0}_receive_{1}(), '0/0'), %s)::bigint, "
-                                         "pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), %s)::bigint)"
-                                         " ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), %s)::bigint"
-                                         " END").format(wal_name, lsn_name),
-                                        (backup_start_lsn, backup_start_lsn, backup_start_lsn))
+                    con = psycopg.connect(self.master_connection)
+                    if con.server_version >= 100000:
+                        wal_name = 'wal'
+                        lsn_name = 'lsn'
+                    else:
+                        wal_name = 'xlog'
+                        lsn_name = 'location'
+                    with con.cursor() as cur:
+                        cur.execute(("SELECT CASE WHEN pg_catalog.pg_is_in_recovery()"
+                                     " THEN GREATEST(pg_catalog.pg_{0}_{1}_diff(COALESCE("
+                                     "pg_last_{0}_receive_{1}(), '0/0'), %s)::bigint, "
+                                     "pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), %s)::bigint)"
+                                     " ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), %s)::bigint"
+                                     " END").format(wal_name, lsn_name),
+                                    (backup_start_lsn, backup_start_lsn, backup_start_lsn))
 
-                            diff_in_bytes = int(cur.fetchone()[0])
+                        diff_in_bytes = int(cur.fetchone()[0])
                 except psycopg.Error:
                     logger.exception('could not determine difference with the master location')
                     if attempts_no < self.retries:  # retry in case of a temporarily connection issue
@@ -246,6 +246,9 @@ class WALERestore(object):
                         logger.info("continue with base backup from S3 since master is not available")
                         diff_in_bytes = 0
                         break
+                finally:
+                    if con:
+                        con.close()
             else:
                 # always try to use WAL-E if master connection string is not available
                 diff_in_bytes = 0

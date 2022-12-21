@@ -315,12 +315,14 @@ END;$$""".format(quote_literal(name), quote_ident(name, self._postgresql.connect
         self._postgresql.query('SET log_statement TO none')
         self._postgresql.query('SET log_min_duration_statement TO -1')
         self._postgresql.query("SET log_min_error_statement TO 'log'")
+        self._postgresql.query("SET pg_stat_statements.track_utility to 'off'")
         try:
             self._postgresql.query(sql)
         finally:
             self._postgresql.query('RESET log_min_error_statement')
             self._postgresql.query('RESET log_min_duration_statement')
             self._postgresql.query('RESET log_statement')
+            self._postgresql.query('RESET pg_stat_statements.track_utility')
 
     def post_bootstrap(self, config, task):
         try:
