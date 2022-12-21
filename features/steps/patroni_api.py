@@ -70,6 +70,8 @@ def do_post_empty(context, url):
 
 @step('I issue a {request_method:w} request to {url:url} with {data}')
 def do_request(context, request_method, url, data):
+    if context.certfile:
+        url = url.replace('http://', 'https://')
     data = data and json.loads(data)
     try:
         r = context.request_executor.request(request_method, url, data)
@@ -131,6 +133,8 @@ def add_tag_to_config(context, tag, value, pg_name):
 
 @then('Response on GET {url} contains {value} after {timeout:d} seconds')
 def check_http_response(context, url, value, timeout, negate=False):
+    if context.certfile:
+        url = url.replace('http://', 'https://')
     timeout *= context.timeout_multiplier
     for _ in range(int(timeout)):
         r = context.request_executor.request('GET', url)
