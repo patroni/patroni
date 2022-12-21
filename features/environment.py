@@ -701,7 +701,7 @@ class PatroniPoolController(object):
             raise Exception  # this one should never happen because the previous line will always raise and exception
         except Exception as e:
             self._context.postgres_supports_ssl = isinstance(e, subprocess.CalledProcessError)\
-                    and 'SSL is not supported by this build' not in e.stdout.decode()
+                    and 'SSL is not supported by this build' not in e.output.decode()
 
     @property
     def patroni_path(self):
