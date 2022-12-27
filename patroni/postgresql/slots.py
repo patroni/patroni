@@ -200,10 +200,18 @@ class SlotsHandler(object):
     def _drop_incorrect_slots(self, cluster, slots, paused):
         # drop old replication slots which are not presented in desired slots
         for name in set(self._replication_slots) - set(slots):
-            if not paused and not self.ignore_replication_slot(cluster, name) and not self.drop_replication_slot(name):
-                logger.error("Failed to drop replication slot '%s'", name)
-                self._schedule_load_slots = True
-
+            if not paused and not self.ignore_replication_slot(cluster, name):
+                if not self.drop_replication_slot(name):
+                    self._schedule_load_slots = True
+                    # Check if slot is still active, this is not considered an error
+                    cursor = self._query(('SELECT 1 FROM pg_catalog.pg_replication_slots WHERE ' +
+                                          'slot_name = %s AND active'), name)
+                    if (cursor.rowcount == 1):
+                        logger.debug("Unable to drop unknown replication slot '%s', slot is still active", name)
+                    else:
+                        logger.error("Failed to drop replication slot '%s'", name)
+                else:
+                    logger.info("Dropped unknown replication slot '%s'", name)
         for name, value in slots.items():
             if name in self._replication_slots and not compare_slots(value, self._replication_slots[name]):
                 logger.info("Trying to drop replication slot '%s' because value is changing from %s to %s",
