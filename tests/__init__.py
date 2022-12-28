@@ -50,7 +50,7 @@ def requests_get(url, **kwargs):
     if url.startswith('http://local'):
         raise urllib3.exceptions.HTTPError()
     elif ':8011/patroni' in url:
-        response.content = '{"role": "replica", "xlog": {"received_location": 0}, "tags": {}}'
+        response.content = '{"role": "replica", "wal": {"received_location": 0}, "tags": {}}'
     elif url.endswith('/members'):
         response.content = '[{}]' if url.startswith('http://error') else members
     elif url.startswith('http://exhibitor'):
