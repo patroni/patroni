@@ -29,8 +29,12 @@ def add_table(context, table_name, pg_name):
     # parse the configuration file and get the port
     try:
         context.pctl.query(pg_name, "CREATE TABLE public.{0}()".format(table_name))
-    except pg.Error as e:
-        assert False, "Error creating table {0} on {1}: {2}".format(table_name, pg_name, e)
+    except pg.Error:
+        try:
+            context.pctl.query(pg_name, "CREATE TABLE public.{0}()".format(table_name))
+        except pg.Error as e:
+
+            assert False, "Error creating table {0} on {1}: {2}".format(table_name, pg_name, e)
 
 
 @step('I {action:w} wal replay on {pg_name:w}')
